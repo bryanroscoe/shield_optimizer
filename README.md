@@ -2,10 +2,10 @@
 
 A powerful, self-contained PowerShell tool to debloat, optimize, and monitor Nvidia Shield TV devices. Designed for performance enthusiasts who want a snappier UI, more free RAM, and zero bloatware.
 
-> **Compatibility Note:** While this tool is specifically tailored for the **Nvidia Shield TV**, the core optimization and reporting features may work on other Android TV / Google TV devices. However, the "Debloat" lists are specific to the Shield's operating system. Use on other devices at your own risk.
+> **✅ Verified:** The "Golden Set" defaults have been personally tested for maximum stability on multiple Shield models including 2015, 2017, and 2019 (Pro & Tube).
 
 ## ⚠️ Requirements
-1.  **Nvidia Shield TV** (Any model: 2015, 2017, 2019 Pro/Tube).
+1.  **Nvidia Shield TV** (Any model).
 2.  **USB Debugging Enabled**:
     * *Settings > Device Preferences > About > Build* (Click 7 times).
     * *Settings > Device Preferences > Developer Options > USB Debugging* (Turn ON).
@@ -37,27 +37,25 @@ A powerful, self-contained PowerShell tool to debloat, optimize, and monitor Nvi
 
 ## 🛠 Features
 
-### 1. **Auto-ADB Deployment**
-* No need to install Android Platform Tools manually.
-* The script checks for ADB. If missing, it downloads the latest version from Google, installs it to a portable temporary folder inside the script directory, and runs instantly.
+### 1. **"Golden Set" Optimization**
+* **Tested Stability:** The script defaults to a specific "Golden Set" of optimizations. These have been personally tested by the author to provide maximum performance without breaking daily usability.
+* **Extended Bloat List:** Includes a more aggressive list of removable items sourced from community guides (see credits). These default to **NO** to prevent accidental loss of features (like Chromecast or Voice Search).
 
-### 2. **Three Operation Modes**
-* **[1] OPTIMIZE:** Removes bloatware (Netflix, Google Assistant, Analytics), speeds up UI animations (0.5x), and cleans up background processes.
-* **[2] RESTORE:** Made a mistake? Selling the device? This mode re-installs all removed apps, resets animations, and returns the device to stock factory configuration in seconds.
-* **[3] REPORT:** Runs a non-destructive "Physical" on your device. Checks temperature, PSS Memory usage, Swap thrashing, and uptime.
+### 2. **Auto-ADB Deployment**
+* No need to install Android Platform Tools manually. The script handles the entire ADB setup process automatically, making it fully portable.
 
-### 3. **Intelligent "Self-Healing"**
-* **Crash Proof:** Defaults to safety values if sensors or API calls fail.
-* **Connectivity:** Capable of connecting to devices via IP address (WiFi) or USB.
-* **Portable:** Can be run from a USB stick on any Windows PC.
+### 3. **Fleet Management**
+* **Multi-Device Support:** Connect via USB or WiFi. The tool remembers your device IP for easy reconnection.
+* **"Report All":** Run a health check on every Shield in your house in one go.
 
 ### 4. **Precision Reporting**
-* Calculates **PSS (Proportional Set Size)** for accurate memory reporting (avoiding the "over 100% usage" bug common in standard tools).
-* Scans multiple thermal zones to find the active temperature sensor.
-* Waits for the OS to settle after reboots to provide accurate "Cold Boot" benchmarks.
+* **PSS Memory Analysis:** Accurately reports RAM usage (solving the common "over 100% usage" reporting bug).
+* **Thermal HAL Access:** Reads the internal thermal service to get accurate CPU temps, even on newer Shield Experience versions where file access is restricted.
+* **Storage & Swap Monitor:** Alerts you if your storage is filling up or if the system is thrashing the swap file.
 
 ---
 
-## 🛡️ Disclaimers
-* **Use at your own risk.** While the "Restore" mode is robust, modifying system apps always carries a small risk.
-* This tool is not affiliated with Nvidia or Google.
+## 🛡️ Disclaimers & Credits
+* **Credits:** The "Golden Set" defaults are based on personal stress testing. The extended list of debloat targets was curated from the comprehensive research by [florisse.nl](https://florisse.nl/shield-debloat/).
+* **Restore Function:** This script includes a "Restore" mode to re-enable stock apps. **Note:** This feature has not been fully tested in all scenarios. Use with caution.
+* **Disclaimer:** Use at your own risk. Modifying system apps always carries a small risk. This tool is not affiliated with Nvidia or Google.
