@@ -1,10 +1,9 @@
 <#
 .SYNOPSIS
-    Nvidia Shield Ultimate Optimizer (v23 - Precision)
+    Nvidia Shield Ultimate Optimizer (v25 - Thermal HAL)
 .DESCRIPTION
-    Fixes memory over-reporting (PSS vs RSS).
-    Scans multiple thermal zones for temperature.
-    Reduced boot wait time.
+    Fixes Temperature detection by parsing 'dumpsys thermalservice' 
+    instead of restricted file paths.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -59,7 +58,7 @@ if ($AdbPath -eq "") {
     catch { Write-ErrorMsg "Setup failed."; Pause; Exit }
 }
 
-# --- 2. DEVICE SELECTION ---
+# --- 2. DEVICE SELECTION (LOOPING MENU) ---
 function Get-ConnectedShields {
     $raw = & $AdbPath devices
     $devices = @()
@@ -73,53 +72,91 @@ function Get-ConnectedShields {
         elseif ($line -match "^(\S+)\s+unauthorized") {
             $devices += [PSCustomObject]@{ ID = $devices.Count + 1; Serial = $matches[1]; Name = "UNAUTHORIZED"; Status = "Check TV" }
         }
+        elseif ($line -match "^(\S+)\s+offline") {
+            $devices += [PSCustomObject]@{ ID = $devices.Count + 1; Serial = $matches[1]; Name = "OFFLINE"; Status = "Device Offline" }
+        }
     }
     return $devices
 }
 
-Write-Header "Device Selection"
-$shields = @(Get-ConnectedShields)
+$T = ""
 
-# Network Connect Fallback
-if ($shields.Count -eq 0) {
-    Write-Warn "No USB devices found."
-    Write-Host "If your Shield is on WiFi, enter the IP address below."
-    $ip = Read-Host " >> IP Address (e.g. 192.168.1.5)"
-    if ($ip -ne "") {
-        Write-Info "Attempting to connect to $ip..."
-        & $AdbPath connect $ip
-        Start-Sleep -s 2
-        $shields = @(Get-ConnectedShields)
+while ($true) {
+    Write-Header "Device Selection"
+    $shields = @(Get-ConnectedShields)
+
+    if ($shields.Count -gt 0) {
+        foreach ($dev in $shields) {
+            if ($dev.Status -eq "Ready") { Write-Host " [$($dev.ID)] $($dev.Name) ($($dev.Serial))" -ForegroundColor Green }
+            else { Write-Host " [$($dev.ID)] $($dev.Serial) - $($dev.Status)" -ForegroundColor Red }
+        }
+    } else {
+        Write-Info "No devices currently connected."
+    }
+
+    Write-Host " [C] Connect to a New IP Address" -ForegroundColor Yellow
+    Write-Host " [R] Refresh List" -ForegroundColor Gray
+    Write-Host " [Q] Quit" -ForegroundColor Gray
+
+    $selection = Read-Host "`nSelect Device [1-$($shields.Count)] or [C]onnect"
+
+    if ($selection -match "^c") {
+        $ip = Read-Host " >> Enter IP Address (e.g. 192.168.1.5)"
+        if ($ip -ne "") {
+            Write-Info "Attempting connection to $ip..."
+            & $AdbPath connect $ip
+            Start-Sleep -s 2
+        }
+        continue
+    }
+    if ($selection -match "^r") { continue }
+    if ($selection -match "^q") { Exit }
+
+    $target = $shields | Where-Object { $_.ID -eq $selection }
+    if ($target) {
+        if ($target.Status -eq "Ready") {
+            $T = $target.Serial
+            break
+        } else {
+            Write-ErrorMsg "Cannot select this device. Status: $($target.Status)"
+            if ($target.Status -eq "Check TV") { Write-Host "Please check your TV screen and select 'Always Allow'." }
+            Pause
+        }
+    } else {
+        Write-ErrorMsg "Invalid selection."
     }
 }
-
-if ($shields.Count -eq 0) { Write-ErrorMsg "Still no devices found. Check IP/Network."; Pause; Exit }
-
-foreach ($dev in $shields) {
-    if ($dev.Status -eq "Ready") { Write-Host " [$($dev.ID)] $($dev.Name) ($($dev.Serial))" -ForegroundColor Green }
-    else { Write-Host " [$($dev.ID)] $($dev.Serial) - $($dev.Status)" -ForegroundColor Red }
-}
-
-$selection = Read-Host "`nEnter Device Number [1-$($shields.Count)]"
-$target = $shields | Where-Object { $_.ID -eq $selection }
-if (-not $target) { Write-ErrorMsg "Invalid selection."; Exit }
-if ($target.Status -ne "Ready") { Write-ErrorMsg "Device Unauthorized."; Pause; Exit }
-$T = $target.Serial
 
 # --- 3. DIAGNOSTIC REPORT ---
 function Generate-Report {
     Write-Header "GENERATING DIAGNOSTIC REPORT"
     Write-Info "Gathering telemetry..."
 
-    # --- SENSORS (MULTI-ZONE SCAN) ---
+    # --- SENSORS (THERMAL HAL) ---
     $Temp = "N/A"
-    # Scan thermal zones 0 through 9
-    for ($i=0; $i -lt 10; $i++) {
-        $val = & $AdbPath -s $T shell cat /sys/class/thermal/thermal_zone$i/temp 2>$null
-        # Filter for valid readings (Shields usually report 30000-80000 range)
-        if ($val -match "^\d+$" -and [int]$val -gt 20000 -and [int]$val -lt 100000) {
-            $Temp = [math]::Round($val / 1000, 1)
-            break # Stop at first valid sensor
+    
+    # Method 1: Dumpsys Thermalservice (HAL) - Most Accurate
+    $tDump = & $AdbPath -s $T shell dumpsys thermalservice 2>$null
+    foreach ($line in $tDump) {
+        # Match: Temperature{mValue=45.500004, ... mName=CPU...}
+        if ($line -match "mValue=([\d\.]+).*mName=CPU") {
+            $val = [float]$matches[1]
+            # Valid range sanity check (20C - 100C)
+            if ($val -gt 20 -and $val -lt 100) {
+                $Temp = [math]::Round($val, 1)
+                break
+            }
+        }
+    }
+
+    # Method 2: Fallback to File System if HAL fails
+    if ($Temp -eq "N/A") {
+        for ($i=0; $i -lt 10; $i++) {
+            $val = & $AdbPath -s $T shell cat /sys/class/thermal/thermal_zone$i/temp 2>$null
+            if ($val -match "^\d+$" -and [int]$val -gt 20000 -and [int]$val -lt 100000) {
+                $Temp = [math]::Round($val / 1000, 1)
+                break
+            }
         }
     }
 
@@ -130,28 +167,24 @@ function Generate-Report {
     $ParsingPSS = $false
 
     foreach ($line in $rawMem) {
-        # Global Stats
         if ($line -match "Total RAM:\s+([0-9,]+)K") { $TotalRAM = [math]::Round(($matches[1] -replace ",", "") / 1024, 0) }
         if ($line -match "Free RAM:\s+([0-9,]+)K") { $FreeRAM = [math]::Round(($matches[1] -replace ",", "") / 1024, 0) }
         if ($line -match "ZRAM:.*used for\s+([0-9,]+)K") { $SwapUsed = [math]::Round(($matches[1] -replace ",", "") / 1024, 0) }
         
-        # State Machine: Only start parsing apps when we hit the PSS section
         if ($line -match "Total PSS by process") { $ParsingPSS = $true; continue }
-        if ($line -match "Total PSS by OOM adjustment") { $ParsingPSS = $false; continue } # Stop parsing
+        if ($line -match "Total PSS by OOM adjustment") { $ParsingPSS = $false; continue }
 
         if ($ParsingPSS -and $line -match "^\s*([0-9,]+)K:\s+([a-zA-Z0-9_\.\@\-]+).*\(pid") {
             $kb = $matches[1] -replace ",", ""
             $mb = [math]::Round($kb / 1024, 0)
             $pkg = $matches[2]
             
-            # Filter garbage categories
             if ($pkg -notmatch "^\." -and $pkg -notmatch "^(System|Persistent|Cached|Native|Unknown|Dalvik|Stack|Ashmem|Perceptible)$") {
                 $RawApps += [PSCustomObject]@{ Name = $pkg; MB = $mb }
             }
         }
     }
     
-    # Group by Package Name (Sum PSS)
     $GroupedApps = $RawApps | Group-Object Name | Select-Object Name, @{N='MB'; E={ ($_.Group | Measure-Object MB -Sum).Sum }}
     $TopApps = $GroupedApps | Sort-Object MB -Descending | Select-Object -First 10
 
@@ -196,9 +229,9 @@ function Generate-Report {
 # --- 4. PRE-SCAN ---
 Write-Info "Initializing..."
 $MemMap = @{}
+$ParsingPSS = $false
 $rawMem = & $AdbPath -s $T shell dumpsys meminfo
 foreach ($line in $rawMem) {
-    # Scan for PSS only
     if ($line -match "Total PSS by process") { $ParsingPSS = $true; continue }
     if ($line -match "Total PSS by OOM adjustment") { $ParsingPSS = $false; continue }
     if ($ParsingPSS -and $line -match "^\s*([0-9,]+)K:\s+([a-zA-Z0-9_\.\@\-]+).*\(pid") {
@@ -306,8 +339,19 @@ if ($reboot -eq "" -or $reboot -match "^y") {
     & $AdbPath -s $T reboot
     
     Write-Header "Waiting for Device..."
+    # 1. Wait for Disconnect
+    Write-Info "Waiting for device to go offline..."
+    Start-Sleep -s 10
+    
+    # 2. Wait for Reconnect
+    Write-Info "Waiting for device to come online (this can take 2 mins)..."
     $retries=0
-    do { Start-Sleep -s 5; $s = & $AdbPath -s $T get-state 2>$null; Write-Host "." -NoNewline -ForegroundColor DarkGray; $retries++ } while (($s -ne "device") -and ($retries -lt 30))
+    do { 
+        Start-Sleep -s 5
+        $s = & $AdbPath -s $T get-state 2>$null
+        Write-Host "." -NoNewline -ForegroundColor DarkGray
+        $retries++
+    } while (($s -ne "device") -and ($retries -lt 30))
     
     if ($s -eq "device") { 
         Write-Success "`nDevice Online."
