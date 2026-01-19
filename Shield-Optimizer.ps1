@@ -1,11 +1,8 @@
 <#
 .SYNOPSIS
-    Nvidia Shield Ultimate Optimizer (v28 - Educated Choice)
+    Nvidia Shield Ultimate Optimizer (v29 - Syntax Fix)
 .DESCRIPTION
-    - Adds "Effect" descriptions for every item.
-    - safe items default to YES [Y/n].
-    - Risky items default to NO [y/N].
-    - Added findings from florisse.nl guide.
+    Fixes variable expansion crash ($action?) in the Optimization loop.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -272,9 +269,6 @@ while ($true) {
     $mode = Read-Host "`nSelect Option [1-3] (Default: 1)"
 
     # List structure: Package, Name, Action, Risk, Effect, DefaultInput(Y/N)
-    # DefaultInput "Y" means prompts [Y/n] (Enter = Yes)
-    # DefaultInput "N" means prompts [y/N] (Enter = No, must type 'y')
-    
     $Apps = @(
         # --- SAFE TO REMOVE (Default: Y) ---
         @("com.google.android.tvrecommendations", "Google TV Recommendations", "DISABLE", "Safe", "Removes 'Sponsored' rows from stock launcher", "Y"),
@@ -356,10 +350,12 @@ while ($true) {
 
         # Dynamic Prompt based on Default
         if ($def -eq "Y") {
-            $resp = Read-Host " >> $action? [Y/n]"
+            # FIX: Syntax error fixed here
+            $resp = Read-Host " >> $($action)? [Y/n]"
             if ($resp -eq "" -or $resp -match "^y") { $doAction = $true } else { $doAction = $false }
         } else {
-            $resp = Read-Host " >> $action? [y/N]"
+            # FIX: Syntax error fixed here
+            $resp = Read-Host " >> $($action)? [y/N]"
             if ($resp -match "^y") { $doAction = $true } else { $doAction = $false }
         }
 
