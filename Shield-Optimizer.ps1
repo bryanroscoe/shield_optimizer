@@ -1,9 +1,11 @@
 <#
 .SYNOPSIS
-    Nvidia Shield Ultimate Optimizer (v25 - Thermal HAL)
+    Nvidia Shield Ultimate Optimizer (v28 - Educated Choice)
 .DESCRIPTION
-    Fixes Temperature detection by parsing 'dumpsys thermalservice' 
-    instead of restricted file paths.
+    - Adds "Effect" descriptions for every item.
+    - safe items default to YES [Y/n].
+    - Risky items default to NO [y/N].
+    - Added findings from florisse.nl guide.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -58,7 +60,7 @@ if ($AdbPath -eq "") {
     catch { Write-ErrorMsg "Setup failed."; Pause; Exit }
 }
 
-# --- 2. DEVICE SELECTION (LOOPING MENU) ---
+# --- 2. DEVICE SELECTION & UTILS ---
 function Get-ConnectedShields {
     $raw = & $AdbPath devices
     $devices = @()
@@ -79,89 +81,44 @@ function Get-ConnectedShields {
     return $devices
 }
 
-$T = ""
+$GlobalTarget = ""
 
-while ($true) {
-    Write-Header "Device Selection"
-    $shields = @(Get-ConnectedShields)
-
-    if ($shields.Count -gt 0) {
-        foreach ($dev in $shields) {
-            if ($dev.Status -eq "Ready") { Write-Host " [$($dev.ID)] $($dev.Name) ($($dev.Serial))" -ForegroundColor Green }
-            else { Write-Host " [$($dev.ID)] $($dev.Serial) - $($dev.Status)" -ForegroundColor Red }
+# --- 3. DIAGNOSTIC REPORT GENERATOR ---
+function Generate-Report ($TargetSerial, $TargetName) {
+    Write-Header "DIAGNOSTIC REPORT: $TargetName"
+    
+    # --- STORAGE ---
+    $df = & $AdbPath -s $TargetSerial shell df -h /data
+    $StorageInfo = "Unknown"
+    foreach ($line in $df) {
+        if ($line -match "\s+([\d\.]+[G|M])\s+([\d\.]+[G|M])\s+([\d\.]+[G|M])\s+(\d+%)") {
+            $Size=$matches[1]; $Used=$matches[2]; $Free=$matches[3]; $Pct=$matches[4]
+            $StorageInfo = "$Used Used / $Size Total ($Free Free)"
+            $StoragePct = [int]($Pct -replace "%","")
         }
-    } else {
-        Write-Info "No devices currently connected."
     }
-
-    Write-Host " [C] Connect to a New IP Address" -ForegroundColor Yellow
-    Write-Host " [R] Refresh List" -ForegroundColor Gray
-    Write-Host " [Q] Quit" -ForegroundColor Gray
-
-    $selection = Read-Host "`nSelect Device [1-$($shields.Count)] or [C]onnect"
-
-    if ($selection -match "^c") {
-        $ip = Read-Host " >> Enter IP Address (e.g. 192.168.1.5)"
-        if ($ip -ne "") {
-            Write-Info "Attempting connection to $ip..."
-            & $AdbPath connect $ip
-            Start-Sleep -s 2
-        }
-        continue
-    }
-    if ($selection -match "^r") { continue }
-    if ($selection -match "^q") { Exit }
-
-    $target = $shields | Where-Object { $_.ID -eq $selection }
-    if ($target) {
-        if ($target.Status -eq "Ready") {
-            $T = $target.Serial
-            break
-        } else {
-            Write-ErrorMsg "Cannot select this device. Status: $($target.Status)"
-            if ($target.Status -eq "Check TV") { Write-Host "Please check your TV screen and select 'Always Allow'." }
-            Pause
-        }
-    } else {
-        Write-ErrorMsg "Invalid selection."
-    }
-}
-
-# --- 3. DIAGNOSTIC REPORT ---
-function Generate-Report {
-    Write-Header "GENERATING DIAGNOSTIC REPORT"
-    Write-Info "Gathering telemetry..."
 
     # --- SENSORS (THERMAL HAL) ---
     $Temp = "N/A"
-    
-    # Method 1: Dumpsys Thermalservice (HAL) - Most Accurate
-    $tDump = & $AdbPath -s $T shell dumpsys thermalservice 2>$null
+    $tDump = & $AdbPath -s $TargetSerial shell dumpsys thermalservice 2>$null
     foreach ($line in $tDump) {
-        # Match: Temperature{mValue=45.500004, ... mName=CPU...}
         if ($line -match "mValue=([\d\.]+).*mName=CPU") {
             $val = [float]$matches[1]
-            # Valid range sanity check (20C - 100C)
-            if ($val -gt 20 -and $val -lt 100) {
-                $Temp = [math]::Round($val, 1)
-                break
-            }
+            if ($val -gt 20 -and $val -lt 100) { $Temp = [math]::Round($val, 1); break }
         }
     }
-
-    # Method 2: Fallback to File System if HAL fails
+    # Fallback
     if ($Temp -eq "N/A") {
         for ($i=0; $i -lt 10; $i++) {
-            $val = & $AdbPath -s $T shell cat /sys/class/thermal/thermal_zone$i/temp 2>$null
+            $val = & $AdbPath -s $TargetSerial shell cat /sys/class/thermal/thermal_zone$i/temp 2>$null
             if ($val -match "^\d+$" -and [int]$val -gt 20000 -and [int]$val -lt 100000) {
-                $Temp = [math]::Round($val / 1000, 1)
-                break
+                $Temp = [math]::Round($val / 1000, 1); break
             }
         }
     }
 
     # --- MEMORY (PSS PARSER) ---
-    $rawMem = & $AdbPath -s $T shell dumpsys meminfo
+    $rawMem = & $AdbPath -s $TargetSerial shell dumpsys meminfo
     $FreeRAM = 0; $SwapUsed = 0; $TotalRAM = 3072
     $RawApps = @()
     $ParsingPSS = $false
@@ -178,33 +135,35 @@ function Generate-Report {
             $kb = $matches[1] -replace ",", ""
             $mb = [math]::Round($kb / 1024, 0)
             $pkg = $matches[2]
-            
             if ($pkg -notmatch "^\." -and $pkg -notmatch "^(System|Persistent|Cached|Native|Unknown|Dalvik|Stack|Ashmem|Perceptible)$") {
                 $RawApps += [PSCustomObject]@{ Name = $pkg; MB = $mb }
             }
         }
     }
     
-    $GroupedApps = $RawApps | Group-Object Name | Select-Object Name, @{N='MB'; E={ ($_.Group | Measure-Object MB -Sum).Sum }}
-    $TopApps = $GroupedApps | Sort-Object MB -Descending | Select-Object -First 10
-
+    $TopApps = $RawApps | Group-Object Name | Select-Object Name, @{N='MB'; E={ ($_.Group | Measure-Object MB -Sum).Sum }} | Sort-Object MB -Descending | Select-Object -First 10
     $UsedRAM = $TotalRAM - $FreeRAM
     $UsedPercent = [math]::Round(($UsedRAM / $TotalRAM) * 100, 0)
     
     # --- OS STATS ---
-    $anim = (& $AdbPath -s $T shell settings get global window_animation_scale | Out-String).Trim()
-    $uptime = (& $AdbPath -s $T shell uptime | Out-String).Trim()
-    $build = (& $AdbPath -s $T shell getprop ro.build.display.id | Out-String).Trim()
+    $anim = (& $AdbPath -s $TargetSerial shell settings get global window_animation_scale | Out-String).Trim()
+    $uptime = (& $AdbPath -s $TargetSerial shell uptime | Out-String).Trim()
+    $build = (& $AdbPath -s $TargetSerial shell getprop ro.build.display.id | Out-String).Trim()
 
-    # --- RENDER REPORT ---
+    # --- RENDER ---
     Write-SubHeader "DEVICE HEALTH"
-    Write-Host " Device:    $($target.Name) ($T)"
+    Write-Host " Device:    $TargetName ($TargetSerial)"
     Write-Host " OS Build:  $build"
     Write-Host " Uptime:    $uptime"
     Write-Host " Temp:      " -NoNewline
-    if ($Temp -eq "N/A") { Write-Host "Unknown (Sensor Unreadable)" -ForegroundColor Gray }
+    if ($Temp -eq "N/A") { Write-Host "Unknown" -ForegroundColor Gray }
     elseif ($Temp -lt 65) { Write-Host "$Temp C (Cool)" -ForegroundColor Green } 
     else { Write-Host "$Temp C (Warm)" -ForegroundColor Yellow }
+
+    Write-Host " Storage:   " -NoNewline
+    if ($StoragePct -gt 90) { Write-Host "$StorageInfo (CRITICAL - Full)" -ForegroundColor Red }
+    elseif ($StoragePct -gt 75) { Write-Host "$StorageInfo (Low)" -ForegroundColor Yellow }
+    else { Write-Host "$StorageInfo (Good)" -ForegroundColor Green }
 
     Write-SubHeader "MEMORY & PERFORMANCE"
     Write-Host " RAM Load:  " -NoNewline
@@ -212,12 +171,14 @@ function Generate-Report {
     Write-Host " ($UsedRAM MB / $TotalRAM MB)" -ForegroundColor Gray
     
     Write-Host " Swap Usage:" -NoNewline
-    if ($SwapUsed -lt 10) { Write-Host " $SwapUsed MB (Clean)" -ForegroundColor Green } else { Write-Host " $SwapUsed MB (Thrashing)" -ForegroundColor Red }
+    if ($SwapUsed -lt 10) { Write-Host " $SwapUsed MB (Clean)" -ForegroundColor Green } 
+    elseif ($SwapUsed -lt 100) { Write-Host " $SwapUsed MB (Used)" -ForegroundColor Yellow } 
+    else { Write-Host " $SwapUsed MB (Thrashing)" -ForegroundColor Red }
     
     Write-Host " Animation: " -NoNewline
     if ($anim -eq "0.5") { Write-Host "${anim}x (Optimized)" -ForegroundColor Green } else { Write-Host "${anim}x (Stock)" -ForegroundColor Yellow }
 
-    Write-SubHeader "TOP 10 MEMORY CONSUMERS (PSS)"
+    Write-SubHeader "TOP 10 CONSUMERS (PSS)"
     foreach ($app in $TopApps) {
         $pct = [math]::Round(($app.MB / $TotalRAM) * 100, 1)
         Write-Host " $($app.MB) MB" -NoNewline -ForegroundColor Magenta
@@ -226,138 +187,225 @@ function Generate-Report {
     echo "`n"
 }
 
-# --- 4. PRE-SCAN ---
-Write-Info "Initializing..."
-$MemMap = @{}
-$ParsingPSS = $false
-$rawMem = & $AdbPath -s $T shell dumpsys meminfo
-foreach ($line in $rawMem) {
-    if ($line -match "Total PSS by process") { $ParsingPSS = $true; continue }
-    if ($line -match "Total PSS by OOM adjustment") { $ParsingPSS = $false; continue }
-    if ($ParsingPSS -and $line -match "^\s*([0-9,]+)K:\s+([a-zA-Z0-9_\.\@\-]+).*\(pid") {
-        $kb = $matches[1] -replace ",", ""
-        $mb = [math]::Round($kb / 1024, 0)
-        $p = $matches[2]; if (-not $MemMap.ContainsKey($p)) { $MemMap[$p] = $mb }
+# --- 4. PRE-SCAN HELPER ---
+function Get-MemMap ($TargetSerial) {
+    $MemMap = @{}
+    $ParsingPSS = $false
+    $rawMem = & $AdbPath -s $TargetSerial shell dumpsys meminfo
+    foreach ($line in $rawMem) {
+        if ($line -match "Total PSS by process") { $ParsingPSS = $true; continue }
+        if ($line -match "Total PSS by OOM adjustment") { $ParsingPSS = $false; continue }
+        if ($ParsingPSS -and $line -match "^\s*([0-9,]+)K:\s+([a-zA-Z0-9_\.\@\-]+).*\(pid") {
+            $kb = $matches[1] -replace ",", ""
+            $mb = [math]::Round($kb / 1024, 0)
+            $p = $matches[2]; if (-not $MemMap.ContainsKey($p)) { $MemMap[$p] = $mb }
+        }
     }
+    return $MemMap
 }
 
-# --- 5. MENU ---
-Write-Header "Main Menu"
-Write-Host " [1] OPTIMIZE (Debloat + Speed Up)" -ForegroundColor Green
-Write-Host " [2] RESTORE (Factory Defaults)" -ForegroundColor Yellow
-Write-Host " [3] REPORT (Diagnostics Only)" -ForegroundColor Cyan
-$mode = Read-Host "`nSelect Option [1-3] (Default: 1)"
+# --- MAIN LOOP ---
+while ($true) {
+    Write-Header "Device Selection"
+    $shields = @(Get-ConnectedShields)
 
-# FORMAT: Package, Name, Action, Risk
-$Apps = @(
-    @("com.google.android.katniss", "Google Assistant", "DISABLE", "Safe"),
-    @("com.google.android.tvrecommendations", "Google TV Recommendations", "DISABLE", "Safe"),
-    @("com.google.android.tts", "Google Text-to-Speech", "DISABLE", "Safe"),
-    @("com.nvidia.stats", "Nvidia Telemetry/Stats", "DISABLE", "Safe"),
-    @("com.google.android.feedback", "Google Feedback Agent", "DISABLE", "Safe"),
-    @("com.nvidia.diagtools", "Nvidia Diag Tools", "DISABLE", "Safe"),
-    @("com.google.android.tvlauncher", "Stock Android Launcher", "DISABLE", "Medium"),
-    @("com.nvidia.ota", "Nvidia System Updater", "DISABLE", "Medium"),
-    @("com.plexapp.mediaserver.smb", "Plex Media SERVER", "DISABLE", "Advanced"),
-    @("com.google.android.apps.mediashell", "Chromecast Built-in", "UNINSTALL", "Safe"),
-    @("com.netflix.ninja", "Netflix", "UNINSTALL", "Safe"),
-    @("com.amazon.amazonvideo.livingroom", "Amazon Prime Video", "UNINSTALL", "Safe"),
-    @("com.google.android.videos", "Google Play Movies/TV", "UNINSTALL", "Safe"),
-    @("com.google.android.music", "Google Play Music", "UNINSTALL", "Safe"),
-    @("com.wbd.stream", "HBO Max / Discovery", "UNINSTALL", "Safe"),
-    @("com.hulu.livingroomplus", "Hulu", "UNINSTALL", "Safe"),
-    @("tv.twitch.android.app", "Twitch", "UNINSTALL", "Safe"),
-    @("com.disney.disneyplus.prod", "Disney+", "UNINSTALL", "Safe"),
-    @("com.spotify.tv.android", "Spotify", "UNINSTALL", "Safe"),
-    @("com.amazon.venezia", "Amazon App Store", "UNINSTALL", "Safe")
-)
+    if ($shields.Count -gt 0) {
+        foreach ($dev in $shields) {
+            if ($dev.Status -eq "Ready") { Write-Host " [$($dev.ID)] $($dev.Name) ($($dev.Serial))" -ForegroundColor Green }
+            else { Write-Host " [$($dev.ID)] $($dev.Serial) - $($dev.Status)" -ForegroundColor Red }
+        }
+    } else {
+        Write-Info "No devices currently connected."
+    }
 
-# === MODES ===
-if ($mode -eq "3") { Generate-Report; Pause; Exit }
+    Write-Host " [C] Connect to a New IP Address" -ForegroundColor Yellow
+    Write-Host " [R] Refresh List" -ForegroundColor Gray
+    Write-Host " [A] Report All Devices" -ForegroundColor Magenta
+    Write-Host " [Q] Quit" -ForegroundColor Gray
 
-if ($mode -eq "2") {
-    Write-Header "Restoring Factory Defaults"
+    $selection = Read-Host "`nSelect Device [1-$($shields.Count)] or [C/R/A/Q]"
+
+    if ($selection -match "^c") {
+        $ip = Read-Host " >> Enter IP Address (e.g. 192.168.1.5)"
+        if ($ip -ne "") {
+            Write-Info "Attempting connection to $ip..."
+            & $AdbPath connect $ip; Start-Sleep -s 2
+        }
+        continue
+    }
+    if ($selection -match "^r") { continue }
+    if ($selection -match "^q") { Exit }
+    
+    if ($selection -match "^a") {
+        Write-Header "BULK HEALTH REPORT"
+        foreach ($dev in $shields) {
+            if ($dev.Status -eq "Ready") {
+                Generate-Report -TargetSerial $dev.Serial -TargetName $dev.Name
+                Write-Host "------------------------------------------------" -ForegroundColor Gray
+                Start-Sleep -s 2
+            } else {
+                Write-Warn "Skipping $($dev.Name) (Status: $($dev.Status))"
+            }
+        }
+        Pause
+        continue
+    }
+
+    $target = $shields | Where-Object { $_.ID -eq $selection }
+    if ($target) {
+        if ($target.Status -eq "Ready") {
+            $GlobalTarget = $target.Serial
+            $GlobalName = $target.Name
+        } else {
+            Write-ErrorMsg "Cannot select this device. Status: $($target.Status)"
+            Pause; continue
+        }
+    } else {
+        Write-ErrorMsg "Invalid selection."
+        Pause; continue
+    }
+
+    Write-Header "Action Menu: $GlobalName"
+    Write-Host " [1] OPTIMIZE (Debloat + Speed Up)" -ForegroundColor Green
+    Write-Host " [2] RESTORE (Factory Defaults)" -ForegroundColor Yellow
+    Write-Host " [3] REPORT (Diagnostics Only)" -ForegroundColor Cyan
+    $mode = Read-Host "`nSelect Option [1-3] (Default: 1)"
+
+    # List structure: Package, Name, Action, Risk, Effect, DefaultInput(Y/N)
+    # DefaultInput "Y" means prompts [Y/n] (Enter = Yes)
+    # DefaultInput "N" means prompts [y/N] (Enter = No, must type 'y')
+    
+    $Apps = @(
+        # --- SAFE TO REMOVE (Default: Y) ---
+        @("com.google.android.tvrecommendations", "Google TV Recommendations", "DISABLE", "Safe", "Removes 'Sponsored' rows from stock launcher", "Y"),
+        @("com.nvidia.stats", "Nvidia Telemetry", "DISABLE", "Safe", "Stops background data collection", "Y"),
+        @("com.google.android.feedback", "Google Feedback", "DISABLE", "Safe", "Stops background data collection", "Y"),
+        @("com.nvidia.diagtools", "Nvidia Diag Tools", "DISABLE", "Safe", "Stops background diagnostic logging", "Y"),
+        @("com.android.printspooler", "Print Spooler", "DISABLE", "Safe", "Disables useless background print service", "Y"),
+        @("com.android.gallery3d", "Android Gallery", "UNINSTALL", "Safe", "Removes legacy photo viewer", "Y"),
+        @("com.google.android.videos", "Google Play Movies", "UNINSTALL", "Safe", "Removes defunct Google Movies app", "Y"),
+        @("com.google.android.music", "Google Play Music", "UNINSTALL", "Safe", "Removes defunct Google Music app", "Y"),
+        
+        # --- STREAMING APPS (Default: Y - unless you use them) ---
+        @("com.netflix.ninja", "Netflix", "UNINSTALL", "Safe", "Removes the Netflix App", "Y"),
+        @("com.amazon.amazonvideo.livingroom", "Amazon Prime Video", "UNINSTALL", "Safe", "Removes the Prime Video App", "Y"),
+        @("com.wbd.stream", "HBO Max / Discovery", "UNINSTALL", "Safe", "Removes HBO/Max App", "Y"),
+        @("com.hulu.livingroomplus", "Hulu", "UNINSTALL", "Safe", "Removes Hulu App", "Y"),
+        @("tv.twitch.android.app", "Twitch", "UNINSTALL", "Safe", "Removes Twitch App", "Y"),
+        @("com.disney.disneyplus.prod", "Disney+", "UNINSTALL", "Safe", "Removes Disney+ App", "Y"),
+        @("com.spotify.tv.android", "Spotify", "UNINSTALL", "Safe", "Removes Spotify App", "Y"),
+        @("com.google.android.youtube.tvmusic", "YouTube Music", "UNINSTALL", "Safe", "Removes YT Music App", "Y"),
+        
+        # --- FUNCTIONALITY BREAKERS (Default: N) ---
+        @("com.google.android.katniss", "Google Assistant (Voice Search)", "DISABLE", "High", "Breaks Remote Microphone & Voice Search buttons", "N"),
+        @("com.google.android.apps.mediashell", "Chromecast Built-in", "UNINSTALL", "High", "Breaks 'Casting' video from phone to Shield", "N"),
+        @("com.nvidia.ota", "Nvidia System Updater", "DISABLE", "High", "Stops all Security & OS Updates", "N"),
+        @("com.google.android.tvlauncher", "Stock Android Launcher", "DISABLE", "Medium", "Requires a Custom Launcher (Projectivy) or Black Screen", "N"),
+        @("com.plexapp.mediaserver.smb", "Plex Media SERVER", "DISABLE", "Advanced", "Breaks hosting a Plex Server on this device", "N"),
+        @("com.google.android.tts", "Google Text-to-Speech", "DISABLE", "Medium", "Breaks Accessibility features & Voice reading", "N"),
+        @("com.nvidia.tegrazone3", "Nvidia Games (GeForce Now)", "UNINSTALL", "Medium", "Removes Nvidia Cloud Gaming functionality", "N"),
+        @("com.google.android.play.games", "Google Play Games", "UNINSTALL", "Medium", "Removes Play Games login support", "N"),
+        @("com.google.android.backdrop", "Google Screensaver", "DISABLE", "Safe", "Disables the 'Daydream' photo screensaver", "N")
+    )
+
+    if ($mode -eq "3") { 
+        Generate-Report -TargetSerial $GlobalTarget -TargetName $GlobalName
+        Pause; continue
+    }
+
+    if ($mode -eq "2") {
+        Write-Header "Restoring Factory Defaults"
+        foreach ($app in $Apps) {
+            Write-Host "Restoring $($app[1])..." -NoNewline
+            & $AdbPath -s $GlobalTarget shell cmd package install-existing $app[0] 2>$null | Out-Null
+            & $AdbPath -s $GlobalTarget shell pm enable $app[0] 2>$null | Out-Null
+            Write-Host " [DONE]" -ForegroundColor Green
+        }
+        & $AdbPath -s $GlobalTarget shell settings put global window_animation_scale 1.0
+        & $AdbPath -s $GlobalTarget shell settings put global transition_animation_scale 1.0
+        & $AdbPath -s $GlobalTarget shell settings put global animator_duration_scale 1.0
+        Write-Success "Restored. Rebooting..."
+        & $AdbPath -s $GlobalTarget reboot; Pause; continue
+    }
+
+    $launcher = & $AdbPath -s $GlobalTarget shell pm list packages | Select-String "com.spocky.projengmenu"
+    if (-not $launcher) { Write-ErrorMsg "Projectivy Launcher NOT FOUND. Aborting."; Pause; continue }
+    
+    Write-Info "Scanning apps..."
+    $MemMap = Get-MemMap -TargetSerial $GlobalTarget
+
+    Write-Header "Optimization Audit"
     foreach ($app in $Apps) {
-        Write-Host "Restoring $($app[1])..." -NoNewline
-        & $AdbPath -s $T shell cmd package install-existing $app[0] 2>$null | Out-Null
-        & $AdbPath -s $T shell pm enable $app[0] 2>$null | Out-Null
-        Write-Host " [DONE]" -ForegroundColor Green
+        $pkg = $app[0]; $name = $app[1]; $action = $app[2]; $risk = $app[3]; $effect = $app[4]; $def = $app[5]
+
+        $check = & $AdbPath -s $GlobalTarget shell pm list packages | Select-String "package:$pkg"
+        if (-not $check) { continue }
+
+        if ($action -eq "DISABLE") {
+            $disabled = & $AdbPath -s $GlobalTarget shell pm list packages -d | Select-String "package:$pkg"
+            if ($disabled) { continue }
+        }
+
+        Write-Host -NoNewline "Found: "
+        Write-Host "$name" -ForegroundColor Cyan -NoNewline
+        if ($risk -eq "Safe") { $c="Green" } elseif ($risk -eq "Medium") { $c="Yellow" } else { $c="Red" }
+        Write-Host " [$risk]" -ForegroundColor $c -NoNewline
+        if ($MemMap.ContainsKey($pkg)) { Write-Host " (Using: $($MemMap[$pkg]) MB)" -NoNewline -ForegroundColor Magenta }
+        
+        Write-Host "`n    Effect: $effect" -ForegroundColor Gray
+
+        # Dynamic Prompt based on Default
+        if ($def -eq "Y") {
+            $resp = Read-Host " >> $action? [Y/n]"
+            if ($resp -eq "" -or $resp -match "^y") { $doAction = $true } else { $doAction = $false }
+        } else {
+            $resp = Read-Host " >> $action? [y/N]"
+            if ($resp -match "^y") { $doAction = $true } else { $doAction = $false }
+        }
+
+        if ($doAction) {
+            if ($action -eq "UNINSTALL") { & $AdbPath -s $GlobalTarget shell pm uninstall --user 0 $pkg | Out-Null }
+            else { & $AdbPath -s $GlobalTarget shell pm disable-user --user 0 $pkg | Out-Null }
+            Write-Success "Processed."
+        }
     }
-    & $AdbPath -s $T shell settings put global window_animation_scale 1.0
-    & $AdbPath -s $T shell settings put global transition_animation_scale 1.0
-    & $AdbPath -s $T shell settings put global animator_duration_scale 1.0
-    Write-Success "Restored. Rebooting..."
-    & $AdbPath -s $T reboot; Pause; Exit
+
+    Write-Header "Performance"
+    $cur = (& $AdbPath -s $GlobalTarget shell settings get global window_animation_scale | Out-String).Trim()
+    if ($cur -ne "0.5") {
+        $resp = Read-Host "Set Animations to 0.5x? [Y/n]"
+        if ($resp -eq "" -or $resp -match "^y") {
+            & $AdbPath -s $GlobalTarget shell settings put global window_animation_scale 0.5
+            & $AdbPath -s $GlobalTarget shell settings put global transition_animation_scale 0.5
+            & $AdbPath -s $GlobalTarget shell settings put global animator_duration_scale 0.5
+            Write-Success "Applied."
+        }
+    }
+
+    Write-Header "Finished"
+    $reboot = Read-Host "Reboot now to apply changes? [Y/n]"
+    if ($reboot -eq "" -or $reboot -match "^y") {
+        Write-Info "Rebooting..."
+        & $AdbPath -s $GlobalTarget reboot
+        
+        Write-Header "Waiting for Device..."
+        Write-Info "Waiting for device to go offline..."
+        Start-Sleep -s 10
+        Write-Info "Waiting for device to come online (this can take 2 mins)..."
+        $retries=0
+        do { 
+            Start-Sleep -s 5
+            $s = & $AdbPath -s $GlobalTarget get-state 2>$null
+            Write-Host "." -NoNewline -ForegroundColor DarkGray
+            $retries++
+        } while (($s -ne "device") -and ($retries -lt 30))
+        
+        if ($s -eq "device") { 
+            Write-Success "`nDevice Online."
+            Write-Info "Waiting 30 seconds for OS to settle..."
+            Start-Sleep -s 30
+            Generate-Report -TargetSerial $GlobalTarget -TargetName $GlobalName
+        }
+    }
+    Pause
 }
-
-# OPTIMIZE MODE
-$launcher = & $AdbPath -s $T shell pm list packages | Select-String "com.spocky.projengmenu"
-if (-not $launcher) { Write-ErrorMsg "Projectivy Launcher NOT FOUND. Aborting."; Exit }
-
-Write-Header "Optimization Audit (Enter = YES)"
-foreach ($app in $Apps) {
-    $pkg = $app[0]; $name = $app[1]; $action = $app[2]; $risk = $app[3]
-
-    $check = & $AdbPath -s $T shell pm list packages | Select-String "package:$pkg"
-    if (-not $check) { continue } # Skip missing
-
-    if ($action -eq "DISABLE") {
-        $disabled = & $AdbPath -s $T shell pm list packages -d | Select-String "package:$pkg"
-        if ($disabled) { continue } # Skip already disabled
-    }
-
-    Write-Host -NoNewline "Found: "
-    Write-Host "$name" -ForegroundColor Cyan -NoNewline
-    if ($risk -eq "Safe") { $c="Green" } elseif ($risk -eq "Medium") { $c="Yellow" } else { $c="Red" }
-    Write-Host " [$risk]" -ForegroundColor $c -NoNewline
-    if ($MemMap.ContainsKey($pkg)) { Write-Host " (Using: $($MemMap[$pkg]) MB)" -NoNewline -ForegroundColor Magenta }
-
-    $resp = Read-Host " >> $($action)? [Y/n]"
-    if ($resp -eq "" -or $resp -match "^y") {
-        if ($action -eq "UNINSTALL") { & $AdbPath -s $T shell pm uninstall --user 0 $pkg | Out-Null }
-        else { & $AdbPath -s $T shell pm disable-user --user 0 $pkg | Out-Null }
-        Write-Success "Processed."
-    }
-}
-
-Write-Header "Performance"
-$cur = (& $AdbPath -s $T shell settings get global window_animation_scale | Out-String).Trim()
-if ($cur -ne "0.5") {
-    $resp = Read-Host "Set Animations to 0.5x? [Y/n]"
-    if ($resp -eq "" -or $resp -match "^y") {
-        & $AdbPath -s $T shell settings put global window_animation_scale 0.5
-        & $AdbPath -s $T shell settings put global transition_animation_scale 0.5
-        & $AdbPath -s $T shell settings put global animator_duration_scale 0.5
-        Write-Success "Applied."
-    }
-}
-
-Write-Header "Finished"
-$reboot = Read-Host "Reboot now to apply changes? [Y/n]"
-if ($reboot -eq "" -or $reboot -match "^y") {
-    Write-Info "Rebooting..."
-    & $AdbPath -s $T reboot
-    
-    Write-Header "Waiting for Device..."
-    # 1. Wait for Disconnect
-    Write-Info "Waiting for device to go offline..."
-    Start-Sleep -s 10
-    
-    # 2. Wait for Reconnect
-    Write-Info "Waiting for device to come online (this can take 2 mins)..."
-    $retries=0
-    do { 
-        Start-Sleep -s 5
-        $s = & $AdbPath -s $T get-state 2>$null
-        Write-Host "." -NoNewline -ForegroundColor DarkGray
-        $retries++
-    } while (($s -ne "device") -and ($retries -lt 30))
-    
-    if ($s -eq "device") { 
-        Write-Success "`nDevice Online."
-        Write-Info "Waiting 30 seconds for OS to settle..."
-        Start-Sleep -s 30
-        Generate-Report 
-    }
-}
-Pause
