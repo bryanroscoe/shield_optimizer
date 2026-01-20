@@ -3,34 +3,126 @@ adb.exe
 AdbWinApi.dll
 AdbWinUsbApi.dll
 
+# ===================
+# OS Generated Files
+# ===================
+
 # Windows
 Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
+*.lnk
 
-# Executables and libraries
-*.exe
-*.dll
-*.so
-*.dylib
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ===================
+# IDE / Editor Settings
+# ===================
 
 # VS Code
 .vscode/
 *.code-workspace
 
-# JetBrains IDEs
-.idea/
+# Cursor IDE
+.cursor/
+.cursorignore
+.cursorrules
+cursor.json
 
+# JetBrains IDEs (IntelliJ, PyCharm, WebStorm, etc.)
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*.swn
+Session.vim
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+
+# ===================
+# AI Assistant / Claude
+# ===================
+.claude/
+.anthropic/
+claude.json
+.aider*
+
+# ===================
+# Executables and Libraries
+# ===================
+*.exe
+*.dll
+*.so
+*.dylib
+*.bin
+
+# ===================
 # PowerShell
+# ===================
 *.ps1xml
 *.psd1.bak
 *.psm1.bak
 
-# Logs
+# ===================
+# Logs and Debug
+# ===================
 *.log
+logs/
+debug/
 
-# Temporary files
+# ===================
+# Temporary Files
+# ===================
 *.tmp
 *.temp
-*~
+*.bak
+*.backup
+*.cache
+
+# ===================
+# Environment / Secrets
+# ===================
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.json

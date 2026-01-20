@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File .Shield-Optimizer.ps1 -Demo)",
-      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\bryan\\\\OneDrive\\\\dev\\\\shield_optimizer\\\\Shield-Optimizer.ps1\" -Demo)"
-    ]
-  }
-}

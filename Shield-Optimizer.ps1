@@ -100,10 +100,17 @@ $Script:GoogleTVAppList = @(
 
     # [GOOGLE TV MEDIUM]
     @("com.google.android.tungsten.overscan", "Setup Wizard Helper", "DISABLE", "Medium", "Post-setup service.", "Restores setup components.", "N", "Y"),
-    @("com.google.android.tungsten.setupwraith", "Setup Wraith", "DISABLE", "Medium", "Setup wizard component.", "Restores setup component.", "N", "Y"),
 
-    # [GOOGLE TV LAUNCHER - Handle specially]
-    @("com.google.android.apps.tv.launcherx", "Google TV Home", "DISABLE", "High Risk", "Requires custom launcher first!", "Restores Google TV home.", "N", "Y")
+    # [ONN-SPECIFIC - Amlogic devices]
+    @("com.droidlogic.launcher.provider", "Droidlogic Launcher Provider", "DISABLE", "Medium", "Onn launcher data provider. Disable with launcher.", "Restores Onn launcher provider.", "N", "Y"),
+
+    # [GOOGLE TV HOME HANDLERS - Must be disabled together via Launcher Wizard]
+    # WARNING: These declare HOME intent - disabling only one causes loops!
+    # Use Launcher Wizard which handles all HOME handlers automatically
+    @("com.google.android.tungsten.setupwraith", "Setup Wraith (HOME)", "DISABLE", "High Risk", "HOME handler! Use Launcher Wizard instead.", "Restores setup wizard HOME handler.", "N", "Y"),
+
+    # [GOOGLE TV LAUNCHER - Handle via Launcher Wizard]
+    @("com.google.android.apps.tv.launcherx", "Google TV Home", "DISABLE", "High Risk", "Use Launcher Wizard to safely disable!", "Restores Google TV home.", "N", "Y")
 )
 
 $Script:PerfList = @(
@@ -904,13 +911,36 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
 
 # FIX #13: ESC key support for toggle
 function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
-    # Horizontal toggle for [ YES ] NO using `r carriage return for overwrite
+    # Horizontal toggle for [ YES ] NO using cursor positioning
     $idx = $DefaultIndex
     $max = $Options.Count - 1
 
-    while ($true) {
-        Write-Host "`r$Prompt " -NoNewline -ForegroundColor Gray
+    # Save starting cursor position
+    $startPos = $null
+    try { $startPos = $Host.UI.RawUI.CursorPosition } catch {}
 
+    while ($true) {
+        # Reset cursor to start position if possible
+        if ($startPos) {
+            try { $Host.UI.RawUI.CursorPosition = $startPos } catch {}
+        }
+
+        # Build the entire line as a string first
+        $line = "$Prompt "
+        for ($i=0; $i -lt $Options.Count; $i++) {
+            if ($i -eq $idx) {
+                $line += " [ $($Options[$i]) ] "
+            } else {
+                $line += "   $($Options[$i])   "
+            }
+        }
+        $line += "          "  # Padding to clear old text
+
+        # Write prompt
+        Write-Host $Prompt -NoNewline -ForegroundColor Gray
+        Write-Host " " -NoNewline
+
+        # Write options with colors
         for ($i=0; $i -lt $Options.Count; $i++) {
             if ($i -eq $idx) {
                 Write-Host " [ $($Options[$i]) ] " -NoNewline -ForegroundColor Cyan
@@ -924,7 +954,7 @@ function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
 
         # FIX #13: ESC key to cancel
         if ($key.VirtualKeyCode -eq 27) {
-            Write-Host "`n"
+            Write-Host ""
             return -1  # Return -1 to indicate cancellation
         }
         elseif ($key.VirtualKeyCode -eq 37) { # Left
@@ -934,7 +964,7 @@ function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
             $idx++; if ($idx -gt $max) { $idx = 0 }
         }
         elseif ($key.VirtualKeyCode -eq 13) { # Enter
-            Write-Host "`n"
+            Write-Host ""
             return $idx
         }
     }
@@ -1103,6 +1133,257 @@ $Script:StockLaunchers = @(
     "com.amazon.tv.launcher"                   # Fire TV Launcher (if sideloaded)
 )
 
+# Safe HOME handlers that should NEVER be disabled (they won't cause loops)
+$Script:SafeHomeHandlers = @(
+    "com.android.tv.settings",                 # Settings app - safe fallback
+    "com.android.settings"                     # Generic settings
+)
+
+# Discover all HOME-capable apps on the device
+function Get-HomeHandlers ($Target) {
+    $handlers = @()
+    try {
+        $output = & $Script:AdbPath -s $Target shell "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME" 2>&1 | Out-String
+
+        # Parse output - look for "packageName=com.example.app" lines
+        # Each Activity block has a packageName field under ActivityInfo
+        foreach ($line in ($output -split "`n")) {
+            $trimmed = $line.Trim()
+            # Match: packageName=com.example.app
+            if ($trimmed -match "^packageName=([a-zA-Z][a-zA-Z0-9_.]+)$") {
+                $pkg = $matches[1]
+                if ($handlers -notcontains $pkg) {
+                    $handlers += $pkg
+                }
+            }
+        }
+    }
+    catch {
+        Write-ErrorMsg "Failed to query HOME handlers: $_"
+    }
+    return $handlers
+}
+
+# Get the current HOME role holder (Android 10+)
+function Get-HomeRoleHolder ($Target) {
+    try {
+        $output = & $Script:AdbPath -s $Target shell "cmd role get-role-holders android.app.role.HOME" 2>&1 | Out-String
+        if ($output -match "([a-zA-Z0-9_.]+)") {
+            return $matches[1].Trim()
+        }
+    }
+    catch {}
+    return $null
+}
+
+# Set a package as the HOME role holder
+function Set-HomeRoleHolder ($Target, $Package) {
+    try {
+        $result = & $Script:AdbPath -s $Target shell "cmd role add-role-holder android.app.role.HOME $Package" 2>&1 | Out-String
+        return -not ($result -match "Exception|Error|failed")
+    }
+    catch {
+        return $false
+    }
+}
+
+# Disable all stock HOME handlers, keeping only the custom launcher and safe fallbacks
+function Disable-AllStockLaunchers {
+    param(
+        [string]$Target,
+        [string]$CustomLauncherPkg
+    )
+
+    Write-Info "Discovering all HOME-capable apps..."
+    $homeHandlers = @(Get-HomeHandlers -Target $Target)
+
+    # Also check known problematic HOME handlers that might not appear in query
+    $knownHomeHandlers = $Script:StockLaunchers + @(
+        "com.google.android.tungsten.setupwraith",
+        "com.droidlogic.launcher.provider"
+    )
+
+    # Get DISABLED packages - we'll skip anything already disabled
+    # Note: pm list packages -e is unreliable (includes disabled-user packages on some devices)
+    $disabledPkgs = & $Script:AdbPath -s $Target shell "pm list packages -d" 2>&1 | Out-String
+    $installedPkgs = & $Script:AdbPath -s $Target shell "pm list packages" 2>&1 | Out-String
+
+    foreach ($pkg in $knownHomeHandlers) {
+        # Add if: installed AND not already disabled AND not already in list
+        $isInstalled = $installedPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
+        $isDisabled = $disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
+        if ($isInstalled -and -not $isDisabled -and $homeHandlers -notcontains $pkg) {
+            $homeHandlers += $pkg
+        }
+    }
+
+    if ($null -eq $homeHandlers -or $homeHandlers.Count -eq 0) {
+        Write-ErrorMsg "Could not detect HOME handlers. Aborting for safety."
+        return $false
+    }
+
+    # Build safe list: custom launcher + safe handlers
+    $safeList = @($CustomLauncherPkg) + $Script:SafeHomeHandlers
+
+    # Identify what will be disabled
+    $toDisable = @()
+    $toKeep = @()
+
+    foreach ($pkg in $homeHandlers) {
+        if ($safeList -contains $pkg) {
+            $toKeep += $pkg
+        }
+        elseif ($Script:Launchers.Pkg -contains $pkg) {
+            # Another custom launcher - keep it
+            $toKeep += $pkg
+        }
+        else {
+            $toDisable += $pkg
+        }
+    }
+
+    if ($toDisable.Count -eq 0) {
+        Write-Info "No stock launchers to disable."
+        return $true
+    }
+
+    # Show user what will happen
+    Write-Header "HOME Handler Analysis"
+    Write-Host ""
+    Write-Host " Found $($homeHandlers.Count) HOME-capable apps:" -ForegroundColor Gray
+    Write-Host ""
+
+    foreach ($pkg in $toKeep) {
+        $label = if ($pkg -eq $CustomLauncherPkg) { "your custom launcher" }
+                 elseif ($Script:SafeHomeHandlers -contains $pkg) { "safe fallback" }
+                 else { "other custom launcher" }
+        Write-Host "   " -NoNewline
+        Write-Host "KEEP   " -NoNewline -ForegroundColor Green
+        Write-Host "$pkg" -NoNewline -ForegroundColor Cyan
+        Write-Host " ($label)" -ForegroundColor DarkGray
+    }
+    foreach ($pkg in $toDisable) {
+        Write-Host "   " -NoNewline
+        Write-Host "WILL DISABLE  " -NoNewline -ForegroundColor Yellow
+        Write-Host "$pkg" -ForegroundColor White
+    }
+    Write-Host ""
+
+    # Confirm
+    $confirm = Read-Toggle -Prompt "Disable $($toDisable.Count) HOME handler(s)?" -Options @("YES", "NO") -DefaultIndex 0
+    if ($confirm -ne 0) {
+        Write-Info "Cancelled."
+        return $false
+    }
+
+    # First, ensure custom launcher is the HOME role holder
+    Write-Info "Setting $CustomLauncherPkg as HOME role holder..."
+    $roleSet = Set-HomeRoleHolder -Target $Target -Package $CustomLauncherPkg
+    if (-not $roleSet) {
+        Write-Warn "Could not set HOME role (may require manual selection)."
+    }
+
+    # Disable each stock handler
+    $disabledCount = 0
+    $disabledPkgs = @()
+
+    foreach ($pkg in $toDisable) {
+        Write-Info "Disabling: $pkg"
+        $result = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
+        if ($result.Success -and $result.Output -notmatch "Failure") {
+            Write-Success "Disabled: $pkg"
+            $disabledCount++
+            $disabledPkgs += $pkg
+        }
+        else {
+            Write-ErrorMsg "Failed to disable: $pkg"
+        }
+    }
+
+    Write-Host ""
+    Write-Success "Disabled $disabledCount of $($toDisable.Count) HOME handlers."
+
+    if ($disabledCount -gt 0) {
+        Write-Info "Press the Home button - $CustomLauncherPkg should now activate."
+    }
+
+    return $true
+}
+
+# Restore all stock HOME handlers (re-enable everything that was disabled)
+function Restore-AllStockLaunchers {
+    param([string]$Target)
+
+    Write-Info "Discovering disabled HOME handlers..."
+
+    # Get all HOME handlers (includes disabled ones via -u flag check)
+    $homeHandlers = @(Get-HomeHandlers -Target $Target)
+    $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d 2>&1 | Out-String)
+
+    # Find which HOME handlers are currently disabled
+    $toRestore = @()
+    foreach ($pkg in $homeHandlers) {
+        if ($disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
+            $toRestore += $pkg
+        }
+    }
+
+    # Also check known stock launchers that might not show in query when disabled
+    $knownToCheck = $Script:StockLaunchers + @(
+        "com.google.android.tungsten.setupwraith",
+        "com.droidlogic.launcher.provider"
+    )
+
+    foreach ($pkg in $knownToCheck) {
+        if ($disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
+            if ($toRestore -notcontains $pkg) {
+                $toRestore += $pkg
+            }
+        }
+    }
+
+    if ($toRestore.Count -eq 0) {
+        Write-Info "No disabled stock launchers found."
+        return $true
+    }
+
+    Write-Header "Restore Stock Launchers"
+    Write-Host ""
+    Write-Host " Found $($toRestore.Count) disabled HOME handler(s):" -ForegroundColor Gray
+    Write-Host ""
+    foreach ($pkg in $toRestore) {
+        Write-Host "   " -NoNewline
+        Write-Host "WILL ENABLE  " -NoNewline -ForegroundColor Cyan
+        Write-Host "$pkg" -ForegroundColor White
+    }
+    Write-Host ""
+
+    $confirm = Read-Toggle -Prompt "Re-enable $($toRestore.Count) package(s)?" -Options @("YES", "NO") -DefaultIndex 0
+    if ($confirm -ne 0) {
+        Write-Info "Cancelled."
+        return $false
+    }
+
+    $restoredCount = 0
+    foreach ($pkg in $toRestore) {
+        Write-Info "Enabling: $pkg"
+        $result = Invoke-AdbCommand -Target $Target -Command "pm enable $pkg"
+        if ($result.Success) {
+            Write-Success "Enabled: $pkg"
+            $restoredCount++
+        }
+        else {
+            Write-ErrorMsg "Failed to enable: $pkg"
+        }
+    }
+
+    Write-Host ""
+    Write-Success "Restored $restoredCount of $($toRestore.Count) packages."
+    Write-Info "Press Home button and select your preferred launcher."
+
+    return $true
+}
+
 # Helper to detect the current default launcher on the device
 function Get-CurrentLauncher ($Target) {
     try {
@@ -1122,8 +1403,8 @@ function Setup-Launcher ($Target) {
     Write-Header "Custom Launcher Wizard"
     Write-Info "Detecting current launcher..."
 
-    $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages | Out-String)
-    $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d | Out-String)
+    $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages 2>&1 | Out-String)
+    $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d 2>&1 | Out-String)
 
     # Detect the currently active launcher
     $currentLauncher = Get-CurrentLauncher -Target $Target
@@ -1210,14 +1491,8 @@ function Setup-Launcher ($Target) {
             return
         }
         if ($stockLauncherDisabled) {
-            Write-Header "Restoring Stock Launcher"
-            $result = Invoke-AdbCommand -Target $Target -Command "pm enable $stockLauncherPkg"
-            if ($result.Success) {
-                Write-Success "Stock Launcher Enabled: $stockLauncherPkg"
-                Write-Info "Press Home button to switch to it."
-            } else {
-                Write-ErrorMsg "Failed to enable: $($result.Error)"
-            }
+            # Use comprehensive restore that re-enables ALL disabled HOME handlers
+            $null = Restore-AllStockLaunchers -Target $Target
         } else {
             Write-Info "Stock Launcher is already enabled."
             Write-Info "Press Home button and select it as default."
@@ -1236,24 +1511,36 @@ function Setup-Launcher ($Target) {
         # Check if already the active launcher
         if ($currentLauncher -eq $choice.Pkg) {
             Write-Success "$($choice.Name) is already the active launcher."
+
+            # Offer to disable remaining HOME handlers for cleaner experience
+            $toggleIdx = Read-Toggle -Prompt "Disable all stock HOME handlers?" -Options @("YES", "NO") -DefaultIndex 1
+            if ($toggleIdx -eq 0) {
+                $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
+            }
             return
         }
 
-        # Offer to disable stock launcher if it's currently active
-        if ($stockLauncherInstalled -and -not $stockLauncherDisabled -and $currentLauncher -eq $stockLauncherPkg) {
-            $toggleIdx = Read-Toggle -Prompt "Disable Stock Launcher to make this the default?" -Options @("YES", "NO") -DefaultIndex 0
+        # Custom launcher is installed but not active
+        Write-Success "$($choice.Name) is installed."
+
+        # Check if any stock launcher is still active
+        $isStockActive = $false
+        foreach ($stockPkg in $Script:StockLaunchers) {
+            if ($currentLauncher -eq $stockPkg) {
+                $isStockActive = $true
+                break
+            }
+        }
+
+        if ($isStockActive) {
+            # Offer to disable ALL stock HOME handlers (not just the main launcher)
+            $toggleIdx = Read-Toggle -Prompt "Disable stock launchers to make $($choice.Name) the default?" -Options @("YES", "NO") -DefaultIndex 0
             if ($toggleIdx -eq 0) {
-                $result = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $stockLauncherPkg"
-                if ($result.Success) {
-                    Write-Success "Stock Launcher Disabled."
-                    Write-Success "$($choice.Name) should now be active."
-                } else {
-                    Write-ErrorMsg "Failed to disable stock launcher: $($result.Error)"
-                    Write-Info "Try: Settings > Apps > $stockLauncherPkg > Disable"
-                }
+                $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
+            } else {
+                Write-Info "Press Home button on your remote and select $($choice.Name) as default."
             }
         } else {
-            Write-Success "$($choice.Name) is installed."
             Write-Info "Press Home button on your remote and select it as default."
         }
     }
