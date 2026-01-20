@@ -1500,6 +1500,12 @@ function Setup-Launcher ($Target) {
         return
     }
 
+    # Safety check: ensure selection is within bounds of custom launchers array
+    if ($sel -ge $launchers.Count) {
+        Write-Warn "Invalid selection."
+        return
+    }
+
     $choice = $launchers[$sel]
     # FIX #12: Use exact match
     if (-not ($installedPkgs -match "package:$([regex]::Escape($choice.Pkg))(\r|\n|$)")) {
