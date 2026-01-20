@@ -6,10 +6,24 @@ A powerful, interactive PowerShell tool designed to debloat, optimize, and manag
 
 **Verified Devices:**
 - Nvidia Shield 2015 Pro, Shield 2019 Pro
-- Onn 4K Pro (Walmart)
-- Chromecast with Google TV
+- Onn 4K Pro ( launcher not working yet )
 
 ---
+
+## Screenshots
+<img width="716" height="341" alt="image" src="https://github.com/user-attachments/assets/37f31233-8286-4b4b-a490-899735c95133" />
+
+<img width="625" height="294" alt="image" src="https://github.com/user-attachments/assets/7ee836ea-1506-4ac5-9feb-aaca580d38a3" />
+
+D<img width="638" height="391" alt="image" src="https://github.com/user-attachments/assets/fb40e710-ad39-4d71-b6e7-6c74f0586f27" />
+
+<img width="539" height="255" alt="image" src="https://github.com/user-attachments/assets/855d73b6-d79c-4023-b8bd-32e91af252a6" />
+
+<img width="666" height="293" alt="image" src="https://github.com/user-attachments/assets/67423cb2-c09f-4ef1-b25a-583d870effd0" />
+
+<img width="411" height="197" alt="image" src="https://github.com/user-attachments/assets/857717fb-c9db-4a22-b428-fb3d82bc067e" />
+
+
 
 ## Features
 
