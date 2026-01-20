@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Nvidia Shield Ultimate Optimizer (v60 - Robustness Update)
+    Nvidia Shield Ultimate Optimizer (v61 - UX Polish)
 .DESCRIPTION
     - Fixed socket leak in Scan-Network
     - Fixed ADB output trimming issues
@@ -27,7 +27,7 @@
     - Improved Network Scan timeout (200ms)
 #>
 
-$Script:Version = "v60"
+$Script:Version = "v61"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -315,18 +315,112 @@ function Show-Help {
     Read-Host "`nPress Enter to return..."
 }
 
+# Helper to print menu option with colored shortcut key and status tags
+function Write-OptionWithHighlight ($Text, [bool]$Selected) {
+    # Parse the text for [X] shortcut pattern and status tags
+    $remaining = $Text
+
+    while ($remaining.Length -gt 0) {
+        # Look for brackets
+        $bracketStart = $remaining.IndexOf('[')
+
+        if ($bracketStart -lt 0) {
+            # No more brackets, print the rest
+            if ($Selected) {
+                Write-Host "$remaining " -NoNewline -ForegroundColor Black -BackgroundColor Cyan
+            } else {
+                Write-Host $remaining -NoNewline -ForegroundColor Gray
+            }
+            break
+        }
+
+        # Print text before bracket
+        if ($bracketStart -gt 0) {
+            $before = $remaining.Substring(0, $bracketStart)
+            if ($Selected) {
+                Write-Host $before -NoNewline -ForegroundColor Black -BackgroundColor Cyan
+            } else {
+                Write-Host $before -NoNewline -ForegroundColor Gray
+            }
+        }
+
+        # Find closing bracket
+        $bracketEnd = $remaining.IndexOf(']', $bracketStart)
+        if ($bracketEnd -lt 0) {
+            # No closing bracket, print rest normally
+            if ($Selected) {
+                Write-Host "$($remaining.Substring($bracketStart)) " -NoNewline -ForegroundColor Black -BackgroundColor Cyan
+            } else {
+                Write-Host $remaining.Substring($bracketStart) -NoNewline -ForegroundColor Gray
+            }
+            break
+        }
+
+        # Extract bracket content
+        $bracketContent = $remaining.Substring($bracketStart + 1, $bracketEnd - $bracketStart - 1)
+
+        # Determine color based on content
+        $bracketColor = switch -Regex ($bracketContent) {
+            "^[A-Z0-9]$"    { "Yellow" }      # Single char shortcut key
+            "ACTIVE"        { "Green" }
+            "INSTALLED"     { "Cyan" }
+            "ENABLED"       { "Cyan" }
+            "MISSING"       { "Red" }
+            "DISABLED"      { "DarkYellow" }
+            "NOT FOUND"     { "DarkGray" }
+            default         { "White" }
+        }
+
+        # Print the bracketed content with color
+        if ($Selected) {
+            Write-Host "[" -NoNewline -ForegroundColor Black -BackgroundColor Cyan
+            Write-Host $bracketContent -NoNewline -ForegroundColor $bracketColor -BackgroundColor Cyan
+            Write-Host "]" -NoNewline -ForegroundColor Black -BackgroundColor Cyan
+        } else {
+            Write-Host "[" -NoNewline -ForegroundColor DarkGray
+            Write-Host $bracketContent -NoNewline -ForegroundColor $bracketColor
+            Write-Host "]" -NoNewline -ForegroundColor DarkGray
+        }
+
+        # Move past this bracket
+        $remaining = $remaining.Substring($bracketEnd + 1)
+    }
+
+    Write-Host ""  # Newline at end
+}
+
 # --- NEW VERTICAL MENU SYSTEM ---
 # FIX #13: ESC key support, FIX #3: Cursor error handling, UX #C: Number/letter key shortcuts
-# StaticStartIndex: Items before this index use numbers (1-9), items from this index use letters (A-Z)
-function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticStartIndex=-1) {
+# StaticStartIndex: Items before this index use numbers (1-9), items from this index use letters
+# Shortcuts: Optional array of shortcut letters for static items (e.g., @("S","C","R","F","A","H","Q"))
+function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticStartIndex=-1, $Shortcuts=$null) {
     $idx = $DefaultIndex
     $max = $Options.Count - 1
 
     # If StaticStartIndex not specified, all items use letters
     if ($StaticStartIndex -lt 0) { $StaticStartIndex = 0 }
 
-    # Letter shortcuts A-Z
-    $letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # Build shortcut mapping: key char -> index
+    $shortcutMap = @{}
+    $shortcutDisplay = @{}  # index -> display char
+
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        if ($i -lt $StaticStartIndex) {
+            # Device - use number
+            $shortcutDisplay[$i] = "$($i + 1)"
+        } else {
+            # Static option - use provided shortcut or first letter
+            $staticIdx = $i - $StaticStartIndex
+            if ($Shortcuts -and $staticIdx -lt $Shortcuts.Count) {
+                $char = $Shortcuts[$staticIdx].ToUpper()
+            } else {
+                # Fallback: use first letter of option
+                $char = $Options[$i].Substring(0,1).ToUpper()
+            }
+            $shortcutDisplay[$i] = $char
+            $shortcutMap[$char] = $i
+        }
+    }
 
     # FIX #3: Hide Cursor with proper error handling
     $origCursor = 25
@@ -339,45 +433,68 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
 
     while ($true) {
         Clear-Host
-        Write-Host "$Title" -ForegroundColor White
-        Write-Host "------------------------------------------------" -ForegroundColor DarkGray
+        # Colorful title
+        Write-Host " $Title" -ForegroundColor Cyan
+        Write-Host " ================================================" -ForegroundColor DarkCyan
 
-        $letterCount = 0
         for ($i=0; $i -lt $Options.Count; $i++) {
-            # Dynamic items (devices) use numbers, static items use letters
-            if ($i -lt $StaticStartIndex) {
-                # Device - use number
-                $shortcut = "$($i + 1)."
+            $shortcut = $shortcutDisplay[$i]
+            $optText = $Options[$i]
+
+            # Format option text with embedded shortcut: "Skip" -> "[S]kip", "Refresh" -> "Re[f]resh"
+            # But don't insert inside existing brackets like [DISABLED]
+            $displayText = $null
+
+            # Find first occurrence of shortcut letter that's NOT inside existing brackets
+            $foundPos = -1
+            $inBracket = $false
+            for ($c = 0; $c -lt $optText.Length; $c++) {
+                if ($optText[$c] -eq '[') { $inBracket = $true }
+                elseif ($optText[$c] -eq ']') { $inBracket = $false }
+                elseif (-not $inBracket -and $optText[$c].ToString().ToUpper() -eq $shortcut.ToUpper()) {
+                    $foundPos = $c
+                    break
+                }
+            }
+
+            if ($foundPos -ge 0) {
+                $actualChar = $optText[$foundPos]
+                $displayText = $optText.Substring(0, $foundPos) + "[$actualChar]" + $optText.Substring($foundPos + 1)
             } else {
-                # Static option - use letter
-                $shortcut = "$($letters[$letterCount])."
-                $letterCount++
+                # Letter not found outside brackets, prefix it
+                $displayText = "[$shortcut] $optText"
             }
 
             if ($i -eq $idx) {
-                # Selected Item (Black on Cyan)
-                Write-Host " $shortcut> " -NoNewline -ForegroundColor Cyan
-                Write-Host " $($Options[$i]) " -ForegroundColor Black -BackgroundColor Cyan
+                # Selected Item - highlight with arrow and background
+                Write-Host "  > " -NoNewline -ForegroundColor Cyan
+                # Print with colored shortcut key
+                Write-OptionWithHighlight -Text $displayText -Selected $true
             } else {
                 # Normal Item
-                Write-Host " $shortcut  $($Options[$i])" -ForegroundColor Gray
+                Write-Host "    " -NoNewline
+                Write-OptionWithHighlight -Text $displayText -Selected $false
             }
         }
 
-        Write-Host "------------------------------------------------" -ForegroundColor DarkGray
+        Write-Host " ================================================" -ForegroundColor DarkCyan
         Write-Host " Info: " -NoNewline -ForegroundColor Yellow
         if ($Descriptions[$idx]) {
-            Write-Host "$($Descriptions[$idx])" -ForegroundColor Gray
+            Write-Host "$($Descriptions[$idx])" -ForegroundColor White
         } else {
             Write-Host "Select an option." -ForegroundColor DarkGray
         }
 
-        # Show appropriate hint based on menu type
-        if ($StaticStartIndex -gt 0) {
-            Write-Host " [Arrows: Navigate] [1-$StaticStartIndex: Devices] [A-Z: Options] [ESC: Back]" -ForegroundColor DarkGray
-        } else {
-            Write-Host " [Arrows: Navigate] [A-Z: Quick Select] [Enter: Confirm] [ESC: Back]" -ForegroundColor DarkGray
-        }
+        # Show hint
+        Write-Host " [" -NoNewline -ForegroundColor DarkGray
+        Write-Host "Arrows" -NoNewline -ForegroundColor DarkCyan
+        Write-Host ": Move] [" -NoNewline -ForegroundColor DarkGray
+        Write-Host "Keys" -NoNewline -ForegroundColor Yellow
+        Write-Host ": Select] [" -NoNewline -ForegroundColor DarkGray
+        Write-Host "Enter" -NoNewline -ForegroundColor Green
+        Write-Host ": OK] [" -NoNewline -ForegroundColor DarkGray
+        Write-Host "ESC" -NoNewline -ForegroundColor Red
+        Write-Host ": Back]" -ForegroundColor DarkGray
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
@@ -412,13 +529,20 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
                 return $numIdx
             }
         }
-        # Letter keys A-Z for static options (VirtualKeyCode 65-90)
+        # Letter keys for static options - check shortcut map
         elseif ($key.VirtualKeyCode -ge 65 -and $key.VirtualKeyCode -le 90) {
-            $letterIdx = $key.VirtualKeyCode - 65  # 65 = 'A', so index 0
-            $actualIdx = $StaticStartIndex + $letterIdx
-            if ($actualIdx -le $max) {
+            $pressedKey = [string][char]$key.VirtualKeyCode
+            if ($shortcutMap.ContainsKey($pressedKey)) {
                 try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-                return $actualIdx
+                return $shortcutMap[$pressedKey]
+            }
+        }
+        # Also check if pressed number matches a shortcut (for menus like process limit)
+        elseif ($StaticStartIndex -eq 0 -and $key.VirtualKeyCode -ge 49 -and $key.VirtualKeyCode -le 57) {
+            $pressedKey = [string][char]$key.VirtualKeyCode  # '1' = 49, etc.
+            if ($shortcutMap.ContainsKey($pressedKey)) {
+                try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
+                return $shortcutMap[$pressedKey]
             }
         }
     }
@@ -526,21 +650,45 @@ function Run-Report ($Target, $Name) {
 # Known stock launcher packages (varies by device/Android version)
 $Script:StockLaunchers = @(
     "com.google.android.tvlauncher",           # Standard Google TV Launcher
-    "com.google.android.apps.tv.launcherx"     # Newer Google TV Launcher
+    "com.google.android.apps.tv.launcherx",    # Newer Google TV Launcher (Chromecast, Onn)
+    "com.google.android.leanbacklauncher",     # Older Android TV Launcher
+    "com.amazon.tv.launcher"                   # Fire TV Launcher (if sideloaded)
 )
+
+# Helper to detect the current default launcher on the device
+function Get-CurrentLauncher ($Target) {
+    try {
+        # Query for the current home activity
+        $result = & $Script:AdbPath -s $Target shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>&1
+        $output = ($result | Out-String).Trim()
+        # Output format: "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true\ncom.example.launcher/.MainActivity"
+        # We want the package name (before the /)
+        if ($output -match "([a-zA-Z0-9_.]+)/") {
+            return $matches[1]
+        }
+    } catch {}
+    return $null
+}
 
 function Setup-Launcher ($Target) {
     Write-Header "Custom Launcher Wizard"
-    Write-Info "Checking installed launchers..."
+    Write-Info "Detecting current launcher..."
 
     $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages | Out-String)
     $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d | Out-String)
+
+    # Detect the currently active launcher
+    $currentLauncher = Get-CurrentLauncher -Target $Target
+    if ($currentLauncher) {
+        Write-Info "Current launcher: $currentLauncher"
+    }
 
     # Find which stock launcher is installed on this device
     $stockLauncherPkg = $null
     $stockLauncherInstalled = $false
     $stockLauncherDisabled = $false
 
+    # First check our known list
     foreach ($stockPkg in $Script:StockLaunchers) {
         if ($installedPkgs -match "package:$([regex]::Escape($stockPkg))(\r|\n|$)") {
             $stockLauncherPkg = $stockPkg
@@ -550,12 +698,29 @@ function Setup-Launcher ($Target) {
         }
     }
 
+    # If no known stock launcher found but we detected a current launcher that's not a custom one, use it
+    if (-not $stockLauncherInstalled -and $currentLauncher) {
+        $isCustomLauncher = $false
+        foreach ($l in $Script:Launchers) {
+            if ($currentLauncher -eq $l.Pkg) { $isCustomLauncher = $true; break }
+        }
+        if (-not $isCustomLauncher) {
+            $stockLauncherPkg = $currentLauncher
+            $stockLauncherInstalled = $true
+            $stockLauncherDisabled = $false
+            Write-Info "Detected stock launcher: $currentLauncher"
+        }
+    }
+
     $lOpts = @(); $lDescs = @(); $launchers = @()
 
     foreach ($l in $Script:Launchers) {
         $status = "MISSING"
+        $isCurrent = ($currentLauncher -eq $l.Pkg)
         # FIX #12: Use exact match
-        if ($installedPkgs -match "package:$([regex]::Escape($l.Pkg))(\r|\n|$)") { $status = "INSTALLED" }
+        if ($installedPkgs -match "package:$([regex]::Escape($l.Pkg))(\r|\n|$)") {
+            $status = if ($isCurrent) { "ACTIVE" } else { "INSTALLED" }
+        }
         $lOpts += "$($l.Name) [$status]"
         $lDescs += "Install or Enable $($l.Name)"
         $launchers += $l
@@ -563,40 +728,51 @@ function Setup-Launcher ($Target) {
 
     # UX #D: Show stock launcher status (only if installed)
     if ($stockLauncherInstalled) {
+        $stockDetail = switch ($stockLauncherPkg) {
+            "com.google.android.tvlauncher" { "Google TV" }
+            "com.google.android.apps.tv.launcherx" { "Google TV" }
+            "com.google.android.leanbacklauncher" { "Android TV" }
+            default { $stockLauncherPkg }
+        }
         if ($stockLauncherDisabled) {
-            $lOpts += "Restore Stock Launcher [DISABLED]"
-            $lDescs += "Re-enable default Android TV Home (currently disabled)"
+            $lOpts += "Stock Launcher ($stockDetail) [DISABLED]"
+            $lDescs += "Re-enable $stockLauncherPkg"
         } else {
-            $lOpts += "Restore Stock Launcher [ENABLED]"
-            $lDescs += "Stock launcher is already enabled"
+            $isCurrent = ($currentLauncher -eq $stockLauncherPkg)
+            $status = if ($isCurrent) { "ACTIVE" } else { "ENABLED" }
+            $lOpts += "Stock Launcher ($stockDetail) [$status]"
+            $lDescs += "Package: $stockLauncherPkg"
         }
     } else {
-        $lOpts += "Restore Stock Launcher [NOT FOUND]"
-        $lDescs += "No standard stock launcher detected on this device"
+        $lOpts += "Stock Launcher [NOT FOUND]"
+        $lDescs += "No standard stock launcher detected"
     }
     $lOpts += "Back"; $lDescs += "Return to Action Menu"
 
-    $sel = Read-Menu -Title "Select Launcher" -Options $lOpts -Descriptions $lDescs
+    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, S=Stock, B=Back
+    $launcherShortcuts = @("P", "F", "A", "W", "S", "B")
+    $sel = Read-Menu -Title "Select Launcher" -Options $lOpts -Descriptions $lDescs -Shortcuts $launcherShortcuts
 
     # Handle ESC or Back
-    if ($sel -eq -1 -or $lOpts[$sel] -eq "Back") { return }
+    if ($sel -eq -1 -or $lOpts[$sel] -match "^Back") { return }
 
-    if ($lOpts[$sel] -match "Restore Stock") {
+    if ($lOpts[$sel] -match "Stock|Google TV|Android TV") {
         if (-not $stockLauncherInstalled) {
             Write-Warn "No stock launcher found on this device."
-            Write-Info "This Shield may use a custom launcher or different package name."
             return
         }
-        if (-not $stockLauncherDisabled) {
-            Write-Info "Stock Launcher is already enabled."
-            return
-        }
-        Write-Header "Restoring Stock Launcher"
-        $result = Invoke-AdbCommand -Target $Target -Command "pm enable $stockLauncherPkg"
-        if ($result.Success) {
-            Write-Success "Stock Launcher Enabled."
+        if ($stockLauncherDisabled) {
+            Write-Header "Restoring Stock Launcher"
+            $result = Invoke-AdbCommand -Target $Target -Command "pm enable $stockLauncherPkg"
+            if ($result.Success) {
+                Write-Success "Stock Launcher Enabled: $stockLauncherPkg"
+                Write-Info "Press Home button to switch to it."
+            } else {
+                Write-ErrorMsg "Failed to enable: $($result.Error)"
+            }
         } else {
-            Write-ErrorMsg "Failed to enable stock launcher: $($result.Error)"
+            Write-Info "Stock Launcher is already enabled."
+            Write-Info "Press Home button and select it as default."
         }
         return
     }
@@ -604,30 +780,54 @@ function Setup-Launcher ($Target) {
     $choice = $launchers[$sel]
     # FIX #12: Use exact match
     if (-not ($installedPkgs -match "package:$([regex]::Escape($choice.Pkg))(\r|\n|$)")) {
-        $idx = Read-Toggle -Prompt "Not Installed. Open Play Store?" -Options @("YES", "NO") -DefaultIndex 0
-        if ($idx -eq 0) {
+        $toggleIdx = Read-Toggle -Prompt "Not Installed. Open Play Store?" -Options @("YES", "NO") -DefaultIndex 0
+        if ($toggleIdx -eq 0) {
             Open-PlayStore -Target $Target -PkgId $choice.Pkg
         }
     } else {
-        # UX #D: Only offer to disable stock if it exists and is not already disabled
-        if (-not $stockLauncherInstalled) {
-            Write-Success "$($choice.Name) is installed."
-            Write-Info "No stock launcher to disable. Press Home button to switch launchers."
-        } elseif ($stockLauncherDisabled) {
-            Write-Success "$($choice.Name) is installed and Stock Launcher is already disabled."
-            Write-Info "Press Home button on your remote to switch launchers."
-        } else {
-            $idx = Read-Toggle -Prompt "Disable Stock Launcher to activate?" -Options @("YES", "NO") -DefaultIndex 0
-            if ($idx -eq 0) {
-                # FIX #10: Use helper with error checking
+        # Check if already the active launcher
+        if ($currentLauncher -eq $choice.Pkg) {
+            Write-Success "$($choice.Name) is already the active launcher."
+            return
+        }
+
+        # Offer to disable stock launcher if it's currently active
+        if ($stockLauncherInstalled -and -not $stockLauncherDisabled -and $currentLauncher -eq $stockLauncherPkg) {
+            $toggleIdx = Read-Toggle -Prompt "Disable Stock Launcher to make this the default?" -Options @("YES", "NO") -DefaultIndex 0
+            if ($toggleIdx -eq 0) {
                 $result = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $stockLauncherPkg"
                 if ($result.Success) {
                     Write-Success "Stock Launcher Disabled."
+                    Write-Success "$($choice.Name) should now be active."
                 } else {
                     Write-ErrorMsg "Failed to disable stock launcher: $($result.Error)"
+                    Write-Info "Try: Settings > Apps > $stockLauncherPkg > Disable"
                 }
             }
+        } else {
+            Write-Success "$($choice.Name) is installed."
+            Write-Info "Press Home button on your remote and select it as default."
         }
+    }
+}
+
+# Helper to show task summary (used for completion and abort)
+function Show-TaskSummary ($Mode, [switch]$Aborted) {
+    if ($Aborted) {
+        Write-Header "Aborted - Partial Summary"
+    } else {
+        Write-Header "Summary"
+    }
+
+    if ($Mode -eq "Optimize") {
+        Write-Host " Disabled:    $($Script:Summary.Disabled) apps" -ForegroundColor Green
+        Write-Host " Uninstalled: $($Script:Summary.Uninstalled) apps" -ForegroundColor Green
+    } else {
+        Write-Host " Restored: $($Script:Summary.Restored) apps" -ForegroundColor Green
+    }
+    Write-Host " Skipped:  $($Script:Summary.Skipped) apps" -ForegroundColor Gray
+    if ($Script:Summary.Failed -gt 0) {
+        Write-Host " Failed:   $($Script:Summary.Failed) apps" -ForegroundColor Red
     }
 }
 
@@ -710,6 +910,8 @@ function Run-Task ($Target, $Mode) {
                 # Handle ABORT
                 if ($selStr -eq "ABORT") {
                     Write-Warn "Process aborted by user."
+                    Show-TaskSummary -Mode $Mode -Aborted
+                    Pause
                     return
                 }
 
@@ -754,6 +956,8 @@ function Run-Task ($Target, $Mode) {
                 # Handle ABORT
                 if ($selStr -eq "ABORT") {
                     Write-Warn "Process aborted by user."
+                    Show-TaskSummary -Mode $Mode -Aborted
+                    Pause
                     return
                 }
 
@@ -816,8 +1020,16 @@ function Run-Task ($Target, $Mode) {
             $idx = 0  # Default to YES
         } else {
             # FIX #9: Use subexpression for variable in string
-            $idx = Read-Toggle -Prompt "    >> Set to $($tAnim)?" -Options @("YES", "NO") -DefaultIndex 0
-            if ($idx -eq -1) { $idx = 1 }  # ESC = NO
+            $idx = Read-Toggle -Prompt "    >> Set to $($tAnim)?" -Options @("YES", "NO", "ABORT") -DefaultIndex 0
+            if ($idx -eq -1) { $idx = 2 }  # ESC = ABORT
+        }
+
+        # Handle ABORT
+        if ($idx -eq 2) {
+            Write-Warn "Process aborted by user."
+            Show-TaskSummary -Mode $Mode -Aborted
+            Pause
+            return
         }
 
         if ($idx -eq 0) {
@@ -846,11 +1058,20 @@ function Run-Task ($Target, $Mode) {
             # Default to "At Most 2" (index 2)
             $sel = 2
         } else {
-            $procOpts = @("Standard", "At Most 1", "At Most 2", "At Most 3", "At Most 4", "Skip")
-            $procDescs = @("Unlimited background apps.", "Aggressive RAM saving.", "Balanced RAM saving.", "Moderate.", "Light limit.", "Do not change.")
+            $procOpts = @("Standard", "At Most 1", "At Most 2", "At Most 3", "At Most 4", "Skip", "Abort")
+            $procDescs = @("Unlimited background apps.", "Aggressive RAM saving.", "Balanced RAM saving.", "Moderate.", "Light limit.", "Do not change.", "Cancel and return to menu.")
+            # Shortcuts: S=Standard, 1-4 for limits, K=sKip, X=abort
+            $procShortcuts = @("S", "1", "2", "3", "4", "K", "X")
+            $sel = Read-Menu -Title "Select Process Limit" -Options $procOpts -Descriptions $procDescs -DefaultIndex 2 -Shortcuts $procShortcuts
+            if ($sel -eq -1) { $sel = 6 }  # ESC = Abort
+        }
 
-            $sel = Read-Menu -Title "Select Process Limit" -Options $procOpts -Descriptions $procDescs -DefaultIndex 2
-            if ($sel -eq -1) { $sel = 5 }  # ESC = Skip
+        # Handle Abort
+        if ($sel -eq 6) {
+            Write-Warn "Process aborted by user."
+            Show-TaskSummary -Mode $Mode -Aborted
+            Pause
+            return
         }
 
         $val = $null
@@ -879,8 +1100,16 @@ function Run-Task ($Target, $Mode) {
             if ($applyAll) {
                 $idx = 0  # Default to YES
             } else {
-                $idx = Read-Toggle -Prompt "    >> Reset to Standard?" -Options @("YES", "NO") -DefaultIndex 0
-                if ($idx -eq -1) { $idx = 1 }  # ESC = NO
+                $idx = Read-Toggle -Prompt "    >> Reset to Standard?" -Options @("YES", "NO", "ABORT") -DefaultIndex 0
+                if ($idx -eq -1) { $idx = 2 }  # ESC = ABORT
+            }
+
+            # Handle ABORT
+            if ($idx -eq 2) {
+                Write-Warn "Process aborted by user."
+                Show-TaskSummary -Mode $Mode -Aborted
+                Pause
+                return
             }
 
             if ($idx -eq 0) {
@@ -894,18 +1123,7 @@ function Run-Task ($Target, $Mode) {
         }
     }
 
-    # UX #B: Show Summary
-    Write-Header "Summary"
-    if ($Mode -eq "Optimize") {
-        Write-Host " Disabled:    $($Script:Summary.Disabled) apps" -ForegroundColor Green
-        Write-Host " Uninstalled: $($Script:Summary.Uninstalled) apps" -ForegroundColor Green
-    } else {
-        Write-Host " Restored: $($Script:Summary.Restored) apps" -ForegroundColor Green
-    }
-    Write-Host " Skipped:  $($Script:Summary.Skipped) apps" -ForegroundColor Gray
-    if ($Script:Summary.Failed -gt 0) {
-        Write-Host " Failed:   $($Script:Summary.Failed) apps" -ForegroundColor Red
-    }
+    Show-TaskSummary -Mode $Mode
 
     Write-Header "Finished"
     $r = Read-Toggle -Prompt "Reboot Device Now?" -Options @("YES", "NO") -DefaultIndex 1
@@ -972,7 +1190,9 @@ while ($true) {
 
     # UX #F: Show version in menu title
     # Pass StaticStartIndex so devices use numbers, options use letters
-    $sel = Read-Menu -Title "Shield Optimizer $Script:Version - Main Menu" -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart
+    # Shortcuts: S=Scan, C=Connect, R=Report, F=reFresh, A=ADB, H=Help, Q=Quit
+    $mainShortcuts = @("S", "C", "R", "F", "A", "H", "Q")
+    $sel = Read-Menu -Title "Shield Optimizer $Script:Version - Main Menu" -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart -Shortcuts $mainShortcuts
 
     # Handle ESC
     if ($sel -eq -1) { continue }
@@ -1020,8 +1240,9 @@ while ($true) {
             "Disconnect this device from ADB.",
             "Return to Main Menu."
         )
-
-        $aSel = Read-Menu -Title "Action Menu: $($target.Name)" -Options $aOpts -Descriptions $aDescs
+        # Shortcuts: O=Optimize, R=Restore, P=rePort, L=Launcher, D=Disconnect, B=Back
+        $actionShortcuts = @("O", "R", "P", "L", "D", "B")
+        $aSel = Read-Menu -Title "Action Menu: $($target.Name)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
         # Handle ESC
         if ($aSel -eq -1) { continue }
