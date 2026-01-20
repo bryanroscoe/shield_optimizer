@@ -1,3 +1,7 @@
+param(
+    [switch]$Demo
+)
+
 <#
 .SYNOPSIS
     Android TV Optimizer (v62 - Multi-Device Support)
@@ -231,6 +235,180 @@ function Write-Warn ($Text)     { Write-Host " [!!] $Text" -ForegroundColor Yell
 function Write-ErrorMsg ($Text) { Write-Host " [ERROR] $Text" -ForegroundColor Red }
 function Write-Info ($Text)     { Write-Host " [INFO] $Text" -ForegroundColor Gray }
 function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor DarkGray }
+function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor DarkGray }
+
+# --- DEMO MODE ---
+function Show-DemoScreens {
+    Clear-Host
+    Write-Host "DEMO MODE - Screenshot Gallery" -ForegroundColor Magenta
+    Write-Host "All screens displayed statically for screenshot capture.`n" -ForegroundColor DarkGray
+
+    # ============================================================
+    # SCREEN 1: Main Menu with 2 fake devices
+    # ============================================================
+    Write-Separator
+    Write-Host " Android TV Optimizer $Script:Version - Main Menu" -ForegroundColor Cyan
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+
+    # Fake devices
+    Write-Host "  > " -NoNewline -ForegroundColor Cyan
+    Write-OptionWithHighlight -Text "[1] Shield TV Pro" -Selected $true
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[2] Living Room TV" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[S]can Network" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[C]onnect IP" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[R]eport All" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "Re[f]resh" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "Restart [A]DB" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[H]elp" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[Q]uit" -Selected $false
+
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " Info: " -NoNewline -ForegroundColor Yellow
+    Write-Host "Nvidia Shield | Shield TV Pro (2019) | 192.168.1.100:5555" -ForegroundColor White
+    Write-Host " [Arrows: Move] [Keys: Select] [Enter: OK] [ESC: Back]" -ForegroundColor DarkGray
+
+    # ============================================================
+    # SCREEN 2: Action Menu
+    # ============================================================
+    Write-Separator
+    Write-Host " Action Menu: Shield TV Pro (Nvidia Shield)" -ForegroundColor Cyan
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+
+    Write-Host "  > " -NoNewline -ForegroundColor Cyan
+    Write-OptionWithHighlight -Text "[O]ptimize" -Selected $true
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[R]estore" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "R[e]port" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[L]auncher Setup" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[P]rofile" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "Re[c]overy" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "Re[b]oot" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[D]isconnect" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "Bac[k]" -Selected $false
+
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " Info: " -NoNewline -ForegroundColor Yellow
+    Write-Host "Debloat apps and tune performance for Nvidia Shield." -ForegroundColor White
+
+    # ============================================================
+    # SCREEN 3: Health Report
+    # ============================================================
+    Write-Separator
+    Write-Header "Health Report: Shield TV Pro (Nvidia Shield)"
+
+    Write-SubHeader "System Info"
+    Write-Host " Platform:  " -NoNewline -ForegroundColor Gray
+    Write-Host "tegra" -ForegroundColor Cyan
+    Write-Host " Android:   " -NoNewline -ForegroundColor Gray
+    Write-Host "11" -ForegroundColor White
+
+    Write-SubHeader "Vitals"
+    Write-Host " Temp:    " -NoNewline -ForegroundColor Gray
+    Write-Host "42.3`°C" -ForegroundColor Green
+    Write-Host " RAM:     " -NoNewline -ForegroundColor Gray
+    Write-Host "68% (1890 / 2780 MB)" -ForegroundColor Yellow
+    Write-Host " Swap:    " -NoNewline -ForegroundColor Gray
+    Write-Host "128 MB" -ForegroundColor White
+    Write-Host " Storage: " -NoNewline -ForegroundColor Gray
+    Write-Host "8.2G / 14G (59%)" -ForegroundColor Green
+
+    Write-SubHeader "Settings Check"
+    Write-Host " Animation Speed: " -NoNewline -ForegroundColor Gray
+    Write-Host "0.5" -ForegroundColor Cyan
+    Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
+    Write-Host "2" -ForegroundColor Cyan
+
+    Write-SubHeader "Bloat Check"
+    Write-Host " [ACTIVE BLOAT] Sponsored Content" -ForegroundColor Yellow
+    Write-Host " [ACTIVE BLOAT] Google Feedback" -ForegroundColor Yellow
+
+    # ============================================================
+    # SCREEN 4: Launcher Wizard
+    # ============================================================
+    Write-Separator
+    Write-Host " Select Launcher" -ForegroundColor Cyan
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+
+    Write-Host "  > " -NoNewline -ForegroundColor Cyan
+    Write-OptionWithHighlight -Text "[P]rojectivy Launcher [ACTIVE]" -Selected $true
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[F]Launcher [INSTALLED]" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[A]TV Launcher [MISSING]" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[W]olf Launcher [MISSING]" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[S]tock Launcher (Google TV) [DISABLED]" -Selected $false
+    Write-Host "    " -NoNewline
+    Write-OptionWithHighlight -Text "[B]ack" -Selected $false
+
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " Info: " -NoNewline -ForegroundColor Yellow
+    Write-Host "Install or Enable Projectivy Launcher" -ForegroundColor White
+
+    # ============================================================
+    # SCREEN 5: Optimize Flow - Sample App
+    # ============================================================
+    Write-Separator
+    Write-Header "Application Management (Optimize) - Nvidia Shield"
+    Write-Host ""
+    Write-Host "Remove: " -NoNewline
+    Write-Host "Sponsored Content" -ForegroundColor Cyan -NoNewline
+    Write-Host " [Safe]" -ForegroundColor Green
+    Write-Dim "    Removes 'Sponsored' rows from home."
+    Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
+    Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
+    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor DarkGray
+    Write-Host "   SKIP   " -NoNewline -ForegroundColor DarkGray
+    Write-Host "   ABORT   " -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Dim "Google Play Movies ... [NOT INSTALLED]"
+    Write-Dim "Google Play Music ... [ALREADY DISABLED]"
+    Write-Host ""
+    Write-Host "Remove: " -NoNewline
+    Write-Host "Nvidia Telemetry" -ForegroundColor Cyan -NoNewline
+    Write-Host " [Safe]" -ForegroundColor Green
+    Write-Dim "    Stops Nvidia data collection."
+    Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
+    Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
+    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor DarkGray
+    Write-Host "   SKIP   " -NoNewline -ForegroundColor DarkGray
+    Write-Host "   ABORT   " -ForegroundColor DarkGray
+
+    # ============================================================
+    # SCREEN 6: Summary Screen
+    # ============================================================
+    Write-Separator
+    Write-Header "Summary"
+    Write-Host " Disabled:    8 apps" -ForegroundColor Green
+    Write-Host " Uninstalled: 2 apps" -ForegroundColor Green
+    Write-Host " Skipped:     5 apps" -ForegroundColor Gray
+    Write-Host " Failed:      0 apps" -ForegroundColor Gray
+
+    Write-Header "Finished"
+    Write-Host "Reboot Device Now?  " -NoNewline -ForegroundColor Gray
+    Write-Host "   YES   " -NoNewline -ForegroundColor DarkGray
+    Write-Host " [ NO ] " -ForegroundColor Cyan
+
+    Write-Separator
+    Write-Host "END OF DEMO" -ForegroundColor Magenta
+    Write-Host ""
+}
 
 # FIX #10: Helper function to execute ADB commands with proper error checking
 function Invoke-AdbCommand {
@@ -1519,6 +1697,13 @@ function Show-RebootMenu ($Target) {
 }
 
 # --- MAIN MENU ---
+
+# Demo mode: display all screens and exit
+if ($Demo) {
+    Show-DemoScreens
+    exit
+}
+
 Clear-Host; Check-Adb
 
 # FIX #5: Window resize with error handling
