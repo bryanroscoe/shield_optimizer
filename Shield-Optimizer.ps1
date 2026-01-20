@@ -269,8 +269,8 @@ function Show-DemoScreens {
     Write-Host " ================================================" -ForegroundColor DarkCyan
 
     # Fake devices
-    Write-Host "  > " -NoNewline -ForegroundColor Cyan
-    Write-OptionWithHighlight -Text "[1] Shield TV Pro" -Selected $true
+    Write-Host "  ► " -NoNewline -ForegroundColor Cyan
+    Write-OptionWithHighlight -Text "[1] Shield TV Pro" -Selected $true -WithClosingArrow $true
     Write-Host "    " -NoNewline
     Write-OptionWithHighlight -Text "[2] Living Room TV" -Selected $false
     Write-Host "    " -NoNewline
@@ -300,8 +300,8 @@ function Show-DemoScreens {
     Write-Host " Action Menu: Shield TV Pro (Nvidia Shield)" -ForegroundColor Cyan
     Write-Host " ================================================" -ForegroundColor DarkCyan
 
-    Write-Host "  > " -NoNewline -ForegroundColor Cyan
-    Write-OptionWithHighlight -Text "[O]ptimize" -Selected $true
+    Write-Host "  ► " -NoNewline -ForegroundColor Cyan
+    Write-OptionWithHighlight -Text "[O]ptimize" -Selected $true -WithClosingArrow $true
     Write-Host "    " -NoNewline
     Write-OptionWithHighlight -Text "[R]estore" -Selected $false
     Write-Host "    " -NoNewline
@@ -375,8 +375,8 @@ function Show-DemoScreens {
     Write-Host " Select Launcher" -ForegroundColor Cyan
     Write-Host " ================================================" -ForegroundColor DarkCyan
 
-    Write-Host "  > " -NoNewline -ForegroundColor Cyan
-    Write-OptionWithHighlight -Text "[P]rojectivy Launcher [ACTIVE]" -Selected $true
+    Write-Host "  ► " -NoNewline -ForegroundColor Cyan
+    Write-OptionWithHighlight -Text "[P]rojectivy Launcher [ACTIVE]" -Selected $true -WithClosingArrow $true
     Write-Host "    " -NoNewline
     Write-OptionWithHighlight -Text "[F]Launcher [INSTALLED]" -Selected $false
     Write-Host "    " -NoNewline
@@ -770,51 +770,45 @@ function Show-Help {
 }
 
 # Helper to print menu option with colored shortcut key and status tags
-function Write-OptionWithHighlight ($Text, [bool]$Selected) {
-    # Parse the text for [X] shortcut pattern and status tags
+function Write-OptionWithHighlight ($Text, [bool]$Selected, [bool]$WithClosingArrow = $false) {
+    # ANSI escape codes
+    $esc = [char]27
+    $bold = "$esc[1m"
+    $reset = "$esc[0m"
+
+    # Set styles based on selection state (DRY)
+    $textColor = if ($Selected) { "Cyan" } else { "Gray" }
+    $bracketCharColor = if ($Selected) { "Cyan" } else { "DarkGray" }
+    $prefix = if ($Selected) { $bold } else { "" }
+    $suffix = if ($Selected) { $reset } else { "" }
+
+    # Helper to write styled text
+    $writeStyled = { param($content, $color) Write-Host "$prefix$content$suffix" -NoNewline -ForegroundColor $color }
+
     $remaining = $Text
 
     while ($remaining.Length -gt 0) {
-        # Look for brackets
         $bracketStart = $remaining.IndexOf('[')
 
         if ($bracketStart -lt 0) {
-            # No more brackets, print the rest
-            if ($Selected) {
-                Write-Host "$remaining " -NoNewline -ForegroundColor Black -BackgroundColor Cyan
-            } else {
-                Write-Host $remaining -NoNewline -ForegroundColor Gray
-            }
+            & $writeStyled $remaining $textColor
             break
         }
 
-        # Print text before bracket
         if ($bracketStart -gt 0) {
-            $before = $remaining.Substring(0, $bracketStart)
-            if ($Selected) {
-                Write-Host $before -NoNewline -ForegroundColor Black -BackgroundColor Cyan
-            } else {
-                Write-Host $before -NoNewline -ForegroundColor Gray
-            }
+            & $writeStyled $remaining.Substring(0, $bracketStart) $textColor
         }
 
-        # Find closing bracket
         $bracketEnd = $remaining.IndexOf(']', $bracketStart)
         if ($bracketEnd -lt 0) {
-            # No closing bracket, print rest normally
-            if ($Selected) {
-                Write-Host "$($remaining.Substring($bracketStart)) " -NoNewline -ForegroundColor Black -BackgroundColor Cyan
-            } else {
-                Write-Host $remaining.Substring($bracketStart) -NoNewline -ForegroundColor Gray
-            }
+            & $writeStyled $remaining.Substring($bracketStart) $textColor
             break
         }
 
-        # Extract bracket content
         $bracketContent = $remaining.Substring($bracketStart + 1, $bracketEnd - $bracketStart - 1)
 
-        # Determine color based on content
-        $bracketColor = switch -Regex ($bracketContent) {
+        # Determine bracket content color based on type
+        $contentColor = switch -Regex ($bracketContent) {
             "^[A-Z0-9]$"    { "Yellow" }      # Single char shortcut key
             "ACTIVE"        { "Green" }
             "INSTALLED"     { "Cyan" }
@@ -822,25 +816,22 @@ function Write-OptionWithHighlight ($Text, [bool]$Selected) {
             "MISSING"       { "Red" }
             "DISABLED"      { "DarkYellow" }
             "NOT FOUND"     { "DarkGray" }
-            default         { "White" }
+            default         { $textColor }
         }
 
-        # Print the bracketed content with color
-        if ($Selected) {
-            Write-Host "[" -NoNewline -ForegroundColor Black -BackgroundColor Cyan
-            Write-Host $bracketContent -NoNewline -ForegroundColor $bracketColor -BackgroundColor Cyan
-            Write-Host "]" -NoNewline -ForegroundColor Black -BackgroundColor Cyan
-        } else {
-            Write-Host "[" -NoNewline -ForegroundColor DarkGray
-            Write-Host $bracketContent -NoNewline -ForegroundColor $bracketColor
-            Write-Host "]" -NoNewline -ForegroundColor DarkGray
-        }
+        & $writeStyled "[" $bracketCharColor
+        & $writeStyled $bracketContent $contentColor
+        & $writeStyled "]" $bracketCharColor
 
-        # Move past this bracket
         $remaining = $remaining.Substring($bracketEnd + 1)
     }
 
-    Write-Host ""  # Newline at end
+    # Add closing arrow for selected items
+    if ($Selected -and $WithClosingArrow) {
+        Write-Host " ◄" -NoNewline -ForegroundColor Cyan
+    }
+
+    Write-Host ""
 }
 
 # --- NEW VERTICAL MENU SYSTEM ---
@@ -916,8 +907,8 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
         MoveTo $row
         [Console]::Write($clearLine)
         if ($selected) {
-            Write-Host "  > " -NoNewline -ForegroundColor Cyan
-            Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $true
+            Write-Host "  ► " -NoNewline -ForegroundColor Cyan
+            Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $true -WithClosingArrow $true
         } else {
             Write-Host "    " -NoNewline
             Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $false
@@ -1871,7 +1862,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
                 if ($selStr -eq "RESTORE") {
                     Write-Host "    Attempting Recovery..." -NoNewline -ForegroundColor Gray
-                    if ($isInstalled) {
+                    if ($isInstalledForUser) {
                         # FIX #10: Use helper with error checking
                         $result = Invoke-AdbCommand -Target $Target -Command "pm enable $pkg"
                         if ($result.Success) {
