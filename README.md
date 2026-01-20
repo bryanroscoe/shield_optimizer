@@ -52,6 +52,9 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; .\Shield-Optimizer.ps1
 
 # Demo mode (for screenshots)
 .\Shield-Optimizer.ps1 -Demo
+
+# Force re-download ADB tools
+.\Shield-Optimizer.ps1 -ForceAdbDownload
 ```
 
 ADB tools download automatically on first run. Accept the debugging prompt on your TV.

@@ -1,6 +1,10 @@
 param(
-    [switch]$Demo
+    [switch]$Demo,
+    [switch]$ForceAdbDownload
 )
+
+# Set script-level flag for ForceAdbDownload
+$Script:ForceAdbDownload = $ForceAdbDownload
 
 <#
 .SYNOPSIS
@@ -455,6 +459,14 @@ function Check-Adb {
     $ScriptDir = Get-ScriptDirectory
     $AdbExe = "$ScriptDir\adb.exe"
     $Script:AdbPath = ""
+
+    # Force download if flag is set
+    if ($Script:ForceAdbDownload -and (Test-Path $AdbExe)) {
+        Write-Warn "Forcing ADB re-download..."
+        Remove-Item $AdbExe -Force -ErrorAction SilentlyContinue
+        Remove-Item "$ScriptDir\AdbWinApi.dll" -Force -ErrorAction SilentlyContinue
+        Remove-Item "$ScriptDir\AdbWinUsbApi.dll" -Force -ErrorAction SilentlyContinue
+    }
 
     if (Test-Path $AdbExe) {
         $Script:AdbPath = $AdbExe
@@ -980,22 +992,32 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     # Try multiple methods for different device types
     $Temp = "N/A"
 
-    # Method 1: thermalservice (Shield)
+    # Method 1: thermalservice - look for CPU, soc_thermal, or first valid temp
     try {
         $dump = & $Script:AdbPath -s $Target shell dumpsys thermalservice 2>&1 | Out-String
-        if ($dump -match "mValue=([\d\.]+).*mName=CPU") {
+        # Try CPU/CPU0 first (Shield), then soc_thermal (Onn/Amlogic), then any Type=0 reading
+        if ($dump -match "mValue=([\d\.]+).*mName=CPU\d*,") {
+            $Temp = [math]::Round([float]$matches[1], 1)
+        }
+        elseif ($dump -match "mValue=([\d\.]+).*mName=soc_thermal") {
+            $Temp = [math]::Round([float]$matches[1], 1)
+        }
+        elseif ($dump -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
+            # Type 0 = CPU/SoC temperature
             $Temp = [math]::Round([float]$matches[1], 1)
         }
     } catch {}
 
-    # Method 2: thermal zones (Google TV / generic)
+    # Method 2: thermal zones (generic Linux)
     if ($Temp -eq "N/A") {
         try {
             $thermal = & $Script:AdbPath -s $Target shell "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null" 2>&1 | Out-String
             if ($thermal -match "^\d+") {
                 $tempVal = [int]($thermal.Trim())
                 if ($tempVal -gt 1000) { $tempVal = $tempVal / 1000 }  # millidegrees to degrees
-                $Temp = [math]::Round($tempVal, 1)
+                if ($tempVal -gt 0 -and $tempVal -lt 150) {  # Sanity check
+                    $Temp = [math]::Round($tempVal, 1)
+                }
             }
         } catch {}
     }
