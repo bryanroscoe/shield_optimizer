@@ -1,7 +1,10 @@
-# ADB binaries
+# ADB binaries (all platforms)
+adb
 adb.exe
 AdbWinApi.dll
 AdbWinUsbApi.dll
+adb_temp.zip
+adb_temp_extract/
 
 # ===================
 # OS Generated Files

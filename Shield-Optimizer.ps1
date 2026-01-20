@@ -25,9 +25,18 @@ $Script:ForceAdbDownload = $ForceAdbDownload
     - Keyboard shortcuts, colored status tags
 #>
 
-$Script:Version = "v62-beta"
+$Script:Version = "v63-crossplatform"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+# --- PLATFORM DETECTION ---
+$Script:Platform = switch ($true) {
+    $IsWindows { "Windows" }
+    $IsMacOS   { "macOS" }
+    $IsLinux   { "Linux" }
+    default    { if ($env:OS -match "Windows") { "Windows" } else { "Unknown" } }
+}
+$Script:IsUnix = $Script:Platform -in @("macOS", "Linux")
 
 # --- CONFIGURATION & DATA MODELS ---
 
@@ -518,9 +527,63 @@ function Get-ScriptDirectory {
     return (Get-Location).Path
 }
 
+# --- CROSS-PLATFORM ADB HELPERS ---
+function Get-AdbConfig {
+    $config = @{
+        BinaryName = "adb"
+        ExtraFiles = @()
+        DownloadUrl = ""
+    }
+
+    switch ($Script:Platform) {
+        "Windows" {
+            $config.BinaryName = "adb.exe"
+            $config.ExtraFiles = @("AdbWinApi.dll", "AdbWinUsbApi.dll")
+            $config.DownloadUrl = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+        }
+        "macOS" {
+            $config.BinaryName = "adb"
+            $config.ExtraFiles = @()
+            $config.DownloadUrl = "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"
+        }
+        "Linux" {
+            $config.BinaryName = "adb"
+            $config.ExtraFiles = @()
+            $config.DownloadUrl = "https://dl.google.com/android/repository/platform-tools-latest-linux.zip"
+        }
+        default {
+            # Fallback to Windows
+            $config.BinaryName = "adb.exe"
+            $config.ExtraFiles = @("AdbWinApi.dll", "AdbWinUsbApi.dll")
+            $config.DownloadUrl = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+        }
+    }
+
+    return $config
+}
+
+function Stop-AdbProcess {
+    if ($Script:IsUnix) {
+        # Unix: use pkill or killall
+        try {
+            $null = & pkill -f "adb" 2>&1
+        } catch {
+            try {
+                $null = & killall adb 2>&1
+            } catch {}
+        }
+    } else {
+        # Windows: use Stop-Process
+        try {
+            Stop-Process -Name "adb" -Force -ErrorAction SilentlyContinue
+        } catch {}
+    }
+}
+
 function Check-Adb {
     $ScriptDir = Get-ScriptDirectory
-    $AdbExe = "$ScriptDir\adb.exe"
+    $adbConfig = Get-AdbConfig
+    $AdbExe = Join-Path $ScriptDir $adbConfig.BinaryName
     $Script:AdbPath = ""
 
     # Force download if flag is set - skip all checks and download fresh
@@ -530,32 +593,39 @@ function Check-Adb {
         if (Test-Path $AdbExe) {
             try { & $AdbExe kill-server 2>$null } catch {}
         }
-        try { Stop-Process -Name "adb" -Force -ErrorAction SilentlyContinue } catch {}
+        Stop-AdbProcess
         Start-Sleep -Milliseconds 500
         Remove-Item $AdbExe -Force -ErrorAction SilentlyContinue
-        Remove-Item "$ScriptDir\AdbWinApi.dll" -Force -ErrorAction SilentlyContinue
-        Remove-Item "$ScriptDir\AdbWinUsbApi.dll" -Force -ErrorAction SilentlyContinue
+        foreach ($extraFile in $adbConfig.ExtraFiles) {
+            Remove-Item (Join-Path $ScriptDir $extraFile) -Force -ErrorAction SilentlyContinue
+        }
         # Fall through to download section
     }
     elseif (Test-Path $AdbExe) {
         $Script:AdbPath = $AdbExe
     }
-    elseif (Get-Command "adb.exe" -ErrorAction SilentlyContinue) {
-        $Script:AdbPath = (Get-Command "adb.exe").Source
+    elseif (Get-Command $adbConfig.BinaryName -ErrorAction SilentlyContinue) {
+        $Script:AdbPath = (Get-Command $adbConfig.BinaryName).Source
     }
 
     if ($Script:AdbPath -eq "") {
         if (-not $Script:ForceAdbDownload) { Write-Warn "ADB missing. Downloading..." }
-        $Url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
-        $Zip = "$ScriptDir\adb_temp.zip"; $Ext = "$ScriptDir\adb_temp_extract"
+        $Url = $adbConfig.DownloadUrl
+        $Zip = Join-Path $ScriptDir "adb_temp.zip"
+        $Ext = Join-Path $ScriptDir "adb_temp_extract"
         try {
             [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
             Invoke-WebRequest -Uri $Url -OutFile $Zip -UseBasicParsing
             Expand-Archive -Path $Zip -DestinationPath $Ext -Force
-            Move-Item "$Ext\platform-tools\adb.exe" $ScriptDir -Force
-            Move-Item "$Ext\platform-tools\AdbWinApi.dll" $ScriptDir -Force
-            Move-Item "$Ext\platform-tools\AdbWinUsbApi.dll" $ScriptDir -Force
+            Move-Item (Join-Path $Ext "platform-tools" $adbConfig.BinaryName) $ScriptDir -Force
+            foreach ($extraFile in $adbConfig.ExtraFiles) {
+                Move-Item (Join-Path $Ext "platform-tools" $extraFile) $ScriptDir -Force
+            }
             Remove-Item $Zip -Force; Remove-Item $Ext -Recurse -Force
+            # Make executable on Unix
+            if ($Script:IsUnix) {
+                & chmod +x $AdbExe
+            }
             $Script:AdbPath = $AdbExe
             Write-Success "ADB Installed."
         } catch { Write-ErrorMsg "ADB Setup Failed."; Exit }
@@ -678,44 +748,189 @@ function Get-Devices {
     return $devs
 }
 
-# FIX #1: Socket leak fix and #14: Results feedback and #H: Timeout improvement
-function Scan-Network {
-    Write-Info "Scanning local subnet for Android TV devices (timeout: 200ms)..."
-    $arp = arp -a | Select-String "dynamic"
-    $foundCount = 0
+# --- CROSS-PLATFORM NETWORK HELPERS ---
+function Get-ArpTable {
+    $ips = @()
 
-    foreach ($entry in $arp) {
-        if ($entry -match "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})") {
-            $ip = $matches[1]
-            $sock = $null
+    switch ($Script:Platform) {
+        "Windows" {
+            # Windows: arp -a with "dynamic" filter
+            $arpOutput = arp -a 2>$null | Select-String "dynamic"
+            foreach ($line in $arpOutput) {
+                if ($line -match "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})") {
+                    $ips += $matches[1]
+                }
+            }
+        }
+        "macOS" {
+            # macOS: arp -a shows IPs in parentheses like (192.168.1.100)
+            # Filter out "permanent" entries (multicast/broadcast)
+            $arpOutput = arp -a 2>$null
+            foreach ($line in $arpOutput) {
+                # Skip permanent entries (multicast/broadcast)
+                if ($line -match "permanent") { continue }
+                if ($line -match "\((\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\)") {
+                    $ips += $matches[1]
+                }
+            }
+        }
+        "Linux" {
+            # Linux: try ip neigh first, then fall back to arp -n
+            $arpOutput = $null
             try {
-                $sock = New-Object System.Net.Sockets.TcpClient
-                # FIX #H: Increased timeout from 50ms to 200ms
-                $asyncResult = $sock.BeginConnect($ip, 5555, $null, $null)
-                if ($asyncResult.AsyncWaitHandle.WaitOne(200, $false)) {
-                    if ($sock.Connected) {
-                        Write-Success "Found device at $ip"
-                        & $Script:AdbPath connect $ip | Out-Null
-                        $foundCount++
+                $arpOutput = & ip neigh 2>$null
+            } catch {
+                try {
+                    $arpOutput = arp -n 2>$null
+                } catch {}
+            }
+            if ($arpOutput) {
+                foreach ($line in $arpOutput) {
+                    if ($line -match "^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})") {
+                        $ips += $matches[1]
                     }
                 }
             }
-            catch {
-                # Silently continue on connection errors
-            }
-            finally {
-                # FIX #1: Always dispose socket to prevent leak
-                if ($sock) {
-                    try { $sock.Close() } catch {}
-                    try { $sock.Dispose() } catch {}
+        }
+        default {
+            # Fallback: try Windows-style arp
+            $arpOutput = arp -a 2>$null | Select-String "dynamic"
+            foreach ($line in $arpOutput) {
+                if ($line -match "(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})") {
+                    $ips += $matches[1]
                 }
             }
         }
     }
 
+    # Filter out non-unicast addresses (multicast 224-239, broadcast, localhost)
+    $ips = $ips | Where-Object {
+        $firstOctet = [int]($_ -split '\.')[0]
+        $firstOctet -ge 1 -and $firstOctet -le 223 -and $firstOctet -ne 127
+    }
+
+    return $ips
+}
+
+# Get local subnet for scanning
+function Get-LocalSubnet {
+    $subnet = $null
+    try {
+        # Get the default gateway's network
+        if ($Script:IsUnix) {
+            # macOS/Linux: parse route or netstat
+            $routeOutput = route -n get default 2>$null | Out-String
+            if ($routeOutput -match "gateway:\s*(\d+\.\d+\.\d+\.\d+)") {
+                $gateway = $matches[1]
+                # Assume /24 subnet, return first 3 octets
+                $octets = $gateway -split '\.'
+                $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+            }
+        } else {
+            # Windows: use Get-NetRoute or ipconfig
+            $gateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop
+            if ($gateway) {
+                $octets = $gateway -split '\.'
+                $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+            }
+        }
+    } catch {}
+
+    # Fallback to common subnets
+    if (-not $subnet) {
+        $subnet = "192.168.1"
+    }
+    return $subnet
+}
+
+# FIX #1: Socket leak fix and #14: Results feedback and #H: Timeout improvement
+function Scan-Network {
+    Write-Info "Scanning local subnet for Android TV devices..."
+
+    # Get local subnet
+    $subnet = Get-LocalSubnet
+    Write-Host " Subnet: $subnet.x" -ForegroundColor Gray
+
+    # Build list of IPs to scan: ARP table + full subnet sweep
+    $ipsToScan = @{}
+
+    # First, add IPs from ARP table (known devices)
+    $arpIps = Get-ArpTable
+    foreach ($ip in $arpIps) {
+        $ipsToScan[$ip] = $true
+    }
+
+    # Add common device IPs in the subnet (1-254)
+    # Prioritize common DHCP ranges
+    $priorityRanges = @(100..150) + @(2..99) + @(151..254)
+    foreach ($i in $priorityRanges) {
+        $ip = "$subnet.$i"
+        if (-not $ipsToScan.ContainsKey($ip)) {
+            $ipsToScan[$ip] = $true
+        }
+    }
+
+    $allIps = @($ipsToScan.Keys | Select-Object -First 254)
+    $total = $allIps.Count
+    $foundCount = 0
+    $foundIps = @()
+
+    Write-Host " Scanning $total addresses (parallel)..." -ForegroundColor Gray
+
+    # Parallel scan using batched async connections
+    $batchSize = 50  # Check 50 IPs at once
+    $timeout = 80    # 80ms timeout per batch
+
+    for ($batchStart = 0; $batchStart -lt $total; $batchStart += $batchSize) {
+        $batchEnd = [Math]::Min($batchStart + $batchSize - 1, $total - 1)
+        $batch = $allIps[$batchStart..$batchEnd]
+
+        # Show progress
+        $progress = [Math]::Min($batchEnd + 1, $total)
+        Write-Host "`r Scanning... $progress/$total" -NoNewline -ForegroundColor DarkGray
+
+        # Start all connections in this batch
+        $connections = @()
+        foreach ($ip in $batch) {
+            try {
+                $sock = New-Object System.Net.Sockets.TcpClient
+                $asyncResult = $sock.BeginConnect($ip, 5555, $null, $null)
+                $connections += @{ IP = $ip; Socket = $sock; Async = $asyncResult }
+            } catch {
+                # Skip this IP
+            }
+        }
+
+        # Wait for timeout then check results
+        Start-Sleep -Milliseconds $timeout
+
+        # Check which connections succeeded
+        foreach ($conn in $connections) {
+            try {
+                if ($conn.Async.IsCompleted -and $conn.Socket.Connected) {
+                    $foundIps += $conn.IP
+                }
+            } catch {}
+            finally {
+                try { $conn.Socket.Close() } catch {}
+                try { $conn.Socket.Dispose() } catch {}
+            }
+        }
+    }
+
+    Write-Host "`r                              `r" -NoNewline  # Clear progress line
+
+    # Connect to found devices
+    foreach ($ip in $foundIps) {
+        Write-Success "Found device at $ip"
+        & $Script:AdbPath connect $ip 2>$null | Out-Null
+        $foundCount++
+    }
+
     # FIX #14: Show results feedback
     if ($foundCount -eq 0) {
-        Write-Warn "No devices found on network. Ensure Network Debugging is enabled on your Android TV device."
+        Write-Warn "No devices found. Ensure Network Debugging is enabled on your Android TV."
+        Write-Host " Tip: You can also use 'Connect IP' to enter the address manually." -ForegroundColor Gray
     } else {
         Write-Success "Scan complete. Found $foundCount device(s)."
     }
@@ -834,6 +1049,113 @@ function Write-OptionWithHighlight ($Text, [bool]$Selected, [bool]$WithClosingAr
     Write-Host ""
 }
 
+# --- CROSS-PLATFORM CONSOLE HELPERS ---
+function Hide-Cursor {
+    # Use ANSI escape sequence (works on all modern terminals including Windows Terminal, macOS, Linux)
+    [Console]::Write("$([char]27)[?25l")
+}
+
+function Show-Cursor {
+    # Use ANSI escape sequence (works on all modern terminals)
+    [Console]::Write("$([char]27)[?25h")
+}
+
+function Get-KeyInput {
+    # Cross-platform key input handler
+    # Returns a hashtable with: Key (normalized name), Char (character if printable)
+    $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+
+    $result = @{
+        Key = $null
+        Char = $null
+    }
+
+    # Try VirtualKeyCode first (works on Windows, may work on Unix with PS7+)
+    $vk = $key.VirtualKeyCode
+    $char = $key.Character
+    $handled = $false
+
+    # Handle special keys via VirtualKeyCode
+    switch ($vk) {
+        27 { $result.Key = "Escape"; $handled = $true }
+        13 { $result.Key = "Enter"; $handled = $true }
+        38 { $result.Key = "Up"; $handled = $true }      # UpArrow
+        40 { $result.Key = "Down"; $handled = $true }    # DownArrow
+        37 { $result.Key = "Left"; $handled = $true }    # LeftArrow
+        39 { $result.Key = "Right"; $handled = $true }   # RightArrow
+    }
+
+    # Handle letters and numbers via Character (more reliable cross-platform)
+    if (-not $handled -and $char) {
+        if ($char -match '[0-9]') {
+            $result.Key = "Number"
+            $result.Char = $char
+            $handled = $true
+        }
+        elseif ($char -match '[a-zA-Z]') {
+            $result.Key = "Letter"
+            $result.Char = $char.ToString().ToUpper()
+            $handled = $true
+        }
+    }
+
+    # If VirtualKeyCode didn't give us a result, try character-based detection (Unix fallback)
+    if (-not $handled -and $Script:IsUnix) {
+        $char = $key.Character
+        $charCode = [int]$char
+
+        switch ($charCode) {
+            27 { # ESC or start of escape sequence
+                # Brief delay to allow escape sequence to fully arrive
+                Start-Sleep -Milliseconds 30
+                # Check if it's an arrow key sequence (ESC [ A/B/C/D)
+                if ([Console]::KeyAvailable) {
+                    $seq1 = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    if ($seq1.Character -eq '[') {
+                        Start-Sleep -Milliseconds 20
+                        if ([Console]::KeyAvailable) {
+                            $seq2 = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            switch ($seq2.Character) {
+                                'A' { $result.Key = "Up" }
+                                'B' { $result.Key = "Down" }
+                                'C' { $result.Key = "Right" }
+                                'D' { $result.Key = "Left" }
+                                default { $result.Key = "Escape" }
+                            }
+                        } else {
+                            $result.Key = "Escape"
+                        }
+                    } else {
+                        $result.Key = "Escape"
+                    }
+                } else {
+                    $result.Key = "Escape"
+                }
+            }
+            13 { $result.Key = "Enter" }
+            10 { $result.Key = "Enter" }  # Linux newline
+            default {
+                if ($char -match '[0-9]') {
+                    $result.Key = "Number"
+                    $result.Char = $char
+                }
+                elseif ($char -match '[a-zA-Z]') {
+                    $result.Key = "Letter"
+                    $result.Char = $char.ToString().ToUpper()
+                }
+                else {
+                    $result.Char = $char
+                }
+            }
+        }
+    }
+    elseif (-not $handled) {
+        $result.Char = $key.Character
+    }
+
+    return $result
+}
+
 # --- NEW VERTICAL MENU SYSTEM ---
 # FIX #13: ESC key support, FIX #3: Cursor error handling, UX #C: Number/letter key shortcuts
 # Flicker-free: only redraws changed lines instead of full screen
@@ -856,13 +1178,31 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
     $shortcutMap = @{}
     $shortcutDisplay = @{}
     $displayTexts = @{}
+    $separatorIndices = @{}  # Track separator rows
 
     for ($i = 0; $i -lt $Options.Count; $i++) {
+        # Handle separators
+        if ($Options[$i] -eq "---") {
+            $separatorIndices[$i] = $true
+            $displayTexts[$i] = "---"
+            $shortcutDisplay[$i] = ""
+            continue
+        }
+
         if ($i -lt $StaticStartIndex) {
-            $shortcutDisplay[$i] = "$($i + 1)"
+            # Count non-separator items before this for numbering
+            $numBefore = 0
+            for ($j = 0; $j -lt $i; $j++) {
+                if ($Options[$j] -ne "---") { $numBefore++ }
+            }
+            $shortcutDisplay[$i] = "$($numBefore + 1)"
         } else {
             $staticIdx = $i - $StaticStartIndex
-            if ($Shortcuts -and $staticIdx -lt $Shortcuts.Count) {
+            # Adjust for separators
+            for ($j = $StaticStartIndex; $j -lt $i; $j++) {
+                if ($Options[$j] -eq "---") { $staticIdx-- }
+            }
+            if ($Shortcuts -and $staticIdx -ge 0 -and $staticIdx -lt $Shortcuts.Count) {
                 $char = $Shortcuts[$staticIdx].ToUpper()
             } else {
                 $char = $Options[$i].Substring(0,1).ToUpper()
@@ -897,21 +1237,39 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
     $infoRow = $menuStartRow + $Options.Count + 1
     $hintsRow = $infoRow + 1
 
-    # Hide cursor
-    $origCursor = 25
-    try { $origCursor = $Host.UI.RawUI.CursorSize; $Host.UI.RawUI.CursorSize = 0 } catch {}
+    # Hide cursor (cross-platform)
+    Hide-Cursor
 
     # Helper: draw a single menu item
     function DrawItem($itemIdx, $selected) {
         $row = $menuStartRow + $itemIdx
         MoveTo $row
         [Console]::Write($clearLine)
+
+        # Handle separators
+        if ($separatorIndices.ContainsKey($itemIdx)) {
+            Write-Host "    --------------------------------" -ForegroundColor DarkGray
+            return
+        }
+
+        # Check if this is an unauthorized item
+        $isUnauthorized = $Options[$itemIdx] -match "UNAUTHORIZED"
+
         if ($selected) {
             Write-Host "  ► " -NoNewline -ForegroundColor Cyan
-            Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $true -WithClosingArrow $true
+            if ($isUnauthorized) {
+                Write-Host $displayTexts[$itemIdx] -NoNewline -ForegroundColor Red
+                Write-Host " ◄" -ForegroundColor Cyan
+            } else {
+                Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $true -WithClosingArrow $true
+            }
         } else {
             Write-Host "    " -NoNewline
-            Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $false
+            if ($isUnauthorized) {
+                Write-Host $displayTexts[$itemIdx] -ForegroundColor Red
+            } else {
+                Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $false
+            }
         }
     }
 
@@ -929,7 +1287,12 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
 
     # Initial full draw
     Clear-Host
-    Write-Host " $Title" -ForegroundColor Cyan
+    # Make title red if unauthorized
+    if ($Title -match "UNAUTHORIZED") {
+        Write-Host " $Title" -ForegroundColor Red
+    } else {
+        Write-Host " $Title" -ForegroundColor Cyan
+    }
     Write-Host " ================================================" -ForegroundColor DarkCyan
     for ($i = 0; $i -lt $Options.Count; $i++) {
         DrawItem $i ($i -eq $idx)
@@ -949,48 +1312,56 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
     $prevIdx = $idx
 
     while ($true) {
-        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-
+        $keyInput = Get-KeyInput
         $newIdx = $idx
 
-        if ($key.VirtualKeyCode -eq 27) { # ESC
-            try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-            MoveTo ($hintsRow + 1)
-            return -1
-        }
-        elseif ($key.VirtualKeyCode -eq 38) { # Up
-            $newIdx--; if ($newIdx -lt 0) { $newIdx = $max }
-        }
-        elseif ($key.VirtualKeyCode -eq 40) { # Down
-            $newIdx++; if ($newIdx -gt $max) { $newIdx = 0 }
-        }
-        elseif ($key.VirtualKeyCode -eq 13) { # Enter
-            try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-            MoveTo ($hintsRow + 1)
-            return $idx
-        }
-        elseif ($key.VirtualKeyCode -ge 49 -and $key.VirtualKeyCode -le 57) { # 1-9
-            $numIdx = $key.VirtualKeyCode - 49
-            if ($numIdx -lt $StaticStartIndex -and $numIdx -le $max) {
-                try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
+        switch ($keyInput.Key) {
+            "Escape" {
+                Show-Cursor
                 MoveTo ($hintsRow + 1)
-                return $numIdx
+                return -1
             }
-        }
-        elseif ($key.VirtualKeyCode -ge 97 -and $key.VirtualKeyCode -le 105) { # Numpad 1-9
-            $numIdx = $key.VirtualKeyCode - 97
-            if ($numIdx -lt $StaticStartIndex -and $numIdx -le $max) {
-                try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-                MoveTo ($hintsRow + 1)
-                return $numIdx
+            "Up" {
+                $newIdx--
+                if ($newIdx -lt 0) { $newIdx = $max }
+                # Skip separators
+                while ($separatorIndices.ContainsKey($newIdx) -and $newIdx -ge 0) {
+                    $newIdx--
+                    if ($newIdx -lt 0) { $newIdx = $max }
+                }
             }
-        }
-        elseif ($key.VirtualKeyCode -ge 65 -and $key.VirtualKeyCode -le 90) { # A-Z
-            $pressedKey = [string][char]$key.VirtualKeyCode
-            if ($shortcutMap.ContainsKey($pressedKey)) {
-                try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-                MoveTo ($hintsRow + 1)
-                return $shortcutMap[$pressedKey]
+            "Down" {
+                $newIdx++
+                if ($newIdx -gt $max) { $newIdx = 0 }
+                # Skip separators
+                while ($separatorIndices.ContainsKey($newIdx) -and $newIdx -le $max) {
+                    $newIdx++
+                    if ($newIdx -gt $max) { $newIdx = 0 }
+                }
+            }
+            "Enter" {
+                # Don't select separators
+                if (-not $separatorIndices.ContainsKey($idx)) {
+                    Show-Cursor
+                    MoveTo ($hintsRow + 1)
+                    return $idx
+                }
+            }
+            "Number" {
+                $numIdx = [int][string]$keyInput.Char - 1
+                if ($numIdx -ge 0 -and $numIdx -lt $StaticStartIndex -and $numIdx -le $max -and -not $separatorIndices.ContainsKey($numIdx)) {
+                    Show-Cursor
+                    MoveTo ($hintsRow + 1)
+                    return $numIdx
+                }
+            }
+            "Letter" {
+                $pressedKey = $keyInput.Char
+                if ($shortcutMap.ContainsKey($pressedKey)) {
+                    Show-Cursor
+                    MoveTo ($hintsRow + 1)
+                    return $shortcutMap[$pressedKey]
+                }
             }
         }
 
@@ -1045,106 +1416,91 @@ function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
             [Console]::Write($line + "          ")
         }
 
-        $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        $keyInput = Get-KeyInput
 
-        if ($key.VirtualKeyCode -eq 27) { # ESC
-            Write-Host ""
-            return -1
-        }
-        elseif ($key.VirtualKeyCode -eq 37) { # Left
-            $idx--; if ($idx -lt 0) { $idx = $max }
-        }
-        elseif ($key.VirtualKeyCode -eq 39) { # Right
-            $idx++; if ($idx -gt $max) { $idx = 0 }
-        }
-        elseif ($key.VirtualKeyCode -eq 13) { # Enter
-            Write-Host ""
-            return $idx
+        switch ($keyInput.Key) {
+            "Escape" {
+                Write-Host ""
+                return -1
+            }
+            "Left" {
+                $idx--; if ($idx -lt 0) { $idx = $max }
+            }
+            "Right" {
+                $idx++; if ($idx -gt $max) { $idx = 0 }
+            }
+            "Enter" {
+                Write-Host ""
+                return $idx
+            }
         }
     }
 }
 
 # --- REPORT GENERATOR ---
 # Universal diagnostics for Shield, Google TV, and other Android TV devices
+# Optimized: batches ADB commands to reduce round-trips
 function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     $typeName = Get-DeviceTypeName $DeviceType
     Write-Header "Health Report: $Name ($typeName)"
+    Write-Host " Gathering data..." -ForegroundColor Gray
 
-    # --- TEMPERATURE ---
-    # Try multiple methods for different device types
-    $Temp = "N/A"
+    # --- BATCH ADB CALLS FOR SPEED ---
+    # Combine multiple commands into fewer shell calls
+    $batchCmd = @(
+        "echo '::THERMAL::'; dumpsys thermalservice 2>/dev/null | head -50",
+        "echo '::MEMINFO::'; dumpsys meminfo 2>/dev/null",
+        "echo '::STORAGE::'; df -h /data 2>/dev/null",
+        "echo '::PROPS::'; getprop ro.board.platform; getprop ro.build.version.release",
+        "echo '::SETTINGS::'; settings get global window_animation_scale; settings get global background_process_limit",
+        "echo '::PACKAGES::'; pm list packages -e 2>/dev/null"
+    ) -join "; "
 
-    # Method 1: thermalservice - look for CPU, soc_thermal, or first valid temp
-    try {
-        $dump = & $Script:AdbPath -s $Target shell dumpsys thermalservice 2>&1 | Out-String
-        # Try CPU/CPU0 first (Shield), then soc_thermal (Onn/Amlogic), then any Type=0 reading
-        if ($dump -match "mValue=([\d\.]+).*mName=CPU\d*,") {
-            $Temp = [math]::Round([float]$matches[1], 1)
-        }
-        elseif ($dump -match "mValue=([\d\.]+).*mName=soc_thermal") {
-            $Temp = [math]::Round([float]$matches[1], 1)
-        }
-        elseif ($dump -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
-            # Type 0 = CPU/SoC temperature
-            $Temp = [math]::Round([float]$matches[1], 1)
-        }
-    } catch {}
+    $batchOutput = & $Script:AdbPath -s $Target shell $batchCmd 2>&1 | Out-String
 
-    # Method 2: thermal zones (generic Linux)
-    if ($Temp -eq "N/A") {
-        try {
-            $thermal = & $Script:AdbPath -s $Target shell "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null" 2>&1 | Out-String
-            if ($thermal -match "^\d+") {
-                $tempVal = [int]($thermal.Trim())
-                if ($tempVal -gt 1000) { $tempVal = $tempVal / 1000 }  # millidegrees to degrees
-                if ($tempVal -gt 0 -and $tempVal -lt 150) {  # Sanity check
-                    $Temp = [math]::Round($tempVal, 1)
-                }
-            }
-        } catch {}
+    # Parse sections
+    $sections = @{}
+    $currentSection = ""
+    foreach ($line in ($batchOutput -split "`n")) {
+        if ($line -match "^::(\w+)::") {
+            $currentSection = $matches[1]
+            $sections[$currentSection] = ""
+        } elseif ($currentSection) {
+            $sections[$currentSection] += "$line`n"
+        }
     }
 
-    # Method 3: battery temperature (fallback)
-    if ($Temp -eq "N/A") {
-        try {
-            $battery = & $Script:AdbPath -s $Target shell dumpsys battery 2>&1 | Out-String
-            if ($battery -match "temperature:\s*(\d+)") {
-                $Temp = [math]::Round([int]$matches[1] / 10, 1)
-            }
-        } catch {}
+    # --- TEMPERATURE ---
+    $Temp = "N/A"
+    $thermal = $sections["THERMAL"]
+    if ($thermal) {
+        if ($thermal -match "mValue=([\d\.]+).*mName=CPU\d*,") {
+            $Temp = [math]::Round([float]$matches[1], 1)
+        }
+        elseif ($thermal -match "mValue=([\d\.]+).*mName=soc_thermal") {
+            $Temp = [math]::Round([float]$matches[1], 1)
+        }
+        elseif ($thermal -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
+            $Temp = [math]::Round([float]$matches[1], 1)
+        }
     }
 
     # --- RAM ---
     $Total = 0; $Free = 0; $Swap = 0
-
-    # Try dumpsys meminfo first
-    try {
-        $mem = & $Script:AdbPath -s $Target shell dumpsys meminfo 2>&1 | Out-String
+    $mem = $sections["MEMINFO"]
+    if ($mem) {
         if ($mem -match "Total RAM:\s+([0-9,]+)\s*K") { $Total = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
         if ($mem -match "Free RAM:\s+([0-9,]+)\s*K") { $Free = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
         if ($mem -match "ZRAM:.*used for\s+([0-9,]+)\s*K") { $Swap = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-    } catch {}
-
-    # Fallback to /proc/meminfo
-    if ($Total -eq 0) {
-        try {
-            $procMem = & $Script:AdbPath -s $Target shell cat /proc/meminfo 2>&1 | Out-String
-            if ($procMem -match "MemTotal:\s+(\d+)\s*kB") { $Total = [math]::Round([int]$matches[1] / 1024, 0) }
-            if ($procMem -match "MemAvailable:\s+(\d+)\s*kB") { $Free = [math]::Round([int]$matches[1] / 1024, 0) }
-            elseif ($procMem -match "MemFree:\s+(\d+)\s*kB") { $Free = [math]::Round([int]$matches[1] / 1024, 0) }
-        } catch {}
     }
-
-    if ($Total -eq 0) { $Total = 2048 }  # Default fallback
+    if ($Total -eq 0) { $Total = 2048 }
     $Used = $Total - $Free
     $Pct = if ($Total -gt 0) { [math]::Round(($Used / $Total) * 100, 0) } else { 0 }
 
     # --- STORAGE ---
     $StorageUsed = "N/A"; $StorageTotal = "N/A"; $StoragePct = 0
-    try {
-        $df = & $Script:AdbPath -s $Target shell df -h /data 2>&1 | Out-String
-        # Match df output: Filesystem Size Used Avail Use% Mounted
-        # Format varies: mount point can be at start or end, look for size columns + percentage
+    $df = $sections["STORAGE"]
+    if ($df) {
         foreach ($line in ($df -split "`n")) {
             if ($line -match "/data" -and $line -match "(\d+\.?\d*[GMKT]?)\s+(\d+\.?\d*[GMKT]?)\s+(\d+\.?\d*[GMKT]?)\s+(\d+)%") {
                 $StorageTotal = $matches[1]
@@ -1153,20 +1509,28 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
                 break
             }
         }
-    } catch {}
+    }
 
-    # --- CPU/PLATFORM ---
-    $Platform = "Unknown"
-    try {
-        $Platform = (& $Script:AdbPath -s $Target shell getprop ro.board.platform 2>&1 | Out-String).Trim()
-        if (-not $Platform -or $Platform -match "Exception") { $Platform = "Unknown" }
-    } catch {}
+    # --- PROPS ---
+    $Platform = "Unknown"; $AndroidVer = "Unknown"
+    $props = $sections["PROPS"]
+    if ($props) {
+        $propLines = @($props -split "`n" | Where-Object { $_.Trim() })
+        if ($propLines.Count -ge 1) { $Platform = $propLines[0].Trim() }
+        if ($propLines.Count -ge 2) { $AndroidVer = $propLines[1].Trim() }
+    }
 
-    # --- ANDROID VERSION ---
-    $AndroidVer = "Unknown"
-    try {
-        $AndroidVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.release 2>&1 | Out-String).Trim()
-    } catch {}
+    # --- SETTINGS ---
+    $anim = "1.0"; $proc = "Standard"
+    $settings = $sections["SETTINGS"]
+    if ($settings) {
+        $setLines = @($settings -split "`n" | Where-Object { $_.Trim() })
+        if ($setLines.Count -ge 1 -and $setLines[0].Trim() -notmatch "null|Exception") { $anim = $setLines[0].Trim() }
+        if ($setLines.Count -ge 2 -and $setLines[1].Trim() -notmatch "null|Exception" -and $setLines[1].Trim()) { $proc = $setLines[1].Trim() }
+    }
+
+    # --- DISPLAY RESULTS ---
+    Write-Host "`r                      `r" -NoNewline  # Clear "Gathering data..."
 
     Write-SubHeader "System Info"
     Write-Host " Platform:  " -NoNewline -ForegroundColor Gray
@@ -1198,19 +1562,27 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         Write-Host "N/A" -ForegroundColor DarkGray
     }
 
-    Write-SubHeader "Settings Check"
-    $anim = (& $Script:AdbPath -s $Target shell settings get global window_animation_scale 2>&1 | Out-String).Trim()
-    $proc = (& $Script:AdbPath -s $Target shell settings get global background_process_limit 2>&1 | Out-String).Trim()
-    if ($proc -eq "null" -or $proc -eq "" -or $proc -match "Exception") { $proc = "Standard" }
-    if ($anim -match "Exception" -or $anim -eq "null") { $anim = "1.0" }
-
+    Write-SubHeader "Settings"
     Write-Host " Animation Speed: " -NoNewline -ForegroundColor Gray
     Write-Host "$anim" -ForegroundColor Cyan
     Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
     Write-Host "$proc" -ForegroundColor Cyan
 
+    # --- TOP MEMORY (from already-fetched meminfo) ---
     Write-SubHeader "Top Memory Users"
-    $topApps = @(Get-TopMemoryApps -Target $Target -Count 5)
+    $topApps = @()
+    if ($mem) {
+        foreach ($line in ($mem -split "`n")) {
+            if ($line -match "^\s*([0-9,]+)K:\s*(\S+)\s*\(pid") {
+                $kb = [int]($matches[1] -replace ",", "")
+                $pkg = $matches[2]
+                if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
+                    $topApps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
+                    if ($topApps.Count -ge 5) { break }
+                }
+            }
+        }
+    }
     if ($topApps.Count -gt 0) {
         foreach ($app in $topApps) {
             $memColor = if ($app.MB -gt 200) { "Red" } elseif ($app.MB -gt 100) { "Yellow" } else { "White" }
@@ -1221,30 +1593,187 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         Write-Host " Unable to query memory info" -ForegroundColor DarkGray
     }
 
+    # --- BLOAT CHECK (using already-fetched data) ---
     Write-SubHeader "Bloat Check"
     $clean = $true
+    $bloatFound = @()
 
-    # Combine ALL profiles for comprehensive bloat check (little harm in checking for things that don't exist)
     $allBloatApps = @()
     $allBloatApps += $Script:CommonAppList
     $allBloatApps += $Script:ShieldAppList
     $allBloatApps += $Script:GoogleTVAppList
 
-    # Query enabled packages once
-    $enabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -e 2>&1 | Out-String)
+    $enabledPkgs = $sections["PACKAGES"]
 
     foreach ($app in $allBloatApps) {
-        $pkg = $app[0]; $appName = $app[1]; $risk = $app[3]
+        $pkg = $app[0]; $appName = $app[1]; $method = $app[2]; $risk = $app[3]; $defOpt = $app[6]
         if ($risk -match "Safe" -or $risk -match "Medium") {
-            # Use exact match with word boundary
             if ($enabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
-                Write-Host " [ACTIVE BLOAT] $appName" -ForegroundColor Yellow
+                # Get memory from already-fetched meminfo
+                $bloatMem = 0
+                if ($mem -match "([0-9,]+)K:\s*$([regex]::Escape($pkg))\s") {
+                    $bloatMem = [math]::Round(([int]($matches[1] -replace ",", "")) / 1024, 1)
+                }
+                $bloatFound += @{
+                    Package = $pkg
+                    Name = $appName
+                    Method = $method
+                    Default = $defOpt
+                    Memory = $bloatMem
+                }
                 $clean = $false
             }
         }
     }
-    if ($clean) { Write-Success "System is clean." }
+
+    if ($bloatFound.Count -gt 0) {
+        Write-Host ""
+        Write-Host " " -NoNewline
+        Write-Host "App Name".PadRight(28) -NoNewline -ForegroundColor White
+        Write-Host "RAM".PadRight(8) -NoNewline -ForegroundColor White
+        Write-Host "Action".PadRight(10) -NoNewline -ForegroundColor White
+        Write-Host "Default" -ForegroundColor White
+        Write-Host " $("-" * 55)" -ForegroundColor DarkGray
+
+        foreach ($bloat in $bloatFound) {
+            $memStr = if ($bloat.Memory -gt 0) { "$($bloat.Memory) MB" } else { "-- MB" }
+            $defStr = if ($bloat.Default -eq "Y") { "YES" } else { "no" }
+            $defColor = if ($bloat.Default -eq "Y") { "Green" } else { "DarkGray" }
+
+            Write-Host " " -NoNewline
+            Write-Host $bloat.Name.PadRight(28).Substring(0, [Math]::Min(28, $bloat.Name.Length + 10)).PadRight(28) -NoNewline -ForegroundColor Yellow
+            Write-Host $memStr.PadRight(8) -NoNewline -ForegroundColor Cyan
+            Write-Host $bloat.Method.PadRight(10) -NoNewline -ForegroundColor White
+            Write-Host $defStr -ForegroundColor $defColor
+        }
+
+        $totalMem = ($bloatFound | Measure-Object -Property Memory -Sum).Sum
+        if ($totalMem -gt 0) {
+            Write-Host ""
+            Write-Host " Total bloat memory: " -NoNewline -ForegroundColor Gray
+            Write-Host "$totalMem MB" -ForegroundColor Cyan
+        }
+    }
+
+    if ($clean) { Write-Success "System is clean - no bloat detected." }
     Write-Host "`n"
+}
+
+# --- LIVE WATCH MODE ---
+# Real-time monitoring of device vitals
+function Watch-Vitals ($Target, $Name) {
+    $esc = [char]27
+    $refreshInterval = 3  # seconds
+
+    Clear-Host
+    Write-Host " LIVE MONITOR: $Name" -ForegroundColor Cyan
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " Refreshing every ${refreshInterval}s. Press any key to stop." -ForegroundColor Gray
+    Write-Host ""
+
+    $headerRow = 5
+    Hide-Cursor
+
+    # Draw static labels
+    Write-Host " Temp:      " -ForegroundColor Gray
+    Write-Host " RAM:       " -ForegroundColor Gray
+    Write-Host " Swap:      " -ForegroundColor Gray
+    Write-Host ""
+    Write-Host " Top Memory Users:" -ForegroundColor White
+    Write-Host " $("-" * 45)" -ForegroundColor DarkGray
+
+    $topAppsStartRow = 12
+
+    try {
+        while (-not [Console]::KeyAvailable) {
+            # Batch fetch vitals
+            $batchCmd = "dumpsys meminfo 2>/dev/null; echo '::SEP::'; dumpsys thermalservice 2>/dev/null | head -30"
+            $output = & $Script:AdbPath -s $Target shell $batchCmd 2>&1 | Out-String
+
+            $parts = $output -split "::SEP::"
+            $mem = if ($parts.Count -ge 1) { $parts[0] } else { "" }
+            $thermal = if ($parts.Count -ge 2) { $parts[1] } else { "" }
+
+            # Parse temperature
+            $Temp = "N/A"
+            if ($thermal -match "mValue=([\d\.]+).*mName=CPU\d*,") {
+                $Temp = [math]::Round([float]$matches[1], 1)
+            } elseif ($thermal -match "mValue=([\d\.]+).*mName=soc_thermal") {
+                $Temp = [math]::Round([float]$matches[1], 1)
+            } elseif ($thermal -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
+                $Temp = [math]::Round([float]$matches[1], 1)
+            }
+
+            # Parse RAM
+            $Total = 0; $Free = 0; $Swap = 0
+            if ($mem -match "Total RAM:\s+([0-9,]+)\s*K") { $Total = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
+            if ($mem -match "Free RAM:\s+([0-9,]+)\s*K") { $Free = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
+            if ($mem -match "ZRAM:.*used for\s+([0-9,]+)\s*K") { $Swap = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
+            if ($Total -eq 0) { $Total = 2048 }
+            $Used = $Total - $Free
+            $Pct = if ($Total -gt 0) { [math]::Round(($Used / $Total) * 100, 0) } else { 0 }
+
+            # Parse top apps
+            $topApps = @()
+            foreach ($line in ($mem -split "`n")) {
+                if ($line -match "^\s*([0-9,]+)K:\s*(\S+)\s*\(pid") {
+                    $kb = [int]($matches[1] -replace ",", "")
+                    $pkg = $matches[2]
+                    if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
+                        $topApps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
+                        if ($topApps.Count -ge 5) { break }
+                    }
+                }
+            }
+
+            # Update display (move cursor and overwrite)
+            # Temp
+            [Console]::Write("$esc[$headerRow;13H")
+            $tempColor = if ($Temp -ne "N/A" -and [float]$Temp -gt 70) { "91" } elseif ($Temp -ne "N/A" -and [float]$Temp -gt 50) { "93" } else { "92" }
+            $tempStr = if ($Temp -ne "N/A") { "${Temp}C   " } else { "N/A    " }
+            [Console]::Write("$esc[${tempColor}m$tempStr$esc[0m")
+
+            # RAM
+            [Console]::Write("$esc[$($headerRow+1);13H")
+            $ramColor = if ($Pct -gt 85) { "91" } elseif ($Pct -gt 70) { "93" } else { "92" }
+            $ramStr = "$Pct% ($Used / $Total MB)".PadRight(25)
+            [Console]::Write("$esc[${ramColor}m$ramStr$esc[0m")
+
+            # Swap
+            [Console]::Write("$esc[$($headerRow+2);13H")
+            [Console]::Write("$esc[97m$Swap MB     $esc[0m")
+
+            # Top apps
+            for ($i = 0; $i -lt 5; $i++) {
+                [Console]::Write("$esc[$($topAppsStartRow + $i);1H$esc[2K")
+                if ($i -lt $topApps.Count) {
+                    $app = $topApps[$i]
+                    $memColor = if ($app.MB -gt 200) { "91" } elseif ($app.MB -gt 100) { "93" } else { "97" }
+                    $line = " $($app.MB.ToString('0.0').PadLeft(6)) MB  $($app.Package)"
+                    [Console]::Write("$esc[${memColor}m$($line.Substring(0, [Math]::Min(50, $line.Length)))$esc[0m")
+                }
+            }
+
+            # Timestamp
+            [Console]::Write("$esc[$($topAppsStartRow + 6);1H$esc[2K")
+            [Console]::Write("$esc[90m Updated: $(Get-Date -Format 'HH:mm:ss')$esc[0m")
+
+            # Wait for interval or keypress
+            for ($w = 0; $w -lt ($refreshInterval * 10); $w++) {
+                if ([Console]::KeyAvailable) { break }
+                Start-Sleep -Milliseconds 100
+            }
+        }
+
+        # Consume the keypress
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    }
+    finally {
+        Show-Cursor
+        [Console]::Write("$esc[$($topAppsStartRow + 8);1H")
+        Write-Host ""
+        Write-Info "Watch mode stopped."
+    }
 }
 
 # --- LAUNCHER WIZARD ---
@@ -2173,14 +2702,27 @@ while ($true) {
         foreach ($d in $devs) {
             $status = $d.Status
             $typeName = Get-DeviceTypeName $d.Type
-            if ($status -eq "device") { $txt = $d.Name } else { $txt = "$($d.Name) [$status]" }
+            if ($status -eq "device") {
+                $txt = $d.Name
+                $mDescs += "$typeName | $($d.Model) | $($d.Serial)"
+            } elseif ($status -eq "unauthorized") {
+                # Show IP and clear UNAUTHORIZED warning
+                $txt = "$($d.Serial) !! UNAUTHORIZED !!"
+                $mDescs += "Check your TV screen and accept the connection prompt!"
+            } else {
+                # Show IP for other non-connected states
+                $txt = "$($d.Serial) [$status]"
+                $mDescs += "$typeName | $($d.Model)"
+            }
             $mOpts += $txt
-            $mDescs += "$typeName | $($d.Model) | $($d.Serial)"
         }
+        # Add separator after devices
+        $mOpts += "---"
+        $mDescs += ""
     }
 
-    # Static options start after devices (devices use numbers, everything else uses letters)
-    $staticStart = $devs.Count
+    # Static options start after devices + separator
+    $staticStart = if ($devs.Count -gt 0) { $devs.Count + 1 } else { 0 }
 
     $mOpts += "Scan Network"; $mDescs += "Auto-discover Android TV devices on local network."
     $mOpts += "Connect IP"; $mDescs += "Manually connect to a specific IP address."
@@ -2191,11 +2733,13 @@ while ($true) {
     $mOpts += "Help"; $mDescs += "View instructions and troubleshooting."
     $mOpts += "Quit"; $mDescs += "Exit Optimizer."
 
-    # UX #F: Show version in menu title
+    # Menu title - keep it simple
+    $menuTitle = "Android TV Optimizer $Script:Version - Main Menu"
+
     # Pass StaticStartIndex so devices use numbers, options use letters
     # Shortcuts: S=Scan, C=Connect, R=Report, F=reFresh, A=ADB, H=Help, Q=Quit
     $mainShortcuts = @("S", "C", "R", "F", "A", "H", "Q")
-    $sel = Read-Menu -Title "Android TV Optimizer $Script:Version - Main Menu" -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart -Shortcuts $mainShortcuts
+    $sel = Read-Menu -Title $menuTitle -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart -Shortcuts $mainShortcuts
 
     # Handle ESC
     if ($sel -eq -1) { continue }
@@ -2233,42 +2777,74 @@ while ($true) {
         $target = $devs[$sel]
 
         if ($target.Status -ne "device") {
-            Write-Warn "Cannot manage device in state: $($target.Status)"
+            if ($target.Status -eq "unauthorized") {
+                Write-Header "Device Authorization Required"
+                Write-Warn "This computer is not authorized to connect to $($target.Name)."
+                Write-Host ""
+                Write-Host " To authorize this connection:" -ForegroundColor Cyan
+                Write-Host "   1. Look at your TV screen now" -ForegroundColor White
+                Write-Host "   2. You should see an 'Allow USB debugging?' prompt" -ForegroundColor White
+                Write-Host "   3. Check 'Always allow from this computer'" -ForegroundColor White
+                Write-Host "   4. Select 'Allow' or 'OK'" -ForegroundColor White
+                Write-Host ""
+                Write-Host " If you don't see the prompt:" -ForegroundColor Yellow
+                Write-Host "   - Wake up the TV (press any button on remote)" -ForegroundColor Gray
+                Write-Host "   - Try: Settings > Developer Options > Revoke USB debugging" -ForegroundColor Gray
+                Write-Host "   - Then reconnect using Scan Network or Connect IP" -ForegroundColor Gray
+                Write-Host ""
+            } else {
+                Write-Warn "Cannot manage device in state: $($target.Status)"
+            }
             Pause; continue
         }
 
         # Get device type name for display
         $deviceTypeName = Get-DeviceTypeName $target.Type
 
-        # Action menu with device type info
-        $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Profile", "Recovery", "Reboot", "Disconnect", "Back")
-        $aDescs = @(
-            "Debloat apps and tune performance for $deviceTypeName.",
-            "Undo optimizations and fix missing apps.",
-            "Check Temp, RAM, Storage, and bloat status.",
-            "Install Projectivy or switch launchers.",
-            "View device profile and detected settings.",
-            "Emergency: Re-enable ALL disabled packages.",
-            "Restart device (normal, recovery, or bootloader).",
-            "Disconnect this device from ADB.",
-            "Return to Main Menu."
-        )
-        # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, P=Profile, C=reCovery, B=reboot, D=Disconnect, K=bacK
-        $actionShortcuts = @("O", "R", "E", "L", "P", "C", "B", "D", "K")
-        $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
+        # Inner loop: stay on this device's action menu until Back/Reboot/Disconnect/ESC
+        while ($true) {
+            # Action menu with device type info
+            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Profile", "Recovery", "Reboot", "Disconnect", "Back")
+            $aDescs = @(
+                "Debloat apps and tune performance for $deviceTypeName.",
+                "Undo optimizations and fix missing apps.",
+                "Check Temp, RAM, Storage, and bloat status.",
+                "Install Projectivy or switch launchers.",
+                "View device profile and detected settings.",
+                "Emergency: Re-enable ALL disabled packages.",
+                "Restart device (normal, recovery, or bootloader).",
+                "Disconnect this device from ADB.",
+                "Return to Main Menu."
+            )
+            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, P=Profile, C=reCovery, B=reboot, D=Disconnect, K=bacK
+            $actionShortcuts = @("O", "R", "E", "L", "P", "C", "B", "D", "K")
+            $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
-        # Handle ESC
-        if ($aSel -eq -1) { continue }
+            # Handle ESC - return to main menu
+            if ($aSel -eq -1) { break }
 
-        $act = $aOpts[$aSel]
+            $act = $aOpts[$aSel]
 
-        if ($act -eq "Optimize") { Run-Task -Target $target.Serial -Mode "Optimize" -DeviceType $target.Type }
-        if ($act -eq "Restore") { Run-Task -Target $target.Serial -Mode "Restore" -DeviceType $target.Type }
-        if ($act -eq "Report") { Run-Report -Target $target.Serial -Name $target.Name -DeviceType $target.Type; Pause }
-        if ($act -eq "Launcher Setup") { Setup-Launcher -Target $target.Serial; Pause }
-        if ($act -eq "Profile") { Show-DeviceProfile -Target $target.Serial -DeviceInfo $target; Pause }
-        if ($act -eq "Recovery") { Run-PanicRecovery -Target $target.Serial; Pause }
-        if ($act -eq "Reboot") { Show-RebootMenu -Target $target.Serial; Pause }
-        if ($act -eq "Disconnect") { Disconnect-Device -Serial $target.Serial; Pause }
+            # Actions that return to main menu
+            if ($act -eq "Back") { break }
+            if ($act -eq "Reboot") { Show-RebootMenu -Target $target.Serial; Pause; break }
+            if ($act -eq "Disconnect") { Disconnect-Device -Serial $target.Serial; Pause; break }
+
+            # Actions that stay on this device's menu
+            if ($act -eq "Optimize") { Run-Task -Target $target.Serial -Mode "Optimize" -DeviceType $target.Type }
+            if ($act -eq "Restore") { Run-Task -Target $target.Serial -Mode "Restore" -DeviceType $target.Type }
+            if ($act -eq "Report") {
+                Run-Report -Target $target.Serial -Name $target.Name -DeviceType $target.Type
+                Write-Host ""
+                $watchChoice = Read-Toggle -Prompt "Enter Live Monitor mode?" -Options @("YES", "NO") -DefaultIndex 1
+                if ($watchChoice -eq 0) {
+                    Watch-Vitals -Target $target.Serial -Name $target.Name
+                }
+                Pause
+            }
+            if ($act -eq "Launcher Setup") { Setup-Launcher -Target $target.Serial; Pause }
+            if ($act -eq "Profile") { Show-DeviceProfile -Target $target.Serial -DeviceInfo $target; Pause }
+            if ($act -eq "Recovery") { Run-PanicRecovery -Target $target.Serial; Pause }
+        }
     }
 }
