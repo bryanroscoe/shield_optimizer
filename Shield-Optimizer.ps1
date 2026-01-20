@@ -1039,10 +1039,15 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     $StorageUsed = "N/A"; $StorageTotal = "N/A"; $StoragePct = 0
     try {
         $df = & $Script:AdbPath -s $Target shell df -h /data 2>&1 | Out-String
-        if ($df -match "/data\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)%") {
-            $StorageTotal = $matches[1]
-            $StorageUsed = $matches[2]
-            $StoragePct = [int]$matches[4]
+        # Match df output: Filesystem Size Used Avail Use% Mounted
+        # Format varies: mount point can be at start or end, look for size columns + percentage
+        foreach ($line in ($df -split "`n")) {
+            if ($line -match "/data" -and $line -match "(\d+\.?\d*[GMKT]?)\s+(\d+\.?\d*[GMKT]?)\s+(\d+\.?\d*[GMKT]?)\s+(\d+)%") {
+                $StorageTotal = $matches[1]
+                $StorageUsed = $matches[2]
+                $StoragePct = [int]$matches[4]
+                break
+            }
         }
     } catch {}
 
