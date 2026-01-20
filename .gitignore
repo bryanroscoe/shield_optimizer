@@ -1,0 +1,36 @@
+# ADB binaries
+adb.exe
+AdbWinApi.dll
+AdbWinUsbApi.dll
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Executables and libraries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+
+# PowerShell
+*.ps1xml
+*.psd1.bak
+*.psm1.bak
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+*~
