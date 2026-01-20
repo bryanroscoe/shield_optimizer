@@ -84,10 +84,10 @@ D<img width="638" height="391" alt="image" src="https://github.com/user-attachme
 | Device | Status | Notes |
 |--------|--------|-------|
 | Nvidia Shield TV (2015/2017/2019) | Fully Supported | All models tested |
-| Onn 4K Pro (Walmart) | Supported | Device-specific optimizations |
-| Chromecast with Google TV | Supported | Uses Google TV app list |
-| Google TV Streamer (2024) | Supported | Uses Google TV app list |
-| Other Android TV | Basic Support | Common apps only |
+| Onn 4K Pro (Walmart) | Partially Supported | Device-specific optimizations |
+| Chromecast with Google TV | Untested | Uses Google TV app list |
+| Google TV Streamer (2024) | Untested | Uses Google TV app list |
+| Other Android TV | Untested | Common apps only |
 
 ---
 
