@@ -1,58 +1,52 @@
 <#
 .SYNOPSIS
-    Nvidia Shield Ultimate Optimizer (v61 - UX Polish)
+    Android TV Optimizer (v62 - Multi-Device Support)
 .DESCRIPTION
-    - Fixed socket leak in Scan-Network
-    - Fixed ADB output trimming issues
-    - Added IP validation before connecting
-    - Fixed cursor size error handling
-    - Fixed window resize crash in Windows Terminal
-    - Fixed variable shadowing issues
-    - Fixed PowerShell error syntax (2>$null -> try/catch)
-    - Fixed $PSScriptRoot empty when dot-sourced
-    - Fixed string interpolation bug
-    - Added Invoke-AdbCommand helper with error checking
-    - Fixed inefficient package queries (cached)
-    - Fixed false positive package matching
-    - Added ESC key to cancel menus
-    - Added Scan-Network results feedback
-    - Added reboot confirmation output
-    - Added "Apply All Defaults" option
-    - Added summary after Optimize/Restore
-    - Added number key shortcuts (1-9) in menus
-    - Check stock launcher status before offering disable
-    - Added ADB Server Restart option
-    - Show version in menu title
-    - Added Disconnect Device option
-    - Improved Network Scan timeout (200ms)
+    Supports Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, and other Android TV devices.
+
+    v62 Changes:
+    - Added device detection (Shield vs Google TV)
+    - Device-specific app lists and optimizations
+    - Improved launcher detection for Google TV devices
+    - Added device profile display
+
+    Previous fixes:
+    - Socket leak fix, ADB output trimming, IP validation
+    - Cursor/window error handling, ESC key support
+    - Apply All Defaults, session summary, abort functionality
+    - Keyboard shortcuts, colored status tags
 #>
 
-$Script:Version = "v61"
+$Script:Version = "v62"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 # --- CONFIGURATION & DATA MODELS ---
 
-$Script:AppList = @(
-    # [GOLDEN SET]
-    @("com.google.android.tvrecommendations", "Google TV Recommendations", "DISABLE", "Safe", "Removes 'Sponsored' rows.", "Restores 'Sponsored' rows.", "Y", "Y"),
-    @("com.nvidia.stats", "Nvidia Telemetry", "DISABLE", "Safe", "Stops background data.", "Restores Nvidia data collection.", "Y", "Y"),
-    @("com.google.android.feedback", "Google Feedback", "DISABLE", "Safe", "Stops background data.", "Restores Google feedback services.", "Y", "Y"),
-    @("com.nvidia.diagtools", "Nvidia Diag Tools", "DISABLE", "Safe", "Stops diagnostic logging.", "Restores diagnostic tools.", "Y", "Y"),
-    @("com.android.printspooler", "Print Spooler", "DISABLE", "Safe", "Disables print service.", "Restores print service.", "Y", "Y"),
-    @("com.android.gallery3d", "Android Gallery", "DISABLE", "Safe", "Removes legacy viewer.", "Restores legacy photo viewer.", "Y", "Y"),
+# Device type enum
+$Script:DeviceType = @{
+    Shield = "Shield"
+    GoogleTV = "GoogleTV"
+    Unknown = "Unknown"
+}
 
-    # [DEAD APPS]
+# ============================================================================
+# APP LISTS - Format: Package, Name, Method, Risk, OptDesc, RestDesc, DefOpt, DefRest
+# ============================================================================
+
+# Apps common to ALL Android TV devices
+$Script:CommonAppList = @(
+    # [SAFE - Universal]
+    @("com.google.android.tvrecommendations", "Sponsored Content", "DISABLE", "Safe", "Removes 'Sponsored' rows from home.", "Restores sponsored content rows.", "Y", "Y"),
+    @("com.google.android.feedback", "Google Feedback", "DISABLE", "Safe", "Stops feedback data collection.", "Restores Google feedback services.", "Y", "Y"),
+    @("com.android.printspooler", "Print Spooler", "DISABLE", "Safe", "Disables unused print service.", "Restores print service.", "Y", "Y"),
+    @("com.android.gallery3d", "Android Gallery", "DISABLE", "Safe", "Removes legacy photo viewer.", "Restores legacy photo viewer.", "Y", "Y"),
+
+    # [DEAD APPS - Universal]
     @("com.google.android.videos", "Google Play Movies", "UNINSTALL", "Safe", "Removes defunct app.", "Restores defunct app.", "Y", "Y"),
     @("com.google.android.music", "Google Play Music", "UNINSTALL", "Safe", "Removes defunct app.", "Restores defunct app.", "Y", "Y"),
 
-    # [COMMUNITY]
-    @("com.nvidia.ocs", "Nvidia Content Opt.", "DISABLE", "Medium (Community)", "[Source: florisse.nl] Untested.", "[Source: florisse.nl] Restores content optimization.", "N", "Y"),
-    @("com.nvidia.shieldtech.hooks", "Nvidia Hooks", "DISABLE", "Medium (Community)", "[Source: florisse.nl] Untested.", "[Source: florisse.nl] Restores system hooks.", "N", "Y"),
-    @("com.android.dreams.basic", "Basic Daydream", "DISABLE", "Medium (Community)", "[Source: florisse.nl] Screensaver.", "Restores basic screensaver.", "N", "Y"),
-    @("com.android.providers.tv", "Live Channels Prov.", "DISABLE", "Medium (Community)", "[Source: florisse.nl] TV Provider.", "Restores Live Channels support.", "N", "Y"),
-
-    # [STREAMING APPS]
+    # [STREAMING APPS - Optional]
     @("com.netflix.ninja", "Netflix", "UNINSTALL", "Safe", "Streaming App.", "Restores Netflix.", "N", "N"),
     @("com.amazon.amazonvideo.livingroom", "Amazon Prime Video", "UNINSTALL", "Safe", "Streaming App.", "Restores Prime Video.", "N", "N"),
     @("com.wbd.stream", "HBO Max / Discovery", "UNINSTALL", "Safe", "Streaming App.", "Restores HBO/Max.", "N", "N"),
@@ -62,17 +56,50 @@ $Script:AppList = @(
     @("com.spotify.tv.android", "Spotify", "UNINSTALL", "Safe", "Streaming App.", "Restores Spotify.", "N", "N"),
     @("com.google.android.youtube.tvmusic", "YouTube Music", "UNINSTALL", "Safe", "Streaming App.", "Restores YouTube Music.", "N", "N"),
 
-    # [HIGH RISK]
-    @("com.google.android.katniss", "Google Assistant", "DISABLE", "High Risk", "Breaks Voice Search.", "Restores Voice Search.", "N", "Y"),
-    @("com.google.android.speech.pumpkin", "Google Speech Svcs", "DISABLE", "High Risk", "Breaks Dictation.", "Restores Speech Services.", "N", "Y"),
-    @("com.google.android.apps.mediashell", "Chromecast Built-in", "DISABLE", "High Risk", "Breaks Casting.", "Restores Chromecast.", "N", "Y"),
-    @("com.nvidia.ota", "Nvidia System Updater", "DISABLE", "High Risk", "Stops OS Updates.", "Restores Updates.", "N", "Y"),
-    @("com.google.android.tvlauncher", "Stock Android Launcher", "DISABLE", "High Risk", "Requires Custom Launcher.", "Restores Stock Home Screen.", "N", "Y"),
-    @("com.plexapp.mediaserver.smb", "Plex Media Server", "DISABLE", "Advanced", "Breaks Plex Hosting.", "Restores Plex Server.", "N", "Y"),
-    @("com.google.android.tts", "Google Text-to-Speech", "DISABLE", "Medium Risk", "Breaks Accessibility.", "Restores Text-to-Speech.", "N", "Y"),
-    @("com.nvidia.tegrazone3", "Nvidia Games", "DISABLE", "Medium Risk", "Breaks Cloud Gaming.", "Restores Nvidia Games.", "N", "Y"),
-    @("com.google.android.play.games", "Google Play Games", "DISABLE", "Medium Risk", "Breaks Game Cloud Saves.", "Restores Play Games.", "N", "Y"),
-    @("com.google.android.backdrop", "Google Screensaver", "DISABLE", "Medium Risk", "Disables Screensaver.", "Restores Screensaver.", "N", "Y")
+    # [MEDIUM RISK - Universal]
+    @("com.android.dreams.basic", "Basic Daydream", "DISABLE", "Medium", "Disables basic screensaver.", "Restores basic screensaver.", "N", "Y"),
+    @("com.android.providers.tv", "Live Channels Provider", "DISABLE", "Medium", "Disables Live TV provider.", "Restores Live Channels support.", "N", "Y"),
+    @("com.google.android.backdrop", "Ambient Mode", "DISABLE", "Medium", "Disables ambient/screensaver.", "Restores ambient mode.", "N", "Y"),
+
+    # [HIGH RISK - Universal]
+    @("com.google.android.katniss", "Google Assistant", "DISABLE", "High Risk", "Breaks voice search.", "Restores voice search.", "N", "Y"),
+    @("com.google.android.speech.pumpkin", "Google Speech Services", "DISABLE", "High Risk", "Breaks voice dictation.", "Restores speech services.", "N", "Y"),
+    @("com.google.android.apps.mediashell", "Chromecast Built-in", "DISABLE", "High Risk", "Breaks casting to device.", "Restores Chromecast.", "N", "Y"),
+    @("com.google.android.tts", "Google Text-to-Speech", "DISABLE", "High Risk", "Breaks accessibility features.", "Restores text-to-speech.", "N", "Y"),
+    @("com.google.android.play.games", "Google Play Games", "DISABLE", "Medium Risk", "May break cloud saves.", "Restores Play Games.", "N", "Y")
+)
+
+# NVIDIA Shield-specific apps
+$Script:ShieldAppList = @(
+    # [SHIELD SAFE]
+    @("com.nvidia.stats", "Nvidia Telemetry", "DISABLE", "Safe", "Stops Nvidia data collection.", "Restores Nvidia telemetry.", "Y", "Y"),
+    @("com.nvidia.diagtools", "Nvidia Diagnostics", "DISABLE", "Safe", "Stops diagnostic logging.", "Restores diagnostic tools.", "Y", "Y"),
+
+    # [SHIELD MEDIUM]
+    @("com.nvidia.ocs", "Nvidia Content Service", "DISABLE", "Medium", "Background optimization service.", "Restores content optimization.", "N", "Y"),
+    @("com.nvidia.shieldtech.hooks", "Nvidia System Hooks", "DISABLE", "Medium", "Shield-specific system hooks.", "Restores system hooks.", "N", "Y"),
+    @("com.nvidia.tegrazone3", "Nvidia Games", "DISABLE", "Medium Risk", "May break GeForce NOW.", "Restores Nvidia Games app.", "N", "Y"),
+
+    # [SHIELD HIGH RISK]
+    @("com.nvidia.ota", "Nvidia System Updater", "DISABLE", "High Risk", "Stops Shield OS updates.", "Restores system updates.", "N", "Y"),
+    @("com.plexapp.mediaserver.smb", "Plex Media Server", "DISABLE", "Advanced", "Breaks local Plex hosting.", "Restores Plex Server.", "N", "Y"),
+
+    # [SHIELD LAUNCHER]
+    @("com.google.android.tvlauncher", "Stock Launcher", "DISABLE", "High Risk", "Requires custom launcher first!", "Restores stock home screen.", "N", "Y")
+)
+
+# Google TV-specific apps (Onn 4K, Chromecast, etc.)
+$Script:GoogleTVAppList = @(
+    # [GOOGLE TV SAFE]
+    @("com.google.android.leanbacklauncher.recommendations", "Home Recommendations", "DISABLE", "Safe", "Removes extra recommendation rows.", "Restores home recommendations.", "Y", "Y"),
+    @("com.walmart.otto", "Walmart App", "UNINSTALL", "Safe", "Removes Walmart bloatware.", "Restores Walmart app.", "Y", "Y"),
+
+    # [GOOGLE TV MEDIUM]
+    @("com.google.android.tungsten.overscan", "Setup Wizard Helper", "DISABLE", "Medium", "Post-setup service.", "Restores setup components.", "N", "Y"),
+    @("com.google.android.tungsten.setupwraith", "Setup Wraith", "DISABLE", "Medium", "Setup wizard component.", "Restores setup component.", "N", "Y"),
+
+    # [GOOGLE TV LAUNCHER - Handle specially]
+    @("com.google.android.apps.tv.launcherx", "Google TV Home", "DISABLE", "High Risk", "Requires custom launcher first!", "Restores Google TV home.", "N", "Y")
 )
 
 $Script:PerfList = @(
@@ -86,6 +113,114 @@ $Script:Launchers = @(
     @{Name="ATV Launcher"; Pkg="com.sweech.launcher"},
     @{Name="Wolf Launcher"; Pkg="com.wolf.firelauncher"}
 )
+
+# --- DEVICE DETECTION ---
+
+# Detect device type based on brand and model
+function Get-DeviceType ($Target) {
+    try {
+        $brand = (& $Script:AdbPath -s $Target shell getprop ro.product.brand 2>&1 | Out-String).Trim().ToLower()
+        $model = (& $Script:AdbPath -s $Target shell getprop ro.product.model 2>&1 | Out-String).Trim().ToLower()
+        $device = (& $Script:AdbPath -s $Target shell getprop ro.product.device 2>&1 | Out-String).Trim().ToLower()
+
+        # NVIDIA Shield detection
+        if ($brand -eq "nvidia" -or $model -match "shield" -or $device -match "foster|darcy|mdarcy|sif") {
+            return $Script:DeviceType.Shield
+        }
+
+        # Onn (Walmart) detection
+        if ($brand -eq "onn" -or $model -match "onn" -or $device -match "ott_") {
+            return $Script:DeviceType.GoogleTV
+        }
+
+        # Chromecast / Google TV detection
+        if ($brand -eq "google" -or $model -match "chromecast|sabrina|boreal") {
+            return $Script:DeviceType.GoogleTV
+        }
+
+        # Generic Google TV detection - check for launcherx
+        $hasLauncherX = & $Script:AdbPath -s $Target shell pm list packages com.google.android.apps.tv.launcherx 2>&1 | Out-String
+        if ($hasLauncherX -match "launcherx") {
+            return $Script:DeviceType.GoogleTV
+        }
+
+        # Default to Unknown
+        return $Script:DeviceType.Unknown
+    }
+    catch {
+        return $Script:DeviceType.Unknown
+    }
+}
+
+# Get device-friendly name
+function Get-DeviceTypeName ($Type) {
+    switch ($Type) {
+        "Shield"   { return "Nvidia Shield" }
+        "GoogleTV" { return "Google TV" }
+        default    { return "Android TV" }
+    }
+}
+
+# Get combined app list for device type
+function Get-AppListForDevice ($Type) {
+    $combined = @()
+
+    # Add common apps first
+    $combined += $Script:CommonAppList
+
+    # Add device-specific apps
+    switch ($Type) {
+        "Shield" {
+            $combined += $Script:ShieldAppList
+        }
+        "GoogleTV" {
+            $combined += $Script:GoogleTVAppList
+        }
+        default {
+            # For unknown devices, include both but skip the launchers
+            foreach ($app in $Script:ShieldAppList) {
+                if ($app[0] -notmatch "tvlauncher") { $combined += ,$app }
+            }
+            foreach ($app in $Script:GoogleTVAppList) {
+                if ($app[0] -notmatch "launcherx") { $combined += ,$app }
+            }
+        }
+    }
+
+    return $combined
+}
+
+# Show device profile information
+function Show-DeviceProfile ($Target, $DeviceInfo) {
+    Write-Header "Device Profile"
+
+    $typeName = Get-DeviceTypeName $DeviceInfo.Type
+    Write-Host " Device:  " -NoNewline -ForegroundColor Gray
+    Write-Host "$($DeviceInfo.Name)" -ForegroundColor Cyan
+
+    Write-Host " Model:   " -NoNewline -ForegroundColor Gray
+    Write-Host "$($DeviceInfo.Model)" -ForegroundColor White
+
+    Write-Host " Profile: " -NoNewline -ForegroundColor Gray
+    Write-Host "$typeName" -ForegroundColor Yellow
+
+    Write-Host " Serial:  " -NoNewline -ForegroundColor Gray
+    Write-Host "$($DeviceInfo.Serial)" -ForegroundColor DarkGray
+
+    # Get Android version
+    try {
+        $androidVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.release 2>&1 | Out-String).Trim()
+        Write-Host " Android: " -NoNewline -ForegroundColor Gray
+        Write-Host "$androidVer" -ForegroundColor White
+    } catch {}
+
+    # Show which app list will be used
+    $appList = Get-AppListForDevice $DeviceInfo.Type
+    Write-Host " Apps:    " -NoNewline -ForegroundColor Gray
+    Write-Host "$($appList.Count) apps in optimization list" -ForegroundColor Green
+
+    Write-Host ""
+}
 
 # --- UTILITY FUNCTIONS ---
 
@@ -198,36 +333,68 @@ function Get-Devices {
             $s = $matches[1]
             $st = $matches[2]
 
-            $n = "Unknown Shield"
+            $n = "Unknown Device"
             $mod = "Unknown Model"
+            $devType = $Script:DeviceType.Unknown
 
             if ($st -eq "device") {
-                # FIX #2: Get Name with .Trim()
+                # Detect device type first
+                $devType = Get-DeviceType -Target $s
+
+                # Get device name
                 try {
                     $n = (& $Script:AdbPath -s $s shell settings get global device_name 2>&1 | Out-String).Trim()
-                    if (-not $n -or $n -match "Exception|Error") { $n = "Shield TV" }
-                }
-                catch { $n = "Shield TV" }
-
-                # FIX #2: Get Model with .Trim()
-                try {
-                    $mCode = (& $Script:AdbPath -s $s shell getprop ro.product.model 2>&1 | Out-String).Trim()
-                    switch ($mCode) {
-                        "mdarcy" { $mod = "Shield TV Pro (2019)" }
-                        "sif"    { $mod = "Shield TV (2019 Tube)" }
-                        "darcy"  { $mod = "Shield TV (2017)" }
-                        "foster" { $mod = "Shield TV (2015)" }
-                        default  { $mod = "Shield Device ($mCode)" }
+                    if (-not $n -or $n -match "Exception|Error|null") {
+                        # Fallback to brand + model
+                        $brand = (& $Script:AdbPath -s $s shell getprop ro.product.brand 2>&1 | Out-String).Trim()
+                        $n = if ($brand) { "$brand Device" } else { "Android TV" }
                     }
                 }
-                catch { $mod = "Shield Device (Unknown)" }
+                catch { $n = "Android TV" }
+
+                # Get model name based on device type
+                try {
+                    $mCode = (& $Script:AdbPath -s $s shell getprop ro.product.model 2>&1 | Out-String).Trim()
+                    $device = (& $Script:AdbPath -s $s shell getprop ro.product.device 2>&1 | Out-String).Trim()
+
+                    if ($devType -eq $Script:DeviceType.Shield) {
+                        # Shield-specific model names
+                        switch ($device.ToLower()) {
+                            "mdarcy" { $mod = "Shield TV Pro (2019)" }
+                            "sif"    { $mod = "Shield TV (2019 Tube)" }
+                            "darcy"  { $mod = "Shield TV (2017)" }
+                            "foster" { $mod = "Shield TV (2015)" }
+                            default  { $mod = "Shield TV ($mCode)" }
+                        }
+                    }
+                    elseif ($devType -eq $Script:DeviceType.GoogleTV) {
+                        # Google TV device names
+                        switch -Regex ($device.ToLower()) {
+                            "ott_"      { $mod = "Onn 4K ($mCode)" }
+                            "sabrina"   { $mod = "Chromecast with Google TV" }
+                            "boreal"    { $mod = "Google TV Streamer (2024)" }
+                            default     { $mod = "Google TV ($mCode)" }
+                        }
+                    }
+                    else {
+                        $mod = "Android TV ($mCode)"
+                    }
+                }
+                catch { $mod = "Unknown Model" }
             } elseif ($st -eq "offline") {
                 $n = "Offline"; $mod = "Rebooting..."
             } elseif ($st -eq "unauthorized") {
                 $n = "Unauthorized"; $mod = "Check TV Screen"
             }
 
-            $devs += [PSCustomObject]@{ ID = $devs.Count + 1; Serial = $s; Name = $n; Status = $st; Model = $mod }
+            $devs += [PSCustomObject]@{
+                ID = $devs.Count + 1
+                Serial = $s
+                Name = $n
+                Status = $st
+                Model = $mod
+                Type = $devType
+            }
         }
     }
     return $devs
@@ -235,7 +402,7 @@ function Get-Devices {
 
 # FIX #1: Socket leak fix and #14: Results feedback and #H: Timeout improvement
 function Scan-Network {
-    Write-Info "Scanning local subnet for port 5555 (timeout: 200ms)..."
+    Write-Info "Scanning local subnet for Android TV devices (timeout: 200ms)..."
     $arp = arp -a | Select-String "dynamic"
     $foundCount = 0
 
@@ -270,7 +437,7 @@ function Scan-Network {
 
     # FIX #14: Show results feedback
     if ($foundCount -eq 0) {
-        Write-Warn "No devices found on network. Ensure Network Debugging is enabled on Shield."
+        Write-Warn "No devices found on network. Ensure Network Debugging is enabled on your Android TV device."
     } else {
         Write-Success "Scan complete. Found $foundCount device(s)."
     }
@@ -297,18 +464,27 @@ function Show-Help {
     Write-Host "   - Network Debugging: Enable this if connecting via WiFi."
 
     Write-Host "`n2. CONNECTING" -ForegroundColor Cyan
-    Write-Host "   - Use [Scan Network] to auto-discover Shields."
+    Write-Host "   - Use [Scan Network] to auto-discover Android TV devices."
     Write-Host "   - If scan fails, use [Connect IP] to enter the address manually."
     Write-Host "   - If a device shows 'UNAUTHORIZED', check your TV screen to accept the connection."
 
-    Write-Host "`n3. MODES" -ForegroundColor Cyan
-    Write-Host "   - OPTIMIZE: Disables bloatware. You can choose Disable or Uninstall."
-    Write-Host "   - RESTORE: Re-enables or Re-installs apps."
-    Write-Host "   - LAUNCHER: Install Projectivy or disable Stock launcher."
+    Write-Host "`n3. SUPPORTED DEVICES" -ForegroundColor Cyan
+    Write-Host "   - Nvidia Shield TV (all models)"
+    Write-Host "   - Onn 4K Pro (Walmart)"
+    Write-Host "   - Chromecast with Google TV"
+    Write-Host "   - Google TV Streamer (2024)"
+    Write-Host "   - Other Android TV devices"
 
-    Write-Host "`n4. KEYBOARD SHORTCUTS" -ForegroundColor Cyan
+    Write-Host "`n4. MODES" -ForegroundColor Cyan
+    Write-Host "   - OPTIMIZE: Disables bloatware (device-specific). Choose Disable or Uninstall."
+    Write-Host "   - RESTORE: Re-enables or re-installs apps."
+    Write-Host "   - LAUNCHER: Install Projectivy, FLauncher, or manage stock launcher."
+    Write-Host "   - RECOVERY: Emergency restore - re-enables all disabled packages."
+
+    Write-Host "`n5. KEYBOARD SHORTCUTS" -ForegroundColor Cyan
     Write-Host "   - Arrow Keys: Navigate menus"
-    Write-Host "   - 1-9: Quick select menu items"
+    Write-Host "   - 1-9: Quick select devices"
+    Write-Host "   - Letters: Quick select options (shown as [S]can, [Q]uit, etc.)"
     Write-Host "   - Enter: Confirm selection"
     Write-Host "   - ESC: Cancel / Go back"
 
@@ -587,56 +763,150 @@ function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
 }
 
 # --- REPORT GENERATOR ---
-function Run-Report ($Target, $Name) {
-    Write-Header "Health Report: $Name"
+# Universal diagnostics for Shield, Google TV, and other Android TV devices
+function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
+    $typeName = Get-DeviceTypeName $DeviceType
+    Write-Header "Health Report: $Name ($typeName)"
 
-    # Sensors
+    # --- TEMPERATURE ---
+    # Try multiple methods for different device types
     $Temp = "N/A"
+
+    # Method 1: thermalservice (Shield)
     try {
-        $dump = & $Script:AdbPath -s $Target shell dumpsys thermalservice 2>&1
-        foreach ($l in $dump) {
-            if ($l -match "mValue=([\d\.]+).*mName=CPU") {
-                if ($matches.Count -ge 2) { $Temp = [math]::Round([float]$matches[1], 1); break }
-            }
+        $dump = & $Script:AdbPath -s $Target shell dumpsys thermalservice 2>&1 | Out-String
+        if ($dump -match "mValue=([\d\.]+).*mName=CPU") {
+            $Temp = [math]::Round([float]$matches[1], 1)
         }
     } catch {}
 
-    # RAM
-    $mem = & $Script:AdbPath -s $Target shell dumpsys meminfo
-    $Total=3072; $Free=0; $Swap=0
-    foreach ($l in $mem) {
-        if ($l -match "Total RAM:\s+([0-9,]+)K") { $Total=[math]::Round(($matches[1]-replace",","")/1024,0) }
-        if ($l -match "Free RAM:\s+([0-9,]+)K") { $Free=[math]::Round(($matches[1]-replace",","")/1024,0) }
-        if ($l -match "ZRAM:.*used for\s+([0-9,]+)K") { $Swap=[math]::Round(($matches[1]-replace",","")/1024,0) }
+    # Method 2: thermal zones (Google TV / generic)
+    if ($Temp -eq "N/A") {
+        try {
+            $thermal = & $Script:AdbPath -s $Target shell "cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null" 2>&1 | Out-String
+            if ($thermal -match "^\d+") {
+                $tempVal = [int]($thermal.Trim())
+                if ($tempVal -gt 1000) { $tempVal = $tempVal / 1000 }  # millidegrees to degrees
+                $Temp = [math]::Round($tempVal, 1)
+            }
+        } catch {}
     }
+
+    # Method 3: battery temperature (fallback)
+    if ($Temp -eq "N/A") {
+        try {
+            $battery = & $Script:AdbPath -s $Target shell dumpsys battery 2>&1 | Out-String
+            if ($battery -match "temperature:\s*(\d+)") {
+                $Temp = [math]::Round([int]$matches[1] / 10, 1)
+            }
+        } catch {}
+    }
+
+    # --- RAM ---
+    $Total = 0; $Free = 0; $Swap = 0
+
+    # Try dumpsys meminfo first
+    try {
+        $mem = & $Script:AdbPath -s $Target shell dumpsys meminfo 2>&1 | Out-String
+        if ($mem -match "Total RAM:\s+([0-9,]+)\s*K") { $Total = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
+        if ($mem -match "Free RAM:\s+([0-9,]+)\s*K") { $Free = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
+        if ($mem -match "ZRAM:.*used for\s+([0-9,]+)\s*K") { $Swap = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
+    } catch {}
+
+    # Fallback to /proc/meminfo
+    if ($Total -eq 0) {
+        try {
+            $procMem = & $Script:AdbPath -s $Target shell cat /proc/meminfo 2>&1 | Out-String
+            if ($procMem -match "MemTotal:\s+(\d+)\s*kB") { $Total = [math]::Round([int]$matches[1] / 1024, 0) }
+            if ($procMem -match "MemAvailable:\s+(\d+)\s*kB") { $Free = [math]::Round([int]$matches[1] / 1024, 0) }
+            elseif ($procMem -match "MemFree:\s+(\d+)\s*kB") { $Free = [math]::Round([int]$matches[1] / 1024, 0) }
+        } catch {}
+    }
+
+    if ($Total -eq 0) { $Total = 2048 }  # Default fallback
     $Used = $Total - $Free
-    $Pct = [math]::Round(($Used/$Total)*100, 0)
+    $Pct = if ($Total -gt 0) { [math]::Round(($Used / $Total) * 100, 0) } else { 0 }
+
+    # --- STORAGE ---
+    $StorageUsed = "N/A"; $StorageTotal = "N/A"; $StoragePct = 0
+    try {
+        $df = & $Script:AdbPath -s $Target shell df -h /data 2>&1 | Out-String
+        if ($df -match "/data\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)%") {
+            $StorageTotal = $matches[1]
+            $StorageUsed = $matches[2]
+            $StoragePct = [int]$matches[4]
+        }
+    } catch {}
+
+    # --- CPU/PLATFORM ---
+    $Platform = "Unknown"
+    try {
+        $Platform = (& $Script:AdbPath -s $Target shell getprop ro.board.platform 2>&1 | Out-String).Trim()
+        if (-not $Platform -or $Platform -match "Exception") { $Platform = "Unknown" }
+    } catch {}
+
+    # --- ANDROID VERSION ---
+    $AndroidVer = "Unknown"
+    try {
+        $AndroidVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.release 2>&1 | Out-String).Trim()
+    } catch {}
+
+    Write-SubHeader "System Info"
+    Write-Host " Platform:  " -NoNewline -ForegroundColor Gray
+    Write-Host "$Platform" -ForegroundColor Cyan
+    Write-Host " Android:   " -NoNewline -ForegroundColor Gray
+    Write-Host "$AndroidVer" -ForegroundColor White
 
     Write-SubHeader "Vitals"
-    Write-Host " Temp: $Temp C"
-    Write-Host " RAM:  $Pct% ($Used / $Total MB)"
-    Write-Host " Swap: $Swap MB"
+    Write-Host " Temp:    " -NoNewline -ForegroundColor Gray
+    if ($Temp -ne "N/A") {
+        $tempColor = if ([float]$Temp -gt 70) { "Red" } elseif ([float]$Temp -gt 50) { "Yellow" } else { "Green" }
+        Write-Host "${Temp}°C" -ForegroundColor $tempColor
+    } else {
+        Write-Host "N/A" -ForegroundColor DarkGray
+    }
+
+    Write-Host " RAM:     " -NoNewline -ForegroundColor Gray
+    $ramColor = if ($Pct -gt 85) { "Red" } elseif ($Pct -gt 70) { "Yellow" } else { "Green" }
+    Write-Host "$Pct% ($Used / $Total MB)" -ForegroundColor $ramColor
+
+    Write-Host " Swap:    " -NoNewline -ForegroundColor Gray
+    Write-Host "$Swap MB" -ForegroundColor White
+
+    Write-Host " Storage: " -NoNewline -ForegroundColor Gray
+    if ($StorageUsed -ne "N/A") {
+        $storColor = if ($StoragePct -gt 90) { "Red" } elseif ($StoragePct -gt 75) { "Yellow" } else { "Green" }
+        Write-Host "$StorageUsed / $StorageTotal ($StoragePct%)" -ForegroundColor $storColor
+    } else {
+        Write-Host "N/A" -ForegroundColor DarkGray
+    }
 
     Write-SubHeader "Settings Check"
-    $anim = (& $Script:AdbPath -s $Target shell settings get global window_animation_scale | Out-String).Trim()
-    $proc = (& $Script:AdbPath -s $Target shell settings get global background_process_limit | Out-String).Trim()
-    if ($proc -eq "null" -or $proc -eq "") { $proc = "Standard" }
+    $anim = (& $Script:AdbPath -s $Target shell settings get global window_animation_scale 2>&1 | Out-String).Trim()
+    $proc = (& $Script:AdbPath -s $Target shell settings get global background_process_limit 2>&1 | Out-String).Trim()
+    if ($proc -eq "null" -or $proc -eq "" -or $proc -match "Exception") { $proc = "Standard" }
+    if ($anim -match "Exception" -or $anim -eq "null") { $anim = "1.0" }
 
-    Write-Host " Animation Speed: " -NoNewline; Write-Host "$anim" -ForegroundColor Cyan
-    Write-Host " Process Limit:   " -NoNewline; Write-Host "$proc" -ForegroundColor Cyan
+    Write-Host " Animation Speed: " -NoNewline -ForegroundColor Gray
+    Write-Host "$anim" -ForegroundColor Cyan
+    Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
+    Write-Host "$proc" -ForegroundColor Cyan
 
     Write-SubHeader "Bloat Check"
     $clean = $true
 
-    # FIX #11: Query packages once instead of per-app
-    $enabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -e | Out-String)
+    # Get device-specific app list
+    $appList = Get-AppListForDevice $DeviceType
 
-    foreach ($app in $Script:AppList) {
-        $pkg = $app[0]; $name = $app[1]; $risk = $app[3]
+    # Query enabled packages once
+    $enabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -e 2>&1 | Out-String)
+
+    foreach ($app in $appList) {
+        $pkg = $app[0]; $appName = $app[1]; $risk = $app[3]
         if ($risk -match "Safe" -or $risk -match "Medium") {
-            # FIX #12: Use exact match with word boundary
+            # Use exact match with word boundary
             if ($enabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
-                Write-Host " [ACTIVE BLOAT] $name" -ForegroundColor Yellow
+                Write-Host " [ACTIVE BLOAT] $appName" -ForegroundColor Yellow
                 $clean = $false
             }
         }
@@ -833,8 +1103,9 @@ function Show-TaskSummary ($Mode, [switch]$Aborted) {
 
 # --- ENGINE: UNIFIED TASK RUNNER ---
 # UX #A: Apply All Defaults, UX #B: Summary tracking
-function Run-Task ($Target, $Mode) {
-    Write-Header "Application Management ($Mode)"
+function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
+    $typeName = Get-DeviceTypeName $DeviceType
+    Write-Header "Application Management ($Mode) - $typeName"
 
     # UX #B: Track summary statistics
     $Script:Summary = @{
@@ -856,7 +1127,11 @@ function Run-Task ($Target, $Mode) {
     $allPkgs = (& $Script:AdbPath -s $Target shell pm list packages -u | Out-String)
     $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d | Out-String)
 
-    foreach ($app in $Script:AppList) {
+    # Get device-specific app list
+    $appList = Get-AppListForDevice $DeviceType
+    Write-Info "Processing $($appList.Count) apps for $typeName..."
+
+    foreach ($app in $appList) {
         $pkg = $app[0]; $name = $app[1]; $defMethod = $app[2]; $risk = $app[3]
         $optDesc = $app[4]; $restDesc = $app[5]
         $defOpt = $app[6]; $defRest = $app[7]
@@ -1147,6 +1422,102 @@ function Test-ValidIP ($IP) {
     return $false
 }
 
+# --- PANIC RECOVERY ---
+# Re-enable all disabled packages (emergency restore)
+function Run-PanicRecovery ($Target) {
+    Write-Header "Panic Recovery Mode"
+    Write-Warn "This will re-enable ALL disabled packages on the device."
+    Write-Host ""
+
+    $confirm = Read-Toggle -Prompt "Are you sure you want to proceed?" -Options @("YES", "NO") -DefaultIndex 1
+    if ($confirm -ne 0) {
+        Write-Info "Recovery cancelled."
+        return
+    }
+
+    Write-Info "Fetching disabled packages..."
+    $disabledPkgs = & $Script:AdbPath -s $Target shell pm list packages -d 2>&1 | Out-String
+
+    $packages = @()
+    foreach ($line in ($disabledPkgs -split "`n")) {
+        if ($line -match "^package:(.+)$") {
+            $packages += $matches[1].Trim()
+        }
+    }
+
+    if ($packages.Count -eq 0) {
+        Write-Success "No disabled packages found. Nothing to restore."
+        return
+    }
+
+    Write-Info "Found $($packages.Count) disabled packages. Re-enabling..."
+    $restored = 0
+    $failed = 0
+
+    foreach ($pkg in $packages) {
+        try {
+            $result = Invoke-AdbCommand -Target $Target -Command "pm enable $pkg"
+            if ($result.Success) {
+                Write-Success "Enabled: $pkg"
+                $restored++
+            } else {
+                Write-ErrorMsg "Failed: $pkg"
+                $failed++
+            }
+        }
+        catch {
+            Write-ErrorMsg "Error: $pkg"
+            $failed++
+        }
+    }
+
+    Write-Header "Recovery Summary"
+    Write-Host " Restored: $restored packages" -ForegroundColor Green
+    if ($failed -gt 0) {
+        Write-Host " Failed:   $failed packages" -ForegroundColor Red
+    }
+    Write-Info "You may need to reboot for changes to take effect."
+}
+
+# --- REBOOT OPTIONS ---
+function Show-RebootMenu ($Target) {
+    Write-Header "Reboot Options"
+
+    $rOpts = @("Normal Reboot", "Recovery Mode", "Bootloader", "Cancel")
+    $rDescs = @(
+        "Standard device restart.",
+        "Boot into recovery mode (for advanced users).",
+        "Boot into bootloader/fastboot (for advanced users).",
+        "Return without rebooting."
+    )
+    $rShortcuts = @("N", "R", "B", "C")
+
+    $sel = Read-Menu -Title "Reboot Device" -Options $rOpts -Descriptions $rDescs -Shortcuts $rShortcuts
+
+    if ($sel -eq -1 -or $sel -eq 3) { return }
+
+    $confirm = Read-Toggle -Prompt "Confirm reboot?" -Options @("YES", "NO") -DefaultIndex 1
+    if ($confirm -ne 0) { return }
+
+    switch ($sel) {
+        0 {
+            Write-Info "Rebooting device..."
+            & $Script:AdbPath -s $Target reboot
+            Write-Success "Reboot command sent."
+        }
+        1 {
+            Write-Info "Booting to recovery mode..."
+            & $Script:AdbPath -s $Target reboot recovery
+            Write-Success "Recovery mode command sent."
+        }
+        2 {
+            Write-Info "Booting to bootloader..."
+            & $Script:AdbPath -s $Target reboot bootloader
+            Write-Success "Bootloader command sent."
+        }
+    }
+}
+
 # --- MAIN MENU ---
 Clear-Host; Check-Adb
 
@@ -1161,7 +1532,7 @@ try {
 }
 
 # UX #F: Show version in header
-Write-Header "NVIDIA SHIELD OPTIMIZER $Script:Version"
+Write-Header "ANDROID TV OPTIMIZER $Script:Version"
 
 while ($true) {
     $devs = @(Get-Devices)
@@ -1170,16 +1541,17 @@ while ($true) {
     if ($devs.Count -gt 0) {
         foreach ($d in $devs) {
             $status = $d.Status
+            $typeName = Get-DeviceTypeName $d.Type
             if ($status -eq "device") { $txt = $d.Name } else { $txt = "$($d.Name) [$status]" }
             $mOpts += $txt
-            $mDescs += "Model: $($d.Model) | Serial: $($d.Serial)"
+            $mDescs += "$typeName | $($d.Model) | $($d.Serial)"
         }
     }
 
     # Static options start after devices (devices use numbers, everything else uses letters)
     $staticStart = $devs.Count
 
-    $mOpts += "Scan Network"; $mDescs += "Auto-discover Shield TVs on local network."
+    $mOpts += "Scan Network"; $mDescs += "Auto-discover Android TV devices on local network."
     $mOpts += "Connect IP"; $mDescs += "Manually connect to a specific IP address."
     $mOpts += "Report All"; $mDescs += "Run Health Check on ALL connected devices."
     $mOpts += "Refresh"; $mDescs += "Reload device list."
@@ -1192,7 +1564,7 @@ while ($true) {
     # Pass StaticStartIndex so devices use numbers, options use letters
     # Shortcuts: S=Scan, C=Connect, R=Report, F=reFresh, A=ADB, H=Help, Q=Quit
     $mainShortcuts = @("S", "C", "R", "F", "A", "H", "Q")
-    $sel = Read-Menu -Title "Shield Optimizer $Script:Version - Main Menu" -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart -Shortcuts $mainShortcuts
+    $sel = Read-Menu -Title "Android TV Optimizer $Script:Version - Main Menu" -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart -Shortcuts $mainShortcuts
 
     # Handle ESC
     if ($sel -eq -1) { continue }
@@ -1214,7 +1586,11 @@ while ($true) {
     }
     if ($selText -eq "Refresh") { continue }
     if ($selText -eq "Report All") {
-        foreach ($d in $devs) { if ($d.Status -eq "device") { Run-Report -Target $d.Serial -Name $d.Name } }
+        foreach ($d in $devs) {
+            if ($d.Status -eq "device") {
+                Run-Report -Target $d.Serial -Name $d.Name -DeviceType $d.Type
+            }
+        }
         Pause; continue
     }
     # UX #E: Handle ADB restart
@@ -1230,30 +1606,38 @@ while ($true) {
             Pause; continue
         }
 
-        # UX #G: Add Disconnect option to action menu
-        $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Disconnect", "Back")
+        # Get device type name for display
+        $deviceTypeName = Get-DeviceTypeName $target.Type
+
+        # Action menu with device type info
+        $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Profile", "Recovery", "Reboot", "Disconnect", "Back")
         $aDescs = @(
-            "Debloat apps and tune performance.",
+            "Debloat apps and tune performance for $deviceTypeName.",
             "Undo optimizations and fix missing apps.",
-            "Check Temp, RAM, and Storage health.",
-            "Install Projectivy or Switch Launchers.",
+            "Check Temp, RAM, Storage, and bloat status.",
+            "Install Projectivy or switch launchers.",
+            "View device profile and detected settings.",
+            "Emergency: Re-enable ALL disabled packages.",
+            "Restart device (normal, recovery, or bootloader).",
             "Disconnect this device from ADB.",
             "Return to Main Menu."
         )
-        # Shortcuts: O=Optimize, R=Restore, P=rePort, L=Launcher, D=Disconnect, B=Back
-        $actionShortcuts = @("O", "R", "P", "L", "D", "B")
-        $aSel = Read-Menu -Title "Action Menu: $($target.Name)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
+        # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, P=Profile, C=reCovery, B=reboot, D=Disconnect, K=bacK
+        $actionShortcuts = @("O", "R", "E", "L", "P", "C", "B", "D", "K")
+        $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
         # Handle ESC
         if ($aSel -eq -1) { continue }
 
         $act = $aOpts[$aSel]
 
-        if ($act -eq "Optimize") { Run-Task -Target $target.Serial -Mode "Optimize" }
-        if ($act -eq "Restore") { Run-Task -Target $target.Serial -Mode "Restore" }
-        if ($act -eq "Report") { Run-Report -Target $target.Serial -Name $target.Name; Pause }
+        if ($act -eq "Optimize") { Run-Task -Target $target.Serial -Mode "Optimize" -DeviceType $target.Type }
+        if ($act -eq "Restore") { Run-Task -Target $target.Serial -Mode "Restore" -DeviceType $target.Type }
+        if ($act -eq "Report") { Run-Report -Target $target.Serial -Name $target.Name -DeviceType $target.Type; Pause }
         if ($act -eq "Launcher Setup") { Setup-Launcher -Target $target.Serial; Pause }
-        # UX #G: Handle disconnect
+        if ($act -eq "Profile") { Show-DeviceProfile -Target $target.Serial -DeviceInfo $target; Pause }
+        if ($act -eq "Recovery") { Run-PanicRecovery -Target $target.Serial; Pause }
+        if ($act -eq "Reboot") { Show-RebootMenu -Target $target.Serial; Pause }
         if ($act -eq "Disconnect") { Disconnect-Device -Serial $target.Serial; Pause }
     }
 }

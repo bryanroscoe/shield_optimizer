@@ -1,14 +1,23 @@
-# Shield Optimizer
+# Android TV Optimizer
 
-A powerful, interactive PowerShell tool designed to debloat, optimize, and manage Nvidia Shield TV and other Android TV devices (Onn 4K, Chromecast, etc.). Features a colorful menu system with keyboard shortcuts, safe defaults, and a smart launcher wizard.
+A powerful, interactive PowerShell tool designed to debloat, optimize, and manage Android TV devices. Supports Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer, and more. Features a colorful menu system with keyboard shortcuts, device-specific optimizations, and safe defaults.
 
 > **Note:** This tool is "vibe coded" - built with AI assistance. Tested and verified on real devices.
 
-> **Verified:** Shield 2015 Pro, Shield 2019 Pro, Onn 4K
+**Verified Devices:**
+- Nvidia Shield 2015 Pro, Shield 2019 Pro
+- Onn 4K Pro (Walmart)
+- Chromecast with Google TV
 
 ---
 
 ## Features
+
+### Multi-Device Support (v62)
+* **Auto-Detection:** Automatically identifies device type (Shield, Google TV, etc.)
+* **Device-Specific Apps:** Different bloatware lists for Shield vs Google TV devices
+* **Universal Diagnostics:** Temperature, RAM, storage work across all device types
+* **Smart Launcher Detection:** Finds the correct stock launcher package for your device
 
 ### Keyboard-Driven Interface
 * **Arrow Keys:** Navigate menus up/down
@@ -38,15 +47,33 @@ A powerful, interactive PowerShell tool designed to debloat, optimize, and manag
 * **One-Click Reset:** Restore all settings to defaults
 
 ### Health & Diagnostics
-* **Device Report:** CPU temperature, RAM usage, swap status
-* **Bloat Check:** Scan for active bloatware
-* **Model Detection:** Identifies Shield 2015/2017/2019 Pro/Tube variants
+* **Device Report:** Temperature, RAM, storage, Android version, platform info
+* **Bloat Check:** Scan for active bloatware (device-specific)
+* **Color-Coded Vitals:** Green/Yellow/Red indicators for system health
+* **Model Detection:** Identifies Shield, Onn 4K, Chromecast, and other devices
+
+### Safety Features
+* **Panic Recovery:** Emergency button to re-enable ALL disabled packages
+* **Reboot Options:** Normal, Recovery, or Bootloader modes
+* **Device Profile:** View detected settings before making changes
 
 ### Connection Tools
 * **Network Scan:** Auto-discover devices on local network (200ms timeout)
 * **IP Validation:** Validates IP format before connecting
 * **Restart ADB:** Fix connection issues with one click
 * **Disconnect Device:** Cleanly disconnect without quitting
+
+---
+
+## Supported Devices
+
+| Device | Status | Notes |
+|--------|--------|-------|
+| Nvidia Shield TV (2015/2017/2019) | Fully Supported | All models tested |
+| Onn 4K Pro (Walmart) | Supported | Device-specific optimizations |
+| Chromecast with Google TV | Supported | Uses Google TV app list |
+| Google TV Streamer (2024) | Supported | Uses Google TV app list |
+| Other Android TV | Basic Support | Common apps only |
 
 ---
 
@@ -82,9 +109,10 @@ A powerful, interactive PowerShell tool designed to debloat, optimize, and manag
 
 ### Main Menu
 ```
- Shield Optimizer v61 - Main Menu
+ Android TV Optimizer v62 - Main Menu
  ================================================
-  >  [1] Shield TV Pro
+  >  [1] Living Room Shield
+     [2] Bedroom Onn 4K
      [S]can Network
      [C]onnect IP
      [R]eport All
@@ -93,17 +121,20 @@ A powerful, interactive PowerShell tool designed to debloat, optimize, and manag
      [H]elp
      [Q]uit
  ================================================
- Info: Model: Shield TV Pro (2019) | Serial: 192.168.1.50:5555
+ Info: Nvidia Shield | Shield TV Pro (2019) | 192.168.1.50:5555
  [Arrows: Move] [Keys: Select] [Enter: OK] [ESC: Back]
 ```
 
 ### Action Menu (Per Device)
-* **[O]ptimize** - Disable/uninstall bloatware, tune performance
+* **[O]ptimize** - Disable/uninstall bloatware (device-specific), tune performance
 * **[R]estore** - Re-enable apps, reset settings
-* **Re[P]ort** - View device health and bloat status
+* **r[E]port** - View device health, storage, and bloat status
 * **[L]auncher Setup** - Install custom launcher, manage stock launcher
+* **[P]rofile** - View device type and detected settings
+* **re[C]overy** - Emergency: Re-enable ALL disabled packages
+* **re[B]oot** - Restart device (normal, recovery, or bootloader)
 * **[D]isconnect** - Disconnect this device from ADB
-* **[B]ack** - Return to main menu
+* **bac[K]** - Return to main menu
 
 ### Optimize/Restore Flow
 * Choose **Apply All Defaults** to skip individual prompts
@@ -111,6 +142,28 @@ A powerful, interactive PowerShell tool designed to debloat, optimize, and manag
 * **ABORT** shows partial summary of changes made
 * Final summary shows counts: Disabled, Uninstalled, Skipped, Failed
 * Option to reboot device when finished
+
+### Health Report
+```
+=== Health Report: Living Room Shield (Nvidia Shield) ===
+
+--- System Info ---
+ Platform:  tegra
+ Android:   11
+
+--- Vitals ---
+ Temp:    42.5°C
+ RAM:     65% (1980 / 3048 MB)
+ Swap:    128 MB
+ Storage: 8.2G / 13G (63%)
+
+--- Settings Check ---
+ Animation Speed: 0.5
+ Process Limit:   2
+
+--- Bloat Check ---
+ [OK] System is clean.
+```
 
 ### Launcher Wizard
 ```
@@ -154,6 +207,11 @@ Status colors:
 3. Use **Restart ADB** to fix connection issues
 4. Check TV screen for authorization prompt
 
+**Device detected as wrong type?**
+1. Use **Profile** to see detected device info
+2. Detection uses brand, model, and installed packages
+3. Unknown devices get a generic app list
+
 **Launcher won't switch?**
 1. The wizard auto-detects your stock launcher package
 2. If detection fails, package name shown in Info line
@@ -161,13 +219,30 @@ Status colors:
 4. Some devices require selecting default in Android settings
 
 **Command failed?**
-* Errors now show actual ADB output
+* Errors show actual ADB output
 * Check if app package exists on your device
 * Some packages vary by device model/region
+
+**Something broke?**
+1. Use **Recovery** mode to re-enable all disabled packages
+2. Use **Reboot** > **Recovery Mode** if device won't boot normally
+3. Most changes can be reversed through Restore mode
+
+---
+
+## What's New in v62
+
+* **Multi-device support** - Automatically detects Shield vs Google TV
+* **Device-specific app lists** - Shield gets NVIDIA apps, Google TV gets Google/Walmart apps
+* **Universal diagnostics** - Temperature/RAM/Storage work on all devices
+* **Panic Recovery** - Emergency re-enable all disabled packages
+* **Reboot Options** - Normal, Recovery, or Bootloader
+* **Device Profile** - View detected device info before optimizing
+* **Improved Help** - Updated for multi-device support
 
 ---
 
 ## Credits & Disclaimer
 
 * **Debloat Research:** Community guides including [florisse.nl/shield-debloat](https://florisse.nl/shield-debloat/)
-* **Disclaimer:** Use at your own risk. This tool prioritizes "Disable" over "Uninstall" for safety, but modifying system settings always carries some risk. Changes can be reversed using Restore mode.
+* **Disclaimer:** Use at your own risk. This tool prioritizes "Disable" over "Uninstall" for safety, but modifying system settings always carries some risk. Changes can be reversed using Restore mode or the new Recovery feature.
