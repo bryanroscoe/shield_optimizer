@@ -25,7 +25,7 @@ $Script:ForceAdbDownload = $ForceAdbDownload
     - Keyboard shortcuts, colored status tags
 #>
 
-$Script:Version = "v62"
+$Script:Version = "v62-beta"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -460,15 +460,21 @@ function Check-Adb {
     $AdbExe = "$ScriptDir\adb.exe"
     $Script:AdbPath = ""
 
-    # Force download if flag is set
-    if ($Script:ForceAdbDownload -and (Test-Path $AdbExe)) {
+    # Force download if flag is set - skip all checks and download fresh
+    if ($Script:ForceAdbDownload) {
         Write-Warn "Forcing ADB re-download..."
+        # Kill ADB server first so files aren't locked
+        if (Test-Path $AdbExe) {
+            try { & $AdbExe kill-server 2>$null } catch {}
+        }
+        try { Stop-Process -Name "adb" -Force -ErrorAction SilentlyContinue } catch {}
+        Start-Sleep -Milliseconds 500
         Remove-Item $AdbExe -Force -ErrorAction SilentlyContinue
         Remove-Item "$ScriptDir\AdbWinApi.dll" -Force -ErrorAction SilentlyContinue
         Remove-Item "$ScriptDir\AdbWinUsbApi.dll" -Force -ErrorAction SilentlyContinue
+        # Fall through to download section
     }
-
-    if (Test-Path $AdbExe) {
+    elseif (Test-Path $AdbExe) {
         $Script:AdbPath = $AdbExe
     }
     elseif (Get-Command "adb.exe" -ErrorAction SilentlyContinue) {
@@ -476,7 +482,7 @@ function Check-Adb {
     }
 
     if ($Script:AdbPath -eq "") {
-        Write-Warn "ADB missing. Downloading..."
+        if (-not $Script:ForceAdbDownload) { Write-Warn "ADB missing. Downloading..." }
         $Url = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
         $Zip = "$ScriptDir\adb_temp.zip"; $Ext = "$ScriptDir\adb_temp_extract"
         try {
@@ -491,7 +497,6 @@ function Check-Adb {
             Write-Success "ADB Installed."
         } catch { Write-ErrorMsg "ADB Setup Failed."; Exit }
     } else { Write-Success "Found ADB." }
-    Start-Sleep -Milliseconds 500
 }
 
 # UX #E: Add ADB Server Restart function
@@ -535,27 +540,38 @@ function Get-Devices {
             $devType = $Script:DeviceType.Unknown
 
             if ($st -eq "device") {
-                # Detect device type first
-                $devType = Get-DeviceType -Target $s
-
-                # Get device name
                 try {
-                    $n = (& $Script:AdbPath -s $s shell settings get global device_name 2>&1 | Out-String).Trim()
-                    if (-not $n -or $n -match "Exception|Error|null") {
-                        # Fallback to brand + model
-                        $brand = (& $Script:AdbPath -s $s shell getprop ro.product.brand 2>&1 | Out-String).Trim()
-                        $n = if ($brand) { "$brand Device" } else { "Android TV" }
+                    # Batch all property queries into ONE adb call for speed
+                    $props = (& $Script:AdbPath -s $s shell "settings get global device_name; getprop ro.product.brand; getprop ro.product.model; getprop ro.product.device; getprop ro.product.manufacturer" 2>&1 | Out-String) -split "`n"
+
+                    $devName = if ($props[0]) { $props[0].Trim() } else { "" }
+                    $brand = if ($props[1]) { $props[1].Trim() } else { "" }
+                    $mCode = if ($props[2]) { $props[2].Trim() } else { "" }
+                    $device = if ($props[3]) { $props[3].Trim() } else { "" }
+                    $manufacturer = if ($props[4]) { $props[4].Trim() } else { "" }
+
+                    # Determine device type from manufacturer/brand
+                    if ($manufacturer -match "NVIDIA" -or $brand -match "NVIDIA") {
+                        $devType = $Script:DeviceType.Shield
                     }
-                }
-                catch { $n = "Android TV" }
+                    elseif ($manufacturer -match "Google|Amlogic" -or $brand -match "onn|google" -or $device -match "ott_|sabrina|boreal") {
+                        $devType = $Script:DeviceType.GoogleTV
+                    }
+                    else {
+                        $devType = $Script:DeviceType.Unknown
+                    }
 
-                # Get model name based on device type
-                try {
-                    $mCode = (& $Script:AdbPath -s $s shell getprop ro.product.model 2>&1 | Out-String).Trim()
-                    $device = (& $Script:AdbPath -s $s shell getprop ro.product.device 2>&1 | Out-String).Trim()
+                    # Get device name
+                    if ($devName -and $devName -notmatch "Exception|Error|null") {
+                        $n = $devName
+                    } elseif ($brand) {
+                        $n = "$brand Device"
+                    } else {
+                        $n = "Android TV"
+                    }
 
+                    # Get model name based on device type
                     if ($devType -eq $Script:DeviceType.Shield) {
-                        # Shield-specific model names
                         switch ($device.ToLower()) {
                             "mdarcy" { $mod = "Shield TV Pro (2019)" }
                             "sif"    { $mod = "Shield TV (2019 Tube)" }
@@ -565,7 +581,6 @@ function Get-Devices {
                         }
                     }
                     elseif ($devType -eq $Script:DeviceType.GoogleTV) {
-                        # Google TV device names
                         switch -Regex ($device.ToLower()) {
                             "ott_"      { $mod = "Onn 4K ($mCode)" }
                             "sabrina"   { $mod = "Chromecast with Google TV" }
@@ -577,7 +592,10 @@ function Get-Devices {
                         $mod = "Android TV ($mCode)"
                     }
                 }
-                catch { $mod = "Unknown Model" }
+                catch {
+                    $n = "Android TV"
+                    $mod = "Unknown Model"
+                }
             } elseif ($st -eq "offline") {
                 $n = "Offline"; $mod = "Rebooting..."
             } elseif ($st -eq "unauthorized") {
@@ -1622,8 +1640,9 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
     # FIX #11: Query packages once, cache results
     Write-Info "Querying installed packages..."
-    $allPkgs = (& $Script:AdbPath -s $Target shell pm list packages -u | Out-String)
-    $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d | Out-String)
+    $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages 2>&1 | Out-String)      # Currently installed for user
+    $allPkgs = (& $Script:AdbPath -s $Target shell pm list packages -u 2>&1 | Out-String)         # All packages including uninstalled
+    $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d 2>&1 | Out-String)    # Disabled packages
 
     # Get device-specific app list
     $appList = Get-AppListForDevice $DeviceType
@@ -1635,17 +1654,21 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
         $defOpt = $app[6]; $defRest = $app[7]
 
         # FIX #12: Use exact match with word boundary
-        $isInstalled = $allPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
+        $existsOnSystem = $allPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"           # Package exists (may be uninstalled)
+        $isInstalledForUser = $installedPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)" # Actually installed for user 0
         $isDisabled = $disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
 
         $skip = $false
+        $canUninstall = $isInstalledForUser
+        $canDisable = $existsOnSystem -and -not $isDisabled
 
         if ($Mode -eq "Optimize") {
-            if (-not $isInstalled) { Write-Dim "$name ... [NOT INSTALLED]"; $skip=$true }
+            if (-not $existsOnSystem) { Write-Dim "$name ... [NOT INSTALLED]"; $skip=$true }
             elseif ($isDisabled) { Write-Dim "$name ... [ALREADY DISABLED]"; $skip=$true }
+            elseif (-not $isInstalledForUser -and $defMethod -eq "UNINSTALL") { Write-Dim "$name ... [ALREADY UNINSTALLED]"; $skip=$true }
             $desc = $optDesc
         } else {
-            if ($isInstalled -and -not $isDisabled) { Write-Dim "$name ... [ALREADY ACTIVE]"; $skip=$true }
+            if ($isInstalledForUser -and -not $isDisabled) { Write-Dim "$name ... [ALREADY ACTIVE]"; $skip=$true }
             $desc = $restDesc
         }
 
@@ -1658,17 +1681,24 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
             Write-Dim "    $desc"
 
             if ($Mode -eq "Restore") {
-                if ($isInstalled) { Write-Host "    [Status: Disabled]" -ForegroundColor DarkGray }
+                if ($existsOnSystem) { Write-Host "    [Status: Disabled]" -ForegroundColor DarkGray }
                 else { Write-Host "    [Status: Missing]" -ForegroundColor Yellow }
             }
 
             if ($Mode -eq "Optimize") {
-                if ($defMethod -eq "DISABLE") {
-                    $opts = @("DISABLE", "UNINSTALL", "SKIP", "ABORT")
-                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 2 }
+                # Build options based on what's actually possible
+                if ($defMethod -eq "DISABLE" -or -not $canUninstall) {
+                    # Default to disable, or can only disable (not uninstall)
+                    if ($canUninstall) {
+                        $opts = @("DISABLE", "UNINSTALL", "SKIP", "ABORT")
+                    } else {
+                        $opts = @("DISABLE", "SKIP", "ABORT")
+                    }
+                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = ($opts.Count - 2) }
                 } else {
-                    $opts = @("UNINSTALL", "SKIP", "ABORT")
-                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 1 }
+                    # Default to uninstall
+                    $opts = @("UNINSTALL", "DISABLE", "SKIP", "ABORT")
+                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 2 }
                 }
 
                 # UX #A: Apply defaults or prompt
@@ -1690,22 +1720,26 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
                 if ($selStr -ne "SKIP") {
                     if ($selStr -eq "UNINSTALL") {
-                        # FIX #10: Use helper with error checking
+                        Write-Host "    Uninstalling..." -NoNewline -ForegroundColor Gray
                         $result = Invoke-AdbCommand -Target $Target -Command "pm uninstall --user 0 $pkg"
                         if ($result.Success -and $result.Output -notmatch "Failure") {
-                            Write-Success "Uninstalled."
+                            Write-Host "`r" -NoNewline
+                            Write-Success "Uninstalled: $name"
                             $Script:Summary.Uninstalled++
                         } else {
+                            Write-Host ""
                             Write-ErrorMsg "Uninstall failed: $($result.Output)"
                             $Script:Summary.Failed++
                         }
                     } else {
-                        # FIX #10: Use helper with error checking
+                        Write-Host "    Disabling..." -NoNewline -ForegroundColor Gray
                         $result = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
                         if ($result.Success -and $result.Output -notmatch "Failure") {
-                            Write-Success "Disabled."
+                            Write-Host "`r" -NoNewline
+                            Write-Success "Disabled: $name"
                             $Script:Summary.Disabled++
                         } else {
+                            Write-Host ""
                             Write-ErrorMsg "Disable failed: $($result.Output)"
                             $Script:Summary.Failed++
                         }
