@@ -45,7 +45,6 @@ $Script:DeviceType = @{
 # Apps common to ALL Android TV devices
 $Script:CommonAppList = @(
     # [SAFE - Universal]
-    @("com.google.android.tvrecommendations", "Sponsored Content", "DISABLE", "Safe", "Removes 'Sponsored' rows from home.", "Restores sponsored content rows.", "Y", "Y"),
     @("com.google.android.feedback", "Google Feedback", "DISABLE", "Safe", "Stops feedback data collection.", "Restores Google feedback services.", "Y", "Y"),
     @("com.android.printspooler", "Print Spooler", "DISABLE", "Safe", "Disables unused print service.", "Restores print service.", "Y", "Y"),
     @("com.android.gallery3d", "Android Gallery", "DISABLE", "Safe", "Removes legacy photo viewer.", "Restores legacy photo viewer.", "Y", "Y"),
@@ -54,39 +53,52 @@ $Script:CommonAppList = @(
     @("com.google.android.videos", "Google Play Movies", "UNINSTALL", "Safe", "Removes defunct app.", "Restores defunct app.", "Y", "Y"),
     @("com.google.android.music", "Google Play Music", "UNINSTALL", "Safe", "Removes defunct app.", "Restores defunct app.", "Y", "Y"),
 
-    # [STREAMING APPS - Optional]
+    # [STREAMING APPS - Package names vary by device, include all variants]
     @("com.netflix.ninja", "Netflix", "UNINSTALL", "Safe", "Streaming App.", "Restores Netflix.", "N", "N"),
     @("com.amazon.amazonvideo.livingroom", "Amazon Prime Video", "UNINSTALL", "Safe", "Streaming App.", "Restores Prime Video.", "N", "N"),
-    @("com.wbd.stream", "HBO Max / Discovery", "UNINSTALL", "Safe", "Streaming App.", "Restores HBO/Max.", "N", "N"),
+    @("com.amazon.amazonvideo.livingroom.nvidia", "Amazon Prime Video (Shield)", "UNINSTALL", "Safe", "Streaming App.", "Restores Prime Video.", "N", "N"),
+    @("com.wbd.stream", "Max (HBO)", "UNINSTALL", "Safe", "Streaming App.", "Restores Max.", "N", "N"),
+    @("com.discovery.discoveryplus.androidtv", "Discovery+", "UNINSTALL", "Safe", "Streaming App.", "Restores Discovery+.", "N", "N"),
     @("com.hulu.livingroomplus", "Hulu", "UNINSTALL", "Safe", "Streaming App.", "Restores Hulu.", "N", "N"),
     @("tv.twitch.android.app", "Twitch", "UNINSTALL", "Safe", "Streaming App.", "Restores Twitch.", "N", "N"),
-    @("com.disney.disneyplus.prod", "Disney+", "UNINSTALL", "Safe", "Streaming App.", "Restores Disney+.", "N", "N"),
+    @("com.disney.disneyplus", "Disney+", "UNINSTALL", "Safe", "Streaming App.", "Restores Disney+.", "N", "N"),
+    @("com.disney.disneyplus.prod", "Disney+ (Alt)", "UNINSTALL", "Safe", "Streaming App.", "Restores Disney+.", "N", "N"),
     @("com.spotify.tv.android", "Spotify", "UNINSTALL", "Safe", "Streaming App.", "Restores Spotify.", "N", "N"),
     @("com.google.android.youtube.tvmusic", "YouTube Music", "UNINSTALL", "Safe", "Streaming App.", "Restores YouTube Music.", "N", "N"),
+    @("com.apple.atve.androidtv.appletv", "Apple TV", "UNINSTALL", "Safe", "Streaming App.", "Restores Apple TV.", "N", "N"),
+    @("com.cbs.ott", "Paramount+", "UNINSTALL", "Safe", "Streaming App.", "Restores Paramount+.", "N", "N"),
+    @("com.crunchyroll.crunchyroid", "Crunchyroll", "UNINSTALL", "Safe", "Streaming App.", "Restores Crunchyroll.", "N", "N"),
+    @("air.com.vudu.air.DownloaderTablet", "Vudu", "UNINSTALL", "Safe", "Streaming App.", "Restores Vudu.", "N", "N"),
 
     # [MEDIUM RISK - Universal]
     @("com.android.dreams.basic", "Basic Daydream", "DISABLE", "Medium", "Disables basic screensaver.", "Restores basic screensaver.", "N", "Y"),
     @("com.android.providers.tv", "Live Channels Provider", "DISABLE", "Medium", "Disables Live TV provider.", "Restores Live Channels support.", "N", "Y"),
-    @("com.google.android.backdrop", "Ambient Mode", "DISABLE", "Medium", "Disables ambient/screensaver.", "Restores ambient mode.", "N", "Y"),
 
     # [HIGH RISK - Universal]
     @("com.google.android.katniss", "Google Assistant", "DISABLE", "High Risk", "Breaks voice search.", "Restores voice search.", "N", "Y"),
-    @("com.google.android.speech.pumpkin", "Google Speech Services", "DISABLE", "High Risk", "Breaks voice dictation.", "Restores speech services.", "N", "Y"),
     @("com.google.android.apps.mediashell", "Chromecast Built-in", "DISABLE", "High Risk", "Breaks casting to device.", "Restores Chromecast.", "N", "Y"),
     @("com.google.android.tts", "Google Text-to-Speech", "DISABLE", "High Risk", "Breaks accessibility features.", "Restores text-to-speech.", "N", "Y"),
-    @("com.google.android.play.games", "Google Play Games", "DISABLE", "Medium Risk", "May break cloud saves.", "Restores Play Games.", "N", "Y")
+    @("com.google.android.play.games", "Google Play Games", "DISABLE", "Medium Risk", "May break cloud saves.", "Restores Play Games.", "N", "Y"),
+
+    # [HOME HANDLERS - Present on both Shield and Google TV]
+    @("com.google.android.tungsten.setupwraith", "Setup Wraith (HOME)", "DISABLE", "High Risk", "HOME handler! Use Launcher Wizard instead.", "Restores setup wizard HOME handler.", "N", "Y")
 )
 
 # NVIDIA Shield-specific apps
 $Script:ShieldAppList = @(
-    # [SHIELD SAFE]
+    # [SHIELD SAFE - Telemetry]
     @("com.nvidia.stats", "Nvidia Telemetry", "DISABLE", "Safe", "Stops Nvidia data collection.", "Restores Nvidia telemetry.", "Y", "Y"),
     @("com.nvidia.diagtools", "Nvidia Diagnostics", "DISABLE", "Safe", "Stops diagnostic logging.", "Restores diagnostic tools.", "Y", "Y"),
+    @("com.nvidia.feedback", "Nvidia Feedback", "DISABLE", "Safe", "Stops Nvidia feedback collection.", "Restores Nvidia feedback.", "Y", "Y"),
+    @("com.google.android.tvrecommendations", "Sponsored Content", "DISABLE", "Safe", "Removes 'Sponsored' rows from home.", "Restores sponsored content rows.", "Y", "Y"),
 
     # [SHIELD MEDIUM]
-    @("com.nvidia.ocs", "Nvidia Content Service", "DISABLE", "Medium", "Background optimization service.", "Restores content optimization.", "N", "Y"),
+    @("com.nvidia.osc", "Nvidia OSC", "DISABLE", "Medium", "Background optimization service.", "Restores optimization service.", "N", "Y"),
     @("com.nvidia.shieldtech.hooks", "Nvidia System Hooks", "DISABLE", "Medium", "Shield-specific system hooks.", "Restores system hooks.", "N", "Y"),
     @("com.nvidia.tegrazone3", "Nvidia Games", "DISABLE", "Medium Risk", "May break GeForce NOW.", "Restores Nvidia Games app.", "N", "Y"),
+    @("com.nvidia.nvgamecast", "Nvidia GameStream", "DISABLE", "Medium", "GameStream casting service.", "Restores GameStream.", "N", "Y"),
+    @("com.google.android.backdrop", "Ambient Mode", "DISABLE", "Medium", "Disables ambient/screensaver.", "Restores ambient mode.", "N", "Y"),
+    @("com.google.android.speech.pumpkin", "Google Speech Services", "DISABLE", "High Risk", "Breaks voice dictation.", "Restores speech services.", "N", "Y"),
 
     # [SHIELD HIGH RISK]
     @("com.nvidia.ota", "Nvidia System Updater", "DISABLE", "High Risk", "Stops Shield OS updates.", "Restores system updates.", "N", "Y"),
@@ -98,20 +110,15 @@ $Script:ShieldAppList = @(
 
 # Google TV-specific apps (Onn 4K, Chromecast, etc.)
 $Script:GoogleTVAppList = @(
-    # [GOOGLE TV SAFE]
-    @("com.google.android.leanbacklauncher.recommendations", "Home Recommendations", "DISABLE", "Safe", "Removes extra recommendation rows.", "Restores home recommendations.", "Y", "Y"),
+    # [GOOGLE TV SAFE - Bloatware]
     @("com.walmart.otto", "Walmart App", "UNINSTALL", "Safe", "Removes Walmart bloatware.", "Restores Walmart app.", "Y", "Y"),
+    @("com.google.android.leanbacklauncher.recommendations", "Home Recommendations", "DISABLE", "Safe", "Removes extra recommendation rows.", "Restores home recommendations.", "Y", "Y"),
 
     # [GOOGLE TV MEDIUM]
-    @("com.google.android.tungsten.overscan", "Setup Wizard Helper", "DISABLE", "Medium", "Post-setup service.", "Restores setup components.", "N", "Y"),
+    @("com.google.android.tungsten.overscan", "Overscan Calibrator", "DISABLE", "Medium", "Post-setup overscan tool.", "Restores overscan calibrator.", "N", "Y"),
 
     # [ONN-SPECIFIC - Amlogic devices]
     @("com.droidlogic.launcher.provider", "Droidlogic Launcher Provider", "DISABLE", "Medium", "Onn launcher data provider. Disable with launcher.", "Restores Onn launcher provider.", "N", "Y"),
-
-    # [GOOGLE TV HOME HANDLERS - Must be disabled together via Launcher Wizard]
-    # WARNING: These declare HOME intent - disabling only one causes loops!
-    # Use Launcher Wizard which handles all HOME handlers automatically
-    @("com.google.android.tungsten.setupwraith", "Setup Wraith (HOME)", "DISABLE", "High Risk", "HOME handler! Use Launcher Wizard instead.", "Restores setup wizard HOME handler.", "N", "Y"),
 
     # [GOOGLE TV LAUNCHER - Handle via Launcher Wizard]
     @("com.google.android.apps.tv.launcherx", "Google TV Home", "DISABLE", "High Risk", "Use Launcher Wizard to safely disable!", "Restores Google TV home.", "N", "Y")
@@ -344,9 +351,22 @@ function Show-DemoScreens {
     Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
     Write-Host "2" -ForegroundColor Cyan
 
+    Write-SubHeader "Top Memory Users"
+    Write-Host "  142.3 MB  " -NoNewline -ForegroundColor Yellow
+    Write-Host "com.google.android.tvlauncher" -ForegroundColor Gray
+    Write-Host "   89.7 MB  " -NoNewline -ForegroundColor White
+    Write-Host "com.google.android.youtube.tv" -ForegroundColor Gray
+    Write-Host "   67.2 MB  " -NoNewline -ForegroundColor White
+    Write-Host "com.netflix.ninja" -ForegroundColor Gray
+    Write-Host "   45.1 MB  " -NoNewline -ForegroundColor White
+    Write-Host "com.google.android.tvrecommendations" -ForegroundColor Gray
+    Write-Host "   32.8 MB  " -NoNewline -ForegroundColor White
+    Write-Host "com.nvidia.tegrazone3" -ForegroundColor Gray
+
     Write-SubHeader "Bloat Check"
     Write-Host " [ACTIVE BLOAT] Sponsored Content" -ForegroundColor Yellow
     Write-Host " [ACTIVE BLOAT] Google Feedback" -ForegroundColor Yellow
+    Write-Host " [ACTIVE BLOAT] Walmart App" -ForegroundColor Yellow
 
     # ============================================================
     # SCREEN 4: Launcher Wizard
@@ -380,7 +400,8 @@ function Show-DemoScreens {
     Write-Host ""
     Write-Host "Remove: " -NoNewline
     Write-Host "Sponsored Content" -ForegroundColor Cyan -NoNewline
-    Write-Host " [Safe]" -ForegroundColor Green
+    Write-Host " [Safe]" -ForegroundColor Green -NoNewline
+    Write-Host " (45.1 MB)" -ForegroundColor DarkGray
     Write-Dim "    Removes 'Sponsored' rows from home."
     Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
     Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
@@ -393,7 +414,8 @@ function Show-DemoScreens {
     Write-Host ""
     Write-Host "Remove: " -NoNewline
     Write-Host "Nvidia Telemetry" -ForegroundColor Cyan -NoNewline
-    Write-Host " [Safe]" -ForegroundColor Green
+    Write-Host " [Safe]" -ForegroundColor Green -NoNewline
+    Write-Host " (12.3 MB)" -ForegroundColor DarkGray
     Write-Dim "    Stops Nvidia data collection."
     Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
     Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
@@ -445,6 +467,47 @@ function Invoke-AdbCommand {
     catch {
         return @{ Success = $false; Output = ""; Error = $_.Exception.Message }
     }
+}
+
+# Get memory usage for a specific package (returns MB or $null if not running)
+function Get-AppMemoryUsage {
+    param([string]$Target, [string]$Package)
+    try {
+        $mem = & $Script:AdbPath -s $Target shell "dumpsys meminfo $Package 2>/dev/null | grep 'TOTAL PSS'" 2>&1 | Out-String
+        if ($mem -match "TOTAL PSS:\s+(\d+)") {
+            $kb = [int]$matches[1]
+            return [math]::Round($kb / 1024, 1)
+        }
+    } catch {}
+    return $null
+}
+
+# Get top memory-consuming apps (returns array of @{Name; Package; MB})
+function Get-TopMemoryApps {
+    param([string]$Target, [int]$Count = 5)
+    $apps = @()
+    try {
+        # dumpsys meminfo outputs sorted by PSS - parse the summary section
+        $mem = & $Script:AdbPath -s $Target shell "dumpsys meminfo" 2>&1 | Out-String
+
+        # Look for lines in "Total PSS by process:" section
+        # Format: "123,456K: com.example.app (pid 1234)"
+        $inSection = $false
+        foreach ($line in ($mem -split "`n")) {
+            if ($line -match "Total PSS by process:") { $inSection = $true; continue }
+            if ($inSection -and $line -match "^\s*$") { break }  # Empty line ends section
+            if ($inSection -and $line -match "^\s*([\d,]+)K:\s+([a-zA-Z0-9_.]+)") {
+                $kb = [int]($matches[1] -replace ",", "")
+                $pkg = $matches[2]
+                # Skip system processes, focus on apps
+                if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
+                    $apps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
+                    if ($apps.Count -ge $Count) { break }
+                }
+            }
+        }
+    } catch {}
+    return $apps
 }
 
 # FIX #8: $PSScriptRoot fallback when dot-sourced
@@ -782,210 +845,220 @@ function Write-OptionWithHighlight ($Text, [bool]$Selected) {
 
 # --- NEW VERTICAL MENU SYSTEM ---
 # FIX #13: ESC key support, FIX #3: Cursor error handling, UX #C: Number/letter key shortcuts
-# StaticStartIndex: Items before this index use numbers (1-9), items from this index use letters
-# Shortcuts: Optional array of shortcut letters for static items (e.g., @("S","C","R","F","A","H","Q"))
+# Flicker-free: only redraws changed lines instead of full screen
 function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticStartIndex=-1, $Shortcuts=$null) {
     $idx = $DefaultIndex
+    $prevIdx = -1
     $max = $Options.Count - 1
+
+    # ANSI escape codes
+    $esc = [char]27
+    $clearLine = "$esc[2K"
+
+    # Helper: move cursor to row (1-based)
+    function MoveTo($row) { [Console]::Write("$esc[$row;1H") }
 
     # If StaticStartIndex not specified, all items use letters
     if ($StaticStartIndex -lt 0) { $StaticStartIndex = 0 }
 
-    # Build shortcut mapping: key char -> index
+    # Build shortcut mapping and display text cache
     $shortcutMap = @{}
-    $shortcutDisplay = @{}  # index -> display char
+    $shortcutDisplay = @{}
+    $displayTexts = @{}
 
     for ($i = 0; $i -lt $Options.Count; $i++) {
         if ($i -lt $StaticStartIndex) {
-            # Device - use number
             $shortcutDisplay[$i] = "$($i + 1)"
         } else {
-            # Static option - use provided shortcut or first letter
             $staticIdx = $i - $StaticStartIndex
             if ($Shortcuts -and $staticIdx -lt $Shortcuts.Count) {
                 $char = $Shortcuts[$staticIdx].ToUpper()
             } else {
-                # Fallback: use first letter of option
                 $char = $Options[$i].Substring(0,1).ToUpper()
             }
             $shortcutDisplay[$i] = $char
             $shortcutMap[$char] = $i
         }
+
+        # Pre-compute display text with embedded shortcut
+        $shortcut = $shortcutDisplay[$i]
+        $optText = $Options[$i]
+        $foundPos = -1
+        $inBracket = $false
+        for ($c = 0; $c -lt $optText.Length; $c++) {
+            if ($optText[$c] -eq '[') { $inBracket = $true }
+            elseif ($optText[$c] -eq ']') { $inBracket = $false }
+            elseif (-not $inBracket -and $optText[$c].ToString().ToUpper() -eq $shortcut.ToUpper()) {
+                $foundPos = $c
+                break
+            }
+        }
+        if ($foundPos -ge 0) {
+            $actualChar = $optText[$foundPos]
+            $displayTexts[$i] = $optText.Substring(0, $foundPos) + "[$actualChar]" + $optText.Substring($foundPos + 1)
+        } else {
+            $displayTexts[$i] = "[$shortcut] $optText"
+        }
     }
 
-    # FIX #3: Hide Cursor with proper error handling
+    # Layout: Row 1=title, Row 2=separator, Rows 3..N+2=options, Row N+3=separator, Row N+4=info, Row N+5=hints
+    $menuStartRow = 3
+    $infoRow = $menuStartRow + $Options.Count + 1
+    $hintsRow = $infoRow + 1
+
+    # Hide cursor
     $origCursor = 25
-    try {
-        $origCursor = $Host.UI.RawUI.CursorSize
-        $Host.UI.RawUI.CursorSize = 0
-    } catch {
-        # Silently continue if cursor manipulation fails (Windows Terminal, VS Code)
+    try { $origCursor = $Host.UI.RawUI.CursorSize; $Host.UI.RawUI.CursorSize = 0 } catch {}
+
+    # Helper: draw a single menu item
+    function DrawItem($itemIdx, $selected) {
+        $row = $menuStartRow + $itemIdx
+        MoveTo $row
+        [Console]::Write($clearLine)
+        if ($selected) {
+            Write-Host "  > " -NoNewline -ForegroundColor Cyan
+            Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $true
+        } else {
+            Write-Host "    " -NoNewline
+            Write-OptionWithHighlight -Text $displayTexts[$itemIdx] -Selected $false
+        }
     }
+
+    # Helper: draw info line
+    function DrawInfo($itemIdx) {
+        MoveTo $infoRow
+        [Console]::Write($clearLine)
+        Write-Host " Info: " -NoNewline -ForegroundColor Yellow
+        if ($Descriptions[$itemIdx]) {
+            Write-Host "$($Descriptions[$itemIdx])".PadRight(60) -ForegroundColor White
+        } else {
+            Write-Host "Select an option.".PadRight(60) -ForegroundColor DarkGray
+        }
+    }
+
+    # Initial full draw
+    Clear-Host
+    Write-Host " $Title" -ForegroundColor Cyan
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+    for ($i = 0; $i -lt $Options.Count; $i++) {
+        DrawItem $i ($i -eq $idx)
+    }
+    Write-Host " ================================================" -ForegroundColor DarkCyan
+    DrawInfo $idx
+    Write-Host " [" -NoNewline -ForegroundColor DarkGray
+    Write-Host "Arrows" -NoNewline -ForegroundColor DarkCyan
+    Write-Host ": Move] [" -NoNewline -ForegroundColor DarkGray
+    Write-Host "Keys" -NoNewline -ForegroundColor Yellow
+    Write-Host ": Select] [" -NoNewline -ForegroundColor DarkGray
+    Write-Host "Enter" -NoNewline -ForegroundColor Green
+    Write-Host ": OK] [" -NoNewline -ForegroundColor DarkGray
+    Write-Host "ESC" -NoNewline -ForegroundColor Red
+    Write-Host ": Back]" -ForegroundColor DarkGray
+
+    $prevIdx = $idx
 
     while ($true) {
-        Clear-Host
-        # Colorful title
-        Write-Host " $Title" -ForegroundColor Cyan
-        Write-Host " ================================================" -ForegroundColor DarkCyan
-
-        for ($i=0; $i -lt $Options.Count; $i++) {
-            $shortcut = $shortcutDisplay[$i]
-            $optText = $Options[$i]
-
-            # Format option text with embedded shortcut: "Skip" -> "[S]kip", "Refresh" -> "Re[f]resh"
-            # But don't insert inside existing brackets like [DISABLED]
-            $displayText = $null
-
-            # Find first occurrence of shortcut letter that's NOT inside existing brackets
-            $foundPos = -1
-            $inBracket = $false
-            for ($c = 0; $c -lt $optText.Length; $c++) {
-                if ($optText[$c] -eq '[') { $inBracket = $true }
-                elseif ($optText[$c] -eq ']') { $inBracket = $false }
-                elseif (-not $inBracket -and $optText[$c].ToString().ToUpper() -eq $shortcut.ToUpper()) {
-                    $foundPos = $c
-                    break
-                }
-            }
-
-            if ($foundPos -ge 0) {
-                $actualChar = $optText[$foundPos]
-                $displayText = $optText.Substring(0, $foundPos) + "[$actualChar]" + $optText.Substring($foundPos + 1)
-            } else {
-                # Letter not found outside brackets, prefix it
-                $displayText = "[$shortcut] $optText"
-            }
-
-            if ($i -eq $idx) {
-                # Selected Item - highlight with arrow and background
-                Write-Host "  > " -NoNewline -ForegroundColor Cyan
-                # Print with colored shortcut key
-                Write-OptionWithHighlight -Text $displayText -Selected $true
-            } else {
-                # Normal Item
-                Write-Host "    " -NoNewline
-                Write-OptionWithHighlight -Text $displayText -Selected $false
-            }
-        }
-
-        Write-Host " ================================================" -ForegroundColor DarkCyan
-        Write-Host " Info: " -NoNewline -ForegroundColor Yellow
-        if ($Descriptions[$idx]) {
-            Write-Host "$($Descriptions[$idx])" -ForegroundColor White
-        } else {
-            Write-Host "Select an option." -ForegroundColor DarkGray
-        }
-
-        # Show hint
-        Write-Host " [" -NoNewline -ForegroundColor DarkGray
-        Write-Host "Arrows" -NoNewline -ForegroundColor DarkCyan
-        Write-Host ": Move] [" -NoNewline -ForegroundColor DarkGray
-        Write-Host "Keys" -NoNewline -ForegroundColor Yellow
-        Write-Host ": Select] [" -NoNewline -ForegroundColor DarkGray
-        Write-Host "Enter" -NoNewline -ForegroundColor Green
-        Write-Host ": OK] [" -NoNewline -ForegroundColor DarkGray
-        Write-Host "ESC" -NoNewline -ForegroundColor Red
-        Write-Host ": Back]" -ForegroundColor DarkGray
-
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
-        # FIX #13: ESC key to cancel (VirtualKeyCode 27)
-        if ($key.VirtualKeyCode -eq 27) {
+        $newIdx = $idx
+
+        if ($key.VirtualKeyCode -eq 27) { # ESC
             try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-            return -1  # Return -1 to indicate cancellation
+            MoveTo ($hintsRow + 1)
+            return -1
         }
         elseif ($key.VirtualKeyCode -eq 38) { # Up
-            $idx--; if ($idx -lt 0) { $idx = $max }
+            $newIdx--; if ($newIdx -lt 0) { $newIdx = $max }
         }
         elseif ($key.VirtualKeyCode -eq 40) { # Down
-            $idx++; if ($idx -gt $max) { $idx = 0 }
+            $newIdx++; if ($newIdx -gt $max) { $newIdx = 0 }
         }
         elseif ($key.VirtualKeyCode -eq 13) { # Enter
             try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
+            MoveTo ($hintsRow + 1)
             return $idx
         }
-        # Number key shortcuts (1-9) for devices
-        elseif ($key.VirtualKeyCode -ge 49 -and $key.VirtualKeyCode -le 57) {
-            $numIdx = $key.VirtualKeyCode - 49  # 49 = '1', so index 0
+        elseif ($key.VirtualKeyCode -ge 49 -and $key.VirtualKeyCode -le 57) { # 1-9
+            $numIdx = $key.VirtualKeyCode - 49
             if ($numIdx -lt $StaticStartIndex -and $numIdx -le $max) {
                 try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
+                MoveTo ($hintsRow + 1)
                 return $numIdx
             }
         }
-        # Numpad 1-9 for devices
-        elseif ($key.VirtualKeyCode -ge 97 -and $key.VirtualKeyCode -le 105) {
-            $numIdx = $key.VirtualKeyCode - 97  # 97 = Numpad1, so index 0
+        elseif ($key.VirtualKeyCode -ge 97 -and $key.VirtualKeyCode -le 105) { # Numpad 1-9
+            $numIdx = $key.VirtualKeyCode - 97
             if ($numIdx -lt $StaticStartIndex -and $numIdx -le $max) {
                 try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
+                MoveTo ($hintsRow + 1)
                 return $numIdx
             }
         }
-        # Letter keys for static options - check shortcut map
-        elseif ($key.VirtualKeyCode -ge 65 -and $key.VirtualKeyCode -le 90) {
+        elseif ($key.VirtualKeyCode -ge 65 -and $key.VirtualKeyCode -le 90) { # A-Z
             $pressedKey = [string][char]$key.VirtualKeyCode
             if ($shortcutMap.ContainsKey($pressedKey)) {
                 try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
+                MoveTo ($hintsRow + 1)
                 return $shortcutMap[$pressedKey]
             }
         }
-        # Also check if pressed number matches a shortcut (for menus like process limit)
-        elseif ($StaticStartIndex -eq 0 -and $key.VirtualKeyCode -ge 49 -and $key.VirtualKeyCode -le 57) {
-            $pressedKey = [string][char]$key.VirtualKeyCode  # '1' = 49, etc.
-            if ($shortcutMap.ContainsKey($pressedKey)) {
-                try { $Host.UI.RawUI.CursorSize = $origCursor } catch {}
-                return $shortcutMap[$pressedKey]
-            }
+
+        # Only redraw if selection changed
+        if ($newIdx -ne $idx) {
+            DrawItem $idx $false      # Un-highlight old
+            DrawItem $newIdx $true    # Highlight new
+            DrawInfo $newIdx          # Update description
+            $idx = $newIdx
         }
     }
 }
 
 # FIX #13: ESC key support for toggle
 function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
-    # Horizontal toggle for [ YES ] NO using cursor positioning
+    # Horizontal toggle for [ YES ] NO using ANSI escape codes for flicker-free updates
     $idx = $DefaultIndex
     $max = $Options.Count - 1
 
-    # Save starting cursor position
+    # ANSI color codes
+    $esc = [char]27
+    $cyan = "$esc[96m"
+    $gray = "$esc[90m"
+    $reset = "$esc[0m"
+    $clearLine = "$esc[2K"
+    $cursorBack = "$esc[G"  # Move cursor to column 1
+
+    # Check if terminal supports ANSI (most modern terminals do)
+    $useAnsi = $true
     $startPos = $null
-    try { $startPos = $Host.UI.RawUI.CursorPosition } catch {}
+    try { $startPos = $Host.UI.RawUI.CursorPosition } catch { $useAnsi = $true }
 
     while ($true) {
-        # Reset cursor to start position if possible
-        if ($startPos) {
-            try { $Host.UI.RawUI.CursorPosition = $startPos } catch {}
-        }
-
-        # Build the entire line as a string first
-        $line = "$Prompt "
+        # Build the entire line as a single string with embedded colors
+        $line = "${gray}${Prompt}${reset} "
         for ($i=0; $i -lt $Options.Count; $i++) {
             if ($i -eq $idx) {
-                $line += " [ $($Options[$i]) ] "
+                $line += "${cyan} [ $($Options[$i]) ] ${reset}"
             } else {
-                $line += "   $($Options[$i])   "
+                $line += "${gray}   $($Options[$i])   ${reset}"
             }
         }
-        $line += "          "  # Padding to clear old text
 
-        # Write prompt
-        Write-Host $Prompt -NoNewline -ForegroundColor Gray
-        Write-Host " " -NoNewline
-
-        # Write options with colors
-        for ($i=0; $i -lt $Options.Count; $i++) {
-            if ($i -eq $idx) {
-                Write-Host " [ $($Options[$i]) ] " -NoNewline -ForegroundColor Cyan
-            } else {
-                Write-Host "   $($Options[$i])   " -NoNewline -ForegroundColor DarkGray
+        if ($useAnsi) {
+            # Use ANSI: clear line, return to start, write in one shot
+            [Console]::Write("$cursorBack$clearLine$line")
+        } else {
+            # Fallback: cursor positioning
+            if ($startPos) {
+                try { $Host.UI.RawUI.CursorPosition = $startPos } catch {}
             }
+            [Console]::Write($line + "          ")
         }
-        Write-Host "          " -NoNewline  # Clear any trailing characters
 
         $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
 
-        # FIX #13: ESC key to cancel
-        if ($key.VirtualKeyCode -eq 27) {
+        if ($key.VirtualKeyCode -eq 27) { # ESC
             Write-Host ""
-            return -1  # Return -1 to indicate cancellation
+            return -1
         }
         elseif ($key.VirtualKeyCode -eq 37) { # Left
             $idx--; if ($idx -lt 0) { $idx = $max }
@@ -1145,16 +1218,31 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
     Write-Host "$proc" -ForegroundColor Cyan
 
+    Write-SubHeader "Top Memory Users"
+    $topApps = @(Get-TopMemoryApps -Target $Target -Count 5)
+    if ($topApps.Count -gt 0) {
+        foreach ($app in $topApps) {
+            $memColor = if ($app.MB -gt 200) { "Red" } elseif ($app.MB -gt 100) { "Yellow" } else { "White" }
+            Write-Host " $($app.MB.ToString('0.0').PadLeft(6)) MB  " -NoNewline -ForegroundColor $memColor
+            Write-Host "$($app.Package)" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host " Unable to query memory info" -ForegroundColor DarkGray
+    }
+
     Write-SubHeader "Bloat Check"
     $clean = $true
 
-    # Get device-specific app list
-    $appList = Get-AppListForDevice $DeviceType
+    # Combine ALL profiles for comprehensive bloat check (little harm in checking for things that don't exist)
+    $allBloatApps = @()
+    $allBloatApps += $Script:CommonAppList
+    $allBloatApps += $Script:ShieldAppList
+    $allBloatApps += $Script:GoogleTVAppList
 
     # Query enabled packages once
     $enabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -e 2>&1 | Out-String)
 
-    foreach ($app in $appList) {
+    foreach ($app in $allBloatApps) {
         $pkg = $app[0]; $appName = $app[1]; $risk = $app[3]
         if ($risk -match "Safe" -or $risk -match "Medium") {
             # Use exact match with word boundary
@@ -1677,7 +1765,20 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
             Write-Host -NoNewline "${verb}: "
             Write-Host "$name" -ForegroundColor Cyan -NoNewline
             if ($risk -match "Safe") { $c="Green" } elseif ($risk -match "Medium") { $c="Yellow" } else { $c="Red" }
-            Write-Host " [$risk]" -ForegroundColor $c
+            Write-Host " [$risk]" -ForegroundColor $c -NoNewline
+
+            # Show memory usage if app is currently running (Optimize mode only)
+            if ($Mode -eq "Optimize") {
+                $appMem = Get-AppMemoryUsage -Target $Target -Package $pkg
+                if ($appMem) {
+                    $memColor = if ($appMem -gt 100) { "Yellow" } else { "DarkGray" }
+                    Write-Host " ($appMem MB)" -ForegroundColor $memColor
+                } else {
+                    Write-Host ""  # Newline if not running
+                }
+            } else {
+                Write-Host ""  # Newline for Restore mode
+            }
             Write-Dim "    $desc"
 
             if ($Mode -eq "Restore") {
