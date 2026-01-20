@@ -1,61 +1,92 @@
 # Nvidia Shield Ultimate Optimizer
 
-A powerful, self-contained PowerShell tool to debloat, optimize, and monitor Nvidia Shield TV devices. Designed for performance enthusiasts who want a snappier UI, more free RAM, and zero bloatware.
+A powerful, interactive PowerShell tool designed to debloat, optimize, and manage Nvidia Shield TV devices. It features a modern vertical menu system, safe "Golden Set" defaults, and a wizard for setting up custom launchers like Projectivy.
 
-> **✅ Verified:** The "Golden Set" defaults have been personally tested for maximum stability on multiple Shield models including 2015, 2017, and 2019 (Pro & Tube).
+> **👨‍💻 A Note from the Author:**
+> This tool is "vibe coded". I am a professional developer but mostly just vibed this with gemini in the background. I did my best to test it.
 
-## ⚠️ Requirements
-1.  **Nvidia Shield TV** (Any model).
-2.  **USB Debugging Enabled**:
-    * *Settings > Device Preferences > About > Build* (Click 7 times).
-    * *Settings > Device Preferences > Developer Options > USB Debugging* (Turn ON).
-    * *Network Debugging* (Turn ON if connecting via WiFi).
-3.  **[CRITICAL] Custom Launcher Installed**:
-    * You **MUST** install a third-party launcher (like **Projectivy Launcher**) before running this tool.
-    * This script disables the stock Android TV launcher to save RAM. If no replacement is installed, you will boot to a black screen.
+> **✅ Verified:** Tested on Shield 2015 Pro and 2019 Pro
 
 ---
 
-## 🚀 How to Run
+## 🚀 Features
 
-1.  **Download the Script**
-    * Download the `Optimize-Shield.ps1` file from this repository.
-    * Save it to a folder on your computer (e.g., your Desktop).
+### 🎮 **1. Vertical Command Interface**
+* **Arrow Key Navigation:** No more typing numbers. Navigate menus and options using your Up/Down arrow keys.
+* **Smart Toggles:** Switch between actions (e.g., `[ DISABLE ]  UNINSTALL  SKIP`) using Left/Right arrows.
+* **Dynamic Help:** Helpful descriptions update in real-time as you scroll through options.
 
-2.  **Run with PowerShell**
-    * Open the folder where you saved the file.
-    * Right-click empty space in the folder and select **"Open in Terminal"** or **"Open PowerShell window here"**.
-    * Run the following command:
+### 🛡️ **2. "Golden Set" Optimization**
+* **Smart Defaults:** Defaults to **Disabling** bloatware rather than uninstalling, making it safer and easier to reverse.
+* **Granular Control:** You choose the action for every app.
+* **Safe List:** Removes Telemetry, Sponsored Rows, and defunct Google apps while preserving core functionality.
 
+### 🏠 **3. Launcher Wizard**
+* **One-Click Setup:** Easily install **Projectivy**, **FLauncher**, or **Wolf Launcher**.
+* **Stock Disabler:** Automatically handles the tricky process of disabling the stock Android TV launcher to make your custom launcher the permanent default.
+* **Restore Stock:** A dedicated option to revert back to the original Shield interface instantly.
+
+### ⚡ **4. Performance Tuning**
+* **Animation Speed:** Instantly set UI animations to **0.5x** for a snappier feel.
+* **Background Process Limiter:** strictly limit background processes (1, 2, 3, or 4) to free up RAM for gaming, or reset to Standard.
+
+### 🩺 **5. Health & Restore**
+* **Dashboard:** View CPU Temperature, RAM usage, and Swap thrashing.
+* **Smart Restore:** The "Restore" mode detects if an app is Disabled or Missing. It attempts to re-enable it first, then tries to re-install from the system image, and finally offers to open the **Play Store** page if the file is gone.
+
+---
+
+## ⚠️ Requirements
+
+1.  **Nvidia Shield TV** (Any model) or any android TV.
+2.  **Enable Developer Options**:
+    * Go to *Settings > Device Preferences > About*.
+    * Scroll to **Build** and click it **7 times** until it says "You are a developer".
+3.  **Enable USB Debugging**:
+    * Go to *Settings > Device Preferences > Developer Options*.
+    * Turn **ON** `USB Debugging`.
+    * Turn **ON** `Network Debugging` (if connecting via WiFi).
+4.  **PC with Windows**: PowerShell 5.1 or later (Pre-installed on Windows 10/11).
+
+---
+
+## 📥 How to Run
+
+1.  **Download** the `Optimize-Shield.ps1` file.
+2.  **Right-click** the file and select **Run with PowerShell**.
+    * *Alternatively, open a terminal in the folder and run:*
     ```powershell
     Set-ExecutionPolicy Bypass -Scope Process -Force; .\Optimize-Shield.ps1
     ```
-
-    * *Note: If `adb.exe` is missing, the script will automatically download it from Google and place it in the same folder.*
-
----
-
-## 🛠 Features
-
-### 1. **"Golden Set" Optimization**
-* **Tested Stability:** The script defaults to a specific "Golden Set" of optimizations. These have been personally tested by the author to provide maximum performance without breaking daily usability.
-* **Extended Bloat List:** Includes a more aggressive list of removable items sourced from community guides (see credits). These default to **NO** to prevent accidental loss of features (like Chromecast or Voice Search).
-
-### 2. **Auto-ADB Deployment**
-* No need to install Android Platform Tools manually. The script handles the entire ADB setup process automatically, making it fully portable.
-
-### 3. **Fleet Management**
-* **Multi-Device Support:** Connect via USB or WiFi. The tool remembers your device IP for easy reconnection.
-* **"Report All":** Run a health check on every Shield in your house in one go.
-
-### 4. **Precision Reporting**
-* **PSS Memory Analysis:** Accurately reports RAM usage (solving the common "over 100% usage" reporting bug).
-* **Thermal HAL Access:** Reads the internal thermal service to get accurate CPU temps, even on newer Shield Experience versions where file access is restricted.
-* **Storage & Swap Monitor:** Alerts you if your storage is filling up or if the system is thrashing the swap file.
+3.  **First Run:** The script will automatically download the necessary ADB tools from Google.
+4.  **Authorize:** Look at your TV screen and select **"Allow"** when the debugging prompt appears.
 
 ---
 
-## 🛡️ Disclaimers & Credits
-* **Credits:** The "Golden Set" defaults are based on personal stress testing. The extended list of debloat targets was curated from the comprehensive research by [florisse.nl](https://florisse.nl/shield-debloat/).
-* **Restore Function:** This script includes a "Restore" mode to re-enable stock apps. **Note:** This feature has not been fully tested in all scenarios. Use with caution.
-* **Disclaimer:** Use at your own risk. Modifying system apps always carries a small risk. This tool is not affiliated with Nvidia or Google.
+## 📸 Menu Overview
+
+<img width="526" height="282" alt="image" src="https://github.com/user-attachments/assets/5ea056d2-bf33-43a8-8432-0937c98b5d34" />
+
+### **Main Menu**
+* **Scan Network:** Auto-discovers Shields on your local network (ARP Scan).
+* **Connect IP:** Manually enter an IP address.
+* **Report All:** Runs a health check on every connected device in sequence.
+
+<img width="511" height="191" alt="image" src="https://github.com/user-attachments/assets/85e86f2b-56e5-491c-8b15-d21d0ee596fd" />
+### **Action Menu (Per Device)**
+* **[1] Optimize:** Walk through the app list to Disable/Uninstall bloat.
+* <img width="566" height="514" alt="image" src="https://github.com/user-attachments/assets/e57c4e66-8f47-4cd1-81e8-837eca04b7be" />
+
+* **[2] Restore:** Undo changes. Re-enable stock apps and reset performance tweaks.
+<img width="494" height="325" alt="image" src="https://github.com/user-attachments/assets/80b3cff0-5efa-4e3a-83ea-01de065ced69" />
+
+* **[3] Report:** View device vitals (Temp/RAM) and check for active bloatware.
+<img width="461" height="409" alt="image" src="https://github.com/user-attachments/assets/23bb29ef-07c3-4647-bc42-11ac9cf4ebf6" />
+
+* **[4] Launcher Setup:** Install a custom launcher and set it as default.
+
+---
+
+## 📝 Credits & Disclaimer
+* **Credits:** Debloat lists curated based on community research, including the extensive guide by [florisse.nl](https://florisse.nl/shield-debloat/).
+* **Disclaimer:** Use at your own risk. While this tool prioritizes "Disabling" over "Uninstalling" for safety, modifying system settings always carries a small risk.
