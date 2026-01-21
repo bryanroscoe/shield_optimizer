@@ -9,24 +9,11 @@ $Script:Subnet = $Subnet
 
 <#
 .SYNOPSIS
-    Android TV Optimizer (v62 - Multi-Device Support)
+    Android TV Optimizer
 .DESCRIPTION
     Supports Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, and other Android TV devices.
-
-    v62 Changes:
-    - Added device detection (Shield vs Google TV)
-    - Device-specific app lists and optimizations
-    - Improved launcher detection for Google TV devices
-    - Added device profile display
-
-    Previous fixes:
-    - Socket leak fix, ADB output trimming, IP validation
-    - Cursor/window error handling, ESC key support
-    - Apply All Defaults, session summary, abort functionality
-    - Keyboard shortcuts, colored status tags
 #>
 
-$Script:Version = "v65-crossplatform"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -3057,7 +3044,7 @@ try {
     # Silently continue - Windows Terminal and VS Code don't support window resizing
 }
 
-Write-Header "ANDROID TV OPTIMIZER $Script:Version"
+Write-Header "ANDROID TV OPTIMIZER"
 
 while ($true) {
     $devs = @(Get-Devices)
@@ -3100,7 +3087,7 @@ while ($true) {
     $mOpts += "Quit"; $mDescs += "Exit Optimizer."
 
     # Menu title - keep it simple
-    $menuTitle = "Android TV Optimizer $Script:Version - Main Menu"
+    $menuTitle = "Android TV Optimizer - Main Menu"
 
     # Pass StaticStartIndex so devices use numbers, options use letters
     # Shortcuts: S=Scan, C=Connect, P=Pair, R=Report, F=reFresh, A=ADB, H=Help, Q=Quit
