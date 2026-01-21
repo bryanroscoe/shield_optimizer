@@ -817,17 +817,32 @@ function Get-LocalSubnet {
     $subnet = $null
     try {
         # Get the default gateway's network
-        if ($Script:IsUnix) {
-            # macOS/Linux: parse route or netstat
+        if ($Script:Platform -eq "macOS") {
+            # macOS: route -n get default
             $routeOutput = route -n get default 2>$null | Out-String
             if ($routeOutput -match "gateway:\s*(\d+\.\d+\.\d+\.\d+)") {
                 $gateway = $matches[1]
-                # Assume /24 subnet, return first 3 octets
                 $octets = $gateway -split '\.'
                 $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
             }
+        } elseif ($Script:Platform -eq "Linux") {
+            # Linux: ip route (modern) or route -n (legacy)
+            $routeOutput = ip route 2>$null | Out-String
+            if ($routeOutput -match "default via (\d+\.\d+\.\d+\.\d+)") {
+                $gateway = $matches[1]
+                $octets = $gateway -split '\.'
+                $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+            } elseif (-not $subnet) {
+                # Fallback to legacy route command
+                $routeOutput = route -n 2>$null | Out-String
+                if ($routeOutput -match "0\.0\.0\.0\s+(\d+\.\d+\.\d+\.\d+)") {
+                    $gateway = $matches[1]
+                    $octets = $gateway -split '\.'
+                    $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+                }
+            }
         } else {
-            # Windows: use Get-NetRoute or ipconfig
+            # Windows: use Get-NetRoute
             $gateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop
             if ($gateway) {
                 $octets = $gateway -split '\.'
@@ -1721,7 +1736,7 @@ function Watch-Vitals ($Target, $Name) {
                     $pkg = $matches[2]
                     if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
                         $topApps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
-                        if ($topApps.Count -ge 5) { break }
+                        if ($topApps.Count -ge 10) { break }
                     }
                 }
             }
@@ -1744,7 +1759,7 @@ function Watch-Vitals ($Target, $Name) {
             [Console]::Write("$esc[97m$Swap MB     $esc[0m")
 
             # Top apps
-            for ($i = 0; $i -lt 5; $i++) {
+            for ($i = 0; $i -lt 10; $i++) {
                 [Console]::Write("$esc[$($topAppsStartRow + $i);1H$esc[2K")
                 if ($i -lt $topApps.Count) {
                     $app = $topApps[$i]
@@ -1755,7 +1770,7 @@ function Watch-Vitals ($Target, $Name) {
             }
 
             # Timestamp
-            [Console]::Write("$esc[$($topAppsStartRow + 6);1H$esc[2K")
+            [Console]::Write("$esc[$($topAppsStartRow + 11);1H$esc[2K")
             [Console]::Write("$esc[90m Updated: $(Get-Date -Format 'HH:mm:ss')$esc[0m")
 
             # Wait for interval or keypress
@@ -1770,7 +1785,7 @@ function Watch-Vitals ($Target, $Name) {
     }
     finally {
         Show-Cursor
-        [Console]::Write("$esc[$($topAppsStartRow + 8);1H")
+        [Console]::Write("$esc[$($topAppsStartRow + 13);1H")
         Write-Host ""
         Write-Info "Watch mode stopped."
     }
