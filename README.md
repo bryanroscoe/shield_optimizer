@@ -23,6 +23,15 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 - **Safe Defaults** - Disables rather than uninstalls, easy restore/recovery
 - **Keyboard Navigation** - Arrow keys, letter shortcuts, ESC to cancel
 
+## Experimental Features (Untested)
+
+These features have been implemented but not yet tested on real devices:
+
+| Feature | Description | Notes |
+|---------|-------------|-------|
+| **USB Device Support** | Connect to Android devices via USB cable | Displays `[USB]` tag in device list. Note: Shield TV doesn't support USB debugging (host ports only). Works with phones/tablets. |
+| **PIN Pairing** | Pair with Android 11+ / Google TV devices using wireless debugging | Required for Android 14+ devices (Google TV Streamer, updated Chromecasts). Uses `adb pair` command. |
+
 ## Tested Devices
 
 | Device | Status |

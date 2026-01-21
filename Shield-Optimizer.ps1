@@ -26,7 +26,7 @@ $Script:Subnet = $Subnet
     - Keyboard shortcuts, colored status tags
 #>
 
-$Script:Version = "v63-crossplatform"
+$Script:Version = "v65-crossplatform"
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
@@ -702,6 +702,72 @@ function Disconnect-Device {
     }
 }
 
+function Connect-PinPairing {
+    Write-Header "PIN PAIRING (Android 11+ / Google TV)"
+    Write-Host ""
+    Write-Host " On your TV:" -ForegroundColor Cyan
+    Write-Host "   1. Go to Settings > System > Developer Options" -ForegroundColor Gray
+    Write-Host "   2. Enable 'USB Debugging'" -ForegroundColor Gray
+    Write-Host "   3. Enable 'Wireless Debugging'" -ForegroundColor Gray
+    Write-Host "   4. Tap 'Pair device with pairing code'" -ForegroundColor Gray
+    Write-Host "   5. Note the IP, pairing port, and 6-digit PIN shown" -ForegroundColor Gray
+    Write-Host ""
+
+    # Step 1: Get IP address
+    $ip = Read-Host "Enter IP address (e.g., 192.168.1.100)"
+    if (-not (Test-ValidIP $ip)) {
+        Write-ErrorMsg "Invalid IP address format: $ip"
+        return $false
+    }
+
+    # Step 2: Get pairing port
+    $pairingPort = Read-Host "Enter pairing port (shown on TV screen)"
+    if (-not ($pairingPort -match "^\d+$")) {
+        Write-ErrorMsg "Invalid port number: $pairingPort"
+        return $false
+    }
+
+    # Step 3: Get pairing code
+    $pairingCode = Read-Host "Enter 6-digit pairing code"
+    if (-not ($pairingCode -match "^\d{6}$")) {
+        Write-ErrorMsg "Pairing code must be 6 digits: $pairingCode"
+        return $false
+    }
+
+    # Step 4: Pair
+    Write-Host ""
+    Write-Info "Pairing with ${ip}:${pairingPort}..."
+    $pairResult = & $Script:AdbPath pair "${ip}:${pairingPort}" $pairingCode 2>&1 | Out-String
+
+    if ($pairResult -match "Successfully paired|paired successfully") {
+        Write-Success "Paired successfully!"
+        Write-Host ""
+
+        # Step 5: Connect
+        $connPort = Read-Host "Enter connection port (shown on TV, different from pairing port)"
+        if (-not ($connPort -match "^\d+$")) {
+            Write-ErrorMsg "Invalid port number: $connPort"
+            return $false
+        }
+
+        Write-Info "Connecting to ${ip}:${connPort}..."
+        $connResult = & $Script:AdbPath connect "${ip}:${connPort}" 2>&1 | Out-String
+
+        if ($connResult -match "connected|already connected") {
+            Write-Success "Connected to ${ip}:${connPort}!"
+            return $true
+        } else {
+            Write-ErrorMsg "Connection failed: $connResult"
+            return $false
+        }
+    } else {
+        Write-ErrorMsg "Pairing failed: $pairResult"
+        Write-Host " Make sure the pairing code is still visible on the TV." -ForegroundColor Yellow
+        Write-Host " The pairing dialog times out after about 30 seconds." -ForegroundColor Yellow
+        return $false
+    }
+}
+
 function Get-Devices {
     $raw = (& $Script:AdbPath devices 2>&1 | Out-String) -split "`n"
     $devs = @()
@@ -710,6 +776,13 @@ function Get-Devices {
         if ($line -match "^(\S+)\s+(device|offline|unauthorized)") {
             $s = $matches[1]
             $st = $matches[2]
+
+            # Detect connection type based on serial format
+            if ($s -match "^\d+\.\d+\.\d+\.\d+:\d+$") {
+                $connType = "Network"
+            } else {
+                $connType = "USB"
+            }
 
             $n = "Unknown Device"
             $mod = "Unknown Model"
@@ -785,6 +858,7 @@ function Get-Devices {
                 Status = $st
                 Model = $mod
                 Type = $devType
+                ConnectionType = $connType
             }
         }
     }
@@ -985,6 +1059,7 @@ function Scan-Network {
     if ($foundCount -eq 0) {
         Write-Warn "No devices found. Ensure Network Debugging is enabled on your Android TV."
         Write-Host " Tip: You can also use 'Connect IP' to enter the address manually." -ForegroundColor Gray
+        Write-Host " Note: Newer Google TV devices (Android 11+) require 'Pair Device (PIN)' first." -ForegroundColor Gray
     } else {
         Write-Success "Scan complete. Found $foundCount device(s)."
     }
@@ -2783,16 +2858,17 @@ while ($true) {
         foreach ($d in $devs) {
             $status = $d.Status
             $typeName = Get-DeviceTypeName $d.Type
+            $connTag = if ($d.ConnectionType -eq "USB") { "[USB]" } else { "[NET]" }
             if ($status -eq "device") {
-                $txt = $d.Name
+                $txt = "$connTag $($d.Name)"
                 $mDescs += "$typeName | $($d.Model) | $($d.Serial)"
             } elseif ($status -eq "unauthorized") {
                 # Show IP and clear UNAUTHORIZED warning
-                $txt = "$($d.Serial) !! UNAUTHORIZED !!"
+                $txt = "$connTag $($d.Serial) !! UNAUTHORIZED !!"
                 $mDescs += "Check your TV screen and accept the connection prompt!"
             } else {
                 # Show IP for other non-connected states
-                $txt = "$($d.Serial) [$status]"
+                $txt = "$connTag $($d.Serial) [$status]"
                 $mDescs += "$typeName | $($d.Model)"
             }
             $mOpts += $txt
@@ -2806,7 +2882,8 @@ while ($true) {
     $staticStart = if ($devs.Count -gt 0) { $devs.Count + 1 } else { 0 }
 
     $mOpts += "Scan Network"; $mDescs += "Auto-discover Android TV devices on local network."
-    $mOpts += "Connect IP"; $mDescs += "Manually connect to a specific IP address."
+    $mOpts += "Connect IP"; $mDescs += "Manually connect using standard ADB (port 5555)."
+    $mOpts += "Pair Device (PIN)"; $mDescs += "Pair with Android 11+ / Google TV devices using wireless debugging."
     $mOpts += "Report All"; $mDescs += "Run Health Check on ALL connected devices."
     $mOpts += "Refresh"; $mDescs += "Reload device list."
     $mOpts += "Restart ADB"; $mDescs += "Kill and restart ADB server (fixes connection issues)."
@@ -2817,8 +2894,8 @@ while ($true) {
     $menuTitle = "Android TV Optimizer $Script:Version - Main Menu"
 
     # Pass StaticStartIndex so devices use numbers, options use letters
-    # Shortcuts: S=Scan, C=Connect, R=Report, F=reFresh, A=ADB, H=Help, Q=Quit
-    $mainShortcuts = @("S", "C", "R", "F", "A", "H", "Q")
+    # Shortcuts: S=Scan, C=Connect, P=Pair, R=Report, F=reFresh, A=ADB, H=Help, Q=Quit
+    $mainShortcuts = @("S", "C", "P", "R", "F", "A", "H", "Q")
     $sel = Read-Menu -Title $menuTitle -Options $mOpts -Descriptions $mDescs -StaticStartIndex $staticStart -Shortcuts $mainShortcuts
 
     # Handle ESC
@@ -2830,12 +2907,17 @@ while ($true) {
     if ($selText -eq "Connect IP") {
         $i = Read-Host "Enter IP Address (e.g., 192.168.1.100)"
         if (Test-ValidIP $i) {
-            Write-Info "Connecting to $i..."
-            & $Script:AdbPath connect $i
+            Write-Info "Connecting to ${i}:5555..."
+            & $Script:AdbPath connect "${i}:5555"
         } else {
             Write-ErrorMsg "Invalid IP address format: $i"
             Start-Sleep -Milliseconds 1500
         }
+        continue
+    }
+    if ($selText -eq "Pair Device (PIN)") {
+        $null = Connect-PinPairing
+        Start-Sleep -Milliseconds 1000
         continue
     }
     if ($selText -eq "Refresh") { continue }
