@@ -90,8 +90,8 @@ $Script:CommonAppList = @(
        OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Netflix."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.amazon.amazonvideo.livingroom"; Name = "Amazon Prime Video"; Method = "UNINSTALL"; Risk = "Safe"
        OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Prime Video."; DefaultOptimize = "N"; DefaultRestore = "N" }
-    @{ Package = "com.amazon.amazonvideo.livingroom.nvidia"; Name = "Amazon Prime Video (Shield)"; Method = "UNINSTALL"; Risk = "Safe"
-       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Prime Video."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.amazon.amazonvideo.livingroom.nvidia"; Name = "Amazon Prime Video (Shield)"; Method = "DISABLE"; Risk = "Safe"
+       OptimizeDescription = "Pre-installed system app - disable only."; RestoreDescription = "Restores Prime Video."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.wbd.stream"; Name = "Max (HBO)"; Method = "UNINSTALL"; Risk = "Safe"
        OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Max."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.discovery.discoveryplus.androidtv"; Name = "Discovery+"; Method = "UNINSTALL"; Risk = "Safe"
@@ -482,6 +482,20 @@ function Get-SubnetFromGateway {
     param([string]$Gateway)
     $octets = $Gateway -split '\.'
     return "$($octets[0]).$($octets[1]).$($octets[2])"
+}
+
+# Categorize uninstall errors for user-friendly messages
+function Get-UninstallErrorReason ($Output) {
+    if ($Output -match "Broken pipe") {
+        return "Protected system app - cannot be removed"
+    }
+    if ($Output -match "not installed for") {
+        return "App not installed for this user"
+    }
+    if ($Output -match "DELETE_FAILED_INTERNAL_ERROR") {
+        return "Internal error - app may be in use"
+    }
+    return "Unknown error"
 }
 
 function Invoke-AdbCommand {
@@ -2349,11 +2363,12 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                 if ($defMethod -eq "DISABLE" -or -not $canUninstall) {
                     # Default to disable, or can only disable (not uninstall)
                     if ($canUninstall) {
-                        $opts = @("DISABLE", "UNINSTALL", "SKIP", "ABORT")
+                        # UNINSTALL moved right of SKIP - harder to select accidentally
+                        $opts = @("DISABLE", "SKIP", "UNINSTALL", "ABORT")
                     } else {
                         $opts = @("DISABLE", "SKIP", "ABORT")
                     }
-                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = ($opts.Count - 2) }
+                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 1 }  # Default to SKIP when not optimizing
                 } else {
                     # Default to uninstall
                     $opts = @("UNINSTALL", "DISABLE", "SKIP", "ABORT")
@@ -2378,6 +2393,17 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
                 if ($selStr -ne "SKIP") {
                     if ($selStr -eq "UNINSTALL") {
+                        # Confirm uninstall for system apps only (defMethod = DISABLE means it's a system app)
+                        if (-not $applyAll -and $defMethod -eq "DISABLE") {
+                            Write-Warn "System app - this will likely fail"
+                            Write-Warn "Cannot restore without factory reset"
+                            $confirm = Read-Toggle -Prompt "    >> Confirm UNINSTALL?" -Options @("YES", "NO") -DefaultIndex 1
+                            if ($confirm -ne 0) {
+                                Write-Info "Skipped"
+                                $Script:Summary.Skipped++
+                                continue
+                            }
+                        }
                         Write-Host "    Uninstalling..." -NoNewline -ForegroundColor Gray
                         $result = Invoke-AdbCommand -Target $Target -Command "pm uninstall --user 0 $pkg"
                         if ($result.Success -and $result.Output -notmatch "Failure") {
@@ -2385,9 +2411,33 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                             Write-Success "Uninstalled: $name"
                             $Script:Summary.Uninstalled++
                         } else {
+                            # Uninstall failed - offer DISABLE as fallback
                             Write-Host ""
-                            Write-ErrorMsg "Uninstall failed: $($result.Output)"
-                            $Script:Summary.Failed++
+                            $reason = Get-UninstallErrorReason $result.Output
+                            Write-Warn "Uninstall failed: $reason"
+
+                            if ($canDisable) {
+                                $fallback = Read-Toggle -Prompt "    >> Try DISABLE instead?" -Options @("YES", "NO") -DefaultIndex 0
+                                if ($fallback -eq 0) {
+                                    Write-Host "    Disabling instead..." -NoNewline -ForegroundColor Gray
+                                    $disResult = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
+                                    if ($disResult.Success -and $disResult.Output -match "disabled") {
+                                        Write-Host "`r" -NoNewline
+                                        Write-Success "Disabled (fallback): $name"
+                                        $Script:Summary.Disabled++
+                                    } else {
+                                        Write-Host ""
+                                        Write-ErrorMsg "Disable also failed: $($disResult.Output)"
+                                        $Script:Summary.Failed++
+                                    }
+                                } else {
+                                    Write-Info "Skipped"
+                                    $Script:Summary.Skipped++
+                                }
+                            } else {
+                                Write-ErrorMsg "Cannot disable (already disabled or not found)"
+                                $Script:Summary.Failed++
+                            }
                         }
                     } else {
                         Write-Host "    Disabling..." -NoNewline -ForegroundColor Gray
