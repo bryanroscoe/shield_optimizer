@@ -138,6 +138,6 @@ ADB tools download automatically on first run (platform-appropriate version). Ac
 ## Credits
 
 - Debloat research from community guides including [florisse.nl/shield-debloat](https://florisse.nl/shield-debloat/)
-- Built with AI assistance, tested on real devices
+- Built with AI assistance Gemini Pro and Claude Opus ( by an actual software engineer ) , tested on real devices
 
 **Use at your own risk.** Modifying system apps carries some risk, but this tool prioritizes safe, reversible changes.
