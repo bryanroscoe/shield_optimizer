@@ -98,9 +98,6 @@ pwsh ./Shield-Optimizer.ps1
 # Standard run
 pwsh ./Shield-Optimizer.ps1
 
-# Demo mode (for screenshots)
-pwsh ./Shield-Optimizer.ps1 -Demo
-
 # Force re-download ADB tools
 pwsh ./Shield-Optimizer.ps1 -ForceAdbDownload
 ```

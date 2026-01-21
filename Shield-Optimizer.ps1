@@ -1,5 +1,4 @@
 param(
-    [switch]$Demo,
     [switch]$ForceAdbDownload,
     [string]$Subnet
 )
@@ -50,89 +49,151 @@ $Script:DeviceType = @{
 }
 
 # ============================================================================
-# APP LISTS - Format: Package, Name, Method, Risk, OptDesc, RestDesc, DefOpt, DefRest
+# APP LISTS - Hashtable Format for Readability and Maintainability
+# ============================================================================
+#
+# Each app entry is a hashtable with the following properties:
+#   Package  - Android package name (e.g., "com.google.android.feedback")
+#   Name     - Human-readable app name shown in UI
+#   Method   - Default action: "DISABLE" (reversible) or "UNINSTALL" (user-level removal)
+#   Risk     - Risk level: "Safe", "Medium", "High Risk", "Advanced"
+#   OptDesc  - Description shown when optimizing (removing/disabling)
+#   RestDesc - Description shown when restoring
+#   DefOpt   - Default optimize choice: "Y" (yes) or "N" (no/skip)
+#   DefRest  - Default restore choice: "Y" (yes) or "N" (no/skip)
+#
+# Risk Levels:
+#   Safe      - No negative impact, recommended to disable/remove
+#   Medium    - Minor functionality loss, user preference
+#   High Risk - May break features, use with caution
+#   Advanced  - For power users only, may break critical functions
 # ============================================================================
 
 # Apps common to ALL Android TV devices
 $Script:CommonAppList = @(
-    # [SAFE - Universal]
-    @("com.google.android.feedback", "Google Feedback", "DISABLE", "Safe", "Stops feedback data collection.", "Restores Google feedback services.", "Y", "Y"),
-    @("com.android.printspooler", "Print Spooler", "DISABLE", "Safe", "Disables unused print service.", "Restores print service.", "Y", "Y"),
-    @("com.android.gallery3d", "Android Gallery", "DISABLE", "Safe", "Removes legacy photo viewer.", "Restores legacy photo viewer.", "Y", "Y"),
+    # --- SAFE: Universal bloatware and telemetry ---
+    @{ Package = "com.google.android.feedback"; Name = "Google Feedback"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Stops feedback data collection."; RestDesc = "Restores Google feedback services."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.android.printspooler"; Name = "Print Spooler"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Disables unused print service."; RestDesc = "Restores print service."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.android.gallery3d"; Name = "Android Gallery"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Removes legacy photo viewer."; RestDesc = "Restores legacy photo viewer."; DefOpt = "Y"; DefRest = "Y" }
 
-    # [DEAD APPS - Universal]
-    @("com.google.android.videos", "Google Play Movies", "UNINSTALL", "Safe", "Removes defunct app.", "Restores defunct app.", "Y", "Y"),
-    @("com.google.android.music", "Google Play Music", "UNINSTALL", "Safe", "Removes defunct app.", "Restores defunct app.", "Y", "Y"),
+    # --- SAFE: Dead/defunct apps ---
+    @{ Package = "com.google.android.videos"; Name = "Google Play Movies"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Removes defunct app."; RestDesc = "Restores defunct app."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.google.android.music"; Name = "Google Play Music"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Removes defunct app."; RestDesc = "Restores defunct app."; DefOpt = "Y"; DefRest = "Y" }
 
-    # [STREAMING APPS - Package names vary by device, include all variants]
-    @("com.netflix.ninja", "Netflix", "UNINSTALL", "Safe", "Streaming App.", "Restores Netflix.", "N", "N"),
-    @("com.amazon.amazonvideo.livingroom", "Amazon Prime Video", "UNINSTALL", "Safe", "Streaming App.", "Restores Prime Video.", "N", "N"),
-    @("com.amazon.amazonvideo.livingroom.nvidia", "Amazon Prime Video (Shield)", "UNINSTALL", "Safe", "Streaming App.", "Restores Prime Video.", "N", "N"),
-    @("com.wbd.stream", "Max (HBO)", "UNINSTALL", "Safe", "Streaming App.", "Restores Max.", "N", "N"),
-    @("com.discovery.discoveryplus.androidtv", "Discovery+", "UNINSTALL", "Safe", "Streaming App.", "Restores Discovery+.", "N", "N"),
-    @("com.hulu.livingroomplus", "Hulu", "UNINSTALL", "Safe", "Streaming App.", "Restores Hulu.", "N", "N"),
-    @("tv.twitch.android.app", "Twitch", "UNINSTALL", "Safe", "Streaming App.", "Restores Twitch.", "N", "N"),
-    @("com.disney.disneyplus", "Disney+", "UNINSTALL", "Safe", "Streaming App.", "Restores Disney+.", "N", "N"),
-    @("com.disney.disneyplus.prod", "Disney+ (Alt)", "UNINSTALL", "Safe", "Streaming App.", "Restores Disney+.", "N", "N"),
-    @("com.spotify.tv.android", "Spotify", "UNINSTALL", "Safe", "Streaming App.", "Restores Spotify.", "N", "N"),
-    @("com.google.android.youtube.tvmusic", "YouTube Music", "UNINSTALL", "Safe", "Streaming App.", "Restores YouTube Music.", "N", "N"),
-    @("com.apple.atve.androidtv.appletv", "Apple TV", "UNINSTALL", "Safe", "Streaming App.", "Restores Apple TV.", "N", "N"),
-    @("com.cbs.ott", "Paramount+", "UNINSTALL", "Safe", "Streaming App.", "Restores Paramount+.", "N", "N"),
-    @("com.crunchyroll.crunchyroid", "Crunchyroll", "UNINSTALL", "Safe", "Streaming App.", "Restores Crunchyroll.", "N", "N"),
-    @("air.com.vudu.air.DownloaderTablet", "Vudu", "UNINSTALL", "Safe", "Streaming App.", "Restores Vudu.", "N", "N"),
+    # --- SAFE: Streaming apps (user choice, not bloat) ---
+    @{ Package = "com.netflix.ninja"; Name = "Netflix"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Netflix."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.amazon.amazonvideo.livingroom"; Name = "Amazon Prime Video"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Prime Video."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.amazon.amazonvideo.livingroom.nvidia"; Name = "Amazon Prime Video (Shield)"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Prime Video."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.wbd.stream"; Name = "Max (HBO)"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Max."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.discovery.discoveryplus.androidtv"; Name = "Discovery+"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Discovery+."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.hulu.livingroomplus"; Name = "Hulu"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Hulu."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "tv.twitch.android.app"; Name = "Twitch"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Twitch."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.disney.disneyplus"; Name = "Disney+"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Disney+."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.disney.disneyplus.prod"; Name = "Disney+ (Alt)"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Disney+."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.spotify.tv.android"; Name = "Spotify"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Spotify."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.google.android.youtube.tvmusic"; Name = "YouTube Music"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores YouTube Music."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.apple.atve.androidtv.appletv"; Name = "Apple TV"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Apple TV."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.cbs.ott"; Name = "Paramount+"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Paramount+."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "com.crunchyroll.crunchyroid"; Name = "Crunchyroll"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Crunchyroll."; DefOpt = "N"; DefRest = "N" }
+    @{ Package = "air.com.vudu.air.DownloaderTablet"; Name = "Vudu"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Streaming App."; RestDesc = "Restores Vudu."; DefOpt = "N"; DefRest = "N" }
 
-    # [MEDIUM RISK - Universal]
-    @("com.android.dreams.basic", "Basic Daydream", "DISABLE", "Medium", "Disables basic screensaver.", "Restores basic screensaver.", "N", "Y"),
-    @("com.android.providers.tv", "Live Channels Provider", "DISABLE", "Medium", "Disables Live TV provider.", "Restores Live Channels support.", "N", "Y"),
+    # --- MEDIUM: Minor functionality impact ---
+    @{ Package = "com.android.dreams.basic"; Name = "Basic Daydream"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Disables basic screensaver."; RestDesc = "Restores basic screensaver."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.android.providers.tv"; Name = "Live Channels Provider"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Disables Live TV provider."; RestDesc = "Restores Live Channels support."; DefOpt = "N"; DefRest = "Y" }
 
-    # [HIGH RISK - Universal]
-    @("com.google.android.katniss", "Google Assistant", "DISABLE", "High Risk", "Breaks voice search.", "Restores voice search.", "N", "Y"),
-    @("com.google.android.apps.mediashell", "Chromecast Built-in", "DISABLE", "High Risk", "Breaks casting to device.", "Restores Chromecast.", "N", "Y"),
-    @("com.google.android.tts", "Google Text-to-Speech", "DISABLE", "High Risk", "Breaks accessibility features.", "Restores text-to-speech.", "N", "Y"),
-    @("com.google.android.play.games", "Google Play Games", "DISABLE", "Medium Risk", "May break cloud saves.", "Restores Play Games.", "N", "Y"),
+    # --- HIGH RISK: May break features ---
+    @{ Package = "com.google.android.katniss"; Name = "Google Assistant"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Breaks voice search."; RestDesc = "Restores voice search."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.google.android.apps.mediashell"; Name = "Chromecast Built-in"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Breaks casting to device."; RestDesc = "Restores Chromecast."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.google.android.tts"; Name = "Google Text-to-Speech"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Breaks accessibility features."; RestDesc = "Restores text-to-speech."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.google.android.play.games"; Name = "Google Play Games"; Method = "DISABLE"; Risk = "Medium Risk"
+       OptDesc = "May break cloud saves."; RestDesc = "Restores Play Games."; DefOpt = "N"; DefRest = "Y" }
 
-    # [HOME HANDLERS - Present on both Shield and Google TV]
-    @("com.google.android.tungsten.setupwraith", "Setup Wraith (HOME)", "DISABLE", "High Risk", "HOME handler! Use Launcher Wizard instead.", "Restores setup wizard HOME handler.", "N", "Y")
+    # --- HOME HANDLERS: Use Launcher Wizard instead ---
+    @{ Package = "com.google.android.tungsten.setupwraith"; Name = "Setup Wraith (HOME)"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "HOME handler! Use Launcher Wizard instead."; RestDesc = "Restores setup wizard HOME handler."; DefOpt = "N"; DefRest = "Y" }
 )
 
 # NVIDIA Shield-specific apps
 $Script:ShieldAppList = @(
-    # [SHIELD SAFE - Telemetry]
-    @("com.nvidia.stats", "Nvidia Telemetry", "DISABLE", "Safe", "Stops Nvidia data collection.", "Restores Nvidia telemetry.", "Y", "Y"),
-    @("com.nvidia.diagtools", "Nvidia Diagnostics", "DISABLE", "Safe", "Stops diagnostic logging.", "Restores diagnostic tools.", "Y", "Y"),
-    @("com.nvidia.feedback", "Nvidia Feedback", "DISABLE", "Safe", "Stops Nvidia feedback collection.", "Restores Nvidia feedback.", "Y", "Y"),
-    @("com.google.android.tvrecommendations", "Sponsored Content", "DISABLE", "Safe", "Removes 'Sponsored' rows from home.", "Restores sponsored content rows.", "Y", "Y"),
+    # --- SAFE: Shield telemetry ---
+    @{ Package = "com.nvidia.stats"; Name = "Nvidia Telemetry"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Stops Nvidia data collection."; RestDesc = "Restores Nvidia telemetry."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.nvidia.diagtools"; Name = "Nvidia Diagnostics"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Stops diagnostic logging."; RestDesc = "Restores diagnostic tools."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.nvidia.feedback"; Name = "Nvidia Feedback"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Stops Nvidia feedback collection."; RestDesc = "Restores Nvidia feedback."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.google.android.tvrecommendations"; Name = "Sponsored Content"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Removes 'Sponsored' rows from home."; RestDesc = "Restores sponsored content rows."; DefOpt = "Y"; DefRest = "Y" }
 
-    # [SHIELD MEDIUM]
-    @("com.nvidia.osc", "Nvidia OSC", "DISABLE", "Medium", "Background optimization service.", "Restores optimization service.", "N", "Y"),
-    @("com.nvidia.shieldtech.hooks", "Nvidia System Hooks", "DISABLE", "Medium", "Shield-specific system hooks.", "Restores system hooks.", "N", "Y"),
-    @("com.nvidia.tegrazone3", "Nvidia Games", "DISABLE", "Medium Risk", "May break GeForce NOW.", "Restores Nvidia Games app.", "N", "Y"),
-    @("com.nvidia.nvgamecast", "Nvidia GameStream", "DISABLE", "Medium", "GameStream casting service.", "Restores GameStream.", "N", "Y"),
-    @("com.google.android.backdrop", "Ambient Mode", "DISABLE", "Medium", "Disables ambient/screensaver.", "Restores ambient mode.", "N", "Y"),
-    @("com.google.android.speech.pumpkin", "Google Speech Services", "DISABLE", "High Risk", "Breaks voice dictation.", "Restores speech services.", "N", "Y"),
+    # --- MEDIUM: Shield-specific services ---
+    @{ Package = "com.nvidia.osc"; Name = "Nvidia OSC"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Background optimization service."; RestDesc = "Restores optimization service."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.nvidia.shieldtech.hooks"; Name = "Nvidia System Hooks"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Shield-specific system hooks."; RestDesc = "Restores system hooks."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.nvidia.tegrazone3"; Name = "Nvidia Games"; Method = "DISABLE"; Risk = "Medium Risk"
+       OptDesc = "May break GeForce NOW."; RestDesc = "Restores Nvidia Games app."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.nvidia.nvgamecast"; Name = "Nvidia GameStream"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "GameStream casting service."; RestDesc = "Restores GameStream."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.google.android.backdrop"; Name = "Ambient Mode"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Disables ambient/screensaver."; RestDesc = "Restores ambient mode."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.google.android.speech.pumpkin"; Name = "Google Speech Services"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Breaks voice dictation."; RestDesc = "Restores speech services."; DefOpt = "N"; DefRest = "Y" }
 
-    # [SHIELD HIGH RISK]
-    @("com.nvidia.ota", "Nvidia System Updater", "DISABLE", "High Risk", "Stops Shield OS updates.", "Restores system updates.", "N", "Y"),
-    @("com.plexapp.mediaserver.smb", "Plex Media Server", "DISABLE", "Advanced", "Breaks local Plex hosting.", "Restores Plex Server.", "N", "Y"),
+    # --- HIGH RISK: Critical Shield services ---
+    @{ Package = "com.nvidia.ota"; Name = "Nvidia System Updater"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Stops Shield OS updates."; RestDesc = "Restores system updates."; DefOpt = "N"; DefRest = "Y" }
+    @{ Package = "com.plexapp.mediaserver.smb"; Name = "Plex Media Server"; Method = "DISABLE"; Risk = "Advanced"
+       OptDesc = "Breaks local Plex hosting."; RestDesc = "Restores Plex Server."; DefOpt = "N"; DefRest = "Y" }
 
-    # [SHIELD LAUNCHER]
-    @("com.google.android.tvlauncher", "Stock Launcher", "DISABLE", "High Risk", "Requires custom launcher first!", "Restores stock home screen.", "N", "Y")
+    # --- LAUNCHER: Use Launcher Wizard ---
+    @{ Package = "com.google.android.tvlauncher"; Name = "Stock Launcher"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Requires custom launcher first!"; RestDesc = "Restores stock home screen."; DefOpt = "N"; DefRest = "Y" }
 )
 
 # Google TV-specific apps (Onn 4K, Chromecast, etc.)
 $Script:GoogleTVAppList = @(
-    # [GOOGLE TV SAFE - Bloatware]
-    @("com.walmart.otto", "Walmart App", "UNINSTALL", "Safe", "Removes Walmart bloatware.", "Restores Walmart app.", "Y", "Y"),
-    @("com.google.android.leanbacklauncher.recommendations", "Home Recommendations", "DISABLE", "Safe", "Removes extra recommendation rows.", "Restores home recommendations.", "Y", "Y"),
+    # --- SAFE: Google TV bloatware ---
+    @{ Package = "com.walmart.otto"; Name = "Walmart App"; Method = "UNINSTALL"; Risk = "Safe"
+       OptDesc = "Removes Walmart bloatware."; RestDesc = "Restores Walmart app."; DefOpt = "Y"; DefRest = "Y" }
+    @{ Package = "com.google.android.leanbacklauncher.recommendations"; Name = "Home Recommendations"; Method = "DISABLE"; Risk = "Safe"
+       OptDesc = "Removes extra recommendation rows."; RestDesc = "Restores home recommendations."; DefOpt = "Y"; DefRest = "Y" }
 
-    # [GOOGLE TV MEDIUM]
-    @("com.google.android.tungsten.overscan", "Overscan Calibrator", "DISABLE", "Medium", "Post-setup overscan tool.", "Restores overscan calibrator.", "N", "Y"),
+    # --- MEDIUM: Setup/calibration tools ---
+    @{ Package = "com.google.android.tungsten.overscan"; Name = "Overscan Calibrator"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Post-setup overscan tool."; RestDesc = "Restores overscan calibrator."; DefOpt = "N"; DefRest = "Y" }
 
-    # [ONN-SPECIFIC - Amlogic devices]
-    @("com.droidlogic.launcher.provider", "Droidlogic Launcher Provider", "DISABLE", "Medium", "Onn launcher data provider. Disable with launcher.", "Restores Onn launcher provider.", "N", "Y"),
+    # --- MEDIUM: Onn/Amlogic-specific ---
+    @{ Package = "com.droidlogic.launcher.provider"; Name = "Droidlogic Launcher Provider"; Method = "DISABLE"; Risk = "Medium"
+       OptDesc = "Onn launcher data provider. Disable with launcher."; RestDesc = "Restores Onn launcher provider."; DefOpt = "N"; DefRest = "Y" }
 
-    # [GOOGLE TV LAUNCHER - Handle via Launcher Wizard]
-    @("com.google.android.apps.tv.launcherx", "Google TV Home", "DISABLE", "High Risk", "Use Launcher Wizard to safely disable!", "Restores Google TV home.", "N", "Y")
+    # --- LAUNCHER: Use Launcher Wizard ---
+    @{ Package = "com.google.android.apps.tv.launcherx"; Name = "Google TV Home"; Method = "DISABLE"; Risk = "High Risk"
+       OptDesc = "Use Launcher Wizard to safely disable!"; RestDesc = "Restores Google TV home."; DefOpt = "N"; DefRest = "Y" }
 )
 
 $Script:PerfList = @(
@@ -212,10 +273,10 @@ function Get-AppListForDevice ($Type) {
         default {
             # For unknown devices, include both but skip the launchers
             foreach ($app in $Script:ShieldAppList) {
-                if ($app[0] -notmatch "tvlauncher") { $combined += ,$app }
+                if ($app.Package -notmatch "tvlauncher") { $combined += ,$app }
             }
             foreach ($app in $Script:GoogleTVAppList) {
-                if ($app[0] -notmatch "launcherx") { $combined += ,$app }
+                if ($app.Package -notmatch "launcherx") { $combined += ,$app }
             }
         }
     }
@@ -266,192 +327,117 @@ function Write-Info ($Text)     { Write-Host " [INFO] $Text" -ForegroundColor Gr
 function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor Gray }
 function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor Gray }
 
-# --- DEMO MODE ---
-function Show-DemoScreens {
-    Clear-Host
-    Write-Host "DEMO MODE - Screenshot Gallery" -ForegroundColor Magenta
-    Write-Host "All screens displayed statically for screenshot capture.`n" -ForegroundColor Gray
+# --- HELPER FUNCTIONS FOR DRY CODE ---
 
-    # ============================================================
-    # SCREEN 1: Main Menu with 2 fake devices
-    # ============================================================
-    Write-Separator
-    Write-Host " Android TV Optimizer $Script:Version - Main Menu" -ForegroundColor Cyan
-    Write-Host " ================================================" -ForegroundColor DarkCyan
+# Vital thresholds for color coding (centralized configuration)
+$Script:VitalThresholds = @{
+    Temperature = @{ Warning = 50; Critical = 70; Normal = "Green"; NormalAnsi = "92" }
+    RAM         = @{ Warning = 70; Critical = 85; Normal = "Green"; NormalAnsi = "92" }
+    Storage     = @{ Warning = 75; Critical = 90; Normal = "Green"; NormalAnsi = "92" }
+    AppMemory   = @{ Warning = 100; Critical = 200; Normal = "White"; NormalAnsi = "97" }
+}
 
-    # Fake devices
-    Write-Host "  ► " -NoNewline -ForegroundColor Cyan
-    Write-OptionWithHighlight -Text "[1] Shield TV Pro" -Selected $true -WithClosingArrow $true
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[2] Living Room TV" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[S]can Network" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[C]onnect IP" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[R]eport All" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "Re[f]resh" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "Restart [A]DB" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[H]elp" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[Q]uit" -Selected $false
+# Check if a package exists in a package list string (handles exact matching)
+function Test-PackageInList {
+    param(
+        [string]$PackageList,
+        [string]$Package
+    )
+    return $PackageList -match "package:$([regex]::Escape($Package))(\r|\n|$)"
+}
 
-    Write-Host " ================================================" -ForegroundColor DarkCyan
-    Write-Host " Info: " -NoNewline -ForegroundColor Yellow
-    Write-Host "Nvidia Shield | Shield TV Pro (2019) | 192.168.1.100:5555" -ForegroundColor White
-    Write-Host " [Arrows: Move] [Keys: Select] [Enter: OK] [ESC: Back]" -ForegroundColor Gray
+# Check if a package name is a user app (vs system process)
+function Test-AppPackage {
+    param([string]$Package)
+    return ($Package -match "^com\." -or $Package -match "^tv\." -or $Package -match "^me\.")
+}
 
-    # ============================================================
-    # SCREEN 2: Action Menu
-    # ============================================================
-    Write-Separator
-    Write-Host " Action Menu: Shield TV Pro (Nvidia Shield)" -ForegroundColor Cyan
-    Write-Host " ================================================" -ForegroundColor DarkCyan
+# Parse temperature from thermal service output
+function Get-ParsedTemperature {
+    param([string]$ThermalOutput)
 
-    Write-Host "  ► " -NoNewline -ForegroundColor Cyan
-    Write-OptionWithHighlight -Text "[O]ptimize" -Selected $true -WithClosingArrow $true
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[R]estore" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "R[e]port" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[L]auncher Setup" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[P]rofile" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "Re[c]overy" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "Re[b]oot" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[D]isconnect" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "Bac[k]" -Selected $false
+    if (-not $ThermalOutput) { return "N/A" }
 
-    Write-Host " ================================================" -ForegroundColor DarkCyan
-    Write-Host " Info: " -NoNewline -ForegroundColor Yellow
-    Write-Host "Debloat apps and tune performance for Nvidia Shield." -ForegroundColor White
+    # Try different thermal output formats
+    if ($ThermalOutput -match "mValue=([\d\.]+).*mName=CPU\d*,") {
+        return [math]::Round([float]$matches[1], 1)
+    }
+    elseif ($ThermalOutput -match "mValue=([\d\.]+).*mName=soc_thermal") {
+        return [math]::Round([float]$matches[1], 1)
+    }
+    elseif ($ThermalOutput -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
+        return [math]::Round([float]$matches[1], 1)
+    }
 
-    # ============================================================
-    # SCREEN 3: Health Report
-    # ============================================================
-    Write-Separator
-    Write-Header "Health Report: Shield TV Pro (Nvidia Shield)"
+    return "N/A"
+}
 
-    Write-SubHeader "System Info"
-    Write-Host " Platform:  " -NoNewline -ForegroundColor Gray
-    Write-Host "tegra" -ForegroundColor Cyan
-    Write-Host " Android:   " -NoNewline -ForegroundColor Gray
-    Write-Host "11" -ForegroundColor White
+# Parse RAM info from meminfo output
+function Get-ParsedRamInfo {
+    param([string]$MemInfoOutput)
 
-    Write-SubHeader "Vitals"
-    Write-Host " Temp:    " -NoNewline -ForegroundColor Gray
-    Write-Host "42.3`°C" -ForegroundColor Green
-    Write-Host " RAM:     " -NoNewline -ForegroundColor Gray
-    Write-Host "68% (1890 / 2780 MB)" -ForegroundColor Yellow
-    Write-Host " Swap:    " -NoNewline -ForegroundColor Gray
-    Write-Host "128 MB" -ForegroundColor White
-    Write-Host " Storage: " -NoNewline -ForegroundColor Gray
-    Write-Host "8.2G / 14G (59%)" -ForegroundColor Green
+    $Total = 0; $Free = 0; $Swap = 0
 
-    Write-SubHeader "Settings Check"
-    Write-Host " Animation Speed: " -NoNewline -ForegroundColor Gray
-    Write-Host "0.5" -ForegroundColor Cyan
-    Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
-    Write-Host "2" -ForegroundColor Cyan
+    if ($MemInfoOutput) {
+        if ($MemInfoOutput -match "Total RAM:\s+([0-9,]+)\s*K") {
+            $Total = [math]::Round(($matches[1] -replace ",","") / 1024, 0)
+        }
+        if ($MemInfoOutput -match "Free RAM:\s+([0-9,]+)\s*K") {
+            $Free = [math]::Round(($matches[1] -replace ",","") / 1024, 0)
+        }
+        if ($MemInfoOutput -match "ZRAM:.*used for\s+([0-9,]+)\s*K") {
+            $Swap = [math]::Round(($matches[1] -replace ",","") / 1024, 0)
+        }
+    }
 
-    Write-SubHeader "Top Memory Users"
-    Write-Host "  142.3 MB  " -NoNewline -ForegroundColor Yellow
-    Write-Host "com.google.android.tvlauncher" -ForegroundColor Gray
-    Write-Host "   89.7 MB  " -NoNewline -ForegroundColor White
-    Write-Host "com.google.android.youtube.tv" -ForegroundColor Gray
-    Write-Host "   67.2 MB  " -NoNewline -ForegroundColor White
-    Write-Host "com.netflix.ninja" -ForegroundColor Gray
-    Write-Host "   45.1 MB  " -NoNewline -ForegroundColor White
-    Write-Host "com.google.android.tvrecommendations" -ForegroundColor Gray
-    Write-Host "   32.8 MB  " -NoNewline -ForegroundColor White
-    Write-Host "com.nvidia.tegrazone3" -ForegroundColor Gray
+    if ($Total -eq 0) { $Total = 2048 }
+    $Used = $Total - $Free
+    $Percent = if ($Total -gt 0) { [math]::Round(($Used / $Total) * 100, 0) } else { 0 }
 
-    Write-SubHeader "Bloat Check"
-    Write-Host " [ACTIVE BLOAT] Sponsored Content" -ForegroundColor Yellow
-    Write-Host " [ACTIVE BLOAT] Google Feedback" -ForegroundColor Yellow
-    Write-Host " [ACTIVE BLOAT] Walmart App" -ForegroundColor Yellow
+    return @{
+        Total   = $Total
+        Free    = $Free
+        Used    = $Used
+        Swap    = $Swap
+        Percent = $Percent
+    }
+}
 
-    # ============================================================
-    # SCREEN 4: Launcher Wizard
-    # ============================================================
-    Write-Separator
-    Write-Host " Select Launcher" -ForegroundColor Cyan
-    Write-Host " ================================================" -ForegroundColor DarkCyan
+# Get PowerShell color name for vital metrics
+function Get-VitalColor {
+    param(
+        [string]$Type,
+        [float]$Value
+    )
 
-    Write-Host "  ► " -NoNewline -ForegroundColor Cyan
-    Write-OptionWithHighlight -Text "[P]rojectivy Launcher [ACTIVE]" -Selected $true -WithClosingArrow $true
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[F]Launcher [INSTALLED]" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[A]TV Launcher [MISSING]" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[W]olf Launcher [MISSING]" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[S]tock Launcher (Google TV) [DISABLED]" -Selected $false
-    Write-Host "    " -NoNewline
-    Write-OptionWithHighlight -Text "[B]ack" -Selected $false
+    $thresholds = $Script:VitalThresholds[$Type]
+    if (-not $thresholds) { return "White" }
 
-    Write-Host " ================================================" -ForegroundColor DarkCyan
-    Write-Host " Info: " -NoNewline -ForegroundColor Yellow
-    Write-Host "Install or Enable Projectivy Launcher" -ForegroundColor White
+    if ($Value -gt $thresholds.Critical) { return "Red" }
+    elseif ($Value -gt $thresholds.Warning) { return "Yellow" }
+    else { return $thresholds.Normal }
+}
 
-    # ============================================================
-    # SCREEN 5: Optimize Flow - Sample App
-    # ============================================================
-    Write-Separator
-    Write-Header "Application Management (Optimize) - Nvidia Shield"
-    Write-Host ""
-    Write-Host "Remove: " -NoNewline
-    Write-Host "Sponsored Content" -ForegroundColor Cyan -NoNewline
-    Write-Host " [Safe]" -ForegroundColor Green -NoNewline
-    Write-Host " (45.1 MB)" -ForegroundColor Gray
-    Write-Dim "    Removes 'Sponsored' rows from home."
-    Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
-    Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
-    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor Gray
-    Write-Host "   SKIP   " -NoNewline -ForegroundColor Gray
-    Write-Host "   ABORT   " -ForegroundColor Gray
-    Write-Host ""
-    Write-Dim "Google Play Movies ... [NOT INSTALLED]"
-    Write-Dim "Google Play Music ... [ALREADY DISABLED]"
-    Write-Host ""
-    Write-Host "Remove: " -NoNewline
-    Write-Host "Nvidia Telemetry" -ForegroundColor Cyan -NoNewline
-    Write-Host " [Safe]" -ForegroundColor Green -NoNewline
-    Write-Host " (12.3 MB)" -ForegroundColor Gray
-    Write-Dim "    Stops Nvidia data collection."
-    Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
-    Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
-    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor Gray
-    Write-Host "   SKIP   " -NoNewline -ForegroundColor Gray
-    Write-Host "   ABORT   " -ForegroundColor Gray
+# Get ANSI color code for vital metrics (for console escape sequences)
+function Get-VitalAnsiColor {
+    param(
+        [string]$Type,
+        [float]$Value
+    )
 
-    # ============================================================
-    # SCREEN 6: Summary Screen
-    # ============================================================
-    Write-Separator
-    Write-Header "Summary"
-    Write-Host " Disabled:    8 apps" -ForegroundColor Green
-    Write-Host " Uninstalled: 2 apps" -ForegroundColor Green
-    Write-Host " Skipped:     5 apps" -ForegroundColor Gray
-    Write-Host " Failed:      0 apps" -ForegroundColor Gray
+    $thresholds = $Script:VitalThresholds[$Type]
+    if (-not $thresholds) { return "97" }  # White
 
-    Write-Header "Finished"
-    Write-Host "Reboot Device Now?  " -NoNewline -ForegroundColor Gray
-    Write-Host "   YES   " -NoNewline -ForegroundColor Gray
-    Write-Host " [ NO ] " -ForegroundColor Cyan
+    if ($Value -gt $thresholds.Critical) { return "91" }    # Red
+    elseif ($Value -gt $thresholds.Warning) { return "93" } # Yellow
+    else { return $thresholds.NormalAnsi }
+}
 
-    Write-Separator
-    Write-Host "END OF DEMO" -ForegroundColor Magenta
-    Write-Host ""
+# Extract subnet from gateway IP (e.g., "192.168.1.1" -> "192.168.1")
+function Get-SubnetFromGateway {
+    param([string]$Gateway)
+    $octets = $Gateway -split '\.'
+    return "$($octets[0]).$($octets[1]).$($octets[2])"
 }
 
 # FIX #10: Helper function to execute ADB commands with proper error checking
@@ -511,7 +497,7 @@ function Get-TopMemoryApps {
                 $kb = [int]($matches[1] -replace ",", "")
                 $pkg = $matches[2]
                 # Skip system processes, focus on apps
-                if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
+                if (Test-AppPackage -Package $pkg) {
                     $apps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
                     if ($apps.Count -ge $Count) { break }
                 }
@@ -829,32 +815,25 @@ function Get-LocalSubnet {
             # macOS: route -n get default
             $routeOutput = route -n get default 2>$null | Out-String
             if ($routeOutput -match "gateway:\s*(\d+\.\d+\.\d+\.\d+)") {
-                $gateway = $matches[1]
-                $octets = $gateway -split '\.'
-                $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+                $subnet = Get-SubnetFromGateway -Gateway $matches[1]
             }
         } elseif ($Script:Platform -eq "Linux") {
             # Linux: ip route (modern) or route -n (legacy)
             $routeOutput = ip route 2>$null | Out-String
             if ($routeOutput -match "default via (\d+\.\d+\.\d+\.\d+)") {
-                $gateway = $matches[1]
-                $octets = $gateway -split '\.'
-                $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+                $subnet = Get-SubnetFromGateway -Gateway $matches[1]
             } elseif (-not $subnet) {
                 # Fallback to legacy route command
                 $routeOutput = route -n 2>$null | Out-String
                 if ($routeOutput -match "0\.0\.0\.0\s+(\d+\.\d+\.\d+\.\d+)") {
-                    $gateway = $matches[1]
-                    $octets = $gateway -split '\.'
-                    $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+                    $subnet = Get-SubnetFromGateway -Gateway $matches[1]
                 }
             }
         } else {
             # Windows: use Get-NetRoute
             $gateway = (Get-NetRoute -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue | Select-Object -First 1).NextHop
             if ($gateway) {
-                $octets = $gateway -split '\.'
-                $subnet = "$($octets[0]).$($octets[1]).$($octets[2])"
+                $subnet = Get-SubnetFromGateway -Gateway $gateway
             }
         }
     } catch {}
@@ -1494,31 +1473,17 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     }
 
     # --- TEMPERATURE ---
-    $Temp = "N/A"
     $thermal = $sections["THERMAL"]
-    if ($thermal) {
-        if ($thermal -match "mValue=([\d\.]+).*mName=CPU\d*,") {
-            $Temp = [math]::Round([float]$matches[1], 1)
-        }
-        elseif ($thermal -match "mValue=([\d\.]+).*mName=soc_thermal") {
-            $Temp = [math]::Round([float]$matches[1], 1)
-        }
-        elseif ($thermal -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
-            $Temp = [math]::Round([float]$matches[1], 1)
-        }
-    }
+    $Temp = Get-ParsedTemperature -ThermalOutput $thermal
 
     # --- RAM ---
-    $Total = 0; $Free = 0; $Swap = 0
     $mem = $sections["MEMINFO"]
-    if ($mem) {
-        if ($mem -match "Total RAM:\s+([0-9,]+)\s*K") { $Total = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-        if ($mem -match "Free RAM:\s+([0-9,]+)\s*K") { $Free = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-        if ($mem -match "ZRAM:.*used for\s+([0-9,]+)\s*K") { $Swap = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-    }
-    if ($Total -eq 0) { $Total = 2048 }
-    $Used = $Total - $Free
-    $Pct = if ($Total -gt 0) { [math]::Round(($Used / $Total) * 100, 0) } else { 0 }
+    $ramInfo = Get-ParsedRamInfo -MemInfoOutput $mem
+    $Total = $ramInfo.Total
+    $Free = $ramInfo.Free
+    $Used = $ramInfo.Used
+    $Swap = $ramInfo.Swap
+    $Pct = $ramInfo.Percent
 
     # --- STORAGE ---
     $StorageUsed = "N/A"; $StorageTotal = "N/A"; $StoragePct = 0
@@ -1564,14 +1529,14 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     Write-SubHeader "Vitals"
     Write-Host " Temp:    " -NoNewline -ForegroundColor Gray
     if ($Temp -ne "N/A") {
-        $tempColor = if ([float]$Temp -gt 70) { "Red" } elseif ([float]$Temp -gt 50) { "Yellow" } else { "Green" }
+        $tempColor = Get-VitalColor -Type "Temperature" -Value ([float]$Temp)
         Write-Host "${Temp}°C" -ForegroundColor $tempColor
     } else {
         Write-Host "N/A" -ForegroundColor Gray
     }
 
     Write-Host " RAM:     " -NoNewline -ForegroundColor Gray
-    $ramColor = if ($Pct -gt 85) { "Red" } elseif ($Pct -gt 70) { "Yellow" } else { "Green" }
+    $ramColor = Get-VitalColor -Type "RAM" -Value $Pct
     Write-Host "$Pct% ($Used / $Total MB)" -ForegroundColor $ramColor
 
     Write-Host " Swap:    " -NoNewline -ForegroundColor Gray
@@ -1579,7 +1544,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
 
     Write-Host " Storage: " -NoNewline -ForegroundColor Gray
     if ($StorageUsed -ne "N/A") {
-        $storColor = if ($StoragePct -gt 90) { "Red" } elseif ($StoragePct -gt 75) { "Yellow" } else { "Green" }
+        $storColor = Get-VitalColor -Type "Storage" -Value $StoragePct
         Write-Host "$StorageUsed / $StorageTotal ($StoragePct%)" -ForegroundColor $storColor
     } else {
         Write-Host "N/A" -ForegroundColor Gray
@@ -1599,7 +1564,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
             if ($line -match "^\s*([0-9,]+)K:\s*(\S+)\s*\(pid") {
                 $kb = [int]($matches[1] -replace ",", "")
                 $pkg = $matches[2]
-                if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
+                if (Test-AppPackage -Package $pkg) {
                     $topApps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
                     if ($topApps.Count -ge 5) { break }
                 }
@@ -1608,7 +1573,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     }
     if ($topApps.Count -gt 0) {
         foreach ($app in $topApps) {
-            $memColor = if ($app.MB -gt 200) { "Red" } elseif ($app.MB -gt 100) { "Yellow" } else { "White" }
+            $memColor = Get-VitalColor -Type "AppMemory" -Value $app.MB
             Write-Host " $($app.MB.ToString('0.0').PadLeft(6)) MB  " -NoNewline -ForegroundColor $memColor
             Write-Host "$($app.Package)" -ForegroundColor Gray
         }
@@ -1629,9 +1594,9 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     $enabledPkgs = $sections["PACKAGES"]
 
     foreach ($app in $allBloatApps) {
-        $pkg = $app[0]; $appName = $app[1]; $method = $app[2]; $risk = $app[3]; $defOpt = $app[6]
+        $pkg = $app.Package; $appName = $app.Name; $method = $app.Method; $risk = $app.Risk; $defOpt = $app.DefOpt
         if ($risk -match "Safe" -or $risk -match "Medium") {
-            if ($enabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
+            if (Test-PackageInList -PackageList $enabledPkgs -Package $pkg) {
                 # Get memory from already-fetched meminfo
                 $bloatMem = 0
                 if ($mem -match "([0-9,]+)K:\s*$([regex]::Escape($pkg))\s") {
@@ -1718,23 +1683,15 @@ function Watch-Vitals ($Target, $Name) {
             $thermal = if ($parts.Count -ge 2) { $parts[1] } else { "" }
 
             # Parse temperature
-            $Temp = "N/A"
-            if ($thermal -match "mValue=([\d\.]+).*mName=CPU\d*,") {
-                $Temp = [math]::Round([float]$matches[1], 1)
-            } elseif ($thermal -match "mValue=([\d\.]+).*mName=soc_thermal") {
-                $Temp = [math]::Round([float]$matches[1], 1)
-            } elseif ($thermal -match "Temperature\{mValue=([\d\.]+),.*mType=0") {
-                $Temp = [math]::Round([float]$matches[1], 1)
-            }
+            $Temp = Get-ParsedTemperature -ThermalOutput $thermal
 
             # Parse RAM
-            $Total = 0; $Free = 0; $Swap = 0
-            if ($mem -match "Total RAM:\s+([0-9,]+)\s*K") { $Total = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-            if ($mem -match "Free RAM:\s+([0-9,]+)\s*K") { $Free = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-            if ($mem -match "ZRAM:.*used for\s+([0-9,]+)\s*K") { $Swap = [math]::Round(($matches[1] -replace ",","") / 1024, 0) }
-            if ($Total -eq 0) { $Total = 2048 }
-            $Used = $Total - $Free
-            $Pct = if ($Total -gt 0) { [math]::Round(($Used / $Total) * 100, 0) } else { 0 }
+            $ramInfo = Get-ParsedRamInfo -MemInfoOutput $mem
+            $Total = $ramInfo.Total
+            $Free = $ramInfo.Free
+            $Used = $ramInfo.Used
+            $Swap = $ramInfo.Swap
+            $Pct = $ramInfo.Percent
 
             # Parse top apps
             $topApps = @()
@@ -1742,7 +1699,7 @@ function Watch-Vitals ($Target, $Name) {
                 if ($line -match "^\s*([0-9,]+)K:\s*(\S+)\s*\(pid") {
                     $kb = [int]($matches[1] -replace ",", "")
                     $pkg = $matches[2]
-                    if ($pkg -match "^com\." -or $pkg -match "^tv\." -or $pkg -match "^me\.") {
+                    if (Test-AppPackage -Package $pkg) {
                         $topApps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
                         if ($topApps.Count -ge 10) { break }
                     }
@@ -1752,13 +1709,13 @@ function Watch-Vitals ($Target, $Name) {
             # Update display (move cursor and overwrite)
             # Temp
             [Console]::Write("$esc[$headerRow;13H")
-            $tempColor = if ($Temp -ne "N/A" -and [float]$Temp -gt 70) { "91" } elseif ($Temp -ne "N/A" -and [float]$Temp -gt 50) { "93" } else { "92" }
+            $tempColor = if ($Temp -ne "N/A") { Get-VitalAnsiColor -Type "Temperature" -Value ([float]$Temp) } else { "92" }
             $tempStr = if ($Temp -ne "N/A") { "${Temp}C   " } else { "N/A    " }
             [Console]::Write("$esc[${tempColor}m$tempStr$esc[0m")
 
             # RAM
             [Console]::Write("$esc[$($headerRow+1);13H")
-            $ramColor = if ($Pct -gt 85) { "91" } elseif ($Pct -gt 70) { "93" } else { "92" }
+            $ramColor = Get-VitalAnsiColor -Type "RAM" -Value $Pct
             $ramStr = "$Pct% ($Used / $Total MB)".PadRight(25)
             [Console]::Write("$esc[${ramColor}m$ramStr$esc[0m")
 
@@ -1771,7 +1728,7 @@ function Watch-Vitals ($Target, $Name) {
                 [Console]::Write("$esc[$($topAppsStartRow + $i);1H$esc[2K")
                 if ($i -lt $topApps.Count) {
                     $app = $topApps[$i]
-                    $memColor = if ($app.MB -gt 200) { "91" } elseif ($app.MB -gt 100) { "93" } else { "97" }
+                    $memColor = Get-VitalAnsiColor -Type "AppMemory" -Value $app.MB
                     $line = " $($app.MB.ToString('0.0').PadLeft(6)) MB  $($app.Package)"
                     [Console]::Write("$esc[${memColor}m$($line.Substring(0, [Math]::Min(50, $line.Length)))$esc[0m")
                 }
@@ -1886,8 +1843,8 @@ function Disable-AllStockLaunchers {
 
     foreach ($pkg in $knownHomeHandlers) {
         # Add if: installed AND not already disabled AND not already in list
-        $isInstalled = $installedPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
-        $isDisabled = $disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
+        $isInstalled = Test-PackageInList -PackageList $installedPkgs -Package $pkg
+        $isDisabled = Test-PackageInList -PackageList $disabledPkgs -Package $pkg
         if ($isInstalled -and -not $isDisabled -and $homeHandlers -notcontains $pkg) {
             $homeHandlers += $pkg
         }
@@ -1999,7 +1956,7 @@ function Restore-AllStockLaunchers {
     # Find which HOME handlers are currently disabled
     $toRestore = @()
     foreach ($pkg in $homeHandlers) {
-        if ($disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
+        if (Test-PackageInList -PackageList $disabledPkgs -Package $pkg) {
             $toRestore += $pkg
         }
     }
@@ -2011,7 +1968,7 @@ function Restore-AllStockLaunchers {
     )
 
     foreach ($pkg in $knownToCheck) {
-        if ($disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)") {
+        if (Test-PackageInList -PackageList $disabledPkgs -Package $pkg) {
             if ($toRestore -notcontains $pkg) {
                 $toRestore += $pkg
             }
@@ -2095,10 +2052,10 @@ function Setup-Launcher ($Target) {
 
     # First check our known list
     foreach ($stockPkg in $Script:StockLaunchers) {
-        if ($installedPkgs -match "package:$([regex]::Escape($stockPkg))(\r|\n|$)") {
+        if (Test-PackageInList -PackageList $installedPkgs -Package $stockPkg) {
             $stockLauncherPkg = $stockPkg
             $stockLauncherInstalled = $true
-            $stockLauncherDisabled = $disabledPkgs -match "package:$([regex]::Escape($stockPkg))(\r|\n|$)"
+            $stockLauncherDisabled = Test-PackageInList -PackageList $disabledPkgs -Package $stockPkg
             break
         }
     }
@@ -2123,7 +2080,7 @@ function Setup-Launcher ($Target) {
         $status = "MISSING"
         $isCurrent = ($currentLauncher -eq $l.Pkg)
         # FIX #12: Use exact match
-        if ($installedPkgs -match "package:$([regex]::Escape($l.Pkg))(\r|\n|$)") {
+        if (Test-PackageInList -PackageList $installedPkgs -Package $l.Pkg) {
             $status = if ($isCurrent) { "ACTIVE" } else { "INSTALLED" }
         }
         $lOpts += "$($l.Name) [$status]"
@@ -2184,7 +2141,7 @@ function Setup-Launcher ($Target) {
 
     $choice = $launchers[$sel]
     # FIX #12: Use exact match
-    if (-not ($installedPkgs -match "package:$([regex]::Escape($choice.Pkg))(\r|\n|$)")) {
+    if (-not (Test-PackageInList -PackageList $installedPkgs -Package $choice.Pkg)) {
         $toggleIdx = Read-Toggle -Prompt "Not Installed. Open Play Store?" -Options @("YES", "NO") -DefaultIndex 0
         if ($toggleIdx -eq 0) {
             Open-PlayStore -Target $Target -PkgId $choice.Pkg
@@ -2280,14 +2237,14 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     Write-Info "Processing $($appList.Count) apps for $typeName..."
 
     foreach ($app in $appList) {
-        $pkg = $app[0]; $name = $app[1]; $defMethod = $app[2]; $risk = $app[3]
-        $optDesc = $app[4]; $restDesc = $app[5]
-        $defOpt = $app[6]; $defRest = $app[7]
+        $pkg = $app.Package; $name = $app.Name; $defMethod = $app.Method; $risk = $app.Risk
+        $optDesc = $app.OptDesc; $restDesc = $app.RestDesc
+        $defOpt = $app.DefOpt; $defRest = $app.DefRest
 
         # FIX #12: Use exact match with word boundary
-        $existsOnSystem = $allPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"           # Package exists (may be uninstalled)
-        $isInstalledForUser = $installedPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)" # Actually installed for user 0
-        $isDisabled = $disabledPkgs -match "package:$([regex]::Escape($pkg))(\r|\n|$)"
+        $existsOnSystem = Test-PackageInList -PackageList $allPkgs -Package $pkg           # Package exists (may be uninstalled)
+        $isInstalledForUser = Test-PackageInList -PackageList $installedPkgs -Package $pkg # Actually installed for user 0
+        $isDisabled = Test-PackageInList -PackageList $disabledPkgs -Package $pkg
 
         $skip = $false
         $canUninstall = $isInstalledForUser
@@ -2695,12 +2652,6 @@ function Show-RebootMenu ($Target) {
 }
 
 # --- MAIN MENU ---
-
-# Demo mode: display all screens and exit
-if ($Demo) {
-    Show-DemoScreens
-    exit
-}
 
 Clear-Host; Check-Adb
 
