@@ -12,7 +12,7 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 
 ## Features
 
-- **Cross-Platform** - Runs on Windows, macOS, and Linux with PowerShell 7+
+- **Cross-Platform** - Runs on Windows, macOS, and Linux (requires PowerShell 7+)
 - **Multi-Device Support** - Auto-detects Shield, Onn 4K, Chromecast, Google TV Streamer
 - **Device-Specific Debloat** - Different app lists for Shield vs Google TV devices
 - **Launcher Wizard** - Install Projectivy/FLauncher/ATV/Wolf Launcher, safely disable stock
@@ -36,16 +36,13 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 
 | Platform | Status |
 |----------|--------|
-| Windows 10/11 (PowerShell 5.1+) | Fully tested |
+| Windows 10/11 (PowerShell 7+) | Fully tested |
 | macOS (PowerShell 7+) | Fully tested |
 | Linux/Ubuntu (PowerShell 7+) | Should work |
 
 ## Requirements
 
-1. **Computer** with PowerShell:
-   - **Windows**: PowerShell 5.1+ (built-in) or PowerShell 7+
-   - **macOS**: PowerShell 7+ (see installation below)
-   - **Linux**: PowerShell 7+ (see installation below)
+1. **PowerShell 7+** on all platforms (see installation below)
 2. **Android TV** with Developer Options enabled:
    - Settings > Device Preferences > About > Click **Build** 7 times
    - Settings > Developer Options > Enable **Network Debugging**
@@ -54,14 +51,20 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 
 ### Windows
 
-PowerShell is built-in. Just download and run the script.
+PowerShell 7 is required. Windows Terminal is also recommended for the best experience.
 
+**Option 1: winget (recommended)**
 ```powershell
-# Download and run
-.\Shield-Optimizer.ps1
+winget install --id Microsoft.PowerShell; winget install --id Microsoft.WindowsTerminal
+```
 
-# Or bypass execution policy
-Set-ExecutionPolicy Bypass -Scope Process -Force; .\Shield-Optimizer.ps1
+**Option 2: Download installers**
+- PowerShell 7: [GitHub releases](https://github.com/PowerShell/PowerShell/releases/latest) - get the `.msi` file
+- Windows Terminal: [Microsoft Store](https://aka.ms/terminal)
+
+After installing, open Windows Terminal, select PowerShell 7, and run:
+```powershell
+pwsh .\Shield-Optimizer.ps1
 ```
 
 ### macOS
