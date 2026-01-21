@@ -2344,7 +2344,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                 $appMem = Get-AppMemoryUsage -Target $Target -Package $pkg
                 if ($appMem) {
                     $memColor = if ($appMem -gt 100) { "Yellow" } else { "DarkGray" }
-                    Write-Host " ($appMem MB)" -ForegroundColor $memColor
+                    Write-Host " (using $appMem MB RAM)" -ForegroundColor $memColor
                 } else {
                     Write-Host ""  # Newline if not running
                 }
@@ -2359,51 +2359,62 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
             }
 
             if ($Mode -eq "Optimize") {
-                # Build options based on what's actually possible
-                if ($defMethod -eq "DISABLE" -or -not $canUninstall) {
-                    # Default to disable, or can only disable (not uninstall)
-                    if ($canUninstall) {
-                        # UNINSTALL moved right of SKIP - harder to select accidentally
-                        $opts = @("DISABLE", "SKIP", "UNINSTALL", "ABORT")
+                # Build options - consistent order: DISABLE, SKIP, UNINSTALL, ABORT
+                if ($canUninstall) {
+                    $opts = @("DISABLE", "SKIP", "UNINSTALL", "ABORT")
+                    # Set default based on method and user preference
+                    if ($defOpt -eq "Y") {
+                        if ($defMethod -eq "UNINSTALL") { $defIdx = 2 }  # UNINSTALL
+                        else { $defIdx = 0 }  # DISABLE
                     } else {
-                        $opts = @("DISABLE", "SKIP", "ABORT")
+                        $defIdx = 1  # SKIP
                     }
-                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 1 }  # Default to SKIP when not optimizing
                 } else {
-                    # Default to uninstall
-                    $opts = @("UNINSTALL", "DISABLE", "SKIP", "ABORT")
-                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 2 }
+                    $opts = @("DISABLE", "SKIP", "ABORT")
+                    if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 1 }
                 }
 
-                if ($applyAll) {
-                    $toggleResult = $defIdx
-                } else {
-                    $toggleResult = Read-Toggle -Prompt "    >> Action:" -Options $opts -DefaultIndex $defIdx
-                    if ($toggleResult -eq -1) { $toggleResult = ($opts.Count - 1) }  # ESC = ABORT
-                }
-                $selStr = $opts[$toggleResult]
+                # Loop for action selection (allows returning to menu from confirmation)
+                $actionConfirmed = $false
+                while (-not $actionConfirmed) {
+                    if ($applyAll) {
+                        $toggleResult = $defIdx
+                    } else {
+                        $toggleResult = Read-Toggle -Prompt "    >> Action:" -Options $opts -DefaultIndex $defIdx
+                        if ($toggleResult -eq -1) { $toggleResult = ($opts.Count - 1) }  # ESC = ABORT
+                    }
+                    $selStr = $opts[$toggleResult]
 
-                # Handle ABORT
-                if ($selStr -eq "ABORT") {
-                    Write-Warn "Process aborted by user."
-                    Show-TaskSummary -Mode $Mode -Aborted
-                    Pause
-                    return
+                    # Handle ABORT
+                    if ($selStr -eq "ABORT") {
+                        Write-Warn "Process aborted by user."
+                        Show-TaskSummary -Mode $Mode -Aborted
+                        Pause
+                        return
+                    }
+
+                    # Handle UNINSTALL confirmation for system apps
+                    if ($selStr -eq "UNINSTALL" -and -not $applyAll -and $defMethod -eq "DISABLE") {
+                        Write-Warn "System app - this will likely fail"
+                        Write-Warn "Cannot restore without factory reset"
+                        $confirm = Read-Toggle -Prompt "    >> Confirm UNINSTALL?" -Options @("YES", "NO") -DefaultIndex 1
+                        if ($confirm -eq -1) {
+                            # ESC pressed - abort entire process
+                            Write-Warn "Process aborted by user."
+                            Show-TaskSummary -Mode $Mode -Aborted
+                            Pause
+                            return
+                        }
+                        if ($confirm -ne 0) {
+                            # User declined - go back to action menu
+                            continue
+                        }
+                    }
+                    $actionConfirmed = $true
                 }
 
                 if ($selStr -ne "SKIP") {
                     if ($selStr -eq "UNINSTALL") {
-                        # Confirm uninstall for system apps only (defMethod = DISABLE means it's a system app)
-                        if (-not $applyAll -and $defMethod -eq "DISABLE") {
-                            Write-Warn "System app - this will likely fail"
-                            Write-Warn "Cannot restore without factory reset"
-                            $confirm = Read-Toggle -Prompt "    >> Confirm UNINSTALL?" -Options @("YES", "NO") -DefaultIndex 1
-                            if ($confirm -ne 0) {
-                                Write-Info "Skipped"
-                                $Script:Summary.Skipped++
-                                continue
-                            }
-                        }
                         Write-Host "    Uninstalling..." -NoNewline -ForegroundColor Gray
                         $result = Invoke-AdbCommand -Target $Target -Command "pm uninstall --user 0 $pkg"
                         if ($result.Success -and $result.Output -notmatch "Failure") {
