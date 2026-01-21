@@ -1,8 +1,10 @@
 # Android TV Optimizer - Docker Test Makefile
 # For testing the script in a Linux environment
+# Run from the testing/ directory: cd testing && make build
 
 SCRIPT = Shield-Optimizer.ps1
 IMAGE = shield-optimizer-test
+ROOT_DIR = $(PWD)/..
 
 .PHONY: help build run shell clean
 
@@ -20,12 +22,12 @@ build:
 
 run:
 	docker run -it --rm --network host \
-		-v "$(PWD)/$(SCRIPT)":/app/$(SCRIPT) \
+		-v "$(ROOT_DIR)/$(SCRIPT)":/app/$(SCRIPT) \
 		-w /app $(IMAGE) pwsh ./$(SCRIPT)
 
 shell:
 	docker run -it --rm --network host \
-		-v "$(PWD)/$(SCRIPT)":/app/$(SCRIPT) \
+		-v "$(ROOT_DIR)/$(SCRIPT)":/app/$(SCRIPT) \
 		-w /app $(IMAGE) pwsh
 
 clean:
