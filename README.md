@@ -16,6 +16,7 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 - **Multi-Device Support** - Auto-detects Shield, Onn 4K, Chromecast, Google TV Streamer
 - **Device-Specific Debloat** - Different app lists for Shield vs Google TV devices
 - **Launcher Wizard** - Install Projectivy/FLauncher/ATV/Wolf Launcher, safely disable stock
+- **APK Sideloading** - Install APK files from local folder or custom path
 - **Health Reports** - Temperature, RAM, storage, bloat scan with memory usage and recommended actions
 - **Live Monitor** - Real-time vitals dashboard with auto-refresh (temp, RAM, top memory apps)
 - **Fast Network Scan** - Parallel subnet scanning finds devices in seconds

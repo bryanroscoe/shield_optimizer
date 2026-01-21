@@ -1,3 +1,6 @@
+# APK files (user-provided for sideloading)
+*.apk
+
 # ADB binaries (all platforms)
 adb
 adb.exe

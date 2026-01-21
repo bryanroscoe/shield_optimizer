@@ -1077,6 +1077,215 @@ function Open-PlayStore ($Target, $PkgId) {
     } catch { Write-ErrorMsg "Failed to open Play Store." }
 }
 
+function Format-FileSize ($Bytes) {
+    # Convert bytes to human-readable format (KB/MB/GB)
+    if ($Bytes -ge 1GB) { return "{0:N2} GB" -f ($Bytes / 1GB) }
+    if ($Bytes -ge 1MB) { return "{0:N2} MB" -f ($Bytes / 1MB) }
+    if ($Bytes -ge 1KB) { return "{0:N2} KB" -f ($Bytes / 1KB) }
+    return "$Bytes bytes"
+}
+
+function Get-ApkFiles {
+    # Scan script directory for APK files, return array with name/path/size
+    $scriptDir = Split-Path -Parent $PSCommandPath
+    $apkFiles = @()
+
+    Get-ChildItem -Path $scriptDir -Filter "*.apk" -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $apkFiles += [PSCustomObject]@{
+            Name = $_.Name
+            Path = $_.FullName
+            Size = $_.Length
+            SizeDisplay = Format-FileSize $_.Length
+        }
+    }
+    return $apkFiles
+}
+
+function Install-ApkFile ($Target, $ApkPath, [bool]$Reinstall = $false) {
+    # Execute adb install, parse output for success/error codes
+    Write-Header "Installing APK..."
+    Write-Host " File: $(Split-Path -Leaf $ApkPath)" -ForegroundColor Gray
+    Write-Host " Size: $(Format-FileSize (Get-Item $ApkPath).Length)" -ForegroundColor Gray
+    Write-Host ""
+
+    try {
+        $installArgs = @("-s", $Target, "install")
+        if ($Reinstall) { $installArgs += "-r" }
+        $installArgs += $ApkPath
+
+        $result = & $Script:AdbPath @installArgs 2>&1 | Out-String
+
+        # Parse result for common error codes
+        if ($result -match "Success") {
+            Write-Success "APK installed successfully!"
+            return $true
+        }
+        elseif ($result -match "INSTALL_FAILED_ALREADY_EXISTS") {
+            Write-ErrorMsg "App already installed. Use reinstall option to update."
+            return $false
+        }
+        elseif ($result -match "INSTALL_FAILED_VERSION_DOWNGRADE") {
+            Write-ErrorMsg "Cannot downgrade. A newer version is already installed."
+            return $false
+        }
+        elseif ($result -match "INSTALL_FAILED_INSUFFICIENT_STORAGE") {
+            Write-ErrorMsg "Not enough storage space on device."
+            return $false
+        }
+        elseif ($result -match "INSTALL_PARSE_FAILED_NO_CERTIFICATES|INSTALL_FAILED_INVALID_APK") {
+            Write-ErrorMsg "APK is not signed or corrupted."
+            return $false
+        }
+        elseif ($result -match "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
+            Write-ErrorMsg "Incompatible update. Uninstall existing app first."
+            return $false
+        }
+        elseif ($result -match "INSTALL_FAILED_VERIFICATION_FAILURE") {
+            Write-ErrorMsg "Play Protect blocked installation."
+            Write-Host " Try: Settings > Security > Google Play Protect > Disable" -ForegroundColor Yellow
+            return $false
+        }
+        elseif ($result -match "device .* not found|no devices") {
+            Write-ErrorMsg "Device not found. Check connection."
+            return $false
+        }
+        else {
+            # Extract error message if present
+            if ($result -match "Failure \[([^\]]+)\]") {
+                Write-ErrorMsg "Installation failed: $($Matches[1])"
+            } else {
+                Write-ErrorMsg "Installation failed. Check APK and device."
+                Write-Host " Details: $result" -ForegroundColor Gray
+            }
+            return $false
+        }
+    } catch {
+        Write-ErrorMsg "Failed to execute install command."
+        return $false
+    }
+}
+
+function Install-Apk ($Target) {
+    # Main APK installation function with sub-menu
+    $scriptDir = Split-Path -Parent $PSCommandPath
+
+    while ($true) {
+        Clear-Host
+        Write-Header "Install APK"
+        Write-Host " Device: $Target" -ForegroundColor Gray
+        Write-Host ""
+
+        # Sub-menu options
+        $menuOpts = @("Scan Folder", "Enter Path", "Back")
+        $menuDescs = @(
+            "List APK files in script directory",
+            "Type full path to an APK file",
+            "Return to Action Menu"
+        )
+        $menuShortcuts = @("S", "E", "B")
+
+        $choice = Read-Menu -Title "APK Installation Method" -Options $menuOpts -Descriptions $menuDescs -Shortcuts $menuShortcuts
+
+        if ($choice -eq -1 -or $choice -eq 2) { return }  # Back or ESC
+
+        $selectedApk = $null
+
+        if ($choice -eq 0) {
+            # Scan Folder
+            $apkFiles = Get-ApkFiles
+
+            if ($apkFiles.Count -eq 0) {
+                Clear-Host
+                Write-Header "No APK Files Found"
+                Write-Warn "No APK files found in script directory."
+                Write-Host " Path: $scriptDir" -ForegroundColor Gray
+                Write-Host ""
+                Write-Host " Place .apk files in the same folder as this script." -ForegroundColor Yellow
+                Pause
+                continue
+            }
+
+            # Build menu from APK files
+            $apkOpts = @()
+            $apkDescs = @()
+            foreach ($apk in $apkFiles) {
+                $apkOpts += $apk.Name
+                $apkDescs += "Size: $($apk.SizeDisplay)"
+            }
+            $apkOpts += "Back"
+            $apkDescs += "Return to previous menu"
+
+            Clear-Host
+            $apkChoice = Read-Menu -Title "Select APK File ($($apkFiles.Count) found)" -Options $apkOpts -Descriptions $apkDescs -StaticStartIndex $apkFiles.Count
+
+            if ($apkChoice -eq -1 -or $apkChoice -eq $apkFiles.Count) { continue }  # Back or ESC
+
+            $selectedApk = $apkFiles[$apkChoice]
+        }
+        elseif ($choice -eq 1) {
+            # Enter Path
+            Clear-Host
+            Write-Header "Enter APK Path"
+            Write-Host " Enter the full path to an APK file." -ForegroundColor Gray
+            Write-Host " Example: C:\Downloads\app.apk" -ForegroundColor Gray
+            Write-Host ""
+
+            $apkPath = Read-Host " APK Path"
+            $apkPath = $apkPath.Trim().Trim('"').Trim("'")  # Remove quotes if pasted
+
+            if ([string]::IsNullOrWhiteSpace($apkPath)) { continue }
+
+            # Validate file exists
+            if (-not (Test-Path $apkPath)) {
+                Write-Host ""
+                Write-ErrorMsg "File not found: $apkPath"
+                Pause
+                continue
+            }
+
+            # Validate it's an APK
+            if (-not $apkPath.EndsWith(".apk", [System.StringComparison]::OrdinalIgnoreCase)) {
+                Write-Host ""
+                Write-ErrorMsg "File is not an APK: $apkPath"
+                Pause
+                continue
+            }
+
+            $fileInfo = Get-Item $apkPath
+            $selectedApk = [PSCustomObject]@{
+                Name = $fileInfo.Name
+                Path = $fileInfo.FullName
+                Size = $fileInfo.Length
+                SizeDisplay = Format-FileSize $fileInfo.Length
+            }
+        }
+
+        if ($selectedApk) {
+            # Show file info and confirm installation
+            Clear-Host
+            Write-Header "Confirm Installation"
+            Write-Host " File: $($selectedApk.Name)" -ForegroundColor Cyan
+            Write-Host " Size: $($selectedApk.SizeDisplay)" -ForegroundColor Gray
+            Write-Host " Path: $($selectedApk.Path)" -ForegroundColor Gray
+            Write-Host ""
+
+            # Ask about reinstall
+            $reinstall = Read-Toggle -Prompt "Reinstall if already exists?" -Options @("YES", "NO") -DefaultIndex 1
+            Write-Host ""
+
+            # Final confirmation
+            $confirm = Read-Toggle -Prompt "Install '$($selectedApk.Name)'?" -Options @("YES", "NO") -DefaultIndex 0
+            Write-Host ""
+
+            if ($confirm -eq 0) {
+                $success = Install-ApkFile -Target $Target -ApkPath $selectedApk.Path -Reinstall ($reinstall -eq 0)
+                Pause
+                if ($success) { return }  # Return to action menu on success
+            }
+        }
+    }
+}
+
 function Show-Help {
     Clear-Host
     Write-Header "HELP & TROUBLESHOOTING"
@@ -2964,12 +3173,13 @@ while ($true) {
         # Inner loop: stay on this device's action menu until Back/Reboot/Disconnect/ESC
         while ($true) {
             # Action menu with device type info
-            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Profile", "Recovery", "Reboot", "Disconnect", "Back", "Quit")
+            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Install APK", "Profile", "Recovery", "Reboot", "Disconnect", "Back", "Quit")
             $aDescs = @(
                 "Debloat apps and tune performance for $deviceTypeName.",
                 "Undo optimizations and fix missing apps.",
                 "Check Temp, RAM, Storage, and bloat status.",
                 "Install Projectivy or switch launchers.",
+                "Sideload an APK file to the device.",
                 "View device profile and detected settings.",
                 "Emergency: Re-enable ALL disabled packages.",
                 "Restart device (normal, recovery, or bootloader).",
@@ -2977,8 +3187,8 @@ while ($true) {
                 "Return to Main Menu.",
                 "Exit Optimizer."
             )
-            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, P=Profile, C=reCovery, T=reboot(resTargt), D=Disconnect, B=Back, Q=Quit
-            $actionShortcuts = @("O", "R", "E", "L", "P", "C", "T", "D", "B", "Q")
+            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, T=reboot(resTargt), D=Disconnect, B=Back, Q=Quit
+            $actionShortcuts = @("O", "R", "E", "L", "I", "P", "C", "T", "D", "B", "Q")
             $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
             # Handle ESC - return to main menu
@@ -3005,6 +3215,7 @@ while ($true) {
                 Pause
             }
             if ($act -eq "Launcher Setup") { Setup-Launcher -Target $target.Serial; Pause }
+            if ($act -eq "Install APK") { Install-Apk -Target $target.Serial }
             if ($act -eq "Profile") { Show-DeviceProfile -Target $target.Serial -DeviceInfo $target; Pause }
             if ($act -eq "Recovery") { Run-PanicRecovery -Target $target.Serial; Pause }
         }
