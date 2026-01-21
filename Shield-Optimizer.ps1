@@ -1,10 +1,12 @@
 param(
     [switch]$Demo,
-    [switch]$ForceAdbDownload
+    [switch]$ForceAdbDownload,
+    [string]$Subnet
 )
 
-# Set script-level flag for ForceAdbDownload
+# Set script-level flags
 $Script:ForceAdbDownload = $ForceAdbDownload
+$Script:Subnet = $Subnet
 
 <#
 .SYNOPSIS
@@ -236,7 +238,7 @@ function Show-DeviceProfile ($Target, $DeviceInfo) {
     Write-Host "$typeName" -ForegroundColor Yellow
 
     Write-Host " Serial:  " -NoNewline -ForegroundColor Gray
-    Write-Host "$($DeviceInfo.Serial)" -ForegroundColor DarkGray
+    Write-Host "$($DeviceInfo.Serial)" -ForegroundColor Gray
 
     # Get Android version
     try {
@@ -261,14 +263,14 @@ function Write-Success ($Text)  { Write-Host " [OK] $Text" -ForegroundColor Gree
 function Write-Warn ($Text)     { Write-Host " [!!] $Text" -ForegroundColor Yellow }
 function Write-ErrorMsg ($Text) { Write-Host " [ERROR] $Text" -ForegroundColor Red }
 function Write-Info ($Text)     { Write-Host " [INFO] $Text" -ForegroundColor Gray }
-function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor DarkGray }
-function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor DarkGray }
+function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor Gray }
+function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor Gray }
 
 # --- DEMO MODE ---
 function Show-DemoScreens {
     Clear-Host
     Write-Host "DEMO MODE - Screenshot Gallery" -ForegroundColor Magenta
-    Write-Host "All screens displayed statically for screenshot capture.`n" -ForegroundColor DarkGray
+    Write-Host "All screens displayed statically for screenshot capture.`n" -ForegroundColor Gray
 
     # ============================================================
     # SCREEN 1: Main Menu with 2 fake devices
@@ -300,7 +302,7 @@ function Show-DemoScreens {
     Write-Host " ================================================" -ForegroundColor DarkCyan
     Write-Host " Info: " -NoNewline -ForegroundColor Yellow
     Write-Host "Nvidia Shield | Shield TV Pro (2019) | 192.168.1.100:5555" -ForegroundColor White
-    Write-Host " [Arrows: Move] [Keys: Select] [Enter: OK] [ESC: Back]" -ForegroundColor DarkGray
+    Write-Host " [Arrows: Move] [Keys: Select] [Enter: OK] [ESC: Back]" -ForegroundColor Gray
 
     # ============================================================
     # SCREEN 2: Action Menu
@@ -410,13 +412,13 @@ function Show-DemoScreens {
     Write-Host "Remove: " -NoNewline
     Write-Host "Sponsored Content" -ForegroundColor Cyan -NoNewline
     Write-Host " [Safe]" -ForegroundColor Green -NoNewline
-    Write-Host " (45.1 MB)" -ForegroundColor DarkGray
+    Write-Host " (45.1 MB)" -ForegroundColor Gray
     Write-Dim "    Removes 'Sponsored' rows from home."
     Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
     Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
-    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor DarkGray
-    Write-Host "   SKIP   " -NoNewline -ForegroundColor DarkGray
-    Write-Host "   ABORT   " -ForegroundColor DarkGray
+    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor Gray
+    Write-Host "   SKIP   " -NoNewline -ForegroundColor Gray
+    Write-Host "   ABORT   " -ForegroundColor Gray
     Write-Host ""
     Write-Dim "Google Play Movies ... [NOT INSTALLED]"
     Write-Dim "Google Play Music ... [ALREADY DISABLED]"
@@ -424,13 +426,13 @@ function Show-DemoScreens {
     Write-Host "Remove: " -NoNewline
     Write-Host "Nvidia Telemetry" -ForegroundColor Cyan -NoNewline
     Write-Host " [Safe]" -ForegroundColor Green -NoNewline
-    Write-Host " (12.3 MB)" -ForegroundColor DarkGray
+    Write-Host " (12.3 MB)" -ForegroundColor Gray
     Write-Dim "    Stops Nvidia data collection."
     Write-Host "    >> Action:  " -NoNewline -ForegroundColor Gray
     Write-Host " [ DISABLE ] " -NoNewline -ForegroundColor Cyan
-    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor DarkGray
-    Write-Host "   SKIP   " -NoNewline -ForegroundColor DarkGray
-    Write-Host "   ABORT   " -ForegroundColor DarkGray
+    Write-Host "   UNINSTALL   " -NoNewline -ForegroundColor Gray
+    Write-Host "   SKIP   " -NoNewline -ForegroundColor Gray
+    Write-Host "   ABORT   " -ForegroundColor Gray
 
     # ============================================================
     # SCREEN 6: Summary Screen
@@ -444,7 +446,7 @@ function Show-DemoScreens {
 
     Write-Header "Finished"
     Write-Host "Reboot Device Now?  " -NoNewline -ForegroundColor Gray
-    Write-Host "   YES   " -NoNewline -ForegroundColor DarkGray
+    Write-Host "   YES   " -NoNewline -ForegroundColor Gray
     Write-Host " [ NO ] " -ForegroundColor Cyan
 
     Write-Separator
@@ -661,9 +663,10 @@ function Disconnect-Device {
 }
 
 function Get-Devices {
-    $raw = & $Script:AdbPath devices
+    $raw = (& $Script:AdbPath devices 2>&1 | Out-String) -split "`n"
     $devs = @()
     foreach ($line in $raw) {
+        $line = $line.Trim()
         if ($line -match "^(\S+)\s+(device|offline|unauthorized)") {
             $s = $matches[1]
             $st = $matches[2]
@@ -814,6 +817,11 @@ function Get-ArpTable {
 
 # Get local subnet for scanning
 function Get-LocalSubnet {
+    # Check for command-line override first
+    if ($Script:Subnet) {
+        return $Script:Subnet
+    }
+
     $subnet = $null
     try {
         # Get the default gateway's network
@@ -902,7 +910,7 @@ function Scan-Network {
 
         # Show progress
         $progress = [Math]::Min($batchEnd + 1, $total)
-        Write-Host "`r Scanning... $progress/$total" -NoNewline -ForegroundColor DarkGray
+        Write-Host "`r Scanning... $progress/$total" -NoNewline -ForegroundColor Gray
 
         # Start all connections in this batch
         $connections = @()
@@ -1263,7 +1271,7 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
 
         # Handle separators
         if ($separatorIndices.ContainsKey($itemIdx)) {
-            Write-Host "    --------------------------------" -ForegroundColor DarkGray
+            Write-Host "    --------------------------------" -ForegroundColor Gray
             return
         }
 
@@ -1296,7 +1304,7 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
         if ($Descriptions[$itemIdx]) {
             Write-Host "$($Descriptions[$itemIdx])".PadRight(60) -ForegroundColor White
         } else {
-            Write-Host "Select an option.".PadRight(60) -ForegroundColor DarkGray
+            Write-Host "Select an option.".PadRight(60) -ForegroundColor Gray
         }
     }
 
@@ -1314,15 +1322,15 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
     }
     Write-Host " ================================================" -ForegroundColor DarkCyan
     DrawInfo $idx
-    Write-Host " [" -NoNewline -ForegroundColor DarkGray
+    Write-Host " [" -NoNewline -ForegroundColor Gray
     Write-Host "Arrows" -NoNewline -ForegroundColor DarkCyan
-    Write-Host ": Move] [" -NoNewline -ForegroundColor DarkGray
+    Write-Host ": Move] [" -NoNewline -ForegroundColor Gray
     Write-Host "Keys" -NoNewline -ForegroundColor Yellow
-    Write-Host ": Select] [" -NoNewline -ForegroundColor DarkGray
+    Write-Host ": Select] [" -NoNewline -ForegroundColor Gray
     Write-Host "Enter" -NoNewline -ForegroundColor Green
-    Write-Host ": OK] [" -NoNewline -ForegroundColor DarkGray
+    Write-Host ": OK] [" -NoNewline -ForegroundColor Gray
     Write-Host "ESC" -NoNewline -ForegroundColor Red
-    Write-Host ": Back]" -ForegroundColor DarkGray
+    Write-Host ": Back]" -ForegroundColor Gray
 
     $prevIdx = $idx
 
@@ -1559,7 +1567,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         $tempColor = if ([float]$Temp -gt 70) { "Red" } elseif ([float]$Temp -gt 50) { "Yellow" } else { "Green" }
         Write-Host "${Temp}°C" -ForegroundColor $tempColor
     } else {
-        Write-Host "N/A" -ForegroundColor DarkGray
+        Write-Host "N/A" -ForegroundColor Gray
     }
 
     Write-Host " RAM:     " -NoNewline -ForegroundColor Gray
@@ -1574,7 +1582,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         $storColor = if ($StoragePct -gt 90) { "Red" } elseif ($StoragePct -gt 75) { "Yellow" } else { "Green" }
         Write-Host "$StorageUsed / $StorageTotal ($StoragePct%)" -ForegroundColor $storColor
     } else {
-        Write-Host "N/A" -ForegroundColor DarkGray
+        Write-Host "N/A" -ForegroundColor Gray
     }
 
     Write-SubHeader "Settings"
@@ -1605,7 +1613,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
             Write-Host "$($app.Package)" -ForegroundColor Gray
         }
     } else {
-        Write-Host " Unable to query memory info" -ForegroundColor DarkGray
+        Write-Host " Unable to query memory info" -ForegroundColor Gray
     }
 
     # --- BLOAT CHECK (using already-fetched data) ---
@@ -1648,7 +1656,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         Write-Host "RAM".PadRight(8) -NoNewline -ForegroundColor White
         Write-Host "Action".PadRight(10) -NoNewline -ForegroundColor White
         Write-Host "Default" -ForegroundColor White
-        Write-Host " $("-" * 55)" -ForegroundColor DarkGray
+        Write-Host " $("-" * 55)" -ForegroundColor Gray
 
         foreach ($bloat in $bloatFound) {
             $memStr = if ($bloat.Memory -gt 0) { "$($bloat.Memory) MB" } else { "-- MB" }
@@ -1695,7 +1703,7 @@ function Watch-Vitals ($Target, $Name) {
     Write-Host " Swap:      " -ForegroundColor Gray
     Write-Host ""
     Write-Host " Top Memory Users:" -ForegroundColor White
-    Write-Host " $("-" * 45)" -ForegroundColor DarkGray
+    Write-Host " $("-" * 45)" -ForegroundColor Gray
 
     $topAppsStartRow = 12
 
@@ -1928,7 +1936,7 @@ function Disable-AllStockLaunchers {
         Write-Host "   " -NoNewline
         Write-Host "KEEP   " -NoNewline -ForegroundColor Green
         Write-Host "$pkg" -NoNewline -ForegroundColor Cyan
-        Write-Host " ($label)" -ForegroundColor DarkGray
+        Write-Host " ($label)" -ForegroundColor Gray
     }
     foreach ($pkg in $toDisable) {
         Write-Host "   " -NoNewline
@@ -2317,7 +2325,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
             Write-Dim "    $desc"
 
             if ($Mode -eq "Restore") {
-                if ($existsOnSystem) { Write-Host "    [Status: Disabled]" -ForegroundColor DarkGray }
+                if ($existsOnSystem) { Write-Host "    [Status: Disabled]" -ForegroundColor Gray }
                 else { Write-Host "    [Status: Missing]" -ForegroundColor Yellow }
             }
 
@@ -2455,7 +2463,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     if ($Mode -eq "Optimize") { $tAnim = "0.5" } else { $tAnim = "1.0" }
 
     Write-Host "Animation Speed" -NoNewline
-    if ($currAnim -eq $tAnim) { Write-Host " [ALREADY $tAnim]" -ForegroundColor DarkGray }
+    if ($currAnim -eq $tAnim) { Write-Host " [ALREADY $tAnim]" -ForegroundColor Gray }
     else {
         Write-Host " [Current: ${currAnim}]" -ForegroundColor Yellow
 
