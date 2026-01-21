@@ -57,10 +57,10 @@ $Script:DeviceType = @{
 #   Name     - Human-readable app name shown in UI
 #   Method   - Default action: "DISABLE" (reversible) or "UNINSTALL" (user-level removal)
 #   Risk     - Risk level: "Safe", "Medium", "High Risk", "Advanced"
-#   OptDesc  - Description shown when optimizing (removing/disabling)
-#   RestDesc - Description shown when restoring
-#   DefOpt   - Default optimize choice: "Y" (yes) or "N" (no/skip)
-#   DefRest  - Default restore choice: "Y" (yes) or "N" (no/skip)
+#   OptimizeDescription  - Description shown when optimizing (removing/disabling)
+#   RestoreDescription   - Description shown when restoring
+#   DefaultOptimize      - Default optimize choice: "Y" (yes) or "N" (no/skip)
+#   DefaultRestore       - Default restore choice: "Y" (yes) or "N" (no/skip)
 #
 # Risk Levels:
 #   Safe      - No negative impact, recommended to disable/remove
@@ -73,127 +73,127 @@ $Script:DeviceType = @{
 $Script:CommonAppList = @(
     # --- SAFE: Universal bloatware and telemetry ---
     @{ Package = "com.google.android.feedback"; Name = "Google Feedback"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Stops feedback data collection."; RestDesc = "Restores Google feedback services."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Stops feedback data collection."; RestoreDescription = "Restores Google feedback services."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.android.printspooler"; Name = "Print Spooler"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Disables unused print service."; RestDesc = "Restores print service."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Disables unused print service."; RestoreDescription = "Restores print service."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.android.gallery3d"; Name = "Android Gallery"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Removes legacy photo viewer."; RestDesc = "Restores legacy photo viewer."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Removes legacy photo viewer."; RestoreDescription = "Restores legacy photo viewer."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
 
     # --- SAFE: Dead/defunct apps ---
     @{ Package = "com.google.android.videos"; Name = "Google Play Movies"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Removes defunct app."; RestDesc = "Restores defunct app."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Removes defunct app."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.music"; Name = "Google Play Music"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Removes defunct app."; RestDesc = "Restores defunct app."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Removes defunct app."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
 
     # --- SAFE: Streaming apps (user choice, not bloat) ---
     @{ Package = "com.netflix.ninja"; Name = "Netflix"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Netflix."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Netflix."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.amazon.amazonvideo.livingroom"; Name = "Amazon Prime Video"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Prime Video."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Prime Video."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.amazon.amazonvideo.livingroom.nvidia"; Name = "Amazon Prime Video (Shield)"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Prime Video."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Prime Video."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.wbd.stream"; Name = "Max (HBO)"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Max."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Max."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.discovery.discoveryplus.androidtv"; Name = "Discovery+"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Discovery+."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Discovery+."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.hulu.livingroomplus"; Name = "Hulu"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Hulu."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Hulu."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "tv.twitch.android.app"; Name = "Twitch"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Twitch."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Twitch."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.disney.disneyplus"; Name = "Disney+"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Disney+."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Disney+."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.disney.disneyplus.prod"; Name = "Disney+ (Alt)"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Disney+."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Disney+."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.spotify.tv.android"; Name = "Spotify"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Spotify."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Spotify."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.google.android.youtube.tvmusic"; Name = "YouTube Music"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores YouTube Music."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores YouTube Music."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.apple.atve.androidtv.appletv"; Name = "Apple TV"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Apple TV."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Apple TV."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.cbs.ott"; Name = "Paramount+"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Paramount+."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Paramount+."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "com.crunchyroll.crunchyroid"; Name = "Crunchyroll"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Crunchyroll."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Crunchyroll."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "air.com.vudu.air.DownloaderTablet"; Name = "Vudu"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Streaming App."; RestDesc = "Restores Vudu."; DefOpt = "N"; DefRest = "N" }
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Vudu."; DefaultOptimize = "N"; DefaultRestore = "N" }
 
     # --- MEDIUM: Minor functionality impact ---
     @{ Package = "com.android.dreams.basic"; Name = "Basic Daydream"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Disables basic screensaver."; RestDesc = "Restores basic screensaver."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Disables basic screensaver."; RestoreDescription = "Restores basic screensaver."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.android.providers.tv"; Name = "Live Channels Provider"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Disables Live TV provider."; RestDesc = "Restores Live Channels support."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Disables Live TV provider."; RestoreDescription = "Restores Live Channels support."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- HIGH RISK: May break features ---
     @{ Package = "com.google.android.katniss"; Name = "Google Assistant"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Breaks voice search."; RestDesc = "Restores voice search."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Breaks voice search."; RestoreDescription = "Restores voice search."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.apps.mediashell"; Name = "Chromecast Built-in"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Breaks casting to device."; RestDesc = "Restores Chromecast."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Breaks casting to device."; RestoreDescription = "Restores Chromecast."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.tts"; Name = "Google Text-to-Speech"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Breaks accessibility features."; RestDesc = "Restores text-to-speech."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Breaks accessibility features."; RestoreDescription = "Restores text-to-speech."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.play.games"; Name = "Google Play Games"; Method = "DISABLE"; Risk = "Medium Risk"
-       OptDesc = "May break cloud saves."; RestDesc = "Restores Play Games."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "May break cloud saves."; RestoreDescription = "Restores Play Games."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- HOME HANDLERS: Use Launcher Wizard instead ---
     @{ Package = "com.google.android.tungsten.setupwraith"; Name = "Setup Wraith (HOME)"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "HOME handler! Use Launcher Wizard instead."; RestDesc = "Restores setup wizard HOME handler."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "HOME handler! Use Launcher Wizard instead."; RestoreDescription = "Restores setup wizard HOME handler."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 )
 
 # NVIDIA Shield-specific apps
 $Script:ShieldAppList = @(
     # --- SAFE: Shield telemetry ---
     @{ Package = "com.nvidia.stats"; Name = "Nvidia Telemetry"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Stops Nvidia data collection."; RestDesc = "Restores Nvidia telemetry."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Stops Nvidia data collection."; RestoreDescription = "Restores Nvidia telemetry."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.diagtools"; Name = "Nvidia Diagnostics"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Stops diagnostic logging."; RestDesc = "Restores diagnostic tools."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Stops diagnostic logging."; RestoreDescription = "Restores diagnostic tools."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.feedback"; Name = "Nvidia Feedback"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Stops Nvidia feedback collection."; RestDesc = "Restores Nvidia feedback."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Stops Nvidia feedback collection."; RestoreDescription = "Restores Nvidia feedback."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.tvrecommendations"; Name = "Sponsored Content"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Removes 'Sponsored' rows from home."; RestDesc = "Restores sponsored content rows."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Removes 'Sponsored' rows from home."; RestoreDescription = "Restores sponsored content rows."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
 
     # --- MEDIUM: Shield-specific services ---
     @{ Package = "com.nvidia.osc"; Name = "Nvidia OSC"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Background optimization service."; RestDesc = "Restores optimization service."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Background optimization service."; RestoreDescription = "Restores optimization service."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.shieldtech.hooks"; Name = "Nvidia System Hooks"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Shield-specific system hooks."; RestDesc = "Restores system hooks."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Shield-specific system hooks."; RestoreDescription = "Restores system hooks."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.tegrazone3"; Name = "Nvidia Games"; Method = "DISABLE"; Risk = "Medium Risk"
-       OptDesc = "May break GeForce NOW."; RestDesc = "Restores Nvidia Games app."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "May break GeForce NOW."; RestoreDescription = "Restores Nvidia Games app."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.nvgamecast"; Name = "Nvidia GameStream"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "GameStream casting service."; RestDesc = "Restores GameStream."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "GameStream casting service."; RestoreDescription = "Restores GameStream."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.backdrop"; Name = "Ambient Mode"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Disables ambient/screensaver."; RestDesc = "Restores ambient mode."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Disables ambient/screensaver."; RestoreDescription = "Restores ambient mode."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.speech.pumpkin"; Name = "Google Speech Services"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Breaks voice dictation."; RestDesc = "Restores speech services."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Breaks voice dictation."; RestoreDescription = "Restores speech services."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- HIGH RISK: Critical Shield services ---
     @{ Package = "com.nvidia.ota"; Name = "Nvidia System Updater"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Stops Shield OS updates."; RestDesc = "Restores system updates."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Stops Shield OS updates."; RestoreDescription = "Restores system updates."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.plexapp.mediaserver.smb"; Name = "Plex Media Server"; Method = "DISABLE"; Risk = "Advanced"
-       OptDesc = "Breaks local Plex hosting."; RestDesc = "Restores Plex Server."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Breaks local Plex hosting."; RestoreDescription = "Restores Plex Server."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- LAUNCHER: Use Launcher Wizard ---
     @{ Package = "com.google.android.tvlauncher"; Name = "Stock Launcher"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Requires custom launcher first!"; RestDesc = "Restores stock home screen."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Requires custom launcher first!"; RestoreDescription = "Restores stock home screen."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 )
 
 # Google TV-specific apps (Onn 4K, Chromecast, etc.)
 $Script:GoogleTVAppList = @(
     # --- SAFE: Google TV bloatware ---
     @{ Package = "com.walmart.otto"; Name = "Walmart App"; Method = "UNINSTALL"; Risk = "Safe"
-       OptDesc = "Removes Walmart bloatware."; RestDesc = "Restores Walmart app."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Removes Walmart bloatware."; RestoreDescription = "Restores Walmart app."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.leanbacklauncher.recommendations"; Name = "Home Recommendations"; Method = "DISABLE"; Risk = "Safe"
-       OptDesc = "Removes extra recommendation rows."; RestDesc = "Restores home recommendations."; DefOpt = "Y"; DefRest = "Y" }
+       OptimizeDescription = "Removes extra recommendation rows."; RestoreDescription = "Restores home recommendations."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
 
     # --- MEDIUM: Setup/calibration tools ---
     @{ Package = "com.google.android.tungsten.overscan"; Name = "Overscan Calibrator"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Post-setup overscan tool."; RestDesc = "Restores overscan calibrator."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Post-setup overscan tool."; RestoreDescription = "Restores overscan calibrator."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- MEDIUM: Onn/Amlogic-specific ---
     @{ Package = "com.droidlogic.launcher.provider"; Name = "Droidlogic Launcher Provider"; Method = "DISABLE"; Risk = "Medium"
-       OptDesc = "Onn launcher data provider. Disable with launcher."; RestDesc = "Restores Onn launcher provider."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Onn launcher data provider. Disable with launcher."; RestoreDescription = "Restores Onn launcher provider."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- LAUNCHER: Use Launcher Wizard ---
     @{ Package = "com.google.android.apps.tv.launcherx"; Name = "Google TV Home"; Method = "DISABLE"; Risk = "High Risk"
-       OptDesc = "Use Launcher Wizard to safely disable!"; RestDesc = "Restores Google TV home."; DefOpt = "N"; DefRest = "Y" }
+       OptimizeDescription = "Use Launcher Wizard to safely disable!"; RestoreDescription = "Restores Google TV home."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 )
 
 $Script:PerfList = @(
@@ -301,11 +301,19 @@ function Show-DeviceProfile ($Target, $DeviceInfo) {
     Write-Host " Serial:  " -NoNewline -ForegroundColor Gray
     Write-Host "$($DeviceInfo.Serial)" -ForegroundColor Gray
 
-    # Get Android version
+    # Get Android version and additional info
     try {
         $androidVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.release 2>&1 | Out-String).Trim()
         Write-Host " Android: " -NoNewline -ForegroundColor Gray
         Write-Host "$androidVer" -ForegroundColor White
+
+        $sdkVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.sdk 2>&1 | Out-String).Trim()
+        Write-Host " SDK:     " -NoNewline -ForegroundColor Gray
+        Write-Host "$sdkVer" -ForegroundColor White
+
+        $buildId = (& $Script:AdbPath -s $Target shell getprop ro.build.id 2>&1 | Out-String).Trim()
+        Write-Host " Build:   " -NoNewline -ForegroundColor Gray
+        Write-Host "$buildId" -ForegroundColor White
     } catch {}
 
     # Show which app list will be used
@@ -314,6 +322,42 @@ function Show-DeviceProfile ($Target, $DeviceInfo) {
     Write-Host "$($appList.Count) apps in optimization list" -ForegroundColor Green
 
     Write-Host ""
+
+    # Offer to show full app profile
+    $showFull = Read-Toggle -Prompt "Show full app profile?" -Options @("YES", "NO") -DefaultIndex 1
+    if ($showFull -eq 0) {
+        Write-SubHeader "App Profile for $typeName"
+
+        # Group apps by risk level
+        $safeApps = $appList | Where-Object { $_.Risk -eq "Safe" }
+        $mediumApps = $appList | Where-Object { $_.Risk -match "Medium" }
+        $highApps = $appList | Where-Object { $_.Risk -match "High|Advanced" }
+
+        Write-Host ""
+        Write-Host " Safe ($($safeApps.Count) apps):" -ForegroundColor Green
+        foreach ($app in $safeApps) {
+            $defStr = if ($app.DefaultOptimize -eq "Y") { "[Y]" } else { "[N]" }
+            Write-Host "   $defStr $($app.Name)" -ForegroundColor Gray
+        }
+
+        Write-Host ""
+        Write-Host " Medium Risk ($($mediumApps.Count) apps):" -ForegroundColor Yellow
+        foreach ($app in $mediumApps) {
+            $defStr = if ($app.DefaultOptimize -eq "Y") { "[Y]" } else { "[N]" }
+            Write-Host "   $defStr $($app.Name)" -ForegroundColor Gray
+        }
+
+        Write-Host ""
+        Write-Host " High Risk / Advanced ($($highApps.Count) apps):" -ForegroundColor Red
+        foreach ($app in $highApps) {
+            $defStr = if ($app.DefaultOptimize -eq "Y") { "[Y]" } else { "[N]" }
+            Write-Host "   $defStr $($app.Name)" -ForegroundColor Gray
+        }
+
+        Write-Host ""
+        Write-Host " Legend: [Y] = Default Yes, [N] = Default No/Skip" -ForegroundColor DarkGray
+        Write-Host ""
+    }
 }
 
 # --- UTILITY FUNCTIONS ---
@@ -440,7 +484,6 @@ function Get-SubnetFromGateway {
     return "$($octets[0]).$($octets[1]).$($octets[2])"
 }
 
-# FIX #10: Helper function to execute ADB commands with proper error checking
 function Invoke-AdbCommand {
     param(
         [string]$Target,
@@ -507,7 +550,6 @@ function Get-TopMemoryApps {
     return $apps
 }
 
-# FIX #8: $PSScriptRoot fallback when dot-sourced
 function Get-ScriptDirectory {
     if ($PSScriptRoot -and $PSScriptRoot -ne "") {
         return $PSScriptRoot
@@ -620,7 +662,6 @@ function Check-Adb {
     } else { Write-Success "Found ADB." }
 }
 
-# UX #E: Add ADB Server Restart function
 function Restart-AdbServer {
     Write-Info "Restarting ADB server..."
     try {
@@ -635,7 +676,6 @@ function Restart-AdbServer {
     Start-Sleep -Milliseconds 500
 }
 
-# UX #G: Add Disconnect Device function
 function Disconnect-Device {
     param([string]$Serial)
     Write-Info "Disconnecting $Serial..."
@@ -845,7 +885,6 @@ function Get-LocalSubnet {
     return $subnet
 }
 
-# FIX #1: Socket leak fix and #14: Results feedback and #H: Timeout improvement
 function Scan-Network {
     Write-Info "Scanning local subnet for Android TV devices..."
 
@@ -929,7 +968,6 @@ function Scan-Network {
         $foundCount++
     }
 
-    # FIX #14: Show results feedback
     if ($foundCount -eq 0) {
         Write-Warn "No devices found. Ensure Network Debugging is enabled on your Android TV."
         Write-Host " Tip: You can also use 'Connect IP' to enter the address manually." -ForegroundColor Gray
@@ -1159,7 +1197,6 @@ function Get-KeyInput {
 }
 
 # --- NEW VERTICAL MENU SYSTEM ---
-# FIX #13: ESC key support, FIX #3: Cursor error handling, UX #C: Number/letter key shortcuts
 # Flicker-free: only redraws changed lines instead of full screen
 function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticStartIndex=-1, $Shortcuts=$null) {
     $idx = $DefaultIndex
@@ -1377,7 +1414,6 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
     }
 }
 
-# FIX #13: ESC key support for toggle
 function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
     # Horizontal toggle for [ YES ] NO using ANSI escape codes for flicker-free updates
     $idx = $DefaultIndex
@@ -1566,19 +1602,28 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
                 $pkg = $matches[2]
                 if (Test-AppPackage -Package $pkg) {
                     $topApps += @{ Package = $pkg; MB = [math]::Round($kb / 1024, 1) }
-                    if ($topApps.Count -ge 5) { break }
+                    if ($topApps.Count -ge 10) { break }
                 }
             }
         }
     }
     if ($topApps.Count -gt 0) {
-        foreach ($app in $topApps) {
-            $memColor = Get-VitalColor -Type "AppMemory" -Value $app.MB
-            Write-Host " $($app.MB.ToString('0.0').PadLeft(6)) MB  " -NoNewline -ForegroundColor $memColor
-            Write-Host "$($app.Package)" -ForegroundColor Gray
+        for ($i = 0; $i -lt 10; $i++) {
+            if ($i -lt $topApps.Count) {
+                $app = $topApps[$i]
+                $memColor = Get-VitalColor -Type "AppMemory" -Value $app.MB
+                Write-Host " $($app.MB.ToString('0.0').PadLeft(6)) MB  " -NoNewline -ForegroundColor $memColor
+                Write-Host "$($app.Package)" -ForegroundColor Gray
+            } else {
+                Write-Host " $("--".PadLeft(6)) MB  " -NoNewline -ForegroundColor DarkGray
+                Write-Host "---" -ForegroundColor DarkGray
+            }
         }
     } else {
-        Write-Host " Unable to query memory info" -ForegroundColor Gray
+        for ($i = 0; $i -lt 10; $i++) {
+            Write-Host " $("--".PadLeft(6)) MB  " -NoNewline -ForegroundColor DarkGray
+            Write-Host "---" -ForegroundColor DarkGray
+        }
     }
 
     # --- BLOAT CHECK (using already-fetched data) ---
@@ -1594,7 +1639,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     $enabledPkgs = $sections["PACKAGES"]
 
     foreach ($app in $allBloatApps) {
-        $pkg = $app.Package; $appName = $app.Name; $method = $app.Method; $risk = $app.Risk; $defOpt = $app.DefOpt
+        $pkg = $app.Package; $appName = $app.Name; $method = $app.Method; $risk = $app.Risk; $defOpt = $app.DefaultOptimize
         if ($risk -match "Safe" -or $risk -match "Medium") {
             if (Test-PackageInList -PackageList $enabledPkgs -Package $pkg) {
                 # Get memory from already-fetched meminfo
@@ -1618,7 +1663,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         Write-Host ""
         Write-Host " " -NoNewline
         Write-Host "App Name".PadRight(28) -NoNewline -ForegroundColor White
-        Write-Host "RAM".PadRight(8) -NoNewline -ForegroundColor White
+        Write-Host "RAM".PadRight(10) -NoNewline -ForegroundColor White
         Write-Host "Action".PadRight(10) -NoNewline -ForegroundColor White
         Write-Host "Default" -ForegroundColor White
         Write-Host " $("-" * 55)" -ForegroundColor Gray
@@ -1630,7 +1675,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
 
             Write-Host " " -NoNewline
             Write-Host $bloat.Name.PadRight(28).Substring(0, [Math]::Min(28, $bloat.Name.Length + 10)).PadRight(28) -NoNewline -ForegroundColor Yellow
-            Write-Host $memStr.PadRight(8) -NoNewline -ForegroundColor Cyan
+            Write-Host $memStr.PadRight(10) -NoNewline -ForegroundColor Cyan
             Write-Host $bloat.Method.PadRight(10) -NoNewline -ForegroundColor White
             Write-Host $defStr -ForegroundColor $defColor
         }
@@ -1656,7 +1701,7 @@ function Watch-Vitals ($Target, $Name) {
     Clear-Host
     Write-Host " LIVE MONITOR: $Name" -ForegroundColor Cyan
     Write-Host " ================================================" -ForegroundColor DarkCyan
-    Write-Host " Refreshing every ${refreshInterval}s. Press any key to stop." -ForegroundColor Gray
+    Write-Host " Refreshing every ${refreshInterval}s. Press Q or ESC to stop." -ForegroundColor Gray
     Write-Host ""
 
     $headerRow = 5
@@ -1670,10 +1715,29 @@ function Watch-Vitals ($Target, $Name) {
     Write-Host " Top Memory Users:" -ForegroundColor White
     Write-Host " $("-" * 45)" -ForegroundColor Gray
 
+    # Show loading placeholders immediately
+    [Console]::Write("$esc[$headerRow;13H")
+    [Console]::Write("$esc[90mLoading...$esc[0m")
+    [Console]::Write("$esc[$($headerRow+1);13H")
+    [Console]::Write("$esc[90mLoading...$esc[0m")
+    [Console]::Write("$esc[$($headerRow+2);13H")
+    [Console]::Write("$esc[90mLoading...$esc[0m")
+
     $topAppsStartRow = 12
 
     try {
-        while (-not [Console]::KeyAvailable) {
+        $exitRequested = $false
+        while (-not $exitRequested) {
+            # Check for Q/ESC at start (catches keys pressed during previous ADB call)
+            while ([Console]::KeyAvailable) {
+                $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                if ($key.Character -eq 'q' -or $key.Character -eq 'Q' -or $key.VirtualKeyCode -eq 27) {
+                    $exitRequested = $true
+                    break
+                }
+            }
+            if ($exitRequested) { break }
+
             # Batch fetch vitals
             $batchCmd = "dumpsys meminfo 2>/dev/null; echo '::SEP::'; dumpsys thermalservice 2>/dev/null | head -30"
             $output = & $Script:AdbPath -s $Target shell $batchCmd 2>&1 | Out-String
@@ -1710,7 +1774,7 @@ function Watch-Vitals ($Target, $Name) {
             # Temp
             [Console]::Write("$esc[$headerRow;13H")
             $tempColor = if ($Temp -ne "N/A") { Get-VitalAnsiColor -Type "Temperature" -Value ([float]$Temp) } else { "92" }
-            $tempStr = if ($Temp -ne "N/A") { "${Temp}C   " } else { "N/A    " }
+            $tempStr = if ($Temp -ne "N/A") { "${Temp}C".PadRight(12) } else { "N/A".PadRight(12) }
             [Console]::Write("$esc[${tempColor}m$tempStr$esc[0m")
 
             # RAM
@@ -1738,15 +1802,18 @@ function Watch-Vitals ($Target, $Name) {
             [Console]::Write("$esc[$($topAppsStartRow + 11);1H$esc[2K")
             [Console]::Write("$esc[90m Updated: $(Get-Date -Format 'HH:mm:ss')$esc[0m")
 
-            # Wait for interval or keypress
+            # Wait for interval, checking for Q/ESC
             for ($w = 0; $w -lt ($refreshInterval * 10); $w++) {
-                if ([Console]::KeyAvailable) { break }
+                if ([Console]::KeyAvailable) {
+                    $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    if ($key.Character -eq 'q' -or $key.Character -eq 'Q' -or $key.VirtualKeyCode -eq 27) {
+                        $exitRequested = $true
+                        break
+                    }
+                }
                 Start-Sleep -Milliseconds 100
             }
         }
-
-        # Consume the keypress
-        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
     finally {
         Show-Cursor
@@ -1757,7 +1824,6 @@ function Watch-Vitals ($Target, $Name) {
 }
 
 # --- LAUNCHER WIZARD ---
-# FIX #D: Check stock launcher status before offering disable
 # Known stock launcher packages (varies by device/Android version)
 $Script:StockLaunchers = @(
     "com.google.android.tvlauncher",           # Standard Google TV Launcher
@@ -2079,7 +2145,6 @@ function Setup-Launcher ($Target) {
     foreach ($l in $Script:Launchers) {
         $status = "MISSING"
         $isCurrent = ($currentLauncher -eq $l.Pkg)
-        # FIX #12: Use exact match
         if (Test-PackageInList -PackageList $installedPkgs -Package $l.Pkg) {
             $status = if ($isCurrent) { "ACTIVE" } else { "INSTALLED" }
         }
@@ -2088,7 +2153,6 @@ function Setup-Launcher ($Target) {
         $launchers += $l
     }
 
-    # UX #D: Show stock launcher status (only if installed)
     if ($stockLauncherInstalled) {
         $stockDetail = switch ($stockLauncherPkg) {
             "com.google.android.tvlauncher" { "Google TV" }
@@ -2140,7 +2204,6 @@ function Setup-Launcher ($Target) {
     }
 
     $choice = $launchers[$sel]
-    # FIX #12: Use exact match
     if (-not (Test-PackageInList -PackageList $installedPkgs -Package $choice.Pkg)) {
         $toggleIdx = Read-Toggle -Prompt "Not Installed. Open Play Store?" -Options @("YES", "NO") -DefaultIndex 0
         if ($toggleIdx -eq 0) {
@@ -2206,12 +2269,10 @@ function Show-TaskSummary ($Mode, [switch]$Aborted) {
 }
 
 # --- ENGINE: UNIFIED TASK RUNNER ---
-# UX #A: Apply All Defaults, UX #B: Summary tracking
 function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     $typeName = Get-DeviceTypeName $DeviceType
     Write-Header "Application Management ($Mode) - $typeName"
 
-    # UX #B: Track summary statistics
     $Script:Summary = @{
         Disabled = 0
         Uninstalled = 0
@@ -2220,13 +2281,11 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
         Failed = 0
     }
 
-    # UX #A: Ask about Apply All Defaults
     $applyAll = $false
     $applyIdx = Read-Toggle -Prompt "Apply all default actions without prompting?" -Options @("NO (Review Each)", "YES (Use Defaults)") -DefaultIndex 0
     if ($applyIdx -eq 1) { $applyAll = $true }
     if ($applyIdx -eq -1) { return }  # ESC pressed
 
-    # FIX #11: Query packages once, cache results
     Write-Info "Querying installed packages..."
     $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages 2>&1 | Out-String)      # Currently installed for user
     $allPkgs = (& $Script:AdbPath -s $Target shell pm list packages -u 2>&1 | Out-String)         # All packages including uninstalled
@@ -2238,10 +2297,9 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
     foreach ($app in $appList) {
         $pkg = $app.Package; $name = $app.Name; $defMethod = $app.Method; $risk = $app.Risk
-        $optDesc = $app.OptDesc; $restDesc = $app.RestDesc
-        $defOpt = $app.DefOpt; $defRest = $app.DefRest
+        $optDesc = $app.OptimizeDescription; $restDesc = $app.RestoreDescription
+        $defOpt = $app.DefaultOptimize; $defRest = $app.DefaultRestore
 
-        # FIX #12: Use exact match with word boundary
         $existsOnSystem = Test-PackageInList -PackageList $allPkgs -Package $pkg           # Package exists (may be uninstalled)
         $isInstalledForUser = Test-PackageInList -PackageList $installedPkgs -Package $pkg # Actually installed for user 0
         $isDisabled = Test-PackageInList -PackageList $disabledPkgs -Package $pkg
@@ -2302,7 +2360,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                     if ($defOpt -eq "Y") { $defIdx = 0 } else { $defIdx = 2 }
                 }
 
-                # UX #A: Apply defaults or prompt
                 if ($applyAll) {
                     $toggleResult = $defIdx
                 } else {
@@ -2352,7 +2409,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                 $opts = @("RESTORE", "SKIP", "ABORT")
                 if ($defRest -eq "Y") { $defIdx = 0 } else { $defIdx = 1 }
 
-                # UX #A: Apply defaults or prompt
                 if ($applyAll) {
                     $toggleResult = $defIdx
                 } else {
@@ -2372,7 +2428,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                 if ($selStr -eq "RESTORE") {
                     Write-Host "    Attempting Recovery..." -NoNewline -ForegroundColor Gray
                     if ($isInstalledForUser) {
-                        # FIX #10: Use helper with error checking
                         $result = Invoke-AdbCommand -Target $Target -Command "pm enable $pkg"
                         if ($result.Success) {
                             Write-Success "Re-enabled."
@@ -2382,7 +2437,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                             $Script:Summary.Failed++
                         }
                     } else {
-                        # FIX #6: Renamed $res to $installResult to avoid shadowing
                         $installResult = Invoke-AdbCommand -Target $Target -Command "cmd package install-existing $pkg"
                         if ($installResult.Output -match "Package .* doesn't exist") {
                             Write-Host " [FILE MISSING]" -ForegroundColor Red
@@ -2394,7 +2448,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                                 $Script:Summary.Skipped++
                             }
                         } else {
-                            # FIX #10: Also enable after install-existing
                             $enableResult = Invoke-AdbCommand -Target $Target -Command "pm enable $pkg"
                             if ($enableResult.Success) {
                                 Write-Success "Restored."
@@ -2416,7 +2469,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
     # 1. Animation
     $currAnim = (& $Script:AdbPath -s $Target shell settings get global window_animation_scale | Out-String).Trim()
-    # FIX #9: Fixed string interpolation - use subexpression
     if ($Mode -eq "Optimize") { $tAnim = "0.5" } else { $tAnim = "1.0" }
 
     Write-Host "Animation Speed" -NoNewline
@@ -2427,7 +2479,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
         if ($applyAll) {
             $idx = 0  # Default to YES
         } else {
-            # FIX #9: Use subexpression for variable in string
             $idx = Read-Toggle -Prompt "    >> Set to $($tAnim)?" -Options @("YES", "NO", "ABORT") -DefaultIndex 0
             if ($idx -eq -1) { $idx = 2 }  # ESC = ABORT
         }
@@ -2441,7 +2492,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
         }
 
         if ($idx -eq 0) {
-            # FIX #10: Use helper with error checking
             $result1 = Invoke-AdbCommand -Target $Target -Command "settings put global window_animation_scale $tAnim"
             $result2 = Invoke-AdbCommand -Target $Target -Command "settings put global transition_animation_scale $tAnim"
             $result3 = Invoke-AdbCommand -Target $Target -Command "settings put global animator_duration_scale $tAnim"
@@ -2536,14 +2586,12 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     Write-Header "Finished"
     $r = Read-Toggle -Prompt "Reboot Device Now?" -Options @("YES", "NO") -DefaultIndex 1
     if ($r -eq 0) {
-        # FIX #15: Show reboot confirmation
         Write-Info "Rebooting device..."
         & $Script:AdbPath -s $Target reboot
         Write-Success "Reboot command sent."
     }
 }
 
-# FIX #4: IP Validation function
 function Test-ValidIP ($IP) {
     if ($IP -match "^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(:\d+)?$") {
         $octets = @([int]$matches[1], [int]$matches[2], [int]$matches[3], [int]$matches[4])
@@ -2655,7 +2703,6 @@ function Show-RebootMenu ($Target) {
 
 Clear-Host; Check-Adb
 
-# FIX #5: Window resize with error handling
 try {
     $currentSize = (Get-Host).UI.RawUI.WindowSize
     if ($currentSize -and $currentSize.Width -lt 80) {
@@ -2665,7 +2712,6 @@ try {
     # Silently continue - Windows Terminal and VS Code don't support window resizing
 }
 
-# UX #F: Show version in header
 Write-Header "ANDROID TV OPTIMIZER $Script:Version"
 
 while ($true) {
@@ -2702,7 +2748,6 @@ while ($true) {
     $mOpts += "Connect IP"; $mDescs += "Manually connect to a specific IP address."
     $mOpts += "Report All"; $mDescs += "Run Health Check on ALL connected devices."
     $mOpts += "Refresh"; $mDescs += "Reload device list."
-    # UX #E: ADB Server Restart option
     $mOpts += "Restart ADB"; $mDescs += "Kill and restart ADB server (fixes connection issues)."
     $mOpts += "Help"; $mDescs += "View instructions and troubleshooting."
     $mOpts += "Quit"; $mDescs += "Exit Optimizer."
@@ -2723,7 +2768,6 @@ while ($true) {
     if ($selText -eq "Scan Network") { Scan-Network; continue }
     if ($selText -eq "Connect IP") {
         $i = Read-Host "Enter IP Address (e.g., 192.168.1.100)"
-        # FIX #4: Validate IP before connecting
         if (Test-ValidIP $i) {
             Write-Info "Connecting to $i..."
             & $Script:AdbPath connect $i
@@ -2742,7 +2786,6 @@ while ($true) {
         }
         Pause; continue
     }
-    # UX #E: Handle ADB restart
     if ($selText -eq "Restart ADB") { Restart-AdbServer; continue }
     if ($selText -eq "Help") { Show-Help; continue }
     if ($selText -eq "Quit") { Exit }
@@ -2778,7 +2821,7 @@ while ($true) {
         # Inner loop: stay on this device's action menu until Back/Reboot/Disconnect/ESC
         while ($true) {
             # Action menu with device type info
-            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Profile", "Recovery", "Reboot", "Disconnect", "Back")
+            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Profile", "Recovery", "Reboot", "Disconnect", "Back", "Quit")
             $aDescs = @(
                 "Debloat apps and tune performance for $deviceTypeName.",
                 "Undo optimizations and fix missing apps.",
@@ -2788,10 +2831,11 @@ while ($true) {
                 "Emergency: Re-enable ALL disabled packages.",
                 "Restart device (normal, recovery, or bootloader).",
                 "Disconnect this device from ADB.",
-                "Return to Main Menu."
+                "Return to Main Menu.",
+                "Exit Optimizer."
             )
-            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, P=Profile, C=reCovery, B=reboot, D=Disconnect, K=bacK
-            $actionShortcuts = @("O", "R", "E", "L", "P", "C", "B", "D", "K")
+            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, P=Profile, C=reCovery, T=reboot(resTargt), D=Disconnect, B=Back, Q=Quit
+            $actionShortcuts = @("O", "R", "E", "L", "P", "C", "T", "D", "B", "Q")
             $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
             # Handle ESC - return to main menu
@@ -2799,10 +2843,11 @@ while ($true) {
 
             $act = $aOpts[$aSel]
 
-            # Actions that return to main menu
+            # Actions that return to main menu or exit
             if ($act -eq "Back") { break }
             if ($act -eq "Reboot") { Show-RebootMenu -Target $target.Serial; Pause; break }
             if ($act -eq "Disconnect") { Disconnect-Device -Serial $target.Serial; Pause; break }
+            if ($act -eq "Quit") { Exit }
 
             # Actions that stay on this device's menu
             if ($act -eq "Optimize") { Run-Task -Target $target.Serial -Mode "Optimize" -DeviceType $target.Type }
