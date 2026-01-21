@@ -4,18 +4,11 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 
 ![Screen Recording 2026-01-20 at 5 51 56 PM](https://github.com/user-attachments/assets/58d209f8-81e6-427e-af6c-d0c037f04376)
 
+<img width="572" height="476" alt="image" src="https://github.com/user-attachments/assets/1badb90c-a1c2-4a8d-89fa-89cc4b5fbe3d" />
+<img width="572" height="476" alt="image" src="https://github.com/user-attachments/assets/1a217695-e6de-4c38-be2f-012add6f8692" />
+<img width="572" height="476" alt="image" src="https://github.com/user-attachments/assets/5f15a6c3-2108-46b5-b25b-50e8cea4fd5a" />
 
-<img width="716" height="341" alt="image" src="https://github.com/user-attachments/assets/37f31233-8286-4b4b-a490-899735c95133" />
 
-<img width="625" height="294" alt="image" src="https://github.com/user-attachments/assets/7ee836ea-1506-4ac5-9feb-aaca580d38a3" />
-
-<img width="638" height="391" alt="image" src="https://github.com/user-attachments/assets/fb40e710-ad39-4d71-b6e7-6c74f0586f27" />
-
-<img width="539" height="255" alt="image" src="https://github.com/user-attachments/assets/855d73b6-d79c-4023-b8bd-32e91af252a6" />
-
-<img width="666" height="293" alt="image" src="https://github.com/user-attachments/assets/67423cb2-c09f-4ef1-b25a-583d870effd0" />
-
-<img width="411" height="197" alt="image" src="https://github.com/user-attachments/assets/857717fb-c9db-4a22-b428-fb3d82bc067e" />
 
 ## Features
 
