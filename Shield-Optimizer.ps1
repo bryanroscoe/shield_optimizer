@@ -350,11 +350,11 @@ function Show-DeviceProfile ($Target, $DeviceInfo) {
 # --- UTILITY FUNCTIONS ---
 
 function Write-Header ($Text)   { Write-Host "`n=== $Text ===" -ForegroundColor Cyan }
-function Write-SubHeader ($Text){ Write-Host "`n--- $Text ---" -ForegroundColor DarkCyan }
+function Write-SubHeader ($Text){ Write-Host "`n--- $Text ---" -ForegroundColor Blue }
 function Write-Success ($Text)  { Write-Host " [OK] $Text" -ForegroundColor Green }
 function Write-Warn ($Text)     { Write-Host " [!!] $Text" -ForegroundColor Yellow }
 function Write-ErrorMsg ($Text) { Write-Host " [ERROR] $Text" -ForegroundColor Red }
-function Write-Info ($Text)     { Write-Host " [INFO] $Text" -ForegroundColor Gray }
+function Write-Info ($Text)     { Write-Host " [INFO] $Text" -ForegroundColor White }
 function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor Gray }
 function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor Gray }
 
@@ -693,9 +693,12 @@ function Connect-PinPairing {
     Write-Header "PIN PAIRING (Android 11+ / Google TV)"
     Write-Host ""
     Write-Host " On your TV:" -ForegroundColor Cyan
+    Write-Host "   [EXPERIMENTAL] For newer Chromecasts and Google TV devices." -ForegroundColor Yellow
+    Write-Host "   (Shield TV uses standard Network Debugging - use 'Connect IP' instead)" -ForegroundColor Yellow
+    Write-Host ""
     Write-Host "   1. Go to Settings > System > Developer Options" -ForegroundColor Gray
     Write-Host "   2. Enable 'USB Debugging'" -ForegroundColor Gray
-    Write-Host "   3. Enable 'Wireless Debugging'" -ForegroundColor Gray
+    Write-Host "   3. Enable 'Network Debugging'" -ForegroundColor Gray
     Write-Host "   4. Tap 'Pair device with pairing code'" -ForegroundColor Gray
     Write-Host "   5. Note the IP, pairing port, and 6-digit PIN shown" -ForegroundColor Gray
     Write-Host ""
@@ -1317,8 +1320,8 @@ function Write-OptionWithHighlight ($Text, [bool]$Selected, [bool]$WithClosingAr
     $reset = "$esc[0m"
 
     # Set styles based on selection state (DRY)
-    $textColor = if ($Selected) { "Cyan" } else { "Gray" }
-    $bracketCharColor = if ($Selected) { "Cyan" } else { "DarkGray" }
+    $textColor = if ($Selected) { "Cyan" } else { "White" }
+    $bracketCharColor = if ($Selected) { "Cyan" } else { "Gray" }
     $prefix = if ($Selected) { $bold } else { "" }
     $suffix = if ($Selected) { $reset } else { "" }
 
@@ -1354,8 +1357,8 @@ function Write-OptionWithHighlight ($Text, [bool]$Selected, [bool]$WithClosingAr
             "INSTALLED"     { "Cyan" }
             "ENABLED"       { "Cyan" }
             "MISSING"       { "Red" }
-            "DISABLED"      { "DarkYellow" }
-            "NOT FOUND"     { "DarkGray" }
+            "DISABLED"      { "Magenta" }
+            "NOT FOUND"     { "Gray" }
             default         { $textColor }
         }
 
@@ -1572,7 +1575,7 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
 
         # Handle separators
         if ($separatorIndices.ContainsKey($itemIdx)) {
-            Write-Host "    --------------------------------" -ForegroundColor Gray
+            Write-Host "    --------------------------------" -ForegroundColor Blue
             return
         }
 
@@ -1617,21 +1620,21 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
     } else {
         Write-Host " $Title" -ForegroundColor Cyan
     }
-    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " ================================================" -ForegroundColor Blue
     for ($i = 0; $i -lt $Options.Count; $i++) {
         DrawItem $i ($i -eq $idx)
     }
-    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " ================================================" -ForegroundColor Blue
     DrawInfo $idx
-    Write-Host " [" -NoNewline -ForegroundColor Gray
-    Write-Host "Arrows" -NoNewline -ForegroundColor DarkCyan
-    Write-Host ": Move] [" -NoNewline -ForegroundColor Gray
+    Write-Host " [" -NoNewline -ForegroundColor White
+    Write-Host "Arrows" -NoNewline -ForegroundColor Cyan
+    Write-Host ": Move] [" -NoNewline -ForegroundColor White
     Write-Host "Keys" -NoNewline -ForegroundColor Yellow
-    Write-Host ": Select] [" -NoNewline -ForegroundColor Gray
+    Write-Host ": Select] [" -NoNewline -ForegroundColor White
     Write-Host "Enter" -NoNewline -ForegroundColor Green
-    Write-Host ": OK] [" -NoNewline -ForegroundColor Gray
+    Write-Host ": OK] [" -NoNewline -ForegroundColor White
     Write-Host "ESC" -NoNewline -ForegroundColor Red
-    Write-Host ": Back]" -ForegroundColor Gray
+    Write-Host ": Back]" -ForegroundColor White
 
     $prevIdx = $idx
 
@@ -1707,7 +1710,7 @@ function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
     # ANSI color codes
     $esc = [char]27
     $cyan = "$esc[96m"
-    $gray = "$esc[90m"
+    $gray = "$esc[37m"
     $reset = "$esc[0m"
     $clearLine = "$esc[2K"
     $cursorBack = "$esc[G"  # Move cursor to column 1
@@ -1985,7 +1988,7 @@ function Watch-Vitals ($Target, $Name) {
 
     Clear-Host
     Write-Host " LIVE MONITOR: $Name" -ForegroundColor Cyan
-    Write-Host " ================================================" -ForegroundColor DarkCyan
+    Write-Host " ================================================" -ForegroundColor Blue
     Write-Host " Refreshing every ${refreshInterval}s. Press Q or ESC to stop." -ForegroundColor Gray
     Write-Host ""
 
@@ -3079,7 +3082,7 @@ while ($true) {
 
     $mOpts += "Scan Network"; $mDescs += "Auto-discover Android TV devices on local network."
     $mOpts += "Connect IP"; $mDescs += "Manually connect using standard ADB (port 5555)."
-    $mOpts += "Pair Device (PIN)"; $mDescs += "Pair with Android 11+ / Google TV devices using wireless debugging."
+    $mOpts += "Pair Device (PIN)"; $mDescs += "[EXPERIMENTAL] For newer Chromecasts/Google TV. Shield users: use Connect IP."
     $mOpts += "Report All"; $mDescs += "Run Health Check on ALL connected devices."
     $mOpts += "Refresh"; $mDescs += "Reload device list."
     $mOpts += "Restart ADB"; $mDescs += "Kill and restart ADB server (fixes connection issues)."

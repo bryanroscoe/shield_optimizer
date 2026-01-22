@@ -31,7 +31,7 @@ These features have been implemented but not yet tested on real devices:
 | Feature | Description | Notes |
 |---------|-------------|-------|
 | **USB Device Support** | Connect to Android devices via USB cable | Displays `[USB]` tag in device list. Note: Shield TV doesn't support USB debugging (host ports only). Works with phones/tablets. |
-| **PIN Pairing** | Pair with Android 11+ / Google TV devices using wireless debugging | Required for Android 14+ devices (Google TV Streamer, updated Chromecasts). Uses `adb pair` command. |
+| **PIN Pairing** | Pair with Android 11+ / Google TV devices using network debugging | **Experimental.** For newer Chromecasts with Google TV and Android TV devices that require pairing codes. Not needed for Shield TV (use standard Connect IP instead). |
 
 ## Tested Devices
 
@@ -79,13 +79,17 @@ pwsh .\Shield-Optimizer.ps1
 
 ### macOS
 
-```bash
-# Install PowerShell via Homebrew
-brew install powershell/tap/powershell
+The easiest way to install PowerShell is via [Homebrew](https://brew.sh/):
 
-# Run the script
-pwsh ./Shield-Optimizer.ps1
+```bash
+# Install Homebrew if you don't have it
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install PowerShell
+brew install powershell/tap/powershell
 ```
+
+Alternative: Download the `.pkg` installer from [PowerShell releases](https://github.com/PowerShell/PowerShell/releases/latest).
 
 ### Linux (Debian/Ubuntu)
 
@@ -102,13 +106,35 @@ sudo apt-get install -y powershell
 pwsh ./Shield-Optimizer.ps1
 ```
 
+## Download
+
+**Option 1: Download from Releases (Recommended)**
+1. Go to the [Releases page](https://github.com/bryanroscoe/shield_optimizer/releases/latest)
+2. Download `Source code (zip)` or `Source code (tar.gz)`
+3. Extract to a folder you'll remember (e.g., `Downloads` or `Documents`)
+
+**Option 2: Clone with git**
+```bash
+git clone https://github.com/bryanroscoe/shield_optimizer.git
+cd shield_optimizer
+```
+
+**Important:** You must run the script from the folder where it's located. The commands below assume you're in that folder.
+
 ## Quick Start
 
-```powershell
-# Standard run
-pwsh ./Shield-Optimizer.ps1
+1. Open Terminal (macOS/Linux) or PowerShell 7 (Windows)
+2. Navigate to the folder containing the script:
+   ```bash
+   cd /path/to/shield_optimizer
+   ```
+3. Run the script:
+   ```powershell
+   pwsh ./Shield-Optimizer.ps1
+   ```
 
-# Force re-download ADB tools
+**Force re-download ADB tools:**
+```powershell
 pwsh ./Shield-Optimizer.ps1 -ForceAdbDownload
 ```
 
