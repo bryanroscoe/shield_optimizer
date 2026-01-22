@@ -235,6 +235,46 @@ $Script:CommonAppList = @(
        OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Crunchyroll."; DefaultOptimize = "N"; DefaultRestore = "N" }
     @{ Package = "air.com.vudu.air.DownloaderTablet"; Name = "Vudu"; Method = "UNINSTALL"; Risk = "Safe"
        OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Vudu."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.google.android.youtube.tv"; Name = "YouTube"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores YouTube."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.google.android.youtube.tvkids"; Name = "YouTube Kids"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores YouTube Kids."; DefaultOptimize = "N"; DefaultRestore = "N" }
+
+    # --- SAFE: Canadian streaming apps ---
+    @{ Package = "ca.bellmedia.crave"; Name = "Crave"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Canadian streaming app."; RestoreDescription = "Restores Crave."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "ca.bell.tv"; Name = "Bell Fibe TV"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Bell TV app."; RestoreDescription = "Restores Bell Fibe TV."; DefaultOptimize = "N"; DefaultRestore = "N" }
+
+    # --- SAFE: Free ad-supported streaming (FAST) ---
+    @{ Package = "tv.pluto.android"; Name = "Pluto TV"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Free streaming app."; RestoreDescription = "Restores Pluto TV."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.tubitv"; Name = "Tubi"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Free streaming app."; RestoreDescription = "Restores Tubi."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.peacocktv.peacockandroid"; Name = "Peacock"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Peacock."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.sling"; Name = "Sling TV"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Sling TV."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.philo.philo"; Name = "Philo"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Philo."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.fubo.firetv.screen"; Name = "fuboTV"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores fuboTV."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.haystack.android"; Name = "Haystack News"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "News streaming app."; RestoreDescription = "Restores Haystack News."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.plexapp.android"; Name = "Plex"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Plex."; DefaultOptimize = "N"; DefaultRestore = "N" }
+
+    # --- SAFE: Premium streaming add-ons ---
+    @{ Package = "com.starz.starzplay.android"; Name = "STARZ"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores STARZ."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.showtime.standalone"; Name = "Showtime"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores Showtime."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.amcplus.amcfiretv"; Name = "AMC+"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores AMC+."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.britbox.us"; Name = "BritBox"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores BritBox."; DefaultOptimize = "N"; DefaultRestore = "N" }
+    @{ Package = "com.epix.epixnow.google"; Name = "MGM+"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Streaming App."; RestoreDescription = "Restores MGM+."; DefaultOptimize = "N"; DefaultRestore = "N" }
 
     # --- MEDIUM: Minor functionality impact ---
     @{ Package = "com.android.dreams.basic"; Name = "Basic Daydream"; Method = "DISABLE"; Risk = "Medium"
