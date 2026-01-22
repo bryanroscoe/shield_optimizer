@@ -138,6 +138,13 @@ cd shield_optimizer
 pwsh ./Shield-Optimizer.ps1 -ForceAdbDownload
 ```
 
+**Theme auto-detection:**
+The script automatically detects your system's light/dark mode setting. Override with `-LightMode` or `-DarkMode` if needed:
+```powershell
+pwsh ./Shield-Optimizer.ps1 -LightMode   # Force light theme
+pwsh ./Shield-Optimizer.ps1 -DarkMode    # Force dark theme
+```
+
 ADB tools download automatically on first run (platform-appropriate version). Accept the debugging prompt on your TV.
 
 ## Keyboard Shortcuts
@@ -161,6 +168,7 @@ ADB tools download automatically on first run (platform-appropriate version). Ac
 | Something broke | Use Recovery mode to re-enable all disabled packages |
 | Wrong device type | Check Profile view, detection uses brand/model/packages |
 | Scan finds nothing (macOS/Linux) | Make sure devices have Network Debugging enabled; try Connect IP |
+| Colors hard to read | Theme auto-detects, but try `-LightMode` or `-DarkMode` to override |
 
 ## Safety
 
