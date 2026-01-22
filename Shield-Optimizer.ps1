@@ -276,36 +276,36 @@ function Show-DeviceProfile ($Target, $DeviceInfo) {
     Write-Header "Device Profile"
 
     $typeName = Get-DeviceTypeName $DeviceInfo.Type
-    Write-Host " Device:  " -NoNewline -ForegroundColor Gray
-    Write-Host "$($DeviceInfo.Name)" -ForegroundColor Cyan
+    Write-Host " Device:  " -NoNewline -ForegroundColor Cyan
+    Write-Host "$($DeviceInfo.Name)" -ForegroundColor White
 
-    Write-Host " Model:   " -NoNewline -ForegroundColor Gray
+    Write-Host " Model:   " -NoNewline -ForegroundColor Cyan
     Write-Host "$($DeviceInfo.Model)" -ForegroundColor White
 
-    Write-Host " Profile: " -NoNewline -ForegroundColor Gray
+    Write-Host " Profile: " -NoNewline -ForegroundColor Cyan
     Write-Host "$typeName" -ForegroundColor Yellow
 
-    Write-Host " Serial:  " -NoNewline -ForegroundColor Gray
-    Write-Host "$($DeviceInfo.Serial)" -ForegroundColor Gray
+    Write-Host " Serial:  " -NoNewline -ForegroundColor Cyan
+    Write-Host "$($DeviceInfo.Serial)" -ForegroundColor DarkCyan
 
     # Get Android version and additional info
     try {
         $androidVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.release 2>&1 | Out-String).Trim()
-        Write-Host " Android: " -NoNewline -ForegroundColor Gray
+        Write-Host " Android: " -NoNewline -ForegroundColor Cyan
         Write-Host "$androidVer" -ForegroundColor White
 
         $sdkVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.sdk 2>&1 | Out-String).Trim()
-        Write-Host " SDK:     " -NoNewline -ForegroundColor Gray
+        Write-Host " SDK:     " -NoNewline -ForegroundColor Cyan
         Write-Host "$sdkVer" -ForegroundColor White
 
         $buildId = (& $Script:AdbPath -s $Target shell getprop ro.build.id 2>&1 | Out-String).Trim()
-        Write-Host " Build:   " -NoNewline -ForegroundColor Gray
+        Write-Host " Build:   " -NoNewline -ForegroundColor Cyan
         Write-Host "$buildId" -ForegroundColor White
     } catch {}
 
     # Show which app list will be used
     $appList = Get-AppListForDevice $DeviceInfo.Type
-    Write-Host " Apps:    " -NoNewline -ForegroundColor Gray
+    Write-Host " Apps:    " -NoNewline -ForegroundColor Cyan
     Write-Host "$($appList.Count) apps in optimization list" -ForegroundColor Green
 
     Write-Host ""
@@ -324,25 +324,25 @@ function Show-DeviceProfile ($Target, $DeviceInfo) {
         Write-Host " Safe ($($safeApps.Count) apps):" -ForegroundColor Green
         foreach ($app in $safeApps) {
             $defStr = if ($app.DefaultOptimize -eq "Y") { "[Y]" } else { "[N]" }
-            Write-Host "   $defStr $($app.Name)" -ForegroundColor Gray
+            Write-Host "   $defStr $($app.Name)" -ForegroundColor White
         }
 
         Write-Host ""
         Write-Host " Medium Risk ($($mediumApps.Count) apps):" -ForegroundColor Yellow
         foreach ($app in $mediumApps) {
             $defStr = if ($app.DefaultOptimize -eq "Y") { "[Y]" } else { "[N]" }
-            Write-Host "   $defStr $($app.Name)" -ForegroundColor Gray
+            Write-Host "   $defStr $($app.Name)" -ForegroundColor White
         }
 
         Write-Host ""
         Write-Host " High Risk / Advanced ($($highApps.Count) apps):" -ForegroundColor Red
         foreach ($app in $highApps) {
             $defStr = if ($app.DefaultOptimize -eq "Y") { "[Y]" } else { "[N]" }
-            Write-Host "   $defStr $($app.Name)" -ForegroundColor Gray
+            Write-Host "   $defStr $($app.Name)" -ForegroundColor White
         }
 
         Write-Host ""
-        Write-Host " Legend: [Y] = Default Yes, [N] = Default No/Skip" -ForegroundColor DarkGray
+        Write-Host " Legend: [Y] = Default Yes, [N] = Default No/Skip" -ForegroundColor Blue
         Write-Host ""
     }
 }
@@ -355,8 +355,8 @@ function Write-Success ($Text)  { Write-Host " [OK] $Text" -ForegroundColor Gree
 function Write-Warn ($Text)     { Write-Host " [!!] $Text" -ForegroundColor Yellow }
 function Write-ErrorMsg ($Text) { Write-Host " [ERROR] $Text" -ForegroundColor Red }
 function Write-Info ($Text)     { Write-Host " [INFO] $Text" -ForegroundColor White }
-function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor Gray }
-function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor Gray }
+function Write-Dim ($Text)      { Write-Host " $Text" -ForegroundColor DarkCyan }
+function Write-Separator        { Write-Host "`n────────────────────────────────────────────────────────────────────────────────`n" -ForegroundColor Blue }
 
 # --- HELPER FUNCTIONS FOR DRY CODE ---
 
@@ -696,11 +696,11 @@ function Connect-PinPairing {
     Write-Host "   [EXPERIMENTAL] For newer Chromecasts and Google TV devices." -ForegroundColor Yellow
     Write-Host "   (Shield TV uses standard Network Debugging - use 'Connect IP' instead)" -ForegroundColor Yellow
     Write-Host ""
-    Write-Host "   1. Go to Settings > System > Developer Options" -ForegroundColor Gray
-    Write-Host "   2. Enable 'USB Debugging'" -ForegroundColor Gray
-    Write-Host "   3. Enable 'Network Debugging'" -ForegroundColor Gray
-    Write-Host "   4. Tap 'Pair device with pairing code'" -ForegroundColor Gray
-    Write-Host "   5. Note the IP, pairing port, and 6-digit PIN shown" -ForegroundColor Gray
+    Write-Host "   1. Go to Settings > System > Developer Options" -ForegroundColor White
+    Write-Host "   2. Enable 'USB Debugging'" -ForegroundColor White
+    Write-Host "   3. Enable 'Network Debugging'" -ForegroundColor White
+    Write-Host "   4. Tap 'Pair device with pairing code'" -ForegroundColor White
+    Write-Host "   5. Note the IP, pairing port, and 6-digit PIN shown" -ForegroundColor White
     Write-Host ""
 
     # Step 1: Get IP address
@@ -968,7 +968,7 @@ function Scan-Network {
 
     # Get local subnet
     $subnet = Get-LocalSubnet
-    Write-Host " Subnet: $subnet.x" -ForegroundColor Gray
+    Write-Host " Subnet: $subnet.x" -ForegroundColor Cyan
 
     # Build list of IPs to scan: ARP table + full subnet sweep
     $ipsToScan = @{}
@@ -994,7 +994,7 @@ function Scan-Network {
     $foundCount = 0
     $foundIps = @()
 
-    Write-Host " Scanning $total addresses (parallel)..." -ForegroundColor Gray
+    Write-Host " Scanning $total addresses (parallel)..." -ForegroundColor Cyan
 
     # Parallel scan using batched async connections
     $batchSize = 50  # Check 50 IPs at once
@@ -1006,7 +1006,7 @@ function Scan-Network {
 
         # Show progress
         $progress = [Math]::Min($batchEnd + 1, $total)
-        Write-Host "`r Scanning... $progress/$total" -NoNewline -ForegroundColor Gray
+        Write-Host "`r Scanning... $progress/$total" -NoNewline -ForegroundColor Cyan
 
         # Start all connections in this batch
         $connections = @()
@@ -1048,8 +1048,8 @@ function Scan-Network {
 
     if ($foundCount -eq 0) {
         Write-Warn "No devices found. Ensure Network Debugging is enabled on your Android TV."
-        Write-Host " Tip: You can also use 'Connect IP' to enter the address manually." -ForegroundColor Gray
-        Write-Host " Note: Newer Google TV devices (Android 11+) require 'Pair Device (PIN)' first." -ForegroundColor Gray
+        Write-Host " Tip: You can also use 'Connect IP' to enter the address manually." -ForegroundColor White
+        Write-Host " Note: Newer Google TV devices (Android 11+) require 'Pair Device (PIN)' first." -ForegroundColor White
     } else {
         Write-Success "Scan complete. Found $foundCount device(s)."
     }
@@ -1094,8 +1094,8 @@ function Get-ApkFiles {
 function Install-ApkFile ($Target, $ApkPath, [bool]$Reinstall = $false) {
     # Execute adb install, parse output for success/error codes
     Write-Header "Installing APK..."
-    Write-Host " File: $(Split-Path -Leaf $ApkPath)" -ForegroundColor Gray
-    Write-Host " Size: $(Format-FileSize (Get-Item $ApkPath).Length)" -ForegroundColor Gray
+    Write-Host " File: $(Split-Path -Leaf $ApkPath)" -ForegroundColor White
+    Write-Host " Size: $(Format-FileSize (Get-Item $ApkPath).Length)" -ForegroundColor Cyan
     Write-Host ""
 
     try {
@@ -1145,7 +1145,7 @@ function Install-ApkFile ($Target, $ApkPath, [bool]$Reinstall = $false) {
                 Write-ErrorMsg "Installation failed: $($Matches[1])"
             } else {
                 Write-ErrorMsg "Installation failed. Check APK and device."
-                Write-Host " Details: $result" -ForegroundColor Gray
+                Write-Host " Details: $result" -ForegroundColor White
             }
             return $false
         }
@@ -1162,7 +1162,7 @@ function Install-Apk ($Target) {
     while ($true) {
         Clear-Host
         Write-Header "Install APK"
-        Write-Host " Device: $Target" -ForegroundColor Gray
+        Write-Host " Device: $Target" -ForegroundColor Cyan
         Write-Host ""
 
         # Sub-menu options
@@ -1188,7 +1188,7 @@ function Install-Apk ($Target) {
                 Clear-Host
                 Write-Header "No APK Files Found"
                 Write-Warn "No APK files found in script directory."
-                Write-Host " Path: $scriptDir" -ForegroundColor Gray
+                Write-Host " Path: $scriptDir" -ForegroundColor DarkCyan
                 Write-Host ""
                 Write-Host " Place .apk files in the same folder as this script." -ForegroundColor Yellow
                 Pause
@@ -1216,8 +1216,8 @@ function Install-Apk ($Target) {
             # Enter Path
             Clear-Host
             Write-Header "Enter APK Path"
-            Write-Host " Enter the full path to an APK file." -ForegroundColor Gray
-            Write-Host " Example: C:\Downloads\app.apk" -ForegroundColor Gray
+            Write-Host " Enter the full path to an APK file." -ForegroundColor White
+            Write-Host " Example: C:\Downloads\app.apk" -ForegroundColor DarkCyan
             Write-Host ""
 
             $apkPath = Read-Host " APK Path"
@@ -1255,8 +1255,8 @@ function Install-Apk ($Target) {
             Clear-Host
             Write-Header "Confirm Installation"
             Write-Host " File: $($selectedApk.Name)" -ForegroundColor Cyan
-            Write-Host " Size: $($selectedApk.SizeDisplay)" -ForegroundColor Gray
-            Write-Host " Path: $($selectedApk.Path)" -ForegroundColor Gray
+            Write-Host " Size: $($selectedApk.SizeDisplay)" -ForegroundColor Cyan
+            Write-Host " Path: $($selectedApk.Path)" -ForegroundColor DarkCyan
             Write-Host ""
 
             # Ask about reinstall
@@ -1608,7 +1608,7 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
         if ($Descriptions[$itemIdx]) {
             Write-Host "$($Descriptions[$itemIdx])".PadRight(60) -ForegroundColor White
         } else {
-            Write-Host "Select an option.".PadRight(60) -ForegroundColor Gray
+            Write-Host "Select an option.".PadRight(60) -ForegroundColor DarkCyan
         }
     }
 
@@ -1769,7 +1769,7 @@ function Read-Toggle ($Prompt, $Options, $DefaultIndex=0) {
 function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     $typeName = Get-DeviceTypeName $DeviceType
     Write-Header "Health Report: $Name ($typeName)"
-    Write-Host " Gathering data..." -ForegroundColor Gray
+    Write-Host " Gathering data..." -ForegroundColor Cyan
 
     # --- BATCH ADB CALLS FOR SPEED ---
     # Combine multiple commands into fewer shell calls
@@ -1845,40 +1845,40 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     Write-Host "`r                      `r" -NoNewline  # Clear "Gathering data..."
 
     Write-SubHeader "System Info"
-    Write-Host " Platform:  " -NoNewline -ForegroundColor Gray
-    Write-Host "$Platform" -ForegroundColor Cyan
-    Write-Host " Android:   " -NoNewline -ForegroundColor Gray
+    Write-Host " Platform:  " -NoNewline -ForegroundColor Cyan
+    Write-Host "$Platform" -ForegroundColor White
+    Write-Host " Android:   " -NoNewline -ForegroundColor Cyan
     Write-Host "$AndroidVer" -ForegroundColor White
 
     Write-SubHeader "Vitals"
-    Write-Host " Temp:    " -NoNewline -ForegroundColor Gray
+    Write-Host " Temp:    " -NoNewline -ForegroundColor Cyan
     if ($Temp -ne "N/A") {
         $tempColor = Get-VitalColor -Type "Temperature" -Value ([float]$Temp)
         Write-Host "${Temp}°C" -ForegroundColor $tempColor
     } else {
-        Write-Host "N/A" -ForegroundColor Gray
+        Write-Host "N/A" -ForegroundColor DarkCyan
     }
 
-    Write-Host " RAM:     " -NoNewline -ForegroundColor Gray
+    Write-Host " RAM:     " -NoNewline -ForegroundColor Cyan
     $ramColor = Get-VitalColor -Type "RAM" -Value $Pct
     Write-Host "$Pct% ($Used / $Total MB)" -ForegroundColor $ramColor
 
-    Write-Host " Swap:    " -NoNewline -ForegroundColor Gray
+    Write-Host " Swap:    " -NoNewline -ForegroundColor Cyan
     Write-Host "$Swap MB" -ForegroundColor White
 
-    Write-Host " Storage: " -NoNewline -ForegroundColor Gray
+    Write-Host " Storage: " -NoNewline -ForegroundColor Cyan
     if ($StorageUsed -ne "N/A") {
         $storColor = Get-VitalColor -Type "Storage" -Value $StoragePct
         Write-Host "$StorageUsed / $StorageTotal ($StoragePct%)" -ForegroundColor $storColor
     } else {
-        Write-Host "N/A" -ForegroundColor Gray
+        Write-Host "N/A" -ForegroundColor DarkCyan
     }
 
     Write-SubHeader "Settings"
-    Write-Host " Animation Speed: " -NoNewline -ForegroundColor Gray
-    Write-Host "$anim" -ForegroundColor Cyan
-    Write-Host " Process Limit:   " -NoNewline -ForegroundColor Gray
-    Write-Host "$proc" -ForegroundColor Cyan
+    Write-Host " Animation Speed: " -NoNewline -ForegroundColor Cyan
+    Write-Host "$anim" -ForegroundColor White
+    Write-Host " Process Limit:   " -NoNewline -ForegroundColor Cyan
+    Write-Host "$proc" -ForegroundColor White
 
     # --- TOP MEMORY (from already-fetched meminfo) ---
     Write-SubHeader "Top Memory Users"
@@ -1901,16 +1901,16 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
                 $app = $topApps[$i]
                 $memColor = Get-VitalColor -Type "AppMemory" -Value $app.MB
                 Write-Host " $($app.MB.ToString('0.0').PadLeft(6)) MB  " -NoNewline -ForegroundColor $memColor
-                Write-Host "$($app.Package)" -ForegroundColor Gray
+                Write-Host "$($app.Package)" -ForegroundColor White
             } else {
-                Write-Host " $("--".PadLeft(6)) MB  " -NoNewline -ForegroundColor DarkGray
-                Write-Host "---" -ForegroundColor DarkGray
+                Write-Host " $("--".PadLeft(6)) MB  " -NoNewline -ForegroundColor DarkCyan
+                Write-Host "---" -ForegroundColor DarkCyan
             }
         }
     } else {
         for ($i = 0; $i -lt 10; $i++) {
-            Write-Host " $("--".PadLeft(6)) MB  " -NoNewline -ForegroundColor DarkGray
-            Write-Host "---" -ForegroundColor DarkGray
+            Write-Host " $("--".PadLeft(6)) MB  " -NoNewline -ForegroundColor DarkCyan
+            Write-Host "---" -ForegroundColor DarkCyan
         }
     }
 
@@ -1954,12 +1954,12 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         Write-Host "RAM".PadRight(10) -NoNewline -ForegroundColor White
         Write-Host "Action".PadRight(10) -NoNewline -ForegroundColor White
         Write-Host "Default" -ForegroundColor White
-        Write-Host " $("-" * 55)" -ForegroundColor Gray
+        Write-Host " $("-" * 55)" -ForegroundColor Blue
 
         foreach ($bloat in $bloatFound) {
             $memStr = if ($bloat.Memory -gt 0) { "$($bloat.Memory) MB" } else { "-- MB" }
             $defStr = if ($bloat.Default -eq "Y") { "YES" } else { "no" }
-            $defColor = if ($bloat.Default -eq "Y") { "Green" } else { "DarkGray" }
+            $defColor = if ($bloat.Default -eq "Y") { "Green" } else { "DarkCyan" }
 
             Write-Host " " -NoNewline
             Write-Host $bloat.Name.PadRight(28).Substring(0, [Math]::Min(28, $bloat.Name.Length + 10)).PadRight(28) -NoNewline -ForegroundColor Yellow
@@ -1971,7 +1971,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         $totalMem = ($bloatFound | Measure-Object -Property Memory -Sum).Sum
         if ($totalMem -gt 0) {
             Write-Host ""
-            Write-Host " Total bloat memory: " -NoNewline -ForegroundColor Gray
+            Write-Host " Total bloat memory: " -NoNewline -ForegroundColor Cyan
             Write-Host "$totalMem MB" -ForegroundColor Cyan
         }
     }
@@ -1989,19 +1989,19 @@ function Watch-Vitals ($Target, $Name) {
     Clear-Host
     Write-Host " LIVE MONITOR: $Name" -ForegroundColor Cyan
     Write-Host " ================================================" -ForegroundColor Blue
-    Write-Host " Refreshing every ${refreshInterval}s. Press Q or ESC to stop." -ForegroundColor Gray
+    Write-Host " Refreshing every ${refreshInterval}s. Press Q or ESC to stop." -ForegroundColor White
     Write-Host ""
 
     $headerRow = 5
     Hide-Cursor
 
     # Draw static labels
-    Write-Host " Temp:      " -ForegroundColor Gray
-    Write-Host " RAM:       " -ForegroundColor Gray
-    Write-Host " Swap:      " -ForegroundColor Gray
+    Write-Host " Temp:      " -ForegroundColor Cyan
+    Write-Host " RAM:       " -ForegroundColor Cyan
+    Write-Host " Swap:      " -ForegroundColor Cyan
     Write-Host ""
     Write-Host " Top Memory Users:" -ForegroundColor White
-    Write-Host " $("-" * 45)" -ForegroundColor Gray
+    Write-Host " $("-" * 45)" -ForegroundColor Blue
 
     # Show loading placeholders immediately
     [Console]::Write("$esc[$headerRow;13H")
@@ -2237,7 +2237,7 @@ function Disable-AllStockLaunchers {
     # Show user what will happen
     Write-Header "HOME Handler Analysis"
     Write-Host ""
-    Write-Host " Found $($homeHandlers.Count) HOME-capable apps:" -ForegroundColor Gray
+    Write-Host " Found $($homeHandlers.Count) HOME-capable apps:" -ForegroundColor White
     Write-Host ""
 
     foreach ($pkg in $toKeep) {
@@ -2247,7 +2247,7 @@ function Disable-AllStockLaunchers {
         Write-Host "   " -NoNewline
         Write-Host "KEEP   " -NoNewline -ForegroundColor Green
         Write-Host "$pkg" -NoNewline -ForegroundColor Cyan
-        Write-Host " ($label)" -ForegroundColor Gray
+        Write-Host " ($label)" -ForegroundColor DarkCyan
     }
     foreach ($pkg in $toDisable) {
         Write-Host "   " -NoNewline
@@ -2336,7 +2336,7 @@ function Restore-AllStockLaunchers {
 
     Write-Header "Restore Stock Launchers"
     Write-Host ""
-    Write-Host " Found $($toRestore.Count) disabled HOME handler(s):" -ForegroundColor Gray
+    Write-Host " Found $($toRestore.Count) disabled HOME handler(s):" -ForegroundColor White
     Write-Host ""
     foreach ($pkg in $toRestore) {
         Write-Host "   " -NoNewline
@@ -2550,7 +2550,7 @@ function Show-TaskSummary ($Mode, [switch]$Aborted) {
     } else {
         Write-Host " Restored: $($Script:Summary.Restored) apps" -ForegroundColor Green
     }
-    Write-Host " Skipped:  $($Script:Summary.Skipped) apps" -ForegroundColor Gray
+    Write-Host " Skipped:  $($Script:Summary.Skipped) apps" -ForegroundColor DarkCyan
     if ($Script:Summary.Failed -gt 0) {
         Write-Host " Failed:   $($Script:Summary.Failed) apps" -ForegroundColor Red
     }
@@ -2617,7 +2617,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
             if ($Mode -eq "Optimize") {
                 $appMem = Get-AppMemoryUsage -Target $Target -Package $pkg
                 if ($appMem) {
-                    $memColor = if ($appMem -gt 100) { "Yellow" } else { "DarkGray" }
+                    $memColor = if ($appMem -gt 100) { "Yellow" } else { "DarkCyan" }
                     Write-Host " (using $appMem MB RAM)" -ForegroundColor $memColor
                 } else {
                     Write-Host ""  # Newline if not running
@@ -2628,7 +2628,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
             Write-Dim "    $desc"
 
             if ($Mode -eq "Restore") {
-                if ($existsOnSystem) { Write-Host "    [Status: Disabled]" -ForegroundColor Gray }
+                if ($existsOnSystem) { Write-Host "    [Status: Disabled]" -ForegroundColor Magenta }
                 else { Write-Host "    [Status: Missing]" -ForegroundColor Yellow }
             }
 
@@ -2689,7 +2689,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
                 if ($selStr -ne "SKIP") {
                     if ($selStr -eq "UNINSTALL") {
-                        Write-Host "    Uninstalling..." -NoNewline -ForegroundColor Gray
+                        Write-Host "    Uninstalling..." -NoNewline -ForegroundColor Cyan
                         $result = Invoke-AdbCommand -Target $Target -Command "pm uninstall --user 0 $pkg"
                         if ($result.Success -and $result.Output -notmatch "Failure") {
                             Write-Host "`r" -NoNewline
@@ -2704,7 +2704,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                             if ($canDisable) {
                                 $fallback = Read-Toggle -Prompt "    >> Try DISABLE instead?" -Options @("YES", "NO") -DefaultIndex 0
                                 if ($fallback -eq 0) {
-                                    Write-Host "    Disabling instead..." -NoNewline -ForegroundColor Gray
+                                    Write-Host "    Disabling instead..." -NoNewline -ForegroundColor Cyan
                                     $disResult = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
                                     if ($disResult.Success -and $disResult.Output -match "disabled") {
                                         Write-Host "`r" -NoNewline
@@ -2725,7 +2725,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                             }
                         }
                     } else {
-                        Write-Host "    Disabling..." -NoNewline -ForegroundColor Gray
+                        Write-Host "    Disabling..." -NoNewline -ForegroundColor Cyan
                         $result = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
                         if ($result.Success -and $result.Output -notmatch "Failure") {
                             Write-Host "`r" -NoNewline
@@ -2761,7 +2761,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                 }
 
                 if ($selStr -eq "RESTORE") {
-                    Write-Host "    Attempting Recovery..." -NoNewline -ForegroundColor Gray
+                    Write-Host "    Attempting Recovery..." -NoNewline -ForegroundColor Cyan
                     if ($isInstalledForUser) {
                         $result = Invoke-AdbCommand -Target $Target -Command "pm enable $pkg"
                         if ($result.Success) {
@@ -2807,7 +2807,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     if ($Mode -eq "Optimize") { $tAnim = "0.5" } else { $tAnim = "1.0" }
 
     Write-Host "Animation Speed" -NoNewline
-    if ($currAnim -eq $tAnim) { Write-Host " [ALREADY $tAnim]" -ForegroundColor Gray }
+    if ($currAnim -eq $tAnim) { Write-Host " [ALREADY $tAnim]" -ForegroundColor Green }
     else {
         Write-Host " [Current: ${currAnim}]" -ForegroundColor Yellow
 
@@ -2844,7 +2844,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     if ($currProc -eq "null" -or $currProc -eq "") { $currProc = "Standard" }
 
     Write-Host "`nBackground Process Limit" -NoNewline
-    Write-Host " [Current: $currProc]" -ForegroundColor Gray
+    Write-Host " [Current: $currProc]" -ForegroundColor Cyan
 
     if ($Mode -eq "Optimize") {
         if ($applyAll) {
@@ -3147,9 +3147,9 @@ while ($true) {
                 Write-Host "   4. Select 'Allow' or 'OK'" -ForegroundColor White
                 Write-Host ""
                 Write-Host " If you don't see the prompt:" -ForegroundColor Yellow
-                Write-Host "   - Wake up the TV (press any button on remote)" -ForegroundColor Gray
-                Write-Host "   - Try: Settings > Developer Options > Revoke USB debugging" -ForegroundColor Gray
-                Write-Host "   - Then reconnect using Scan Network or Connect IP" -ForegroundColor Gray
+                Write-Host "   - Wake up the TV (press any button on remote)" -ForegroundColor White
+                Write-Host "   - Try: Settings > Developer Options > Revoke USB debugging" -ForegroundColor White
+                Write-Host "   - Then reconnect using Scan Network or Connect IP" -ForegroundColor White
                 Write-Host ""
             } else {
                 Write-Warn "Cannot manage device in state: $($target.Status)"
