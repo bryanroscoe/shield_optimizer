@@ -160,6 +160,21 @@ ADB tools download automatically on first run (platform-appropriate version). Ac
 
 ## Troubleshooting
 
+### Windows - "Running scripts is disabled on this system"
+
+This happens because PowerShell blocks unsigned scripts by default. Fix it with one of these options:
+
+**Option 1: Change execution policy (recommended)**
+1. Open PowerShell 7 as Administrator
+2. Run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+**Option 2: Bypass for a single run**
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\Shield-Optimizer.ps1
+```
+
+### Other Issues
+
 | Problem | Solution |
 |---------|----------|
 | Device not found | Enable Network Debugging, try Scan Network, check TV for auth prompt |
