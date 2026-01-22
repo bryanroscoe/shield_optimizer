@@ -1279,37 +1279,78 @@ function Install-Apk ($Target) {
 function Show-Help {
     Clear-Host
     Write-Header "HELP & TROUBLESHOOTING"
-    Write-Host "1. PRE-REQUISITES" -ForegroundColor Cyan
-    Write-Host "   - Enable Developer Options: Settings > Device Preferences > About > Build (Click 7 times)"
-    Write-Host "   - Enable USB Debugging: Settings > Device Preferences > Developer Options > USB Debugging"
-    Write-Host "   - Network Debugging: Enable this if connecting via WiFi."
+
+    Write-Host "1. SETUP (on your TV)" -ForegroundColor Cyan
+    Write-Host "   Enable Developer Options:" -ForegroundColor White
+    Write-Host "     Settings > Device Preferences > About > Build " -NoNewline -ForegroundColor DarkCyan
+    Write-Host "(tap 7 times)" -ForegroundColor Yellow
+    Write-Host "   Enable Network Debugging:" -ForegroundColor White
+    Write-Host "     Settings > Device Preferences > Developer Options > Network Debugging" -ForegroundColor DarkCyan
 
     Write-Host "`n2. CONNECTING" -ForegroundColor Cyan
-    Write-Host "   - Use [Scan Network] to auto-discover Android TV devices."
-    Write-Host "   - If scan fails, use [Connect IP] to enter the address manually."
-    Write-Host "   - If a device shows 'UNAUTHORIZED', check your TV screen to accept the connection."
+    Write-Host "   Scan Network    " -NoNewline -ForegroundColor Green
+    Write-Host "Auto-discover devices on your local network" -ForegroundColor White
+    Write-Host "   Connect IP      " -NoNewline -ForegroundColor Green
+    Write-Host "Enter IP address manually (standard port 5555)" -ForegroundColor White
+    Write-Host "   Pair Device     " -NoNewline -ForegroundColor Yellow
+    Write-Host "[EXPERIMENTAL] For newer Chromecasts/Google TV" -ForegroundColor White
+    Write-Host "                   " -NoNewline
+    Write-Host "Uses PIN pairing - not needed for Shield TV" -ForegroundColor DarkCyan
+    Write-Host "   UNAUTHORIZED?   " -NoNewline -ForegroundColor Red
+    Write-Host "Check your TV screen to accept the connection" -ForegroundColor White
 
     Write-Host "`n3. SUPPORTED DEVICES" -ForegroundColor Cyan
-    Write-Host "   - Nvidia Shield TV (all models)"
-    Write-Host "   - Onn 4K Pro (Walmart)"
-    Write-Host "   - Chromecast with Google TV"
-    Write-Host "   - Google TV Streamer (2024)"
-    Write-Host "   - Other Android TV devices"
+    Write-Host "   Nvidia Shield TV    " -NoNewline -ForegroundColor Green
+    Write-Host "2015, 2017, 2019 - Fully tested" -ForegroundColor White
+    Write-Host "   Onn 4K Pro          " -NoNewline -ForegroundColor Green
+    Write-Host "Walmart - Fully tested" -ForegroundColor White
+    Write-Host "   Chromecast w/ GTV   " -NoNewline -ForegroundColor Yellow
+    Write-Host "Should work (Google TV profile)" -ForegroundColor White
+    Write-Host "   Google TV Streamer  " -NoNewline -ForegroundColor Yellow
+    Write-Host "2024 model - Should work" -ForegroundColor White
 
-    Write-Host "`n4. MODES" -ForegroundColor Cyan
-    Write-Host "   - OPTIMIZE: Disables bloatware (device-specific). Choose Disable or Uninstall."
-    Write-Host "   - RESTORE: Re-enables or re-installs apps."
-    Write-Host "   - LAUNCHER: Install Projectivy, FLauncher, or manage stock launcher."
-    Write-Host "   - RECOVERY: Emergency restore - re-enables all disabled packages."
+    Write-Host "`n4. FEATURES" -ForegroundColor Cyan
+    Write-Host "   Optimize        " -NoNewline -ForegroundColor Green
+    Write-Host "Disable/uninstall bloatware (device-specific lists)" -ForegroundColor White
+    Write-Host "   Restore         " -NoNewline -ForegroundColor Green
+    Write-Host "Re-enable or reinstall disabled apps" -ForegroundColor White
+    Write-Host "   Report          " -NoNewline -ForegroundColor Green
+    Write-Host "Health check: temp, RAM, storage, bloat scan" -ForegroundColor White
+    Write-Host "   Launcher Setup  " -NoNewline -ForegroundColor Green
+    Write-Host "Install Projectivy/FLauncher/Wolf, disable stock" -ForegroundColor White
+    Write-Host "   Install APK     " -NoNewline -ForegroundColor Green
+    Write-Host "Sideload APK files from folder or custom path" -ForegroundColor White
+    Write-Host "   Profile         " -NoNewline -ForegroundColor Green
+    Write-Host "View device info and full app optimization list" -ForegroundColor White
+    Write-Host "   Recovery        " -NoNewline -ForegroundColor Red
+    Write-Host "Emergency restore - re-enable ALL disabled packages" -ForegroundColor White
 
     Write-Host "`n5. KEYBOARD SHORTCUTS" -ForegroundColor Cyan
-    Write-Host "   - Arrow Keys: Navigate menus"
-    Write-Host "   - 1-9: Quick select devices"
-    Write-Host "   - Letters: Quick select options (shown as [S]can, [Q]uit, etc.)"
-    Write-Host "   - Enter: Confirm selection"
-    Write-Host "   - ESC: Cancel / Go back"
+    Write-Host "   Up/Down         " -NoNewline -ForegroundColor Yellow
+    Write-Host "Navigate menus" -ForegroundColor White
+    Write-Host "   Left/Right      " -NoNewline -ForegroundColor Yellow
+    Write-Host "Toggle YES/NO options" -ForegroundColor White
+    Write-Host "   1-9             " -NoNewline -ForegroundColor Yellow
+    Write-Host "Quick select devices by number" -ForegroundColor White
+    Write-Host "   A-Z             " -NoNewline -ForegroundColor Yellow
+    Write-Host "Quick select by letter (e.g., [S]can, [Q]uit)" -ForegroundColor White
+    Write-Host "   Enter           " -NoNewline -ForegroundColor Green
+    Write-Host "Confirm selection" -ForegroundColor White
+    Write-Host "   ESC             " -NoNewline -ForegroundColor Red
+    Write-Host "Cancel / Go back / Abort operation" -ForegroundColor White
 
-    Read-Host "`nPress Enter to return..."
+    Write-Host "`n6. TROUBLESHOOTING" -ForegroundColor Cyan
+    Write-Host "   Device not found?     " -NoNewline -ForegroundColor Yellow
+    Write-Host "Enable Network Debugging, try Scan or Connect IP" -ForegroundColor White
+    Write-Host "   Scan finds nothing?   " -NoNewline -ForegroundColor Yellow
+    Write-Host "Devices must have Network Debugging enabled" -ForegroundColor White
+    Write-Host "   Launcher won't switch?" -NoNewline -ForegroundColor Yellow
+    Write-Host " Use Launcher Setup, press Home after disabling stock" -ForegroundColor White
+    Write-Host "   Something broke?      " -NoNewline -ForegroundColor Yellow
+    Write-Host "Use Recovery mode to re-enable all packages" -ForegroundColor White
+
+    Write-Host ""
+    Read-Host "Press Enter to return..."
 }
 
 # Helper to print menu option with colored shortcut key and status tags
