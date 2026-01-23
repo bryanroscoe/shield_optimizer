@@ -279,8 +279,8 @@ $Script:CommonAppList = @(
     # --- MEDIUM: Minor functionality impact ---
     @{ Package = "com.android.dreams.basic"; Name = "Basic Daydream"; Method = "DISABLE"; Risk = "Medium"
        OptimizeDescription = "Disables basic screensaver."; RestoreDescription = "Restores basic screensaver."; DefaultOptimize = "N"; DefaultRestore = "Y" }
-    @{ Package = "com.android.providers.tv"; Name = "Live Channels Provider"; Method = "DISABLE"; Risk = "Medium"
-       OptimizeDescription = "Disables Live TV provider."; RestoreDescription = "Restores Live Channels support."; DefaultOptimize = "N"; DefaultRestore = "Y" }
+    @{ Package = "com.android.providers.tv"; Name = "Live Channels Provider"; Method = "DISABLE"; Risk = "High Risk"
+       OptimizeDescription = "Breaks Pandora and apps using Live Channels API."; RestoreDescription = "Restores Live Channels support."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- HIGH RISK: May break features ---
     @{ Package = "com.google.android.katniss"; Name = "Google Assistant"; Method = "DISABLE"; Risk = "High Risk"
