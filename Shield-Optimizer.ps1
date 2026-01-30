@@ -364,7 +364,8 @@ $Script:Launchers = @(
     @{Name="Projectivy Launcher"; Pkg="com.spocky.projengmenu"},
     @{Name="FLauncher"; Pkg="me.efesser.flauncher"},
     @{Name="ATV Launcher"; Pkg="com.sweech.launcher"},
-    @{Name="Wolf Launcher"; Pkg="com.wolf.firelauncher"}
+    @{Name="Wolf Launcher"; Pkg="com.wolf.firelauncher"},
+    @{Name="AT4K Launcher"; Pkg="com.overdevs.at4k"}
 )
 
 # --- DEVICE DETECTION ---
@@ -2680,8 +2681,8 @@ function Setup-Launcher ($Target) {
     }
     $lOpts += "Back"; $lDescs += "Return to Action Menu"
 
-    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, S=Stock, B=Back
-    $launcherShortcuts = @("P", "F", "A", "W", "S", "B")
+    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, 4=AT4K, S=Stock, B=Back
+    $launcherShortcuts = @("P", "F", "A", "W", "4", "S", "B")
     $sel = Read-Menu -Title "Select Launcher" -Options $lOpts -Descriptions $lDescs -Shortcuts $launcherShortcuts
 
     # Handle ESC or Back
