@@ -2716,43 +2716,53 @@ function Setup-Launcher ($Target) {
         $toggleIdx = Read-Toggle -Prompt "Not Installed. Open Play Store?" -Options @("YES", "NO") -DefaultIndex 0
         if ($toggleIdx -eq 0) {
             Open-PlayStore -Target $Target -PkgId $choice.Pkg
-        }
-    } else {
-        # Check if already the active launcher
-        if ($currentLauncher -eq $choice.Pkg) {
-            Write-Success "$($choice.Name) is already the active launcher."
-
-            # Offer to disable remaining HOME handlers for cleaner experience
-            $toggleIdx = Read-Toggle -Prompt "Disable all stock HOME handlers?" -Options @("YES", "NO") -DefaultIndex 1
-            if ($toggleIdx -eq 0) {
-                $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
+            # Re-check if launcher was installed
+            $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages 2>&1 | Out-String)
+            if (-not (Test-PackageInList -PackageList $installedPkgs -Package $choice.Pkg)) {
+                Write-Warn "$($choice.Name) was not installed."
+                return
             }
+            Write-Success "$($choice.Name) installed successfully."
+        } else {
             return
         }
+    }
 
-        # Custom launcher is installed but not active
-        Write-Success "$($choice.Name) is installed."
+    # Launcher is installed (either already was, or just installed) - proceed with setup
+    # Check if already the active launcher
+    if ($currentLauncher -eq $choice.Pkg) {
+        Write-Success "$($choice.Name) is already the active launcher."
 
-        # Check if any stock launcher is still active
-        $isStockActive = $false
-        foreach ($stockPkg in $Script:StockLaunchers) {
-            if ($currentLauncher -eq $stockPkg) {
-                $isStockActive = $true
-                break
-            }
+        # Offer to disable remaining HOME handlers for cleaner experience
+        $toggleIdx = Read-Toggle -Prompt "Disable all stock HOME handlers?" -Options @("YES", "NO") -DefaultIndex 1
+        if ($toggleIdx -eq 0) {
+            $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
         }
+        return
+    }
 
-        if ($isStockActive) {
-            # Offer to disable ALL stock HOME handlers (not just the main launcher)
-            $toggleIdx = Read-Toggle -Prompt "Disable stock launchers to make $($choice.Name) the default?" -Options @("YES", "NO") -DefaultIndex 0
-            if ($toggleIdx -eq 0) {
-                $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
-            } else {
-                Write-Info "Press Home button on your remote and select $($choice.Name) as default."
-            }
+    # Custom launcher is installed but not active
+    Write-Success "$($choice.Name) is installed."
+
+    # Check if any stock launcher is still active
+    $isStockActive = $false
+    foreach ($stockPkg in $Script:StockLaunchers) {
+        if ($currentLauncher -eq $stockPkg) {
+            $isStockActive = $true
+            break
+        }
+    }
+
+    if ($isStockActive) {
+        # Offer to disable ALL stock HOME handlers (not just the main launcher)
+        $toggleIdx = Read-Toggle -Prompt "Disable stock launchers to make $($choice.Name) the default?" -Options @("YES", "NO") -DefaultIndex 0
+        if ($toggleIdx -eq 0) {
+            $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
         } else {
-            Write-Info "Press Home button on your remote and select it as default."
+            Write-Info "Press Home button on your remote and select $($choice.Name) as default."
         }
+    } else {
+        Write-Info "Press Home button on your remote and select it as default."
     }
 }
 
@@ -3224,7 +3234,7 @@ function Set-DisplayScaling ($Target) {
     $currentDensity = (& $Script:AdbPath -s $Target shell wm density 2>&1 | Out-String).Trim()
 
     Write-Host ""
-    Write-Host "  Current Settings:" -ForegroundColor $Script:Colors.Heading
+    Write-Host "  Current Settings:" -ForegroundColor $Script:Colors.Header
     Write-Host "    $currentSize" -ForegroundColor $Script:Colors.Text
     Write-Host "    $currentDensity" -ForegroundColor $Script:Colors.Text
     Write-Host ""
