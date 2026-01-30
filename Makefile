@@ -6,7 +6,7 @@ ADB := ./platform-tools/adb
 SHIELD := 192.168.42.143:5555
 ONN := 192.168.42.25:5555
 
-.PHONY: test test-verbose test-coverage fixtures lint help connect clean screenshots screenshots-auto
+.PHONY: test test-verbose test-coverage fixtures lint help connect clean screenshots screenshots-auto screenshots-gif
 
 # Default target
 help:
@@ -27,8 +27,9 @@ help:
 	@echo "    connect       - Connect to both devices via ADB"
 	@echo ""
 	@echo "  Screenshots:"
-	@echo "    screenshots     - Interactive screenshot gallery (N/P/Q to navigate)"
+	@echo "    screenshots      - Interactive screenshot gallery (N/P/Q to navigate)"
 	@echo "    screenshots-auto - Automated PNG capture (requires: brew install homeport/tap/termshot)"
+	@echo "    screenshots-gif  - Create animated GIF from screenshots (requires: ffmpeg)"
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    clean         - Remove generated files"
@@ -87,7 +88,8 @@ screenshots:
 	pwsh -NoProfile -File ./demos/ScreenshotGallery.ps1
 
 # Automated PNG capture (requires: brew install homeport/tap/termshot)
-SCREENSHOT_NAMES := main-menu action-menu device-profile health-vitals top-memory bloat-check launcher-wizard help-screen optimize-prompt task-summary
+# Flow: main menu -> scan -> actions -> report -> bloat -> optimize -> summary -> launcher -> restore
+SCREENSHOT_NAMES := main-menu scanning action-menu report bloat-check optimize optimize-progress summary launcher restore
 
 screenshots-auto:
 	@mkdir -p screenshots
@@ -97,3 +99,32 @@ screenshots-auto:
 		i=$$((i + 1)); \
 	done
 	@echo "Done! Screenshots saved to ./screenshots/"
+
+# Create animated GIF from screenshots (requires: ffmpeg)
+# Normalizes images to same size, uses two-pass palette generation
+# Frame duration: 1 second per frame
+screenshots-gif:
+	@echo "Creating animated GIF (1s per frame)..."
+	@mkdir -p screenshots/tmp
+	@for name in $(SCREENSHOT_NAMES); do \
+		ffmpeg -y -i screenshots/$$name.png \
+			-vf "scale=640:480:force_original_aspect_ratio=decrease,pad=640:480:(ow-iw)/2:(oh-ih)/2:color=0x1a1a1a" \
+			screenshots/tmp/$$name.png 2>/dev/null; \
+	done
+	@printf "%s\n" \
+		"file 'main-menu.png'" "duration 1" \
+		"file 'scanning.png'" "duration 1" \
+		"file 'action-menu.png'" "duration 1" \
+		"file 'report.png'" "duration 1" \
+		"file 'bloat-check.png'" "duration 1" \
+		"file 'optimize.png'" "duration 1" \
+		"file 'optimize-progress.png'" "duration 1" \
+		"file 'summary.png'" "duration 1" \
+		"file 'launcher.png'" "duration 1" \
+		"file 'restore.png'" "duration 1" \
+		"file 'restore.png'" > screenshots/tmp/concat.txt
+	@cd screenshots/tmp && ffmpeg -y -f concat -i concat.txt \
+		-vf "split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=floyd_steinberg" \
+		-loop 0 ../gallery.gif 2>/dev/null
+	@rm -rf screenshots/tmp
+	@echo "Done! Created screenshots/gallery.gif ($$(du -h screenshots/gallery.gif | cut -f1))"

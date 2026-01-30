@@ -122,6 +122,7 @@ debug/
 *.bak
 *.backup
 *.cache
+screenshots/tmp/
 
 # ===================
 # Environment / Secrets
