@@ -6,7 +6,7 @@ ADB := ./platform-tools/adb
 SHIELD := 192.168.42.143:5555
 ONN := 192.168.42.25:5555
 
-.PHONY: test test-verbose test-coverage fixtures lint help connect clean
+.PHONY: test test-verbose test-coverage fixtures lint help connect clean screenshots screenshots-auto
 
 # Default target
 help:
@@ -25,6 +25,10 @@ help:
 	@echo ""
 	@echo "  Device:"
 	@echo "    connect       - Connect to both devices via ADB"
+	@echo ""
+	@echo "  Screenshots:"
+	@echo "    screenshots     - Interactive screenshot gallery (N/P/Q to navigate)"
+	@echo "    screenshots-auto - Automated PNG capture (requires: brew install homeport/tap/termshot)"
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    clean         - Remove generated files"
@@ -77,3 +81,19 @@ lint:
 clean:
 	rm -f test-results.xml coverage.xml
 	rm -rf TestResults/
+
+# Screenshots / Demo mode
+screenshots:
+	pwsh -NoProfile -File ./demos/ScreenshotGallery.ps1
+
+# Automated PNG capture (requires: brew install homeport/tap/termshot)
+SCREENSHOT_NAMES := main-menu action-menu device-profile health-vitals top-memory bloat-check launcher-wizard help-screen optimize-prompt task-summary
+
+screenshots-auto:
+	@mkdir -p screenshots
+	@i=1; for name in $(SCREENSHOT_NAMES); do \
+		echo "Capturing $$name..."; \
+		termshot -f screenshots/$$name.png -- pwsh -NoProfile -File ./demos/ScreenshotGallery.ps1 -Screen $$i; \
+		i=$$((i + 1)); \
+	done
+	@echo "Done! Screenshots saved to ./screenshots/"

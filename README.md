@@ -4,9 +4,16 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 
 ![Screen Recording 2026-01-20 at 5 51 56 PM](https://github.com/user-attachments/assets/4f8777ad-025d-4f64-b8ae-1c533b30abbf)
 
-<img width="572" height="476" alt="image" src="https://github.com/user-attachments/assets/1badb90c-a1c2-4a8d-89fa-89cc4b5fbe3d" />
-<img width="572" height="476" alt="image" src="https://github.com/user-attachments/assets/1a217695-e6de-4c38-be2f-012add6f8692" />
-<img width="572" height="476" alt="image" src="https://github.com/user-attachments/assets/5f15a6c3-2108-46b5-b25b-50e8cea4fd5a" />
+<img width="572" alt="Main Menu" src="screenshots/main-menu.png" />
+<img width="572" alt="Action Menu" src="screenshots/action-menu.png" />
+<img width="572" alt="Device Profile" src="screenshots/device-profile.png" />
+<img width="572" alt="Health Report - Vitals" src="screenshots/health-vitals.png" />
+<img width="572" alt="Top Memory Users" src="screenshots/top-memory.png" />
+<img width="572" alt="Bloat Check" src="screenshots/bloat-check.png" />
+<img width="572" alt="Launcher Wizard" src="screenshots/launcher-wizard.png" />
+<img width="572" alt="Help Screen" src="screenshots/help-screen.png" />
+<img width="572" alt="Optimize Prompt" src="screenshots/optimize-prompt.png" />
+<img width="572" alt="Task Summary" src="screenshots/task-summary.png" />
 
 
 
