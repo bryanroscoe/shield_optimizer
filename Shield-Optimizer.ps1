@@ -279,6 +279,8 @@ $Script:CommonAppList = @(
     # --- MEDIUM: Minor functionality impact ---
     @{ Package = "com.android.dreams.basic"; Name = "Basic Daydream"; Method = "DISABLE"; Risk = "Medium"
        OptimizeDescription = "Disables basic screensaver."; RestoreDescription = "Restores basic screensaver."; DefaultOptimize = "N"; DefaultRestore = "Y" }
+    @{ Package = "com.google.android.tv.remote.service"; Name = "Virtual Remote Keyboard"; Method = "DISABLE"; Risk = "Medium"
+       OptimizeDescription = "Disables virtual remote keyboard that auto-activates."; RestoreDescription = "Restores virtual remote keyboard functionality."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.android.providers.tv"; Name = "Live Channels Provider"; Method = "DISABLE"; Risk = "High Risk"
        OptimizeDescription = "Breaks Pandora and apps using Live Channels API."; RestoreDescription = "Restores Live Channels support."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
