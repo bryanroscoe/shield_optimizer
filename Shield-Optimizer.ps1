@@ -3215,6 +3215,63 @@ function Run-PanicRecovery ($Target) {
     Write-Info "You may need to reboot for changes to take effect."
 }
 
+# --- DISPLAY SCALING ---
+function Set-DisplayScaling ($Target) {
+    Write-Header "Display Scaling"
+
+    # Get current values
+    $currentSize = (& $Script:AdbPath -s $Target shell wm size 2>&1 | Out-String).Trim()
+    $currentDensity = (& $Script:AdbPath -s $Target shell wm density 2>&1 | Out-String).Trim()
+
+    Write-Host ""
+    Write-Host "  Current Settings:" -ForegroundColor $Script:Colors.Heading
+    Write-Host "    $currentSize" -ForegroundColor $Script:Colors.Text
+    Write-Host "    $currentDensity" -ForegroundColor $Script:Colors.Text
+    Write-Host ""
+
+    $sOpts = @(
+        "Shield TV 4K",
+        "Shield TV 1080p",
+        "Reset to Default",
+        "Cancel"
+    )
+    $sDescs = @(
+        "3840x2160, density 540 (native 4K)",
+        "1920x1080, density 320 (1080p mode)",
+        "Restore device defaults",
+        "Return without changes"
+    )
+    $sShortcuts = @("4", "1", "R", "C")
+
+    $sel = Read-Menu -Title "Select Preset" -Options $sOpts -Descriptions $sDescs -Shortcuts $sShortcuts
+
+    if ($sel -eq -1 -or $sel -eq 3) { return }
+
+    $confirm = Read-Toggle -Prompt "Apply display scaling changes?" -Options @("YES", "NO") -DefaultIndex 1
+    if ($confirm -ne 0) { return }
+
+    switch ($sel) {
+        0 {
+            Write-Info "Applying Shield TV 4K settings..."
+            & $Script:AdbPath -s $Target shell wm size 3840x2160 2>&1 | Out-Null
+            & $Script:AdbPath -s $Target shell wm density 540 2>&1 | Out-Null
+            Write-Success "Display set to 3840x2160 @ density 540"
+        }
+        1 {
+            Write-Info "Applying Shield TV 1080p settings..."
+            & $Script:AdbPath -s $Target shell wm size 1920x1080 2>&1 | Out-Null
+            & $Script:AdbPath -s $Target shell wm density 320 2>&1 | Out-Null
+            Write-Success "Display set to 1920x1080 @ density 320"
+        }
+        2 {
+            Write-Info "Resetting to device defaults..."
+            & $Script:AdbPath -s $Target shell wm size reset 2>&1 | Out-Null
+            & $Script:AdbPath -s $Target shell wm density reset 2>&1 | Out-Null
+            Write-Success "Display reset to default values"
+        }
+    }
+}
+
 # --- REBOOT OPTIONS ---
 function Show-RebootMenu ($Target) {
     Write-Header "Reboot Options"
@@ -3383,7 +3440,7 @@ while ($true) {
         # Inner loop: stay on this device's action menu until Back/Reboot/Disconnect/ESC
         while ($true) {
             # Action menu with device type info
-            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Install APK", "Profile", "Recovery", "Reboot", "Disconnect", "Back", "Quit")
+            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Install APK", "Profile", "Recovery", "Display Scaling", "Reboot", "Disconnect", "Back", "Quit")
             $aDescs = @(
                 "Debloat apps and tune performance for $deviceTypeName.",
                 "Undo optimizations and fix missing apps.",
@@ -3392,13 +3449,14 @@ while ($true) {
                 "Sideload an APK file to the device.",
                 "View device profile and detected settings.",
                 "Emergency: Re-enable ALL disabled packages.",
+                "Change resolution and density (wm size/density).",
                 "Restart device (normal, recovery, or bootloader).",
                 "Disconnect this device from ADB.",
                 "Return to Main Menu.",
                 "Exit Optimizer."
             )
-            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, T=reboot(resTargt), D=Disconnect, B=Back, Q=Quit
-            $actionShortcuts = @("O", "R", "E", "L", "I", "P", "C", "T", "D", "B", "Q")
+            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, S=Scaling, T=reboot, D=Disconnect, B=Back, Q=Quit
+            $actionShortcuts = @("O", "R", "E", "L", "I", "P", "C", "S", "T", "D", "B", "Q")
             $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
             # Handle ESC - return to main menu
@@ -3428,6 +3486,7 @@ while ($true) {
             if ($act -eq "Install APK") { Install-Apk -Target $target.Serial }
             if ($act -eq "Profile") { Show-DeviceProfile -Target $target.Serial -DeviceInfo $target; Pause }
             if ($act -eq "Recovery") { Run-PanicRecovery -Target $target.Serial; Pause }
+            if ($act -eq "Display Scaling") { Set-DisplayScaling -Target $target.Serial; Pause }
         }
     }
 }
