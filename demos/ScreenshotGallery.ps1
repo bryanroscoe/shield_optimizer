@@ -11,18 +11,34 @@ Import-Module (Join-Path $PSScriptRoot "../tests/TestHelpers.psm1") -Force
 $ScriptPath = Join-Path $PSScriptRoot "../Shield-Optimizer.ps1"
 
 # ============================================================================
-# FIXED HEIGHT OUTPUT - All screens render exactly 20 lines
+# FIXED SIZE OUTPUT - All screens render exactly 20 lines x 60 chars
 # ============================================================================
 
 $Script:TargetLines = 20
+$Script:TargetWidth = 60
 $Script:CurrentLine = 0
 
 function Reset-LineCount { $Script:CurrentLine = 0 }
-function Add-Line { param([string]$Text = "") Write-Host $Text; $Script:CurrentLine++ }
-function Add-LineNoNewline { param([string]$Text) Write-Host $Text -NoNewline }
+
+function Add-Line {
+    param([string]$Text = "")
+    # Pad line to fixed width
+    if ($Text.Length -lt $Script:TargetWidth) {
+        $Text = $Text + (" " * ($Script:TargetWidth - $Text.Length))
+    }
+    Write-Host $Text
+    $Script:CurrentLine++
+}
+
+function Add-LinePadded {
+    # Write an empty line padded to target width
+    Write-Host (" " * $Script:TargetWidth)
+    $Script:CurrentLine++
+}
+
 function Pad-ToTarget {
     while ($Script:CurrentLine -lt $Script:TargetLines) {
-        Write-Host ""
+        Write-Host (" " * $Script:TargetWidth)
         $Script:CurrentLine++
     }
 }
