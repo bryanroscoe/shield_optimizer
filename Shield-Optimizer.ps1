@@ -561,7 +561,11 @@ function Get-ParsedTemperature {
 
     if (-not $ThermalOutput) { return "N/A" }
 
-    # Try different thermal output formats
+    # Prioritize HAL temperatures (live) over cached
+    if ($ThermalOutput -match "(?s)Current temperatures from HAL:.*?mValue=([\d\.]+).*?mName=CPU") {
+        return [math]::Round([float]$matches[1], 1)
+    }
+    # Fallback patterns for other devices
     if ($ThermalOutput -match "mValue=([\d\.]+).*mName=CPU\d*,") {
         return [math]::Round([float]$matches[1], 1)
     }
