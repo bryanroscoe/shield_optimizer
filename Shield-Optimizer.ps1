@@ -367,7 +367,8 @@ $Script:Launchers = @(
     @{Name="FLauncher"; Pkg="me.efesser.flauncher"},
     @{Name="ATV Launcher"; Pkg="com.sweech.launcher"},
     @{Name="Wolf Launcher"; Pkg="com.wolf.firelauncher"},
-    @{Name="AT4K Launcher"; Pkg="com.overdevs.at4k"}
+    @{Name="AT4K Launcher"; Pkg="com.overdevs.at4k"},
+    @{Name="Dispatch Launcher"; Pkg="developer.flavius.dispatch"}
 )
 
 # --- DEVICE DETECTION ---
@@ -2394,7 +2395,7 @@ function Set-HomeRoleHolder ($Target, $Package) {
     }
 }
 
-# Disable all stock HOME handlers, keeping only the custom launcher and safe fallbacks
+# Disable selected HOME handlers, prompting user for each one individually
 function Disable-AllStockLaunchers {
     param(
         [string]$Target,
@@ -2429,58 +2430,88 @@ function Disable-AllStockLaunchers {
         return $false
     }
 
-    # Build safe list: custom launcher + safe handlers
+    # Build safe list: custom launcher + safe handlers (Settings, etc.)
     $safeList = @($CustomLauncherPkg) + $Script:SafeHomeHandlers
 
-    # Identify what will be disabled
-    $toDisable = @()
+    # Helper to get friendly name for a package
+    $getFriendlyName = {
+        param($pkg)
+        # Check custom launchers
+        foreach ($l in $Script:Launchers) {
+            if ($l.Pkg -eq $pkg) { return $l.Name }
+        }
+        # Check stock launchers
+        switch ($pkg) {
+            "com.google.android.tvlauncher" { return "Google TV Launcher" }
+            "com.google.android.apps.tv.launcherx" { return "Google TV Launcher" }
+            "com.google.android.leanbacklauncher" { return "Android TV Launcher" }
+            "com.nvidia.shieldtech.accessoryhost" { return "NVIDIA Accessory Host" }
+            "com.google.android.tungsten.setupwraith" { return "Google Setup Wizard" }
+            "com.droidlogic.launcher.provider" { return "Droidlogic Launcher" }
+            default { return $pkg }
+        }
+    }
+
+    # Identify disable candidates (exclude safe handlers and the active launcher)
+    $disableCandidates = @()
     $toKeep = @()
 
     foreach ($pkg in $homeHandlers) {
         if ($safeList -contains $pkg) {
             $toKeep += $pkg
         }
-        elseif ($Script:Launchers.Pkg -contains $pkg) {
-            # Another custom launcher - keep it
-            $toKeep += $pkg
-        }
         else {
-            $toDisable += $pkg
+            # Include both stock AND custom launchers as candidates
+            $disableCandidates += $pkg
         }
     }
 
-    if ($toDisable.Count -eq 0) {
-        Write-Info "No stock launchers to disable."
+    if ($disableCandidates.Count -eq 0) {
+        Write-Info "No other HOME handlers to disable."
         return $true
     }
 
-    # Show user what will happen
+    # Show user the analysis
     Write-Header "HOME Handler Analysis"
     Write-Host ""
     Write-Host " Found $($homeHandlers.Count) HOME-capable apps:" -ForegroundColor $Script:Colors.Text
     Write-Host ""
 
     foreach ($pkg in $toKeep) {
-        $label = if ($pkg -eq $CustomLauncherPkg) { "your custom launcher" }
+        $label = if ($pkg -eq $CustomLauncherPkg) { "your selected launcher" }
                  elseif ($Script:SafeHomeHandlers -contains $pkg) { "safe fallback" }
-                 else { "other custom launcher" }
+                 else { "protected" }
+        $friendlyName = & $getFriendlyName $pkg
         Write-Host "   " -NoNewline
         Write-Host "KEEP   " -NoNewline -ForegroundColor $Script:Colors.Success
-        Write-Host "$pkg" -NoNewline -ForegroundColor $Script:Colors.Label
+        Write-Host "$friendlyName" -NoNewline -ForegroundColor $Script:Colors.Label
         Write-Host " ($label)" -ForegroundColor $Script:Colors.TextDim
     }
-    foreach ($pkg in $toDisable) {
-        Write-Host "   " -NoNewline
-        Write-Host "WILL DISABLE  " -NoNewline -ForegroundColor $Script:Colors.Warning
-        Write-Host "$pkg" -ForegroundColor $Script:Colors.Text
+
+    Write-Host ""
+    Write-Host " The following HOME handlers can be disabled:" -ForegroundColor $Script:Colors.Text
+    Write-Host ""
+    foreach ($pkg in $disableCandidates) {
+        $friendlyName = & $getFriendlyName $pkg
+        Write-Host "   - " -NoNewline -ForegroundColor $Script:Colors.TextDim
+        Write-Host "$friendlyName" -NoNewline -ForegroundColor $Script:Colors.Warning
+        Write-Host " ($pkg)" -ForegroundColor $Script:Colors.TextDim
     }
     Write-Host ""
 
-    # Confirm
-    $confirm = Read-Toggle -Prompt "Disable $($toDisable.Count) HOME handler(s)?" -Options @("YES", "NO") -DefaultIndex 0
-    if ($confirm -ne 0) {
-        Write-Info "Cancelled."
-        return $false
+    # Prompt for each launcher individually
+    $toDisable = @()
+    foreach ($pkg in $disableCandidates) {
+        $friendlyName = & $getFriendlyName $pkg
+        $confirm = Read-Toggle -Prompt "Disable $friendlyName`?" -Options @("YES", "NO") -DefaultIndex 0
+        if ($confirm -eq 0) {
+            $toDisable += $pkg
+        }
+    }
+
+    if ($toDisable.Count -eq 0) {
+        Write-Info "No launchers selected for disabling."
+        return $true
     }
 
     # First, ensure custom launcher is the HOME role holder
@@ -2490,25 +2521,26 @@ function Disable-AllStockLaunchers {
         Write-Warn "Could not set HOME role (may require manual selection)."
     }
 
-    # Disable each stock handler
+    # Disable each selected handler
     $disabledCount = 0
     $disabledPkgs = @()
 
     foreach ($pkg in $toDisable) {
-        Write-Info "Disabling: $pkg"
+        $friendlyName = & $getFriendlyName $pkg
+        Write-Info "Disabling: $friendlyName"
         $result = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
         if ($result.Success -and $result.Output -notmatch "Failure") {
-            Write-Success "Disabled: $pkg"
+            Write-Success "Disabled: $friendlyName"
             $disabledCount++
             $disabledPkgs += $pkg
         }
         else {
-            Write-ErrorMsg "Failed to disable: $pkg"
+            Write-ErrorMsg "Failed to disable: $friendlyName"
         }
     }
 
     Write-Host ""
-    Write-Success "Disabled $disabledCount of $($toDisable.Count) HOME handlers."
+    Write-Success "Disabled $disabledCount of $($disableCandidates.Count) HOME handlers."
 
     if ($disabledCount -gt 0) {
         Write-Info "Press the Home button - $CustomLauncherPkg should now activate."
@@ -2683,8 +2715,8 @@ function Setup-Launcher ($Target) {
     }
     $lOpts += "Back"; $lDescs += "Return to Action Menu"
 
-    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, 4=AT4K, S=Stock, B=Back
-    $launcherShortcuts = @("P", "F", "A", "W", "4", "S", "B")
+    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, 4=AT4K, D=Dispatch, S=Stock, B=Back
+    $launcherShortcuts = @("P", "F", "A", "W", "4", "D", "S", "B")
     $sel = Read-Menu -Title "Select Launcher" -Options $lOpts -Descriptions $lDescs -Shortcuts $launcherShortcuts
 
     # Handle ESC or Back
@@ -2733,8 +2765,8 @@ function Setup-Launcher ($Target) {
     if ($currentLauncher -eq $choice.Pkg) {
         Write-Success "$($choice.Name) is already the active launcher."
 
-        # Offer to disable remaining HOME handlers for cleaner experience
-        $toggleIdx = Read-Toggle -Prompt "Disable all stock HOME handlers?" -Options @("YES", "NO") -DefaultIndex 1
+        # Offer to disable other HOME handlers for cleaner experience
+        $toggleIdx = Read-Toggle -Prompt "Disable other HOME handlers?" -Options @("YES", "NO") -DefaultIndex 1
         if ($toggleIdx -eq 0) {
             $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
         }
@@ -2754,8 +2786,8 @@ function Setup-Launcher ($Target) {
     }
 
     if ($isStockActive) {
-        # Offer to disable ALL stock HOME handlers (not just the main launcher)
-        $toggleIdx = Read-Toggle -Prompt "Disable stock launchers to make $($choice.Name) the default?" -Options @("YES", "NO") -DefaultIndex 0
+        # Offer to disable other HOME handlers (user picks which ones)
+        $toggleIdx = Read-Toggle -Prompt "Disable other launchers to make $($choice.Name) the default?" -Options @("YES", "NO") -DefaultIndex 0
         if ($toggleIdx -eq 0) {
             $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
         } else {
