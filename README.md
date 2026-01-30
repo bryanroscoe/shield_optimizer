@@ -2,9 +2,7 @@
 
 A cross-platform PowerShell tool to debloat and optimize Android TV devices. Runs on **Windows, macOS, and Linux**. Supports Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, and other Android TV devices.
 
-![Screen Recording 2026-01-20 at 5 51 56 PM](https://github.com/user-attachments/assets/4f8777ad-025d-4f64-b8ae-1c533b30abbf)
-
-<img width="600" alt="Screenshot Gallery" src="screenshots/gallery.gif" />
+<img alt="Screenshot Gallery" src="screenshots/gallery.gif" />
 
 
 
