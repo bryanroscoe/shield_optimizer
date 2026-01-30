@@ -173,6 +173,22 @@ This happens because PowerShell blocks unsigned scripts by default. Fix it with 
 pwsh -ExecutionPolicy Bypass -File .\Shield-Optimizer.ps1
 ```
 
+### Windows - "Script errors or won't run properly"
+
+Make sure you're using **PowerShell 7**, not Windows PowerShell:
+
+| App | Version | Icon Color |
+|-----|---------|------------|
+| PowerShell 7 (correct) | 7.x | Black/Dark |
+| Windows PowerShell (wrong) | 5.x | Blue |
+
+**How to check:** Run `$PSVersionTable.PSVersion` - major version should be 7+.
+
+**How to launch PowerShell 7:**
+1. Open Windows Terminal
+2. Click the dropdown arrow next to the tab
+3. Select "PowerShell" (not "Windows PowerShell")
+
 ### Other Issues
 
 | Problem | Solution |
