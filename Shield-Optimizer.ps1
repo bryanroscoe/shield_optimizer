@@ -368,7 +368,7 @@ $Script:Launchers = @(
     @{Name="ATV Launcher"; Pkg="com.sweech.launcher"},
     @{Name="Wolf Launcher"; Pkg="com.wolf.firelauncher"},
     @{Name="AT4K Launcher"; Pkg="com.overdevs.at4k"},
-    @{Name="Dispatch Launcher"; Pkg="developer.flavius.dispatch"}
+    @{Name="Dispatch Launcher"; Pkg="com.spauldhaliwal.dispatch"}
 )
 
 # --- DEVICE DETECTION ---
@@ -2638,6 +2638,82 @@ function Get-CurrentLauncher ($Target) {
     return $null
 }
 
+# Get the main HOME activity for a launcher package by parsing dumpsys output
+function Get-LauncherActivity ($Target, $PackageName) {
+    try {
+        $result = & $Script:AdbPath -s $Target shell dumpsys package $PackageName 2>&1
+        $output = ($result | Out-String)
+
+        # Look for activity with android.intent.category.HOME
+        # The dumpsys output lists activities and their intent filters
+        # We need to find an activity that has category.HOME in its filter
+        $lines = $output -split "`n"
+        $currentActivity = $null
+        $inIntentFilter = $false
+
+        foreach ($line in $lines) {
+            # Match activity declarations like "com.example.launcher/.MainActivity"
+            if ($line -match "^\s+[a-f0-9]+\s+($PackageName/[^\s]+)") {
+                $currentActivity = $matches[1]
+                $inIntentFilter = $false
+            }
+            # Alternative format: activity name on its own line
+            elseif ($line -match "^\s+Activity\s+($PackageName/[^\s]+)") {
+                $currentActivity = $matches[1]
+                $inIntentFilter = $false
+            }
+            # Check if we're entering an intent filter block
+            elseif ($line -match "filter\s*$" -or $line -match "IntentFilter") {
+                $inIntentFilter = $true
+            }
+            # Look for HOME category while we have a valid activity
+            elseif ($currentActivity -and $line -match "android\.intent\.category\.HOME") {
+                return $currentActivity
+            }
+        }
+
+        # Fallback: try resolve-activity to get the default HOME activity
+        $resolveResult = & $Script:AdbPath -s $Target shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME $PackageName 2>&1
+        $resolveOutput = ($resolveResult | Out-String).Trim()
+        if ($resolveOutput -match "($PackageName/[^\s]+)") {
+            return $matches[1]
+        }
+    }
+    catch {}
+    return $null
+}
+
+# Set the default launcher using cmd package set-home-activity
+function Set-DefaultLauncher ($Target, $PackageName) {
+    $activity = Get-LauncherActivity -Target $Target -PackageName $PackageName
+    if (-not $activity) {
+        # Try common activity names as fallback
+        $commonActivities = @(
+            "$PackageName/.MainActivity",
+            "$PackageName/.Main",
+            "$PackageName/.LauncherActivity",
+            "$PackageName/.HomeActivity"
+        )
+        foreach ($tryActivity in $commonActivities) {
+            $testResult = & $Script:AdbPath -s $Target shell cmd package set-home-activity "$tryActivity" 2>&1
+            $testOutput = ($testResult | Out-String).Trim()
+            if ($testOutput -notmatch "Error|Exception|failed|not found") {
+                return $true
+            }
+        }
+        return $false
+    }
+
+    try {
+        $result = & $Script:AdbPath -s $Target shell cmd package set-home-activity "$activity" 2>&1
+        $output = ($result | Out-String).Trim()
+        return -not ($output -match "Error|Exception|failed|not found")
+    }
+    catch {
+        return $false
+    }
+}
+
 function Setup-Launcher ($Target) {
     Write-Header "Custom Launcher Wizard"
     Write-Info "Detecting current launcher..."
@@ -2713,10 +2789,12 @@ function Setup-Launcher ($Target) {
         $lOpts += "Stock Launcher [NOT FOUND]"
         $lDescs += "No standard stock launcher detected"
     }
+    $lOpts += "Custom..."
+    $lDescs += "Enter any launcher package name"
     $lOpts += "Back"; $lDescs += "Return to Action Menu"
 
-    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, 4=AT4K, D=Dispatch, S=Stock, B=Back
-    $launcherShortcuts = @("P", "F", "A", "W", "4", "D", "S", "B")
+    # Shortcuts: P=Projectivy, F=FLauncher, A=ATV, W=Wolf, 4=AT4K, D=Dispatch, S=Stock, C=Custom, B=Back
+    $launcherShortcuts = @("P", "F", "A", "W", "4", "D", "S", "C", "B")
     $sel = Read-Menu -Title "Select Launcher" -Options $lOpts -Descriptions $lDescs -Shortcuts $launcherShortcuts
 
     # Handle ESC or Back
@@ -2737,24 +2815,62 @@ function Setup-Launcher ($Target) {
         return
     }
 
-    # Safety check: ensure selection is within bounds of custom launchers array
-    if ($sel -ge $launchers.Count) {
-        Write-Warn "Invalid selection."
-        return
+    # Handle "Custom..." option
+    if ($lOpts[$sel] -match "^Custom") {
+        Write-Host ""
+        $customPkg = Read-Host "Enter launcher package name (e.g., com.example.launcher)"
+        $customPkg = $customPkg.Trim()
+
+        # Basic package name validation
+        if (-not $customPkg -or $customPkg -notmatch "^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$") {
+            Write-ErrorMsg "Invalid package name format. Package names should be like 'com.example.launcher'"
+            return
+        }
+
+        # Check if package is installed
+        if (-not (Test-PackageInList -PackageList $installedPkgs -Package $customPkg)) {
+            Write-ErrorMsg "Package '$customPkg' is not installed on this device."
+            Write-Info "Install the launcher first, then try again."
+            return
+        }
+
+        # Create a choice object for the custom launcher
+        $choice = @{
+            Name = $customPkg
+            Pkg = $customPkg
+        }
+
+        # Proceed to common setup flow (handled below)
+        $isCustomEntry = $true
+    }
+    else {
+        $isCustomEntry = $false
+
+        # Safety check: ensure selection is within bounds of custom launchers array
+        if ($sel -ge $launchers.Count) {
+            Write-Warn "Invalid selection."
+            return
+        }
+
+        $choice = $launchers[$sel]
     }
 
-    $choice = $launchers[$sel]
-    if (-not (Test-PackageInList -PackageList $installedPkgs -Package $choice.Pkg)) {
+    # From here: common flow for both preset and custom launchers
+    $choicePkg = $choice.Pkg
+    $choiceName = $choice.Name
+
+    # For preset launchers, offer to install if not present
+    if (-not $isCustomEntry -and -not (Test-PackageInList -PackageList $installedPkgs -Package $choicePkg)) {
         $toggleIdx = Read-Toggle -Prompt "Not Installed. Open Play Store?" -Options @("YES", "NO") -DefaultIndex 0
         if ($toggleIdx -eq 0) {
-            Open-PlayStore -Target $Target -PkgId $choice.Pkg
+            Open-PlayStore -Target $Target -PkgId $choicePkg
             # Re-check if launcher was installed
             $installedPkgs = (& $Script:AdbPath -s $Target shell pm list packages 2>&1 | Out-String)
-            if (-not (Test-PackageInList -PackageList $installedPkgs -Package $choice.Pkg)) {
-                Write-Warn "$($choice.Name) was not installed."
+            if (-not (Test-PackageInList -PackageList $installedPkgs -Package $choicePkg)) {
+                Write-Warn "$choiceName was not installed."
                 return
             }
-            Write-Success "$($choice.Name) installed successfully."
+            Write-Success "$choiceName installed successfully."
         } else {
             return
         }
@@ -2762,39 +2878,34 @@ function Setup-Launcher ($Target) {
 
     # Launcher is installed (either already was, or just installed) - proceed with setup
     # Check if already the active launcher
-    if ($currentLauncher -eq $choice.Pkg) {
-        Write-Success "$($choice.Name) is already the active launcher."
+    if ($currentLauncher -eq $choicePkg) {
+        Write-Success "$choiceName is already the active launcher."
 
         # Offer to disable other HOME handlers for cleaner experience
         $toggleIdx = Read-Toggle -Prompt "Disable other HOME handlers?" -Options @("YES", "NO") -DefaultIndex 1
         if ($toggleIdx -eq 0) {
-            $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
+            $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choicePkg
         }
         return
     }
 
-    # Custom launcher is installed but not active
-    Write-Success "$($choice.Name) is installed."
+    # Launcher is installed but not active
+    Write-Success "$choiceName is installed."
 
-    # Check if any stock launcher is still active
-    $isStockActive = $false
-    foreach ($stockPkg in $Script:StockLaunchers) {
-        if ($currentLauncher -eq $stockPkg) {
-            $isStockActive = $true
-            break
-        }
+    # Prompt: Disable stock launchers?
+    $toggleIdx = Read-Toggle -Prompt "Disable stock launchers?" -Options @("YES", "NO") -DefaultIndex 0
+    if ($toggleIdx -eq 0) {
+        $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choicePkg
+    } else {
+        Write-Warning "Other launchers will remain enabled and may run in the background."
     }
 
-    if ($isStockActive) {
-        # Offer to disable other HOME handlers (user picks which ones)
-        $toggleIdx = Read-Toggle -Prompt "Disable other launchers to make $($choice.Name) the default?" -Options @("YES", "NO") -DefaultIndex 0
-        if ($toggleIdx -eq 0) {
-            $null = Disable-AllStockLaunchers -Target $Target -CustomLauncherPkg $choice.Pkg
-        } else {
-            Write-Info "Press Home button on your remote and select $($choice.Name) as default."
-        }
+    # Always try to set default programmatically
+    $setResult = Set-DefaultLauncher -Target $Target -PackageName $choicePkg
+    if ($setResult) {
+        Write-Success "$choiceName set as default launcher."
     } else {
-        Write-Info "Press Home button on your remote and select it as default."
+        Write-Warning "Could not set default programmatically. Press Home to select manually."
     }
 }
 
