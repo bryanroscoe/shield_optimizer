@@ -1,0 +1,66 @@
+Activity Resolver Table:
+  Full MIME Types:
+      application/vnd.android.package-archive:
+        1a2b3c4 tv.projectivy.launcher/.FilePickerActivity filter 5e6f7g8
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Type: "application/vnd.android.package-archive"
+
+  Base MIME Types:
+
+  Wild MIME Types:
+
+  Schemes:
+
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        1a2b3c4 tv.projectivy.launcher/.MainActivity filter 9h0i1j2
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.HOME"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.LEANBACK_LAUNCHER"
+        3k4l5m6 tv.projectivy.launcher/.SettingsActivity filter 7n8o9p0
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.DEFAULT"
+
+  MIME Typed Actions:
+
+Package [tv.projectivy.launcher] (1a2b3c4):
+  userId=0
+  pkg=Package{abcdef0 tv.projectivy.launcher}
+  codePath=/data/app/tv.projectivy.launcher-1
+  resourcePath=/data/app/tv.projectivy.launcher-1
+  legacyNativeLibraryDir=/data/app/tv.projectivy.launcher-1/lib
+  primaryCpuAbi=arm64-v8a
+  secondaryCpuAbi=null
+  versionCode=130 minSdk=21 targetSdk=33
+  versionName=4.30
+  splits=[base]
+  apkSigningVersion=2
+  applicationInfo=ApplicationInfo{abcdef0 tv.projectivy.launcher}
+  flags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+  privateFlags=[ PRIVATE_FLAG_ACTIVITIES_RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION ALLOW_AUDIO_PLAYBACK_CAPTURE HAS_DOMAIN_URLS PARTIALLY_DIRECT_BOOT_AWARE ]
+  forceQueryable=false
+  queriesPackages=[]
+  dataDir=/data/user/0/tv.projectivy.launcher
+  supportsScreens=[small, medium, large, xlarge, resizeable, anyDensity]
+  timeStamp=2024-01-15 10:30:00
+  firstInstallTime=2023-06-01 14:20:00
+  lastUpdateTime=2024-01-15 10:30:00
+  signatures=PackageSignatures{abc1234 version:2, signatures:[def5678], past signatures:[]}
+  installPermissionsFixed=true
+  pkgFlags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+  declared permissions:
+    tv.projectivy.launcher.permission.SETTINGS: prot=signature, INSTALLED
+  requested permissions:
+    android.permission.INTERNET
+    android.permission.ACCESS_NETWORK_STATE
+    android.permission.RECEIVE_BOOT_COMPLETED
+    android.permission.QUERY_ALL_PACKAGES
+  install permissions:
+    android.permission.INTERNET: granted=true
+    android.permission.ACCESS_NETWORK_STATE: granted=true
+    android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+    android.permission.QUERY_ALL_PACKAGES: granted=true
+  User 0: ceDataInode=123456 installed=true hidden=false suspended=false distractionFlags=0 stopped=false notLaunched=false enabled=0 instant=false virtual=false
+    runtime permissions:

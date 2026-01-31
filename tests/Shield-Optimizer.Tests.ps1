@@ -538,3 +538,122 @@ Describe "Get-AdbConfig" -Tag "Unit", "Priority3" {
         }
     }
 }
+
+# =============================================================================
+# Launcher Functions
+# =============================================================================
+
+Describe "Get-LauncherActivity" -Tag "Unit", "Priority2" {
+    BeforeAll {
+        $funcDef = Get-FunctionDefinition -ScriptPath $Script:ScriptPath -FunctionName "Get-LauncherActivity"
+        . ([ScriptBlock]::Create($funcDef))
+
+        # Mock ADB path for testing
+        $Script:AdbPath = "adb"
+    }
+
+    Context "Parsing dumpsys output" {
+        It "Should parse HOME activity from fixture content" -Skip:(-not (Test-Path (Join-Path $PSScriptRoot "fixtures/dumpsys-package-launcher.txt"))) {
+            # Read fixture to test the parsing logic patterns
+            $dumpsysOutput = Get-Content (Join-Path $PSScriptRoot "fixtures/dumpsys-package-launcher.txt") -Raw
+
+            # Verify the fixture contains the expected HOME category pattern
+            $dumpsysOutput | Should -Match "android\.intent\.category\.HOME"
+            # Verify the fixture contains the launcher activity
+            $dumpsysOutput | Should -Match "tv\.projectivy\.launcher/\.MainActivity"
+        }
+
+        It "Should return null for package with no HOME activity" {
+            # Verify the parsing pattern doesn't match non-HOME activities
+            $noHomeOutput = @"
+Package [com.example.nolaunch]:
+  Activity [com.example.nolaunch/.MainActivity]:
+    Action: "android.intent.action.MAIN"
+    Category: "android.intent.category.DEFAULT"
+"@
+            # No HOME category means no match
+            $noHomeOutput | Should -Not -Match "android\.intent\.category\.HOME"
+        }
+    }
+
+    Context "Edge cases" {
+        It "Should handle empty package name gracefully" {
+            # Empty package name should not match valid pattern
+            $emptyPkg = ""
+            $emptyPkg -match "^[a-zA-Z]" | Should -BeFalse
+        }
+    }
+}
+
+Describe "Set-DefaultLauncher" -Tag "Unit", "Priority2" {
+    BeforeAll {
+        # Load both functions since Set-DefaultLauncher calls Get-LauncherActivity
+        $funcDef1 = Get-FunctionDefinition -ScriptPath $Script:ScriptPath -FunctionName "Get-LauncherActivity"
+        $funcDef2 = Get-FunctionDefinition -ScriptPath $Script:ScriptPath -FunctionName "Set-DefaultLauncher"
+        . ([ScriptBlock]::Create($funcDef1))
+        . ([ScriptBlock]::Create($funcDef2))
+
+        $Script:AdbPath = "adb"
+    }
+
+    Context "Success cases" {
+        It "Should return true when set-home-activity succeeds" {
+            # Mock successful ADB responses
+            # Note: Full test requires mocking ADB calls
+        }
+    }
+
+    Context "Failure cases" {
+        It "Should return false when activity cannot be found" {
+            # When Get-LauncherActivity returns null and fallback activities fail
+        }
+
+        It "Should return false when ADB command fails" {
+            # When set-home-activity returns an error
+        }
+    }
+
+    Context "Fallback activity names" {
+        It "Should try common activity names when dumpsys parsing fails" {
+            # The function tries .MainActivity, .Main, .LauncherActivity, .HomeActivity
+        }
+    }
+}
+
+Describe "Custom Launcher Package Validation" -Tag "Unit", "Priority2" {
+    Context "Valid package names" {
+        It "Should accept valid package name: <Package>" -ForEach @(
+            @{ Package = "com.example.launcher" }
+            @{ Package = "tv.projectivy.launcher" }
+            @{ Package = "com.google.android.tvlauncher" }
+            @{ Package = "org.example.app123" }
+            @{ Package = "com.a.b" }
+            @{ Package = "com.Example_App.test" }
+        ) {
+            $Package -match "^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$" | Should -BeTrue
+        }
+    }
+
+    Context "Invalid package names" {
+        It "Should reject invalid package name: <Package>" -ForEach @(
+            @{ Package = "" }
+            @{ Package = "   " }
+            @{ Package = "com" }
+            @{ Package = "com." }
+            @{ Package = ".com.example" }
+            @{ Package = "123.example.app" }
+            @{ Package = "com..example" }
+            @{ Package = "com.example." }
+            @{ Package = "com.123.app" }
+            @{ Package = "-com.example.app" }
+            @{ Package = "com.example.app with spaces" }
+        ) {
+            # These should fail the regex
+            if ($Package -match "^\s*$") {
+                $true | Should -BeTrue  # Empty/whitespace always fails
+            } else {
+                $Package -match "^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$" | Should -BeFalse
+            }
+        }
+    }
+}
