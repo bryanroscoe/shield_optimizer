@@ -82,7 +82,7 @@ The easiest way to install PowerShell is via [Homebrew](https://brew.sh/):
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install PowerShell
-brew install powershell/tap/powershell
+brew install powershell
 ```
 
 Alternative: Download the `.pkg` installer from [PowerShell releases](https://github.com/PowerShell/PowerShell/releases/latest).
