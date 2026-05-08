@@ -102,6 +102,24 @@ sudo apt-get install -y powershell
 pwsh ./Shield-Optimizer.ps1
 ```
 
+### Linux (Docker)
+
+> *Should work, but not verified end-to-end.* Based on the workflow @shawly reported in [#9](https://github.com/bryanroscoe/shield_optimizer/issues/9).
+
+If you'd rather not install PowerShell on your host, you can run the script inside Microsoft's official PowerShell container. `--network host` is required so the script can scan your LAN for devices, and `iproute2` is needed inside the container for the auto-discovery scan.
+
+```bash
+# Start an interactive PowerShell container on the host network
+docker run -it --rm --network host mcr.microsoft.com/powershell:latest
+
+# Inside the container:
+apt-get update && apt-get install -y iproute2
+Invoke-WebRequest -Uri https://github.com/bryanroscoe/shield_optimizer/raw/refs/heads/main/Shield-Optimizer.ps1 -OutFile Shield-Optimizer.ps1
+./Shield-Optimizer.ps1
+```
+
+> **Note:** `--network host` only works on native Linux. On Docker Desktop for macOS/Windows, auto-discovery won't see your LAN — install PowerShell natively (see above) or use the script's **Connect IP** option to enter your device's IP manually.
+
 ## Download
 
 **Option 1: Download from Releases (Recommended)**
