@@ -689,17 +689,31 @@ function Invoke-AdbCommand {
     }
 }
 
-# Get memory usage for a specific package (returns MB or $null if not running)
-function Get-AppMemoryUsage {
-    param([string]$Target, [string]$Package)
+# Build a {package -> MB} map from a single `dumpsys meminfo` call.
+# Sums all processes that share a base package (e.g. com.example, com.example:worker).
+# Returns an empty hashtable on any failure so callers can lookup safely.
+function Get-AppMemoryMap {
+    param([string]$Target)
+    $map = @{}
     try {
-        $mem = & $Script:AdbPath -s $Target shell "dumpsys meminfo $Package 2>/dev/null | grep 'TOTAL PSS'" 2>&1 | Out-String
-        if ($mem -match "TOTAL PSS:\s+(\d+)") {
-            $kb = [int]$matches[1]
-            return [math]::Round($kb / 1024, 1)
+        $mem = & $Script:AdbPath -s $Target shell "dumpsys meminfo" 2>&1 | Out-String
+        $inSection = $false
+        foreach ($line in ($mem -split "`n")) {
+            if ($line -match "Total PSS by process:") { $inSection = $true; continue }
+            if ($inSection -and $line -match "^\s*$") { break }
+            if ($inSection -and $line -match "^\s*([\d,]+)K:\s+([a-zA-Z0-9_.]+)") {
+                $kb = [int]($matches[1] -replace ",", "")
+                $pkg = $matches[2]
+                if ($map.ContainsKey($pkg)) { $map[$pkg] += $kb } else { $map[$pkg] = $kb }
+            }
         }
     } catch {}
-    return $null
+    # Convert KB sums to MB rounded
+    $result = @{}
+    foreach ($k in $map.Keys) {
+        $result[$k] = [math]::Round($map[$k] / 1024, 1)
+    }
+    return $result
 }
 
 # Get top memory-consuming apps (returns array of @{Name; Package; MB})
@@ -2953,6 +2967,10 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
     $allPkgs = (& $Script:AdbPath -s $Target shell pm list packages -u 2>&1 | Out-String)         # All packages including uninstalled
     $disabledPkgs = (& $Script:AdbPath -s $Target shell pm list packages -d 2>&1 | Out-String)    # Disabled packages
 
+    # Snapshot per-app memory once (Optimize mode only) to avoid one ADB roundtrip per app
+    $memoryMap = @{}
+    if ($Mode -eq "Optimize") { $memoryMap = Get-AppMemoryMap -Target $Target }
+
     # Get device-specific app list
     $appList = Get-AppListForDevice $DeviceType
     Write-Info "Processing $($appList.Count) apps for $typeName..."
@@ -2989,7 +3007,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
             # Show memory usage if app is currently running (Optimize mode only)
             if ($Mode -eq "Optimize") {
-                $appMem = Get-AppMemoryUsage -Target $Target -Package $pkg
+                $appMem = $memoryMap[$pkg]
                 if ($appMem) {
                     $memColor = if ($appMem -gt 100) { "Yellow" } else { "DarkCyan" }
                     Write-Host " (using $appMem MB RAM)" -ForegroundColor $memColor
