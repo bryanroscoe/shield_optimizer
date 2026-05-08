@@ -290,7 +290,7 @@ $Script:CommonAppList = @(
     @{ Package = "com.google.android.tv.remote.service"; Name = "Virtual Remote Keyboard"; Method = "DISABLE"; Risk = "Medium"
        OptimizeDescription = "Disables virtual remote keyboard that auto-activates."; RestoreDescription = "Restores virtual remote keyboard functionality."; DefaultOptimize = "N"; DefaultRestore = "Y" }
     @{ Package = "com.android.providers.tv"; Name = "Live Channels Provider"; Method = "DISABLE"; Risk = "High Risk"
-       OptimizeDescription = "Breaks Pandora and apps using Live Channels API."; RestoreDescription = "Restores Live Channels support."; DefaultOptimize = "N"; DefaultRestore = "Y" }
+       OptimizeDescription = "Breaks Watch Next / Continue Watching channels for Apple TV, Netflix, Disney+, etc. Also breaks Pandora and the Live Channels app."; RestoreDescription = "Restores Watch Next channel support and Live Channels."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- HIGH RISK: May break features ---
     @{ Package = "com.google.android.katniss"; Name = "Google Assistant"; Method = "DISABLE"; Risk = "High Risk"
@@ -317,7 +317,7 @@ $Script:ShieldAppList = @(
     @{ Package = "com.nvidia.feedback"; Name = "Nvidia Feedback"; Method = "DISABLE"; Risk = "Safe"
        OptimizeDescription = "Stops Nvidia feedback collection."; RestoreDescription = "Restores Nvidia feedback."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.tvrecommendations"; Name = "Sponsored Content"; Method = "DISABLE"; Risk = "Safe"
-       OptimizeDescription = "Removes 'Sponsored' rows from home."; RestoreDescription = "Restores sponsored content rows."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
+       OptimizeDescription = "Removes Sponsored / Top Picks rows on the stock Google TV home. Also removes the home-screen Watch Next rows that surface Apple TV / Netflix Continue Watching. No effect if you've switched to a custom launcher."; RestoreDescription = "Restores sponsored and Watch Next rows on stock launcher."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
 
     # --- MEDIUM: Shield-specific services ---
     @{ Package = "com.nvidia.osc"; Name = "Nvidia OSC"; Method = "DISABLE"; Risk = "Medium"
@@ -350,7 +350,7 @@ $Script:GoogleTVAppList = @(
     @{ Package = "com.walmart.otto"; Name = "Walmart App"; Method = "UNINSTALL"; Risk = "Safe"
        OptimizeDescription = "Removes Walmart bloatware."; RestoreDescription = "Restores Walmart app."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.leanbacklauncher.recommendations"; Name = "Home Recommendations"; Method = "DISABLE"; Risk = "Safe"
-       OptimizeDescription = "Removes extra recommendation rows."; RestoreDescription = "Restores home recommendations."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
+       OptimizeDescription = "Removes extra recommendation rows (older Android TV launcher only). No effect on custom or Google TV launchers."; RestoreDescription = "Restores home recommendations."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
 
     # --- MEDIUM: Setup/calibration tools ---
     @{ Package = "com.google.android.tungsten.overscan"; Name = "Overscan Calibrator"; Method = "DISABLE"; Risk = "Medium"
