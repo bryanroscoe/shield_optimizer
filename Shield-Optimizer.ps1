@@ -203,6 +203,14 @@ $Script:CommonAppList = @(
        OptimizeDescription = "Removes defunct app."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.google.android.music"; Name = "Google Play Music"; Method = "UNINSTALL"; Risk = "Safe"
        OptimizeDescription = "Removes defunct app."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
+    @{ Package = "com.Funimation.FunimationNow.androidtv"; Name = "Funimation"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Service shut down April 2024 (merged into Crunchyroll)."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "N" }
+    @{ Package = "com.google.stadia.android"; Name = "Stadia"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Service shut down January 2023."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "N" }
+    @{ Package = "com.quibi.qlient"; Name = "Quibi"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Service shut down December 2020."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "N" }
+    @{ Package = "com.hbo.hbonow"; Name = "HBO Now (legacy)"; Method = "UNINSTALL"; Risk = "Safe"
+       OptimizeDescription = "Pre-Max HBO app, replaced by com.wbd.stream."; RestoreDescription = "Restores defunct app."; DefaultOptimize = "Y"; DefaultRestore = "N" }
 
     # --- SAFE: Streaming apps (user choice, not bloat) ---
     @{ Package = "com.netflix.ninja"; Name = "Netflix"; Method = "UNINSTALL"; Risk = "Safe"
@@ -2387,11 +2395,16 @@ function Get-HomeHandlers ($Target) {
     return $handlers
 }
 
-# Get the current HOME role holder (Android 10+)
+# Get the current HOME role holder (Android 10+).
+# Returns $null if the cmd is unsupported, output is empty, or parsing fails.
 function Get-HomeRoleHolder ($Target) {
     try {
         $output = & $Script:AdbPath -s $Target shell "cmd role get-role-holders android.app.role.HOME" 2>&1 | Out-String
-        if ($output -match "([a-zA-Z0-9_.]+)") {
+        $trimmed = $output.Trim()
+        if (-not $trimmed) { return $null }
+        if ($trimmed -match "Exception|Error|denied|Usage:") { return $null }
+        # Match a real package id (must contain a dot, must start with letter)
+        if ($trimmed -match "([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+)") {
             return $matches[1].Trim()
         }
     }
@@ -2399,15 +2412,26 @@ function Get-HomeRoleHolder ($Target) {
     return $null
 }
 
-# Set a package as the HOME role holder
+# Set a package as the HOME role holder.
+# Verifies by reading back instead of trusting the cmd return — some Android
+# builds silently no-op on `cmd role add-role-holder`. Captures the actual ADB
+# response in $Script:LastSetHomeError for diagnostics when nothing works.
 function Set-HomeRoleHolder ($Target, $Package) {
+    $Script:LastSetHomeError = $null
     try {
         $result = & $Script:AdbPath -s $Target shell "cmd role add-role-holder android.app.role.HOME $Package" 2>&1 | Out-String
-        return -not ($result -match "Exception|Error|failed")
+        $Script:LastSetHomeError = $result.Trim()
     }
     catch {
-        return $false
+        $Script:LastSetHomeError = $_.Exception.Message
     }
+    Start-Sleep -Milliseconds 300
+    $current = Get-HomeRoleHolder -Target $Target
+    if ($current -eq $Package) {
+        $Script:LastSetHomeError = $null
+        return $true
+    }
+    return $false
 }
 
 # Disable selected HOME handlers, prompting user for each one individually
@@ -2699,41 +2723,64 @@ function Get-LauncherActivity ($Target, $PackageName) {
 }
 
 # Set the default launcher.
-# Tries the modern role API first (`cmd role add-role-holder` — Android 10+ canonical
-# path, the only one that survives reboot reliably on Android 11+), then falls
-# back to the legacy `cmd package set-home-activity` for older builds.
+# Strategy: try multiple ADB paths and verify by read-back after each. Some
+# Android builds (notably Shield's customized Android 11) silently reject one
+# path while accepting another. Order:
+#   1. Role API (`cmd role add-role-holder`) — canonical on Android 10+
+#   2. Legacy set-home-activity via `cmd package` and `pm`, with the
+#      dumpsys-discovered activity, then common-name guesses
+#   3. Send a HOME intent — when other launchers are already disabled, the
+#      system auto-picks the only remaining HOME-capable app
+# Captures the last ADB error in $Script:LastSetHomeError for diagnostics.
 function Set-DefaultLauncher ($Target, $PackageName) {
     if (Set-HomeRoleHolder -Target $Target -Package $PackageName) {
         return $true
     }
 
-    # Legacy fallback: needs an explicit activity component
+    # Build candidate activity components: dumpsys-discovered first, then guesses
+    $candidates = @()
     $activity = Get-LauncherActivity -Target $Target -PackageName $PackageName
-    if (-not $activity) {
-        $commonActivities = @(
-            "$PackageName/.MainActivity",
-            "$PackageName/.Main",
-            "$PackageName/.LauncherActivity",
-            "$PackageName/.HomeActivity"
-        )
-        foreach ($tryActivity in $commonActivities) {
-            $testResult = & $Script:AdbPath -s $Target shell cmd package set-home-activity "$tryActivity" 2>&1
-            $testOutput = ($testResult | Out-String).Trim()
-            if ($testOutput -notmatch "Error|Exception|failed|not found") {
+    if ($activity) { $candidates += $activity }
+    $candidates += @(
+        "$PackageName/.MainActivity",
+        "$PackageName/.Main",
+        "$PackageName/.LauncherActivity",
+        "$PackageName/.HomeActivity"
+    )
+
+    # Try set-home-activity via both `cmd package` and the older `pm` alias.
+    # Add --user 0 explicitly; some builds default to a different user context.
+    foreach ($comp in $candidates) {
+        foreach ($cmd in @("cmd package set-home-activity --user 0", "pm set-home-activity --user 0")) {
+            try {
+                $result = & $Script:AdbPath -s $Target shell "$cmd $comp" 2>&1 | Out-String
+                $Script:LastSetHomeError = $result.Trim()
+            } catch {
+                $Script:LastSetHomeError = $_.Exception.Message
+                continue
+            }
+            Start-Sleep -Milliseconds 200
+            $current = Get-CurrentLauncher -Target $Target
+            if ($current -eq $PackageName) {
+                $Script:LastSetHomeError = $null
                 return $true
             }
         }
-        return $false
     }
 
+    # Last resort: kick the launcher selector. If we previously disabled all
+    # other HOME apps, the system will resolve to the only remaining one.
     try {
-        $result = & $Script:AdbPath -s $Target shell cmd package set-home-activity "$activity" 2>&1
-        $output = ($result | Out-String).Trim()
-        return -not ($output -match "Error|Exception|failed|not found")
-    }
-    catch {
-        return $false
-    }
+        & $Script:AdbPath -s $Target shell "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME" 2>&1 | Out-Null
+        Start-Sleep -Milliseconds 500
+        $current = Get-CurrentLauncher -Target $Target
+        if ($current -eq $PackageName) {
+            $Script:LastSetHomeError = $null
+            return $true
+        }
+    } catch {}
+
+    return $false
 }
 
 function Setup-Launcher ($Target) {
@@ -2928,6 +2975,10 @@ function Setup-Launcher ($Target) {
         Write-Success "$choiceName set as default launcher."
     } else {
         Write-Warning "Could not set default programmatically. Press Home to select manually."
+        if ($Script:LastSetHomeError) {
+            Write-Host "    ADB response: " -NoNewline -ForegroundColor $Script:Colors.TextDim
+            Write-Host $Script:LastSetHomeError -ForegroundColor $Script:Colors.TextDim
+        }
     }
 }
 
