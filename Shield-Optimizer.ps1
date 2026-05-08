@@ -2698,11 +2698,18 @@ function Get-LauncherActivity ($Target, $PackageName) {
     return $null
 }
 
-# Set the default launcher using cmd package set-home-activity
+# Set the default launcher.
+# Tries the modern role API first (`cmd role add-role-holder` — Android 10+ canonical
+# path, the only one that survives reboot reliably on Android 11+), then falls
+# back to the legacy `cmd package set-home-activity` for older builds.
 function Set-DefaultLauncher ($Target, $PackageName) {
+    if (Set-HomeRoleHolder -Target $Target -Package $PackageName) {
+        return $true
+    }
+
+    # Legacy fallback: needs an explicit activity component
     $activity = Get-LauncherActivity -Target $Target -PackageName $PackageName
     if (-not $activity) {
-        # Try common activity names as fallback
         $commonActivities = @(
             "$PackageName/.MainActivity",
             "$PackageName/.Main",
