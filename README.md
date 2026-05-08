@@ -104,6 +104,8 @@ pwsh ./Shield-Optimizer.ps1
 
 ### Linux (Docker)
 
+> *Should work, but not verified end-to-end.* Based on the workflow @shawly reported in [#9](https://github.com/bryanroscoe/shield_optimizer/issues/9).
+
 If you'd rather not install PowerShell on your host, you can run the script inside Microsoft's official PowerShell container. `--network host` is required so the script can scan your LAN for devices, and `iproute2` is needed inside the container for the auto-discovery scan.
 
 ```bash
