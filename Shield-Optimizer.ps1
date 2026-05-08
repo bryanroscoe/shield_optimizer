@@ -2397,13 +2397,13 @@ function Get-HomeHandlers ($Target) {
 
 # Get the current HOME role holder (Android 10+).
 # Returns $null if the cmd is unsupported, output is empty, or parsing fails.
+# Verified on Shield Android 11 where `cmd role` returns "Unknown command".
 function Get-HomeRoleHolder ($Target) {
     try {
         $output = & $Script:AdbPath -s $Target shell "cmd role get-role-holders android.app.role.HOME" 2>&1 | Out-String
         $trimmed = $output.Trim()
         if (-not $trimmed) { return $null }
-        if ($trimmed -match "Exception|Error|denied|Usage:") { return $null }
-        # Match a real package id (must contain a dot, must start with letter)
+        if ($trimmed -match "Unknown command|Exception|Error|denied|Usage:") { return $null }
         if ($trimmed -match "([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*)+)") {
             return $matches[1].Trim()
         }
@@ -2424,6 +2424,10 @@ function Set-HomeRoleHolder ($Target, $Package) {
     }
     catch {
         $Script:LastSetHomeError = $_.Exception.Message
+    }
+    # Skip verification when the cmd doesn't exist — saves a round-trip
+    if ($Script:LastSetHomeError -match "Unknown command") {
+        return $false
     }
     Start-Sleep -Milliseconds 300
     $current = Get-HomeRoleHolder -Target $Target
@@ -2677,35 +2681,36 @@ function Get-CurrentLauncher ($Target) {
     return $null
 }
 
-# Get the main HOME activity for a launcher package by parsing dumpsys output
+# Get the main HOME activity for a launcher package.
+# Primary path is `cmd package query-activities --components` which returns
+# exactly the HOME-tagged components, one per line in `<pkg>/<activity>` form.
+# Verified against Projectivy on a real Shield (Android 11) where it returned
+# `com.spocky.projengmenu/.ui.home.MainActivity` — a deeply-nested activity
+# the previous dumpsys parser missed entirely.
 function Get-LauncherActivity ($Target, $PackageName) {
+    try {
+        $output = & $Script:AdbPath -s $Target shell "cmd package query-activities --components -a android.intent.action.MAIN -c android.intent.category.HOME" 2>&1 | Out-String
+        foreach ($line in ($output -split "`n")) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match "^$([regex]::Escape($PackageName))/[^\s]+$") {
+                return $trimmed
+            }
+        }
+    } catch {}
+
+    # dumpsys-based fallback for older Androids that lack query-activities
     try {
         $result = & $Script:AdbPath -s $Target shell dumpsys package $PackageName 2>&1
         $output = ($result | Out-String)
-
-        # Look for activity with android.intent.category.HOME
-        # The dumpsys output lists activities and their intent filters
-        # We need to find an activity that has category.HOME in its filter
         $lines = $output -split "`n"
         $currentActivity = $null
-        $inIntentFilter = $false
-
         foreach ($line in $lines) {
-            # Match activity declarations like "com.example.launcher/.MainActivity"
             if ($line -match "^\s+[a-f0-9]+\s+($PackageName/[^\s]+)") {
                 $currentActivity = $matches[1]
-                $inIntentFilter = $false
             }
-            # Alternative format: activity name on its own line
             elseif ($line -match "^\s+Activity\s+($PackageName/[^\s]+)") {
                 $currentActivity = $matches[1]
-                $inIntentFilter = $false
             }
-            # Check if we're entering an intent filter block
-            elseif ($line -match "filter\s*$" -or $line -match "IntentFilter") {
-                $inIntentFilter = $true
-            }
-            # Look for HOME category while we have a valid activity
             elseif ($currentActivity -and $line -match "android\.intent\.category\.HOME") {
                 return $currentActivity
             }
@@ -2723,21 +2728,35 @@ function Get-LauncherActivity ($Target, $PackageName) {
 }
 
 # Set the default launcher.
-# Strategy: try multiple ADB paths and verify by read-back after each. Some
-# Android builds (notably Shield's customized Android 11) silently reject one
-# path while accepting another. Order:
-#   1. Role API (`cmd role add-role-holder`) — canonical on Android 10+
-#   2. Legacy set-home-activity via `cmd package` and `pm`, with the
-#      dumpsys-discovered activity, then common-name guesses
-#   3. Send a HOME intent — when other launchers are already disabled, the
-#      system auto-picks the only remaining HOME-capable app
-# Captures the last ADB error in $Script:LastSetHomeError for diagnostics.
+# Strategy verified on a real Shield (Android 11) where:
+#   - `cmd role` is unsupported entirely (returns "Unknown command")
+#   - The chosen launcher was disabled before this ran, blocking set-home-activity
+#   - The HOME activity is deeply nested (`.ui.home.MainActivity`), not at root
+# Order:
+#   1. Force-enable the chosen package — set-home-activity won't promote a
+#      disabled app to default on every build, and a previously-disabled
+#      launcher is the most common stuck state.
+#   2. Try the role API. Skip silently if `Unknown command` (older/customized
+#      builds where `cmd role` doesn't exist).
+#   3. Discover the actual HOME activity via `cmd package query-activities
+#      --components` (much more reliable than dumpsys parsing).
+#   4. set-home-activity --user 0 with discovered activity, then common-name
+#      guesses, via `cmd package` and the older `pm` alias.
+#   5. Send a HOME intent — when other launchers are disabled, the system
+#      auto-picks the only remaining HOME-capable app.
+# Each attempt is verified by re-resolving the active HOME activity.
 function Set-DefaultLauncher ($Target, $PackageName) {
+    # 1. Ensure the launcher is enabled — `pm enable` is a no-op if already enabled
+    try {
+        & $Script:AdbPath -s $Target shell "pm enable $PackageName" 2>&1 | Out-Null
+    } catch {}
+
+    # 2. Modern role API (skipped automatically when Unknown command)
     if (Set-HomeRoleHolder -Target $Target -Package $PackageName) {
         return $true
     }
 
-    # Build candidate activity components: dumpsys-discovered first, then guesses
+    # 3-4. Build candidate activity components: discovered first, then guesses
     $candidates = @()
     $activity = Get-LauncherActivity -Target $Target -PackageName $PackageName
     if ($activity) { $candidates += $activity }
@@ -2748,8 +2767,6 @@ function Set-DefaultLauncher ($Target, $PackageName) {
         "$PackageName/.HomeActivity"
     )
 
-    # Try set-home-activity via both `cmd package` and the older `pm` alias.
-    # Add --user 0 explicitly; some builds default to a different user context.
     foreach ($comp in $candidates) {
         foreach ($cmd in @("cmd package set-home-activity --user 0", "pm set-home-activity --user 0")) {
             try {
@@ -2768,8 +2785,8 @@ function Set-DefaultLauncher ($Target, $PackageName) {
         }
     }
 
-    # Last resort: kick the launcher selector. If we previously disabled all
-    # other HOME apps, the system will resolve to the only remaining one.
+    # 5. Last resort: send a HOME intent. If other launchers are disabled, the
+    # system will resolve to the only remaining HOME-capable app.
     try {
         & $Script:AdbPath -s $Target shell "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME" 2>&1 | Out-Null
         Start-Sleep -Milliseconds 500
