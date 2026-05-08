@@ -358,8 +358,7 @@ $Script:GoogleTVAppList = @(
 )
 
 $Script:PerfList = @(
-    @{Key="window_animation_scale"; Name="Animation Speed"; Desc="Controls UI transition speed."; OptVal="0.5"; RestVal="1.0"},
-    @{Key="background_process_limit"; Name="Background Process Limit"; Desc="Limits multitasking to free RAM."; OptVal="2"; RestVal="Standard"}
+    @{Key="window_animation_scale"; Name="Animation Speed"; Desc="Controls UI transition speed."; OptVal="0.5"; RestVal="1.0"}
 )
 
 $Script:Launchers = @(
@@ -1999,7 +1998,7 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
         "echo '::MEMINFO::'; dumpsys meminfo 2>/dev/null",
         "echo '::STORAGE::'; df -h /data 2>/dev/null",
         "echo '::PROPS::'; getprop ro.board.platform; getprop ro.build.version.release",
-        "echo '::SETTINGS::'; settings get global window_animation_scale; settings get global background_process_limit",
+        "echo '::SETTINGS::'; settings get global window_animation_scale",
         "echo '::PACKAGES::'; pm list packages -e 2>/dev/null"
     ) -join "; "
 
@@ -2054,12 +2053,11 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     }
 
     # --- SETTINGS ---
-    $anim = "1.0"; $proc = "Standard"
+    $anim = "1.0"
     $settings = $sections["SETTINGS"]
     if ($settings) {
         $setLines = @($settings -split "`n" | Where-Object { $_.Trim() })
         if ($setLines.Count -ge 1 -and $setLines[0].Trim() -notmatch "null|Exception") { $anim = $setLines[0].Trim() }
-        if ($setLines.Count -ge 2 -and $setLines[1].Trim() -notmatch "null|Exception" -and $setLines[1].Trim()) { $proc = $setLines[1].Trim() }
     }
 
     # --- DISPLAY RESULTS ---
@@ -2098,8 +2096,6 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     Write-SubHeader "Settings"
     Write-Host " Animation Speed: " -NoNewline -ForegroundColor $Script:Colors.Label
     Write-Host "$anim" -ForegroundColor $Script:Colors.Value
-    Write-Host " Process Limit:   " -NoNewline -ForegroundColor $Script:Colors.Label
-    Write-Host "$proc" -ForegroundColor $Script:Colors.Value
 
     # --- TOP MEMORY (from already-fetched meminfo) ---
     Write-SubHeader "Top Memory Users"
@@ -3064,7 +3060,7 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
 
     Write-Header "Performance Settings ($Mode)"
 
-    # 1. Animation
+    # Animation
     $currAnim = (& $Script:AdbPath -s $Target shell settings get global window_animation_scale | Out-String).Trim()
     if ($Mode -eq "Optimize") { $tAnim = "0.5" } else { $tAnim = "1.0" }
 
@@ -3097,83 +3093,6 @@ function Run-Task ($Target, $Mode, $DeviceType = "Unknown") {
                 Write-Success "Applied."
             } else {
                 Write-ErrorMsg "Failed to apply animation settings."
-            }
-        }
-    }
-
-    # 2. Process Limit
-    $currProc = (& $Script:AdbPath -s $Target shell settings get global background_process_limit | Out-String).Trim()
-    if ($currProc -eq "null" -or $currProc -eq "") { $currProc = "Standard" }
-
-    Write-Host "`nBackground Process Limit" -NoNewline
-    Write-Host " [Current: $currProc]" -ForegroundColor $Script:Colors.Label
-
-    if ($Mode -eq "Optimize") {
-        if ($applyAll) {
-            # Default to "At Most 2" (index 2)
-            $sel = 2
-        } else {
-            $procOpts = @("Standard", "At Most 1", "At Most 2", "At Most 3", "At Most 4", "Skip", "Abort")
-            $procDescs = @("Unlimited background apps.", "Aggressive RAM saving.", "Balanced RAM saving.", "Moderate.", "Light limit.", "Do not change.", "Cancel and return to menu.")
-            # Shortcuts: S=Standard, 1-4 for limits, K=sKip, X=abort
-            $procShortcuts = @("S", "1", "2", "3", "4", "K", "X")
-            $sel = Read-Menu -Title "Select Process Limit" -Options $procOpts -Descriptions $procDescs -DefaultIndex 2 -Shortcuts $procShortcuts
-            if ($sel -eq -1) { $sel = 6 }  # ESC = Abort
-        }
-
-        # Handle Abort
-        if ($sel -eq 6) {
-            Write-Warn "Process aborted by user."
-            Show-TaskSummary -Mode $Mode -Aborted
-            Pause
-            return
-        }
-
-        $val = $null
-        if ($sel -eq 1) { $val = 1 }
-        elseif ($sel -eq 2) { $val = 2 }
-        elseif ($sel -eq 3) { $val = 3 }
-        elseif ($sel -eq 4) { $val = 4 }
-
-        if ($sel -eq 0) { # Standard
-            $result = Invoke-AdbCommand -Target $Target -Command "settings delete global background_process_limit"
-            if ($result.Success) {
-                Write-Success "Reset to Standard."
-            } else {
-                Write-ErrorMsg "Failed to reset process limit."
-            }
-        } elseif ($val) {
-            $result = Invoke-AdbCommand -Target $Target -Command "settings put global background_process_limit $val"
-            if ($result.Success) {
-                Write-Success "Set to $val processes."
-            } else {
-                Write-ErrorMsg "Failed to set process limit."
-            }
-        }
-    } else {
-        if ($currProc -ne "Standard") {
-            if ($applyAll) {
-                $idx = 0  # Default to YES
-            } else {
-                $idx = Read-Toggle -Prompt "    >> Reset to Standard?" -Options @("YES", "NO", "ABORT") -DefaultIndex 0
-                if ($idx -eq -1) { $idx = 2 }  # ESC = ABORT
-            }
-
-            # Handle ABORT
-            if ($idx -eq 2) {
-                Write-Warn "Process aborted by user."
-                Show-TaskSummary -Mode $Mode -Aborted
-                Pause
-                return
-            }
-
-            if ($idx -eq 0) {
-                $result = Invoke-AdbCommand -Target $Target -Command "settings delete global background_process_limit"
-                if ($result.Success) {
-                    Write-Success "Reset."
-                } else {
-                    Write-ErrorMsg "Failed to reset process limit."
-                }
             }
         }
     }

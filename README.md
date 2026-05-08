@@ -16,7 +16,7 @@ A cross-platform PowerShell tool to debloat and optimize Android TV devices. Run
 - **Health Reports** - Temperature, RAM, storage, bloat scan with memory usage and recommended actions
 - **Live Monitor** - Real-time vitals dashboard with auto-refresh (temp, RAM, top memory apps)
 - **Fast Network Scan** - Parallel subnet scanning finds devices in seconds
-- **Performance Tuning** - Animation speed, background process limits
+- **Performance Tuning** - Animation speed adjustment
 - **Safe Defaults** - Disables rather than uninstalls, easy restore/recovery
 - **Keyboard Navigation** - Arrow keys, letter shortcuts, ESC to cancel
 
