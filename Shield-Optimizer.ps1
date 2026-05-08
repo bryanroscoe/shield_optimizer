@@ -724,6 +724,56 @@ function Get-AppMemoryMap {
     return $result
 }
 
+# Get the device's current display mode and HDR capability.
+# Returns @{ Resolution; RefreshRate; HdrTypes; AudioDevice } — any field may be empty.
+# Verified against a Shield (Android 11): the active modeId is in DisplayDeviceInfo,
+# and the supportedModes list maps id->{width,height,fps}.
+function Get-DisplayMode ($Target) {
+    $info = @{ Resolution = $null; RefreshRate = $null; HdrTypes = $null; AudioDevice = $null }
+    try {
+        $disp = & $Script:AdbPath -s $Target shell "dumpsys display" 2>&1 | Out-String
+
+        # Active modeId
+        $activeId = $null
+        if ($disp -match "modeId\s+(\d+)") { $activeId = [int]$matches[1] }
+
+        # Find the supportedModes entry matching the active id
+        if ($activeId -and $disp -match "id=$activeId,\s*width=(\d+),\s*height=(\d+),\s*fps=([\d.]+)") {
+            $info.Resolution = "$($matches[1])x$($matches[2])"
+            $fps = [double]$matches[3]
+            $info.RefreshRate = "{0:F2} Hz" -f $fps
+        }
+
+        # HDR support
+        if ($disp -match "mSupportedHdrTypes=\[([0-9,\s]*)\]") {
+            $rawTypes = $matches[1].Trim()
+            if ($rawTypes) {
+                $names = @()
+                foreach ($t in ($rawTypes -split ",")) {
+                    switch ($t.Trim()) {
+                        "1" { $names += "Dolby Vision" }
+                        "2" { $names += "HDR10" }
+                        "3" { $names += "HLG" }
+                        "4" { $names += "HDR10+" }
+                    }
+                }
+                if ($names.Count -gt 0) { $info.HdrTypes = $names -join ", " }
+            }
+            if (-not $info.HdrTypes) { $info.HdrTypes = "SDR only" }
+        }
+    } catch {}
+
+    # Audio output device — best-effort, format varies by build
+    try {
+        $audio = & $Script:AdbPath -s $Target shell "dumpsys audio" 2>&1 | Out-String
+        if ($audio -match "(?im)^\s*Devices:\s*(\w+)") {
+            $info.AudioDevice = $matches[1].ToUpper()
+        }
+    } catch {}
+
+    return $info
+}
+
 # Get top memory-consuming apps (returns array of @{Name; Package; MB})
 function Get-TopMemoryApps {
     param([string]$Target, [int]$Count = 5)
@@ -2124,6 +2174,28 @@ function Run-Report ($Target, $Name, $DeviceType = "Unknown") {
     Write-Host " Animation Speed: " -NoNewline -ForegroundColor $Script:Colors.Label
     Write-Host "$anim" -ForegroundColor $Script:Colors.Value
 
+    # --- DISPLAY MODE (resolution, refresh, HDR) ---
+    $display = Get-DisplayMode -Target $Target
+    if ($display.Resolution -or $display.HdrTypes) {
+        Write-SubHeader "Display"
+        if ($display.Resolution) {
+            Write-Host " Resolution:    " -NoNewline -ForegroundColor $Script:Colors.Label
+            Write-Host $display.Resolution -ForegroundColor $Script:Colors.Value
+        }
+        if ($display.RefreshRate) {
+            Write-Host " Refresh:       " -NoNewline -ForegroundColor $Script:Colors.Label
+            Write-Host $display.RefreshRate -ForegroundColor $Script:Colors.Value
+        }
+        if ($display.HdrTypes) {
+            Write-Host " HDR support:   " -NoNewline -ForegroundColor $Script:Colors.Label
+            Write-Host $display.HdrTypes -ForegroundColor $Script:Colors.Value
+        }
+        if ($display.AudioDevice) {
+            Write-Host " Audio output:  " -NoNewline -ForegroundColor $Script:Colors.Label
+            Write-Host $display.AudioDevice -ForegroundColor $Script:Colors.Value
+        }
+    }
+
     # --- TOP MEMORY (from already-fetched meminfo) ---
     Write-SubHeader "Top Memory Users"
     $topApps = @()
@@ -3442,6 +3514,295 @@ function Set-DisplayScaling ($Target) {
     }
 }
 
+# --- DISPLAY & INPUT TUNING ---
+# HDMI-CEC, frame-rate matching, long-press timeout. Each toggle is independent.
+function Set-DisplayInputTuning ($Target) {
+    while ($true) {
+        Write-Header "Display & Input Tuning"
+
+        $get = { param($ns, $k) (& $Script:AdbPath -s $Target shell "settings get $ns $k" | Out-String).Trim() }
+        $cecMaster   = & $get "global" "hdmi_control_enabled"
+        $cecWake     = & $get "global" "hdmi_control_auto_wakeup_enabled"
+        $cecOff      = & $get "global" "hdmi_control_auto_device_off_enabled"
+        $cecAudio    = & $get "global" "hdmi_system_audio_control_enabled"
+        $matchFrame  = & $get "secure" "match_content_frame_rate"
+        $longPress   = & $get "secure" "long_press_timeout"
+
+        $fmtBool = {
+            param($v)
+            if ($v -eq "1") { "ON" } elseif ($v -eq "0") { "OFF" } else { "(default)" }
+        }
+        $fmtMatch = {
+            param($v)
+            switch ($v) { "0" {"Never"} "1" {"Seamless only"} "2" {"Always"} default {"(default)"} }
+        }
+        $fmtMs = {
+            param($v)
+            if ($v -in @("null", "")) { "(default)" } else { "${v}ms" }
+        }
+
+        Write-Host ""
+        Write-Host "  Current values:" -ForegroundColor $Script:Colors.Header
+        Write-Host "    HDMI-CEC master:        $(& $fmtBool $cecMaster)"  -ForegroundColor $Script:Colors.Text
+        Write-Host "    CEC auto-wake TV:       $(& $fmtBool $cecWake)"    -ForegroundColor $Script:Colors.Text
+        Write-Host "    CEC auto-off TV:        $(& $fmtBool $cecOff)"     -ForegroundColor $Script:Colors.Text
+        Write-Host "    CEC audio routing:      $(& $fmtBool $cecAudio)"   -ForegroundColor $Script:Colors.Text
+        Write-Host "    Match content fps:      $(& $fmtMatch $matchFrame)" -ForegroundColor $Script:Colors.Text
+        Write-Host "    Long-press timeout:     $(& $fmtMs $longPress)"    -ForegroundColor $Script:Colors.Text
+        Write-Host ""
+
+        $opts = @(
+            "HDMI-CEC: master toggle",
+            "HDMI-CEC: auto-wake TV when Shield wakes",
+            "HDMI-CEC: auto-off TV when Shield sleeps",
+            "HDMI-CEC: route audio through TV",
+            "Match content frame rate (24p movies)",
+            "Long-press timeout",
+            "Back"
+        )
+        $descs = @(
+            "Master switch for Shield's HDMI-CEC control of the TV.",
+            "Wake the TV when the Shield wakes from standby.",
+            "Turn the TV off when the Shield sleeps.",
+            "Route Shield audio through the TV via CEC.",
+            "Switch refresh rate to match the source video frame rate.",
+            "Time before a long-press is recognized.",
+            "Return to action menu."
+        )
+        $shortcuts = @("M", "W", "O", "A", "F", "L", "B")
+        $sel = Read-Menu -Title "Select Setting" -Options $opts -Descriptions $descs -Shortcuts $shortcuts
+        if ($sel -eq -1 -or $sel -eq 6) { return }
+
+        switch ($sel) {
+            0 { Set-BoolSetting -Target $Target -Namespace "global" -Key "hdmi_control_enabled" -Label "HDMI-CEC master" }
+            1 { Set-BoolSetting -Target $Target -Namespace "global" -Key "hdmi_control_auto_wakeup_enabled" -Label "Auto-wake TV" }
+            2 { Set-BoolSetting -Target $Target -Namespace "global" -Key "hdmi_control_auto_device_off_enabled" -Label "Auto-off TV" }
+            3 { Set-BoolSetting -Target $Target -Namespace "global" -Key "hdmi_system_audio_control_enabled" -Label "CEC audio routing" }
+            4 {
+                $mOpts = @("Never (0)", "Seamless only (1)", "Always (2)", "Reset to default")
+                $mDescs = @("Disabled.", "Switch only when seamless.", "Always switch.", "Clear setting.")
+                $mShort = @("N", "S", "A", "R")
+                $m = Read-Menu -Title "Match Content Frame Rate" -Options $mOpts -Descriptions $mDescs -Shortcuts $mShort
+                if ($m -ge 0 -and $m -le 2) {
+                    & $Script:AdbPath -s $Target shell "settings put secure match_content_frame_rate $m" | Out-Null
+                    Write-Success "Set match_content_frame_rate to $m."
+                } elseif ($m -eq 3) {
+                    & $Script:AdbPath -s $Target shell "settings delete secure match_content_frame_rate" | Out-Null
+                    Write-Success "Reset to default."
+                }
+                Pause
+            }
+            5 {
+                $lOpts = @("300ms (snappier)", "400ms (default)", "500ms", "Reset to default")
+                $lDescs = @("Faster long-press.", "Standard.", "Slower long-press.", "Clear setting.")
+                $lShort = @("3", "4", "5", "R")
+                $l = Read-Menu -Title "Long-Press Timeout" -Options $lOpts -Descriptions $lDescs -Shortcuts $lShort
+                $vals = @{ 0 = 300; 1 = 400; 2 = 500 }
+                if ($vals.ContainsKey($l)) {
+                    & $Script:AdbPath -s $Target shell "settings put secure long_press_timeout $($vals[$l])" | Out-Null
+                    Write-Success "Set long_press_timeout to $($vals[$l])ms."
+                } elseif ($l -eq 3) {
+                    & $Script:AdbPath -s $Target shell "settings delete secure long_press_timeout" | Out-Null
+                    Write-Success "Reset to default."
+                }
+                Pause
+            }
+        }
+    }
+}
+
+# Helper: prompt user to set a 0/1 setting (or clear it)
+function Set-BoolSetting ($Target, $Namespace, $Key, $Label) {
+    $opts = @("ON", "OFF", "Reset to default", "Cancel")
+    $descs = @("Set $Key to 1.", "Set $Key to 0.", "Clear setting (return to system default).", "No change.")
+    $shortcuts = @("O", "F", "R", "C")
+    $sel = Read-Menu -Title $Label -Options $opts -Descriptions $descs -Shortcuts $shortcuts
+    switch ($sel) {
+        0 { & $Script:AdbPath -s $Target shell "settings put $Namespace $Key 1" | Out-Null; Write-Success "$Label set to ON." }
+        1 { & $Script:AdbPath -s $Target shell "settings put $Namespace $Key 0" | Out-Null; Write-Success "$Label set to OFF." }
+        2 { & $Script:AdbPath -s $Target shell "settings delete $Namespace $Key" | Out-Null; Write-Success "$Label reset to default." }
+    }
+    if ($sel -ne -1 -and $sel -ne 3) { Pause }
+}
+
+# --- SNAPSHOT / RESTORE ---
+# Snapshots capture the disabled-package set, current launcher, and the
+# settings keys this tool can modify. Apply re-disables packages from the
+# snapshot list (skipping anything missing or already disabled), sets the
+# launcher, and writes the recorded settings back. It never re-enables a
+# package that's currently enabled — that would undo the user's work.
+
+$Script:SnapshotSettingKeys = @(
+    @{ Namespace = "global"; Key = "window_animation_scale" }
+    @{ Namespace = "global"; Key = "transition_animation_scale" }
+    @{ Namespace = "global"; Key = "animator_duration_scale" }
+    @{ Namespace = "global"; Key = "hdmi_control_enabled" }
+    @{ Namespace = "global"; Key = "hdmi_control_auto_wakeup_enabled" }
+    @{ Namespace = "global"; Key = "hdmi_control_auto_device_off_enabled" }
+    @{ Namespace = "global"; Key = "hdmi_system_audio_control_enabled" }
+    @{ Namespace = "secure"; Key = "match_content_frame_rate" }
+    @{ Namespace = "secure"; Key = "long_press_timeout" }
+)
+
+function Get-SnapshotDir {
+    $dir = Join-Path (Get-ScriptDirectory) "snapshots"
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+    return $dir
+}
+
+function Save-Snapshot ($Target, $DeviceName, $DeviceType) {
+    Write-Header "Save Snapshot"
+    Write-Info "Capturing device state..."
+
+    $disabledRaw = (& $Script:AdbPath -s $Target shell "pm list packages -d" 2>&1 | Out-String)
+    $disabled = @()
+    foreach ($line in ($disabledRaw -split "`n")) {
+        if ($line -match "^package:(.+)$") { $disabled += $matches[1].Trim() }
+    }
+
+    $launcher = Get-CurrentLauncher -Target $Target
+
+    $settings = @{}
+    foreach ($s in $Script:SnapshotSettingKeys) {
+        $val = (& $Script:AdbPath -s $Target shell "settings get $($s.Namespace) $($s.Key)" | Out-String).Trim()
+        if ($val -and $val -ne "null") { $settings["$($s.Namespace).$($s.Key)"] = $val }
+    }
+
+    $androidVer = (& $Script:AdbPath -s $Target shell getprop ro.build.version.release 2>&1 | Out-String).Trim()
+
+    $snap = [ordered]@{
+        schemaVersion    = 1
+        savedAt          = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        deviceName       = $DeviceName
+        deviceSerial     = $Target
+        deviceType       = $DeviceType
+        androidVersion   = $androidVer
+        disabledPackages = $disabled
+        currentLauncher  = $launcher
+        settings         = $settings
+    }
+
+    $safeName = ($DeviceName -replace "[^a-zA-Z0-9_-]", "_")
+    $stamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
+    $path = Join-Path (Get-SnapshotDir) "${safeName}_${stamp}.json"
+
+    $snap | ConvertTo-Json -Depth 4 | Set-Content -Path $path -Encoding UTF8
+
+    Write-Success "Snapshot saved: $path"
+    Write-Host "   Disabled packages: $($disabled.Count)" -ForegroundColor $Script:Colors.Text
+    Write-Host "   Launcher:          $launcher" -ForegroundColor $Script:Colors.Text
+    Write-Host "   Settings captured: $($settings.Count)" -ForegroundColor $Script:Colors.Text
+    Pause
+}
+
+function Apply-Snapshot ($Target, $DeviceType) {
+    Write-Header "Apply Snapshot"
+    $dir = Get-SnapshotDir
+    $files = @(Get-ChildItem -Path $dir -Filter "*.json" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+    if ($files.Count -eq 0) {
+        Write-Warn "No snapshots found in $dir"
+        Pause; return
+    }
+
+    $opts = @()
+    $descs = @()
+    foreach ($f in $files) {
+        $opts += $f.Name
+        try {
+            $j = Get-Content $f.FullName -Raw | ConvertFrom-Json
+            $descs += "Saved $($j.savedAt) - $($j.disabledPackages.Count) packages, launcher=$($j.currentLauncher)"
+        } catch {
+            $descs += "(unreadable)"
+        }
+    }
+    $opts += "Cancel"; $descs += "Return to menu."
+    $sel = Read-Menu -Title "Select Snapshot" -Options $opts -Descriptions $descs
+    if ($sel -eq -1 -or $sel -eq ($opts.Count - 1)) { return }
+
+    $snap = Get-Content $files[$sel].FullName -Raw | ConvertFrom-Json
+
+    Write-Host ""
+    Write-Host " About to apply: $($files[$sel].Name)" -ForegroundColor $Script:Colors.Header
+    Write-Host "   Saved:    $($snap.savedAt)" -ForegroundColor $Script:Colors.Text
+    Write-Host "   Origin:   $($snap.deviceName) ($($snap.deviceType), Android $($snap.androidVersion))" -ForegroundColor $Script:Colors.Text
+    Write-Host "   Will disable up to $($snap.disabledPackages.Count) packages" -ForegroundColor $Script:Colors.Text
+    Write-Host "   Will set launcher: $($snap.currentLauncher)" -ForegroundColor $Script:Colors.Text
+    $settingCount = ($snap.settings.PSObject.Properties | Measure-Object).Count
+    Write-Host "   Will write $settingCount settings" -ForegroundColor $Script:Colors.Text
+    Write-Host ""
+    if ($snap.deviceType -ne $DeviceType) {
+        Write-Warn "Snapshot is from a different device type ($($snap.deviceType)) than this device ($DeviceType)."
+    }
+
+    $confirm = Read-Toggle -Prompt "Apply this snapshot?" -Options @("YES", "NO") -DefaultIndex 1
+    if ($confirm -ne 0) { return }
+
+    # 1. Disable packages from snapshot that aren't already disabled
+    $allPkgs = (& $Script:AdbPath -s $Target shell "pm list packages -u" 2>&1 | Out-String)
+    $disabledNow = (& $Script:AdbPath -s $Target shell "pm list packages -d" 2>&1 | Out-String)
+    $disabledCount = 0; $skippedCount = 0; $missingCount = 0
+    foreach ($pkg in $snap.disabledPackages) {
+        if (-not (Test-PackageInList -PackageList $allPkgs -Package $pkg)) { $missingCount++; continue }
+        if (Test-PackageInList -PackageList $disabledNow -Package $pkg) { $skippedCount++; continue }
+        $r = Invoke-AdbCommand -Target $Target -Command "pm disable-user --user 0 $pkg"
+        if ($r.Success) { $disabledCount++ }
+    }
+
+    # 2. Set launcher (uses the robust Set-DefaultLauncher)
+    $launcherSet = $false
+    if ($snap.currentLauncher) {
+        $launcherSet = Set-DefaultLauncher -Target $Target -PackageName $snap.currentLauncher
+    }
+
+    # 3. Apply settings
+    $settingsApplied = 0
+    if ($snap.settings) {
+        foreach ($prop in $snap.settings.PSObject.Properties) {
+            $parts = $prop.Name -split "\.", 2
+            if ($parts.Count -ne 2) { continue }
+            $ns = $parts[0]; $key = $parts[1]; $val = $prop.Value
+            $r = Invoke-AdbCommand -Target $Target -Command "settings put $ns $key $val"
+            if ($r.Success) { $settingsApplied++ }
+        }
+    }
+
+    Write-Header "Snapshot Applied"
+    Write-Host " Packages disabled:  $disabledCount" -ForegroundColor $Script:Colors.Success
+    Write-Host " Already-disabled:   $skippedCount" -ForegroundColor $Script:Colors.Text
+    Write-Host " Not on device:      $missingCount" -ForegroundColor $Script:Colors.Text
+    Write-Host " Launcher:           $(if ($launcherSet) { 'Set' } else { 'Not changed' })" -ForegroundColor $(if ($launcherSet) { $Script:Colors.Success } else { $Script:Colors.Warning })
+    Write-Host " Settings applied:   $settingsApplied" -ForegroundColor $Script:Colors.Success
+    Pause
+}
+
+function Show-SnapshotMenu ($Target, $DeviceName, $DeviceType) {
+    while ($true) {
+        Write-Header "Snapshots: $DeviceName"
+        $opts = @("Save current state to a new snapshot", "Apply a saved snapshot", "Open snapshots folder", "Back")
+        $descs = @(
+            "Capture disabled packages, current launcher, and tunable settings.",
+            "Re-apply a saved snapshot to this device.",
+            "Print the snapshots directory path.",
+            "Return to action menu."
+        )
+        $shortcuts = @("S", "A", "O", "B")
+        $sel = Read-Menu -Title "Snapshot Actions" -Options $opts -Descriptions $descs -Shortcuts $shortcuts
+        if ($sel -eq -1 -or $sel -eq 3) { return }
+        switch ($sel) {
+            0 { Save-Snapshot -Target $Target -DeviceName $DeviceName -DeviceType $DeviceType }
+            1 { Apply-Snapshot -Target $Target -DeviceType $DeviceType }
+            2 {
+                $dir = Get-SnapshotDir
+                Write-Host ""
+                Write-Host " Snapshots folder: $dir" -ForegroundColor $Script:Colors.Value
+                $files = @(Get-ChildItem -Path $dir -Filter "*.json" -ErrorAction SilentlyContinue)
+                Write-Host " $($files.Count) snapshot(s) on disk." -ForegroundColor $Script:Colors.Text
+                Pause
+            }
+        }
+    }
+}
+
 # --- REBOOT OPTIONS ---
 function Show-RebootMenu ($Target) {
     Write-Header "Reboot Options"
@@ -3610,7 +3971,7 @@ while ($true) {
         # Inner loop: stay on this device's action menu until Back/Reboot/Disconnect/ESC
         while ($true) {
             # Action menu with device type info
-            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Install APK", "Profile", "Recovery", "Display Scaling", "Reboot", "Disconnect", "Back", "Quit")
+            $aOpts = @("Optimize", "Restore", "Report", "Launcher Setup", "Install APK", "Profile", "Recovery", "Display Scaling", "Tweaks", "Snapshot", "Reboot", "Disconnect", "Back", "Quit")
             $aDescs = @(
                 "Debloat apps and tune performance for $deviceTypeName.",
                 "Undo optimizations and fix missing apps.",
@@ -3620,13 +3981,15 @@ while ($true) {
                 "View device profile and detected settings.",
                 "Emergency: Re-enable ALL disabled packages.",
                 "Change resolution and density (wm size/density).",
+                "HDMI-CEC, frame-rate matching, long-press timeout.",
+                "Save / apply a snapshot of disabled apps + tunables.",
                 "Restart device (normal, recovery, or bootloader).",
                 "Disconnect this device from ADB.",
                 "Return to Main Menu.",
                 "Exit Optimizer."
             )
-            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, S=Scaling, T=reboot, D=Disconnect, B=Back, Q=Quit
-            $actionShortcuts = @("O", "R", "E", "L", "I", "P", "C", "S", "T", "D", "B", "Q")
+            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, S=Scaling, K=tweaKs, N=sNapshot, T=reboot, D=Disconnect, B=Back, Q=Quit
+            $actionShortcuts = @("O", "R", "E", "L", "I", "P", "C", "S", "K", "N", "T", "D", "B", "Q")
             $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
             # Handle ESC - return to main menu
@@ -3657,6 +4020,8 @@ while ($true) {
             if ($act -eq "Profile") { Show-DeviceProfile -Target $target.Serial -DeviceInfo $target; Pause }
             if ($act -eq "Recovery") { Run-PanicRecovery -Target $target.Serial; Pause }
             if ($act -eq "Display Scaling") { Set-DisplayScaling -Target $target.Serial; Pause }
+            if ($act -eq "Tweaks") { Set-DisplayInputTuning -Target $target.Serial }
+            if ($act -eq "Snapshot") { Show-SnapshotMenu -Target $target.Serial -DeviceName $target.Name -DeviceType $target.Type }
         }
     }
 }
