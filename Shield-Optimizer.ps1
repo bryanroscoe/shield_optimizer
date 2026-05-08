@@ -3069,6 +3069,35 @@ function Setup-Launcher ($Target) {
             Write-Host $Script:LastSetHomeError -ForegroundColor $Script:Colors.TextDim
         }
     }
+
+    Test-ChannelDependencies -Target $Target
+}
+
+# Check if com.android.providers.tv is disabled. Without it, no app can
+# publish Watch Next / Continue Watching channels — Apple TV, Netflix,
+# Disney+, etc. silently lose their channel rows. Offer to re-enable.
+function Test-ChannelDependencies ($Target) {
+    $disabled = & $Script:AdbPath -s $Target shell "pm list packages -d" 2>&1 | Out-String
+    if (-not (Test-PackageInList -PackageList $disabled -Package "com.android.providers.tv")) {
+        return
+    }
+
+    Write-Host ""
+    Write-Warn "Live Channels Provider (com.android.providers.tv) is disabled."
+    Write-Host "    Without it, apps can't publish Watch Next / Continue Watching" -ForegroundColor $Script:Colors.TextDim
+    Write-Host "    channels. Apple TV, Netflix, Disney+, etc. rows on your" -ForegroundColor $Script:Colors.TextDim
+    Write-Host "    launcher's home screen will be empty." -ForegroundColor $Script:Colors.TextDim
+    Write-Host ""
+
+    $idx = Read-Toggle -Prompt "Re-enable Live Channels Provider?" -Options @("YES", "NO") -DefaultIndex 0
+    if ($idx -eq 0) {
+        $r = Invoke-AdbCommand -Target $Target -Command "pm enable com.android.providers.tv"
+        if ($r.Success) {
+            Write-Success "Re-enabled. Open Apple TV (or any channel-publishing app) once to repopulate."
+        } else {
+            Write-ErrorMsg "Failed to re-enable: $($r.Error)"
+        }
+    }
 }
 
 # Helper to show task summary (used for completion and abort)
