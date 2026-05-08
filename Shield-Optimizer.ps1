@@ -1758,17 +1758,22 @@ function Read-Menu ($Title, $Options, $Descriptions, $DefaultIndex=0, $StaticSta
             $shortcutMap[$char] = $i
         }
 
-        # Pre-compute display text with embedded shortcut
+        # Pre-compute display text with embedded shortcut.
+        # Digit shortcuts always prefix — inlining them inside text that contains
+        # other digits (e.g. IP addresses) is ambiguous. Letter shortcuts inline
+        # when the character appears, otherwise fall back to a prefix.
         $shortcut = $shortcutDisplay[$i]
         $optText = $Options[$i]
         $foundPos = -1
-        $inBracket = $false
-        for ($c = 0; $c -lt $optText.Length; $c++) {
-            if ($optText[$c] -eq '[') { $inBracket = $true }
-            elseif ($optText[$c] -eq ']') { $inBracket = $false }
-            elseif (-not $inBracket -and $optText[$c].ToString().ToUpper() -eq $shortcut.ToUpper()) {
-                $foundPos = $c
-                break
+        if ($shortcut -notmatch '^\d$') {
+            $inBracket = $false
+            for ($c = 0; $c -lt $optText.Length; $c++) {
+                if ($optText[$c] -eq '[') { $inBracket = $true }
+                elseif ($optText[$c] -eq ']') { $inBracket = $false }
+                elseif (-not $inBracket -and $optText[$c].ToString().ToUpper() -eq $shortcut.ToUpper()) {
+                    $foundPos = $c
+                    break
+                }
             }
         }
         if ($foundPos -ge 0) {
