@@ -1,0 +1,28 @@
+# Tauri / Rust build artifacts (added once scaffolded)
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.svelte-kit/
+.next/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tauri update signing keys (NEVER commit)
+*.pem
+*.key
+~/.tauri/
+
+# Local env
+.env
+.env.local
