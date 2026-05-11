@@ -221,6 +221,10 @@ Make sure you're using **PowerShell 7**, not Windows PowerShell:
 - **Recovery Mode** - Emergency re-enable of all disabled packages
 - **Abort Anytime** - ESC cancels mid-operation with partial summary
 
+## Feature catalog
+
+[docs/FEATURES.md](docs/FEATURES.md) is the canonical, language-agnostic spec of every behavior the tool supports — bloat lists, ADB commands, edge cases. PRs that add or change a feature update it in the same commit.
+
 ## Credits
 
 - Debloat research from community guides including [florisse.nl/shield-debloat](https://florisse.nl/shield-debloat/)
