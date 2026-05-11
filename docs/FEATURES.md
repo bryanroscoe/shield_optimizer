@@ -15,21 +15,62 @@ Catalog reflects v1 at commit `df70dd5` (post-v0.75.0). Function references poin
 
 ## Table of contents
 
+0. [Invocation & startup](#0-invocation--startup)
 1. [Connection & discovery](#1-connection--discovery)
-2. [Device action menu](#2-device-action-menu)
-3. [Optimization engine](#3-optimization-engine)
-4. [Health report & live monitor](#4-health-report--live-monitor)
-5. [Launcher management](#5-launcher-management)
-6. [Display & input tuning](#6-display--input-tuning)
-7. [Display scaling](#7-display-scaling)
-8. [Snapshot / restore](#8-snapshot--restore)
-9. [APK sideloading](#9-apk-sideloading)
-10. [Reboot operations](#10-reboot-operations)
-11. [Recovery / safety](#11-recovery--safety)
-12. [Device profile](#12-device-profile)
-13. [UI framework](#13-ui-framework)
-14. [Data catalogs](#14-data-catalogs)
-15. [Cross-cutting concerns](#15-cross-cutting-concerns)
+2. [Main menu](#2-main-menu)
+3. [Device action menu](#3-device-action-menu)
+4. [Optimization engine](#4-optimization-engine)
+5. [Health report & live monitor](#5-health-report--live-monitor)
+6. [Launcher management](#6-launcher-management)
+7. [Display & input tuning](#7-display--input-tuning)
+8. [Display scaling](#8-display-scaling)
+9. [Snapshot / restore](#9-snapshot--restore)
+10. [APK sideloading](#10-apk-sideloading)
+11. [Reboot operations](#11-reboot-operations)
+12. [Recovery / safety](#12-recovery--safety)
+13. [Device profile & detection](#13-device-profile--detection)
+14. [UI framework](#14-ui-framework)
+15. [Data catalogs](#15-data-catalogs)
+16. [Cross-cutting concerns](#16-cross-cutting-concerns)
+
+---
+
+## 0. Invocation & startup
+
+### 0.1 Command-line parameters
+
+The script accepts parameters on launch:
+
+| Param | Purpose |
+|---|---|
+| `-ForceAdbDownload` | Force re-download of platform-tools even if already present. Used to recover from corrupt ADB binary. |
+| `-LightMode` | Force the light color theme regardless of system setting. |
+| `-DarkMode` | Force the dark color theme regardless of system setting. |
+| `-Subnet` (string) | Override auto-detected subnet for Scan Network (e.g. `-Subnet "10.0.0"`). Useful for multi-subnet networks or where gateway detection fails. |
+
+Stored as `$Script:ForceAdbDownload`, `$Script:LightMode`, `$Script:DarkMode`, `$Script:Subnet` for use throughout the script.
+
+### 0.2 Platform detection
+
+| | |
+|---|---|
+| **Purpose** | Identify host OS for ADB binary download, color detection, and OS-specific shell quirks |
+| **Behavior** | Sets `$Script:Platform` to `Windows` / `macOS` / `Linux` / `Unknown` via PowerShell 7's `$IsWindows` / `$IsMacOS` / `$IsLinux`. Sets `$Script:IsUnix` = `$Platform -in @("macOS", "Linux")` |
+
+### 0.3 Startup sequence
+
+When the script is invoked:
+
+1. **Strict mode** enabled (`Set-StrictMode -Version Latest`) and `$ErrorActionPreference = "Stop"`.
+2. **Platform detection** (§0.2).
+3. **Color theme** initialized via `Initialize-Colors` honoring `-LightMode` / `-DarkMode` flags or auto-detecting (§15.1).
+4. **ADB lifecycle check** via `Check-Adb`: locates or downloads `platform-tools`, validates binary version, may prompt user.
+5. **Optional window resize**: if terminal width < 80 cols, attempts to resize to 100×35. Silently no-ops on terminals that don't support resize (Windows Terminal, VS Code).
+6. **Main menu loop** entered (§2).
+
+### 0.4 Strictness conventions
+
+Functions exit on first uncaught error (`-Stop`) and strict mode rejects uninitialized variables. v2 should preserve this strictness for safety — quiet failures during privileged ops are how users brick devices.
 
 ---
 
@@ -79,15 +120,69 @@ Catalog reflects v1 at commit `df70dd5` (post-v0.75.0). Function references poin
 | | |
 |---|---|
 | **Purpose** | Ensure ADB binary is present, the right version, and the daemon is healthy |
-| **v1 source** | `Check-Adb` (865), `Restart-AdbServer` (917), `Stop-AdbProcess` (847), `Get-AdbConfig` (813) |
-| **Behavior** | First run: downloads platform-tools for the host OS (Linux/macOS/Windows) and extracts to `./platform-tools/` (or alongside script). Detects ADB version mismatch and offers to redownload. Restarts the ADB server on Disconnect-all or via `-ForceAdbDownload` flag. |
-| **Edge cases** | Existing ADB process owned by another user blocks server start; ARM Macs need x86_64 ADB under Rosetta for some Google ADB builds |
+| **v1 source** | `Check-Adb` (865), `Restart-AdbServer` (917), `Stop-AdbProcess` (847), `Get-AdbConfig` (813), `Get-ScriptDirectory` (805) |
+| **Behavior** | First run: downloads platform-tools for the host OS (Linux/macOS/Windows) and extracts to `./platform-tools/` (or alongside script). Detects ADB version mismatch and offers to redownload. Restarts the ADB server via the "Restart ADB" main-menu action (§2) or `-ForceAdbDownload` flag. |
+| **Download source** | Google's official `https://dl.google.com/android/repository/platform-tools-latest-<os>.zip` per OS |
+| **Edge cases** | Existing ADB process owned by another user blocks server start; ARM Macs need x86_64 ADB under Rosetta for some Google ADB builds; `Stop-AdbProcess` kills `adb` system-wide before redownload to release file locks on Windows |
+
+### 1.6 Device enumeration & friendly names
+
+| | |
+|---|---|
+| **Purpose** | Convert `adb devices` raw output into a structured list with friendly display names |
+| **v1 source** | `Get-Devices` (1012) |
+| **Behavior** | Runs `adb devices`, parses each line for serial+status, classifies connection type (`Network` if `IP:port`, else `USB`). For each connected (`status=device`) entry, batches a single ADB call to read: `settings get global device_name; getprop ro.product.brand; getprop ro.product.model; getprop ro.product.device; getprop ro.product.manufacturer`. Then classifies device type and maps codenames to friendly names. |
+| **Returned shape** | `@{ Serial; Name; Model; Type; Status; ConnectionType }` per device |
+| **Shield codename → friendly model** | `mdarcy` → "Shield TV Pro (2019)", `sif` → "Shield TV (2019 Tube)", `darcy` → "Shield TV (2017)", `foster` → "Shield TV (2015)", default → "Shield TV (\<model code\>)" |
+| **Note** | Device-type detection logic here (manufacturer/brand/device-based) differs slightly from the standalone `Get-DeviceType` (brand/model/device-based). v2 should consolidate into one canonical detection. See §13.1. |
+| **USB support status** | Detected and tagged `[USB]`, but Shield TV does **not** support USB debugging (host ports only). Marked **experimental** in README. Useful for phones/tablets used during development. |
+
+### 1.7 USB-debugging UNAUTHORIZED guidance
+
+| | |
+|---|---|
+| **Purpose** | Help user resolve an UNAUTHORIZED device entry instead of leaving them confused |
+| **Behavior** | When user selects a device in `unauthorized` state from the main menu, displays detailed numbered steps: (1) look at TV, (2) accept "Allow USB debugging?" prompt, (3) check "Always allow", (4) tap Allow. Falls back to revoke+reconnect guidance if no prompt appears. |
+| **v1 source** | Inline in main menu loop (~line 3946) |
 
 ---
 
-## 2. Device action menu
+## 2. Main menu
 
-Top-level menu shown for a selected connected device. Shortcuts in parens.
+The outermost menu (looped until Quit). Layout:
+
+```
+[Connected devices, one per row, with [NET]/[USB] tag and friendly name]
+---
+[Static actions below the separator]
+```
+
+Devices use numeric shortcuts (1-9 based on position), static actions use letter shortcuts.
+
+### 2.1 Static main-menu actions
+
+| Action | Shortcut | Description |
+|---|---|---|
+| **Scan Network** | S | Trigger §1.1 auto-discovery |
+| **Connect IP** | C | Prompt for `IP[:port]`, validate via `Test-ValidIP` (line 3392), `adb connect` |
+| **Pair Device (PIN)** | P | Trigger §1.3 PIN-pairing flow (experimental) |
+| **Report All** | R | Run `Run-Report` against every device whose status is `device` |
+| **Refresh** | F | No-op; falls through to top of loop which re-queries `Get-Devices` |
+| **Restart ADB** | A | Kill and restart the ADB server (§1.5) |
+| **Help** | H | Show keyboard/usage help (`Show-Help` at line 1530) |
+| **Quit** | Q | Exit script |
+
+### 2.2 Device row selection
+
+- Selecting a device in `device` status drops into the action menu (§3).
+- Selecting a device in `unauthorized` state shows the §1.7 guidance.
+- Selecting a device in `offline` or other state shows "Cannot manage device in state: \<status\>" then returns to main menu.
+
+---
+
+## 3. Device action menu
+
+Inner menu shown for a connected device. Shortcuts in parens.
 
 | Action | Shortcut | Description | v1 source |
 |---|---|---|---|
@@ -108,9 +203,9 @@ Top-level menu shown for a selected connected device. Shortcuts in parens.
 
 ---
 
-## 3. Optimization engine
+## 4. Optimization engine
 
-### 3.1 Optimize / Restore flow
+### 4.1 Optimize / Restore flow
 
 | | |
 |---|---|
@@ -126,7 +221,7 @@ Top-level menu shown for a selected connected device. Shortcuts in parens.
 | **Abort behavior** | ESC or selecting ABORT halts the loop, shows partial summary, returns to action menu |
 | **Edge cases** | Multi-process apps' RAM summed by base package via `Get-AppMemoryMap`; apps not in `pm list packages` but in `pm list packages -u` shown as `[ALREADY UNINSTALLED]`; uninstall failure causes `Open-PlayStore` prompt |
 
-### 3.2 Task summary
+### 4.2 Task summary
 
 | | |
 |---|---|
@@ -136,9 +231,9 @@ Top-level menu shown for a selected connected device. Shortcuts in parens.
 
 ---
 
-## 4. Health report & live monitor
+## 5. Health report & live monitor
 
-### 4.1 Health Report
+### 5.1 Health Report
 
 | | |
 |---|---|
@@ -146,13 +241,13 @@ Top-level menu shown for a selected connected device. Shortcuts in parens.
 | **v1 source** | `Run-Report` (2066) |
 | **Behavior** | Batches multiple `dumpsys` calls into one shell invocation, parses sections delimited by `::SECTION::` markers, displays System Info, Vitals, Settings, Display (mode/refresh/HDR/audio), Top Memory Users, Bloat Check table |
 | **ADB call (batched)** | Single `adb shell` with: `dumpsys thermalservice | head -50; dumpsys meminfo; df -h /data; getprop ro.board.platform; getprop ro.build.version.release; settings get global window_animation_scale; pm list packages -e` |
-| **Display query (separate)** | `dumpsys display` (resolution / refresh from supportedModes table matched to active modeId; HDR from `HdrCapabilities mSupportedHdrTypes`), `dumpsys audio` (current output device) — see §4.3 |
+| **Display query (separate)** | `dumpsys display` (resolution / refresh from supportedModes table matched to active modeId; HDR from `HdrCapabilities mSupportedHdrTypes`), `dumpsys audio` (current output device) — see §5.3 |
 | **Vitals shown** | Temperature (parsed from thermal zones), RAM (free/used/total/swap from meminfo), Storage (from df) |
 | **Vital color coding** | `Get-VitalColor` thresholds — temp: <50/<70/<85/else; RAM: <60/<75/<85/else %; storage: similar; per-app memory: <50/<100/<200/else MB |
 | **Bloat Check table** | One row per app in the device's list, columns: Name / RAM (if running) / Action (UNINSTALL/DISABLE) / Default (yes/no) |
 | **Edge cases** | Stale dumpsys output if device just woke; missing thermal sensors → `N/A`; storage parsing tolerant of `/data` mount variations |
 
-### 4.2 Live Monitor
+### 5.2 Live Monitor
 
 | | |
 |---|---|
@@ -163,7 +258,7 @@ Top-level menu shown for a selected connected device. Shortcuts in parens.
 | **Top apps** | Filtered via `Test-AppPackage` (skips system processes); top 10 shown |
 | **Edge cases** | Long-running session leaks ADB connections on Windows if not cleaned; PowerShell cursor positioning differs by terminal |
 
-### 4.3 Display & audio diagnostics
+### 5.3 Display & audio diagnostics
 
 | | |
 |---|---|
@@ -175,9 +270,9 @@ Top-level menu shown for a selected connected device. Shortcuts in parens.
 
 ---
 
-## 5. Launcher management
+## 6. Launcher management
 
-### 5.1 Custom launcher catalog
+### 6.1 Custom launcher catalog
 
 Supported preset launchers (`$Script:Launchers`):
 
@@ -196,16 +291,16 @@ Stock launchers handled (`$Script:StockLaunchers`): `com.google.android.tvlaunch
 
 Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.android.settings`.
 
-### 5.2 Setup wizard
+### 6.2 Setup wizard
 
 | | |
 |---|---|
 | **Purpose** | Install, select, and activate a custom launcher; disable stock launchers safely |
 | **v1 source** | `Setup-Launcher` (2875) |
 | **Behavior** | (1) Detect current launcher via `cmd package resolve-activity`. (2) List preset launchers + Custom + Back. (3) For chosen launcher: if not installed and not custom, offer Play Store install. (4) If already active, just offer to clean up other HOME handlers. (5) Else prompt to disable other launchers (calls `Disable-AllStockLaunchers`). (6) Call `Set-DefaultLauncher` and report success/failure with captured ADB error. (7) Run `Test-ChannelDependencies` to warn if `com.android.providers.tv` is disabled (Watch Next plumbing). |
-| **ADB calls** | See `Set-DefaultLauncher` strategy in §5.3 |
+| **ADB calls** | See `Set-DefaultLauncher` strategy in §6.3 |
 
-### 5.3 Set default launcher (multi-strategy)
+### 6.3 Set default launcher (multi-strategy)
 
 | | |
 |---|---|
@@ -216,7 +311,7 @@ Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.an
 | **Verified on** | Real Shield running Android 11 — Projectivy `.ui.home.MainActivity` |
 | **Edge cases** | `cmd role` doesn't exist on Shield's customized Android 11; activity may be deeply nested (`.ui.home.MainActivity` etc.) — dumpsys parser was unreliable, replaced by `query-activities --components` |
 
-### 5.4 Disable stock launchers
+### 6.4 Disable stock launchers
 
 | | |
 |---|---|
@@ -226,7 +321,7 @@ Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.an
 | **Friendly names** | Resolves package → display name via custom-launcher list + hardcoded stock-launcher map |
 | **Edge cases** | Refuses to proceed if no HOME handlers detected; never disables the package supplied as `-CustomLauncherPkg`; never disables `com.android.tv.settings` (emergency fallback) |
 
-### 5.5 Restore stock launchers
+### 6.5 Restore stock launchers
 
 | | |
 |---|---|
@@ -234,7 +329,7 @@ Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.an
 | **v1 source** | `Restore-AllStockLaunchers` (2668) |
 | **ADB calls** | `pm enable <pkg>` for each disabled stock launcher; sets HOME role back to `com.google.android.tvlauncher` on Shield / equivalent on Google TV if possible |
 
-### 5.6 Channel dependency warning
+### 6.6 Channel dependency warning
 
 | | |
 |---|---|
@@ -244,7 +339,7 @@ Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.an
 
 ---
 
-## 6. Display & input tuning
+## 7. Display & input tuning
 
 | | |
 |---|---|
@@ -258,7 +353,7 @@ Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.an
 
 ---
 
-## 7. Display scaling
+## 8. Display scaling
 
 | | |
 |---|---|
@@ -270,9 +365,9 @@ Safe HOME-handler fallbacks (never disabled): `com.android.tv.settings`, `com.an
 
 ---
 
-## 8. Snapshot / restore
+## 9. Snapshot / restore
 
-### 8.1 Snapshot data model
+### 9.1 Snapshot data model
 
 JSON file at `./snapshots/<safe-device-name>_<timestamp>.json`:
 
@@ -294,14 +389,14 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 - `global`: `window_animation_scale`, `transition_animation_scale`, `animator_duration_scale`, `hdmi_control_enabled`, `hdmi_control_auto_wakeup_enabled`, `hdmi_control_auto_device_off_enabled`, `hdmi_system_audio_control_enabled`
 - `secure`: `match_content_frame_rate`, `long_press_timeout`
 
-### 8.2 Save
+### 9.2 Save
 
 | | |
 |---|---|
 | **v1 source** | `Save-Snapshot` (3653) |
 | **Behavior** | Enumerate disabled packages (`pm list packages -d`), capture current launcher, read all tracked settings (skip values that are `null` or empty), write JSON with timestamp |
 
-### 8.3 Apply
+### 9.3 Apply
 
 | | |
 |---|---|
@@ -310,7 +405,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 | **Safety property** | **Never re-enables** a currently-enabled package not on the snapshot list. Apply is additive-only for disable state. |
 | **Cross-device warning** | If `snap.deviceType ≠ current device type`, warns user before proceeding |
 
-### 8.4 Menu
+### 9.4 Menu
 
 | | |
 |---|---|
@@ -319,7 +414,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 
 ---
 
-## 9. APK sideloading
+## 10. APK sideloading
 
 | | |
 |---|---|
@@ -331,7 +426,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 
 ---
 
-## 10. Reboot operations
+## 11. Reboot operations
 
 | | |
 |---|---|
@@ -342,7 +437,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 
 ---
 
-## 11. Recovery / safety
+## 12. Recovery / safety
 
 | | |
 |---|---|
@@ -353,21 +448,44 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 
 ---
 
-## 12. Device profile
+## 13. Device profile & detection
+
+### 13.1 Detection logic
+
+v1 has **two device-type detection paths** that v2 should consolidate:
+
+**Path A: `Get-DeviceType` (line 384)** — used by `Show-DeviceProfile` only:
+- Inputs: `ro.product.brand`, `ro.product.model`, `ro.product.device`
+- Classification:
+  - `Shield` if brand=nvidia OR model matches /shield/ OR device matches /foster\|darcy\|mdarcy\|sif/
+  - `GoogleTV` if brand=onn OR model matches /onn/ OR device matches /ott_/ OR brand=google OR model matches /chromecast\|sabrina\|boreal/
+  - Falls back to `Unknown`
+
+**Path B: inline detection in `Get-Devices` (line 1043)** — used for every device list refresh:
+- Inputs: `ro.product.manufacturer`, `ro.product.brand`, `ro.product.device`
+- Classification (different criteria than Path A):
+  - `Shield` if manufacturer matches /NVIDIA/ OR brand matches /NVIDIA/
+  - `GoogleTV` if manufacturer matches /Google\|Amlogic/ OR brand matches /onn\|google/ OR device matches /ott_\|sabrina\|boreal/
+  - Falls back to `Unknown`
+
+The two paths can disagree on edge cases. v2 should pick the union of inputs (manufacturer + brand + model + device) and have one detection function.
+
+### 13.2 Profile display
 
 | | |
 |---|---|
-| **Purpose** | Display detection results and the device-specific app list (no actions, read-only) |
-| **v1 source** | `Show-DeviceProfile` (458), `Get-DeviceType` (384), `Get-DeviceTypeName` (420), `Get-AppListForDevice` (429) |
-| **Detection inputs** | `getprop ro.product.brand`, `ro.product.model`, `ro.product.device`, `ro.product.manufacturer`, `ro.build.version.release`, `ro.build.version.sdk`, `ro.build.id`, `ro.board.platform` |
-| **Device types** | `Shield` (brand=nvidia OR model matches /shield/ OR device matches /foster\|darcy\|mdarcy\|sif/), `GoogleTV` (brand=onn OR model matches /onn/ OR device matches /ott_/ OR brand=google OR model matches /chromecast\|sabrina\|boreal/), `Unknown` (falls back to CommonAppList only) |
-| **App list per type** | Shield → CommonAppList + ShieldAppList. GoogleTV → CommonAppList + GoogleTVAppList. Unknown → CommonAppList only. |
+| **Purpose** | Read-only view of detection results, current settings, and the device-specific app list |
+| **v1 source** | `Show-DeviceProfile` (458), `Get-AppListForDevice` (429), `Get-DeviceTypeName` (420) |
+| **All getprop inputs** | `ro.product.brand`, `ro.product.model`, `ro.product.device`, `ro.product.manufacturer`, `ro.build.version.release`, `ro.build.version.sdk`, `ro.build.id`, `ro.board.platform` |
+| **Other inputs** | `settings get global device_name` for user-customized friendly name |
+| **App list per device type** | Shield → CommonAppList + ShieldAppList. GoogleTV → CommonAppList + GoogleTVAppList. Unknown → CommonAppList only |
+| **Shield codename → friendly model map** | See §1.6 |
 
 ---
 
-## 13. UI framework
+## 14. UI framework
 
-### 13.1 Themes
+### 14.1 Themes
 
 | | |
 |---|---|
@@ -376,7 +494,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 | **Auto-detect** | macOS: `defaults read -g AppleInterfaceStyle`; Windows: registry `AppsUseLightTheme`; Linux: `gsettings color-scheme` |
 | **Color slots** | Header / SubHeader / Success / Warning / Error / Info / Selected / Unselected / Bracket highlight / Separator / Label / Value / TextDim / Disabled / Shortcut (15 named colors per theme) |
 
-### 13.2 Read-Menu
+### 14.2 Read-Menu
 
 | | |
 |---|---|
@@ -387,7 +505,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 | **Returns** | Integer index of selected option, or `-1` on ESC |
 | **Edge cases** | UNAUTHORIZED items rendered in error color; closing-arrow indicator on selected row; works under PowerShell on Windows Terminal / iTerm / GNOME Terminal |
 
-### 13.3 Read-Toggle
+### 14.3 Read-Toggle
 
 | | |
 |---|---|
@@ -397,7 +515,7 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 | **Behavior** | Left/Right arrows to move; Enter confirms; first-letter shortcuts |
 | **Returns** | Integer index or `-1` on ESC |
 
-### 13.4 Help
+### 14.4 Help
 
 | | |
 |---|---|
@@ -407,25 +525,25 @@ Tracked setting keys (`$Script:SnapshotSettingKeys`):
 
 ---
 
-## 14. Data catalogs
+## 15. Data catalogs
 
 These are the structured arrays that drive Optimize behavior. **In v2 they should be runtime-fetched JSON, not embedded code.**
 
-### 14.1 CommonAppList — universal Android TV bloat
+### 15.1 CommonAppList — universal Android TV bloat
 
 Telemetry, defunct apps, streaming apps (UNINSTALL, DefaultOptimize=N — user choice), Canadian streaming apps, FAST apps, premium add-ons, medium-risk system shims, high-risk launcher/critical-service entries. Currently ~40 entries.
 
 **Defunct apps section:** Google Play Movies, Google Play Music, Funimation, Stadia, Quibi, HBO Now (legacy).
 
-### 14.2 ShieldAppList — Shield-specific
+### 15.2 ShieldAppList — Shield-specific
 
 `com.nvidia.stats`, `com.nvidia.diagtools`, `com.nvidia.feedback`, `com.google.android.tvrecommendations`, `com.nvidia.osc`, `com.nvidia.shieldtech.hooks`, `com.nvidia.tegrazone3`, `com.nvidia.nvgamecast`, `com.google.android.backdrop`, `com.google.android.speech.pumpkin`, `com.nvidia.ota` (High Risk), `com.plexapp.mediaserver.smb` (Advanced), `com.google.android.tvlauncher` (High Risk, requires wizard).
 
-### 14.3 GoogleTVAppList — Google TV / Onn / Chromecast-specific
+### 15.3 GoogleTVAppList — Google TV / Onn / Chromecast-specific
 
 `com.walmart.otto`, `com.google.android.leanbacklauncher.recommendations`, `com.google.android.tungsten.overscan`, `com.droidlogic.launcher.provider`, `com.google.android.apps.tv.launcherx` (High Risk, requires wizard).
 
-### 14.4 App entry schema
+### 15.4 App entry schema
 
 ```
 @{
@@ -440,19 +558,19 @@ Telemetry, defunct apps, streaming apps (UNINSTALL, DefaultOptimize=N — user c
 }
 ```
 
-### 14.5 PerfList — performance settings
+### 15.5 PerfList — performance settings
 
 Currently single entry: animation speed (window/transition/animator scales set together, Optimize=0.5, Restore=1.0).
 
-### 14.6 Custom launchers — see §5.1
+### 15.6 Custom launchers — see §6.1
 
-### 14.7 Snapshot setting keys — see §8.1
+### 15.7 Snapshot setting keys — see §9.1
 
 ---
 
-## 15. Cross-cutting concerns
+## 16. Cross-cutting concerns
 
-### 15.1 ADB command invocation
+### 16.1 ADB command invocation
 
 | | |
 |---|---|
@@ -460,29 +578,62 @@ Currently single entry: animation speed (window/transition/animator scales set t
 | **Behavior** | Wraps `& $Script:AdbPath -s $Target shell <cmd>` and returns `@{ Success; Output; Error }`. Catches exceptions, normalizes output to string. |
 | **v2 expectation** | Single point for ADB calls; should add structured logging, optional dry-run mode, request/response tracing for debugging |
 
-### 15.2 Multi-device sessions
+### 16.2 Multi-device sessions
 
-The script supports multiple connected devices simultaneously. The main menu shows all `adb devices` results with shortcuts (numeric for device rows, letter for static actions). Selecting a device drops into its action menu (§2).
+The script supports multiple connected devices simultaneously. The main menu (§2) shows all `adb devices` results with shortcuts (numeric for device rows, letter for static actions). Selecting a device drops into its action menu (§3).
 
-### 15.3 Failure surfacing
+### 16.3 Failure surfacing
 
 - ADB stderr captured into a `LastSetHomeError`-style scoped variable (currently only for launcher set-default; v2 should generalize this pattern)
 - Failed operations don't halt the loop — they're counted in the summary
 - `Write-ErrorMsg` / `Write-Warn` go to the user's terminal in distinct colors
 
-### 15.4 Reversibility model
+### 16.4 Reversibility model
 
 - **Disable** (`pm disable-user`) — reversible via Restore / Recovery
 - **Uninstall** (`pm uninstall --user 0`) — semi-reversible via `pm install-existing` (works if APK is still on the system partition) or Play Store
 - **Settings writes** — reversible via Restore (resets to known values) or by writing `null` / deleting the key
 - **Snapshot Apply** — additive-only for disable state; safe to re-apply
 
-### 15.5 Code conventions used in v1 (not requirements for v2)
+### 16.5 Play Store deep-link
+
+| | |
+|---|---|
+| **Purpose** | Open the Play Store on the device to a specific package, used as a fallback path when reinstalling a previously-uninstalled app |
+| **v1 source** | `Open-PlayStore` (1310) |
+| **ADB call** | `am start -a android.intent.action.VIEW -d 'market://details?id=<pkg>'` |
+| **Used by** | Optimize/Restore flow (when `pm install-existing` fails because the APK file is missing); Launcher Setup (when chosen custom launcher isn't installed) |
+
+### 16.6 Uninstall / install error decoding
+
+| | |
+|---|---|
+| **Purpose** | Translate Android's terse install/uninstall failure codes into user-readable hints |
+| **v1 source** | `Get-UninstallErrorReason` (662) |
+| **Recognized errors** | `INSTALL_FAILED_INSUFFICIENT_STORAGE`, `INSTALL_FAILED_VERSION_DOWNGRADE`, `INSTALL_FAILED_OLDER_SDK`, `INSTALL_FAILED_ALREADY_EXISTS`, `DELETE_FAILED_DEVICE_POLICY_MANAGER`, `DELETE_FAILED_USER_RESTRICTED`, and others — each mapped to a one-line explanation |
+
+### 16.7 Utility helpers
+
+| Function | Purpose |
+|---|---|
+| `Test-PackageInList` (555) | Boolean: is `<pkg>` present in the multiline output of `pm list packages [-d/-e/-u]`? Centralizes the parsing of `package:<name>` format |
+| `Test-AppPackage` (564) | Boolean: is this package a user-installable app (vs. a system process)? Filters `dumpsys meminfo` rows down to apps. |
+| `Test-ValidIP` (3392) | IPv4 + optional `:port` validator |
+| `Format-FileSize` (1321) | Bytes → human-readable string (KB/MB/GB) for APK file listings |
+| `Get-ParsedTemperature` (570) | Extracts CPU temp in °C from `dumpsys thermalservice` across multiple format variants |
+| `Get-ParsedRamInfo` (594) | Extracts free/used/total/swap MB from `dumpsys meminfo` summary block |
+| `Get-VitalColor` (625) | Maps a vital metric (Temperature / RAM / Storage / AppMemory) + value to a console color name based on threshold tiers |
+| `Get-VitalAnsiColor` (640) | Same as above but returns an ANSI color code for cursor-positioned UIs |
+| `Open-PlayStore` (1310) | See §16.5 |
+| `Get-UninstallErrorReason` (662) | See §16.6 |
+
+### 16.8 Code conventions used in v1 (not requirements for v2)
 
 - All PowerShell function names are `Verb-Noun`
 - `$Script:` scope for module-globals (theme, ADB path, summary counters)
 - ANSI escape sequences for cursor control (cross-platform via PowerShell's RawUI)
 - Inline error checking: every ADB call's result inspected for `Exception|Error|denied` patterns
+- All `pm` commands use `--user 0` explicitly to avoid ambiguity on multi-user builds (Android TV rarely is, but the safety is cheap)
 
 ---
 
@@ -491,10 +642,10 @@ The script supports multiple connected devices simultaneously. The main menu sho
 When opening a PR that affects user-visible behavior, **at minimum**:
 
 - [ ] Add or update the corresponding section here
-- [ ] If you added a new menu item, update §2 (Device action menu)
+- [ ] If you added a new menu item, update §2 (main menu) or §3 (device action menu)
 - [ ] If you added a new ADB call, add it to the relevant feature's "ADB calls" row
-- [ ] If you added a new setting key, update §6 and §8.1 (snapshot)
-- [ ] If you added a new app or list, update §14
+- [ ] If you added a new setting key, update §7 (Tweaks) and §9.1 (snapshot setting keys)
+- [ ] If you added a new app or list, update §15 (data catalogs)
 - [ ] If you fixed a previously-broken edge case, update the "Edge cases" row to reflect the fix
 - [ ] Cross-link from v1 implementation to this doc by referencing section numbers in commit messages where useful
 
