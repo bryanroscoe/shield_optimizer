@@ -59,13 +59,23 @@ The engine is the part that's portable. It knows what the rules are (which packa
 
 These are non-negotiable; deviating is a regression:
 
-1. **Engine has no I/O.** It returns plans and inspects results — does not call `adb`, does not read files, does not log. The tests prove this by injecting a mock ADB driver.
-2. **App lists are runtime data, not embedded code.** `data/app-lists/*.json` ships with the binary as defaults, but the app fetches the latest from a versioned URL (`raw.githubusercontent.com/.../v2/data/app-lists/<file>.json` or similar) on launch, falling back to embedded on offline. Lets dead-app additions ship without a binary release.
+1. **Engine has no I/O.** It returns plans and inspects results — does not call `adb`, does not read files, does not make HTTP requests, does not log. The tests prove this by injecting a mock ADB driver.
+2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the Tauri host layer (next to the command bridge, not in the engine). The loader is responsible for: shipping with embedded JSON defaults; fetching the latest from a versioned URL (`raw.githubusercontent.com/.../v2/data/app-lists/<file>.json` or similar) on launch; falling back to embedded on offline; signature-verifying fetched lists. The engine accepts app lists as inputs and is agnostic to where they came from. This is the only way to honor commitment #1 while supporting hot-shipping of dead-app updates.
 3. **All ADB output goes through one wrapper.** Single point for tracing, retries, structured logging. No naked `adb ...` calls scattered through the codebase.
 4. **The detection logic exists exactly once.** v1 has two device-type-detection paths that don't agree on edge cases (see `docs/FEATURES.md` §13.1). v2 must have one.
 5. **Snapshots are versioned.** `schemaVersion` in every snapshot file. The reader handles old versions or rejects them with a clear error.
 6. **Strict mode everywhere.** Rust's compiler catches the equivalent of v1's `Set-StrictMode -Version Latest`; preserve that. No `unwrap()` on values that can fail at runtime — propagate `Result`.
 7. **Reversibility model preserved.** Same disable/uninstall/settings tiers as v1. The Recovery action remains a one-click backout.
+
+## Explicit non-goals
+
+To bound scope expectations:
+
+- **Not a root or Magisk tool.** v2 makes only ADB-shell-level changes. If a user wants on-device root operations, they should keep using Magisk modules.
+- **Not a custom-ROM flasher.** No fastboot, no recovery image flashing, no Project Treble manipulation.
+- **No cloud sync.** Snapshots are local-file JSON. No account, no telemetry, no opt-in cloud backup.
+- **No crash/usage telemetry.** This is a privacy-adjacent tool; users opt in to *us*, not to a third-party analytics vendor. Sentry-style crash uploads are out — diagnostics live in local log files the user can choose to share.
+- **No Play Store distribution.** Google bans tools that disable other apps via ADB-style mechanisms. Distribution is sideload-only.
 
 ## Local setup (once toolchain ready)
 

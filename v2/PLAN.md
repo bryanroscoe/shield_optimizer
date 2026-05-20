@@ -33,10 +33,12 @@ Section references (§X.Y) point at [`../docs/FEATURES.md`](../docs/FEATURES.md)
 | 1.3 | ADB driver: subprocess wrapper, structured output type, error decoding | §16.1, §16.6 | ⏳ |
 | 1.4 | Platform detection (Windows / macOS / Linux) for ADB binary path resolution | §0.2 | ⏳ |
 | 1.5 | Bundled `platform-tools` for each target + download path for `-ForceAdbDownload` equivalent | §1.5 | ⏳ |
-| 1.6 | Test harness: mock ADB driver + fixture dumpsys outputs from real Shield | — | ⏳ |
-| 1.7 | CI: GitHub Actions builds on ubuntu/macos/windows, runs tests | — | ⏳ |
+| 1.6 | Test harness: mock ADB driver | — | ⏳ |
+| 1.7 | **Fixture capture pass** — checked-in dumpsys / settings / pm-list outputs from the real Shield at 192.168.42.71, used as the test corpus throughout the rest of the phases | — | ⏳ |
+| 1.8 | CI: GitHub Actions builds on ubuntu/macos/windows, runs tests | — | ⏳ |
+| 1.9 | **Pin frontend framework choice** (default Svelte) before shipping the first 3 views — switching frameworks after that is the expensive moment | — | ⏳ |
 
-Ship target: developers can run `npm run tauri dev`, see a window, click a button that runs `adb devices` against a real Shield and renders the result.
+Ship target: developers can run `npm run tauri dev`, see a window, click a button that runs `adb devices` against a real Shield and renders the result. Fixture corpus is checked in so subsequent phases can write engine tests without device access.
 
 ---
 
@@ -191,10 +193,10 @@ Ship target: parity with v1 Snapshot/Restore.
 | # | Item | v1 ref | Status |
 |---|---|---|---|
 | 10.1 | `tauri.conf.json` bundler config (icons, identifiers, signing metadata) | (new) | ⏳ |
-| 10.2 | Code signing setup (macOS notarization, Windows EV certificate or self-signed for power users) | (new) | ⏳ |
+| 10.2 | **Code signing decision** — macOS: Apple Developer Program ($99/yr) + notarization, no shortcut. Windows: choose one of (a) EV certificate from DigiCert/Sectigo etc. ($300-500/yr, immediate SmartScreen reputation), (b) standard OV certificate ($100-300/yr, ~30k-installs to build SmartScreen reputation), or (c) ship unsigned with documented SmartScreen-bypass instructions. **(c) is risky for the debloater audience** — they already mistrust the tool; SmartScreen "this looks like malware" warnings will tank adoption. Lean (a) or (b); decide before Phase 10 begins. Linux: no signing required, can sign with personal GPG key for repo trust. | (new) | ⏳ |
 | 10.3 | Tauri Updater plugin wired against `latest.json` hosted in GitHub Releases | (new) | ⏳ |
-| 10.4 | Release pipeline: tag → CI builds installers for 5 platforms → uploads to release | (new) | ⏳ |
-| 10.5 | Update key generation + private-key handling docs | (new) | ⏳ |
+| 10.4 | Release pipeline: tag → CI builds installers for 5 platforms → uploads to release. **Pin toolchain versions** (rustc, node, tauri-cli) in CI for reproducibility — a privileged tool's supply chain warrants the discipline | (new) | ⏳ |
+| 10.5 | **Update key generation + private-key handling docs.** Critical: Tauri Updater uses Ed25519 signatures, and the private signing key must NEVER rotate without bricking auto-update for the entire installed base on old versions. Document key custody (1Password / HSM), backup strategy, and a one-way "we lost the key" recovery plan (notify users via README, force manual reinstall). | (new) | ⏳ |
 
 Ship target: v2.0.0 desktop GA with auto-update working.
 
@@ -204,29 +206,37 @@ Ship target: v2.0.0 desktop GA with auto-update working.
 
 **Goal:** Same app on Android, distributed outside Play Store.
 
+> **Reality check before scoping:** an Android app **cannot bundle or exec an `adb` binary** — SELinux + the app sandbox forbid fork-exec of arbitrary binaries from third-party APKs. The Tauri `shell` plugin reflects this; its desktop-flavored subprocess APIs are not available on Android targets. "ADB-over-network from phone" therefore means **reimplementing the ADB wire protocol in Rust** (TLS handshake against the device's `adbd`, RSA key auth, and the sync / shell sub-protocols). That's a non-trivial library, not a flag-flip. Either commit to the protocol implementation or accept that v2.1 is a much larger effort than v2.0. **Do a research spike (11.0 below) before committing to v2.1 timeline.**
+
 | # | Item | v1 ref | Status |
 |---|---|---|---|
+| 11.0 | **Research spike** — evaluate existing Rust ADB crates (e.g. `adb_client`, `forensic-adb`) for protocol completeness and license fit. Decide: vendor a crate, fork one, or write our own. Land a written decision before opening 11.1. | (new) | ⏳ |
 | 11.1 | Tauri 2 Android target builds | (new) | ⏳ |
 | 11.2 | Responsive frontend (existing layout works on phone-portrait) | (new) | ⏳ |
-| 11.3 | ADB-over-network from phone (Android's app sandbox allows TCP to LAN) | (new) | ⏳ |
+| 11.3 | **Pure-Rust ADB client implementation** — TLS connection to `<device>:5555`, Ed25519/RSA key auth (matching desktop ADB's key format so a paired desktop can hand off to mobile), shell exec, output streaming. Plugs into the same `Adb` trait the desktop subprocess driver implements so the engine doesn't know which is which. | (new) | ⏳ |
 | 11.4 | APK distribution via GitHub Releases + F-Droid + Obtainium hint | (new) | ⏳ |
 | 11.5 | Update flow: check + manual-confirm install (Google's APK install constraint) | (new) | ⏳ |
 | 11.6 | iOS build (stretch — App Store also rejects this kind of tool; would be sideload-only) | (new) | ⏳ |
 
-Ship target: v2.1.0 with phone client.
+Ship target: v2.1.0 with phone client. **Realistic timeline depends on 11.0 outcome** — if a usable crate exists, 11.x is weeks; if we write our own ADB client, it's months. Treat v2.1 as a separate planning effort once 11.0 lands.
 
 ---
+
+## Phase 5 addenda — data additions (folded in from the research pass)
+
+These are *data changes* to the app lists shipping with v2, not separate features. They live in `data/app-lists/*.json` and are picked up by the runtime loader (commitment #2). Lumping them with Phase 5 because the loader is what unlocks them.
+
+- **"Disable Nvidia telemetry" preset** — curated bundle of Nvidia telemetry packages exposed as a one-click preset. Implementation: a new `data/presets/*.json` schema lets the engine compose multiple package-actions into a single named preset; Phase 5 ships at least this one preset to validate the schema.
+- **More Shield bloat from florisse.nl** — additional packages catalogued in the [florisse Shield-debloat guide](https://florisse.nl/shield-debloat/) that v1 doesn't have. Update `data/app-lists/shield.json` rather than touching code.
 
 ## Out-of-scope ideas (parking lot)
 
 Captured from the research pass; revisit after v2.1:
 
-- **"Disable Nvidia telemetry" preset** — single button that disables a curated bundle of Nvidia telemetry packages
-- **More Shield bloat from florisse.nl list** — additional packages we haven't catalogued
 - **Per-process CPU view** in Live Monitor (`top -n 1 -m 10`)
 - **Wi-Fi RSSI / link speed diagnostic** in Health Report (`dumpsys wifi`)
 - **Audio passthrough format detection** (multi-format `dumpsys audio` parser)
-- **Profiles** — "Privacy" / "Performance" / "Defunct services" preset bundles
+- **Profiles** — "Privacy" / "Performance" / "Defunct services" preset bundles (the preset *schema* lands in Phase 5; richer profile UX is post-v2.1)
 - **Multi-device targeting** — apply same Optimize to a group of devices in one click
 
 ---
@@ -236,10 +246,16 @@ Captured from the research pass; revisit after v2.1:
 Before tagging v2.0.0:
 
 - [ ] Every section of [`docs/FEATURES.md`](../docs/FEATURES.md) §0-§16 has a corresponding v2 implementation
-- [ ] Each implementation has at least one engine-level test against fixed dumpsys fixtures
+- [ ] Each implementation has at least one engine-level test against checked-in dumpsys fixtures from Phase 1.7
+- [ ] **Snapshot reader has a rejection-fixture test** — a snapshot with an unknown `schemaVersion` produces a clear, non-crashing error (honoring commitment #5)
+- [ ] **v1 → v2 snapshot migration path documented** — does v2 read v1's `./snapshots/*.json`? If yes, write the import logic; if no, document the manual migration steps
 - [ ] Manual exercise pass on real Shield at 192.168.42.71 for every menu action
 - [ ] Auto-updater verified end-to-end (publish a test release, install, confirm prompt + apply)
-- [ ] Installer signed for all five desktop targets (or documented why one is unsigned)
+- [ ] **Update signing-key custody plan committed** (where the private key lives, who has access, what happens if it's lost — see 10.5)
+- [ ] Installer signed for all five desktop targets, or each unsigned target has a documented user-impact tradeoff
+- [ ] **Third-party attribution surface in-app** — a "Credits" / "About" view listing crate licenses (cargo-about or equivalent)
+- [ ] **Accessibility baseline** — keyboard-only navigation works for every action; tab order is sensible; high-contrast theme renders correctly
+- [ ] **No telemetry** confirmed via build inspection — no Sentry, no analytics SDKs, no outbound calls except the app-list / updater endpoints
 - [ ] v1 README updated to note v2 is the new recommended download for desktop; v1 marked as maintenance-only
 
-Mobile is **not** a v2.0 gating requirement. v2.0 desktop ships, v2.1 adds mobile.
+Mobile is **not** a v2.0 gating requirement. v2.0 desktop ships, v2.1 adds mobile (timeline depends on Phase 11.0 spike outcome).
