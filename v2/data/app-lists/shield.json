@@ -1,0 +1,102 @@
+[
+  {
+    "package": "com.nvidia.stats",
+    "name": "Nvidia Telemetry",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Telemetry / usage stats.",
+    "restore_description": "Restores Nvidia stats.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.nvidia.diagtools",
+    "name": "Nvidia Diagnostics",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Diagnostic tools.",
+    "restore_description": "Restores diagnostics.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.nvidia.feedback",
+    "name": "Nvidia Feedback",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Feedback / telemetry.",
+    "restore_description": "Restores Nvidia feedback.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.tvrecommendations",
+    "name": "Sponsored Content",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Removes Sponsored / Top Picks rows on the stock Google TV home. Also removes the home-screen Watch Next rows that surface Apple TV / Netflix Continue Watching. No effect if you've switched to a custom launcher.",
+    "restore_description": "Restores sponsored and Watch Next rows on stock launcher.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.nvidia.osc",
+    "name": "Nvidia OSC",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Nvidia on-screen control / overlay service.",
+    "restore_description": "Restores OSC.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.nvidia.shieldtech.hooks",
+    "name": "Nvidia System Hooks",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Shield-specific system integration hooks.",
+    "restore_description": "Restores Shield hooks.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.nvidia.tegrazone3",
+    "name": "Nvidia Games (Tegra Zone)",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Game launcher tied to the discontinued GameStream service.",
+    "restore_description": "Restores Nvidia Games.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.nvidia.nvgamecast",
+    "name": "Nvidia GameStream",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Discontinued game streaming service.",
+    "restore_description": "Restores GameStream.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.backdrop",
+    "name": "Ambient Mode",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Photo-frame screensaver.",
+    "restore_description": "Restores ambient mode.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.nvidia.ota",
+    "name": "Nvidia System Updater",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Blocks Shield OS updates. Power-user only.",
+    "restore_description": "Restores Nvidia OTA.",
+    "default_optimize": false,
+    "default_restore": true
+  }
+]

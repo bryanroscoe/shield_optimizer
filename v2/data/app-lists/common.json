@@ -1,0 +1,272 @@
+[
+  {
+    "package": "com.google.android.feedback",
+    "name": "Google Feedback",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Crash and feedback telemetry.",
+    "restore_description": "Restores Google feedback service.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.android.printspooler",
+    "name": "Print Spooler",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Print service — irrelevant on a TV.",
+    "restore_description": "Restores print spooler.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.android.gallery3d",
+    "name": "Android Gallery",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Photo gallery — rarely used on TV.",
+    "restore_description": "Restores gallery app.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.videos",
+    "name": "Google Play Movies",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Defunct service (replaced by YouTube).",
+    "restore_description": "Restores defunct app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.music",
+    "name": "Google Play Music",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Defunct service (replaced by YouTube Music).",
+    "restore_description": "Restores defunct app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.Funimation.FunimationNow.androidtv",
+    "name": "Funimation",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Service shut down April 2024 (merged into Crunchyroll).",
+    "restore_description": "Restores defunct app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.stadia.android",
+    "name": "Stadia",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Service shut down January 2023.",
+    "restore_description": "Restores defunct app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.quibi.qlient",
+    "name": "Quibi",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Service shut down December 2020.",
+    "restore_description": "Restores defunct app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.hbo.hbonow",
+    "name": "HBO Now (legacy)",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Pre-Max HBO app — replaced by com.wbd.stream.",
+    "restore_description": "Restores defunct app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.netflix.ninja",
+    "name": "Netflix",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Netflix.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.amazon.amazonvideo.livingroom",
+    "name": "Amazon Prime Video",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Prime Video.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.wbd.stream",
+    "name": "Max (HBO)",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Max.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.disney.disneyplus",
+    "name": "Disney+",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Disney+.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.hulu.livingroomplus",
+    "name": "Hulu",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Hulu.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.spotify.tv.android",
+    "name": "Spotify",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Spotify.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.apple.atve.androidtv.appletv",
+    "name": "Apple TV",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Apple TV.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.crunchyroll.crunchyroid",
+    "name": "Crunchyroll",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Crunchyroll.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.youtube.tv",
+    "name": "YouTube",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores YouTube.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.youtube.tvmusic",
+    "name": "YouTube Music",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores YouTube Music.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.peacocktv.peacockandroid",
+    "name": "Peacock",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Peacock.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.plexapp.android",
+    "name": "Plex",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Plex client.",
+    "restore_description": "Restores Plex.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.cbs.ott",
+    "name": "Paramount+",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Paramount+.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "tv.twitch.android.app",
+    "name": "Twitch",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming app.",
+    "restore_description": "Restores Twitch.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.tv.remote.service",
+    "name": "Virtual Remote Keyboard",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Background phone-as-keyboard service. Disable if you don't use the Google TV mobile remote.",
+    "restore_description": "Restores virtual remote keyboard.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.android.providers.tv",
+    "name": "Live Channels Provider",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Breaks Watch Next / Continue Watching channels for Apple TV, Netflix, Disney+, etc. Also breaks Pandora and the Live Channels app.",
+    "restore_description": "Restores Watch Next channel support and Live Channels.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.android.dreams.basic",
+    "name": "Basic Daydream",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Screensaver framework.",
+    "restore_description": "Restores screensaver.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.katniss",
+    "name": "Google Assistant (Katniss)",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Disables hotword + voice search; significant RAM savings but UX-noticeable.",
+    "restore_description": "Restores voice search.",
+    "default_optimize": false,
+    "default_restore": true
+  }
+]

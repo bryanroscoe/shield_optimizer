@@ -1,0 +1,32 @@
+[
+  {
+    "package": "com.walmart.otto",
+    "name": "Walmart App",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Pre-installed Walmart app on Onn devices.",
+    "restore_description": "Restores Walmart app.",
+    "default_optimize": true,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.leanbacklauncher.recommendations",
+    "name": "Home Recommendations",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Removes extra recommendation rows (older Android TV launcher only). No effect on custom or Google TV launchers.",
+    "restore_description": "Restores home recommendations.",
+    "default_optimize": true,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.tungsten.overscan",
+    "name": "Overscan Calibrator",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Overscan calibration tool — rarely needed after initial setup.",
+    "restore_description": "Restores overscan calibrator.",
+    "default_optimize": false,
+    "default_restore": false
+  }
+]

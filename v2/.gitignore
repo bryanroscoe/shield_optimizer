@@ -1,14 +1,17 @@
-# Tauri / Rust build artifacts (added once scaffolded)
+# Node / frontend
+node_modules/
+/.svelte-kit
+/build
+/package
+dist/
+.next/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Rust / Tauri build artifacts
 target/
 src-tauri/target/
 src-tauri/gen/
-
-# Node / frontend
-node_modules/
-dist/
-build/
-.svelte-kit/
-.next/
 
 # IDE
 .vscode/
@@ -25,4 +28,6 @@ Thumbs.db
 
 # Local env
 .env
+.env.*
 .env.local
+!.env.example

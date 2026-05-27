@@ -1,0 +1,83 @@
+# Shield Optimizer v2 CI — Rust engine + ADB layer tests and frontend type check.
+#
+# Tauri's full bundle build is intentionally NOT run here yet — the GitHub-hosted
+# runners need extra setup for it (webkit2gtk on Linux, etc.) and we'll wire that
+# in once we're ready to ship installers. For now, CI proves the engine compiles
+# and tests pass on all three desktop OSes, plus the Svelte frontend type-checks.
+
+name: v2 Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v2/**'
+      - '.github/workflows/v2-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'v2/**'
+      - '.github/workflows/v2-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  rust:
+    name: Rust tests on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/src-tauri/target
+          key: ${{ runner.os }}-cargo-v2-${{ hashFiles('v2/src-tauri/Cargo.lock') }}
+
+      - name: cargo fmt
+        working-directory: v2/src-tauri
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        working-directory: v2/src-tauri
+        run: cargo clippy --lib --tests -- -D warnings
+
+      - name: cargo test
+        working-directory: v2/src-tauri
+        run: cargo test --lib
+
+  frontend:
+    name: Frontend type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v2
+        run: npm ci
+
+      - name: svelte-check
+        working-directory: v2
+        run: npm run check
+
+      - name: Frontend build
+        working-directory: v2
+        run: npm run build

@@ -28,15 +28,15 @@ Section references (§X.Y) point at [`../docs/FEATURES.md`](../docs/FEATURES.md)
 
 | # | Item | v1 ref | Status |
 |---|---|---|---|
-| 1.1 | Tauri 2 scaffold + frontend (Svelte default) | — | ⏳ |
-| 1.2 | Cargo workspace layout: `engine/` crate, `adb/` crate, `src-tauri/` (commands), `data/app-lists/` | §0, §16 | ⏳ |
-| 1.3 | ADB driver: subprocess wrapper, structured output type, error decoding | §16.1, §16.6 | ⏳ |
-| 1.4 | Platform detection (Windows / macOS / Linux) for ADB binary path resolution | §0.2 | ⏳ |
+| 1.1 | Tauri 2 scaffold + Svelte 5 / SvelteKit frontend | — | ✅ |
+| 1.2 | Engine / ADB / commands module layout under `src-tauri/src/` | §0, §16 | ✅ |
+| 1.3 | ADB driver: subprocess wrapper (`SubprocessAdb`), structured output (`AdbOutput`), typed `AdbError` | §16.1, §16.6 | ✅ |
+| 1.4 | Platform detection via `dirs` crate for snapshot dir + `PATH` search for adb binary | §0.2 | ✅ |
 | 1.5 | Bundled `platform-tools` for each target + download path for `-ForceAdbDownload` equivalent | §1.5 | ⏳ |
-| 1.6 | Test harness: mock ADB driver | — | ⏳ |
-| 1.7 | **Fixture capture pass** — checked-in dumpsys / settings / pm-list outputs from the real Shield at 192.168.42.71, used as the test corpus throughout the rest of the phases | — | ⏳ |
-| 1.8 | CI: GitHub Actions builds on ubuntu/macos/windows, runs tests | — | ⏳ |
-| 1.9 | **Pin frontend framework choice** (default Svelte) before shipping the first 3 views — switching frameworks after that is the expensive moment | — | ⏳ |
+| 1.6 | Test harness: `AdbDriver` trait lets tests inject mocks | — | ✅ |
+| 1.7 | **Fixture capture pass** — real-device captures checked in (deferred; tests currently use distilled inline fixtures) | — | ⏳ |
+| 1.8 | CI: `.github/workflows/v2-tests.yml` (fmt/clippy/test on all three OSes + frontend type check) | — | ✅ |
+| 1.9 | **Frontend framework: Svelte 5 (locked)** | — | ✅ |
 
 Ship target: developers can run `npm run tauri dev`, see a window, click a button that runs `adb devices` against a real Shield and renders the result. Fixture corpus is checked in so subsequent phases can write engine tests without device access.
 
@@ -48,13 +48,13 @@ Ship target: developers can run `npm run tauri dev`, see a window, click a butto
 
 | # | Item | v1 ref | Status |
 |---|---|---|---|
-| 2.1 | `adb devices` polling → typed `Device { serial, status, connection_type }` | §1.6 | ⏳ |
-| 2.2 | Batched property query (5 props in one shell call), build full `Device` | §1.6 | ⏳ |
-| 2.3 | Device type detection — **single** function consolidating v1's two paths | §13.1 | ⏳ |
-| 2.4 | Shield codename → friendly model map (mdarcy/sif/darcy/foster) | §1.6, §13.2 | ⏳ |
-| 2.5 | Frontend: device list with `[NET]`/`[USB]` tags, UNAUTHORIZED handling | §2.2, §1.7 | ⏳ |
-| 2.6 | Profile view: getprop dump + app-list breakdown | §13.2 | ⏳ |
-| 2.7 | Connect by IP form with validation | §1.2 | ⏳ |
+| 2.1 | `adb devices` polling → typed `Device { id, serial, status, connection }` | §1.6 | ✅ |
+| 2.2 | Batched property query (9 props in one shell call), build full `Device` | §1.6 | ✅ |
+| 2.3 | Device type detection — **single** function consolidating v1's two paths | §13.1 | ✅ |
+| 2.4 | Shield codename → friendly model map (mdarcy/sif/darcy/foster) | §1.6, §13.2 | ✅ |
+| 2.5 | Frontend: device list with `[NET]`/`[USB]` tags, UNAUTHORIZED handling | §2.2, §1.7 | ✅ |
+| 2.6 | Profile view: getprop dump + app-list breakdown | §13.2 | ✅ |
+| 2.7 | Connect by IP form with validation | §1.2 | ✅ |
 | 2.8 | PIN pairing (Android 11+) wizard | §1.3 | ⏳ |
 
 Ship target: parity with v1's main menu + device profile.
@@ -86,10 +86,10 @@ Ship target: parity with v1 Scan Network + the mDNS improvement that v1 doesn't 
 |---|---|---|---|
 | 4.1 | Batched dumpsys query (thermal + meminfo + storage + props + settings + packages) | §5.1 | ⏳ |
 | 4.2 | Parse thermal output (multiple format variants) | §16.7 | ⏳ |
-| 4.3 | Parse meminfo (free/used/total/swap MB) | §16.7 | ⏳ |
-| 4.4 | Top memory users (system-wide map, base-package summing) | §5.1, §16 | ⏳ |
-| 4.5 | Vital color thresholds (temp/RAM/storage/AppMemory) | §16.7 | ⏳ |
-| 4.6 | Display mode (resolution, refresh, HDR types) | §5.3 | ⏳ |
+| 4.3 | Parse meminfo free/used/total/swap | §16.7 | ⏳ |
+| 4.4 | Top memory users (system-wide map, base-package summing) | §5.1, §16 | ✅ |
+| 4.5 | Vital color thresholds (temp/RAM/storage/AppMemory) | §16.7 | ✅ (frontend) |
+| 4.6 | Display mode (resolution, refresh, HDR types) | §5.3 | ✅ |
 | 4.7 | Audio device | §5.3 | ⏳ |
 | 4.8 | Bloat check table | §5.1 | ⏳ |
 | 4.9 | Live monitor refresh loop | §5.2 | ⏳ |
@@ -104,9 +104,9 @@ Ship target: parity with v1 Health Report and Live Monitor.
 
 | # | Item | v1 ref | Status |
 |---|---|---|---|
-| 5.1 | App list JSON schema + bundled defaults (CommonApp/Shield/GoogleTV) | §15.1-§15.4 | ⏳ |
+| 5.1 | App list JSON schema + bundled defaults (CommonApp/Shield/GoogleTV) | §15.1-§15.4 | ✅ |
 | 5.2 | Runtime fetch of latest app lists from `gh-pages` or similar | (new) | ⏳ |
-| 5.3 | App-list filter by device type | §13.2 | ⏳ |
+| 5.3 | App-list filter by device type (engine's `AppListBundle::for_device`) | §13.2 | ✅ |
 | 5.4 | Optimize plan generation (no I/O): for each app, determine action | §4.1 | ⏳ |
 | 5.5 | Optimize execution: `pm disable-user --user 0`, `pm uninstall --user 0` | §4.1 | ⏳ |
 | 5.6 | Per-app memory annotation from cached map | §4.1, §5.1 | ⏳ |
@@ -127,9 +127,9 @@ Ship target: parity with v1 Optimize / Restore / Recovery — the core value of 
 
 | # | Item | v1 ref | Status |
 |---|---|---|---|
-| 6.1 | Custom launcher catalog (preset + Custom entry) | §6.1 | ⏳ |
-| 6.2 | Stock launcher list + safe-handler fallbacks | §6.1 | ⏳ |
-| 6.3 | `Get-CurrentLauncher` equivalent (resolve-activity) | §6.3 | ⏳ |
+| 6.1 | Custom launcher catalog (preset + Custom entry) | §6.1 | ✅ (engine + UI list) |
+| 6.2 | Stock launcher list + safe-handler fallbacks | §6.1 | ✅ (engine) |
+| 6.3 | `Get-CurrentLauncher` equivalent (resolve-activity) | §6.3 | ✅ |
 | 6.4 | Launcher activity discovery (`query-activities --components`) | §6.3 | ⏳ |
 | 6.5 | `Set-DefaultLauncher` multi-strategy: `pm enable` → role API → set-home-activity (cmd/pm aliases) → HOME-intent kick | §6.3 | ⏳ |
 | 6.6 | "Unknown command" detection for unsupported role API | §6.3 | ⏳ |
@@ -137,7 +137,7 @@ Ship target: parity with v1 Optimize / Restore / Recovery — the core value of 
 | 6.8 | Captured ADB error surfacing for failures | §6.3 | ⏳ |
 | 6.9 | Disable stock launchers wizard (per-launcher prompt) | §6.4 | ⏳ |
 | 6.10 | Restore stock launchers | §6.5 | ⏳ |
-| 6.11 | Channel-dependency warning (`com.android.providers.tv` check) | §6.6 | ⏳ |
+| 6.11 | Channel-dependency warning (`com.android.providers.tv` check) | §6.6 | ✅ (detection cmd; UI warning shown in launcher tab) |
 
 Ship target: parity with v1 Launcher Setup including the hard-won Android-11-on-Shield fixes.
 
@@ -165,12 +165,12 @@ Ship target: parity with v1 Display Scaling + Tweaks.
 
 | # | Item | v1 ref | Status |
 |---|---|---|---|
-| 8.1 | Snapshot schema (v1 / `schemaVersion=1`) | §9.1 | ⏳ |
-| 8.2 | Snapshot dir resolution per platform (XDG / `%APPDATA%` / `~/Library/Application Support`) | (new — v1 used `./snapshots/`, v2 should use proper OS dirs) | ⏳ |
-| 8.3 | Save: enumerate disabled, current launcher, tracked settings | §9.2 | ⏳ |
-| 8.4 | Apply: re-disable from list, set launcher, write settings, summary | §9.3 | ⏳ |
-| 8.5 | Cross-device-type warning | §9.3 | ⏳ |
-| 8.6 | Snapshot UI: list + preview + confirm | §9.4 | ⏳ |
+| 8.1 | Snapshot schema (`schema_version=1`), unknown-version rejection | §9.1 | ✅ |
+| 8.2 | Snapshot dir resolution per platform (`dirs` crate → `data_local_dir`) | (new) | ✅ |
+| 8.3 | Save: enumerate disabled, current launcher, tracked settings | §9.2 | ✅ |
+| 8.4 | Apply: re-disable from list, set launcher, write settings, summary | §9.3 | ⏳ (preview only) |
+| 8.5 | Cross-device-type warning | §9.3 | ✅ |
+| 8.6 | Snapshot UI: list + preview + confirm | §9.4 | ✅ (list+preview; confirm-and-execute pending 8.4) |
 
 Ship target: parity with v1 Snapshot/Restore.
 
