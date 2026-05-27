@@ -259,6 +259,186 @@ async fn discover_home_activity(
         .map(str::to_string)
 }
 
+/// One HOME-capable package on the device, with a friendly name resolved via
+/// the launcher catalog (where possible) and its current enable state.
+#[derive(Serialize)]
+pub struct HomeHandler {
+    pub package: String,
+    pub name: String,
+    pub enabled: bool,
+    /// True when the v1 safe-fallback list says we must never disable this
+    /// package (e.g. `com.android.tv.settings` — emergency HOME fallback).
+    pub safe_fallback: bool,
+}
+
+/// Packages we never disable as part of the stock-launcher wizard, even if
+/// the user picked Yes. Matches v1's `Disable-AllStockLaunchers` safety list.
+const SAFE_FALLBACKS: &[&str] = &["com.android.tv.settings", "com.android.settings"];
+
+/// Known stock launcher packages — friendly names for handlers we recognize
+/// but that aren't in our custom-launcher catalog.
+const STOCK_LAUNCHER_NAMES: &[(&str, &str)] = &[
+    (
+        "com.google.android.tvlauncher",
+        "Android TV Launcher (Stock)",
+    ),
+    (
+        "com.google.android.apps.tv.launcherx",
+        "Google TV Home (Stock)",
+    ),
+    (
+        "com.google.android.leanbacklauncher",
+        "Leanback Launcher (Stock)",
+    ),
+    ("com.amazon.tv.launcher", "Amazon TV Launcher"),
+    (
+        "com.google.android.tungsten.setupwraith",
+        "Setup Wraith (HOME)",
+    ),
+    (
+        "com.droidlogic.launcher.provider",
+        "Droidlogic Launcher Provider",
+    ),
+];
+
+/// `list_home_handlers` — every HOME-capable package the device reports,
+/// excluding `target_package` (the chosen custom launcher) and any custom
+/// launcher already in our catalog. Mirrors v1's `Get-HomeHandlers` (§6.4).
+#[tauri::command]
+pub async fn list_home_handlers(
+    state: State<'_, AppState>,
+    serial: String,
+    target_package: String,
+) -> Result<Vec<HomeHandler>, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(
+            &serial,
+            "cmd package query-activities --components -a android.intent.action.MAIN -c android.intent.category.HOME",
+        )
+        .await
+        .map_err(|e| format!("query-activities: {e}"))?;
+
+    // Disabled package set so we can tag each handler.
+    let disabled_out = adb
+        .shell(&serial, "pm list packages -d")
+        .await
+        .map_err(|e| format!("pm list packages -d: {e}"))?;
+    let disabled = crate::adb::parse_disabled_packages_output(&disabled_out.stdout);
+
+    // Component lines look like `<pkg>/<activity>` — pull unique packages.
+    let mut seen = std::collections::HashSet::new();
+    let mut handlers = Vec::new();
+    for line in out.stdout.lines() {
+        let line = line.trim();
+        let Some((pkg, _)) = line.split_once('/') else {
+            continue;
+        };
+        if pkg == target_package {
+            continue;
+        }
+        if !seen.insert(pkg.to_string()) {
+            continue;
+        }
+        let name = STOCK_LAUNCHER_NAMES
+            .iter()
+            .find(|(p, _)| *p == pkg)
+            .map(|(_, n)| (*n).to_string())
+            .unwrap_or_else(|| pkg.to_string());
+        let enabled = !disabled.iter().any(|d| d == pkg);
+        let safe_fallback = SAFE_FALLBACKS.contains(&pkg);
+        handlers.push(HomeHandler {
+            package: pkg.to_string(),
+            name,
+            enabled,
+            safe_fallback,
+        });
+    }
+    Ok(handlers)
+}
+
+#[derive(Serialize)]
+pub struct StockLauncherResult {
+    pub processed: Vec<String>,
+    pub failed: Vec<String>,
+    pub skipped_safe: Vec<String>,
+    pub summary: String,
+}
+
+/// `disable_stock_launchers` — `pm disable-user --user 0` for each package
+/// passed in `packages`, refusing to touch safe-fallback packages. Designed
+/// to be called after `set_default_launcher` has promoted the chosen custom
+/// launcher. Mirrors v1's Disable-AllStockLaunchers (§6.4).
+#[tauri::command]
+pub async fn disable_stock_launchers(
+    state: State<'_, AppState>,
+    serial: String,
+    packages: Vec<String>,
+) -> Result<StockLauncherResult, String> {
+    let adb = state.adb_snapshot().await;
+    let mut processed = Vec::new();
+    let mut failed = Vec::new();
+    let mut skipped_safe = Vec::new();
+    for pkg in packages {
+        if SAFE_FALLBACKS.contains(&pkg.as_str()) {
+            skipped_safe.push(pkg);
+            continue;
+        }
+        let cmd = format!("pm disable-user --user 0 {pkg}");
+        match adb.shell(&serial, &cmd).await {
+            Ok(out) if !out.stdout.contains("Failure") && !out.stdout.contains("Error") => {
+                processed.push(pkg);
+            }
+            _ => failed.push(pkg),
+        }
+    }
+    let summary = format!(
+        "Disabled {} HOME handler(s). {} failed. {} safe fallback(s) skipped.",
+        processed.len(),
+        failed.len(),
+        skipped_safe.len(),
+    );
+    Ok(StockLauncherResult {
+        processed,
+        failed,
+        skipped_safe,
+        summary,
+    })
+}
+
+/// `restore_stock_launchers` — `pm enable` for each package. Mirrors v1's
+/// Restore-AllStockLaunchers (§6.5). Safe to call with arbitrary packages —
+/// `pm enable` on something that's already enabled is a no-op.
+#[tauri::command]
+pub async fn restore_stock_launchers(
+    state: State<'_, AppState>,
+    serial: String,
+    packages: Vec<String>,
+) -> Result<StockLauncherResult, String> {
+    let adb = state.adb_snapshot().await;
+    let mut processed = Vec::new();
+    let mut failed = Vec::new();
+    for pkg in packages {
+        match adb.shell(&serial, &format!("pm enable {pkg}")).await {
+            Ok(out) if !out.stdout.contains("Failure") && !out.stdout.contains("Error") => {
+                processed.push(pkg);
+            }
+            _ => failed.push(pkg),
+        }
+    }
+    let summary = format!(
+        "Re-enabled {} HOME handler(s). {} failed.",
+        processed.len(),
+        failed.len(),
+    );
+    Ok(StockLauncherResult {
+        processed,
+        failed,
+        skipped_safe: Vec::new(),
+        summary,
+    })
+}
+
 /// `channel_provider_disabled` — fast check used by the launcher wizard to warn
 /// users that disabling `com.android.providers.tv` will break Watch Next rows.
 #[tauri::command]

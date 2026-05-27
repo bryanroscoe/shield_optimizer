@@ -287,6 +287,18 @@ pub fn parse_display_mode(dumpsys_display: &str) -> DisplayMode {
     }
 }
 
+/// Parse `dumpsys audio` for the first `Devices: <name>` row — the current
+/// active output device. Returns the uppercased label (HDMI / BUILTIN_SPEAKER
+/// / etc.) or `None` if the section isn't present.
+pub fn parse_active_audio_device(dumpsys_audio: &str) -> Option<String> {
+    static DEVICES: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?m)^\s*Devices:\s*([A-Za-z0-9_\-]+)").unwrap());
+    DEVICES
+        .captures(dumpsys_audio)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().to_ascii_uppercase())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -418,5 +430,17 @@ DisplayDeviceInfo{"Built-in Screen": uniqueId="local:0", 3840 x 2160, modeId 20,
         let mode = parse_display_mode(input);
         assert_eq!(mode.resolution.as_deref(), Some("1920x1080"));
         assert!(mode.hdr_types.is_empty());
+    }
+
+    #[test]
+    fn parses_active_audio_device() {
+        let input = "Audio routing:\n  Devices: hdmi\n  Streams: ...\n";
+        assert_eq!(parse_active_audio_device(input).as_deref(), Some("HDMI"));
+    }
+
+    #[test]
+    fn audio_device_missing_returns_none() {
+        let input = "something completely unrelated";
+        assert_eq!(parse_active_audio_device(input), None);
     }
 }

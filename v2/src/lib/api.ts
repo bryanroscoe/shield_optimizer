@@ -10,10 +10,12 @@ import type {
   ConnectResult,
   CurrentLauncher,
   Device,
+  DeviceReport,
   DeviceType,
   DisplayScalePreset,
   DisplayScaleResult,
   HealthReport,
+  HomeHandler,
   InstallApkResult,
   InstallResult,
   LauncherStatus,
@@ -24,11 +26,13 @@ import type {
   RebootMode,
   RebootResult,
   RecoveryResult,
+  RestartResult,
   ScanResult,
   SetLauncherResult,
   SettingNamespace,
   SnapshotApplyPlan,
   SnapshotFile,
+  StockLauncherResult,
   TweaksState,
   WriteResult,
 } from "./types";
@@ -36,7 +40,9 @@ import type {
 export const api = {
   adbStatus: () => invoke<AdbStatus>("adb_status"),
   installAdb: () => invoke<InstallResult>("install_adb"),
+  restartAdb: () => invoke<RestartResult>("restart_adb"),
   scanNetwork: () => invoke<ScanResult>("scan_network"),
+  reportAll: () => invoke<DeviceReport[]>("report_all"),
 
   listDevices: () => invoke<Device[]>("list_devices"),
   deviceProfile: (serial: string) =>
@@ -46,6 +52,8 @@ export const api = {
     invoke<ConnectResult>("connect_device", { address }),
   disconnectDevice: (serial: string) =>
     invoke<ConnectResult>("disconnect_device", { serial }),
+  pairDevice: (pairAddress: string, pin: string) =>
+    invoke<ConnectResult>("pair_device", { pairAddress, pin }),
 
   healthReport: (serial: string) =>
     invoke<HealthReport>("health_report", { serial }),
@@ -60,6 +68,12 @@ export const api = {
     invoke<boolean>("channel_provider_disabled", { serial }),
   setDefaultLauncher: (serial: string, pkg: string) =>
     invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg }),
+  listHomeHandlers: (serial: string, targetPackage: string) =>
+    invoke<HomeHandler[]>("list_home_handlers", { serial, targetPackage }),
+  disableStockLaunchers: (serial: string, packages: string[]) =>
+    invoke<StockLauncherResult>("disable_stock_launchers", { serial, packages }),
+  restoreStockLaunchers: (serial: string, packages: string[]) =>
+    invoke<StockLauncherResult>("restore_stock_launchers", { serial, packages }),
 
   disablePackage: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_package", { serial, package: pkg }),

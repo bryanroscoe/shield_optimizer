@@ -92,7 +92,34 @@ export interface HealthReport {
   ram: RamInfo;
   storage: StorageInfo;
   temperature_c: number | null;
+  audio_device: string | null;
   top_memory: MemoryEntry[];
+}
+
+export interface DeviceReport {
+  serial: string;
+  name: string;
+  report: HealthReport | null;
+  error: string | null;
+}
+
+export interface HomeHandler {
+  package: string;
+  name: string;
+  enabled: boolean;
+  safe_fallback: boolean;
+}
+
+export interface StockLauncherResult {
+  processed: string[];
+  failed: string[];
+  skipped_safe: string[];
+  summary: string;
+}
+
+export interface RestartResult {
+  ok: boolean;
+  message: string;
 }
 
 export interface SnapshotFile {

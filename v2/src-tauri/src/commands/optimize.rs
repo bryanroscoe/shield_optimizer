@@ -28,8 +28,7 @@ pub async fn prepare_optimize(
     serial: String,
     mode: OptimizeMode,
 ) -> Result<OptimizePlan, String> {
-    let device =
-        crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
+    let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
 
     let apps = state.app_lists.for_device(device.device_type);
 

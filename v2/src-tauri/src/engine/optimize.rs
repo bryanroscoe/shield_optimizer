@@ -45,7 +45,11 @@ pub struct OptimizePlan {
 ///   separately; the engine doesn't decide that)
 /// - Already enabled (not in disabled set) → `Skip(AlreadyEnabled)`
 /// - Otherwise → `Enable`.
-pub fn compute_plan(apps: &[AppEntry], mode: OptimizeMode, inputs: &OptimizeInputs) -> OptimizePlan {
+pub fn compute_plan(
+    apps: &[AppEntry],
+    mode: OptimizeMode,
+    inputs: &OptimizeInputs,
+) -> OptimizePlan {
     let items = apps
         .iter()
         .map(|entry| {

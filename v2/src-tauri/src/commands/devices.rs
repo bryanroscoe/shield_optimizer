@@ -148,6 +148,57 @@ pub struct ConnectResult {
     pub message: String,
 }
 
+/// `pair_device` — Android 11+ pairing flow. Pairs over a one-shot port the
+/// TV displays alongside a 6-digit PIN, then connects to the regular 5555
+/// port. Mirrors v1's `Connect-PinPairing` (§1.3).
+///
+/// `pair_address` is the IP[:port] shown on the TV's pairing screen.
+/// `pin` is the 6-digit code, validated as digits only.
+#[tauri::command]
+pub async fn pair_device(
+    state: State<'_, AppState>,
+    pair_address: String,
+    pin: String,
+) -> Result<ConnectResult, String> {
+    if pin.len() != 6 || !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(ConnectResult {
+            ok: false,
+            message: "PIN must be exactly 6 digits.".to_string(),
+        });
+    }
+    let target = normalize_connect_address(&pair_address)?;
+    let adb = state.adb_snapshot().await;
+    let pair_out = adb
+        .raw(&["pair", &target, &pin])
+        .await
+        .map_err(|e| format!("adb pair: {e}"))?;
+    let combined = format!("{}{}", pair_out.stdout, pair_out.stderr);
+    if !combined.to_lowercase().contains("successfully paired") {
+        return Ok(ConnectResult {
+            ok: false,
+            message: combined,
+        });
+    }
+
+    // After successful pair, connect on the regular 5555 port at the same IP.
+    let host_only = target.split(':').next().unwrap_or(&target);
+    let connect_target = format!("{host_only}:5555");
+    let connect_out = adb
+        .raw(&["connect", &connect_target])
+        .await
+        .map_err(|e| format!("adb connect after pair: {e}"))?;
+    let ok = connect_out.success();
+    let connect_msg = if connect_out.stdout.is_empty() {
+        connect_out.stderr
+    } else {
+        connect_out.stdout
+    };
+    Ok(ConnectResult {
+        ok,
+        message: format!("Paired. Connect to {connect_target}: {connect_msg}"),
+    })
+}
+
 /// Validate and normalize an `IP[:port]` string. Rejects empty input, IPs
 /// with the wrong shape, and any port that's not a positive 16-bit number.
 /// Returns the canonical `IP:port` string ADB expects.

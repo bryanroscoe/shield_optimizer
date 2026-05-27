@@ -50,6 +50,44 @@ pub struct InstallResult {
     pub message: String,
 }
 
+#[derive(Serialize)]
+pub struct RestartResult {
+    pub ok: bool,
+    pub message: String,
+}
+
+/// `restart_adb` — `adb kill-server` then `adb start-server`. Matches v1's
+/// Restart-AdbServer (main-menu shortcut A). Useful when the daemon wedges
+/// after the device sleeps, when multiple adb versions collided, or after a
+/// USB-cable swap. Does not redownload — for that use `install_adb`.
+#[tauri::command]
+pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, String> {
+    let adb = state.adb_snapshot().await;
+    // kill-server can fail with no daemon running — that's fine, we still
+    // care about the start-server result.
+    let _ = adb.raw(&["kill-server"]).await;
+    match adb.raw(&["start-server"]).await {
+        Ok(out) => {
+            // start-server prints "* daemon not running…" on first start;
+            // that's success. Real failures contain "error" / "cannot".
+            let s = format!("{}{}", out.stdout, out.stderr);
+            let ok = !s.to_lowercase().contains("error") && !s.to_lowercase().contains("cannot");
+            Ok(RestartResult {
+                ok,
+                message: if s.trim().is_empty() {
+                    "ADB server restarted.".to_string()
+                } else {
+                    s
+                },
+            })
+        }
+        Err(e) => Ok(RestartResult {
+            ok: false,
+            message: e.to_string(),
+        }),
+    }
+}
+
 /// `install_adb` — download Google's platform-tools archive, extract into the
 /// OS app-data dir, and swap the live driver so the next `list_devices` call
 /// uses the freshly-installed binary. Matches v1's auto-download flow.

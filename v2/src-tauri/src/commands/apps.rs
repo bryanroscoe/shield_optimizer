@@ -93,6 +93,28 @@ pub async fn enable_package(
     run(&state, &serial, &format!("pm enable {package}")).await
 }
 
+/// Decode a `pm uninstall` failure into a user-readable hint. Mirrors v1's
+/// `Get-UninstallErrorReason` (§16.6). Returns `None` when nothing matches
+/// so the caller can fall back to the raw output.
+pub fn decode_uninstall_error(stdout: &str) -> Option<&'static str> {
+    if stdout.contains("Broken pipe") {
+        return Some("Protected system app — cannot be removed. Try Disable instead.");
+    }
+    if stdout.contains("not installed for") {
+        return Some("App not installed for this user.");
+    }
+    if stdout.contains("DELETE_FAILED_INTERNAL_ERROR") {
+        return Some("Internal error — the app may be running. Reboot the device and retry.");
+    }
+    if stdout.contains("DELETE_FAILED_DEVICE_POLICY_MANAGER") {
+        return Some("Blocked by device policy manager (work profile / admin).");
+    }
+    if stdout.contains("DELETE_FAILED_OWNER_BLOCKED") {
+        return Some("Blocked — package is owned by another user or profile.");
+    }
+    None
+}
+
 /// `uninstall_package` — `pm uninstall --user 0 <pkg>`. Semi-reversible via
 /// `cmd package install-existing` (if the APK is still on /system) or the
 /// Play Store.
@@ -102,7 +124,13 @@ pub async fn uninstall_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
-    run(&state, &serial, &format!("pm uninstall --user 0 {package}")).await
+    let mut result = run(&state, &serial, &format!("pm uninstall --user 0 {package}")).await?;
+    if !result.ok {
+        if let Some(hint) = decode_uninstall_error(&result.message) {
+            result.message = format!("{}\n→ {hint}", result.message.trim());
+        }
+    }
+    Ok(result)
 }
 
 /// `reinstall_existing` — `cmd package install-existing <pkg>`. Brings back a
@@ -172,4 +200,27 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
         && !message.contains("Exception")
         && !message.contains("not installed for");
     Ok(ActionResult { ok, message })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decodes_protected_system_app() {
+        let out = "Failure [DELETE_FAILED_INTERNAL_ERROR] Broken pipe";
+        let hint = decode_uninstall_error(out).expect("should decode");
+        assert!(hint.contains("Protected system app"));
+    }
+
+    #[test]
+    fn decodes_not_installed_for_user() {
+        let out = "Failure [not installed for 0]";
+        assert!(decode_uninstall_error(out).is_some());
+    }
+
+    #[test]
+    fn unrecognized_returns_none() {
+        assert!(decode_uninstall_error("Something totally weird").is_none());
+    }
 }

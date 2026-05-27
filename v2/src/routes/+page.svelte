@@ -2,7 +2,7 @@
   import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { api } from "$lib/api";
-  import type { Device } from "$lib/types";
+  import type { Device, DeviceReport } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
 
   let devices = $state<Device[]>([]);
@@ -15,6 +15,19 @@
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
+
+  let pairOpen = $state(false);
+  let pairAddress = $state("");
+  let pairPin = $state("");
+  let pairBusy = $state(false);
+  let pairMessage = $state("");
+
+  let restartBusy = $state(false);
+  let restartMessage = $state("");
+
+  let reportBusy = $state(false);
+  let reportData = $state<DeviceReport[] | null>(null);
+  let reportError = $state<string | null>(null);
 
   // Triggers the install-platform-tools button rather than a generic error pane.
   let adbMissing = $state(false);
@@ -96,6 +109,53 @@
     return d.status === "device" ? `/devices/${encodeURIComponent(d.serial)}` : null;
   }
 
+  async function pair() {
+    if (!pairAddress.trim() || pairPin.length !== 6) return;
+    pairBusy = true;
+    pairMessage = "";
+    try {
+      const r = await api.pairDevice(pairAddress.trim(), pairPin.trim());
+      pairMessage = r.message;
+      if (r.ok) {
+        pairAddress = "";
+        pairPin = "";
+        await refresh();
+      }
+    } catch (e) {
+      pairMessage = String(e);
+    } finally {
+      pairBusy = false;
+    }
+  }
+
+  async function restartAdb() {
+    if (!confirm("Restart the ADB server? All current device connections will reconnect.")) return;
+    restartBusy = true;
+    restartMessage = "";
+    try {
+      const r = await api.restartAdb();
+      restartMessage = r.message;
+      await refresh();
+    } catch (e) {
+      restartMessage = String(e);
+    } finally {
+      restartBusy = false;
+    }
+  }
+
+  async function reportAll() {
+    reportBusy = true;
+    reportError = null;
+    reportData = null;
+    try {
+      reportData = await api.reportAll();
+    } catch (e) {
+      reportError = String(e);
+    } finally {
+      reportBusy = false;
+    }
+  }
+
   // Best-effort discovery on boot: if no devices show up after the initial
   // refresh and adb is available, kick off a scan so users with already-paired
   // devices don't have to click anything. v1 behaved similarly.
@@ -128,13 +188,94 @@
   <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
     {scanBusy ? "Scanning…" : "Scan Network"}
   </button>
+  <button onclick={() => (pairOpen = !pairOpen)} disabled={adbMissing} title="Android 11+ PIN pairing flow">
+    {pairOpen ? "Cancel Pair" : "Pair PIN"}
+  </button>
+  <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
+    {restartBusy ? "Restarting…" : "Restart ADB"}
+  </button>
+  <button onclick={reportAll} disabled={reportBusy || adbMissing} title="Run a health report against every connected device">
+    {reportBusy ? "Reporting…" : "Report All"}
+  </button>
   {#if connectMessage}
     <p class="connect-message muted">{connectMessage}</p>
   {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
   {/if}
+  {#if restartMessage}
+    <p class="connect-message muted">{restartMessage}</p>
+  {/if}
 </section>
+
+{#if pairOpen}
+  <section class="pair-form">
+    <h3>Pair a new device</h3>
+    <p class="muted small">
+      On the TV: Settings → Developer options → Wireless debugging → Pair device with pairing code.
+      The TV shows an IP[:port] and a 6-digit PIN.
+    </p>
+    <div class="pair-row">
+      <input
+        placeholder="IP:pair_port — e.g. 192.168.42.71:43219"
+        bind:value={pairAddress}
+      />
+      <input
+        placeholder="6-digit PIN"
+        maxlength={6}
+        inputmode="numeric"
+        bind:value={pairPin}
+      />
+      <button
+        class="primary"
+        onclick={pair}
+        disabled={pairBusy || !pairAddress.trim() || pairPin.length !== 6}
+      >
+        {pairBusy ? "Pairing…" : "Pair"}
+      </button>
+    </div>
+    {#if pairMessage}
+      <p class="muted small mono">{pairMessage}</p>
+    {/if}
+  </section>
+{/if}
+
+{#if reportData || reportError}
+  <section class="report-all">
+    <div class="header-row">
+      <h3>Report All</h3>
+      <button onclick={() => { reportData = null; reportError = null; }}>Close</button>
+    </div>
+    {#if reportError}
+      <div class="error">{reportError}</div>
+    {:else if reportData}
+      {#each reportData as r}
+        <div class="report-row">
+          <div class="report-head">
+            <strong>{r.name}</strong> <span class="muted small mono">{r.serial}</span>
+          </div>
+          {#if r.error}
+            <p class="muted small">{r.error}</p>
+          {:else if r.report}
+            <ul class="report-vitals">
+              <li>Temp: {r.report.temperature_c != null ? `${r.report.temperature_c.toFixed(1)}°C` : "—"}</li>
+              <li>RAM: {r.report.ram.used_mb ?? "?"} / {r.report.ram.total_mb ?? "?"} MB</li>
+              {#if r.report.storage.total}
+                <li>Storage: {r.report.storage.used ?? "?"} / {r.report.storage.total}{#if r.report.storage.used_percent != null} ({r.report.storage.used_percent}%){/if}</li>
+              {/if}
+              {#if r.report.display.resolution}
+                <li>Display: {r.report.display.resolution}{#if r.report.display.refresh_hz} @ {r.report.display.refresh_hz}Hz{/if}{#if r.report.display.hdr_types.length}, HDR: {r.report.display.hdr_types.join(", ")}{/if}</li>
+              {/if}
+              {#if r.report.audio_device}
+                <li>Audio: {r.report.audio_device}</li>
+              {/if}
+            </ul>
+          {/if}
+        </div>
+      {/each}
+    {/if}
+  </section>
+{/if}
 
 {#if adbMissing}
   <div class="install-pane">
@@ -186,7 +327,7 @@
             <span class="chevron">›</span>
           </a>
         {:else}
-          <div class="device-row">
+          <div class="device-row" class:unauthorized={d.status === "unauthorized"}>
             <div class="device-main">
               <div class="device-name">
                 <span class="conn-tag">[{d.connection === "network" ? "NET" : "USB"}]</span>
@@ -202,6 +343,21 @@
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
               </div>
+              {#if d.status === "unauthorized"}
+                <div class="unauthorized-help">
+                  <strong>This device needs to be authorized:</strong>
+                  <ol>
+                    <li>Look at the TV — there should be an <em>"Allow USB debugging?"</em> dialog.</li>
+                    <li>Check <em>"Always allow from this computer"</em>.</li>
+                    <li>Click <em>Allow</em>.</li>
+                    <li>Click Refresh above.</li>
+                  </ol>
+                  <p class="muted small">
+                    If you don't see the dialog, run <code>adb disconnect {d.serial}</code> from a terminal,
+                    then on the TV go to Developer options → Revoke USB debugging authorizations, and reconnect.
+                  </p>
+                </div>
+              {/if}
             </div>
           </div>
         {/if}
@@ -306,6 +462,78 @@
     margin: 0 0 0.6rem;
     font-size: 1.1rem;
     color: #c9d1d9;
+  }
+  .pair-form {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 1rem;
+  }
+  .pair-form h3 {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+  }
+  .pair-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .pair-row input {
+    flex: 1;
+    min-width: 200px;
+  }
+  .pair-row input[inputmode="numeric"] {
+    flex: 0 0 8rem;
+  }
+  .report-all {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 1rem;
+  }
+  .report-all h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .report-row {
+    margin: 0.7rem 0;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid #21262d;
+  }
+  .report-row:last-child {
+    border-bottom: none;
+  }
+  .report-head {
+    margin-bottom: 0.3rem;
+  }
+  .report-vitals {
+    margin: 0;
+    padding-left: 1.2rem;
+    font-size: 0.85rem;
+  }
+  .unauthorized-help {
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.8rem;
+    background: #0d1117;
+    border: 1px solid #5d1b1b;
+    border-radius: 4px;
+    font-size: 0.85rem;
+  }
+  .unauthorized-help strong {
+    color: #ff8a80;
+  }
+  .unauthorized-help ol {
+    margin: 0.4rem 0;
+    padding-left: 1.2rem;
+  }
+  .unauthorized-help p {
+    margin: 0.3rem 0 0;
+  }
+  .device-row.unauthorized {
+    align-items: flex-start;
   }
   .install-pane {
     background: #161b22;

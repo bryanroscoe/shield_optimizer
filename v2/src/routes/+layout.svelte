@@ -26,6 +26,34 @@
 </div>
 
 <style>
+  :global(:root) {
+    color-scheme: dark;
+    --bg-page: #0e1116;
+    --bg-chrome: #161b22;
+    --bg-button: #21262d;
+    --bg-button-hover: #30363d;
+    --bg-input: #0d1117;
+    --fg-primary: #e6edf3;
+    --fg-secondary: #c9d1d9;
+    --border: #30363d;
+  }
+  /* Light theme — flips the chrome but leaves component-level cards in
+     the existing dark accent palette. A full light pass on every card
+     would be a separate effort; this gives users who run the OS in light
+     mode a much less jarring window frame. */
+  @media (prefers-color-scheme: light) {
+    :global(:root) {
+      color-scheme: light;
+      --bg-page: #f6f8fa;
+      --bg-chrome: #ffffff;
+      --bg-button: #f1f3f5;
+      --bg-button-hover: #e1e4e8;
+      --bg-input: #ffffff;
+      --fg-primary: #24292f;
+      --fg-secondary: #57606a;
+      --border: #d0d7de;
+    }
+  }
   :global(html, body) {
     margin: 0;
     padding: 0;
@@ -33,8 +61,8 @@
     font-family:
       -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
       Cantarell, sans-serif;
-    background: #0e1116;
-    color: #e6edf3;
+    background: var(--bg-page);
+    color: var(--fg-primary);
   }
   :global(*) {
     box-sizing: border-box;
@@ -47,9 +75,9 @@
     text-decoration: underline;
   }
   :global(button) {
-    background: #21262d;
-    color: #e6edf3;
-    border: 1px solid #30363d;
+    background: var(--bg-button);
+    color: var(--fg-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.4rem 0.9rem;
     cursor: pointer;
@@ -57,7 +85,7 @@
     font-family: inherit;
   }
   :global(button:hover) {
-    background: #30363d;
+    background: var(--bg-button-hover);
   }
   :global(button.primary) {
     background: #1f6feb;
@@ -74,16 +102,17 @@
     background: #f85149;
   }
   :global(input, select) {
-    background: #0d1117;
-    color: #e6edf3;
-    border: 1px solid #30363d;
+    background: var(--bg-input);
+    color: var(--fg-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.45rem 0.7rem;
     font-size: 0.9rem;
     font-family: inherit;
   }
   :global(.muted) {
-    color: #7d8590;
+    color: var(--fg-secondary);
+    opacity: 0.8;
   }
   :global(.risk-safe) { color: #3fb950; }
   :global(.risk-medium) { color: #d29922; }
@@ -100,8 +129,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.8rem 1.5rem;
-    border-bottom: 1px solid #30363d;
-    background: #161b22;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-chrome);
   }
   .brand {
     display: flex;
@@ -146,7 +175,7 @@
   }
   footer {
     padding: 0.8rem 1.5rem;
-    border-top: 1px solid #30363d;
+    border-top: 1px solid var(--border);
     font-size: 0.82rem;
     text-align: center;
   }

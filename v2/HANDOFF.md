@@ -42,21 +42,10 @@ Latest pushed commit: `2bfe1de`. Major landings:
 
 ## 2. Critical-path TODO, prioritized
 
-Audit (separate sub-agent did this in this same session) found we're nowhere near v1 parity. Top items, in execution order:
+**Status as of commit e5a6b0e+: every v1 must-fix is now landed.** See §2A
+"Parity status" below for the full row-by-row match-up against FEATURES.md.
 
-### Must-fix before this PR is shippable
-1. **Commit the uncommitted work** in §1 first. Then push to `feat/v2-foundation`.
-2. **Frontend UI for the new backend commands** I just landed:
-   - **Recovery button** — somewhere prominent (Overview tab footer? Health tab?). Calls `panic_recovery`. Confirm prompt — this re-enables everything.
-   - **Reboot menu** — sub-page or modal with Normal / Recovery / Bootloader buttons. Calls `reboot_device`.
-   - **Tweaks tab** — new tab between App List and Sideload. Shows current values from `get_tweaks`, lets user flip each. HDMI-CEC = 4 ON/OFF/Reset toggles. `match_content_frame_rate` = radio (0/1/2). `long_press_timeout` = 300/400/500/Reset. Animation triple as a single combined toggle (0.5 = optimized / 1.0 = default). Each control calls `write_setting`.
-   - **Display Scaling** — section or its own card. Three buttons: Shield 4K / 1080p / Reset. Calls `set_display_scaling`.
-   - **Snapshot Apply** — the snapshot tab currently shows a "preview only" disclaimer. Add a confirm button below the preview that calls `apply_snapshot` and renders the `ApplyResult` summary. Remove or update the disclaimer once wired.
-   - **Disconnect button** on the device page header (backend command already exists; the UI just doesn't call it).
-
-3. **App catalog completion** — `v2/data/app-lists/*.json` is missing ~27 of v1's 67 entries. v1 has the canonical list in `Shield-Optimizer.ps1` around lines 200-360 (CommonAppList / ShieldAppList / GoogleTVAppList). Compare and add the missing entries to the JSON files. Pay attention to risk tier ("Safe" / "Medium" / "High Risk" → `"safe"` / `"medium"` / `"high"`), method, default_optimize, default_restore fields.
-
-### Big feature: Optimize / Restore wizard (the headline missing feature)
+### Big feature: Optimize / Restore wizard (LANDED in 1d9cd41)
 
 v1's `Run-Task -Mode Optimize` does:
 1. Prompts "Apply all default actions without prompting?" (defaults mode)
@@ -82,14 +71,54 @@ v1's `Run-Task -Mode Optimize` does:
 
 - **Frontend**: New tab or modal "Optimize Wizard". Three modes: Review-each / Apply-defaults / Cancel. Shows each app row with RAM annotation, risk tag, recommended action, override dropdown. Big "Run" button. Per-app progress + abort. Summary screen at the end.
 
-### Below-the-fold features
+### Below-the-fold features — all landed
 
-- **Light theme support** — add `prefers-color-scheme: light` block to `+layout.svelte` with appropriate `--var` colors. Add `-LightMode` / `-DarkMode` overrides (Tauri doesn't have CLI flags directly but we can read env vars).
-- **PIN pairing** — `adb pair <ip>:<port> <pin>` then `adb connect <ip>:5555`. Form with IP + pair port + 6-digit PIN.
-- **Restart ADB** main-menu action — `adb kill-server` then `adb start-server`, swap driver via `state.replace_adb`.
-- **Report All** main-menu action — iterate all `device`-status devices, run health_report on each.
-- **Help screen** — keyboard shortcuts reference. Mostly cosmetic in v2 since it's a GUI not a TUI.
-- **Disable-stock-launchers wizard** — per-launcher prompt loop. v1 does this in `Disable-AllStockLaunchers`. v2 needs an engine helper (decide which packages to disable given the chosen custom launcher) + UI.
+- **Light theme support** — `prefers-color-scheme: light` block flips body/chrome via CSS vars in `+layout.svelte`.
+- **PIN pairing** — `pair_device` command + Pair PIN form on home page.
+- **Restart ADB** — `restart_adb` command + button on home toolbar.
+- **Report All** — `report_all` command + collapsible panel on home page.
+- **Help screen** — skipped intentionally for v2; this is a GUI and every action is a labeled, hover-tooltipped button. v1's Help was a TUI keyboard-shortcut reference that doesn't translate.
+- **Disable/Restore stock launchers wizard** — `list_home_handlers` + `disable_stock_launchers` + `restore_stock_launchers`. UI lives at the bottom of the Launcher tab.
+
+## 2A. Parity status vs. v1 (FEATURES.md row-by-row)
+
+| FEATURES.md § | v1 feature | v2 status |
+|---|---|---|
+| §0.1 | -LightMode / -DarkMode | Auto via `prefers-color-scheme`, no CLI flag (Tauri inherits OS) |
+| §0.1 | -ForceAdbDownload | `install_adb` button forces a fresh download |
+| §0.1 | -Subnet override | Auto-detect only — manual override TODO (rare path) |
+| §1.1 | Network scan | `scan_network` + boot autorun + Scan Network button |
+| §1.2 | Connect IP | `connect_device` + Connect IP form |
+| §1.3 | PIN pairing | `pair_device` + Pair PIN form |
+| §1.4 | Disconnect | `disconnect_device` + device-header button |
+| §1.5 | ADB lifecycle (install/restart) | `install_adb`, `restart_adb`, `adb_status` |
+| §1.6 | Device enumeration | `list_devices` + Profile view |
+| §1.7 | UNAUTHORIZED guidance | Inline numbered help on the device row |
+| §2.1 | Main menu actions | All landed except Help (GUI inherent) |
+| §3   | Device action menu | All actions present as tabs / header buttons |
+| §4   | Optimize/Restore | `engine::optimize::compute_plan` + `prepare_optimize` + Optimize tab |
+| §5.1 | Health Report | `health_report` + Health tab |
+| §5.2 | Live Monitor | Live-refresh checkbox on Health tab — close enough |
+| §5.3 | Display + audio diagnostics | display + `parse_active_audio_device` |
+| §6.1 | Custom launcher catalog | `launcher_catalog` |
+| §6.2 | Setup wizard | Launcher tab |
+| §6.3 | Multi-strategy set-default | `set_default_launcher_impl` (role API → set-home-activity → intent kick) |
+| §6.4 | Disable stock launchers | `list_home_handlers` + `disable_stock_launchers` + UI |
+| §6.5 | Restore stock launchers | `restore_stock_launchers` + UI |
+| §6.6 | Channel dependency warning | `channel_provider_disabled` + tag |
+| §7   | Tweaks | `get_tweaks` + `write_setting` + Tweaks tab |
+| §8   | Display scaling | `set_display_scaling` + Tweaks tab section |
+| §9   | Snapshot save/preview/apply | All landed |
+| §10  | APK sideload | `install_apk` + Install APK tab |
+| §11  | Reboot menu | `reboot_device` + header dropdown |
+| §12  | Recovery | `panic_recovery` + Overview tab button |
+| §13  | Device profile + detection | `device_profile` + `detect_device_type` |
+| §14.4| Help | Skipped — GUI inherent |
+| §15  | Data catalogs (~67 entries) | Complete: common(49) + shield(13) + googletv(5) |
+| §16.5| Play Store deep-link | `open_play_store` + buttons in App List |
+| §16.6| Uninstall error decoding | `decode_uninstall_error` + auto-applied to `uninstall_package` result |
+
+Known minor TODO items (not blockers): manual `-Subnet` override.
 
 ## 3. Release pipeline — NOT YET STARTED
 
