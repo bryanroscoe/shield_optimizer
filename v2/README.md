@@ -33,7 +33,7 @@ The behavior spec is at [`docs/FEATURES.md`](../docs/FEATURES.md). The porting r
 |---|---|---|
 | Application framework | **Tauri 2** | Native installers (.msi / .dmg / .deb / .rpm / .AppImage) built in, signed auto-update plugin, single codebase covers desktop *and* mobile (Tauri 2 mobile support is stable). |
 | Backend language | **Rust** | Tauri's host language. Engine + ADB driver written in Rust, exposed to the frontend via Tauri commands. |
-| Frontend framework | **Pending decision** | Defaulting to **Svelte** in the plan unless overridden. React and Solid are also reasonable; the choice affects developer experience more than user experience. |
+| Frontend framework | **Svelte 5 + SvelteKit** (locked) | Picked for small bundle, rune-based reactivity, and minimal boilerplate. React and Solid would also have been reasonable; switching after the first views land is the expensive moment so we lock here. |
 | Build / package mgmt | `cargo` (Rust) + `npm` (Node, for frontend bundling) | Standard Tauri layout |
 | Update channel | Tauri Updater plugin → GitHub Releases JSON manifest | Signed, automatic on desktop; manual-confirm on Android due to Google's APK-install policy |
 | Mobile distribution | GitHub Releases APK + F-Droid + recommend [Obtainium](https://obtainium.imranr.dev/) | Skipping Play Store — they reject apps that disable other apps via ADB-style mechanisms |

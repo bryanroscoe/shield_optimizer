@@ -6,9 +6,9 @@
 
 use std::collections::HashMap;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 
 use crate::engine::types::{ConnectionType, DeviceStatus};
 
@@ -30,7 +30,8 @@ pub struct DeviceListEntry {
 /// emulator-5554         device
 /// ```
 pub fn parse_device_list(adb_devices_output: &str) -> Vec<DeviceListEntry> {
-    static IP_PORT: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\d+\.\d+\.\d+\.\d+:\d+$").unwrap());
+    static IP_PORT: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^\d+\.\d+\.\d+\.\d+:\d+$").unwrap());
 
     let mut entries = Vec::new();
     for line in adb_devices_output.lines() {
@@ -82,8 +83,8 @@ pub fn parse_disabled_packages_output(output: &str) -> Vec<String> {
 /// Per v1's Get-AppMemoryMap learnings: per-process query (`dumpsys meminfo <pkg>`)
 /// is unreliable across Android versions; the system-wide section is robust.
 pub fn parse_dumpsys_meminfo(meminfo: &str) -> HashMap<String, f64> {
-    static ROW: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"^\s*([\d,]+)K:\s+([a-zA-Z0-9_.]+)").unwrap());
+    static ROW: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^\s*([\d,]+)K:\s+([a-zA-Z0-9_.]+)").unwrap());
 
     let mut totals_kb: HashMap<String, u64> = HashMap::new();
     let mut in_section = false;
@@ -129,12 +130,12 @@ pub struct DisplayMode {
 /// HDR capabilities. The active mode id is in DisplayDeviceInfo; supportedModes
 /// maps id → {width, height, fps}.
 pub fn parse_display_mode(dumpsys_display: &str) -> DisplayMode {
-    static MODE_ID: Lazy<Regex> = Lazy::new(|| Regex::new(r"modeId\s+(\d+)").unwrap());
-    static MODE_ENTRY: Lazy<Regex> = Lazy::new(|| {
+    static MODE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"modeId\s+(\d+)").unwrap());
+    static MODE_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"id=(\d+),\s*width=(\d+),\s*height=(\d+),\s*fps=([\d.]+)").unwrap()
     });
-    static HDR_TYPES: Lazy<Regex> =
-        Lazy::new(|| Regex::new(r"mSupportedHdrTypes=\[([\d,\s]*)\]").unwrap());
+    static HDR_TYPES: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"mSupportedHdrTypes=\[([\d,\s]*)\]").unwrap());
 
     let active_id = MODE_ID
         .captures(dumpsys_display)

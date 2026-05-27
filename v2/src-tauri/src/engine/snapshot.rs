@@ -59,24 +59,24 @@ pub enum SnapshotError {
 }
 
 impl Snapshot {
-    /// Parse a snapshot from JSON. Rejects unknown future versions explicitly.
+    /// Parse a snapshot from JSON. Rejects unknown future versions and
+    /// nonsense low values (0, anything larger than u32). Uses a single
+    /// `serde_json::Value` parse + `from_value` rather than parsing the
+    /// string twice.
     pub fn from_json(json: &str) -> Result<Self, SnapshotError> {
-        // Two-stage parse: first as a generic value to inspect schema_version,
-        // then as the typed Snapshot. This produces a useful error rather than
-        // an opaque serde failure when the schema changes.
         let value: serde_json::Value =
             serde_json::from_str(json).map_err(|e| SnapshotError::Malformed(e.to_string()))?;
         let schema = value
             .get("schema_version")
             .and_then(|v| v.as_u64())
             .ok_or(SnapshotError::MissingField("schema_version"))?;
-        if schema as u32 > SCHEMA_VERSION {
+        if schema == 0 || schema > u64::from(SCHEMA_VERSION) {
             return Err(SnapshotError::UnsupportedSchema {
-                found: schema as u32,
+                found: u32::try_from(schema).unwrap_or(u32::MAX),
                 supported: SCHEMA_VERSION,
             });
         }
-        serde_json::from_str(json).map_err(|e| SnapshotError::Malformed(e.to_string()))
+        serde_json::from_value(value).map_err(|e| SnapshotError::Malformed(e.to_string()))
     }
 
     pub fn to_json(&self) -> Result<String, SnapshotError> {
@@ -191,6 +191,29 @@ mod tests {
         let parsed = Snapshot::from_json(&json).unwrap();
         assert_eq!(parsed.device_name, snap.device_name);
         assert_eq!(parsed.disabled_packages, snap.disabled_packages);
+    }
+
+    #[test]
+    fn rejects_zero_schema_version() {
+        let payload = r#"{
+            "schema_version": 0,
+            "saved_at": "2026-05-27T12:00:00Z",
+            "device_name": "x",
+            "device_serial": "x",
+            "device_type": "shield",
+            "android_version": "11",
+            "disabled_packages": [],
+            "current_launcher": null,
+            "settings": {}
+        }"#;
+        let err = Snapshot::from_json(payload).unwrap_err();
+        assert!(matches!(
+            err,
+            SnapshotError::UnsupportedSchema {
+                found: 0,
+                supported: 1
+            }
+        ));
     }
 
     #[test]

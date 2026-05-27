@@ -105,12 +105,7 @@ pub async fn connect_device(
     state: State<'_, AppState>,
     address: String,
 ) -> Result<ConnectResult, String> {
-    // Default to port 5555 if the caller omitted it.
-    let target = if address.contains(':') {
-        address
-    } else {
-        format!("{address}:5555")
-    };
+    let target = normalize_connect_address(&address)?;
     let adb = state.adb_snapshot().await;
     let out = adb
         .raw(&["connect", &target])
@@ -151,6 +146,38 @@ pub async fn disconnect_device(
 pub struct ConnectResult {
     pub ok: bool,
     pub message: String,
+}
+
+/// Validate and normalize an `IP[:port]` string. Rejects empty input, IPs
+/// with the wrong shape, and any port that's not a positive 16-bit number.
+/// Returns the canonical `IP:port` string ADB expects.
+pub(crate) fn normalize_connect_address(address: &str) -> Result<String, String> {
+    let address = address.trim();
+    if address.is_empty() {
+        return Err("address is empty".to_string());
+    }
+
+    let (host, port) = match address.split_once(':') {
+        Some((h, p)) => (h, p),
+        None => (address, "5555"),
+    };
+
+    let octets: Vec<&str> = host.split('.').collect();
+    if octets.len() != 4 {
+        return Err(format!("not a valid IPv4 address: {host}"));
+    }
+    for o in &octets {
+        match o.parse::<u8>() {
+            Ok(_) => {}
+            Err(_) => return Err(format!("invalid IP octet: {o}")),
+        }
+    }
+
+    match port.parse::<u16>() {
+        Ok(0) => Err(format!("port must be 1-65535, got {port}")),
+        Ok(_) => Ok(format!("{host}:{port}")),
+        Err(_) => Err(format!("invalid port: {port}")),
+    }
 }
 
 /// Batch-query device properties in a single shell call (matches v1's
@@ -221,5 +248,55 @@ fn friendly_model_for(device_type: DeviceType, props: &DeviceProperties) -> Stri
                 "Unknown Device".to_string()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_accepts_bare_ip() {
+        assert_eq!(
+            normalize_connect_address("192.168.42.71").unwrap(),
+            "192.168.42.71:5555"
+        );
+    }
+
+    #[test]
+    fn normalize_accepts_ip_and_port() {
+        assert_eq!(
+            normalize_connect_address("10.0.0.1:5556").unwrap(),
+            "10.0.0.1:5556"
+        );
+    }
+
+    #[test]
+    fn normalize_trims_whitespace() {
+        assert_eq!(
+            normalize_connect_address("  192.168.1.1  ").unwrap(),
+            "192.168.1.1:5555"
+        );
+    }
+
+    #[test]
+    fn normalize_rejects_empty() {
+        assert!(normalize_connect_address("").is_err());
+        assert!(normalize_connect_address("   ").is_err());
+    }
+
+    #[test]
+    fn normalize_rejects_non_ipv4() {
+        assert!(normalize_connect_address("foo.bar.baz").is_err());
+        assert!(normalize_connect_address("192.168.1").is_err());
+        assert!(normalize_connect_address("192.168.1.1.1").is_err());
+        assert!(normalize_connect_address("999.999.999.999").is_err());
+    }
+
+    #[test]
+    fn normalize_rejects_bad_port() {
+        assert!(normalize_connect_address("192.168.1.1:0").is_err());
+        assert!(normalize_connect_address("192.168.1.1:abc").is_err());
+        assert!(normalize_connect_address("192.168.1.1:99999").is_err());
     }
 }

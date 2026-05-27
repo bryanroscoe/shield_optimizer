@@ -6,6 +6,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::State;
 
+use crate::adb::driver::discover_adb_binary;
 use crate::adb::{install_platform_tools, AdbDriver, SubprocessAdb};
 
 use super::AppState;
@@ -14,7 +15,8 @@ use super::AppState;
 pub struct AdbStatus {
     /// Is an adb binary currently configured?
     pub available: bool,
-    /// Path to the binary, if available.
+    /// Path to the binary if discovery resolves one — useful in the UI for
+    /// "Using adb at /opt/homebrew/bin/adb" diagnostics.
     pub path: Option<String>,
     /// What the last `adb devices` call returned, as a quick connectivity probe.
     /// `None` when adb isn't available.
@@ -25,17 +27,17 @@ pub struct AdbStatus {
 #[tauri::command]
 pub async fn adb_status(state: State<'_, AppState>) -> Result<AdbStatus, String> {
     let adb = state.adb_snapshot().await;
-    // Probe by running `adb devices` — fast and side-effect-free.
+    let path = discover_adb_binary().map(|p| p.display().to_string());
     let probe = adb.raw(&["devices"]).await;
     match probe {
         Ok(out) => Ok(AdbStatus {
             available: true,
-            path: None, // We don't expose the binary path to the frontend by default.
+            path,
             last_probe: Some(out.stdout),
         }),
         Err(e) => Ok(AdbStatus {
             available: false,
-            path: None,
+            path,
             last_probe: Some(e.to_string()),
         }),
     }

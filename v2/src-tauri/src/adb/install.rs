@@ -104,14 +104,24 @@ fn extract_zip_to<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, Ins
         };
 
         // Zip-slip protection: refuse any entry whose path tries to escape.
-        if Path::new(rel)
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
+        // Reject both `..` traversal and absolute paths (a zip can legally
+        // contain an entry like `/etc/passwd` — `Path::join` would discard
+        // `root` and write to the absolute target without this guard).
+        let rel_path = Path::new(rel);
+        if rel_path.is_absolute()
+            || rel_path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
         {
             continue;
         }
 
-        let out_path = root.join(rel);
+        let out_path = root.join(rel_path);
+        // Belt and suspenders: verify the resolved path is under `root`
+        // even after `join` does its substitution-on-absolute thing.
+        if !out_path.starts_with(root) {
+            continue;
+        }
 
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;

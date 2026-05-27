@@ -13,26 +13,27 @@
   let connectBusy = $state(false);
   let connectMessage = $state("");
 
-  // Treated as the structured signal "no adb anywhere on disk". Triggers the
-  // install-platform-tools button rather than a generic error pane.
+  // Triggers the install-platform-tools button rather than a generic error pane.
   let adbMissing = $state(false);
   let installBusy = $state(false);
   let installMessage = $state("");
-
-  function looksLikeAdbMissing(err: string): boolean {
-    return err.includes("could not locate an adb binary");
-  }
 
   async function refresh() {
     loading = true;
     error = null;
     try {
-      devices = await api.listDevices();
+      // Structured probe first so we render the install pane on a clean
+      // signal instead of substring-matching a free-form error message.
+      const status = await api.adbStatus();
+      if (!status.available) {
+        adbMissing = true;
+        devices = [];
+        return;
+      }
       adbMissing = false;
+      devices = await api.listDevices();
     } catch (e) {
-      const msg = String(e);
-      adbMissing = looksLikeAdbMissing(msg);
-      error = adbMissing ? null : msg;
+      error = String(e);
     } finally {
       loading = false;
     }

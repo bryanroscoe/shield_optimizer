@@ -123,10 +123,31 @@ impl SubprocessAdb {
             }
         };
 
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let exit_code = output.status.code();
+
+        // Surface real process failures rather than letting callers parse
+        // empty stdout as "no results". Exit-0 with empty stdout is a
+        // legitimate response for many `pm` queries (e.g. "no disabled
+        // packages matched"); exit-nonzero is the signal that something
+        // actually went wrong.
+        if !output.status.success() {
+            warn!(?args, ?exit_code, %stderr, "adb exited nonzero");
+            return Err(AdbError::NonZeroExit {
+                code: exit_code,
+                stderr: if stderr.is_empty() {
+                    stdout.clone()
+                } else {
+                    stderr
+                },
+            });
+        }
+
         Ok(AdbOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-            exit_code: output.status.code(),
+            stdout,
+            stderr,
+            exit_code,
         })
     }
 }

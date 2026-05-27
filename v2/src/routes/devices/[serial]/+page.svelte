@@ -160,16 +160,29 @@
     </div>
   </header>
 
-  <nav class="tabs">
-    <button class:active={activeTab === "overview"} onclick={() => (activeTab = "overview")}>Overview</button>
-    <button class:active={activeTab === "health"} onclick={() => (activeTab = "health")}>Health</button>
-    <button class:active={activeTab === "launcher"} onclick={() => (activeTab = "launcher")}>Launcher</button>
-    <button class:active={activeTab === "apps"} onclick={() => (activeTab = "apps")}>App List</button>
-    <button class:active={activeTab === "snapshot"} onclick={() => (activeTab = "snapshot")}>Snapshot</button>
-  </nav>
+  <div class="tabs" role="tablist" aria-label="Device sections">
+    {#each [
+      { id: "overview", label: "Overview" },
+      { id: "health", label: "Health" },
+      { id: "launcher", label: "Launcher" },
+      { id: "apps", label: "App List" },
+      { id: "snapshot", label: "Snapshot" },
+    ] as t (t.id)}
+      <button
+        role="tab"
+        aria-selected={activeTab === t.id}
+        aria-controls={`tabpanel-${t.id}`}
+        id={`tab-${t.id}`}
+        class:active={activeTab === t.id}
+        onclick={() => (activeTab = t.id as Tab)}
+      >
+        {t.label}
+      </button>
+    {/each}
+  </div>
 
   {#if activeTab === "overview"}
-    <section class="card">
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-overview" aria-labelledby="tab-overview">
       <h2>Profile</h2>
       {#if device.properties}
         <dl class="kv">
@@ -184,9 +197,9 @@
           <dt>Board platform</dt><dd>{device.properties.board_platform}</dd>
         </dl>
       {/if}
-    </section>
+    </div>
   {:else if activeTab === "health"}
-    <section class="card">
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-health" aria-labelledby="tab-health">
       <div class="card-header">
         <h2>Health Report</h2>
         <button onclick={loadHealth} disabled={reportLoading}>
@@ -226,9 +239,9 @@
           </table>
         {/if}
       {/if}
-    </section>
+    </div>
   {:else if activeTab === "launcher"}
-    <section class="card">
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-launcher" aria-labelledby="tab-launcher">
       <div class="card-header">
         <h2>Launchers</h2>
         <button onclick={loadLauncher} disabled={launcherLoading}>
@@ -272,12 +285,17 @@
           </ul>
         {/if}
       {/if}
-    </section>
+    </div>
   {:else if activeTab === "apps"}
-    <section class="card">
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-apps" aria-labelledby="tab-apps">
       <div class="card-header">
         <h2>App List for {deviceTypeLabel(device.device_type)}</h2>
-        <span class="muted">{apps.length} entries</span>
+        <div class="header-actions">
+          <span class="muted">{apps.length} entries</span>
+          <button onclick={loadApps} disabled={appsLoading}>
+            {appsLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
       </div>
       {#if appsErr}
         <div class="error">{appsErr}</div>
@@ -304,9 +322,9 @@
           </tbody>
         </table>
       {/if}
-    </section>
+    </div>
   {:else if activeTab === "snapshot"}
-    <section class="card">
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-snapshot" aria-labelledby="tab-snapshot">
       <div class="card-header">
         <h2>Snapshots</h2>
         <button class="primary" onclick={saveSnapshot} disabled={saveBusy}>
@@ -338,6 +356,11 @@
         <div class="error">{previewErr}</div>
       {:else if preview && previewPath}
         <div class="preview-box">
+          <div class="warning preview-disclaimer">
+            <strong>Preview only.</strong> Execution of the plan is not yet wired in this
+            build. The counts below show what <em>would</em> change — nothing has been
+            applied to your device.
+          </div>
           <h3>Plan preview</h3>
           {#if preview.cross_device_warning}
             <div class="warning">{preview.cross_device_warning}</div>
@@ -349,10 +372,9 @@
             <li>Launcher: <code>{preview.launcher_to_set ?? "(unchanged)"}</code></li>
             <li><strong>{Object.keys(preview.settings_to_write).length}</strong> settings would be written</li>
           </ul>
-          <p class="muted small">Execution of the plan is not yet wired in this build — preview only.</p>
         </div>
       {/if}
-    </section>
+    </div>
   {/if}
 {/if}
 
@@ -531,6 +553,14 @@
   .preview-box ul {
     margin: 0.4rem 0;
     padding-left: 1.2rem;
+  }
+  .preview-disclaimer {
+    margin-top: 0 !important;
+  }
+  .header-actions {
+    display: flex;
+    gap: 0.8rem;
+    align-items: center;
   }
   code {
     background: #0d1117;

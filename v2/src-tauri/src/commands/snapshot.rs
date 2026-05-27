@@ -96,12 +96,19 @@ pub async fn save_snapshot(
         .and_then(|c| c.split_once('/'))
         .map(|(p, _)| p.to_string());
 
-    // Settings — one `settings get` per tracked key.
+    // Batch the `settings get` queries into one shell call. Output each
+    // value on its own line in declared order so we can match them up
+    // positionally. ~200ms total instead of ~200ms × 9.
+    let keys = tracked_setting_keys();
+    let cmd = keys
+        .iter()
+        .map(|(ns, key)| format!("settings get {ns} {key}"))
+        .collect::<Vec<_>>()
+        .join("; ");
     let mut settings = std::collections::BTreeMap::new();
-    for (ns, key) in tracked_setting_keys() {
-        let cmd = format!("settings get {ns} {key}");
-        if let Ok(out) = adb.shell(&serial, &cmd).await {
-            let v = out.stdout.trim();
+    if let Ok(out) = adb.shell(&serial, &cmd).await {
+        for ((ns, key), raw) in keys.iter().zip(out.stdout.lines()) {
+            let v = raw.trim();
             if !v.is_empty() && v != "null" {
                 settings.insert(format!("{ns}.{key}"), v.to_string());
             }
@@ -181,7 +188,23 @@ pub async fn preview_apply(
     serial: String,
     snapshot_path: String,
 ) -> Result<SnapshotApplyPlan, String> {
-    let contents = tokio::fs::read_to_string(&snapshot_path)
+    // Confine reads to the configured snapshot directory — the frontend
+    // hands us paths and we should not blindly read arbitrary locations.
+    let path = PathBuf::from(&snapshot_path);
+    let canonical_path = tokio::fs::canonicalize(&path)
+        .await
+        .map_err(|e| format!("snapshot path: {e}"))?;
+    let canonical_dir = tokio::fs::canonicalize(&state.snapshot_dir)
+        .await
+        .map_err(|e| format!("snapshot dir: {e}"))?;
+    if !canonical_path.starts_with(&canonical_dir) {
+        return Err(format!(
+            "snapshot path is outside the configured snapshot directory ({})",
+            canonical_dir.display()
+        ));
+    }
+
+    let contents = tokio::fs::read_to_string(&canonical_path)
         .await
         .map_err(|e| format!("read snapshot: {e}"))?;
     let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;

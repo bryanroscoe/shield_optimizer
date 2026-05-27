@@ -3394,7 +3394,6 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "futures-util",
- "once_cell",
  "pretty_assertions",
  "regex",
  "reqwest 0.12.28",
