@@ -11,7 +11,9 @@ pub mod engine;
 
 use std::path::PathBuf;
 
-use commands::{devices, health, install, launcher, loader, scan, snapshot, AppState};
+use commands::{
+    apps, devices, health, install, launcher, loader, scan, sideload, snapshot, AppState,
+};
 
 /// Resolve the OS-appropriate snapshot directory.
 ///
@@ -53,6 +55,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             devices::list_devices,
@@ -67,6 +70,12 @@ pub fn run() {
             launcher::list_launchers,
             launcher::current_launcher,
             launcher::channel_provider_disabled,
+            launcher::set_default_launcher,
+            apps::disable_package,
+            apps::enable_package,
+            apps::uninstall_package,
+            apps::reinstall_existing,
+            sideload::install_apk,
             snapshot::list_snapshots,
             snapshot::save_snapshot,
             snapshot::preview_apply,

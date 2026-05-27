@@ -103,6 +103,25 @@ export interface SnapshotFile {
   disabled_count: number;
 }
 
+export interface ActionResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface SetLauncherResult {
+  ok: boolean;
+  strategy: string | null;
+  current_launcher: string | null;
+  last_error: string | null;
+}
+
+export interface InstallApkResult {
+  ok: boolean;
+  path: string;
+  message: string;
+  hint: string | null;
+}
+
 export interface ScanResult {
   subnet: string | null;
   found: string[];

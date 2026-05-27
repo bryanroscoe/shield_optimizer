@@ -59,7 +59,7 @@ pub async fn health_report(
         .map(|(package, mb)| MemoryEntry { package, mb })
         .collect();
     top_memory.sort_by(|a, b| b.mb.partial_cmp(&a.mb).unwrap_or(std::cmp::Ordering::Equal));
-    top_memory.truncate(10);
+    top_memory.truncate(20);
 
     Ok(HealthReport {
         display,

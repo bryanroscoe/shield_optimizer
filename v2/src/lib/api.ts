@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  ActionResult,
   AdbStatus,
   AppEntry,
   ConnectResult,
@@ -10,9 +11,11 @@ import type {
   Device,
   DeviceType,
   HealthReport,
+  InstallApkResult,
   InstallResult,
   LauncherStatus,
   ScanResult,
+  SetLauncherResult,
   SnapshotApplyPlan,
   SnapshotFile,
 } from "./types";
@@ -42,6 +45,20 @@ export const api = {
     invoke<CurrentLauncher>("current_launcher", { serial }),
   channelProviderDisabled: (serial: string) =>
     invoke<boolean>("channel_provider_disabled", { serial }),
+  setDefaultLauncher: (serial: string, pkg: string) =>
+    invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg }),
+
+  disablePackage: (serial: string, pkg: string) =>
+    invoke<ActionResult>("disable_package", { serial, package: pkg }),
+  enablePackage: (serial: string, pkg: string) =>
+    invoke<ActionResult>("enable_package", { serial, package: pkg }),
+  uninstallPackage: (serial: string, pkg: string) =>
+    invoke<ActionResult>("uninstall_package", { serial, package: pkg }),
+  reinstallExisting: (serial: string, pkg: string) =>
+    invoke<ActionResult>("reinstall_existing", { serial, package: pkg }),
+
+  installApk: (serial: string, apkPath: string, reinstall = true) =>
+    invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
 
   listSnapshots: () => invoke<SnapshotFile[]>("list_snapshots"),
   saveSnapshot: (serial: string, deviceName: string) =>

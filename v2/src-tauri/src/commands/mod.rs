@@ -3,12 +3,14 @@
 //! lives here; commands fetch facts via the ADB driver, hand them to the
 //! engine for decision-making, and return the result.
 
+pub mod apps;
 pub mod devices;
 pub mod health;
 pub mod install;
 pub mod launcher;
 pub mod loader;
 pub mod scan;
+pub mod sideload;
 pub mod snapshot;
 pub mod state;
 
