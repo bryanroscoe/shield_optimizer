@@ -12,6 +12,7 @@ import type {
   HealthReport,
   InstallResult,
   LauncherStatus,
+  ScanResult,
   SnapshotApplyPlan,
   SnapshotFile,
 } from "./types";
@@ -19,6 +20,7 @@ import type {
 export const api = {
   adbStatus: () => invoke<AdbStatus>("adb_status"),
   installAdb: () => invoke<InstallResult>("install_adb"),
+  scanNetwork: () => invoke<ScanResult>("scan_network"),
 
   listDevices: () => invoke<Device[]>("list_devices"),
   deviceProfile: (serial: string) =>

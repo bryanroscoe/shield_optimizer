@@ -117,6 +117,108 @@ pub fn parse_total_pss_by_process(meminfo: &str) -> HashMap<String, f64> {
     parse_dumpsys_meminfo(meminfo)
 }
 
+/// Free / used / total / swap MB parsed from the summary block at the bottom
+/// of `dumpsys meminfo`. Returns `None` for fields the device didn't report.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RamInfo {
+    pub total_mb: Option<u64>,
+    pub used_mb: Option<u64>,
+    pub free_mb: Option<u64>,
+    pub swap_mb: Option<u64>,
+}
+
+/// Parse the "Total RAM" / "Free RAM" / "Used RAM" / "ZRAM" lines from
+/// `dumpsys meminfo` output. Values can be in KB (with commas) or MB
+/// depending on Android version — we normalize to MB.
+pub fn parse_meminfo_summary(meminfo: &str) -> RamInfo {
+    static ROW: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^\s*(Total RAM|Free RAM|Used RAM|ZRAM):\s*([\d,]+)([KkMm])?").unwrap()
+    });
+
+    let mut info = RamInfo::default();
+    for line in meminfo.lines() {
+        let Some(caps) = ROW.captures(line) else {
+            continue;
+        };
+        let label = &caps[1];
+        let value: u64 = caps[2].replace(',', "").parse().unwrap_or(0);
+        let unit = caps.get(3).map(|m| m.as_str()).unwrap_or("K"); // dumpsys defaults to K
+        let mb = match unit {
+            "M" | "m" => value,
+            _ => value / 1024,
+        };
+        match label {
+            "Total RAM" => info.total_mb = Some(mb),
+            "Free RAM" => info.free_mb = Some(mb),
+            "Used RAM" => info.used_mb = Some(mb),
+            "ZRAM" => info.swap_mb = Some(mb),
+            _ => {}
+        }
+    }
+    info
+}
+
+/// Parse the highest temperature reading from `dumpsys thermalservice`. The
+/// service emits a list of HardwareThrottlingService temps per zone; we want
+/// the hottest CPU-class zone since that's the one users care about for
+/// throttling. Returns `None` if no readable temp is present.
+pub fn parse_thermal_max_celsius(dumpsys_thermalservice: &str) -> Option<f64> {
+    static TEMP: LazyLock<Regex> = LazyLock::new(|| {
+        // Common formats across Android 9-13:
+        //   "Temperature{mValue=42.0, mType=0, mName=..."
+        //   "  CPU: temp=42.0 type=CPU"
+        Regex::new(r"mValue=([\d.]+)|temp=([\d.]+)").unwrap()
+    });
+
+    let mut max: Option<f64> = None;
+    for caps in TEMP.captures_iter(dumpsys_thermalservice) {
+        let raw = caps.get(1).or(caps.get(2)).map(|m| m.as_str())?;
+        let Ok(t) = raw.parse::<f64>() else { continue };
+        // Sanity check — drop obvious garbage like 0.0 or 999.0.
+        if !(10.0..120.0).contains(&t) {
+            continue;
+        }
+        max = Some(max.map_or(t, |m| m.max(t)));
+    }
+    max
+}
+
+/// Disk usage parsed from `df -h /data`.
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StorageInfo {
+    /// Raw "size" column (e.g. "11G").
+    pub total: Option<String>,
+    pub used: Option<String>,
+    pub available: Option<String>,
+    /// Percentage as a u8 (0-100).
+    pub used_percent: Option<u8>,
+}
+
+/// Parse `df -h /data` output. Expected shape:
+/// ```text
+/// Filesystem  Size  Used  Avail  Use%  Mounted on
+/// /dev/...    11G   6.4G  4.6G   60%   /data
+/// ```
+pub fn parse_storage_info(df_output: &str) -> StorageInfo {
+    let mut info = StorageInfo::default();
+    for line in df_output.lines() {
+        if !line.contains("/data") {
+            continue;
+        }
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        if cols.len() < 5 {
+            continue;
+        }
+        // Layout: Filesystem Size Used Avail Use% Mounted-on
+        info.total = Some(cols[1].to_string());
+        info.used = Some(cols[2].to_string());
+        info.available = Some(cols[3].to_string());
+        info.used_percent = cols[4].trim_end_matches('%').parse::<u8>().ok();
+        break;
+    }
+    info
+}
+
 /// Current display mode parsed from `dumpsys display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DisplayMode {
@@ -267,6 +369,47 @@ DisplayDeviceInfo{"Built-in Screen": uniqueId="local:0", 3840 x 2160, modeId 20,
         let input = "modeId 1, supportedModes [{id=1, width=3840, height=2160, fps=60.0}], HdrCapabilities mSupportedHdrTypes=[1, 2, 4]";
         let mode = parse_display_mode(input);
         assert_eq!(mode.hdr_types, vec!["Dolby Vision", "HDR10", "HDR10+"]);
+    }
+
+    #[test]
+    fn parses_meminfo_summary_kb() {
+        let input = "\
+            Total PSS by process:\n\
+              123K: com.foo\n\n\
+            Total RAM: 2,946,720K (status normal)\n\
+            Free RAM: 770,512K\n\
+            Used RAM: 2,176,208K\n\
+            ZRAM: 524,288K\n";
+        let info = parse_meminfo_summary(input);
+        assert_eq!(info.total_mb, Some(2877));
+        assert_eq!(info.free_mb, Some(752));
+        assert_eq!(info.used_mb, Some(2125));
+        assert_eq!(info.swap_mb, Some(512));
+    }
+
+    #[test]
+    fn parses_thermal_max_temp() {
+        let input = "Temperature{mValue=38.0, mType=0, mName=\"SKIN\"}\
+                     Temperature{mValue=46.5, mType=0, mName=\"CPU\"}";
+        assert_eq!(parse_thermal_max_celsius(input), Some(46.5));
+    }
+
+    #[test]
+    fn parses_thermal_rejects_garbage_values() {
+        let input = "mValue=999.0\nmValue=42.0";
+        assert_eq!(parse_thermal_max_celsius(input), Some(42.0));
+    }
+
+    #[test]
+    fn parses_df_data_storage() {
+        let input = "\
+            Filesystem    Size  Used  Avail  Use%  Mounted on\n\
+            /dev/mmcblk0p35  11G  6.4G   4.6G  60%  /data\n";
+        let info = parse_storage_info(input);
+        assert_eq!(info.total.as_deref(), Some("11G"));
+        assert_eq!(info.used.as_deref(), Some("6.4G"));
+        assert_eq!(info.available.as_deref(), Some("4.6G"));
+        assert_eq!(info.used_percent, Some(60));
     }
 
     #[test]

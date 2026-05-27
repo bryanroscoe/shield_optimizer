@@ -13,6 +13,9 @@
   let connectBusy = $state(false);
   let connectMessage = $state("");
 
+  let scanBusy = $state(false);
+  let scanMessage = $state("");
+
   // Triggers the install-platform-tools button rather than a generic error pane.
   let adbMissing = $state(false);
   let installBusy = $state(false);
@@ -73,6 +76,22 @@
     }
   }
 
+  async function scan() {
+    scanBusy = true;
+    scanMessage = "Scanning local network…";
+    try {
+      const r = await api.scanNetwork();
+      scanMessage = r.message;
+      if (r.connected.length > 0) {
+        await refresh();
+      }
+    } catch (e) {
+      scanMessage = String(e);
+    } finally {
+      scanBusy = false;
+    }
+  }
+
   function deviceHref(d: Device): string | null {
     return d.status === "device" ? `/devices/${encodeURIComponent(d.serial)}` : null;
   }
@@ -96,8 +115,14 @@
   <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim()}>
     {connectBusy ? "Connecting…" : "Connect IP"}
   </button>
+  <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
+    {scanBusy ? "Scanning…" : "Scan Network"}
+  </button>
   {#if connectMessage}
     <p class="connect-message muted">{connectMessage}</p>
+  {/if}
+  {#if scanMessage}
+    <p class="connect-message muted">{scanMessage}</p>
   {/if}
 </section>
 

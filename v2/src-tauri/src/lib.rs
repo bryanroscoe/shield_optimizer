@@ -11,7 +11,7 @@ pub mod engine;
 
 use std::path::PathBuf;
 
-use commands::{devices, health, install, launcher, loader, snapshot, AppState};
+use commands::{devices, health, install, launcher, loader, scan, snapshot, AppState};
 
 /// Resolve the OS-appropriate snapshot directory.
 ///
@@ -63,6 +63,7 @@ pub fn run() {
             health::app_list_for_device,
             install::adb_status,
             install::install_adb,
+            scan::scan_network,
             launcher::list_launchers,
             launcher::current_launcher,
             launcher::channel_provider_disabled,

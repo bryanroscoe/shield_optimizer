@@ -8,6 +8,7 @@ pub mod health;
 pub mod install;
 pub mod launcher;
 pub mod loader;
+pub mod scan;
 pub mod snapshot;
 pub mod state;
 

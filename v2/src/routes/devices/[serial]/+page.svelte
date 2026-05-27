@@ -211,6 +211,31 @@
       {:else if !report}
         <div class="muted">{reportLoading ? "Querying…" : "—"}</div>
       {:else}
+        <h3>Vitals</h3>
+        <dl class="kv">
+          <dt>Temperature</dt>
+          <dd>{report.temperature_c != null ? `${report.temperature_c.toFixed(1)}°C` : "—"}</dd>
+          {#if report.ram.total_mb != null}
+            <dt>RAM</dt>
+            <dd>
+              {report.ram.used_mb ?? "?"} / {report.ram.total_mb} MB
+              {#if report.ram.total_mb && report.ram.used_mb != null}
+                ({Math.round((report.ram.used_mb / report.ram.total_mb) * 100)}%)
+              {/if}
+            </dd>
+          {/if}
+          {#if report.ram.swap_mb != null}
+            <dt>Swap</dt><dd>{report.ram.swap_mb} MB</dd>
+          {/if}
+          {#if report.storage.total}
+            <dt>Storage</dt>
+            <dd>
+              {report.storage.used ?? "?"} / {report.storage.total}
+              {#if report.storage.used_percent != null}({report.storage.used_percent}%){/if}
+            </dd>
+          {/if}
+        </dl>
+
         <h3>Display & Audio</h3>
         <dl class="kv">
           <dt>Resolution</dt><dd>{report.display.resolution ?? "—"}</dd>

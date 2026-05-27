@@ -73,10 +73,26 @@ export interface MemoryEntry {
   mb: number;
 }
 
+export interface RamInfo {
+  total_mb: number | null;
+  used_mb: number | null;
+  free_mb: number | null;
+  swap_mb: number | null;
+}
+
+export interface StorageInfo {
+  total: string | null;
+  used: string | null;
+  available: string | null;
+  used_percent: number | null;
+}
+
 export interface HealthReport {
   display: DisplayMode;
+  ram: RamInfo;
+  storage: StorageInfo;
+  temperature_c: number | null;
   top_memory: MemoryEntry[];
-  raw_meminfo_first_lines: string | null;
 }
 
 export interface SnapshotFile {
@@ -85,6 +101,14 @@ export interface SnapshotFile {
   saved_at: string;
   device_name: string;
   disabled_count: number;
+}
+
+export interface ScanResult {
+  subnet: string | null;
+  found: string[];
+  connected: string[];
+  failed: string[];
+  message: string;
 }
 
 export interface AdbStatus {

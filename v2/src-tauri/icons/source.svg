@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1f6feb"/>
+      <stop offset="100%" stop-color="#0a2a5e"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#58a6ff"/>
+      <stop offset="100%" stop-color="#1f6feb"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Rounded-square app background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="200" ry="200" fill="url(#bg)"/>
+
+  <!-- Heater-shield silhouette, classical 1:1.15 proportions -->
+  <path d="
+      M 512 170
+      C 700 170, 820 230, 820 230
+      L 820 510
+      C 820 700, 660 820, 512 880
+      C 364 820, 204 700, 204 510
+      L 204 230
+      C 204 230, 324 170, 512 170
+      Z"
+    fill="url(#shield)"
+    stroke="#0d1117"
+    stroke-width="12"
+    filter="url(#glow)"/>
+
+  <!-- Inner highlight ring (subtle bevel) -->
+  <path d="
+      M 512 230
+      C 680 230, 770 280, 770 280
+      L 770 500
+      C 770 670, 630 780, 512 830
+      C 394 780, 254 670, 254 500
+      L 254 280
+      C 254 280, 344 230, 512 230
+      Z"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="6"
+    stroke-opacity="0.25"/>
+
+  <!-- Checkmark mark — "optimized / verified" semantic -->
+  <path d="
+      M 360 510
+      L 470 620
+      L 680 410"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="60"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>
