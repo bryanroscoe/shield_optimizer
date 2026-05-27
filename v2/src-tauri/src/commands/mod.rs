@@ -9,6 +9,7 @@ pub mod health;
 pub mod install;
 pub mod launcher;
 pub mod loader;
+pub mod optimize;
 pub mod reboot;
 pub mod recovery;
 pub mod scan;

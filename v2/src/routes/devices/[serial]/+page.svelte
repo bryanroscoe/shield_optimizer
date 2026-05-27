@@ -18,12 +18,15 @@
     TweaksState,
     SettingNamespace,
     DisplayScalePreset,
+    OptimizeMode,
+    OptimizePlan,
+    OptimizePlanItem,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
-  type Tab = "overview" | "health" | "launcher" | "apps" | "tweaks" | "snapshot" | "sideload";
+  type Tab = "overview" | "health" | "launcher" | "apps" | "optimize" | "tweaks" | "snapshot" | "sideload";
   let activeTab = $state<Tab>("overview");
 
   let device = $state<Device | null>(null);
@@ -89,6 +92,22 @@
   let tweaksActionMessage = $state<string>("");
   let displayScaleBusy = $state<DisplayScalePreset | null>(null);
   let displayScaleMessage = $state<string>("");
+
+  // Optimize / Restore wizard.
+  let optimizeMode = $state<OptimizeMode>("optimize");
+  let optimizePlan = $state<OptimizePlan | null>(null);
+  let optimizePlanLoading = $state(false);
+  let optimizePlanErr = $state<string | null>(null);
+  /// Per-package override: `undefined` = follow plan default, `"skip"` = skip,
+  /// otherwise the action label to perform.
+  let optimizeOverrides = $state<Record<string, "skip" | "follow">>({});
+  let optimizeRunning = $state(false);
+  let optimizeCurrent = $state<string | null>(null); // package currently being acted on
+  let optimizeProgress = $state<Record<string, "pending" | "done" | "skipped" | "failed">>({});
+  let optimizeFailureMessages = $state<Record<string, string>>({});
+  let optimizeAbort = $state(false);
+  let optimizeSummary = $state<string>("");
+  let optimizePerfApplied = $state<boolean>(false);
 
   async function loadDevice() {
     deviceErr = null;
@@ -521,6 +540,117 @@
     }
   }
 
+  async function loadOptimizePlan(mode: OptimizeMode) {
+    optimizeMode = mode;
+    optimizePlanLoading = true;
+    optimizePlanErr = null;
+    optimizePlan = null;
+    optimizeOverrides = {};
+    optimizeProgress = {};
+    optimizeFailureMessages = {};
+    optimizeSummary = "";
+    optimizePerfApplied = false;
+    try {
+      optimizePlan = await api.prepareOptimize(serial, mode);
+    } catch (e) {
+      optimizePlanErr = String(e);
+    } finally {
+      optimizePlanLoading = false;
+    }
+  }
+
+  /// Skip = user explicitly opted out; Follow = take the engine's recommended
+  /// action. We toggle, defaulting to follow.
+  function toggleOptimizeOverride(pkg: string) {
+    optimizeOverrides[pkg] =
+      optimizeOverrides[pkg] === "skip" ? "follow" : "skip";
+  }
+
+  function effectiveAction(item: OptimizePlanItem): "disable" | "uninstall" | "enable" | "skip" {
+    if (optimizeOverrides[item.entry.package] === "skip") return "skip";
+    if (item.action.kind === "skip") return "skip";
+    return item.action.kind;
+  }
+
+  async function executeOptimize() {
+    if (!optimizePlan) return;
+    const total = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length;
+    if (total === 0) {
+      optimizeSummary = "Nothing to do — every item is in its target state.";
+      return;
+    }
+    const label = optimizeMode === "optimize" ? "Optimize" : "Restore";
+    if (!confirm(`Run ${label} on ${total} package(s)? Disabled packages can be re-enabled via Emergency Recovery.`)) return;
+
+    optimizeRunning = true;
+    optimizeAbort = false;
+    optimizeProgress = {};
+    optimizeFailureMessages = {};
+
+    let done = 0, skipped = 0, failed = 0;
+    for (const item of optimizePlan.items) {
+      if (optimizeAbort) break;
+      const pkg = item.entry.package;
+      const action = effectiveAction(item);
+      if (action === "skip") {
+        optimizeProgress[pkg] = "skipped";
+        skipped++;
+        continue;
+      }
+      optimizeCurrent = pkg;
+      optimizeProgress[pkg] = "pending";
+      try {
+        let r: { ok: boolean; message: string };
+        if (action === "disable") r = await api.disablePackage(serial, pkg);
+        else if (action === "uninstall") r = await api.uninstallPackage(serial, pkg);
+        else r = await api.enablePackage(serial, pkg);
+        if (r.ok) {
+          optimizeProgress[pkg] = "done";
+          done++;
+        } else {
+          optimizeProgress[pkg] = "failed";
+          optimizeFailureMessages[pkg] = r.message;
+          failed++;
+        }
+      } catch (e) {
+        optimizeProgress[pkg] = "failed";
+        optimizeFailureMessages[pkg] = String(e);
+        failed++;
+      }
+    }
+    optimizeCurrent = null;
+    optimizeRunning = false;
+    optimizeSummary = optimizeAbort
+      ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
+      : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
+  }
+
+  async function applyPerformanceSettings() {
+    if (!optimizePlan) return;
+    const profile = optimizeMode === "optimize" ? "optimized" : "default";
+    try {
+      const r = await api.applyPerformanceSettings(serial, profile);
+      optimizePerfApplied = r.ok;
+      optimizeSummary = optimizeSummary
+        ? `${optimizeSummary} Performance: ${r.message.trim()}.`
+        : `Performance: ${r.message.trim()}.`;
+    } catch (e) {
+      optimizeSummary = optimizeSummary
+        ? `${optimizeSummary} Performance failed: ${e}.`
+        : `Performance failed: ${e}.`;
+    }
+  }
+
+  function skipReasonLabel(item: OptimizePlanItem): string | null {
+    if (item.action.kind !== "skip") return null;
+    switch (item.action.reason) {
+      case "not_installed": return "Not installed";
+      case "already_disabled": return "Already disabled";
+      case "already_enabled": return "Already enabled";
+      case "user_choice": return "Skipped";
+    }
+  }
+
   async function applyDisplayScaling(preset: DisplayScalePreset) {
     const label = preset === "uhd_4k" ? "4K (3840x2160, density 540)"
       : preset === "fhd_1080p" ? "1080p (1920x1080, density 320)"
@@ -607,6 +737,7 @@
       { id: "health", label: "Health" },
       { id: "launcher", label: "Launcher" },
       { id: "apps", label: "App List" },
+      { id: "optimize", label: "Optimize" },
       { id: "tweaks", label: "Tweaks" },
       { id: "sideload", label: "Install APK" },
       { id: "snapshot", label: "Snapshot" },
@@ -939,6 +1070,149 @@
                     >
                       Play Store
                     </button>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    </div>
+  {:else if activeTab === "optimize"}
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize">
+      <div class="card-header">
+        <h2>Optimize / Restore Wizard</h2>
+        <div class="header-actions">
+          <button
+            class:primary={optimizeMode === "optimize"}
+            onclick={() => loadOptimizePlan("optimize")}
+            disabled={optimizePlanLoading || optimizeRunning}
+          >Optimize</button>
+          <button
+            class:primary={optimizeMode === "restore"}
+            onclick={() => loadOptimizePlan("restore")}
+            disabled={optimizePlanLoading || optimizeRunning}
+          >Restore</button>
+        </div>
+      </div>
+      <p class="muted small">
+        {optimizeMode === "optimize"
+          ? "Disable or uninstall bloat per the device's app catalog. Review each row, untick anything you want to keep, then Run."
+          : "Re-enable everything that's currently disabled per the device's app catalog. Restore is reversible by running Optimize again."}
+      </p>
+
+      {#if optimizePlanErr}
+        <div class="error">{optimizePlanErr}</div>
+      {/if}
+
+      {#if optimizePlanLoading}
+        <p class="muted">Querying device…</p>
+      {:else if !optimizePlan}
+        <p class="muted">Pick Optimize or Restore to load the plan.</p>
+      {:else}
+        {@const actionable = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length}
+        {@const totalRunning = optimizePlan.items.reduce((acc, i) => acc + (i.memory_mb ?? 0), 0)}
+        <div class="plan-summary">
+          <strong>{actionable}</strong> of {optimizePlan.items.length} items will be acted on.
+          {#if totalRunning > 0}
+            <span class="muted">≈ {totalRunning.toFixed(0)} MB of RAM in play.</span>
+          {/if}
+        </div>
+        <div class="apply-row">
+          <button
+            class="primary"
+            onclick={executeOptimize}
+            disabled={optimizeRunning || actionable === 0}
+          >
+            {optimizeRunning ? `Running… (${optimizeCurrent ?? ""})` : `Run ${optimizeMode === "optimize" ? "Optimize" : "Restore"}`}
+          </button>
+          {#if optimizeRunning}
+            <button onclick={() => (optimizeAbort = true)}>Abort</button>
+          {/if}
+          {#if optimizeSummary && !optimizeRunning}
+            <button
+              onclick={applyPerformanceSettings}
+              disabled={optimizePerfApplied}
+              title={optimizeMode === "optimize" ? "Set animation scales to 0.5×" : "Reset animation scales to 1×"}
+            >
+              {optimizePerfApplied ? "Performance applied" : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
+            </button>
+          {/if}
+        </div>
+        {#if optimizeSummary}
+          <p class="muted small mono action-message">{optimizeSummary}</p>
+        {/if}
+
+        <table class="optimize-table">
+          <thead>
+            <tr>
+              <th>App</th>
+              <th>RAM</th>
+              <th>Risk</th>
+              <th>Plan</th>
+              <th>Override</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each optimizePlan.items as item (item.entry.package)}
+              {@const skip = skipReasonLabel(item)}
+              {@const overridden = optimizeOverrides[item.entry.package] === "skip"}
+              {@const progress = optimizeProgress[item.entry.package]}
+              <tr class:dim={skip !== null || overridden}>
+                <td>
+                  <div class="app-name">
+                    {item.entry.name}
+                    {#if item.entry.default_optimize}
+                      <span class="tag installed">DEFAULT</span>
+                    {/if}
+                  </div>
+                  <div class="muted small mono">{item.entry.package}</div>
+                </td>
+                <td class="num">
+                  {#if item.memory_mb}
+                    <span
+                      class:warn={item.memory_mb >= 200}
+                      class:caution={item.memory_mb >= 100 && item.memory_mb < 200}
+                    >{item.memory_mb.toFixed(1)} MB</span>
+                  {:else}
+                    <span class="muted">—</span>
+                  {/if}
+                </td>
+                <td class={`risk risk-${item.entry.risk}`}>{item.entry.risk.toUpperCase()}</td>
+                <td>
+                  {#if skip}
+                    <span class="muted small">{skip}</span>
+                  {:else if item.action.kind === "disable"}
+                    <span class="action-disable">Disable</span>
+                  {:else if item.action.kind === "uninstall"}
+                    <span class="action-uninstall">Uninstall</span>
+                  {:else if item.action.kind === "enable"}
+                    <span class="action-enable">Enable</span>
+                  {/if}
+                </td>
+                <td>
+                  {#if !skip}
+                    <label class="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={!overridden}
+                        onchange={() => toggleOptimizeOverride(item.entry.package)}
+                        disabled={optimizeRunning}
+                      />
+                      {overridden ? "Skipped" : "Apply"}
+                    </label>
+                  {/if}
+                </td>
+                <td>
+                  {#if progress === "done"}
+                    <span class="tag installed">✓ DONE</span>
+                  {:else if progress === "pending"}
+                    <span class="muted small">…</span>
+                  {:else if progress === "skipped"}
+                    <span class="muted small">skipped</span>
+                  {:else if progress === "failed"}
+                    <span class="tag" style="background:#5d1b1b; color:#ff8a80" title={optimizeFailureMessages[item.entry.package] ?? ""}>FAILED</span>
                   {/if}
                 </td>
               </tr>
@@ -1596,6 +1870,28 @@
   .warn-text {
     color: #d29922;
   }
+  .plan-summary {
+    margin: 0.4rem 0;
+    padding: 0.5rem 0.8rem;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  .optimize-table tr.dim {
+    opacity: 0.55;
+  }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    color: #c9d1d9;
+    cursor: pointer;
+  }
+  .action-disable { color: #58a6ff; font-weight: 500; }
+  .action-uninstall { color: #f85149; font-weight: 500; }
+  .action-enable { color: #3fb950; font-weight: 500; }
   .legend {
     display: flex;
     align-items: center;

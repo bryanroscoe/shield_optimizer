@@ -98,5 +98,35 @@
     "restore_description": "Restores Nvidia OTA.",
     "default_optimize": false,
     "default_restore": true
+  },
+  {
+    "package": "com.google.android.speech.pumpkin",
+    "name": "Google Speech Services",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Breaks voice dictation.",
+    "restore_description": "Restores speech services.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.plexapp.mediaserver.smb",
+    "name": "Plex Media Server",
+    "method": "disable",
+    "risk": "advanced",
+    "optimize_description": "Breaks local Plex hosting.",
+    "restore_description": "Restores Plex Server.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.tvlauncher",
+    "name": "Stock Launcher",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Requires custom launcher first! Use Launcher Wizard.",
+    "restore_description": "Restores stock home screen.",
+    "default_optimize": false,
+    "default_restore": true
   }
 ]

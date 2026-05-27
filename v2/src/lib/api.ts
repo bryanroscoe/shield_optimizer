@@ -17,6 +17,10 @@ import type {
   InstallApkResult,
   InstallResult,
   LauncherStatus,
+  OptimizeMode,
+  OptimizePlan,
+  PerformanceProfile,
+  PerformanceResult,
   RebootMode,
   RebootResult,
   RecoveryResult,
@@ -98,4 +102,9 @@ export const api = {
   ) => invoke<WriteResult>("write_setting", { serial, namespace, key, value }),
   setDisplayScaling: (serial: string, preset: DisplayScalePreset) =>
     invoke<DisplayScaleResult>("set_display_scaling", { serial, preset }),
+
+  prepareOptimize: (serial: string, mode: OptimizeMode) =>
+    invoke<OptimizePlan>("prepare_optimize", { serial, mode }),
+  applyPerformanceSettings: (serial: string, profile: PerformanceProfile) =>
+    invoke<PerformanceResult>("apply_performance_settings", { serial, profile }),
 };

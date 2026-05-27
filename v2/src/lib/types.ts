@@ -205,6 +205,34 @@ export interface DisplayScaleResult {
   message: string;
 }
 
+export type OptimizeMode = "optimize" | "restore";
+
+export type SkipReason = "not_installed" | "already_disabled" | "already_enabled" | "user_choice";
+
+export type OptimizeAction =
+  | { kind: "disable" }
+  | { kind: "uninstall" }
+  | { kind: "enable" }
+  | { kind: "skip"; reason: SkipReason };
+
+export interface OptimizePlanItem {
+  entry: AppEntry;
+  action: OptimizeAction;
+  memory_mb?: number | null;
+}
+
+export interface OptimizePlan {
+  mode: OptimizeMode;
+  items: OptimizePlanItem[];
+}
+
+export type PerformanceProfile = "optimized" | "default";
+
+export interface PerformanceResult {
+  ok: boolean;
+  message: string;
+}
+
 export function deviceTypeLabel(t: DeviceType): string {
   switch (t) {
     case "shield":

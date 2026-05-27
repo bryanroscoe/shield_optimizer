@@ -12,8 +12,8 @@ pub mod engine;
 use std::path::PathBuf;
 
 use commands::{
-    apps, devices, health, install, launcher, loader, reboot, recovery, scan, sideload, snapshot,
-    tuning, AppState,
+    apps, devices, health, install, launcher, loader, optimize, reboot, recovery, scan, sideload,
+    snapshot, tuning, AppState,
 };
 
 /// Resolve the OS-appropriate snapshot directory.
@@ -88,6 +88,8 @@ pub fn run() {
             tuning::get_tweaks,
             tuning::write_setting,
             tuning::set_display_scaling,
+            optimize::prepare_optimize,
+            optimize::apply_performance_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

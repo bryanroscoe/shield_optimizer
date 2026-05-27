@@ -28,5 +28,25 @@
     "restore_description": "Restores overscan calibrator.",
     "default_optimize": false,
     "default_restore": false
+  },
+  {
+    "package": "com.droidlogic.launcher.provider",
+    "name": "Droidlogic Launcher Provider",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Onn launcher data provider. Disable with launcher.",
+    "restore_description": "Restores Onn launcher provider.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.apps.tv.launcherx",
+    "name": "Google TV Home",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Use Launcher Wizard to safely disable!",
+    "restore_description": "Restores Google TV home.",
+    "default_optimize": false,
+    "default_restore": true
   }
 ]

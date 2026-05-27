@@ -268,5 +268,225 @@
     "restore_description": "Restores voice search.",
     "default_optimize": false,
     "default_restore": true
+  },
+  {
+    "package": "com.amazon.amazonvideo.livingroom.nvidia",
+    "name": "Amazon Prime Video (Shield)",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Pre-installed system app - disable only.",
+    "restore_description": "Restores Prime Video.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.discovery.discoveryplus.androidtv",
+    "name": "Discovery+",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores Discovery+.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.disney.disneyplus.prod",
+    "name": "Disney+ (Alt)",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores Disney+.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.youtube.tvkids",
+    "name": "YouTube Kids",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores YouTube Kids.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "ca.bellmedia.crave",
+    "name": "Crave",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Canadian streaming app.",
+    "restore_description": "Restores Crave.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "ca.bell.tv",
+    "name": "Bell Fibe TV",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Bell TV app.",
+    "restore_description": "Restores Bell Fibe TV.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "tv.pluto.android",
+    "name": "Pluto TV",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Free streaming app.",
+    "restore_description": "Restores Pluto TV.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.tubitv",
+    "name": "Tubi",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Free streaming app.",
+    "restore_description": "Restores Tubi.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.sling",
+    "name": "Sling TV",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores Sling TV.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.philo.philo",
+    "name": "Philo",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores Philo.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.fubo.firetv.screen",
+    "name": "fuboTV",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores fuboTV.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.haystack.android",
+    "name": "Haystack News",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "News streaming app.",
+    "restore_description": "Restores Haystack News.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "air.com.vudu.air.DownloaderTablet",
+    "name": "Vudu",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores Vudu.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.starz.starzplay.android",
+    "name": "STARZ",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores STARZ.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.showtime.standalone",
+    "name": "Showtime",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores Showtime.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.amcplus.amcfiretv",
+    "name": "AMC+",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores AMC+.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.britbox.us",
+    "name": "BritBox",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores BritBox.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.epix.epixnow.google",
+    "name": "MGM+",
+    "method": "uninstall",
+    "risk": "safe",
+    "optimize_description": "Streaming App.",
+    "restore_description": "Restores MGM+.",
+    "default_optimize": false,
+    "default_restore": false
+  },
+  {
+    "package": "com.google.android.apps.mediashell",
+    "name": "Chromecast Built-in",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Breaks casting to device.",
+    "restore_description": "Restores Chromecast.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.tts",
+    "name": "Google Text-to-Speech",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Breaks accessibility features.",
+    "restore_description": "Restores text-to-speech.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.play.games",
+    "name": "Google Play Games",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "May break cloud saves.",
+    "restore_description": "Restores Play Games.",
+    "default_optimize": false,
+    "default_restore": true
+  },
+  {
+    "package": "com.google.android.tungsten.setupwraith",
+    "name": "Setup Wraith (HOME)",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "HOME handler! Use Launcher Wizard instead.",
+    "restore_description": "Restores setup wizard HOME handler.",
+    "default_optimize": false,
+    "default_restore": true
   }
 ]
