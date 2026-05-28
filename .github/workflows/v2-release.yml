@@ -1,0 +1,136 @@
+# Shield Optimizer v2 release pipeline.
+#
+# Trigger: push of a `v2-*` tag (matches `v2-0.1.0`, `v2-0.1.0-rc1`, etc.).
+# v1's `v0.x.x` tags do NOT fire this — keep the two release tracks separate.
+#
+# What runs:
+#   - ubuntu-22.04 → .deb, .AppImage, .rpm
+#   - macos-latest → universal .dmg / .app.tar.gz (Apple Silicon + Intel)
+#   - windows-latest → .msi + .exe
+# All artifacts land on a GitHub Release for the tag.
+#
+# Signing: intentionally unsigned. Users will see the macOS "unidentified
+# developer" Gatekeeper prompt and the Windows SmartScreen warning on first
+# launch — both are dismissible. See README's release section for the
+# documented workaround. When we're ready to add signing:
+#   - SIGNING(macOS): set APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
+#     APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID as
+#     repo secrets and tauri-action picks them up automatically.
+#   - SIGNING(Windows): an EV cert ($300-500/yr) buys immediate SmartScreen
+#     trust. Add WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD and
+#     tauri-action signs the .msi / .exe.
+
+name: v2 Release
+
+on:
+  push:
+    tags:
+      - 'v2-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag name (manual dispatch only — overrides the trigger tag for testing)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build on ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            label: Linux
+            args: ''
+          - os: macos-latest
+            label: macOS (universal)
+            args: '--target universal-apple-darwin'
+          - os: windows-latest
+            label: Windows
+            args: ''
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Both arches needed for the universal macOS target. No-op on the
+          # Linux/Windows runners — rustup just notes the target is supported.
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/src-tauri/target
+          key: ${{ runner.os }}-cargo-v2-release-${{ hashFiles('v2/src-tauri/Cargo.lock') }}
+
+      # Tauri's bundler on Linux needs webkit2gtk and friends. Pinning to
+      # 22.04 because 24.04 ships libwebkit2gtk-4.1 only under a slightly
+      # different package name on noble/oracular.
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install frontend dependencies
+        working-directory: v2
+        run: npm ci
+
+      # tauri-action handles: running beforeBuildCommand (npm run build),
+      # invoking `cargo tauri build`, collecting bundle outputs, creating
+      # (or updating) the GitHub release, and uploading every artifact.
+      - name: Build + publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: v2
+          # Use the tag that triggered the workflow (or the dispatch input).
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'Shield Optimizer ${{ github.event.inputs.tag || github.ref_name }}'
+          releaseBody: |
+            Shield Optimizer v2 — auto-built from tag `${{ github.event.inputs.tag || github.ref_name }}`.
+
+            **Downloads below** — pick the one for your OS:
+            - **macOS**: `.dmg` (universal — works on Apple Silicon and Intel)
+            - **Windows**: `.msi` installer or `.exe` portable
+            - **Linux**: `.deb` (Debian/Ubuntu), `.AppImage` (portable), `.rpm` (Fedora/RHEL)
+
+            ### First-run warnings
+            These builds are unsigned. Your OS may complain on first launch:
+
+            - **macOS** (Gatekeeper): right-click the app → Open → Open. Or run
+              `xattr -dr com.apple.quarantine /Applications/Shield\ Optimizer.app`
+              once after installing.
+            - **Windows** (SmartScreen): "More info" → "Run anyway".
+            - **Linux**: no warning, but make `.AppImage` executable
+              (`chmod +x ShieldOptimizer*.AppImage`).
+
+            See the [v2 README](https://github.com/bryanroscoe/shield_optimizer/blob/main/v2/README.md) for setup, ADB requirements, and feature reference.
+          releaseDraft: false
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-rc') || contains(github.event.inputs.tag || github.ref_name, '-beta') }}
+          includeUpdaterJson: false
+          args: ${{ matrix.args }}
