@@ -105,7 +105,9 @@ jobs:
           # expect from an unsigned build.
           body+=$'\n\n'"### First-run warnings"$'\n\n'
           body+="These builds are unsigned. Your OS may complain on first launch:"$'\n\n'
-          body+="- **macOS** (Gatekeeper): right-click the app → Open → Open. Or run \`xattr -dr com.apple.quarantine /Applications/Shield\\ Optimizer.app\` once after installing."$'\n'
+          body+="- **macOS** (Gatekeeper): the first-launch dialog on macOS 15+ only offers \"Move to Trash\" or \"Done\" — click **Done**, then either:"$'\n'
+          body+="    - **Terminal:** \`xattr -dr com.apple.quarantine \"/Applications/Shield Optimizer.app\"\` (one-time, then double-click as normal)"$'\n'
+          body+="    - **GUI:** System Settings → Privacy & Security → scroll to the \"Shield Optimizer was blocked\" message → **Open Anyway** → enter password"$'\n'
           body+="- **Windows** (SmartScreen): \"More info\" → \"Run anyway\"."$'\n'
           body+="- **Linux**: \`chmod +x ShieldOptimizer*.AppImage\` before running."$'\n\n'
           body+="See the [v2 README](https://github.com/${{ github.repository }}/blob/main/v2/README.md) for setup and feature docs."
