@@ -51,6 +51,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 - Pre-release suffixes (`-alpha`, `-beta`, `-rc`, `-preview`, `-pre`, with optional `.N`) are auto-detected by the workflow and flag the GitHub Release as a prerelease.
 - Builds are unsigned. Users hit Gatekeeper (macOS) and SmartScreen (Windows) on first launch; the workflow appends the dismissal instructions to every release body. Signing setup is documented at the top of `.github/workflows/v2-release.yml` for when we add it.
 - The tag push fires the workflow. Builds take ~15-25 min across the three OS bundlers and produce: `.deb / .AppImage / .rpm` (Linux), universal `.dmg` + `.app.tar.gz` (macOS), `.msi` + `.exe` (Windows).
+- **Windows MSI versioning gotcha**: WiX rejects non-numeric pre-release identifiers — `0.1.0-beta` and `0.1.0-rc1` both fail with "optional pre-release identifier in app version must be numeric-only and cannot be greater than 65535 for msi target". `release.sh` works around this by setting `bundle.windows.wix.version` to a derived `major.minor.patch.N` (where N is the trailing digits of the pre-release tag, or 0). The main version stays human-readable for Linux/macOS/NSIS. If you hand-bump versions, set `bundle.windows.wix.version` too.
 - **Don't pipe `yes` into `release.sh`.** The auto-mode classifier blocks it (correctly) — the script's interactive gates are the safety net. Run it interactively, or do the steps by hand.
 
 ## Conventions

@@ -133,10 +133,27 @@ import json, re, pathlib
 
 new = "$NEW"
 
+# Compute an MSI-compliant version. WiX requires major.minor.patch[.build]
+# with each field <= 65535 and only numeric pre-release identifiers — so
+# `0.1.0-beta.1` is invalid for MSI. We derive a numeric build field from
+# any trailing digits in the pre-release tag (or 0 if absent) and store it
+# at bundle.windows.wix.version, which overrides the main version only for
+# MSI. Linux .deb / macOS .dmg / NSIS .exe keep the pretty version.
+m = re.match(r'^(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z0-9.\-]+))?$', new)
+assert m, f"version {new!r} does not match major.minor.patch[-pre]"
+major, minor, patch, pre = m.groups()
+build = "0"
+if pre:
+    tail = re.search(r'(\d+)$', pre)
+    if tail:
+        build = tail.group(1)
+wix_version = f"{major}.{minor}.{patch}.{build}"
+
 # tauri.conf.json
 p = pathlib.Path("$TAURI_CONF")
 conf = json.loads(p.read_text())
 conf["version"] = new
+conf.setdefault("bundle", {}).setdefault("windows", {}).setdefault("wix", {})["version"] = wix_version
 p.write_text(json.dumps(conf, indent=2) + "\n")
 
 # Cargo.toml — keep formatting, edit only the [package].version line

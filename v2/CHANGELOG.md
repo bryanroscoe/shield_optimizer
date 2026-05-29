@@ -17,6 +17,21 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.1
+
+Re-cut of the first public beta to fix a Windows MSI bundling failure.
+
+The original `v2-0.1.0-beta` build failed on the Windows runner with
+`optional pre-release identifier in app version must be numeric-only and
+cannot be greater than 65535 for msi target` — WiX requires a numeric
+pre-release identifier. Fixed by setting `bundle.windows.wix.version` to
+`0.1.0.1` (MSI-only override) while keeping `0.1.0-beta.1` as the human
+version everywhere else. Linux and macOS builds were unaffected.
+
+No other changes since `v2-0.1.0-beta` — feature set identical.
+
+---
+
 ## v2-0.1.0-beta
 
 First public beta of the Tauri rewrite. Feature parity with v1's PowerShell
