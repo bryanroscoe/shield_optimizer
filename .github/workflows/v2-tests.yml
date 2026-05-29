@@ -1,9 +1,9 @@
 # Shield Optimizer v2 CI — Rust engine + ADB layer tests and frontend type check.
 #
-# Tauri's full bundle build is intentionally NOT run here yet — the GitHub-hosted
-# runners need extra setup for it (webkit2gtk on Linux, etc.) and we'll wire that
-# in once we're ready to ship installers. For now, CI proves the engine compiles
-# and tests pass on all three desktop OSes, plus the Svelte frontend type-checks.
+# This workflow does NOT run Tauri's full bundle build (that lives in
+# v2-release.yml). It does run `cargo clippy --lib --tests` and `cargo test`
+# which still need the platform-specific dev libs because the tauri crate's
+# build script links against them — hence the Linux apt-get step.
 
 name: v2 Tests
 
@@ -27,7 +27,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Pinned to ubuntu-22.04 to match v2-release.yml — both jobs need the
+        # same libwebkit2gtk-4.1-dev package name and 24.04+ ships it under
+        # slightly different paths.
+        os: [ubuntu-22.04, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
 
@@ -35,6 +38,21 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      # The tauri crate's build script links against gtk + webkit + appindicator
+      # even for `cargo check` / `cargo clippy --lib`. Without these the Linux
+      # job dies with "gio-2.0.pc not found". macOS and Windows already ship
+      # the bits they need.
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
       - name: Cache cargo
         uses: actions/cache@v4
