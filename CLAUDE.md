@@ -44,6 +44,21 @@ npm run build    # vite build must succeed
 
 The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf` — the workflow installs these; if you're reproducing CI failures locally on Linux, install them too.
 
+## Keep the screenshots in sync
+
+The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
+
+```
+cd v2 && npm run screenshots   # captures all 10 screens (demo data, dark theme) + rebuilds the GIF
+```
+
+It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:
+
+- **New screen/tab** → add a visit + capture step in `screenshots/capture.mjs`.
+- **New `invoke` command that loads on a screen** → add a fixture case in `src/lib/demo-mock.ts`, or that screen renders empty.
+
+The release workflow also regenerates the gallery on every `v2-*` tag (the `refresh-screenshots` job) and commits it to the default branch, so a release always ships current screenshots even if a manual regen was missed. Requires `ffmpeg` + `npx playwright install chromium` locally. Full pipeline docs: `v2/screenshots/README.md`.
+
 ## Cutting a v2 release
 
 - Run `v2/release.sh` from `v2/`. Flags: `--patch` (default), `--minor`, `--major`, plus `--beta` / `--rc` / `--alpha` / `--preview`, or `--set X.Y.Z[-tag]` for an explicit version. The script bumps `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, and `package.json`, commits as `Release v2-X.Y.Z[-tag]`, creates an annotated tag, and pushes (with confirmation).
@@ -51,6 +66,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 - Pre-release suffixes (`-alpha`, `-beta`, `-rc`, `-preview`, `-pre`, with optional `.N`) are auto-detected by the workflow and flag the GitHub Release as a prerelease.
 - Builds are unsigned. Users hit Gatekeeper (macOS) and SmartScreen (Windows) on first launch; the workflow appends the dismissal instructions to every release body. Signing setup is documented at the top of `.github/workflows/v2-release.yml` for when we add it.
 - The tag push fires the workflow. Builds take ~15-25 min across the three OS bundlers and produce: `.deb / .AppImage / .rpm` (Linux), universal `.dmg` + `.app.tar.gz` (macOS), `.msi` + `.exe` (Windows).
+- After a successful build the `refresh-screenshots` job regenerates `v2/screenshots/gallery.gif` from the released UI and commits it to the default branch (Linux-rendered, so it can look slightly different from a local macOS regen — accepted trade-off). See "Keep the screenshots in sync" above.
 - **Windows MSI versioning gotcha**: WiX rejects non-numeric pre-release identifiers — `0.1.0-beta` and `0.1.0-rc1` both fail with "optional pre-release identifier in app version must be numeric-only and cannot be greater than 65535 for msi target". `release.sh` works around this by setting `bundle.windows.wix.version` to a derived `major.minor.patch.N` (where N is the trailing digits of the pre-release tag, or 0). The main version stays human-readable for Linux/macOS/NSIS. If you hand-bump versions, set `bundle.windows.wix.version` too.
 - **Don't pipe `yes` into `release.sh`.** The auto-mode classifier blocks it (correctly) — the script's interactive gates are the safety net. Run it interactively, or do the steps by hand.
 

@@ -282,3 +282,65 @@ jobs:
             git push
             echo "Tap updated to $version."
           fi
+
+  # Regenerate the README gallery GIF from the released UI and commit it back
+  # to the default branch, so the screenshots never drift from what shipped.
+  # Runs after the build succeeds (no point refreshing for a release that
+  # failed to bundle). Uses the demo fixture layer (VITE_DEMO=1) — no device.
+  #
+  # NOTE: captures render on Linux, so the font stack falls through to Roboto
+  # (installed below) rather than macOS's -apple-system. The GIF will look
+  # slightly different from one regenerated locally on a Mac; that's expected
+  # and accepted as the price of hands-off release-time refresh.
+  refresh-screenshots:
+    needs: [notes, build]
+    name: Regenerate gallery GIF
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - name: Install ffmpeg + a font the app's stack resolves to
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-roboto
+
+      - name: Install frontend dependencies
+        working-directory: v2
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: v2
+        run: npx playwright install --with-deps chromium
+
+      - name: Regenerate gallery
+        working-directory: v2
+        run: npm run screenshots
+
+      - name: Commit if the gallery changed
+        working-directory: v2
+        env:
+          TAG: ${{ needs.notes.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- screenshots/gallery.gif; then
+            echo "Gallery unchanged; nothing to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add screenshots/gallery.gif
+          git commit -m "Regenerate gallery GIF for ${TAG}"
+          git push origin HEAD:${{ github.event.repository.default_branch }}
+          echo "Gallery refreshed for ${TAG}."

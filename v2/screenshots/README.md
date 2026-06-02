@@ -24,6 +24,10 @@ The demo data is a faithful Nvidia Shield — real package names, the real launc
 
 `frames/` is gitignored (regenerable). Only `gallery.gif` is committed.
 
+## Automatic regeneration on release
+
+The `refresh-screenshots` job in [`../../.github/workflows/v2-release.yml`](../../.github/workflows/v2-release.yml) reruns this whole pipeline on every `v2-*` tag and commits the refreshed `gallery.gif` back to the default branch — so a release never ships stale screenshots. Those captures render on Linux (font stack falls through to Roboto rather than macOS's `-apple-system`), so the release-generated GIF can look subtly different from one you regenerate locally on a Mac. Both are fine; it's the same UI.
+
 ## Tuning
 
 - Screens / order: edit the capture sequence in `capture.mjs`.
