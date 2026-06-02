@@ -17,6 +17,28 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.2
+
+Plumbing-only release to exercise the new Homebrew tap auto-bump path —
+no application changes since `v2-0.1.0-beta.1`. The release workflow now
+ends with a `bump-tap` job that recomputes the universal DMG's SHA256
+and pushes a `version` + `sha256` bump to
+[`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer),
+so `brew upgrade --cask shield-optimizer` tracks releases automatically.
+
+macOS users can now install with:
+
+```sh
+brew tap bryanroscoe/shield-optimizer
+brew install --cask shield-optimizer
+```
+
+The cask strips the quarantine bit in a postflight, so the app opens
+with a normal double-click — no Gatekeeper prompt despite the unsigned
+build.
+
+---
+
 ## v2-0.1.0-beta.1
 
 Re-cut of the first public beta to fix a Windows MSI bundling failure.
