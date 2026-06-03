@@ -151,11 +151,10 @@ async fn gateway_from_ip_route() -> Option<IpAddr> {
 }
 
 async fn gateway_from_windows_route() -> Option<IpAddr> {
-    let out = Command::new("route")
-        .args(["print", "-4", "0.0.0.0"])
-        .output()
-        .await
-        .ok()?;
+    let mut cmd = Command::new("route");
+    cmd.args(["print", "-4", "0.0.0.0"]);
+    super::hide_console_window(&mut cmd);
+    let out = cmd.output().await.ok()?;
     if !out.status.success() {
         return None;
     }

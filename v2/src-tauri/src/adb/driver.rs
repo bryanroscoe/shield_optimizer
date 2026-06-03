@@ -108,10 +108,10 @@ impl SubprocessAdb {
 
         debug!(adb = ?self.binary, ?args, "adb invoke");
 
-        let fut = Command::new(&self.binary)
-            .args(args)
-            .kill_on_drop(true)
-            .output();
+        let mut cmd = Command::new(&self.binary);
+        cmd.args(args).kill_on_drop(true);
+        super::hide_console_window(&mut cmd);
+        let fut = cmd.output();
 
         let output = match timeout(self.command_timeout, fut).await {
             Ok(r) => r?,

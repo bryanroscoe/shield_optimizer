@@ -9,6 +9,25 @@ pub mod install;
 pub mod parse;
 pub mod scan;
 
+use tokio::process::Command;
+
+/// Suppress the console window Windows flashes when a GUI process spawns a
+/// console program (adb, route, …). Without this, every adb call from the app
+/// pops a `cmd`-style window for a split second — a "waterfall" of them during
+/// any multi-command action. `CREATE_NO_WINDOW` keeps the subprocess headless.
+/// No-op on macOS/Linux, where spawning a subprocess never shows a window.
+pub(crate) fn hide_console_window(cmd: &mut Command) {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 pub use driver::{AdbDriver, AdbError, AdbOutput, AdbResult, SubprocessAdb};
 pub use install::{adb_path_in_install_root, install_platform_tools, InstallError};
 pub use parse::{

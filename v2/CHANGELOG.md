@@ -17,6 +17,19 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.3
+
+### Fixed
+
+- **Windows: no more console-window "waterfall."** Every adb call (and the
+  network-scan gateway lookup) now spawns with `CREATE_NO_WINDOW`, so the app
+  no longer flashes a `cmd` window for each command. Previously, pressing
+  anything that ran multiple adb commands popped a cascade of console windows
+  open and closed. macOS/Linux were never affected. (Thanks to the Reddit
+  report.)
+
+---
+
 ## v2-0.1.0-beta.2
 
 Plumbing-only release to exercise the new Homebrew tap auto-bump path —
