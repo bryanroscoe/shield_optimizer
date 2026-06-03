@@ -2173,7 +2173,7 @@
   }
   .small-action.danger:hover {
     background: var(--danger-surface);
-    color: #fff;
+    color: var(--danger-surface-text);
     border-color: var(--danger-strong);
   }
   .small-action.recommended {
@@ -2188,7 +2188,7 @@
   .small-action.recommended.danger {
     background: var(--danger-surface);
     border-color: var(--danger-strong);
-    color: #fff;
+    color: var(--danger-surface-text);
   }
   .small-action.recommended.danger:hover:not(:disabled) {
     background: var(--danger-border);
@@ -2276,7 +2276,7 @@
   .danger-button {
     background: var(--danger-surface);
     border-color: var(--danger-border);
-    color: #fff;
+    color: var(--danger-surface-text);
     margin-top: 0.6rem;
   }
   .danger-button:hover:not(:disabled) {

@@ -88,6 +88,7 @@
     --danger-surface: #5d1b1b;
     --danger-border: #8b3030;
     --danger-text: #ff8a80;
+    --danger-surface-text: #ffffff;
     --ok: #3fb950;
     --ok-surface: #1b3d2c;
     --warn: #d29922;
@@ -123,6 +124,7 @@
     --danger-surface: #ffebe9;
     --danger-border: #ff9492;
     --danger-text: #cf222e;
+    --danger-surface-text: #cf222e;
     --ok: #1a7f37;
     --ok-surface: #dafbe1;
     --warn: #9a6700;
@@ -157,6 +159,7 @@
       --danger-surface: #ffebe9;
       --danger-border: #ff9492;
       --danger-text: #cf222e;
+      --danger-surface-text: #cf222e;
       --ok: #1a7f37;
       --ok-surface: #dafbe1;
       --warn: #9a6700;

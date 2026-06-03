@@ -276,7 +276,7 @@
   }
   .small-action.danger:hover {
     background: var(--danger-surface);
-    color: #fff;
+    color: var(--danger-surface-text);
   }
   code {
     background: var(--bg-inset);
