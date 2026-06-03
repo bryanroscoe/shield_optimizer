@@ -17,6 +17,19 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.5
+
+### Fixed
+
+- **Light mode is now readable, and you can pick a theme.** On Linux/macOS in
+  light appearance, the cards and text kept dark-mode colors against a light
+  page, making text nearly invisible (#26). The whole UI is now theme-aware via
+  CSS variables, with a proper light palette. A **Light / Dark / Auto** toggle
+  in the header lets you override the system appearance (Auto follows the OS).
+  Dark mode is unchanged.
+
+---
+
 ## v2-0.1.0-beta.4
 
 ### Fixed

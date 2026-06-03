@@ -205,8 +205,8 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.7rem 1rem;
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 6px;
     margin-bottom: 0.5rem;
   }
@@ -236,14 +236,14 @@
     font-size: 1.1rem;
   }
   .error {
-    background: #5d1b1b;
-    color: #ff8a80;
+    background: var(--danger-surface);
+    color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
   }
   .action-msg {
-    background: #0d1117;
-    border: 1px solid #30363d;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
     border-radius: 4px;
     padding: 0.6rem 0.8rem;
     margin: 0.5rem 0;
@@ -258,7 +258,7 @@
     border-radius: 4px;
     letter-spacing: 0.04em;
   }
-  .tag.installed { background: #1b3d2c; color: #3fb950; }
+  .tag.installed { background: var(--ok-surface); color: var(--ok); }
   .small {
     font-size: 0.82rem;
   }
@@ -270,17 +270,17 @@
     font-size: 0.78rem;
   }
   .small-action.danger {
-    background: #21262d;
-    border-color: #5d1b1b;
-    color: #f85149;
+    background: var(--bg-button);
+    border-color: var(--danger-surface);
+    color: var(--danger-strong);
   }
   .small-action.danger:hover {
-    background: #5d1b1b;
+    background: var(--danger-surface);
     color: #fff;
   }
   code {
-    background: #0d1117;
-    border: 1px solid #30363d;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
     font-family: ui-monospace, monospace;

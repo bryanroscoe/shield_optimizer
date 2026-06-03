@@ -417,9 +417,9 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.9rem 1rem;
-    border: 1px solid #30363d;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: #161b22;
+    background: var(--bg-surface);
     margin-bottom: 0.6rem;
     transition: background 0.1s;
     text-decoration: none;
@@ -430,7 +430,7 @@
   }
   a.device-row:hover {
     text-decoration: none;
-    background: #1c2128;
+    background: var(--bg-surface-2);
   }
   .device-row.clickable {
     cursor: pointer;
@@ -442,7 +442,7 @@
     font-weight: 500;
   }
   .conn-tag {
-    color: #7d8590;
+    color: var(--fg-muted);
     font-size: 0.78rem;
     font-family: ui-monospace, monospace;
   }
@@ -452,19 +452,19 @@
     border-radius: 4px;
   }
   .status-tag.unauthorized {
-    background: #5d1b1b;
-    color: #ff8a80;
+    background: var(--danger-surface);
+    color: var(--danger-text);
   }
   .status-tag.offline {
-    background: #3d3d3d;
-    color: #aaa;
+    background: var(--bg-muted);
+    color: var(--fg-faint);
   }
   .device-meta {
     font-size: 0.82rem;
     margin-top: 0.2rem;
   }
   .chevron {
-    color: #7d8590;
+    color: var(--fg-muted);
     font-size: 1.4rem;
   }
   .empty {
@@ -474,11 +474,11 @@
   .empty h2 {
     margin: 0 0 0.6rem;
     font-size: 1.1rem;
-    color: #c9d1d9;
+    color: var(--fg-secondary);
   }
   .pair-form {
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem 1.2rem;
     margin-bottom: 1rem;
@@ -501,8 +501,8 @@
     flex: 0 0 8rem;
   }
   .report-all {
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem 1.2rem;
     margin-bottom: 1rem;
@@ -514,7 +514,7 @@
   .report-row {
     margin: 0.7rem 0;
     padding-bottom: 0.7rem;
-    border-bottom: 1px solid #21262d;
+    border-bottom: 1px solid var(--bg-button);
   }
   .report-row:last-child {
     border-bottom: none;
@@ -530,13 +530,13 @@
   .unauthorized-help {
     margin-top: 0.6rem;
     padding: 0.6rem 0.8rem;
-    background: #0d1117;
-    border: 1px solid #5d1b1b;
+    background: var(--bg-inset);
+    border: 1px solid var(--danger-surface);
     border-radius: 4px;
     font-size: 0.85rem;
   }
   .unauthorized-help strong {
-    color: #ff8a80;
+    color: var(--danger-text);
   }
   .unauthorized-help ol {
     margin: 0.4rem 0;
@@ -549,8 +549,8 @@
     align-items: flex-start;
   }
   .install-pane {
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1.5rem;
   }
@@ -571,16 +571,16 @@
     font-size: 0.82rem;
   }
   .error {
-    background: #5d1b1b;
-    color: #ff8a80;
+    background: var(--danger-surface);
+    color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
     font-family: ui-monospace, monospace;
     font-size: 0.85rem;
   }
   code {
-    background: #0d1117;
-    border: 1px solid #30363d;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
     font-family: ui-monospace, monospace;

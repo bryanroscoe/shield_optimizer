@@ -5,6 +5,15 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Shield Optimizer</title>
+    <script>
+      // Apply the saved theme before first paint to avoid a flash of the
+      // wrong colors. Mirrors $lib/theme.ts; "system" leaves no attribute.
+      try {
+        var t = localStorage.getItem("shieldopt.theme");
+        if (t === "light" || t === "dark")
+          document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
