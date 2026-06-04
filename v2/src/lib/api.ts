@@ -57,6 +57,8 @@ export const api = {
     invoke<ConnectResult>("disconnect_device", { serial }),
   pairDevice: (pairAddress: string, pin: string) =>
     invoke<ConnectResult>("pair_device", { pairAddress, pin }),
+  renameDevice: (serial: string, name: string) =>
+    invoke<ActionResult>("rename_device", { serial, name }),
 
   healthReport: (serial: string) =>
     invoke<HealthReport>("health_report", { serial }),

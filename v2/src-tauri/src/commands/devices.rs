@@ -280,6 +280,87 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
     }
 }
 
+const MAX_DEVICE_NAME_LEN: usize = 64;
+
+/// Validate and shell-quote a device name for `settings put global
+/// device_name`. Printable ASCII only — the value rides through the
+/// device-side shell, and ADB mangles non-ASCII inconsistently across
+/// builds; an honest rejection beats a garbled name on the TV.
+fn quote_device_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Device name is empty.".to_string());
+    }
+    if name.len() > MAX_DEVICE_NAME_LEN {
+        return Err(format!(
+            "Device name too long ({} > {MAX_DEVICE_NAME_LEN} chars).",
+            name.len()
+        ));
+    }
+    if let Some(bad) = name.chars().find(|c| !c.is_ascii() || c.is_ascii_control()) {
+        return Err(format!(
+            "Unsupported character {bad:?} — device names are limited to plain ASCII here."
+        ));
+    }
+    Ok(format!("'{}'", name.replace('\'', r"'\''")))
+}
+
+/// `rename_device` — `settings put global device_name '<name>'`, the same
+/// write the TV's Settings → About → Device name performs. Updates what
+/// Google Home / Cast / this app display. Verified by reading the value
+/// back. Cast/network discovery can take a while (or a reboot) to
+/// re-broadcast the new name to other devices.
+#[tauri::command]
+pub async fn rename_device(
+    state: State<'_, AppState>,
+    serial: String,
+    name: String,
+) -> Result<crate::commands::apps::ActionResult, String> {
+    use crate::commands::apps::ActionResult;
+
+    let quoted = match quote_device_name(&name) {
+        Ok(q) => q,
+        Err(message) => return Ok(ActionResult { ok: false, message }),
+    };
+
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(
+            &serial,
+            &format!("settings put global device_name {quoted}"),
+        )
+        .await
+        .map_err(|e| format!("settings put device_name: {e}"))?;
+    if out.shell_reported_failure() {
+        return Ok(ActionResult {
+            ok: false,
+            message: out.combined().trim().to_string(),
+        });
+    }
+
+    // Read back — `settings put` exits quietly even when the write didn't
+    // take (e.g. a restricted build), so the get is the real confirmation.
+    let now = adb
+        .shell(&serial, "settings get global device_name")
+        .await
+        .map_err(|e| format!("settings get device_name: {e}"))?;
+    let current = now.stdout.trim();
+    if current == name.trim() {
+        Ok(ActionResult {
+            ok: true,
+            message: format!(
+                "Renamed to \"{current}\". Cast / Google Home may take a while (or a reboot) \
+                 to show the new name."
+            ),
+        })
+    } else {
+        Ok(ActionResult {
+            ok: false,
+            message: format!("Device still reports device_name = {current:?} after the write."),
+        })
+    }
+}
+
 fn friendly_model_for(device_type: DeviceType, props: &DeviceProperties) -> String {
     match device_type {
         DeviceType::Shield => {
@@ -349,5 +430,20 @@ mod tests {
         assert!(normalize_connect_address("192.168.1.1:0").is_err());
         assert!(normalize_connect_address("192.168.1.1:abc").is_err());
         assert!(normalize_connect_address("192.168.1.1:99999").is_err());
+    }
+
+    #[test]
+    fn device_name_quoting_and_validation() {
+        assert_eq!(
+            quote_device_name("Living Room Shield").unwrap(),
+            "'Living Room Shield'"
+        );
+        assert_eq!(quote_device_name("Bryan's TV").unwrap(), r"'Bryan'\''s TV'");
+        // Trims before quoting.
+        assert_eq!(quote_device_name("  Den  ").unwrap(), "'Den'");
+        assert!(quote_device_name("").is_err());
+        assert!(quote_device_name("   ").is_err());
+        assert!(quote_device_name("naïve name").is_err());
+        assert!(quote_device_name(&"x".repeat(65)).is_err());
     }
 }

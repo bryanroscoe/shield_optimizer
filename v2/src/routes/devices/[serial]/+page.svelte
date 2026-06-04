@@ -48,6 +48,10 @@
   /// the Disable button should be hard-blocked.
   let safetyMap = $state<Record<string, Safety>>({});
 
+  let renaming = $state(false);
+  let renameValue = $state("");
+  let renameBusy = $state(false);
+
   let launchers = $state<LauncherStatus[]>([]);
   let currentLauncher = $state<CurrentLauncher | null>(null);
   let channelDisabled = $state<boolean | null>(null);
@@ -719,6 +723,29 @@
     }
   }
 
+  function startRename() {
+    renameValue = device?.properties?.friendly_name ?? device?.name ?? "";
+    renaming = true;
+  }
+
+  async function saveRename() {
+    if (!renameValue.trim()) return;
+    renameBusy = true;
+    headerActionMsg = "";
+    try {
+      const r = await api.renameDevice(serial, renameValue.trim());
+      headerActionMsg = r.message;
+      if (r.ok) {
+        renaming = false;
+        await loadDevice();
+      }
+    } catch (e) {
+      headerActionMsg = String(e);
+    } finally {
+      renameBusy = false;
+    }
+  }
+
   async function disconnectAndLeave() {
     if (device?.connection === "usb") {
       if (!confirm("This is a USB device — disconnect will only forget it from the ADB server until you replug. Continue?")) return;
@@ -999,6 +1026,7 @@
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null;
+    renaming = false; renameValue = "";
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -1032,7 +1060,35 @@
   <header class="device-header">
     <div class="device-title-row">
       <div>
-        <h1>{device.name}</h1>
+        {#if renaming}
+          <div class="rename-row">
+            <input
+              bind:value={renameValue}
+              maxlength={64}
+              onkeydown={(e) => {
+                if (e.key === "Enter") saveRename();
+                if (e.key === "Escape") renaming = false;
+              }}
+            />
+            <button class="primary small-action" onclick={saveRename} disabled={renameBusy || !renameValue.trim()}>
+              {renameBusy ? "Saving…" : "Save"}
+            </button>
+            <button class="small-action subtle" onclick={() => (renaming = false)} disabled={renameBusy}>
+              Cancel
+            </button>
+          </div>
+        {:else}
+          <h1>
+            {device.name}
+            <button
+              class="small-action subtle rename-button"
+              onclick={startRename}
+              title="Rename this device (settings put global device_name — what Cast / Google Home display)"
+            >
+              Rename
+            </button>
+          </h1>
+        {/if}
         <div class="device-meta">
           <span>{deviceTypeLabel(device.device_type)}</span>
           {#if device.model}<span>· {device.model}</span>{/if}
@@ -2469,6 +2525,20 @@
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+  .rename-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    max-width: 420px;
+  }
+  .rename-row input {
+    flex: 1;
+    font-size: 1.1rem;
+  }
+  h1 .rename-button {
+    vertical-align: middle;
+    margin-left: 0.5rem;
   }
   .plan-summary {
     margin: 0.4rem 0;
