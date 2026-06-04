@@ -30,6 +30,12 @@ When you add a new section, put it at the top; older releases go below.
 
 ### Fixed
 
+- **"Play Store" buttons only show for apps that are actually on the Play
+  Store.** Every catalog package was audited against Google Play; the button
+  now appears only for the 33 packages with a real listing. System components
+  and defunct apps (Print Spooler, Google Feedback, Funimation, Stadia, Quibi,
+  Nvidia system packages, region/Fire-TV-only ids, …) no longer show a button
+  that leads to a 404.
 - **Optimize wizard defaults are no longer dangerously aggressive.** The wizard
   pre-selected an action for *every* installed app, so streaming apps (Netflix,
   Prime Video, Hulu, …) and anything not on the curated default list defaulted

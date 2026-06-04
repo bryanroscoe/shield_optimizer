@@ -133,3 +133,4 @@ screenshots/tmp/
 *.key
 credentials.json
 secrets.json
+reddit-post.md

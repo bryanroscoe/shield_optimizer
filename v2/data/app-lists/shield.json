@@ -7,7 +7,8 @@
     "optimize_description": "Telemetry / usage stats.",
     "restore_description": "Restores Nvidia stats.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.nvidia.diagtools",
@@ -17,7 +18,8 @@
     "optimize_description": "Diagnostic tools.",
     "restore_description": "Restores diagnostics.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.nvidia.feedback",
@@ -27,7 +29,8 @@
     "optimize_description": "Feedback / telemetry.",
     "restore_description": "Restores Nvidia feedback.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.google.android.tvrecommendations",
@@ -37,7 +40,8 @@
     "optimize_description": "Removes Sponsored / Top Picks rows on the stock Google TV home. Also removes the home-screen Watch Next rows that surface Apple TV / Netflix Continue Watching. No effect if you've switched to a custom launcher.",
     "restore_description": "Restores sponsored and Watch Next rows on stock launcher.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.nvidia.osc",
@@ -47,7 +51,8 @@
     "optimize_description": "Nvidia on-screen control / overlay service.",
     "restore_description": "Restores OSC.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.nvidia.shieldtech.hooks",
@@ -57,7 +62,8 @@
     "optimize_description": "Shield-specific system integration hooks.",
     "restore_description": "Restores Shield hooks.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.nvidia.tegrazone3",
@@ -67,7 +73,8 @@
     "optimize_description": "Game launcher tied to the discontinued GameStream service.",
     "restore_description": "Restores Nvidia Games.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.nvidia.nvgamecast",
@@ -77,7 +84,8 @@
     "optimize_description": "Discontinued game streaming service.",
     "restore_description": "Restores GameStream.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.android.backdrop",
@@ -87,7 +95,8 @@
     "optimize_description": "Photo-frame screensaver.",
     "restore_description": "Restores ambient mode.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.nvidia.ota",
@@ -97,7 +106,8 @@
     "optimize_description": "Blocks Shield OS updates. Power-user only.",
     "restore_description": "Restores Nvidia OTA.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.google.android.speech.pumpkin",
@@ -107,7 +117,8 @@
     "optimize_description": "Breaks voice dictation.",
     "restore_description": "Restores speech services.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.plexapp.mediaserver.smb",
@@ -117,7 +128,8 @@
     "optimize_description": "Breaks local Plex hosting.",
     "restore_description": "Restores Plex Server.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.google.android.tvlauncher",
@@ -127,6 +139,7 @@
     "optimize_description": "Requires custom launcher first! Use Launcher Wizard.",
     "restore_description": "Restores stock home screen.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   }
 ]
