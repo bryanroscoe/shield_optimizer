@@ -17,7 +17,6 @@ import type {
   DisplayScalePreset,
   DisplayScaleResult,
   HealthReport,
-  HomeHandler,
   InstallApkResult,
   InstallResult,
   LauncherStatus,
@@ -36,7 +35,6 @@ import type {
   SettingNamespace,
   SnapshotApplyPlan,
   SnapshotFile,
-  StockLauncherResult,
   TweaksState,
   WriteResult,
 } from "./types";
@@ -72,12 +70,8 @@ export const api = {
     invoke<boolean>("channel_provider_disabled", { serial }),
   setDefaultLauncher: (serial: string, pkg: string) =>
     invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg }),
-  listHomeHandlers: (serial: string, targetPackage: string) =>
-    invoke<HomeHandler[]>("list_home_handlers", { serial, targetPackage }),
-  disableStockLaunchers: (serial: string, packages: string[]) =>
-    invoke<StockLauncherResult>("disable_stock_launchers", { serial, packages }),
-  restoreStockLaunchers: (serial: string, packages: string[]) =>
-    invoke<StockLauncherResult>("restore_stock_launchers", { serial, packages }),
+  disableLauncher: (serial: string, pkg: string) =>
+    invoke<ActionResult>("disable_launcher", { serial, package: pkg }),
 
   takeScreenshot: (serial: string) =>
     invoke<ScreenshotResult>("take_screenshot", { serial }),

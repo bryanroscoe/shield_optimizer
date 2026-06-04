@@ -16,16 +16,20 @@ pub struct AppState {
     pub adb: RwLock<Arc<dyn AdbDriver>>,
     /// Loaded app-list bundle (common + shield + googletv).
     pub app_lists: AppListBundle,
+    /// App data root (parent of `snapshot_dir`) — small bookkeeping files
+    /// like the disabled-HOME-handler tracker live here.
+    pub data_dir: PathBuf,
     /// Directory where snapshots are read from / written to.
     pub snapshot_dir: PathBuf,
 }
 
 impl AppState {
-    pub fn new(adb: Arc<dyn AdbDriver>, app_lists: AppListBundle, snapshot_dir: PathBuf) -> Self {
+    pub fn new(adb: Arc<dyn AdbDriver>, app_lists: AppListBundle, data_dir: PathBuf) -> Self {
         Self {
             adb: RwLock::new(adb),
             app_lists,
-            snapshot_dir,
+            snapshot_dir: data_dir.join("snapshots"),
+            data_dir,
         }
     }
 
@@ -34,7 +38,7 @@ impl AppState {
     /// call returns `AdbError::BinaryNotFound`, which renders as an
     /// actionable error in the device list. The user can then trigger a
     /// download via the `install_adb` command.
-    pub fn default_for_runtime(app_lists: AppListBundle, snapshot_dir: PathBuf) -> Self {
+    pub fn default_for_runtime(app_lists: AppListBundle, data_dir: PathBuf) -> Self {
         let adb: Arc<dyn AdbDriver> = match discover_adb_binary() {
             Some(path) => {
                 tracing::info!(adb = %path.display(), "adb located");
@@ -45,7 +49,7 @@ impl AppState {
                 Arc::new(NoAdbDriver)
             }
         };
-        Self::new(adb, app_lists, snapshot_dir)
+        Self::new(adb, app_lists, data_dir)
     }
 
     /// Snapshot the current driver `Arc` — cheap clone for command bodies.

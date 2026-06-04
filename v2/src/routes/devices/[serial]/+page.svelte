@@ -23,8 +23,6 @@
     OptimizeMode,
     OptimizePlan,
     OptimizePlanItem,
-    HomeHandler,
-    StockLauncherResult,
     ScreenshotResult,
     Safety,
   } from "$lib/types";
@@ -60,14 +58,6 @@
   let launcherErr = $state<string | null>(null);
   let launcherActionBusy = $state<string | null>(null); // package id currently being acted on
   let launcherActionMessage = $state("");
-
-  // Stock launcher wizard state.
-  let homeHandlers = $state<HomeHandler[]>([]);
-  let homeHandlersLoading = $state(false);
-  let homeHandlersErr = $state<string | null>(null);
-  let homeHandlerSelections = $state<Record<string, boolean>>({});
-  let stockWizardBusy = $state(false);
-  let stockWizardResult = $state<StockLauncherResult | null>(null);
 
   let apps = $state<AppEntry[]>([]);
   let appsLoading = $state(false);
@@ -449,81 +439,6 @@
     }
   }
 
-  async function loadHomeHandlers(targetPkg: string) {
-    homeHandlersLoading = true;
-    homeHandlersErr = null;
-    stockWizardResult = null;
-    try {
-      homeHandlers = await api.listHomeHandlers(serial, targetPkg);
-      // Default: select every enabled, non-safe handler.
-      const sels: Record<string, boolean> = {};
-      for (const h of homeHandlers) {
-        sels[h.package] = h.enabled && !h.safe_fallback;
-      }
-      homeHandlerSelections = sels;
-    } catch (e) {
-      homeHandlersErr = String(e);
-    } finally {
-      homeHandlersLoading = false;
-    }
-  }
-
-  async function disableSelectedStockLaunchers() {
-    const selected = Object.entries(homeHandlerSelections)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    if (selected.length === 0) return;
-    if (!confirm(`Disable ${selected.length} HOME handler(s)? Make sure your custom launcher is set first.`)) return;
-    stockWizardBusy = true;
-    stockWizardResult = null;
-    try {
-      stockWizardResult = await api.disableStockLaunchers(serial, selected);
-      await loadLauncher();
-    } catch (e) {
-      stockWizardResult = {
-        processed: [],
-        failed: selected,
-        skipped_safe: [],
-        summary: String(e),
-      };
-    } finally {
-      stockWizardBusy = false;
-    }
-  }
-
-  async function restoreAllHomeHandlers() {
-    const all = homeHandlers
-      .filter((h) => !h.enabled)
-      .map((h) => h.package);
-    if (all.length === 0) {
-      stockWizardResult = {
-        processed: [],
-        failed: [],
-        skipped_safe: [],
-        summary: "Nothing disabled to restore.",
-      };
-      return;
-    }
-    stockWizardBusy = true;
-    try {
-      stockWizardResult = await api.restoreStockLaunchers(serial, all);
-      // Re-fetch state.
-      if (currentLauncher?.package) {
-        await loadHomeHandlers(currentLauncher.package);
-      }
-      await loadLauncher();
-    } catch (e) {
-      stockWizardResult = {
-        processed: [],
-        failed: all,
-        skipped_safe: [],
-        summary: String(e),
-      };
-    } finally {
-      stockWizardBusy = false;
-    }
-  }
-
   async function installLauncherFromStore(pkg: string) {
     launcherActionBusy = pkg;
     launcherActionMessage = "";
@@ -554,11 +469,14 @@
   }
 
   async function disableLauncher(pkg: string) {
-    if (!confirm(`Disable ${pkg}? You'll lose access to it as a HOME app until you re-enable.`)) return;
+    const advice = launchers.find((l) => l.entry.package === pkg)?.other
+      ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
+      : "";
+    if (!confirm(`Disable ${pkg}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     try {
-      const r = await api.disablePackage(serial, pkg);
+      const r = await api.disableLauncher(serial, pkg);
       launcherActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
       if (r.ok) await loadLauncher();
     } catch (e) {
@@ -1035,7 +953,6 @@
     report = null; reportErr = null; reportLastRefreshed = null; safetyMap = {};
     launchers = []; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
-    homeHandlers = []; homeHandlersErr = null; homeHandlerSelections = {}; stockWizardResult = null;
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
@@ -1375,7 +1292,11 @@
                 </div>
                 <div class="row-actions">
                   <div class="tags">
-                    {#if l.installed}
+                    {#if l.stock}
+                      <span class="tag stock">STOCK</span>
+                    {:else if l.other}
+                      <span class="tag stock">HOME APP</span>
+                    {:else if l.installed}
                       <span class="tag installed">INSTALLED</span>
                     {:else}
                       <span class="tag missing">MISSING</span>
@@ -1430,68 +1351,6 @@
           {#if launcherActionMessage}
             <p class="muted small mono action-message">{launcherActionMessage}</p>
           {/if}
-
-          <div class="stock-wizard">
-            <h3>Disable stock launchers</h3>
-            <p class="muted small">
-              Optional cleanup step after promoting a custom launcher. Lists every
-              HOME-capable app on the device; the ones currently enabled are pre-selected.
-              Safe fallbacks (Settings) are never touched.
-            </p>
-            <button
-              onclick={() => loadHomeHandlers(currentLauncher?.package ?? "")}
-              disabled={homeHandlersLoading || !currentLauncher?.package}
-            >
-              {homeHandlersLoading ? "Querying…" : (homeHandlers.length ? "Refresh" : "Load HOME handlers")}
-            </button>
-            {#if homeHandlersErr}
-              <div class="error">{homeHandlersErr}</div>
-            {/if}
-            {#if homeHandlers.length > 0}
-              <ul class="handler-list">
-                {#each homeHandlers as h (h.package)}
-                  <li>
-                    <label class="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={homeHandlerSelections[h.package] ?? false}
-                        disabled={h.safe_fallback || stockWizardBusy}
-                        onchange={() => (homeHandlerSelections[h.package] = !homeHandlerSelections[h.package])}
-                      />
-                      <span>{h.name}</span>
-                      <span class="muted small mono">{h.package}</span>
-                      {#if h.safe_fallback}
-                        <span class="tag installed">SAFE</span>
-                      {/if}
-                      {#if !h.enabled}
-                        <span class="tag disabled">DISABLED</span>
-                      {/if}
-                    </label>
-                  </li>
-                {/each}
-              </ul>
-              <div class="apply-row">
-                <button
-                  class="primary"
-                  onclick={disableSelectedStockLaunchers}
-                  disabled={stockWizardBusy}
-                >
-                  {stockWizardBusy ? "Working…" : "Disable selected"}
-                </button>
-                <button onclick={restoreAllHomeHandlers} disabled={stockWizardBusy}>
-                  Restore all disabled
-                </button>
-              </div>
-              {#if stockWizardResult}
-                <div class="recovery-result">
-                  <p><strong>{stockWizardResult.summary}</strong></p>
-                  {#if stockWizardResult.failed.length > 0}
-                    <p class="warn-text small">Failed: {stockWizardResult.failed.join(", ")}</p>
-                  {/if}
-                </div>
-              {/if}
-            {/if}
-          </div>
         {/if}
       {/if}
     </div>
@@ -2255,6 +2114,7 @@
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
+  .tag.stock { background: var(--bg-muted); color: var(--accent); }
   .tag.missing { background: var(--bg-muted); color: var(--fg-faint); }
   .tag.disabled { background: var(--warn-surface-2); color: var(--warn); }
   .warning {
@@ -2515,26 +2375,6 @@
   .scale-option .scale-title {
     font-weight: 500;
     font-size: 0.92rem;
-  }
-  .stock-wizard {
-    margin-top: 1.5rem;
-    padding-top: 1.2rem;
-    border-top: 1px solid var(--border);
-  }
-  .handler-list {
-    list-style: none;
-    padding: 0;
-    margin: 0.5rem 0;
-  }
-  .handler-list li {
-    padding: 0.3rem 0;
-    border-bottom: 1px solid var(--bg-button);
-  }
-  .handler-list .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
   }
   .screenshot-preview {
     margin-top: 0.8rem;
