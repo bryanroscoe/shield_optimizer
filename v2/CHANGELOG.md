@@ -19,8 +19,41 @@ When you add a new section, put it at the top; older releases go below.
 
 ## v2-0.1.0-beta.8
 
+### Added
+
+- **TV screenshots.** A Screenshot button on the device header captures the
+  TV screen, saves a PNG on your computer, and shows an inline preview with
+  Open folder. (Protected/DRM content can't be captured — the error says so.)
+- **APK backup.** Every App List row has a Backup button that saves the
+  app's APK(s) to a folder you choose, named `<package>-<version>.apk`.
+  Split APKs are pulled as a set and flagged.
+- **Copy an app to another device.** "Copy to…" on App List rows installs
+  the app onto a second connected device in one click. App data does not
+  transfer, and DRM/licensed apps may refuse — the confirm spells it out.
+- **Rename device.** A Rename button next to the device title writes the
+  same setting the TV's own Settings → About → Device name does, so Cast /
+  Google Home pick it up too.
+- **Send text to TV** (Overview tab): type Wi-Fi passwords and searches
+  from a real keyboard into whatever field has focus on the TV.
+- **Force stop** on the Health tab's memory rows — frees an app's RAM now;
+  it restarts on next launch.
+- **Clear caches** (Health tab): one click trims every app's cache.
+- **The stock launcher is back in the Launchers list.** It shows with a
+  STOCK badge and a "Set as default" button — so switching back from a
+  custom launcher is one click, even if stock was disabled.
+- **All HOME-capable apps appear in the Launchers list** (HOME APP badge)
+  with the same Enable / Set as default / Disable actions. The separate
+  "Disable stock launchers" wizard is gone — it could neither show nor
+  restore disabled launchers reliably. Disabling now asks for confirmation
+  and refuses to disable the last enabled launcher on the device.
+
 ### Fixed
 
+- **Network scan no longer hides devices that need authorization.** A TV
+  that hasn't approved this computer shows up in the device list as
+  UNAUTHORIZED with instructions, and the scan summary says how many are
+  waiting for the "Allow USB debugging?" prompt — instead of "connected 0"
+  over an empty page.
 - **No more "Failed: Success" when setting a default launcher.**
   `set-home-activity` acknowledges with a bare "Success" on many builds; that
   ack was being recorded as the failure reason whenever the active-launcher
