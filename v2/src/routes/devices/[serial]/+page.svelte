@@ -1622,7 +1622,8 @@
             {#each optimizePlan.items as item (item.entry.package)}
               {@const skip = skipReasonLabel(item)}
               {@const progress = optimizeProgress[item.entry.package]}
-              <tr class:dim={effectiveAction(item) === "skip"}>
+              {@const eff = effectiveAction(item)}
+              <tr class:dim={eff === "skip"} class:acting={!skip && eff !== "skip"}>
                 <td>
                   <div class="app-name">
                     {item.entry.name}
@@ -1630,6 +1631,9 @@
                       <span class="tag installed">DEFAULT</span>
                     {/if}
                   </div>
+                  {#if item.entry.optimize_description}
+                    <div class="muted small app-desc">{item.entry.optimize_description}</div>
+                  {/if}
                   <div class="muted small mono">{item.entry.package}</div>
                 </td>
                 <td class="num">
@@ -1649,8 +1653,10 @@
                   {:else}
                     <select
                       class="action-select"
-                      class:will-skip={effectiveAction(item) === "skip"}
-                      value={effectiveAction(item)}
+                      class:will-skip={eff === "skip"}
+                      class:will-remove={eff === "uninstall"}
+                      class:will-act={eff === "disable" || eff === "enable"}
+                      value={eff}
                       onchange={(e) =>
                         setOptimizeAction(
                           item.entry.package,
@@ -2470,8 +2476,17 @@
     border-radius: 4px;
     font-size: 0.9rem;
   }
+  /* Skipped rows recede; rows that WILL be acted on stand out with a left
+     accent bar and a faint tint so the consequential rows are obvious at a
+     glance (the dim-everything approach was too subtle to read). */
   .optimize-table tr.dim {
-    opacity: 0.55;
+    opacity: 0.45;
+  }
+  .optimize-table tr.acting td {
+    background: color-mix(in srgb, var(--accent-strong) 8%, transparent);
+  }
+  .optimize-table tr.acting td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent-strong);
   }
   .checkbox-row {
     display: flex;
@@ -2486,11 +2501,20 @@
     padding: 0.25rem 0.5rem;
     min-width: 9.5rem;
   }
-  /* Visually mark a row the user dropped to Skip without dimming the control
-     itself (the whole row dims via tr.dim). */
+  /* Color the dropdown by what it will do, so each row's intent is legible at
+     a glance: muted italic for Skip, accent for disable/enable, danger for the
+     destructive uninstall. */
   .action-select.will-skip {
     color: var(--fg-muted);
     font-style: italic;
+  }
+  .action-select.will-act {
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .action-select.will-remove {
+    color: var(--danger-strong);
+    font-weight: 500;
   }
   .legend {
     display: flex;
