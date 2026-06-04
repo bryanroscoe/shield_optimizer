@@ -11,9 +11,24 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{parse_disabled_packages_output, parse_installed_packages_output};
-use crate::engine::{classify_safety, Safety};
+use crate::engine::{classify_safety, is_valid_package_name, Safety};
 
 use super::AppState;
+
+/// Reject malformed package names before they're interpolated into a shell
+/// command. Packages from `pm list` are well-formed, but the custom-launcher
+/// and any manual-entry path are user-controlled — this keeps a stray value
+/// from injecting shell syntax into `adb shell`. Returns an error result to
+/// surface verbatim if the name is invalid.
+fn reject_invalid_package(package: &str) -> Option<ActionResult> {
+    if is_valid_package_name(package) {
+        return None;
+    }
+    Some(ActionResult {
+        ok: false,
+        message: format!("Refusing to act on invalid package name: {package:?}"),
+    })
+}
 
 /// `safety_info` — pure lookup the frontend uses to decide between "show a
 /// loud confirm", "show a hard block badge", and "no extra ceremony".
@@ -88,6 +103,9 @@ pub async fn disable_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(&package) {
+        return Ok(rejection);
+    }
     if let Safety::NeverDisable { reason } = classify_safety(&package) {
         return Ok(ActionResult {
             ok: false,
@@ -109,6 +127,9 @@ pub async fn enable_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(&package) {
+        return Ok(rejection);
+    }
     run(&state, &serial, &format!("pm enable {package}")).await
 }
 
@@ -146,6 +167,9 @@ pub async fn uninstall_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(&package) {
+        return Ok(rejection);
+    }
     if let Safety::NeverDisable { reason } = classify_safety(&package) {
         return Ok(ActionResult {
             ok: false,
@@ -169,6 +193,9 @@ pub async fn reinstall_existing(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(&package) {
+        return Ok(rejection);
+    }
     run(
         &state,
         &serial,

@@ -49,12 +49,12 @@ pub async fn panic_recovery(
 
     for pkg in &disabled {
         match adb.shell(&serial, &format!("pm enable {pkg}")).await {
-            Ok(out) if !out.stdout.contains("Failure") && !out.stdout.contains("Error") => {
+            Ok(out) if !out.shell_reported_failure() => {
                 restored.push(pkg.clone());
             }
             Ok(out) => failed.push(RecoveryFailure {
                 package: pkg.clone(),
-                error: out.stdout,
+                error: out.combined().trim().to_string(),
             }),
             Err(e) => failed.push(RecoveryFailure {
                 package: pkg.clone(),

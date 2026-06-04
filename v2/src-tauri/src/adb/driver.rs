@@ -49,6 +49,22 @@ impl AdbOutput {
     pub fn success(&self) -> bool {
         self.exit_code == Some(0)
     }
+
+    /// stdout and stderr joined. `adb shell` exits 0 even when the on-device
+    /// command fails, and tools like `pm` / `settings` write their failure text
+    /// to *either* stream depending on the Android build — so any success
+    /// heuristic must look at both, not just stdout.
+    pub fn combined(&self) -> String {
+        format!("{}\n{}", self.stdout, self.stderr)
+    }
+
+    /// Heuristic for "did the on-device command report a failure?" Scans both
+    /// streams for the markers `pm` / `cmd` / `settings` emit on error. Use
+    /// this instead of checking `stdout` alone or trusting the exit code.
+    pub fn shell_reported_failure(&self) -> bool {
+        let combined = self.combined();
+        combined.contains("Failure") || combined.contains("Error") || combined.contains("Exception")
+    }
 }
 
 /// The driver abstraction. Lets tests inject a mock; production uses

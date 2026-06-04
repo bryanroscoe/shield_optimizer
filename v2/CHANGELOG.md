@@ -28,6 +28,26 @@ When you add a new section, put it at the top; older releases go below.
   Uninstall to a safer Disable, or skip individual rows, without giving up the
   recommendation. The do-not-disable safety list still gates every action.
 
+### Fixed
+
+- **Accurate success reporting for device actions.** Apply-snapshot,
+  disable/restore-stock-launchers, and Emergency Recovery judged success by
+  scanning only stdout — but `adb shell` exits 0 even when the on-device
+  command fails, and `pm` / `settings` write failures to stderr on many builds.
+  They now inspect both streams, so a package or setting that didn't actually
+  change is reported as failed instead of silently "done."
+- **Apply-snapshot no longer claims settings were written when they weren't.**
+  Settings are now applied one at a time and each is checked, so the summary
+  reflects what actually took (previously every key was reported written as
+  long as the shell ran).
+- **Hardened package-name and snapshot-value handling.** Package names from
+  manual-entry paths are validated before they reach the shell, and snapshot
+  setting values are rejected if they contain shell metacharacters (matching
+  the existing Tweaks guard).
+- Minor: the launcher-set error message no longer gets overwritten by benign
+  empty output, and per-device state is fully reset if the device view ever
+  switches devices without unmounting.
+
 ---
 
 ## v2-0.1.0-beta.6

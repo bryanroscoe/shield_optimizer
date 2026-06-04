@@ -963,6 +963,44 @@
     }
   });
 
+  /// Wipe all per-device state. Used if the route's serial changes under a
+  /// live component (today the only way off this page is "← Back to devices",
+  /// so this is defensive — but it guarantees no device's data or in-flight
+  /// timer can leak onto another if a device→device link is ever added).
+  function resetDeviceState() {
+    if (liveRefreshTimer) {
+      clearInterval(liveRefreshTimer);
+      liveRefreshTimer = null;
+    }
+    liveRefresh = false;
+    activeTab = "overview";
+    device = null; deviceErr = null;
+    report = null; reportErr = null; reportLastRefreshed = null; safetyMap = {};
+    launchers = []; currentLauncher = null; channelDisabled = null;
+    launcherErr = null; launcherActionMessage = "";
+    homeHandlers = []; homeHandlersErr = null; homeHandlerSelections = {}; stockWizardResult = null;
+    apps = []; appsErr = null; appStates = {}; appActionMessage = "";
+    snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
+    sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
+    headerActionMsg = ""; recoveryResult = null; recoveryErr = null;
+    applyResult = null; applyErr = null;
+    tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
+    optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
+    optimizeProgress = {}; optimizeSummary = ""; optimizeFailureMessages = {}; optimizePerfApplied = false;
+  }
+
+  // Track the serial so a *change* (not the initial mount) resets and reloads.
+  // onMount handles the first load; this only fires if serial changes live.
+  let loadedSerial: string | null = null;
+  $effect(() => {
+    const s = serial;
+    if (loadedSerial !== null && loadedSerial !== s) {
+      resetDeviceState();
+      loadDevice();
+    }
+    loadedSerial = s;
+  });
+
   onMount(loadDevice);
 </script>
 
