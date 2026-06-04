@@ -102,6 +102,8 @@ export const api = {
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
   sendText: (serial: string, text: string) =>
     invoke<SendTextResult>("send_text", { serial, text }),
+  sendKey: (serial: string, key: string) =>
+    invoke<SendTextResult>("send_key", { serial, key }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
