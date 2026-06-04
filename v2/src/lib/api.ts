@@ -120,6 +120,8 @@ export const api = {
     invoke<FileTransferResult>("push_file", { serial, localPath, remoteDir }),
   deletePath: (serial: string, path: string) =>
     invoke<FileTransferResult>("delete_path", { serial, path }),
+  findFiles: (serial: string, dirs: string[], pattern: string) =>
+    invoke<string[]>("find_files", { serial, dirs, pattern }),
   listApksInFolder: (folder: string) =>
     invoke<DiscoveredApk[]>("list_apks_in_folder", { folder }),
 

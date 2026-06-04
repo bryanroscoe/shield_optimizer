@@ -4,6 +4,7 @@
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import appFilesCatalog from "$lib/app-files-catalog.json";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -59,6 +60,9 @@
   let filesErr = $state<string | null>(null);
   let filesBusy = $state<string | null>(null); // entry name currently being acted on
   let filesMessage = $state("");
+  /// package → found backup-file paths (null until that app was searched).
+  let appFilesResults = $state<Record<string, string[] | null>>({});
+  let appFilesBusy = $state<string | null>(null);
   let crumbs = $derived(
     filesPath
       .split("/")
@@ -830,6 +834,38 @@
     }
   }
 
+  async function findAppFiles(entry: (typeof appFilesCatalog)[number]) {
+    appFilesBusy = entry.package;
+    filesMessage = "";
+    try {
+      appFilesResults[entry.package] = await api.findFiles(serial, entry.search_dirs, entry.pattern);
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      appFilesBusy = null;
+    }
+  }
+
+  async function downloadFoundFile(path: string) {
+    const folder = await openDialog({ directory: true, title: "Choose a folder for the backup" });
+    if (!folder) return;
+    appFilesBusy = path;
+    filesMessage = "";
+    try {
+      const r = await api.pullFile(serial, path, folder as string);
+      filesMessage = r.message;
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      appFilesBusy = null;
+    }
+  }
+
+  function goToFolder(path: string) {
+    const dir = path.slice(0, path.lastIndexOf("/")) || "/sdcard";
+    loadFiles(dir);
+  }
+
   function formatSize(bytes: number): string {
     if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(2)} GB`;
     if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
@@ -1165,6 +1201,7 @@
     renaming = false; renameValue = "";
     sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
     filesPath = "/sdcard"; filesEntries = null; filesErr = null; filesMessage = "";
+    appFilesResults = {};
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -2128,6 +2165,54 @@
       <p class="muted small">
         Browsing the device's user storage (<code>/sdcard</code>). System paths are off-limits by design.
       </p>
+
+      <details class="app-backups">
+        <summary>App file backups — find &amp; save exports (Projectivy theme, SmartTube settings, …)</summary>
+        <p class="muted small">
+          App settings live in protected storage, but most apps can export a backup to
+          <code>/sdcard</code>. Export in the app first, then find the file here and save it to
+          this computer. To restore later: browse to the folder below and use <strong>Upload here</strong>,
+          then import it in the app.
+        </p>
+        {#each appFilesCatalog as entry (entry.package)}
+          <div class="app-backup-row">
+            <div>
+              <div class="apk-name">{entry.name}</div>
+              <div class="muted small">{entry.hint}</div>
+            </div>
+            <button
+              class="small-action"
+              onclick={() => findAppFiles(entry)}
+              disabled={appFilesBusy !== null}
+            >
+              {appFilesBusy === entry.package ? "Searching…" : "Find backup files"}
+            </button>
+          </div>
+          {#if appFilesResults[entry.package]}
+            {@const found = appFilesResults[entry.package] ?? []}
+            {#if found.length === 0}
+              <p class="muted small found-list">No matches — export from the app first, then search again.</p>
+            {:else}
+              <ul class="found-list">
+                {#each found as path (path)}
+                  <li>
+                    <span class="mono small">{path}</span>
+                    <span>
+                      <button class="small-action" onclick={() => downloadFoundFile(path)} disabled={appFilesBusy !== null}>
+                        Save to computer
+                      </button>
+                      <button class="small-action subtle" onclick={() => goToFolder(path)} disabled={appFilesBusy !== null}>
+                        Go to folder
+                      </button>
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          {/if}
+        {/each}
+      </details>
+
       <nav class="crumbs" aria-label="Path">
         {#each crumbs as c, i (c.path)}
           {#if i > 0}<span class="muted">/</span>{/if}
@@ -2818,6 +2903,38 @@
   h1 .rename-button {
     vertical-align: middle;
     margin-left: 0.5rem;
+  }
+  .app-backups {
+    margin: 0.6rem 0 1rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .app-backups summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .app-backup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--bg-button);
+    margin-top: 0.5rem;
+  }
+  .found-list {
+    list-style: none;
+    padding: 0 0 0 0.8rem;
+    margin: 0.2rem 0 0.6rem;
+  }
+  .found-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 0.25rem 0;
   }
   .crumbs {
     display: flex;

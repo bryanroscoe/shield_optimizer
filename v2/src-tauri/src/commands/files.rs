@@ -166,10 +166,72 @@ pub async fn delete_path(
     }
 }
 
+/// Filename patterns for `find -name`: glob stars and dots only — no slashes,
+/// quotes, or anything the shell could reinterpret.
+fn validate_find_pattern(pattern: &str) -> Result<(), String> {
+    let ok = !pattern.is_empty()
+        && pattern.len() <= 64
+        && pattern
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '*' | '.' | '_' | '-'));
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("Invalid search pattern: {pattern:?}"))
+    }
+}
+
+/// `find_files` — locate files matching a name pattern under one or more
+/// `/sdcard` directories. Powers the app-backup finder (e.g. Projectivy's
+/// `*.plbackup` exports land wherever the user's file picker put them).
+#[tauri::command]
+pub async fn find_files(
+    state: State<'_, AppState>,
+    serial: String,
+    dirs: Vec<String>,
+    pattern: String,
+) -> Result<Vec<String>, String> {
+    validate_find_pattern(&pattern)?;
+    let adb = state.adb_snapshot().await;
+    let mut hits = Vec::new();
+    for dir in dirs {
+        let dir = validate_sdcard_path(&dir)?;
+        // Errors (missing dir, permission) are expected for some candidates —
+        // suppress them; an empty result is the honest answer.
+        let cmd = format!(
+            "find {} -maxdepth 4 -type f -name '{pattern}' 2>/dev/null",
+            quote_path(&dir)
+        );
+        let Ok(out) = adb.shell(&serial, &cmd).await else {
+            continue;
+        };
+        for line in out.stdout.lines() {
+            let line = line.trim();
+            if line.starts_with("/sdcard") && !hits.iter().any(|h| h == line) {
+                hits.push(line.to_string());
+            }
+            if hits.len() >= 100 {
+                break;
+            }
+        }
+    }
+    Ok(hits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn find_patterns_validated() {
+        assert!(validate_find_pattern("*.plbackup").is_ok());
+        assert!(validate_find_pattern("backup_*.zip").is_ok());
+        assert!(validate_find_pattern("a/b").is_err());
+        assert!(validate_find_pattern("x'y").is_err());
+        assert!(validate_find_pattern("").is_err());
+        assert!(validate_find_pattern(&"x".repeat(65)).is_err());
+    }
 
     #[test]
     fn accepts_sdcard_paths() {

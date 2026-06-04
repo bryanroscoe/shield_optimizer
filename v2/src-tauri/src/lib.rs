@@ -95,6 +95,7 @@ pub fn run() {
             files::pull_file,
             files::push_file,
             files::delete_path,
+            files::find_files,
             snapshot::list_snapshots,
             snapshot::save_snapshot,
             snapshot::preview_apply,
