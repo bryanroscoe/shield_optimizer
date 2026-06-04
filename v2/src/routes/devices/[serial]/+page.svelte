@@ -48,6 +48,12 @@
   /// the Disable button should be hard-blocked.
   let safetyMap = $state<Record<string, Safety>>({});
 
+  let sendTextValue = $state("");
+  let sendTextBusy = $state(false);
+  let sendTextMessage = $state("");
+  let trimBusy = $state(false);
+  let trimMessage = $state("");
+
   let launchers = $state<LauncherStatus[]>([]);
   let currentLauncher = $state<CurrentLauncher | null>(null);
   let channelDisabled = $state<boolean | null>(null);
@@ -140,6 +146,35 @@
       device = await api.deviceProfile(serial);
     } catch (e) {
       deviceErr = String(e);
+    }
+  }
+
+  async function sendTextToTv() {
+    if (!sendTextValue) return;
+    sendTextBusy = true;
+    sendTextMessage = "";
+    try {
+      const r = await api.sendText(serial, sendTextValue);
+      sendTextMessage = r.message;
+      if (r.ok) sendTextValue = "";
+    } catch (e) {
+      sendTextMessage = String(e);
+    } finally {
+      sendTextBusy = false;
+    }
+  }
+
+  async function clearCaches() {
+    trimBusy = true;
+    trimMessage = "";
+    try {
+      const r = await api.trimCaches(serial);
+      trimMessage = r.ok ? "App caches cleared." : r.message.trim();
+      if (r.ok) await loadHealth();
+    } catch (e) {
+      trimMessage = String(e);
+    } finally {
+      trimBusy = false;
     }
   }
 
@@ -999,6 +1034,7 @@
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null;
+    sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -1116,6 +1152,32 @@
         </dl>
       {/if}
 
+      <div class="send-text-section">
+        <h3>Send text to TV</h3>
+        <p class="muted small">
+          Types into whatever field has focus on the TV — put the cursor in the
+          Wi-Fi password or search box first, then send from a real keyboard.
+        </p>
+        <div class="send-text-row">
+          <input
+            placeholder="Text to type on the TV"
+            bind:value={sendTextValue}
+            onkeydown={(e) => e.key === "Enter" && sendTextToTv()}
+          />
+          <button
+            class="primary"
+            onclick={sendTextToTv}
+            disabled={sendTextBusy || !sendTextValue}
+            title="adb shell input text — printable ASCII only"
+          >
+            {sendTextBusy ? "Sending…" : "Send"}
+          </button>
+        </div>
+        {#if sendTextMessage}
+          <p class="muted small mono">{sendTextMessage}</p>
+        {/if}
+      </div>
+
       <div class="recovery-section">
         <h3>Emergency Recovery</h3>
         <p class="muted small">
@@ -1162,11 +1224,21 @@
           <span class="muted small" title={reportLastRefreshed?.toISOString() ?? ""}>
             {refreshLabel}
           </span>
+          <button
+            onclick={clearCaches}
+            disabled={trimBusy}
+            title="pm trim-caches — clears every app's cache; caches rebuild on next launch"
+          >
+            {trimBusy ? "Clearing…" : "Clear caches"}
+          </button>
           <button onclick={loadHealth} disabled={reportLoading}>
             {reportLoading ? "Loading…" : "Refresh"}
           </button>
         </div>
       </div>
+      {#if trimMessage}
+        <p class="muted small mono">{trimMessage}</p>
+      {/if}
       {#if reportErr}
         <div class="error">{reportErr}</div>
       {:else if !report}
@@ -2469,6 +2541,19 @@
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+  .send-text-section {
+    margin-top: 1.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--border);
+  }
+  .send-text-row {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 480px;
+  }
+  .send-text-row input {
+    flex: 1;
   }
   .plan-summary {
     margin: 0.4rem 0;

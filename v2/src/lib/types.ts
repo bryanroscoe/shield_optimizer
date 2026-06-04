@@ -170,6 +170,11 @@ export interface ScanResult {
   message: string;
 }
 
+export interface SendTextResult {
+  ok: boolean;
+  message: string;
+}
+
 export interface AdbStatus {
   available: boolean;
   path: string | null;

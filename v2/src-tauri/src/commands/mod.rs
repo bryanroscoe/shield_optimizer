@@ -6,6 +6,7 @@
 pub mod apps;
 pub mod devices;
 pub mod health;
+pub mod input;
 pub mod install;
 pub mod launcher;
 pub mod loader;

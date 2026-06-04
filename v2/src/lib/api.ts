@@ -31,6 +31,7 @@ import type {
   RestartResult,
   Safety,
   ScanResult,
+  SendTextResult,
   SetLauncherResult,
   SettingNamespace,
   SnapshotApplyPlan,
@@ -94,6 +95,9 @@ export const api = {
       { serial, packages },
     ),
   safetyInfo: (pkg: string) => invoke<Safety>("safety_info", { package: pkg }),
+  trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
+  sendText: (serial: string, text: string) =>
+    invoke<SendTextResult>("send_text", { serial, text }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),

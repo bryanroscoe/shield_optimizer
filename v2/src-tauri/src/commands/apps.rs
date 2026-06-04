@@ -133,6 +133,17 @@ pub async fn enable_package(
     run(&state, &serial, &format!("pm enable {package}")).await
 }
 
+/// `trim_caches` — ask the package manager to clear app caches device-wide.
+/// The huge byte count means "free everything trimmable"; caches rebuild on
+/// next app launch, so no confirmation ceremony is needed.
+#[tauri::command]
+pub async fn trim_caches(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ActionResult, String> {
+    run(&state, &serial, "pm trim-caches 999999999999").await
+}
+
 /// Decode a `pm uninstall` failure into a user-readable hint. Mirrors v1's
 /// `Get-UninstallErrorReason` (§16.6). Returns `None` when nothing matches
 /// so the caller can fall back to the raw output.
