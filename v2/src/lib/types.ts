@@ -53,6 +53,8 @@ export interface LauncherStatus {
   entry: LauncherEntry;
   installed: boolean;
   enabled: boolean;
+  /// Preinstalled launcher — shown so users can switch back to stock.
+  stock: boolean;
 }
 
 export interface CurrentLauncher {

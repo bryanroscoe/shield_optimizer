@@ -3,16 +3,9 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::engine::{is_valid_package_name, launcher_catalog, LauncherEntry};
+use crate::engine::{is_valid_package_name, launcher_rows, LauncherStatus};
 
 use super::AppState;
-
-#[derive(Serialize)]
-pub struct LauncherStatus {
-    pub entry: LauncherEntry,
-    pub installed: bool,
-    pub enabled: bool,
-}
 
 #[tauri::command]
 pub async fn list_launchers(
@@ -31,19 +24,7 @@ pub async fn list_launchers(
     let installed_pkgs = crate::adb::parse_installed_packages_output(&installed.stdout);
     let disabled_pkgs = crate::adb::parse_disabled_packages_output(&disabled.stdout);
 
-    let result = launcher_catalog()
-        .into_iter()
-        .map(|entry| {
-            let installed = installed_pkgs.iter().any(|p| p == &entry.package);
-            let enabled = installed && !disabled_pkgs.iter().any(|p| p == &entry.package);
-            LauncherStatus {
-                entry,
-                installed,
-                enabled,
-            }
-        })
-        .collect();
-    Ok(result)
+    Ok(launcher_rows(&installed_pkgs, &disabled_pkgs))
 }
 
 #[derive(Serialize)]
@@ -342,22 +323,9 @@ pub struct HomeHandler {
 /// the user picked Yes. Matches v1's `Disable-AllStockLaunchers` safety list.
 const SAFE_FALLBACKS: &[&str] = &["com.android.tv.settings", "com.android.settings"];
 
-/// Known stock launcher packages — friendly names for handlers we recognize
-/// but that aren't in our custom-launcher catalog.
-const STOCK_LAUNCHER_NAMES: &[(&str, &str)] = &[
-    (
-        "com.google.android.tvlauncher",
-        "Android TV Launcher (Stock)",
-    ),
-    (
-        "com.google.android.apps.tv.launcherx",
-        "Google TV Home (Stock)",
-    ),
-    (
-        "com.google.android.leanbacklauncher",
-        "Leanback Launcher (Stock)",
-    ),
-    ("com.amazon.tv.launcher", "Amazon TV Launcher"),
+/// Friendly names for HOME-capable handlers we recognize but that aren't
+/// launchers (stock launcher names come from the engine's stock catalog).
+const EXTRA_HOME_HANDLER_NAMES: &[(&str, &str)] = &[
     (
         "com.google.android.tungsten.setupwraith",
         "Setup Wraith (HOME)",
@@ -401,10 +369,16 @@ pub async fn list_home_handlers(
         if pkg == target_package || !seen.insert(pkg.clone()) {
             continue;
         }
-        let name = STOCK_LAUNCHER_NAMES
-            .iter()
-            .find(|(p, _)| *p == pkg.as_str())
-            .map(|(_, n)| (*n).to_string())
+        let name = crate::engine::stock_launcher_catalog()
+            .into_iter()
+            .find(|e| e.package == pkg)
+            .map(|e| e.name)
+            .or_else(|| {
+                EXTRA_HOME_HANDLER_NAMES
+                    .iter()
+                    .find(|(p, _)| *p == pkg.as_str())
+                    .map(|(_, n)| (*n).to_string())
+            })
             .unwrap_or_else(|| pkg.clone());
         let enabled = !disabled.iter().any(|d| d == &pkg);
         // A handler is "off-limits" if it's a HOME-emergency fallback OR if

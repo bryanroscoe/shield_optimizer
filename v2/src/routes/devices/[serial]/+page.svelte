@@ -1309,7 +1309,9 @@
                 </div>
                 <div class="row-actions">
                   <div class="tags">
-                    {#if l.installed}
+                    {#if l.stock}
+                      <span class="tag stock">STOCK</span>
+                    {:else if l.installed}
                       <span class="tag installed">INSTALLED</span>
                     {:else}
                       <span class="tag missing">MISSING</span>
@@ -2189,6 +2191,7 @@
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
+  .tag.stock { background: var(--bg-muted); color: var(--accent); }
   .tag.missing { background: var(--bg-muted); color: var(--fg-faint); }
   .tag.disabled { background: var(--warn-surface-2); color: var(--warn); }
   .warning {

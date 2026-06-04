@@ -15,7 +15,10 @@ pub mod types;
 
 pub use app_lists::{AppList, AppListBundle};
 pub use detection::{detect_device_type, DeviceType};
-pub use launcher::{is_valid_package_name, launcher_catalog, LauncherEntry};
+pub use launcher::{
+    is_valid_package_name, launcher_catalog, launcher_rows, stock_launcher_catalog, LauncherEntry,
+    LauncherStatus,
+};
 pub use optimize::{compute_plan, OptimizeInputs, OptimizePlan};
 pub use safety::{classify as classify_safety, is_never_disable, Safety};
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
