@@ -181,6 +181,22 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
   return { mode, items };
 }
 
+function demoFiles(path: string) {
+  if (path === "/sdcard") {
+    return [
+      { name: "Download", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-05-28 19:02" },
+      { name: "Movies", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-04-11 21:47" },
+      { name: "Projectivy", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-05-12 18:40" },
+      { name: "device-report.txt", is_dir: false, is_symlink: false, size_bytes: 18432, modified: "2026-06-01 09:15" },
+      { name: "screen-test.png", is_dir: false, is_symlink: false, size_bytes: 2411724, modified: "2026-05-30 20:08" },
+    ];
+  }
+  return [
+    { name: "smarttube-backup.json", is_dir: false, is_symlink: false, size_bytes: 9216, modified: "2026-05-12 18:41" },
+    { name: "wallpaper.jpg", is_dir: false, is_symlink: false, size_bytes: 1048576, modified: "2026-05-12 18:40" },
+  ];
+}
+
 // Map of command name → handler. Unlisted commands fall through to a benign
 // success so a stray click during capture never throws.
 function handle(cmd: string, args: Record<string, unknown>): unknown {
@@ -207,6 +223,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return false;
     case "get_tweaks":
       return tweaks;
+    case "list_dir":
+      return demoFiles(args.path as string);
     case "get_display_scaling":
       return { size: "1920x1080 (default)", density: "320 (default)" };
     case "list_snapshots":

@@ -18,6 +18,8 @@ import type {
   DiscoveredApk,
   DisplayScalePreset,
   DisplayScaleResult,
+  FileEntry,
+  FileTransferResult,
   HealthReport,
   InstallApkResult,
   InstallResult,
@@ -109,6 +111,15 @@ export const api = {
     invoke<BackupApkResult>("backup_apk", { serial, package: pkg, destDir }),
   cloneApp: (sourceSerial: string, targetSerial: string, pkg: string) =>
     invoke<CloneAppResult>("clone_app", { sourceSerial, targetSerial, package: pkg }),
+
+  listDir: (serial: string, path: string) =>
+    invoke<FileEntry[]>("list_dir", { serial, path }),
+  pullFile: (serial: string, remotePath: string, localDir: string) =>
+    invoke<FileTransferResult>("pull_file", { serial, remotePath, localDir }),
+  pushFile: (serial: string, localPath: string, remoteDir: string) =>
+    invoke<FileTransferResult>("push_file", { serial, localPath, remoteDir }),
+  deletePath: (serial: string, path: string) =>
+    invoke<FileTransferResult>("delete_path", { serial, path }),
   listApksInFolder: (folder: string) =>
     invoke<DiscoveredApk[]>("list_apks_in_folder", { folder }),
 

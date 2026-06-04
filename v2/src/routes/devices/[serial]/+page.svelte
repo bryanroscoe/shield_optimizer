@@ -24,13 +24,14 @@
     OptimizePlan,
     OptimizePlanItem,
     ScreenshotResult,
+    FileEntry,
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
-  type Tab = "overview" | "health" | "launcher" | "apps" | "optimize" | "tweaks" | "snapshot" | "sideload";
+  type Tab = "overview" | "health" | "launcher" | "apps" | "optimize" | "tweaks" | "files" | "snapshot" | "sideload";
   let activeTab = $state<Tab>("overview");
 
   let device = $state<Device | null>(null);
@@ -51,6 +52,19 @@
   let renaming = $state(false);
   let renameValue = $state("");
   let renameBusy = $state(false);
+
+  let filesPath = $state("/sdcard");
+  let filesEntries = $state<FileEntry[] | null>(null);
+  let filesLoading = $state(false);
+  let filesErr = $state<string | null>(null);
+  let filesBusy = $state<string | null>(null); // entry name currently being acted on
+  let filesMessage = $state("");
+  let crumbs = $derived(
+    filesPath
+      .split("/")
+      .filter(Boolean)
+      .map((seg, i, all) => ({ label: seg, path: "/" + all.slice(0, i + 1).join("/") })),
+  );
 
   let screenshotBusy = $state(false);
   let screenshot = $state<ScreenshotResult | null>(null);
@@ -755,6 +769,74 @@
     }
   }
 
+  async function loadFiles(path: string) {
+    filesLoading = true;
+    filesErr = null;
+    filesMessage = "";
+    try {
+      filesEntries = await api.listDir(serial, path);
+      filesPath = path;
+    } catch (e) {
+      filesErr = String(e);
+    } finally {
+      filesLoading = false;
+    }
+  }
+
+  async function downloadFile(name: string) {
+    const folder = await openDialog({ directory: true, title: "Choose a download folder" });
+    if (!folder) return;
+    filesBusy = name;
+    filesMessage = "";
+    try {
+      const r = await api.pullFile(serial, `${filesPath}/${name}`, folder as string);
+      filesMessage = r.message;
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
+  async function uploadToCurrentDir() {
+    const file = await openDialog({ title: "Choose a file to upload" });
+    if (!file) return;
+    filesBusy = "__upload__";
+    filesMessage = "";
+    try {
+      const r = await api.pushFile(serial, file as string, filesPath);
+      filesMessage = r.message;
+      if (r.ok) await loadFiles(filesPath);
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
+  async function deleteEntry(entry: FileEntry) {
+    const what = entry.is_dir ? "folder AND EVERYTHING IN IT" : "file";
+    if (!confirm(`Delete ${what} "${entry.name}" from the device? This cannot be undone.`)) return;
+    filesBusy = entry.name;
+    filesMessage = "";
+    try {
+      const r = await api.deletePath(serial, `${filesPath}/${entry.name}`);
+      filesMessage = r.message;
+      if (r.ok) await loadFiles(filesPath);
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
+  function formatSize(bytes: number): string {
+    if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(2)} GB`;
+    if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
+    if (bytes >= 1 << 10) return `${(bytes / (1 << 10)).toFixed(0)} KB`;
+    return `${bytes} B`;
+  }
+
   function startRename() {
     renameValue = device?.properties?.friendly_name ?? device?.name ?? "";
     renaming = true;
@@ -1052,6 +1134,7 @@
     if (activeTab === "launcher" && launchers.length === 0 && !launcherLoading && !launcherErr) loadLauncher();
     if (activeTab === "apps" && apps.length === 0 && !appsLoading && !appsErr) loadApps();
     if (activeTab === "tweaks" && tweaks === null && !tweaksLoading && !tweaksErr) loadTweaks();
+    if (activeTab === "files" && filesEntries === null && !filesLoading && !filesErr) loadFiles(filesPath);
     if (activeTab === "snapshot" && snapshots.length === 0) loadSnapshots();
     if (activeTab === "sideload" && discoveredApks.length === 0 && !discoveryBusy) {
       const last = localStorage.getItem("shieldopt.lastApkFolder");
@@ -1081,6 +1164,7 @@
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
     sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
+    filesPath = "/sdcard"; filesEntries = null; filesErr = null; filesMessage = "";
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -1210,6 +1294,7 @@
       { id: "apps", label: "App List" },
       { id: "optimize", label: "Optimize" },
       { id: "tweaks", label: "Tweaks" },
+      { id: "files", label: "Files" },
       { id: "sideload", label: "Install APK" },
       { id: "snapshot", label: "Snapshot" },
     ] as t (t.id)}
@@ -2027,6 +2112,86 @@
         {/if}
       {/if}
     </div>
+  {:else if activeTab === "files"}
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-files" aria-labelledby="tab-files">
+      <div class="card-header">
+        <h2>Files</h2>
+        <div class="header-actions">
+          <button onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
+            {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}
+          </button>
+          <button onclick={() => loadFiles(filesPath)} disabled={filesLoading}>
+            {filesLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+      <p class="muted small">
+        Browsing the device's user storage (<code>/sdcard</code>). System paths are off-limits by design.
+      </p>
+      <nav class="crumbs" aria-label="Path">
+        {#each crumbs as c, i (c.path)}
+          {#if i > 0}<span class="muted">/</span>{/if}
+          {#if i === crumbs.length - 1}
+            <span class="crumb-current">{c.label}</span>
+          {:else}
+            <button class="crumb" onclick={() => loadFiles(c.path)}>{c.label}</button>
+          {/if}
+        {/each}
+      </nav>
+      {#if filesMessage}
+        <p class="muted small mono action-message">{filesMessage}</p>
+      {/if}
+      {#if filesErr}
+        <div class="error">{filesErr}</div>
+      {:else if filesEntries === null}
+        <div class="muted">{filesLoading ? "Loading…" : "—"}</div>
+      {:else if filesEntries.length === 0}
+        <p class="muted">Empty folder.</p>
+      {:else}
+        <table class="files-table">
+          <thead>
+            <tr><th>Name</th><th class="num">Size</th><th>Modified</th><th></th></tr>
+          </thead>
+          <tbody>
+            {#each filesEntries as f (f.name)}
+              <tr>
+                <td class="file-name">
+                  {#if f.is_dir}
+                    <button class="dir-link" onclick={() => loadFiles(`${filesPath}/${f.name}`)}>
+                      📁 {f.name}
+                    </button>
+                  {:else}
+                    <span>{f.is_symlink ? "🔗" : "📄"} {f.name}</span>
+                  {/if}
+                </td>
+                <td class="num muted">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
+                <td class="muted small">{f.modified}</td>
+                <td class="row-actions">
+                  {#if !f.is_dir && !f.is_symlink}
+                    <button
+                      class="small-action"
+                      onclick={() => downloadFile(f.name)}
+                      disabled={filesBusy !== null}
+                      title="Save this file to a folder on this computer"
+                    >
+                      {filesBusy === f.name ? "…" : "Download"}
+                    </button>
+                  {/if}
+                  <button
+                    class="small-action subtle danger"
+                    onclick={() => deleteEntry(f)}
+                    disabled={filesBusy !== null}
+                    title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    </div>
   {:else if activeTab === "sideload"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-sideload" aria-labelledby="tab-sideload">
       <div class="card-header">
@@ -2654,6 +2819,43 @@
     vertical-align: middle;
     margin-left: 0.5rem;
   }
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.4rem 0 0.8rem;
+    flex-wrap: wrap;
+  }
+  .crumb {
+    background: none;
+    border: none;
+    padding: 0.1rem 0.2rem;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  .crumb:hover { text-decoration: underline; }
+  .crumb-current { font-weight: 600; }
+  .files-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .files-table th, .files-table td {
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--bg-button);
+  }
+  .files-table .num { text-align: right; white-space: nowrap; }
+  .files-table .row-actions { text-align: right; white-space: nowrap; }
+  .dir-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  .dir-link:hover { color: var(--accent); }
   .plan-summary {
     margin: 0.4rem 0;
     padding: 0.5rem 0.8rem;
