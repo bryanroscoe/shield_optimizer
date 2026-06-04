@@ -7,6 +7,8 @@ import type {
   AdbStatus,
   AppEntry,
   ApplyResult,
+  BackupApkResult,
+  CloneAppResult,
   ConnectResult,
   CurrentDisplayScaling,
   CurrentLauncher,
@@ -97,6 +99,10 @@ export const api = {
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
+  backupApk: (serial: string, pkg: string, destDir: string) =>
+    invoke<BackupApkResult>("backup_apk", { serial, package: pkg, destDir }),
+  cloneApp: (sourceSerial: string, targetSerial: string, pkg: string) =>
+    invoke<CloneAppResult>("clone_app", { sourceSerial, targetSerial, package: pkg }),
   listApksInFolder: (folder: string) =>
     invoke<DiscoveredApk[]>("list_apks_in_folder", { folder }),
 

@@ -71,6 +71,10 @@
   let appStates = $state<Record<string, "enabled" | "disabled" | "missing">>({});
   let appActionBusy = $state<string | null>(null);
   let appActionMessage = $state("");
+  /// Package the "Copy to another device" panel is open for, plus targets.
+  let clonePkg = $state<string | null>(null);
+  let cloneTargets = $state<Device[]>([]);
+  let cloneBusy = $state(false);
 
   let snapshots = $state<SnapshotFile[]>([]);
   let snapshotsErr = $state<string | null>(null);
@@ -412,6 +416,61 @@
   function applyRecommendation(pkg: string, action: "disable" | "uninstall") {
     if (action === "disable") return disableApp(pkg);
     return uninstallApp(pkg);
+  }
+
+  async function backupApkFor(pkg: string) {
+    const folder = await openDialog({ directory: true, title: "Choose a folder for the APK backup" });
+    if (!folder) return;
+    appActionBusy = pkg;
+    appActionMessage = "";
+    try {
+      const r = await api.backupApk(serial, pkg, folder as string);
+      appActionMessage = r.message;
+    } catch (e) {
+      appActionMessage = `${pkg}: ${e}`;
+    } finally {
+      appActionBusy = null;
+    }
+  }
+
+  async function startClone(pkg: string) {
+    appActionMessage = "";
+    try {
+      const all = await api.listDevices();
+      cloneTargets = all.filter((d) => d.status === "device" && d.serial !== serial);
+    } catch (e) {
+      appActionMessage = String(e);
+      return;
+    }
+    if (cloneTargets.length === 0) {
+      appActionMessage = "No other connected device to copy to — connect the target device first.";
+      return;
+    }
+    clonePkg = pkg;
+  }
+
+  async function cloneTo(target: Device) {
+    if (!clonePkg) return;
+    const pkg = clonePkg;
+    if (
+      !confirm(
+        `Copy ${pkg} to ${target.name} (${target.serial})?\n\nApp data does not transfer, and DRM/licensed apps may refuse to run. Paid apps should be installed via the Play Store instead.`,
+      )
+    )
+      return;
+    cloneBusy = true;
+    appActionBusy = pkg;
+    appActionMessage = `Copying ${pkg} to ${target.serial}… (this pulls the APK and can take a minute)`;
+    try {
+      const r = await api.cloneApp(serial, target.serial, pkg);
+      appActionMessage = r.hint ? `${r.message}\n→ ${r.hint}` : r.message;
+      if (r.ok) clonePkg = null;
+    } catch (e) {
+      appActionMessage = String(e);
+    } finally {
+      cloneBusy = false;
+      appActionBusy = null;
+    }
   }
 
   async function openInPlayStore(pkg: string) {
@@ -996,6 +1055,7 @@
     launcherErr = null; launcherActionMessage = "";
     homeHandlers = []; homeHandlersErr = null; homeHandlerSelections = {}; stockWizardResult = null;
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
+    clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null;
@@ -1448,11 +1508,24 @@
         <p class="muted small legend">
           <strong>State</strong> is what the device reports right now.
           <strong>Recommended</strong> is what v1's Optimize wizard would pick for you —
-          click to apply, or leave it. Use the <strong>Links</strong> column to jump
-          straight to the Play Store for anything you want to (re)install.
+          click to apply, or leave it. <strong>Tools</strong> has the Play Store link
+          plus APK backup and copy-to-another-device.
         </p>
         {#if appActionMessage}
           <p class="muted small mono action-message">{appActionMessage}</p>
+        {/if}
+        {#if clonePkg}
+          <div class="clone-panel">
+            <span>Copy <code>{clonePkg}</code> to:</span>
+            {#each cloneTargets as t (t.serial)}
+              <button class="small-action" onclick={() => cloneTo(t)} disabled={cloneBusy}>
+                {cloneBusy ? "Copying…" : `${t.name} (${t.serial})`}
+              </button>
+            {/each}
+            <button class="small-action subtle" onclick={() => (clonePkg = null)} disabled={cloneBusy}>
+              Cancel
+            </button>
+          </div>
         {/if}
         <table class="app-table">
           <thead>
@@ -1461,7 +1534,7 @@
               <th class="center">State</th>
               <th class="center">Risk</th>
               <th>Recommended</th>
-              <th class="center">Links</th>
+              <th class="center">Tools</th>
             </tr>
           </thead>
           <tbody>
@@ -1525,7 +1598,7 @@
                     >Enable</button>
                   {/if}
                 </td>
-                <td class="center">
+                <td class="center tools-cell">
                   {#if a.play_store}
                     <button
                       class="small-action"
@@ -1535,7 +1608,25 @@
                     >
                       Play Store
                     </button>
-                  {:else}
+                  {/if}
+                  {#if state !== "missing"}
+                    <button
+                      class="small-action subtle"
+                      onclick={() => backupApkFor(a.package)}
+                      disabled={appActionBusy === a.package}
+                      title="Save this app's APK(s) to a folder on this computer"
+                    >
+                      Backup
+                    </button>
+                    <button
+                      class="small-action subtle"
+                      onclick={() => startClone(a.package)}
+                      disabled={appActionBusy === a.package}
+                      title="Install this app onto another connected device (app data does not transfer)"
+                    >
+                      Copy to…
+                    </button>
+                  {:else if !a.play_store}
                     <span class="muted small">—</span>
                   {/if}
                 </td>
@@ -2469,6 +2560,21 @@
     align-items: center;
     gap: 0.5rem;
     flex-wrap: wrap;
+  }
+  .clone-panel {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0.4rem 0;
+    padding: 0.5rem 0.8rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  .tools-cell {
+    white-space: nowrap;
   }
   .plan-summary {
     margin: 0.4rem 0;

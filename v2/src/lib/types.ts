@@ -162,6 +162,20 @@ export interface DiscoveredApk {
   size_bytes: number;
 }
 
+export interface BackupApkResult {
+  ok: boolean;
+  files: string[];
+  /// More than one APK — a split APK that must be installed together.
+  split: boolean;
+  message: string;
+}
+
+export interface CloneAppResult {
+  ok: boolean;
+  message: string;
+  hint: string | null;
+}
+
 export interface ScanResult {
   subnet: string | null;
   found: string[];

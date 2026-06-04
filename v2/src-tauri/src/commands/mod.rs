@@ -4,6 +4,7 @@
 //! engine for decision-making, and return the result.
 
 pub mod apps;
+pub mod backup;
 pub mod devices;
 pub mod health;
 pub mod install;
