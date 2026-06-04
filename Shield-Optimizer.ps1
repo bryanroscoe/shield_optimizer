@@ -3516,7 +3516,7 @@ function Set-DisplayScaling ($Target) {
         "Cancel"
     )
     $sDescs = @(
-        "3840x2160, density 540 (native 4K)",
+        "3839x2160, density 640 (native 4K)",
         "1920x1080, density 320 (1080p mode)",
         "Restore device defaults",
         "Return without changes"
@@ -3533,9 +3533,9 @@ function Set-DisplayScaling ($Target) {
     switch ($sel) {
         0 {
             Write-Info "Applying Shield TV 4K settings..."
-            & $Script:AdbPath -s $Target shell wm size 3840x2160 2>&1 | Out-Null
-            & $Script:AdbPath -s $Target shell wm density 540 2>&1 | Out-Null
-            Write-Success "Display set to 3840x2160 @ density 540"
+            & $Script:AdbPath -s $Target shell wm size 3839x2160 2>&1 | Out-Null
+            & $Script:AdbPath -s $Target shell wm density 640 2>&1 | Out-Null
+            Write-Success "Display set to 3839x2160 @ density 640"
         }
         1 {
             Write-Info "Applying Shield TV 1080p settings..."

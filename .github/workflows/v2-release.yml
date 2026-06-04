@@ -328,19 +328,19 @@ jobs:
         working-directory: v2
         run: npm run screenshots
 
-      - name: Commit if the gallery changed
+      - name: Commit if the galleries changed
         working-directory: v2
         env:
           TAG: ${{ needs.notes.outputs.tag }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- screenshots/gallery.gif; then
-            echo "Gallery unchanged; nothing to commit."
+          if git diff --quiet -- screenshots/gallery.gif screenshots/gallery-light.gif; then
+            echo "Galleries unchanged; nothing to commit."
             exit 0
           fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add screenshots/gallery.gif
-          git commit -m "Regenerate gallery GIF for ${TAG}"
+          git add screenshots/gallery.gif screenshots/gallery-light.gif
+          git commit -m "Regenerate gallery GIFs for ${TAG}"
           git push origin HEAD:${{ github.event.repository.default_branch }}
-          echo "Gallery refreshed for ${TAG}."
+          echo "Galleries refreshed for ${TAG}."

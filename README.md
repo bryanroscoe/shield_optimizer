@@ -29,9 +29,16 @@ The first time the tool connects, your TV shows an **"Allow debugging?"** prompt
 
 # v2 — Desktop app (recommended)
 
-<img alt="Shield Optimizer v2 walkthrough" src="v2/screenshots/gallery.gif" />
+<img alt="Shield Optimizer v2 walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
-A native desktop app — no PowerShell, no terminal, no scripting. It bundles its own `adb` (auto-downloaded on first launch), scans your network for devices on startup, and walks you through everything with a GUI.
+<details>
+<summary>Light theme</summary>
+
+<img alt="Shield Optimizer v2 walkthrough (light)" src="v2/screenshots/gallery-light.gif" />
+
+</details>
+
+A native desktop app — no PowerShell, no terminal, no scripting. It bundles its own `adb` (auto-downloaded on first launch), scans your network for devices on startup, and walks you through everything with a GUI. Dark and light themes with a Light / Dark / Auto toggle.
 
 ## Install
 

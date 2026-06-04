@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { openPath } from "@tauri-apps/plugin-opener";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import type { Device, SnapshotFile } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
@@ -85,7 +85,11 @@
   async function revealFolder() {
     if (!snapshotDir) return;
     try {
-      await openPath(snapshotDir);
+      // reveal_item_in_dir needs no path scope (unlike open_path) and opens the
+      // system file manager at the snapshot folder. The backend ensures the dir
+      // exists when it hands us the path, so this works even before the first
+      // snapshot is saved.
+      await revealItemInDir(snapshotDir);
     } catch (e) {
       actionMsg = `Open folder failed: ${e}`;
     }

@@ -50,8 +50,13 @@ pub async fn delete_snapshot(
 
 /// `snapshot_dir_path` — where snapshots are saved on this machine. The UI
 /// uses this to surface the path and to feed it into the OS file picker.
+///
+/// Creates the directory if it doesn't exist yet so the "Open folder" / reveal
+/// action works even before the first snapshot is saved. Best-effort: a failure
+/// to create still returns the path (the reveal will simply error in the UI).
 #[tauri::command]
 pub async fn snapshot_dir_path(state: State<'_, AppState>) -> Result<String, String> {
+    let _ = tokio::fs::create_dir_all(&state.snapshot_dir).await;
     Ok(state.snapshot_dir.display().to_string())
 }
 

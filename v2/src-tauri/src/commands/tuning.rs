@@ -159,13 +159,21 @@ pub async fn get_display_scaling(
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum DisplayScalePreset {
-    /// 3840x2160 @ density 540 (matches v1's Shield 4K preset).
+    // Explicit renames: `rename_all = "snake_case"` produces `uhd4k` /
+    // `fhd1080p` (no underscore before the digit), which mismatched the
+    // frontend's `uhd_4k` / `fhd_1080p` and made every scaling click fail with
+    // "unknown variant `uhd_4k`". Keep in lockstep with DisplayScalePreset in
+    // src/lib/types.ts.
+    /// 3839x2160 @ density 640. Shield TV won't accept 3840 width, and density
+    /// 540 breaks some app menus (Disney+, HBO) — see issue #24.
+    #[serde(rename = "uhd_4k")]
     Uhd4k,
-    /// 1920x1080 @ density 320 (matches v1's Shield 1080p preset).
+    /// 1920x1080 @ density 320.
+    #[serde(rename = "fhd_1080p")]
     Fhd1080p,
     /// Reset both to device defaults.
+    #[serde(rename = "reset")]
     Reset,
 }
 
@@ -177,7 +185,7 @@ pub async fn set_display_scaling(
 ) -> Result<DisplayScaleResult, String> {
     let adb = state.adb_snapshot().await;
     let cmds: Vec<&str> = match preset {
-        DisplayScalePreset::Uhd4k => vec!["wm size 3840x2160", "wm density 540"],
+        DisplayScalePreset::Uhd4k => vec!["wm size 3839x2160", "wm density 640"],
         DisplayScalePreset::Fhd1080p => vec!["wm size 1920x1080", "wm density 320"],
         DisplayScalePreset::Reset => vec!["wm size reset", "wm density reset"],
     };

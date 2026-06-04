@@ -2,9 +2,16 @@
 
 A ground-up rewrite of Shield Optimizer as a **native installable desktop app** with **built-in auto-update** and an eventual **mobile companion** — replacing the v1 PowerShell script while preserving every behavior catalogued in [`docs/FEATURES.md`](../docs/FEATURES.md).
 
-<img alt="Shield Optimizer v2 walkthrough" src="screenshots/gallery.gif" />
+<img alt="Shield Optimizer v2 walkthrough (dark)" src="screenshots/gallery.gif" />
 
-> Walkthrough above shows demo data, not a live device. Regenerate it with `npm run screenshots` — see [`screenshots/README.md`](screenshots/README.md).
+<details>
+<summary>Light theme</summary>
+
+<img alt="Shield Optimizer v2 walkthrough (light)" src="screenshots/gallery-light.gif" />
+
+</details>
+
+> Walkthroughs show demo data, not a live device. The app ships **dark and light themes** with a Light / Dark / Auto toggle. Regenerate the GIFs with `npm run screenshots` — see [`screenshots/README.md`](screenshots/README.md).
 
 This directory is the v2 workspace. v1 (`Shield-Optimizer.ps1` at the repo root) continues to ship and accept patches until v2 reaches parity.
 

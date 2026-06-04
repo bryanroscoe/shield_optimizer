@@ -17,6 +17,29 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.6
+
+### Fixed
+
+- **Display Scaling now works.** Clicking Shield 4K / 1080p failed silently with
+  "unknown variant `uhd_4k`" — the frontend and backend disagreed on the preset
+  names. Fixed the mismatch so the presets apply.
+- **Correct Shield 4K scaling values** (#24). The 4K preset is now
+  **3839×2160 @ density 640** (was 3840×2160 @ 540). Shield TV rejects a 3840
+  width, and density 540 broke some app menus (Disney+, HBO). Applied to both
+  the v2 app and the v1 PowerShell script.
+- **"Open folder" on the Snapshots page works.** It used an `open_path` call the
+  app wasn't permitted to make; it now reveals the snapshot folder in the system
+  file manager (and the folder is created up front so it works before your first
+  snapshot).
+
+### Added
+
+- **Light-theme gallery** in the README alongside the dark one, and the
+  screenshot pipeline now captures both themes.
+
+---
+
 ## v2-0.1.0-beta.5
 
 ### Fixed

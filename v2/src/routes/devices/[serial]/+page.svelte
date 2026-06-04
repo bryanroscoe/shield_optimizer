@@ -906,7 +906,7 @@
   }
 
   async function applyDisplayScaling(preset: DisplayScalePreset) {
-    const label = preset === "uhd_4k" ? "4K (3840x2160, density 540)"
+    const label = preset === "uhd_4k" ? "4K (3839x2160, density 640)"
       : preset === "fhd_1080p" ? "1080p (1920x1080, density 320)"
       : "device defaults";
     if (!confirm(`Apply display scaling: ${label}? The screen will reflow.`)) return;
@@ -1780,7 +1780,7 @@
             onclick={() => applyDisplayScaling("uhd_4k")}
           >
             <span class="scale-title">{displayScaleBusy === "uhd_4k" ? "Applying…" : "Shield 4K"}</span>
-            <span class="muted small">3840×2160, density 540</span>
+            <span class="muted small">3839×2160, density 640</span>
           </button>
           <button
             class="scale-option"

@@ -2,8 +2,9 @@
 //
 // Boots the SvelteKit dev server in demo mode (VITE_DEMO=1 → fixture-backed
 // invoke(), no device needed), drives a headless Chromium through every screen
-// in dark theme at a fixed retina viewport, and writes one PNG per screen to
-// screenshots/frames/. `build-gif.sh` stitches those into gallery.gif.
+// at a fixed retina viewport in BOTH dark and light themes, writing one PNG per
+// screen to screenshots/frames/ (dark) and screenshots/frames-light/ (light).
+// `build-gif.sh` stitches each into gallery.gif / gallery-light.gif.
 //
 // Run via `npm run screenshots` from v2/.
 
@@ -15,11 +16,17 @@ import { chromium } from "playwright";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const V2 = join(HERE, "..");
-const FRAMES = join(HERE, "frames");
 const PORT = 1421;
 const BASE = `http://localhost:${PORT}`;
 const SERIAL = "192.168.1.42:5555";
 const DEVICE_URL = `${BASE}/devices/${encodeURIComponent(SERIAL)}`;
+
+// One output dir per theme. colorScheme drives prefers-color-scheme, which the
+// app's "Auto" theme follows.
+const SCHEMES = [
+  { name: "dark", dir: join(HERE, "frames") },
+  { name: "light", dir: join(HERE, "frames-light") },
+];
 
 // Fixed, uniform frame so every gallery slide is the same size.
 const VIEWPORT = { width: 1280, height: 860 };
@@ -38,41 +45,8 @@ async function waitForServer(url, timeoutMs = 30000) {
   throw new Error(`dev server did not come up at ${url} within ${timeoutMs}ms`);
 }
 
-async function main() {
-  await rm(FRAMES, { recursive: true, force: true });
-  await mkdir(FRAMES, { recursive: true });
-
-  console.log("Starting dev server (demo mode)…");
-  const server = spawn("npm", ["run", "dev", "--", "--port", String(PORT)], {
-    cwd: V2,
-    env: { ...process.env, VITE_DEMO: "1" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  server.stdout.on("data", () => {});
-  server.stderr.on("data", (d) => process.stderr.write(`[vite] ${d}`));
-
-  const browser = await chromium.launch();
-  let exitCode = 0;
-  try {
-    await waitForServer(BASE);
-    console.log("Dev server up. Capturing…");
-
-    const context = await browser.newContext({
-      viewport: VIEWPORT,
-      deviceScaleFactor: 2, // crisp retina PNGs
-      colorScheme: "dark", // forces prefers-color-scheme: dark
-    });
-    const page = await context.newPage();
-
-    let n = 0;
-    const shot = async (name) => {
-      n += 1;
-      const file = join(FRAMES, `${String(n).padStart(2, "0")}-${name}.png`);
-      await page.waitForTimeout(450); // let layout/fonts settle
-      await page.screenshot({ path: file });
-      console.log(`  ✓ ${file}`);
-    };
-
+// Walk every screen, shooting one PNG per screen via `shot(name)`.
+async function captureScreens(page, shot) {
     // 1. Device list (landing) with a connected Shield.
     await page.goto(BASE, { waitUntil: "networkidle" });
     await page.getByText("NVIDIA SHIELD", { exact: false }).first().waitFor();
@@ -126,9 +100,49 @@ async function main() {
     await page.goto(`${BASE}/snapshots`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
     await shot("snapshots");
+}
 
-    await context.close();
-    console.log(`\nCaptured ${n} frames to ${FRAMES}`);
+async function main() {
+  console.log("Starting dev server (demo mode)…");
+  const server = spawn("npm", ["run", "dev", "--", "--port", String(PORT)], {
+    cwd: V2,
+    env: { ...process.env, VITE_DEMO: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  server.stdout.on("data", () => {});
+  server.stderr.on("data", (d) => process.stderr.write(`[vite] ${d}`));
+
+  const browser = await chromium.launch();
+  let exitCode = 0;
+  try {
+    await waitForServer(BASE);
+    console.log("Dev server up. Capturing…");
+
+    for (const scheme of SCHEMES) {
+      await rm(scheme.dir, { recursive: true, force: true });
+      await mkdir(scheme.dir, { recursive: true });
+
+      const context = await browser.newContext({
+        viewport: VIEWPORT,
+        deviceScaleFactor: 2, // crisp retina PNGs
+        colorScheme: scheme.name, // drives prefers-color-scheme → app "Auto"
+      });
+      const page = await context.newPage();
+
+      let n = 0;
+      const shot = async (name) => {
+        n += 1;
+        const file = join(scheme.dir, `${String(n).padStart(2, "0")}-${name}.png`);
+        await page.waitForTimeout(450); // let layout/fonts settle
+        await page.screenshot({ path: file });
+        console.log(`  ✓ ${file}`);
+      };
+
+      console.log(`\n[${scheme.name}]`);
+      await captureScreens(page, shot);
+      await context.close();
+      console.log(`Captured ${n} ${scheme.name} frames to ${scheme.dir}`);
+    }
   } catch (err) {
     console.error("Capture failed:", err);
     exitCode = 1;
