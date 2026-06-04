@@ -42,8 +42,12 @@ pub async fn list_dir(
 ) -> Result<Vec<FileEntry>, String> {
     let path = validate_sdcard_path(&path)?;
     let adb = state.adb_snapshot().await;
+    // Trailing slash matters: `/sdcard` is itself a symlink (to
+    // /storage/self/primary), and `ls -lA` on a bare symlink lists the link
+    // line instead of the directory contents. The slash forces dereference.
+    let slashed = format!("{}/", path.trim_end_matches('/'));
     let out = adb
-        .shell(&serial, &format!("ls -lA {}", quote_path(&path)))
+        .shell(&serial, &format!("ls -lA {}", quote_path(&slashed)))
         .await
         .map_err(|e| format!("ls: {e}"))?;
     let combined = out.combined();

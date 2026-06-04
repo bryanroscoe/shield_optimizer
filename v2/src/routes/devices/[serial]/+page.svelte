@@ -2291,6 +2291,14 @@
       </details>
 
       <nav class="crumbs" aria-label="Path">
+        <button
+          class="small-action subtle"
+          onclick={() => goToFolder(filesPath)}
+          disabled={filesPath === "/sdcard" || filesLoading}
+          title="Up one level"
+        >
+          ↑ Up
+        </button>
         {#each crumbs as c, i (c.path)}
           {#if i > 0}<span class="muted">/</span>{/if}
           {#if i === crumbs.length - 1}
