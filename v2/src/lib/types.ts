@@ -53,6 +53,11 @@ export interface LauncherStatus {
   entry: LauncherEntry;
   installed: boolean;
   enabled: boolean;
+  /// Preinstalled launcher — shown so users can switch back to stock.
+  stock: boolean;
+  /// HOME-capable app outside both catalogs (e.g. Setup Wraith, a sideloaded
+  /// HOME app).
+  other: boolean;
 }
 
 export interface CurrentLauncher {
@@ -106,20 +111,6 @@ export interface DeviceReport {
   error: string | null;
 }
 
-export interface HomeHandler {
-  package: string;
-  name: string;
-  enabled: boolean;
-  safe_fallback: boolean;
-}
-
-export interface StockLauncherResult {
-  processed: string[];
-  failed: string[];
-  skipped_safe: string[];
-  summary: string;
-}
-
 export interface RestartResult {
   ok: boolean;
   message: string;
@@ -162,12 +153,32 @@ export interface DiscoveredApk {
   size_bytes: number;
 }
 
+export interface BackupApkResult {
+  ok: boolean;
+  files: string[];
+  /// More than one APK — a split APK that must be installed together.
+  split: boolean;
+  message: string;
+}
+
+export interface CloneAppResult {
+  ok: boolean;
+  message: string;
+  hint: string | null;
+}
+
 export interface ScanResult {
   subnet: string | null;
   found: string[];
   connected: string[];
+  unauthorized: string[];
   failed: string[];
   message: string;
+}
+
+export interface ScreenshotResult {
+  path: string;
+  base64: string;
 }
 
 export interface SendTextResult {
