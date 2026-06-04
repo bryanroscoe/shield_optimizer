@@ -114,7 +114,7 @@
     "name": "Google Speech Services",
     "method": "disable",
     "risk": "high",
-    "optimize_description": "Breaks voice dictation.",
+    "optimize_description": "Breaks voice dictation and in-app voice search (e.g. the SmartTube mic button).",
     "restore_description": "Restores speech services.",
     "default_optimize": false,
     "default_restore": true,

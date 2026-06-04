@@ -290,7 +290,7 @@
     "name": "Google Assistant (Katniss)",
     "method": "disable",
     "risk": "high",
-    "optimize_description": "Disables hotword + voice search; significant RAM savings but UX-noticeable.",
+    "optimize_description": "Disables hotword + voice search, including mic buttons inside apps (SmartTube etc.); significant RAM savings but UX-noticeable.",
     "restore_description": "Restores voice search.",
     "default_optimize": false,
     "default_restore": true,

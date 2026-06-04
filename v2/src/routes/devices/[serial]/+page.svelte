@@ -119,7 +119,9 @@
   let previewBusy = $state(false);
   let previewErr = $state<string | null>(null);
 
-  let sideloadBusy = $state(false);
+  /// Path of the APK currently installing (null when idle) — per-path so a
+  /// multi-APK list only shows the spinner on the row actually installing.
+  let sideloadBusy = $state<string | null>(null);
   let sideloadResult = $state<string>("");
   let sideloadHint = $state<string | null>(null);
   // Auto-discovered APK list — re-scanned whenever the user picks a folder
@@ -673,7 +675,7 @@
   }
 
   async function installApkPath(path: string) {
-    sideloadBusy = true;
+    sideloadBusy = path;
     sideloadResult = `Installing ${path.split(/[\\/]/).pop()}…`;
     sideloadHint = null;
     try {
@@ -683,7 +685,7 @@
     } catch (e) {
       sideloadResult = String(e);
     } finally {
-      sideloadBusy = false;
+      sideloadBusy = null;
     }
   }
 
@@ -2357,11 +2359,11 @@
       <div class="card-header">
         <h2>Install APK</h2>
         <div class="header-actions">
-          <button onclick={pickApkFolder} disabled={sideloadBusy || discoveryBusy}>
+          <button onclick={pickApkFolder} disabled={sideloadBusy !== null || discoveryBusy}>
             {discoveryBusy ? "Scanning…" : "Choose folder…"}
           </button>
-          <button class="primary" onclick={pickAndInstallApk} disabled={sideloadBusy}>
-            {sideloadBusy ? "Installing…" : "Pick file…"}
+          <button class="primary" onclick={pickAndInstallApk} disabled={sideloadBusy !== null}>
+            {sideloadBusy !== null ? "Installing…" : "Pick file…"}
           </button>
         </div>
       </div>
@@ -2384,9 +2386,9 @@
               <button
                 class="small-action primary"
                 onclick={() => installApkPath(apk.path)}
-                disabled={sideloadBusy}
+                disabled={sideloadBusy !== null}
               >
-                {sideloadBusy ? "Working…" : "Install"}
+                {sideloadBusy === apk.path ? "Installing…" : "Install"}
               </button>
             </li>
           {/each}
