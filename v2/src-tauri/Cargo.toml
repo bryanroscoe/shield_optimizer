@@ -35,6 +35,9 @@ regex = "1"
 # Time / dates for snapshot timestamps
 chrono = { version = "0.4", features = ["serde"] }
 
+# Screenshot preview encoding (PNG bytes → data: URL)
+base64 = "0.22"
+
 # Tracing for structured logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

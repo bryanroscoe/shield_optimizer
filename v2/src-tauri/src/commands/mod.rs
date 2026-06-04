@@ -4,8 +4,11 @@
 //! engine for decision-making, and return the result.
 
 pub mod apps;
+pub mod backup;
 pub mod devices;
 pub mod health;
+pub mod home_tracking;
+pub mod input;
 pub mod install;
 pub mod launcher;
 pub mod loader;
@@ -13,6 +16,7 @@ pub mod optimize;
 pub mod reboot;
 pub mod recovery;
 pub mod scan;
+pub mod screenshot;
 pub mod sideload;
 pub mod snapshot;
 pub mod state;

@@ -12,20 +12,20 @@ pub mod engine;
 use std::path::PathBuf;
 
 use commands::{
-    apps, devices, health, install, launcher, loader, optimize, reboot, recovery, scan, sideload,
-    snapshot, tuning, AppState,
+    apps, backup, devices, health, input, install, launcher, loader, optimize, reboot, recovery,
+    scan, screenshot, sideload, snapshot, tuning, AppState,
 };
 
-/// Resolve the OS-appropriate snapshot directory.
+/// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
+/// subdirectory).
 ///
-/// macOS: `~/Library/Application Support/ShieldOptimizer/snapshots`
-/// Linux: `~/.local/share/shield-optimizer/snapshots`
-/// Windows: `%APPDATA%/ShieldOptimizer/snapshots`
-fn default_snapshot_dir() -> PathBuf {
+/// macOS: `~/Library/Application Support/ShieldOptimizer`
+/// Linux: `~/.local/share/ShieldOptimizer`
+/// Windows: `%LOCALAPPDATA%/ShieldOptimizer`
+fn default_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("ShieldOptimizer")
-        .join("snapshots")
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -51,8 +51,7 @@ pub fn run() {
         }
     };
 
-    let snapshot_dir = default_snapshot_dir();
-    let state = AppState::default_for_runtime(app_lists, snapshot_dir);
+    let state = AppState::default_for_runtime(app_lists, default_data_dir());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -76,18 +75,22 @@ pub fn run() {
             launcher::current_launcher,
             launcher::channel_provider_disabled,
             launcher::set_default_launcher,
-            launcher::list_home_handlers,
-            launcher::disable_stock_launchers,
-            launcher::restore_stock_launchers,
+            launcher::disable_launcher,
             apps::disable_package,
             apps::enable_package,
+            apps::force_stop,
+            screenshot::take_screenshot,
             apps::uninstall_package,
             apps::reinstall_existing,
             apps::open_play_store,
             apps::package_states,
             apps::safety_info,
+            apps::trim_caches,
+            input::send_text,
             sideload::install_apk,
             sideload::list_apks_in_folder,
+            backup::backup_apk,
+            backup::clone_app,
             snapshot::list_snapshots,
             snapshot::save_snapshot,
             snapshot::preview_apply,

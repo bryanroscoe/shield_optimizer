@@ -76,6 +76,16 @@ pub trait AdbDriver: Send + Sync {
 
     /// Run `adb -s <serial> shell <command>`.
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput>;
+
+    /// Run `adb <args...>` and return raw stdout bytes — for binary output
+    /// like `exec-out screencap -p`, where UTF-8 conversion would corrupt the
+    /// data. Default reports unsupported so mocks without binary needs don't
+    /// have to implement it.
+    async fn raw_bytes(&self, _args: &[&str]) -> AdbResult<Vec<u8>> {
+        Err(AdbError::Io(std::io::Error::other(
+            "binary capture not supported by this driver",
+        )))
+    }
 }
 
 /// The standard subprocess-backed driver. Wraps `tokio::process::Command`.
@@ -176,6 +186,41 @@ impl AdbDriver for SubprocessAdb {
 
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
         self.run(&["-s", serial, "shell", command]).await
+    }
+
+    async fn raw_bytes(&self, args: &[&str]) -> AdbResult<Vec<u8>> {
+        if !self.binary.exists() {
+            return Err(AdbError::BinaryMissing {
+                path: self.binary.display().to_string(),
+            });
+        }
+
+        debug!(adb = ?self.binary, ?args, "adb invoke (binary)");
+
+        let mut cmd = Command::new(&self.binary);
+        cmd.args(args).kill_on_drop(true);
+        super::hide_console_window(&mut cmd);
+
+        let output = match timeout(self.command_timeout, cmd.output()).await {
+            Ok(r) => r?,
+            Err(_) => {
+                warn!(?args, "adb timeout");
+                return Err(AdbError::Timeout {
+                    seconds: self.command_timeout.as_secs(),
+                });
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            warn!(?args, code = ?output.status.code(), %stderr, "adb exited nonzero");
+            return Err(AdbError::NonZeroExit {
+                code: output.status.code(),
+                stderr,
+            });
+        }
+
+        Ok(output.stdout)
     }
 }
 

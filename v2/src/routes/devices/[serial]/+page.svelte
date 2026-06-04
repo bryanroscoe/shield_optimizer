@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -22,8 +23,7 @@
     OptimizeMode,
     OptimizePlan,
     OptimizePlanItem,
-    HomeHandler,
-    StockLauncherResult,
+    ScreenshotResult,
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
@@ -52,6 +52,15 @@
   let renameValue = $state("");
   let renameBusy = $state(false);
 
+  let screenshotBusy = $state(false);
+  let screenshot = $state<ScreenshotResult | null>(null);
+
+  let sendTextValue = $state("");
+  let sendTextBusy = $state(false);
+  let sendTextMessage = $state("");
+  let trimBusy = $state(false);
+  let trimMessage = $state("");
+
   let launchers = $state<LauncherStatus[]>([]);
   let currentLauncher = $state<CurrentLauncher | null>(null);
   let channelDisabled = $state<boolean | null>(null);
@@ -60,14 +69,6 @@
   let launcherActionBusy = $state<string | null>(null); // package id currently being acted on
   let launcherActionMessage = $state("");
 
-  // Stock launcher wizard state.
-  let homeHandlers = $state<HomeHandler[]>([]);
-  let homeHandlersLoading = $state(false);
-  let homeHandlersErr = $state<string | null>(null);
-  let homeHandlerSelections = $state<Record<string, boolean>>({});
-  let stockWizardBusy = $state(false);
-  let stockWizardResult = $state<StockLauncherResult | null>(null);
-
   let apps = $state<AppEntry[]>([]);
   let appsLoading = $state(false);
   let appsErr = $state<string | null>(null);
@@ -75,6 +76,10 @@
   let appStates = $state<Record<string, "enabled" | "disabled" | "missing">>({});
   let appActionBusy = $state<string | null>(null);
   let appActionMessage = $state("");
+  /// Package the "Copy to another device" panel is open for, plus targets.
+  let clonePkg = $state<string | null>(null);
+  let cloneTargets = $state<Device[]>([]);
+  let cloneBusy = $state(false);
 
   let snapshots = $state<SnapshotFile[]>([]);
   let snapshotsErr = $state<string | null>(null);
@@ -144,6 +149,35 @@
       device = await api.deviceProfile(serial);
     } catch (e) {
       deviceErr = String(e);
+    }
+  }
+
+  async function sendTextToTv() {
+    if (!sendTextValue) return;
+    sendTextBusy = true;
+    sendTextMessage = "";
+    try {
+      const r = await api.sendText(serial, sendTextValue);
+      sendTextMessage = r.message;
+      if (r.ok) sendTextValue = "";
+    } catch (e) {
+      sendTextMessage = String(e);
+    } finally {
+      sendTextBusy = false;
+    }
+  }
+
+  async function clearCaches() {
+    trimBusy = true;
+    trimMessage = "";
+    try {
+      const r = await api.trimCaches(serial);
+      trimMessage = r.ok ? "App caches cleared." : r.message.trim();
+      if (r.ok) await loadHealth();
+    } catch (e) {
+      trimMessage = String(e);
+    } finally {
+      trimBusy = false;
     }
   }
 
@@ -282,6 +316,21 @@
     return entry.risk.toUpperCase();
   }
 
+  async function forceStopFromMemory(pkg: string) {
+    appActionBusy = pkg;
+    appActionMessage = "";
+    try {
+      const r = await api.forceStop(serial, pkg);
+      appActionMessage = r.ok
+        ? `${pkg}: stopped — refresh the report to see freed RAM.`
+        : `${pkg}: ${r.message.trim()}`;
+    } catch (e) {
+      appActionMessage = String(e);
+    } finally {
+      appActionBusy = null;
+    }
+  }
+
   async function safeDisableFromMemory(pkg: string, mb: number) {
     // Make sure the catalog is loaded so we can look up risk.
     if (apps.length === 0 && device) {
@@ -418,6 +467,61 @@
     return uninstallApp(pkg);
   }
 
+  async function backupApkFor(pkg: string) {
+    const folder = await openDialog({ directory: true, title: "Choose a folder for the APK backup" });
+    if (!folder) return;
+    appActionBusy = pkg;
+    appActionMessage = "";
+    try {
+      const r = await api.backupApk(serial, pkg, folder as string);
+      appActionMessage = r.message;
+    } catch (e) {
+      appActionMessage = `${pkg}: ${e}`;
+    } finally {
+      appActionBusy = null;
+    }
+  }
+
+  async function startClone(pkg: string) {
+    appActionMessage = "";
+    try {
+      const all = await api.listDevices();
+      cloneTargets = all.filter((d) => d.status === "device" && d.serial !== serial);
+    } catch (e) {
+      appActionMessage = String(e);
+      return;
+    }
+    if (cloneTargets.length === 0) {
+      appActionMessage = "No other connected device to copy to — connect the target device first.";
+      return;
+    }
+    clonePkg = pkg;
+  }
+
+  async function cloneTo(target: Device) {
+    if (!clonePkg) return;
+    const pkg = clonePkg;
+    if (
+      !confirm(
+        `Copy ${pkg} to ${target.name} (${target.serial})?\n\nApp data does not transfer, and DRM/licensed apps may refuse to run. Paid apps should be installed via the Play Store instead.`,
+      )
+    )
+      return;
+    cloneBusy = true;
+    appActionBusy = pkg;
+    appActionMessage = `Copying ${pkg} to ${target.serial}… (this pulls the APK and can take a minute)`;
+    try {
+      const r = await api.cloneApp(serial, target.serial, pkg);
+      appActionMessage = r.hint ? `${r.message}\n→ ${r.hint}` : r.message;
+      if (r.ok) clonePkg = null;
+    } catch (e) {
+      appActionMessage = String(e);
+    } finally {
+      cloneBusy = false;
+      appActionBusy = null;
+    }
+  }
+
   async function openInPlayStore(pkg: string) {
     appActionBusy = pkg;
     appActionMessage = "";
@@ -430,81 +534,6 @@
       appActionMessage = `${pkg}: ${e}`;
     } finally {
       appActionBusy = null;
-    }
-  }
-
-  async function loadHomeHandlers(targetPkg: string) {
-    homeHandlersLoading = true;
-    homeHandlersErr = null;
-    stockWizardResult = null;
-    try {
-      homeHandlers = await api.listHomeHandlers(serial, targetPkg);
-      // Default: select every enabled, non-safe handler.
-      const sels: Record<string, boolean> = {};
-      for (const h of homeHandlers) {
-        sels[h.package] = h.enabled && !h.safe_fallback;
-      }
-      homeHandlerSelections = sels;
-    } catch (e) {
-      homeHandlersErr = String(e);
-    } finally {
-      homeHandlersLoading = false;
-    }
-  }
-
-  async function disableSelectedStockLaunchers() {
-    const selected = Object.entries(homeHandlerSelections)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    if (selected.length === 0) return;
-    if (!confirm(`Disable ${selected.length} HOME handler(s)? Make sure your custom launcher is set first.`)) return;
-    stockWizardBusy = true;
-    stockWizardResult = null;
-    try {
-      stockWizardResult = await api.disableStockLaunchers(serial, selected);
-      await loadLauncher();
-    } catch (e) {
-      stockWizardResult = {
-        processed: [],
-        failed: selected,
-        skipped_safe: [],
-        summary: String(e),
-      };
-    } finally {
-      stockWizardBusy = false;
-    }
-  }
-
-  async function restoreAllHomeHandlers() {
-    const all = homeHandlers
-      .filter((h) => !h.enabled)
-      .map((h) => h.package);
-    if (all.length === 0) {
-      stockWizardResult = {
-        processed: [],
-        failed: [],
-        skipped_safe: [],
-        summary: "Nothing disabled to restore.",
-      };
-      return;
-    }
-    stockWizardBusy = true;
-    try {
-      stockWizardResult = await api.restoreStockLaunchers(serial, all);
-      // Re-fetch state.
-      if (currentLauncher?.package) {
-        await loadHomeHandlers(currentLauncher.package);
-      }
-      await loadLauncher();
-    } catch (e) {
-      stockWizardResult = {
-        processed: [],
-        failed: all,
-        skipped_safe: [],
-        summary: String(e),
-      };
-    } finally {
-      stockWizardBusy = false;
     }
   }
 
@@ -538,11 +567,14 @@
   }
 
   async function disableLauncher(pkg: string) {
-    if (!confirm(`Disable ${pkg}? You'll lose access to it as a HOME app until you re-enable.`)) return;
+    const advice = launchers.find((l) => l.entry.package === pkg)?.other
+      ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
+      : "";
+    if (!confirm(`Disable ${pkg}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     try {
-      const r = await api.disablePackage(serial, pkg);
+      const r = await api.disableLauncher(serial, pkg);
       launcherActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
       if (r.ok) await loadLauncher();
     } catch (e) {
@@ -743,6 +775,27 @@
       headerActionMsg = String(e);
     } finally {
       renameBusy = false;
+    }
+  }
+
+  async function takeScreenshot() {
+    screenshotBusy = true;
+    headerActionMsg = "";
+    try {
+      screenshot = await api.takeScreenshot(serial);
+    } catch (e) {
+      headerActionMsg = `Screenshot failed: ${e}`;
+    } finally {
+      screenshotBusy = false;
+    }
+  }
+
+  async function revealScreenshot() {
+    if (!screenshot) return;
+    try {
+      await revealItemInDir(screenshot.path);
+    } catch (e) {
+      headerActionMsg = `Open folder failed: ${e}`;
     }
   }
 
@@ -1021,12 +1074,13 @@
     report = null; reportErr = null; reportLastRefreshed = null; safetyMap = {};
     launchers = []; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
-    homeHandlers = []; homeHandlersErr = null; homeHandlerSelections = {}; stockWizardResult = null;
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
+    clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
-    headerActionMsg = ""; recoveryResult = null; recoveryErr = null;
+    headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
+    sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -1117,6 +1171,13 @@
           {/if}
         </div>
         <button
+          onclick={takeScreenshot}
+          disabled={screenshotBusy}
+          title="Capture the TV screen (screencap) and save it as a PNG on this computer"
+        >
+          {screenshotBusy ? "Capturing…" : "Screenshot"}
+        </button>
+        <button
           class="small-action subtle"
           onclick={disconnectAndLeave}
           disabled={disconnectBusy}
@@ -1128,6 +1189,16 @@
     </div>
     {#if headerActionMsg}
       <p class="muted small mono action-message">{headerActionMsg}</p>
+    {/if}
+    {#if screenshot}
+      <div class="screenshot-preview">
+        <img src={`data:image/png;base64,${screenshot.base64}`} alt="TV screenshot" />
+        <div class="screenshot-meta">
+          <span class="muted small mono">{screenshot.path}</span>
+          <button class="small-action" onclick={revealScreenshot}>Open folder</button>
+          <button class="small-action subtle" onclick={() => (screenshot = null)}>Dismiss</button>
+        </div>
+      </div>
     {/if}
   </header>
 
@@ -1171,6 +1242,32 @@
           <dt>Board platform</dt><dd>{device.properties.board_platform}</dd>
         </dl>
       {/if}
+
+      <div class="send-text-section">
+        <h3>Send text to TV</h3>
+        <p class="muted small">
+          Types into whatever field has focus on the TV — put the cursor in the
+          Wi-Fi password or search box first, then send from a real keyboard.
+        </p>
+        <div class="send-text-row">
+          <input
+            placeholder="Text to type on the TV"
+            bind:value={sendTextValue}
+            onkeydown={(e) => e.key === "Enter" && sendTextToTv()}
+          />
+          <button
+            class="primary"
+            onclick={sendTextToTv}
+            disabled={sendTextBusy || !sendTextValue}
+            title="adb shell input text — printable ASCII only"
+          >
+            {sendTextBusy ? "Sending…" : "Send"}
+          </button>
+        </div>
+        {#if sendTextMessage}
+          <p class="muted small mono">{sendTextMessage}</p>
+        {/if}
+      </div>
 
       <div class="recovery-section">
         <h3>Emergency Recovery</h3>
@@ -1218,11 +1315,21 @@
           <span class="muted small" title={reportLastRefreshed?.toISOString() ?? ""}>
             {refreshLabel}
           </span>
+          <button
+            onclick={clearCaches}
+            disabled={trimBusy}
+            title="pm trim-caches — clears every app's cache; caches rebuild on next launch"
+          >
+            {trimBusy ? "Clearing…" : "Clear caches"}
+          </button>
           <button onclick={loadHealth} disabled={reportLoading}>
             {reportLoading ? "Loading…" : "Refresh"}
           </button>
         </div>
       </div>
+      {#if trimMessage}
+        <p class="muted small mono">{trimMessage}</p>
+      {/if}
       {#if reportErr}
         <div class="error">{reportErr}</div>
       {:else if !report}
@@ -1302,6 +1409,14 @@
                     {/if}
                   </td>
                   <td class="row-actions">
+                    <button
+                      class="small-action subtle"
+                      onclick={() => forceStopFromMemory(m.package)}
+                      disabled={appActionBusy === m.package}
+                      title="am force-stop {m.package} — frees its RAM now; the app restarts on next launch"
+                    >
+                      {appActionBusy === m.package ? "…" : "Force stop"}
+                    </button>
                     {#if blocked}
                       <span class="muted small" title={safety.reason}>Protected</span>
                     {:else}
@@ -1365,7 +1480,11 @@
                 </div>
                 <div class="row-actions">
                   <div class="tags">
-                    {#if l.installed}
+                    {#if l.stock}
+                      <span class="tag stock">STOCK</span>
+                    {:else if l.other}
+                      <span class="tag stock">HOME APP</span>
+                    {:else if l.installed}
                       <span class="tag installed">INSTALLED</span>
                     {:else}
                       <span class="tag missing">MISSING</span>
@@ -1420,68 +1539,6 @@
           {#if launcherActionMessage}
             <p class="muted small mono action-message">{launcherActionMessage}</p>
           {/if}
-
-          <div class="stock-wizard">
-            <h3>Disable stock launchers</h3>
-            <p class="muted small">
-              Optional cleanup step after promoting a custom launcher. Lists every
-              HOME-capable app on the device; the ones currently enabled are pre-selected.
-              Safe fallbacks (Settings) are never touched.
-            </p>
-            <button
-              onclick={() => loadHomeHandlers(currentLauncher?.package ?? "")}
-              disabled={homeHandlersLoading || !currentLauncher?.package}
-            >
-              {homeHandlersLoading ? "Querying…" : (homeHandlers.length ? "Refresh" : "Load HOME handlers")}
-            </button>
-            {#if homeHandlersErr}
-              <div class="error">{homeHandlersErr}</div>
-            {/if}
-            {#if homeHandlers.length > 0}
-              <ul class="handler-list">
-                {#each homeHandlers as h (h.package)}
-                  <li>
-                    <label class="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={homeHandlerSelections[h.package] ?? false}
-                        disabled={h.safe_fallback || stockWizardBusy}
-                        onchange={() => (homeHandlerSelections[h.package] = !homeHandlerSelections[h.package])}
-                      />
-                      <span>{h.name}</span>
-                      <span class="muted small mono">{h.package}</span>
-                      {#if h.safe_fallback}
-                        <span class="tag installed">SAFE</span>
-                      {/if}
-                      {#if !h.enabled}
-                        <span class="tag disabled">DISABLED</span>
-                      {/if}
-                    </label>
-                  </li>
-                {/each}
-              </ul>
-              <div class="apply-row">
-                <button
-                  class="primary"
-                  onclick={disableSelectedStockLaunchers}
-                  disabled={stockWizardBusy}
-                >
-                  {stockWizardBusy ? "Working…" : "Disable selected"}
-                </button>
-                <button onclick={restoreAllHomeHandlers} disabled={stockWizardBusy}>
-                  Restore all disabled
-                </button>
-              </div>
-              {#if stockWizardResult}
-                <div class="recovery-result">
-                  <p><strong>{stockWizardResult.summary}</strong></p>
-                  {#if stockWizardResult.failed.length > 0}
-                    <p class="warn-text small">Failed: {stockWizardResult.failed.join(", ")}</p>
-                  {/if}
-                </div>
-              {/if}
-            {/if}
-          </div>
         {/if}
       {/if}
     </div>
@@ -1504,11 +1561,24 @@
         <p class="muted small legend">
           <strong>State</strong> is what the device reports right now.
           <strong>Recommended</strong> is what v1's Optimize wizard would pick for you —
-          click to apply, or leave it. Use the <strong>Links</strong> column to jump
-          straight to the Play Store for anything you want to (re)install.
+          click to apply, or leave it. <strong>Tools</strong> has the Play Store link
+          plus APK backup and copy-to-another-device.
         </p>
         {#if appActionMessage}
           <p class="muted small mono action-message">{appActionMessage}</p>
+        {/if}
+        {#if clonePkg}
+          <div class="clone-panel">
+            <span>Copy <code>{clonePkg}</code> to:</span>
+            {#each cloneTargets as t (t.serial)}
+              <button class="small-action" onclick={() => cloneTo(t)} disabled={cloneBusy}>
+                {cloneBusy ? "Copying…" : `${t.name} (${t.serial})`}
+              </button>
+            {/each}
+            <button class="small-action subtle" onclick={() => (clonePkg = null)} disabled={cloneBusy}>
+              Cancel
+            </button>
+          </div>
         {/if}
         <table class="app-table">
           <thead>
@@ -1517,7 +1587,7 @@
               <th class="center">State</th>
               <th class="center">Risk</th>
               <th>Recommended</th>
-              <th class="center">Links</th>
+              <th class="center">Tools</th>
             </tr>
           </thead>
           <tbody>
@@ -1581,7 +1651,7 @@
                     >Enable</button>
                   {/if}
                 </td>
-                <td class="center">
+                <td class="center tools-cell">
                   {#if a.play_store}
                     <button
                       class="small-action"
@@ -1591,7 +1661,25 @@
                     >
                       Play Store
                     </button>
-                  {:else}
+                  {/if}
+                  {#if state !== "missing"}
+                    <button
+                      class="small-action subtle"
+                      onclick={() => backupApkFor(a.package)}
+                      disabled={appActionBusy === a.package}
+                      title="Save this app's APK(s) to a folder on this computer"
+                    >
+                      Backup
+                    </button>
+                    <button
+                      class="small-action subtle"
+                      onclick={() => startClone(a.package)}
+                      disabled={appActionBusy === a.package}
+                      title="Install this app onto another connected device (app data does not transfer)"
+                    >
+                      Copy to…
+                    </button>
+                  {:else if !a.play_store}
                     <span class="muted small">—</span>
                   {/if}
                 </td>
@@ -2245,6 +2333,7 @@
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
+  .tag.stock { background: var(--bg-muted); color: var(--accent); }
   .tag.missing { background: var(--bg-muted); color: var(--fg-faint); }
   .tag.disabled { background: var(--warn-surface-2); color: var(--warn); }
   .warning {
@@ -2506,25 +2595,50 @@
     font-weight: 500;
     font-size: 0.92rem;
   }
-  .stock-wizard {
+  .screenshot-preview {
+    margin-top: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .screenshot-preview img {
+    max-width: 480px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .screenshot-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .send-text-section {
     margin-top: 1.5rem;
     padding-top: 1.2rem;
     border-top: 1px solid var(--border);
   }
-  .handler-list {
-    list-style: none;
-    padding: 0;
-    margin: 0.5rem 0;
+  .send-text-row {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 480px;
   }
-  .handler-list li {
-    padding: 0.3rem 0;
-    border-bottom: 1px solid var(--bg-button);
+  .send-text-row input {
+    flex: 1;
   }
-  .handler-list .checkbox-row {
+  .clone-panel {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
     flex-wrap: wrap;
+    margin: 0.4rem 0;
+    padding: 0.5rem 0.8rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9rem;
+  }
+  .tools-cell {
+    white-space: nowrap;
   }
   .rename-row {
     display: flex;

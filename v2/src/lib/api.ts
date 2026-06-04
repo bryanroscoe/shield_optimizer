@@ -7,6 +7,8 @@ import type {
   AdbStatus,
   AppEntry,
   ApplyResult,
+  BackupApkResult,
+  CloneAppResult,
   ConnectResult,
   CurrentDisplayScaling,
   CurrentLauncher,
@@ -17,7 +19,6 @@ import type {
   DisplayScalePreset,
   DisplayScaleResult,
   HealthReport,
-  HomeHandler,
   InstallApkResult,
   InstallResult,
   LauncherStatus,
@@ -31,11 +32,12 @@ import type {
   RestartResult,
   Safety,
   ScanResult,
+  ScreenshotResult,
+  SendTextResult,
   SetLauncherResult,
   SettingNamespace,
   SnapshotApplyPlan,
   SnapshotFile,
-  StockLauncherResult,
   TweaksState,
   WriteResult,
 } from "./types";
@@ -73,12 +75,13 @@ export const api = {
     invoke<boolean>("channel_provider_disabled", { serial }),
   setDefaultLauncher: (serial: string, pkg: string) =>
     invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg }),
-  listHomeHandlers: (serial: string, targetPackage: string) =>
-    invoke<HomeHandler[]>("list_home_handlers", { serial, targetPackage }),
-  disableStockLaunchers: (serial: string, packages: string[]) =>
-    invoke<StockLauncherResult>("disable_stock_launchers", { serial, packages }),
-  restoreStockLaunchers: (serial: string, packages: string[]) =>
-    invoke<StockLauncherResult>("restore_stock_launchers", { serial, packages }),
+  disableLauncher: (serial: string, pkg: string) =>
+    invoke<ActionResult>("disable_launcher", { serial, package: pkg }),
+
+  takeScreenshot: (serial: string) =>
+    invoke<ScreenshotResult>("take_screenshot", { serial }),
+  forceStop: (serial: string, pkg: string) =>
+    invoke<ActionResult>("force_stop", { serial, package: pkg }),
 
   disablePackage: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_package", { serial, package: pkg }),
@@ -96,9 +99,16 @@ export const api = {
       { serial, packages },
     ),
   safetyInfo: (pkg: string) => invoke<Safety>("safety_info", { package: pkg }),
+  trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
+  sendText: (serial: string, text: string) =>
+    invoke<SendTextResult>("send_text", { serial, text }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
+  backupApk: (serial: string, pkg: string, destDir: string) =>
+    invoke<BackupApkResult>("backup_apk", { serial, package: pkg, destDir }),
+  cloneApp: (sourceSerial: string, targetSerial: string, pkg: string) =>
+    invoke<CloneAppResult>("clone_app", { sourceSerial, targetSerial, package: pkg }),
   listApksInFolder: (folder: string) =>
     invoke<DiscoveredApk[]>("list_apks_in_folder", { folder }),
 

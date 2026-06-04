@@ -121,7 +121,7 @@ pub async fn list_apks_in_folder(folder: String) -> Result<Vec<DiscoveredApk>, S
 /// Decode the common `INSTALL_FAILED_*` / `DELETE_FAILED_*` codes into a one-line
 /// hint. Mirrors v1's `Get-UninstallErrorReason` + the inline decoder in
 /// `Install-ApkFile`.
-fn decode_install_error(text: &str) -> Option<String> {
+pub(crate) fn decode_install_error(text: &str) -> Option<String> {
     for (needle, hint) in [
         (
             "INSTALL_FAILED_INSUFFICIENT_STORAGE",
