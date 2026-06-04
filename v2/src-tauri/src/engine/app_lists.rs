@@ -71,6 +71,7 @@ mod tests {
             restore_description: String::new(),
             default_optimize: false,
             default_restore: false,
+            play_store: false,
         }
     }
 

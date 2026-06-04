@@ -39,6 +39,9 @@ export interface AppEntry {
   restore_description: string;
   default_optimize: boolean;
   default_restore: boolean;
+  /// Whether this package has a real Google Play listing at this exact id
+  /// (audited). Controls whether the "Play Store" button shows.
+  play_store: boolean;
 }
 
 export interface LauncherEntry {

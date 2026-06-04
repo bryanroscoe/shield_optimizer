@@ -117,6 +117,7 @@ mod tests {
             restore_description: String::new(),
             default_optimize: true,
             default_restore: true,
+            play_store: false,
         }
     }
 

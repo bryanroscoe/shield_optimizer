@@ -1524,7 +1524,7 @@
                   {/if}
                 </td>
                 <td class="center">
-                  {#if a.default_restore || state === "missing"}
+                  {#if a.play_store}
                     <button
                       class="small-action"
                       onclick={() => openInPlayStore(a.package)}

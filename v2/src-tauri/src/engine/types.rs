@@ -134,6 +134,12 @@ pub struct AppEntry {
     /// Pre-select YES in the Restore prompt's default.
     #[serde(default)]
     pub default_restore: bool,
+    /// Whether this package has a real Google Play listing at this exact id
+    /// (audited per-package). Drives whether the UI shows a "Play Store" button
+    /// — system components and defunct apps have no listing, so the button
+    /// would 404. Defaults to false for safety if a list omits it.
+    #[serde(default)]
+    pub play_store: bool,
 }
 
 /// Mode for an Optimize / Restore run.

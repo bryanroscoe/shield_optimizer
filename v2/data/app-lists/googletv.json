@@ -7,7 +7,8 @@
     "optimize_description": "Pre-installed Walmart app on Onn devices.",
     "restore_description": "Restores Walmart app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.android.leanbacklauncher.recommendations",
@@ -17,17 +18,19 @@
     "optimize_description": "Removes extra recommendation rows (older Android TV launcher only). No effect on custom or Google TV launchers.",
     "restore_description": "Restores home recommendations.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.google.android.tungsten.overscan",
     "name": "Overscan Calibrator",
     "method": "disable",
     "risk": "medium",
-    "optimize_description": "Overscan calibration tool — rarely needed after initial setup.",
+    "optimize_description": "Overscan calibration tool \u2014 rarely needed after initial setup.",
     "restore_description": "Restores overscan calibrator.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.droidlogic.launcher.provider",
@@ -37,7 +40,8 @@
     "optimize_description": "Onn launcher data provider. Disable with launcher.",
     "restore_description": "Restores Onn launcher provider.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.google.android.apps.tv.launcherx",
@@ -47,6 +51,7 @@
     "optimize_description": "Use Launcher Wizard to safely disable!",
     "restore_description": "Restores Google TV home.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   }
 ]

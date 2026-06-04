@@ -7,27 +7,30 @@
     "optimize_description": "Crash and feedback telemetry.",
     "restore_description": "Restores Google feedback service.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.android.printspooler",
     "name": "Print Spooler",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Print service — irrelevant on a TV.",
+    "optimize_description": "Print service \u2014 irrelevant on a TV.",
     "restore_description": "Restores print spooler.",
     "default_optimize": true,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.android.gallery3d",
     "name": "Android Gallery",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Photo gallery — rarely used on TV.",
+    "optimize_description": "Photo gallery \u2014 rarely used on TV.",
     "restore_description": "Restores gallery app.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.android.videos",
@@ -37,7 +40,8 @@
     "optimize_description": "Defunct service (replaced by YouTube).",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.google.android.music",
@@ -47,7 +51,8 @@
     "optimize_description": "Defunct service (replaced by YouTube Music).",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.Funimation.FunimationNow.androidtv",
@@ -57,7 +62,8 @@
     "optimize_description": "Service shut down April 2024 (merged into Crunchyroll).",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.stadia.android",
@@ -67,7 +73,8 @@
     "optimize_description": "Service shut down January 2023.",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.quibi.qlient",
@@ -77,17 +84,19 @@
     "optimize_description": "Service shut down December 2020.",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.hbo.hbonow",
     "name": "HBO Now (legacy)",
     "method": "uninstall",
     "risk": "safe",
-    "optimize_description": "Pre-Max HBO app — replaced by com.wbd.stream.",
+    "optimize_description": "Pre-Max HBO app \u2014 replaced by com.wbd.stream.",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.netflix.ninja",
@@ -97,7 +106,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Netflix.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.amazon.amazonvideo.livingroom",
@@ -107,7 +117,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Prime Video.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.wbd.stream",
@@ -117,7 +128,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Max.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.disney.disneyplus",
@@ -127,7 +139,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Disney+.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.hulu.livingroomplus",
@@ -137,7 +150,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Hulu.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.spotify.tv.android",
@@ -147,7 +161,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Spotify.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.apple.atve.androidtv.appletv",
@@ -157,7 +172,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Apple TV.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.crunchyroll.crunchyroid",
@@ -167,7 +183,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Crunchyroll.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.google.android.youtube.tv",
@@ -177,7 +194,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores YouTube.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.google.android.youtube.tvmusic",
@@ -187,7 +205,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores YouTube Music.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.peacocktv.peacockandroid",
@@ -197,7 +216,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Peacock.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.plexapp.android",
@@ -207,7 +227,8 @@
     "optimize_description": "Plex client.",
     "restore_description": "Restores Plex.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.cbs.ott",
@@ -217,7 +238,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Paramount+.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "tv.twitch.android.app",
@@ -227,7 +249,8 @@
     "optimize_description": "Streaming app.",
     "restore_description": "Restores Twitch.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.google.android.tv.remote.service",
@@ -237,7 +260,8 @@
     "optimize_description": "Background phone-as-keyboard service. Disable if you don't use the Google TV mobile remote.",
     "restore_description": "Restores virtual remote keyboard.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.android.providers.tv",
@@ -247,7 +271,8 @@
     "optimize_description": "Breaks Watch Next / Continue Watching channels for Apple TV, Netflix, Disney+, etc. Also breaks Pandora and the Live Channels app.",
     "restore_description": "Restores Watch Next channel support and Live Channels.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": false
   },
   {
     "package": "com.android.dreams.basic",
@@ -257,7 +282,8 @@
     "optimize_description": "Screensaver framework.",
     "restore_description": "Restores screensaver.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.android.katniss",
@@ -267,7 +293,8 @@
     "optimize_description": "Disables hotword + voice search; significant RAM savings but UX-noticeable.",
     "restore_description": "Restores voice search.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.amazon.amazonvideo.livingroom.nvidia",
@@ -277,7 +304,8 @@
     "optimize_description": "Pre-installed system app - disable only.",
     "restore_description": "Restores Prime Video.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.discovery.discoveryplus.androidtv",
@@ -287,7 +315,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores Discovery+.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.disney.disneyplus.prod",
@@ -297,7 +326,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores Disney+.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.android.youtube.tvkids",
@@ -307,7 +337,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores YouTube Kids.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "ca.bellmedia.crave",
@@ -317,7 +348,8 @@
     "optimize_description": "Canadian streaming app.",
     "restore_description": "Restores Crave.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "ca.bell.tv",
@@ -327,7 +359,8 @@
     "optimize_description": "Bell TV app.",
     "restore_description": "Restores Bell Fibe TV.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "tv.pluto.android",
@@ -337,7 +370,8 @@
     "optimize_description": "Free streaming app.",
     "restore_description": "Restores Pluto TV.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.tubitv",
@@ -347,7 +381,8 @@
     "optimize_description": "Free streaming app.",
     "restore_description": "Restores Tubi.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.sling",
@@ -357,7 +392,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores Sling TV.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.philo.philo",
@@ -367,7 +403,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores Philo.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.fubo.firetv.screen",
@@ -377,7 +414,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores fuboTV.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.haystack.android",
@@ -387,7 +425,8 @@
     "optimize_description": "News streaming app.",
     "restore_description": "Restores Haystack News.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "air.com.vudu.air.DownloaderTablet",
@@ -397,7 +436,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores Vudu.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.starz.starzplay.android",
@@ -407,7 +447,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores STARZ.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.showtime.standalone",
@@ -417,7 +458,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores Showtime.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.amcplus.amcfiretv",
@@ -427,7 +469,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores AMC+.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.britbox.us",
@@ -437,7 +480,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores BritBox.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": true
   },
   {
     "package": "com.epix.epixnow.google",
@@ -447,7 +491,8 @@
     "optimize_description": "Streaming App.",
     "restore_description": "Restores MGM+.",
     "default_optimize": false,
-    "default_restore": false
+    "default_restore": false,
+    "play_store": false
   },
   {
     "package": "com.google.android.apps.mediashell",
@@ -457,7 +502,8 @@
     "optimize_description": "Breaks casting to device.",
     "restore_description": "Restores Chromecast.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.google.android.tts",
@@ -467,7 +513,8 @@
     "optimize_description": "Breaks accessibility features.",
     "restore_description": "Restores text-to-speech.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.google.android.play.games",
@@ -477,7 +524,8 @@
     "optimize_description": "May break cloud saves.",
     "restore_description": "Restores Play Games.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   },
   {
     "package": "com.google.android.tungsten.setupwraith",
@@ -487,6 +535,7 @@
     "optimize_description": "HOME handler! Use Launcher Wizard instead.",
     "restore_description": "Restores setup wizard HOME handler.",
     "default_optimize": false,
-    "default_restore": true
+    "default_restore": true,
+    "play_store": true
   }
 ]
