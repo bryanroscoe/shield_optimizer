@@ -138,6 +138,10 @@ pub async fn set_default_launcher_impl(
     let _ = adb.shell(serial, &format!("pm enable {package}")).await;
 
     let mut last_error: Option<String> = None;
+    // Set when a strategy was acknowledged by the device ("Success" or a clean
+    // silent exit) even if the active-HOME resolver never confirmed the switch
+    // — that combination means "accepted, press Home" rather than "failed".
+    let mut device_accepted = false;
 
     // 2. Role API.
     let role_out = adb
@@ -148,8 +152,7 @@ pub async fn set_default_launcher_impl(
         .await;
     match role_out {
         Ok(out) if !out.stdout.contains("Unknown command") => {
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            if active_launcher(&*adb, serial).await.as_deref() == Some(package) {
+            if verify_active(&*adb, serial, package).await {
                 return Ok(SetLauncherResult {
                     ok: true,
                     strategy: Some("role_api".into()),
@@ -157,10 +160,15 @@ pub async fn set_default_launcher_impl(
                     last_error: None,
                 });
             }
-            if !out.stdout.is_empty() {
-                last_error = Some(out.stdout);
-            } else if !out.stderr.is_empty() {
-                last_error = Some(out.stderr);
+            let msg = if out.stdout.trim().is_empty() {
+                out.stderr.trim().to_string()
+            } else {
+                out.stdout.trim().to_string()
+            };
+            if is_success_ack(&msg) || msg.is_empty() {
+                device_accepted = true;
+            } else {
+                last_error = Some(msg);
             }
         }
         Ok(_) => { /* Unknown command — fall through. */ }
@@ -181,32 +189,40 @@ pub async fn set_default_launcher_impl(
         candidates.push(format!("{package}/{guess}"));
     }
 
-    for comp in &candidates {
+    'attempts: for comp in &candidates {
         for cmd in [
             format!("cmd package set-home-activity --user 0 {comp}"),
             format!("pm set-home-activity --user 0 {comp}"),
         ] {
             if let Ok(out) = adb.shell(serial, &cmd).await {
-                // Only record a diagnostic if the attempt actually printed
-                // something — set-home-activity is silent on success, so
-                // capturing its empty output would mask the real last error.
+                // set-home-activity prints a bare "Success" on many builds and
+                // nothing on others — both are acceptance, NOT diagnostics.
+                // Only real error text (e.g. "Error: …", usage spew) goes into
+                // last_error; recording the ack produced "Failed: Success".
                 let msg = if out.stderr.trim().is_empty() {
                     out.stdout.trim()
                 } else {
                     out.stderr.trim()
                 };
-                if !msg.is_empty() {
-                    last_error = Some(msg.to_string());
+                if is_success_ack(msg) || msg.is_empty() {
+                    device_accepted = true;
+                    if verify_active(&*adb, serial, package).await {
+                        return Ok(SetLauncherResult {
+                            ok: true,
+                            strategy: Some("set_home_activity".into()),
+                            current_launcher: Some(package.to_string()),
+                            last_error: None,
+                        });
+                    }
+                    // Accepted but the resolver didn't confirm: the preference
+                    // is now set to a real component of `package`. Re-running
+                    // the remaining guesses can only overwrite it with a worse
+                    // one — stop here and let the HOME-intent kick finish it.
+                    break 'attempts;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                if active_launcher(&*adb, serial).await.as_deref() == Some(package) {
-                    return Ok(SetLauncherResult {
-                        ok: true,
-                        strategy: Some("set_home_activity".into()),
-                        current_launcher: Some(package.to_string()),
-                        last_error: None,
-                    });
-                }
+                // Real error — nothing changed on the device, no point polling
+                // the resolver. Try the next variant/candidate.
+                last_error = Some(msg.to_string());
             }
         }
     }
@@ -230,12 +246,46 @@ pub async fn set_default_launcher_impl(
         });
     }
 
+    // The device acknowledged the change but the resolver never confirmed it.
+    // That's "accepted, not yet visible" — common on builds that only apply
+    // the preference on the next physical Home press. Say so instead of
+    // surfacing the raw "Success" ack as a failure reason.
+    if device_accepted {
+        last_error = Some(format!(
+            "The device accepted the launcher change but still reports {} as the active HOME app. \
+             Press Home on the TV, then hit Refresh — some devices only switch on the next Home press.",
+            now_active.as_deref().unwrap_or("the previous launcher")
+        ));
+    }
+
     Ok(SetLauncherResult {
         ok: false,
         strategy: None,
         current_launcher: now_active,
         last_error,
     })
+}
+
+/// `cmd package set-home-activity` / `pm set-home-activity` acknowledge with a
+/// bare "Success" line on many builds (and stay silent on others). That's an
+/// acceptance, not a diagnostic — surfacing it as an error produced the
+/// infamous "Failed: Success" message.
+fn is_success_ack(s: &str) -> bool {
+    s.trim().eq_ignore_ascii_case("success")
+}
+
+/// Poll the active-HOME resolver until it reports `package`, with backoff.
+/// Propagation after set-home-activity / role changes isn't instant on every
+/// build — a single immediate check produced false "failed" results even when
+/// the device had accepted the change.
+async fn verify_active(adb: &dyn crate::adb::AdbDriver, serial: &str, package: &str) -> bool {
+    for delay_ms in [200u64, 500, 900] {
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        if active_launcher(adb, serial).await.as_deref() == Some(package) {
+            return true;
+        }
+    }
+    false
 }
 
 async fn active_launcher(adb: &dyn crate::adb::AdbDriver, serial: &str) -> Option<String> {

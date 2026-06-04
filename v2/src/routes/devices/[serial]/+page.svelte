@@ -557,9 +557,11 @@
         launcherActionMessage = `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
         await loadLauncher();
       } else {
-        launcherActionMessage = r.last_error
-          ? `Failed: ${r.last_error}`
-          : "Could not set default launcher. Try disabling other launchers first.";
+        // Backend messages are full sentences (including the "device accepted
+        // the change — press Home" case) — render them verbatim rather than
+        // prefixing "Failed:", which once produced "Failed: Success".
+        launcherActionMessage =
+          r.last_error ?? "Could not set default launcher. Try disabling other launchers first.";
       }
     } catch (e) {
       launcherActionMessage = String(e);
