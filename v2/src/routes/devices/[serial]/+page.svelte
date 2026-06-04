@@ -2583,7 +2583,6 @@
   }
   .tools-cell {
     white-space: nowrap;
->>>>>>> origin/main
   }
   .plan-summary {
     margin: 0.4rem 0;
