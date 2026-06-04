@@ -1,0 +1,20 @@
+[
+  {
+    "name": "SmartTube",
+    "package": "com.teamsmart.videomanager.tv",
+    "description": "Ad-free YouTube client built for Android TV — SponsorBlock, adjustable speed, no Shorts. Not on the Play Store; download the stable APK from the official GitHub.",
+    "url": "https://github.com/yuliskov/SmartTube"
+  },
+  {
+    "name": "F-Droid",
+    "package": "org.fdroid.fdroid",
+    "description": "Catalog of free and open-source apps — handy as a second app source on TV. Download the official APK from f-droid.org.",
+    "url": "https://f-droid.org"
+  },
+  {
+    "name": "Aurora Store",
+    "package": "com.aurora.store",
+    "description": "Alternative Play Store client (anonymous downloads of free Play apps). Official builds are distributed via F-Droid.",
+    "url": "https://f-droid.org/packages/com.aurora.store/"
+  }
+]

@@ -3,7 +3,8 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+  import sideloadCatalog from "$lib/sideload-catalog.json";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -752,6 +753,14 @@
       headerActionMsg = String(e);
     } finally {
       rebootBusy = false;
+    }
+  }
+
+  async function openDownloadPage(url: string) {
+    try {
+      await openUrl(url);
+    } catch (e) {
+      sideloadResult = `Open link failed: ${e}`;
     }
   }
 
@@ -2076,6 +2085,34 @@
           <div class="warning">{sideloadHint}</div>
         {/if}
       {/if}
+
+      <div class="sideload-catalog">
+        <h3>Popular sideloads</h3>
+        <p class="muted small">
+          Apps people commonly install that aren't on the Play Store. Links go to the
+          official source only — download the APK there, then install it with the
+          buttons above. You're sideloading third-party software; check it's the
+          official release.
+        </p>
+        <ul class="catalog-list">
+          {#each sideloadCatalog as entry (entry.package)}
+            <li>
+              <div>
+                <div class="apk-name">{entry.name}</div>
+                <div class="muted small">{entry.description}</div>
+                <div class="muted small mono">{entry.package}</div>
+              </div>
+              <button
+                class="small-action"
+                onclick={() => openDownloadPage(entry.url)}
+                title={entry.url}
+              >
+                Open download page
+              </button>
+            </li>
+          {/each}
+        </ul>
+      </div>
     </div>
   {:else if activeTab === "snapshot"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-snapshot" aria-labelledby="tab-snapshot">
@@ -2653,6 +2690,24 @@
   h1 .rename-button {
     vertical-align: middle;
     margin-left: 0.5rem;
+  }
+  .sideload-catalog {
+    margin-top: 1.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--border);
+  }
+  .catalog-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0 0;
+  }
+  .catalog-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--bg-button);
   }
   .plan-summary {
     margin: 0.4rem 0;
