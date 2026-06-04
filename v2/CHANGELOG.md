@@ -30,6 +30,20 @@ When you add a new section, put it at the top; older releases go below.
 
 ### Fixed
 
+- **Optimize wizard defaults are no longer dangerously aggressive.** The wizard
+  pre-selected an action for *every* installed app, so streaming apps (Netflix,
+  Prime Video, Hulu, …) and anything not on the curated default list defaulted
+  to Disable/Uninstall. It now respects each app's default the way v1 does:
+  only default-optimize entries are pre-selected for action; everything else
+  defaults to **Skip** (you can still pick Disable/Uninstall per row from the
+  dropdown). Restore mode mirrors this with default_restore.
+- **App descriptions are back in the App List.** Each app shows its inline help
+  text ("Print service — irrelevant on a TV", etc.) under the name again,
+  instead of only as a hover tooltip.
+- **System keyboards added to the do-not-disable list.** Gboard, the Leanback
+  keyboard, and the AOSP IME can no longer be disabled (from the memory table,
+  a snapshot, or anywhere) — disabling the active keyboard removes all
+  on-screen text input.
 - **Accurate success reporting for device actions.** Apply-snapshot,
   disable/restore-stock-launchers, and Emergency Recovery judged success by
   scanning only stdout — but `adb shell` exits 0 even when the on-device

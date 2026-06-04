@@ -143,8 +143,11 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
   const memoryByPkg: Record<string, number> = Object.fromEntries(
     health.top_memory.map((m) => [m.package, m.mb]),
   );
+  // Mirror the real backend (engine::compute_plan): include every installed
+  // catalog app with its natural action, regardless of default_optimize. The
+  // wizard UI is what applies the per-app default (non-default apps default to
+  // Skip), so the plan must carry the full set for that to be visible.
   const items: OptimizePlanItem[] = apps
-    .filter((e) => (mode === "optimize" ? e.default_optimize : e.default_restore))
     .slice(0, 16)
     .map((entry) => {
       const state = MISSING.has(entry.package)

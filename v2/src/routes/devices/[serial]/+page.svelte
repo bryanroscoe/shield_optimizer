@@ -816,31 +816,45 @@
     }
   }
 
-  /// The plan's recommended action for a row (what the dropdown defaults to),
-  /// or null for rows the backend already marked skip (not installed / already
-  /// in target state) — those aren't actionable and get no dropdown.
-  function recommendedAction(item: OptimizePlanItem): RowAction | null {
+  /// The natural action the engine computed for an actionable row (disable /
+  /// uninstall in optimize mode, enable in restore mode), or null for rows the
+  /// backend marked skip (not installed / already in target state) — those
+  /// aren't actionable and get no dropdown.
+  function naturalAction(item: OptimizePlanItem): RowAction | null {
     return item.action.kind === "skip" ? null : item.action.kind;
   }
 
+  /// What the dropdown defaults to. This mirrors v1's per-app defaults: only
+  /// apps flagged default_optimize / default_restore are pre-selected for
+  /// action; everything else defaults to Skip so the wizard never removes a
+  /// streaming app (or anything not on the curated default list) unless the
+  /// user explicitly chooses to. Returns null for non-actionable rows.
+  function defaultAction(item: OptimizePlanItem): RowAction | null {
+    const natural = naturalAction(item);
+    if (natural === null) return null;
+    const isDefault =
+      optimizeMode === "optimize" ? item.entry.default_optimize : item.entry.default_restore;
+    return isDefault ? natural : "skip";
+  }
+
   /// The action that will actually run: the user's dropdown pick if they made
-  /// one, otherwise the recommendation (or skip for non-actionable rows).
+  /// one, otherwise the per-app default (or skip for non-actionable rows).
   function effectiveAction(item: OptimizePlanItem): RowAction {
-    return optimizeOverrides[item.entry.package] ?? recommendedAction(item) ?? "skip";
+    return optimizeOverrides[item.entry.package] ?? defaultAction(item) ?? "skip";
   }
 
   /// Dropdown choices for a row, in mode-appropriate order. Restore only ever
   /// produces enable rows, so its menu is Enable / Skip; optimize rows can be
   /// downgraded (uninstall→disable) or upgraded (disable→uninstall).
   function actionOptions(item: OptimizePlanItem): RowAction[] {
-    return recommendedAction(item) === "enable"
+    return naturalAction(item) === "enable"
       ? ["enable", "skip"]
       : ["disable", "uninstall", "skip"];
   }
 
   function actionLabel(item: OptimizePlanItem, action: RowAction): string {
     const base = { disable: "Disable", uninstall: "Uninstall", enable: "Enable", skip: "Skip" }[action];
-    return action === recommendedAction(item) ? `${base} (recommended)` : base;
+    return action === defaultAction(item) ? `${base} (recommended)` : base;
   }
 
   function setOptimizeAction(pkg: string, action: RowAction) {
@@ -1455,6 +1469,9 @@
               <tr>
                 <td class="app-cell">
                   <div class="app-name-row">{a.name}</div>
+                  {#if a.optimize_description}
+                    <div class="muted small app-desc">{a.optimize_description}</div>
+                  {/if}
                   <div class="muted small mono pkg-id">{a.package}</div>
                 </td>
                 <td class="center">
@@ -2087,6 +2104,11 @@
   .app-name-row {
     font-size: 0.95rem;
     font-weight: 500;
+  }
+  .app-table .app-desc {
+    margin-top: 0.15rem;
+    font-size: 0.82rem;
+    max-width: 42rem;
   }
   .app-table .pkg-id {
     margin-top: 0.1rem;

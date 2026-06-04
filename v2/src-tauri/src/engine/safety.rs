@@ -179,6 +179,20 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
         "com.android.providers.contacts",
         "Contacts provider. Required by sign-in and account sync.",
     ),
+    // --- On-screen keyboards / IMEs — disabling the active one removes all
+    //     text input (no way to type passwords, search, Wi-Fi keys) ---
+    (
+        "com.google.android.inputmethod.latin",
+        "Gboard — the system keyboard on most Android TV / Google TV. Disabling removes on-screen text input.",
+    ),
+    (
+        "com.google.android.leanbackkeyboard",
+        "Leanback Keyboard — the Android TV system IME. Disabling removes on-screen text input.",
+    ),
+    (
+        "com.android.inputmethod.latin",
+        "AOSP keyboard. Disabling can remove on-screen text input on builds that ship it as the IME.",
+    ),
 ];
 
 const CAUTION: &[(&str, &str)] = &[
@@ -252,5 +266,13 @@ mod tests {
     #[test]
     fn gms_is_never_disable() {
         assert!(is_never_disable("com.google.android.gms"));
+    }
+
+    #[test]
+    fn system_keyboards_are_never_disable() {
+        // Disabling the active IME removes all on-screen text input.
+        assert!(is_never_disable("com.google.android.inputmethod.latin"));
+        assert!(is_never_disable("com.google.android.leanbackkeyboard"));
+        assert!(is_never_disable("com.android.inputmethod.latin"));
     }
 }
