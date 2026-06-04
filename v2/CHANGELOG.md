@@ -28,6 +28,17 @@ When you add a new section, put it at the top; older releases go below.
   Uninstall to a safer Disable, or skip individual rows, without giving up the
   recommendation. The do-not-disable safety list still gates every action.
 
+### Changed
+
+- **Snapshot apply now shows a clear preview table** instead of a text dump.
+  Applying a snapshot (from the global Snapshots page) opens a panel listing
+  each package and what will happen — Disable / Set as launcher / Set setting,
+  with already-disabled and not-installed rows clearly de-emphasized — mirroring
+  the Optimize wizard. Apply happens from the reviewed panel.
+- In the Optimize wizard, terminal rows (not installed / already in target
+  state) now read as a neutral pill, visually distinct from a user-chosen
+  "Skip".
+
 ### Fixed
 
 - **"Play Store" buttons only show for apps that are actually on the Play

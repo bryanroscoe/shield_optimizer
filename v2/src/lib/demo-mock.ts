@@ -208,6 +208,34 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots";
     case "list_apks_in_folder":
       return [];
+    case "preview_apply":
+      return {
+        packages_to_disable: [
+          "com.google.android.feedback",
+          "com.android.printspooler",
+          "com.google.android.videos",
+          "com.google.android.music",
+        ],
+        packages_already_disabled: ["com.amazon.amazonvideo.livingroom", "com.facebook.katana"],
+        packages_not_installed: ["com.disney.disneyplus", "com.quibi.qlient"],
+        launcher_to_set: "com.spocky.projengmenu",
+        settings_to_write: {
+          "global.hdmi_control_enabled": "1",
+          "secure.match_content_frame_rate": "2",
+          "global.window_animation_scale": "0.5",
+        },
+        cross_device_warning: null,
+      };
+    case "apply_snapshot":
+      return {
+        packages_disabled: ["com.google.android.feedback", "com.android.printspooler"],
+        packages_failed: [],
+        launcher_set: true,
+        launcher_message: "Set Projectivy as default.",
+        settings_written: ["global.hdmi_control_enabled", "secure.match_content_frame_rate"],
+        settings_failed: [],
+        summary: "Applied snapshot: 2 disabled, launcher set, 2 settings written.",
+      };
     case "prepare_optimize":
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");
     case "report_all":

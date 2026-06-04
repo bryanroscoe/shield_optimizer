@@ -1649,7 +1649,7 @@
                 <td class={`risk risk-${item.entry.risk}`}>{item.entry.risk.toUpperCase()}</td>
                 <td>
                   {#if skip}
-                    <span class="muted small">{skip}</span>
+                    <span class="terminal-reason">{skip}</span>
                   {:else}
                     <select
                       class="action-select"
@@ -2515,6 +2515,18 @@
   .action-select.will-remove {
     color: var(--danger-strong);
     font-weight: 500;
+  }
+  /* Terminal rows (not installed / already in target state) can't be acted on —
+     a neutral pill, distinct from the italic "Skip (recommended)" dropdown so
+     "nothing to do here" doesn't read like "you chose to skip this". */
+  .terminal-reason {
+    display: inline-block;
+    font-size: 0.74rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-muted);
+    color: var(--fg-faint);
+    letter-spacing: 0.02em;
   }
   .legend {
     display: flex;

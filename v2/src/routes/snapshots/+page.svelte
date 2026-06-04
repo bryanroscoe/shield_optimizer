@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
-  import type { Device, SnapshotFile } from "$lib/types";
+  import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
 
   let snapshots = $state<SnapshotFile[]>([]);
@@ -13,6 +13,19 @@
   let devices = $state<Device[]>([]);
   let actionBusy = $state<string | null>(null);
   let actionMsg = $state<string>("");
+
+  // Structured preview: the computed plan for applying `snap` to `serial`,
+  // rendered as a table (a la the Optimize wizard) instead of a text dump.
+  type PreviewState = {
+    snap: SnapshotFile;
+    serial: string;
+    deviceName: string;
+    plan: SnapshotApplyPlan;
+  };
+  let previewState = $state<PreviewState | null>(null);
+  let applyBusy = $state(false);
+  let applyResult = $state<ApplyResult | null>(null);
+  let applyErr = $state<string | null>(null);
 
   async function load() {
     loading = true;
@@ -33,42 +46,47 @@
     }
   }
 
-  /// Pick a connected device, then apply this snapshot to it. The Snapshot tab
-  /// inside that device already supports cross-device apply via the preview
-  /// step; this is a one-click shortcut from the global view.
-  async function applyTo(snap: SnapshotFile, serial: string) {
-    if (!confirm(`Apply ${snap.filename} to ${serial}?\n\nThis will disable ${snap.disabled_count} package(s) and write ${snap.settings_count} setting(s).`)) return;
+  /// Compute the plan for applying `snap` to `serial` and open the preview
+  /// panel. Apply happens from the panel after the user reviews the table.
+  async function previewTo(snap: SnapshotFile, serial: string) {
     actionBusy = snap.path;
     actionMsg = "";
+    applyResult = null;
+    applyErr = null;
+    previewState = null;
     try {
-      const r = await api.applySnapshot(serial, snap.path);
-      actionMsg = `${snap.filename} → ${serial}: ${r.summary}`;
+      const plan = await api.previewApply(serial, snap.path);
+      const deviceName = devices.find((d) => d.serial === serial)?.name ?? serial;
+      previewState = { snap, serial, deviceName, plan };
     } catch (e) {
-      actionMsg = `Apply failed: ${e}`;
+      actionMsg = String(e);
     } finally {
       actionBusy = null;
     }
   }
 
-  async function previewTo(snap: SnapshotFile, serial: string) {
-    actionBusy = snap.path;
-    actionMsg = "";
+  function cancelPreview() {
+    previewState = null;
+    applyResult = null;
+    applyErr = null;
+  }
+
+  async function confirmApply() {
+    if (!previewState) return;
+    const { snap, serial, plan } = previewState;
+    const total =
+      plan.packages_to_disable.length +
+      Object.keys(plan.settings_to_write).length +
+      (plan.launcher_to_set ? 1 : 0);
+    if (!confirm(`Apply ${snap.filename} to ${previewState.deviceName}?\n\n${total} change(s). Disabled packages can be re-enabled via Emergency Recovery.`)) return;
+    applyBusy = true;
+    applyErr = null;
     try {
-      const plan = await api.previewApply(serial, snap.path);
-      const lines = [
-        `Preview ${snap.filename} → ${serial}:`,
-        `  ${plan.packages_to_disable.length} packages would be disabled`,
-        `  ${plan.packages_already_disabled.length} already disabled`,
-        `  ${plan.packages_not_installed.length} not installed on target`,
-        `  Launcher: ${plan.launcher_to_set ?? "(unchanged)"}`,
-        `  ${Object.keys(plan.settings_to_write).length} settings would be written`,
-      ];
-      if (plan.cross_device_warning) lines.push(`⚠ ${plan.cross_device_warning}`);
-      actionMsg = lines.join("\n");
+      applyResult = await api.applySnapshot(serial, snap.path);
     } catch (e) {
-      actionMsg = String(e);
+      applyErr = String(e);
     } finally {
-      actionBusy = null;
+      applyBusy = false;
     }
   }
 
@@ -128,6 +146,72 @@
   <pre class="action-msg">{actionMsg}</pre>
 {/if}
 
+{#if previewState}
+  {@const plan = previewState.plan}
+  {@const settingKeys = Object.keys(plan.settings_to_write)}
+  <div class="preview-panel">
+    <div class="preview-head">
+      <div>
+        <h2>Apply to {previewState.deviceName}</h2>
+        <p class="muted small mono">{previewState.snap.filename} → {previewState.serial}</p>
+      </div>
+      <button onclick={cancelPreview}>Close</button>
+    </div>
+
+    {#if plan.cross_device_warning}
+      <div class="warning">⚠ {plan.cross_device_warning}</div>
+    {/if}
+
+    <div class="plan-summary">
+      <strong>{plan.packages_to_disable.length}</strong> to disable ·
+      {plan.packages_already_disabled.length} already disabled ·
+      {plan.packages_not_installed.length} not on device ·
+      <strong>{settingKeys.length}</strong> setting{settingKeys.length === 1 ? "" : "s"}
+      {#if plan.launcher_to_set}· launcher{/if}
+    </div>
+
+    <table class="plan-table">
+      <thead><tr><th>Package</th><th>What happens</th></tr></thead>
+      <tbody>
+        {#each plan.packages_to_disable as pkg (pkg)}
+          <tr class="acting"><td class="mono small">{pkg}</td><td><span class="plan-act disable">Disable</span></td></tr>
+        {/each}
+        {#if plan.launcher_to_set}
+          <tr class="acting"><td class="mono small">{plan.launcher_to_set}</td><td><span class="plan-act launcher">Set as launcher</span></td></tr>
+        {/if}
+        {#each settingKeys as k (k)}
+          <tr class="acting"><td class="mono small">{k}</td><td><span class="plan-act setting">Set → {plan.settings_to_write[k]}</span></td></tr>
+        {/each}
+        {#each plan.packages_already_disabled as pkg (pkg)}
+          <tr class="dim"><td class="mono small">{pkg}</td><td><span class="terminal-reason">Already disabled</span></td></tr>
+        {/each}
+        {#each plan.packages_not_installed as pkg (pkg)}
+          <tr class="dim"><td class="mono small">{pkg}</td><td><span class="terminal-reason">Not on device</span></td></tr>
+        {/each}
+      </tbody>
+    </table>
+
+    <div class="apply-row">
+      <button class="primary" onclick={confirmApply} disabled={applyBusy || applyResult !== null}>
+        {applyBusy ? "Applying…" : applyResult ? "Applied" : "Apply snapshot"}
+      </button>
+      <span class="muted small">Disable is reversible via Emergency Recovery on the device.</span>
+    </div>
+    {#if applyErr}<div class="error">{applyErr}</div>{/if}
+    {#if applyResult}
+      <div class="apply-result">
+        <p><strong>{applyResult.summary}</strong></p>
+        {#if applyResult.packages_failed.length > 0}
+          <p class="warn-text">{applyResult.packages_failed.length} failed: {applyResult.packages_failed.join(", ")}</p>
+        {/if}
+        {#if applyResult.settings_failed.length > 0}
+          <p class="warn-text">{applyResult.settings_failed.length} setting(s) failed: {applyResult.settings_failed.join(", ")}</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
+{/if}
+
 {#if error}
   <div class="error">{error}</div>
 {:else if loading && snapshots.length === 0}
@@ -160,19 +244,15 @@
             <select
               disabled={actionBusy === s.path}
               onchange={(e) => {
-                const target = (e.target as HTMLSelectElement);
-                const v = target.value;
-                if (!v) return;
-                const [verb, serial] = v.split("|");
-                if (verb === "preview") previewTo(s, serial);
-                else if (verb === "apply") applyTo(s, serial);
+                const target = e.target as HTMLSelectElement;
+                const serial = target.value;
+                if (serial) previewTo(s, serial);
                 target.value = "";
               }}
             >
               <option value="">Apply to device…</option>
               {#each authorizedDevices() as d}
-                <option value={`preview|${d.serial}`}>Preview → {d.name}</option>
-                <option value={`apply|${d.serial}`}>Apply → {d.name}</option>
+                <option value={d.serial}>Preview → {d.name}</option>
               {/each}
             </select>
           {/if}
@@ -290,4 +370,90 @@
     font-family: ui-monospace, monospace;
     font-size: 0.85em;
   }
+
+  /* Snapshot-apply preview — same visual language as the Optimize wizard. */
+  .preview-panel {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-surface);
+    padding: 1rem 1.2rem;
+    margin: 0.5rem 0 1rem;
+  }
+  .preview-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  .preview-head h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+  .warning {
+    background: var(--warn-surface);
+    border: 1px solid var(--warn-border);
+    color: var(--warn);
+    padding: 0.6rem 0.9rem;
+    border-radius: 6px;
+    margin: 0.6rem 0;
+    font-size: 0.9rem;
+  }
+  .plan-summary {
+    margin: 0.6rem 0;
+    font-size: 0.9rem;
+  }
+  .plan-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.4rem 0 0.8rem;
+  }
+  .plan-table th {
+    text-align: left;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--fg-muted);
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .plan-table td {
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .plan-table tr.dim {
+    opacity: 0.5;
+  }
+  .plan-table tr.acting td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent-strong);
+  }
+  .plan-act {
+    font-weight: 500;
+    font-size: 0.85rem;
+  }
+  .plan-act.disable { color: var(--accent); }
+  .plan-act.launcher { color: var(--accent); }
+  .plan-act.setting { color: var(--fg-secondary); font-weight: 400; }
+  .terminal-reason {
+    display: inline-block;
+    font-size: 0.74rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    background: var(--bg-muted);
+    color: var(--fg-faint);
+  }
+  .apply-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    flex-wrap: wrap;
+    margin-top: 0.4rem;
+  }
+  .apply-result {
+    margin-top: 0.8rem;
+    padding: 0.6rem 0.9rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .warn-text { color: var(--warn); }
 </style>
