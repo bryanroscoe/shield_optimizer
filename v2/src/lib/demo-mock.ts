@@ -75,10 +75,17 @@ const health: HealthReport = {
 };
 
 const launchers: LauncherStatus[] = [
-  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu" }, installed: true, enabled: true },
-  { entry: { name: "FLauncher", package: "me.efesser.flauncher" }, installed: true, enabled: true },
-  { entry: { name: "ATV Launcher", package: "com.sweech.launcher" }, installed: false, enabled: false },
-  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher" }, installed: false, enabled: false },
+  {
+    entry: { name: "Android TV Launcher (Stock)", package: "com.google.android.tvlauncher" },
+    installed: true,
+    enabled: true,
+    stock: true,
+    other: false,
+  },
+  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu" }, installed: true, enabled: true, stock: false, other: false },
+  { entry: { name: "FLauncher", package: "me.efesser.flauncher" }, installed: true, enabled: true, stock: false, other: false },
+  { entry: { name: "ATV Launcher", package: "com.sweech.launcher" }, installed: false, enabled: false, stock: false, other: false },
+  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher" }, installed: false, enabled: false, stock: false, other: false },
 ];
 
 const tweaks: TweaksState = {

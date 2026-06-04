@@ -133,6 +133,21 @@ pub async fn enable_package(
     run(&state, &serial, &format!("pm enable {package}")).await
 }
 
+/// `force_stop` — `am force-stop <pkg>`. Kills the app's processes; it
+/// restarts on next launch, so unlike disable nothing persists and no safety
+/// gate beyond name validation is needed.
+#[tauri::command]
+pub async fn force_stop(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(&package) {
+        return Ok(rejection);
+    }
+    run(&state, &serial, &format!("am force-stop {package}")).await
+}
+
 /// Decode a `pm uninstall` failure into a user-readable hint. Mirrors v1's
 /// `Get-UninstallErrorReason` (§16.6). Returns `None` when nothing matches
 /// so the caller can fall back to the raw output.

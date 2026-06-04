@@ -14,7 +14,8 @@ on:
       - 'v2/**'
       - '.github/workflows/v2-tests.yml'
   pull_request:
-    branches: [main]
+    # No branch filter: stacked PRs (base = another feature branch) need CI
+    # too, and the workflow file is taken from the PR merge ref.
     paths:
       - 'v2/**'
       - '.github/workflows/v2-tests.yml'

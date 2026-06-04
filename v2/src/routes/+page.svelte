@@ -108,9 +108,10 @@
     try {
       const r = await api.scanNetwork();
       scanMessage = r.message;
-      if (r.connected.length > 0) {
-        await refresh();
-      }
+      // Always refresh: even a "failed" connect can register the device with
+      // the daemon (e.g. unauthorized — waiting for on-TV approval), and the
+      // list is where that state is visible.
+      await refresh();
     } catch (e) {
       scanMessage = String(e);
     } finally {
