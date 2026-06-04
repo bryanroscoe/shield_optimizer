@@ -1290,11 +1290,21 @@ function Scan-Network {
 
     Write-Host "`r                              `r" -NoNewline  # Clear progress line
 
-    # Connect to found devices
+    # Connect to found devices. "failed to authenticate" means the TV is
+    # showing the "Allow USB debugging?" prompt — the device still registers
+    # as unauthorized, so tell the user what to do instead of staying silent.
+    $authPendingIps = @()
     foreach ($ip in $foundIps) {
         Write-Success "Found device at $ip"
-        & $Script:AdbPath connect $ip 2>$null | Out-Null
+        $connOutput = & $Script:AdbPath connect $ip 2>&1 | Out-String
+        if ($connOutput -match "failed to authenticate") {
+            $authPendingIps += $ip
+        }
         $foundCount++
+    }
+    if ($authPendingIps.Count -gt 0) {
+        Write-Warn "$($authPendingIps.Count) device(s) need authorization: $($authPendingIps -join ', ')"
+        Write-Host " Accept the 'Allow USB debugging?' prompt on each TV, then re-scan." -ForegroundColor $Script:Colors.Text
     }
 
     if ($foundCount -eq 0) {
