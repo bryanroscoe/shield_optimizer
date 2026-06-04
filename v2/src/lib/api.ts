@@ -18,6 +18,8 @@ import type {
   DiscoveredApk,
   DisplayScalePreset,
   DisplayScaleResult,
+  FileEntry,
+  FileTransferResult,
   HealthReport,
   InstallApkResult,
   InstallResult,
@@ -102,6 +104,8 @@ export const api = {
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
   sendText: (serial: string, text: string) =>
     invoke<SendTextResult>("send_text", { serial, text }),
+  sendKey: (serial: string, key: string) =>
+    invoke<SendTextResult>("send_key", { serial, key }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
@@ -109,6 +113,17 @@ export const api = {
     invoke<BackupApkResult>("backup_apk", { serial, package: pkg, destDir }),
   cloneApp: (sourceSerial: string, targetSerial: string, pkg: string) =>
     invoke<CloneAppResult>("clone_app", { sourceSerial, targetSerial, package: pkg }),
+
+  listDir: (serial: string, path: string) =>
+    invoke<FileEntry[]>("list_dir", { serial, path }),
+  pullFile: (serial: string, remotePath: string, localDir: string) =>
+    invoke<FileTransferResult>("pull_file", { serial, remotePath, localDir }),
+  pushFile: (serial: string, localPath: string, remoteDir: string) =>
+    invoke<FileTransferResult>("push_file", { serial, localPath, remoteDir }),
+  deletePath: (serial: string, path: string) =>
+    invoke<FileTransferResult>("delete_path", { serial, path }),
+  findFiles: (serial: string, dirs: string[], pattern: string) =>
+    invoke<string[]>("find_files", { serial, dirs, pattern }),
   listApksInFolder: (folder: string) =>
     invoke<DiscoveredApk[]>("list_apks_in_folder", { folder }),
 

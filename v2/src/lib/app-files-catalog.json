@@ -1,0 +1,16 @@
+[
+  {
+    "package": "com.spocky.projengmenu",
+    "name": "Projectivy Launcher",
+    "hint": "In Projectivy: Settings → Backup & restore → Export settings — save the .plbackup file with the file picker (Downloads is typical). Then find it here and save it to this computer.",
+    "search_dirs": ["/sdcard/Download", "/sdcard/Documents", "/sdcard"],
+    "pattern": "*.plbackup"
+  },
+  {
+    "package": "com.teamsmart.videomanager.tv",
+    "name": "SmartTube",
+    "hint": "In SmartTube: Settings → Backup & restore → Backup. The backup lands in SmartTube's app folder on /sdcard.",
+    "search_dirs": ["/sdcard/Android/data/com.teamsmart.videomanager.tv"],
+    "pattern": "*.zip"
+  }
+]

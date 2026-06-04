@@ -72,6 +72,57 @@ pub async fn send_text(
     }
 }
 
+/// Allowlisted remote keys → Android keycodes. Anything outside this map is
+/// refused — the frontend never gets to send arbitrary keycodes.
+fn keycode_for(key: &str) -> Option<u32> {
+    Some(match key {
+        "up" => 19,
+        "down" => 20,
+        "left" => 21,
+        "right" => 22,
+        "select" => 23,
+        "back" => 4,
+        "home" => 3,
+        "play_pause" => 85,
+        "rewind" => 89,
+        "fast_forward" => 90,
+        "volume_up" => 24,
+        "volume_down" => 25,
+        "mute" => 164,
+        "power" => 26,
+        "delete" => 67,
+        "enter" => 66,
+        _ => return None,
+    })
+}
+
+/// `send_key` — one remote button press (`input keyevent <code>`). Used by
+/// the Remote panel's D-pad and by live typing for Backspace/Enter.
+#[tauri::command]
+pub async fn send_key(
+    state: State<'_, AppState>,
+    serial: String,
+    key: String,
+) -> Result<SendTextResult, String> {
+    let Some(code) = keycode_for(&key) else {
+        return Err(format!("Unknown remote key: {key:?}"));
+    };
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(&serial, &format!("input keyevent {code}"))
+        .await
+        .map_err(|e| format!("input keyevent: {e}"))?;
+    let noise = out.combined().trim().to_string();
+    Ok(SendTextResult {
+        ok: noise.is_empty(),
+        message: if noise.is_empty() {
+            format!("Sent {key}.")
+        } else {
+            noise
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +149,16 @@ mod tests {
         assert!(encode_input_text("line\nbreak").is_err());
         assert!(encode_input_text("").is_err());
         assert!(encode_input_text(&"x".repeat(501)).is_err());
+    }
+
+    #[test]
+    fn remote_keys_map_to_android_keycodes() {
+        assert_eq!(keycode_for("up"), Some(19));
+        assert_eq!(keycode_for("select"), Some(23));
+        assert_eq!(keycode_for("back"), Some(4));
+        assert_eq!(keycode_for("delete"), Some(67));
+        // No arbitrary keycodes from the frontend.
+        assert_eq!(keycode_for("42"), None);
+        assert_eq!(keycode_for(""), None);
     }
 }

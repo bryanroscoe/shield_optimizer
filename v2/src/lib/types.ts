@@ -186,6 +186,20 @@ export interface SendTextResult {
   message: string;
 }
 
+export interface FileEntry {
+  name: string;
+  is_dir: boolean;
+  is_symlink: boolean;
+  size_bytes: number;
+  modified: string;
+}
+
+export interface FileTransferResult {
+  ok: boolean;
+  message: string;
+  local_path: string | null;
+}
+
 export interface AdbStatus {
   available: boolean;
   path: string | null;

@@ -86,17 +86,27 @@ async function captureScreens(page, shot) {
     await page.getByText("HDMI", { exact: false }).first().waitFor();
     await shot("tweaks");
 
-    // 8. Install APK.
+    // 8. Remote.
+    await page.locator("#tab-remote").click();
+    await page.getByText("Live typing", { exact: false }).first().waitFor();
+    await shot("remote");
+
+    // 9. Files.
+    await page.locator("#tab-files").click();
+    await page.getByText("Download", { exact: true }).first().waitFor();
+    await shot("files");
+
+    // 9. Install APK.
     await page.locator("#tab-sideload").click();
     await page.getByText("Install APK", { exact: false }).first().waitFor();
     await shot("install-apk");
 
-    // 9. Snapshot (per-device).
+    // 10. Snapshot (per-device).
     await page.locator("#tab-snapshot").click();
     await page.waitForTimeout(400);
     await shot("snapshot");
 
-    // 10. Global snapshots page.
+    // 11. Global snapshots page.
     await page.goto(`${BASE}/snapshots`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
     await shot("snapshots");

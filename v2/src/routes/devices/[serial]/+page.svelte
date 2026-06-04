@@ -5,6 +5,7 @@
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
   import sideloadCatalog from "$lib/sideload-catalog.json";
+  import appFilesCatalog from "$lib/app-files-catalog.json";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -25,13 +26,14 @@
     OptimizePlan,
     OptimizePlanItem,
     ScreenshotResult,
+    FileEntry,
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
-  type Tab = "overview" | "health" | "launcher" | "apps" | "optimize" | "tweaks" | "snapshot" | "sideload";
+  type Tab = "overview" | "health" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload";
   let activeTab = $state<Tab>("overview");
 
   let device = $state<Device | null>(null);
@@ -52,6 +54,32 @@
   let renaming = $state(false);
   let renameValue = $state("");
   let renameBusy = $state(false);
+
+  /// Rolling echo of what live typing has sent (display only).
+  let remoteEcho = $state("");
+  let remoteMessage = $state("");
+  let remoteCaptureFocused = $state(false);
+  // Keystrokes are sent strictly in order through one promise chain — a
+  // backspace must never overtake the characters typed before it.
+  let remoteQueue: Promise<void> = Promise.resolve();
+  let remoteBuffer = "";
+  let remoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let filesPath = $state("/sdcard");
+  let filesEntries = $state<FileEntry[] | null>(null);
+  let filesLoading = $state(false);
+  let filesErr = $state<string | null>(null);
+  let filesBusy = $state<string | null>(null); // entry name currently being acted on
+  let filesMessage = $state("");
+  /// package → found backup-file paths (null until that app was searched).
+  let appFilesResults = $state<Record<string, string[] | null>>({});
+  let appFilesBusy = $state<string | null>(null);
+  let crumbs = $derived(
+    filesPath
+      .split("/")
+      .filter(Boolean)
+      .map((seg, i, all) => ({ label: seg, path: "/" + all.slice(0, i + 1).join("/") })),
+  );
 
   let screenshotBusy = $state(false);
   let screenshot = $state<ScreenshotResult | null>(null);
@@ -764,6 +792,160 @@
     }
   }
 
+  function remoteEnqueue(work: () => Promise<void>) {
+    remoteQueue = remoteQueue.then(work).catch((e) => {
+      remoteMessage = String(e);
+    });
+  }
+
+  function remoteFlushBuffer() {
+    if (remoteFlushTimer) {
+      clearTimeout(remoteFlushTimer);
+      remoteFlushTimer = null;
+    }
+    if (!remoteBuffer) return;
+    const chunk = remoteBuffer;
+    remoteBuffer = "";
+    remoteEnqueue(async () => {
+      const r = await api.sendText(serial, chunk);
+      if (!r.ok) remoteMessage = r.message;
+    });
+  }
+
+  function sendRemoteKey(key: string) {
+    remoteFlushBuffer();
+    remoteEnqueue(async () => {
+      const r = await api.sendKey(serial, key);
+      remoteMessage = r.ok ? "" : r.message;
+    });
+  }
+
+  function remoteKeydown(e: KeyboardEvent) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      remoteEcho = remoteEcho.slice(0, -1);
+      sendRemoteKey("delete");
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      remoteEcho = "";
+      sendRemoteKey("enter");
+      return;
+    }
+    if (e.key.length === 1 && e.key >= " " && e.key <= "~") {
+      e.preventDefault();
+      remoteBuffer += e.key;
+      remoteEcho = (remoteEcho + e.key).slice(-60);
+      // Batch rapid typing into one `input text` per pause — each adb call
+      // is a ~100-300 ms round-trip, so per-character would lag behind fast
+      // typists forever.
+      if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
+      remoteFlushTimer = setTimeout(remoteFlushBuffer, 250);
+    }
+  }
+
+  async function loadFiles(path: string) {
+    filesLoading = true;
+    filesErr = null;
+    filesMessage = "";
+    try {
+      filesEntries = await api.listDir(serial, path);
+      filesPath = path;
+    } catch (e) {
+      filesErr = String(e);
+    } finally {
+      filesLoading = false;
+    }
+  }
+
+  async function downloadFile(name: string) {
+    const folder = await openDialog({ directory: true, title: "Choose a download folder" });
+    if (!folder) return;
+    filesBusy = name;
+    filesMessage = "";
+    try {
+      const r = await api.pullFile(serial, `${filesPath}/${name}`, folder as string);
+      filesMessage = r.message;
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
+  async function uploadToCurrentDir() {
+    const file = await openDialog({ title: "Choose a file to upload" });
+    if (!file) return;
+    filesBusy = "__upload__";
+    filesMessage = "";
+    try {
+      const r = await api.pushFile(serial, file as string, filesPath);
+      filesMessage = r.message;
+      if (r.ok) await loadFiles(filesPath);
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
+  async function deleteEntry(entry: FileEntry) {
+    const what = entry.is_dir ? "folder AND EVERYTHING IN IT" : "file";
+    if (!confirm(`Delete ${what} "${entry.name}" from the device? This cannot be undone.`)) return;
+    filesBusy = entry.name;
+    filesMessage = "";
+    try {
+      const r = await api.deletePath(serial, `${filesPath}/${entry.name}`);
+      filesMessage = r.message;
+      if (r.ok) await loadFiles(filesPath);
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
+  async function findAppFiles(entry: (typeof appFilesCatalog)[number]) {
+    appFilesBusy = entry.package;
+    filesMessage = "";
+    try {
+      appFilesResults[entry.package] = await api.findFiles(serial, entry.search_dirs, entry.pattern);
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      appFilesBusy = null;
+    }
+  }
+
+  async function downloadFoundFile(path: string) {
+    const folder = await openDialog({ directory: true, title: "Choose a folder for the backup" });
+    if (!folder) return;
+    appFilesBusy = path;
+    filesMessage = "";
+    try {
+      const r = await api.pullFile(serial, path, folder as string);
+      filesMessage = r.message;
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      appFilesBusy = null;
+    }
+  }
+
+  function goToFolder(path: string) {
+    const dir = path.slice(0, path.lastIndexOf("/")) || "/sdcard";
+    loadFiles(dir);
+  }
+
+  function formatSize(bytes: number): string {
+    if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(2)} GB`;
+    if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
+    if (bytes >= 1 << 10) return `${(bytes / (1 << 10)).toFixed(0)} KB`;
+    return `${bytes} B`;
+  }
+
   function startRename() {
     renameValue = device?.properties?.friendly_name ?? device?.name ?? "";
     renaming = true;
@@ -1061,6 +1243,7 @@
     if (activeTab === "launcher" && launchers.length === 0 && !launcherLoading && !launcherErr) loadLauncher();
     if (activeTab === "apps" && apps.length === 0 && !appsLoading && !appsErr) loadApps();
     if (activeTab === "tweaks" && tweaks === null && !tweaksLoading && !tweaksErr) loadTweaks();
+    if (activeTab === "files" && filesEntries === null && !filesLoading && !filesErr) loadFiles(filesPath);
     if (activeTab === "snapshot" && snapshots.length === 0) loadSnapshots();
     if (activeTab === "sideload" && discoveredApks.length === 0 && !discoveryBusy) {
       const last = localStorage.getItem("shieldopt.lastApkFolder");
@@ -1089,7 +1272,10 @@
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
+    remoteEcho = ""; remoteMessage = ""; remoteBuffer = "";
     sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
+    filesPath = "/sdcard"; filesEntries = null; filesErr = null; filesMessage = "";
+    appFilesResults = {};
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -1219,6 +1405,8 @@
       { id: "apps", label: "App List" },
       { id: "optimize", label: "Optimize" },
       { id: "tweaks", label: "Tweaks" },
+      { id: "remote", label: "Remote" },
+      { id: "files", label: "Files" },
       { id: "sideload", label: "Install APK" },
       { id: "snapshot", label: "Snapshot" },
     ] as t (t.id)}
@@ -2036,6 +2224,134 @@
         {/if}
       {/if}
     </div>
+  {:else if activeTab === "files"}
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-files" aria-labelledby="tab-files">
+      <div class="card-header">
+        <h2>Files</h2>
+        <div class="header-actions">
+          <button onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
+            {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}
+          </button>
+          <button onclick={() => loadFiles(filesPath)} disabled={filesLoading}>
+            {filesLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+      <p class="muted small">
+        Browsing the device's user storage (<code>/sdcard</code>). System paths are off-limits by design.
+      </p>
+
+      <details class="app-backups">
+        <summary>App file backups — find &amp; save exports (Projectivy theme, SmartTube settings, …)</summary>
+        <p class="muted small">
+          App settings live in protected storage, but most apps can export a backup to
+          <code>/sdcard</code>. Export in the app first, then find the file here and save it to
+          this computer. To restore later: browse to the folder below and use <strong>Upload here</strong>,
+          then import it in the app.
+        </p>
+        {#each appFilesCatalog as entry (entry.package)}
+          <div class="app-backup-row">
+            <div>
+              <div class="apk-name">{entry.name}</div>
+              <div class="muted small">{entry.hint}</div>
+            </div>
+            <button
+              class="small-action"
+              onclick={() => findAppFiles(entry)}
+              disabled={appFilesBusy !== null}
+            >
+              {appFilesBusy === entry.package ? "Searching…" : "Find backup files"}
+            </button>
+          </div>
+          {#if appFilesResults[entry.package]}
+            {@const found = appFilesResults[entry.package] ?? []}
+            {#if found.length === 0}
+              <p class="muted small found-list">No matches — export from the app first, then search again.</p>
+            {:else}
+              <ul class="found-list">
+                {#each found as path (path)}
+                  <li>
+                    <span class="mono small">{path}</span>
+                    <span>
+                      <button class="small-action" onclick={() => downloadFoundFile(path)} disabled={appFilesBusy !== null}>
+                        Save to computer
+                      </button>
+                      <button class="small-action subtle" onclick={() => goToFolder(path)} disabled={appFilesBusy !== null}>
+                        Go to folder
+                      </button>
+                    </span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          {/if}
+        {/each}
+      </details>
+
+      <nav class="crumbs" aria-label="Path">
+        {#each crumbs as c, i (c.path)}
+          {#if i > 0}<span class="muted">/</span>{/if}
+          {#if i === crumbs.length - 1}
+            <span class="crumb-current">{c.label}</span>
+          {:else}
+            <button class="crumb" onclick={() => loadFiles(c.path)}>{c.label}</button>
+          {/if}
+        {/each}
+      </nav>
+      {#if filesMessage}
+        <p class="muted small mono action-message">{filesMessage}</p>
+      {/if}
+      {#if filesErr}
+        <div class="error">{filesErr}</div>
+      {:else if filesEntries === null}
+        <div class="muted">{filesLoading ? "Loading…" : "—"}</div>
+      {:else if filesEntries.length === 0}
+        <p class="muted">Empty folder.</p>
+      {:else}
+        <table class="files-table">
+          <thead>
+            <tr><th>Name</th><th class="num">Size</th><th>Modified</th><th></th></tr>
+          </thead>
+          <tbody>
+            {#each filesEntries as f (f.name)}
+              <tr>
+                <td class="file-name">
+                  {#if f.is_dir}
+                    <button class="dir-link" onclick={() => loadFiles(`${filesPath}/${f.name}`)}>
+                      📁 {f.name}
+                    </button>
+                  {:else}
+                    <span>{f.is_symlink ? "🔗" : "📄"} {f.name}</span>
+                  {/if}
+                </td>
+                <td class="num muted">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
+                <td class="muted small">{f.modified}</td>
+                <td class="row-actions">
+                  {#if !f.is_dir && !f.is_symlink}
+                    <button
+                      class="small-action"
+                      onclick={() => downloadFile(f.name)}
+                      disabled={filesBusy !== null}
+                      title="Save this file to a folder on this computer"
+                    >
+                      {filesBusy === f.name ? "…" : "Download"}
+                    </button>
+                  {/if}
+                  <button
+                    class="small-action subtle danger"
+                    onclick={() => deleteEntry(f)}
+                    disabled={filesBusy !== null}
+                    title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      {/if}
+    </div>
   {:else if activeTab === "sideload"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-sideload" aria-labelledby="tab-sideload">
       <div class="card-header">
@@ -2112,6 +2428,69 @@
             </li>
           {/each}
         </ul>
+      </div>
+    </div>
+  {:else if activeTab === "remote"}
+    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-remote" aria-labelledby="tab-remote">
+      <h2>Remote</h2>
+      <div class="remote-layout">
+        <div class="remote-typing">
+          <h3>Live typing</h3>
+          <p class="muted small">
+            Click below and type — keystrokes go straight to whatever field has
+            focus on the TV, including Backspace and Enter. Each press is an ADB
+            round-trip, so it feels like typing over SSH.
+          </p>
+          <div
+            class="type-capture"
+            class:focused={remoteCaptureFocused}
+            tabindex="0"
+            role="textbox"
+            aria-label="Live typing capture — keystrokes are sent to the TV"
+            onkeydown={remoteKeydown}
+            onfocus={() => (remoteCaptureFocused = true)}
+            onblur={() => (remoteCaptureFocused = false)}
+          >
+            {#if remoteEcho}
+              <span class="mono">{remoteEcho}</span><span class="caret">▏</span>
+            {:else if remoteCaptureFocused}
+              <span class="muted">Type now — sending to the TV…</span><span class="caret">▏</span>
+            {:else}
+              <span class="muted">Click here, then type</span>
+            {/if}
+          </div>
+          {#if remoteMessage}
+            <p class="warn-text small mono">{remoteMessage}</p>
+          {/if}
+        </div>
+        <div class="remote-pad">
+          <h3>Buttons</h3>
+          <div class="dpad">
+            <span></span>
+            <button onclick={() => sendRemoteKey("up")} title="D-pad up">▲</button>
+            <span></span>
+            <button onclick={() => sendRemoteKey("left")} title="D-pad left">◀</button>
+            <button class="ok" onclick={() => sendRemoteKey("select")} title="Select / OK">OK</button>
+            <button onclick={() => sendRemoteKey("right")} title="D-pad right">▶</button>
+            <span></span>
+            <button onclick={() => sendRemoteKey("down")} title="D-pad down">▼</button>
+            <span></span>
+          </div>
+          <div class="remote-row">
+            <button onclick={() => sendRemoteKey("back")} title="Back">Back</button>
+            <button onclick={() => sendRemoteKey("home")} title="Home">Home</button>
+          </div>
+          <div class="remote-row">
+            <button onclick={() => sendRemoteKey("rewind")} title="Rewind">◀◀</button>
+            <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause">▶❙❙</button>
+            <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward">▶▶</button>
+          </div>
+          <div class="remote-row">
+            <button onclick={() => sendRemoteKey("volume_down")} title="Volume down">Vol −</button>
+            <button onclick={() => sendRemoteKey("mute")} title="Mute">Mute</button>
+            <button onclick={() => sendRemoteKey("volume_up")} title="Volume up">Vol +</button>
+          </div>
+        </div>
       </div>
     </div>
   {:else if activeTab === "snapshot"}
@@ -2709,6 +3088,116 @@
     padding: 0.6rem 0;
     border-bottom: 1px solid var(--bg-button);
   }
+  .remote-layout {
+    display: flex;
+    gap: 2.5rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .remote-typing { flex: 1; min-width: 280px; max-width: 480px; }
+  .type-capture {
+    min-height: 3.2rem;
+    padding: 0.8rem;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    cursor: text;
+    background: var(--bg-inset);
+  }
+  .type-capture.focused {
+    border-style: solid;
+    border-color: var(--accent);
+  }
+  .type-capture .caret {
+    color: var(--accent);
+    animation: caret-blink 1s steps(1) infinite;
+  }
+  @keyframes caret-blink { 50% { opacity: 0; } }
+  .remote-pad { display: flex; flex-direction: column; gap: 0.6rem; }
+  .dpad {
+    display: grid;
+    grid-template-columns: repeat(3, 3.2rem);
+    grid-auto-rows: 3.2rem;
+    gap: 0.4rem;
+    justify-items: stretch;
+  }
+  .dpad button { font-size: 1rem; }
+  .dpad .ok { font-weight: 700; }
+  .remote-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+    max-width: 10.4rem;
+  }
+  .remote-row button { padding: 0.45rem 0.3rem; white-space: nowrap; }
+  .app-backups {
+    margin: 0.6rem 0 1rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .app-backups summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .app-backup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid var(--bg-button);
+    margin-top: 0.5rem;
+  }
+  .found-list {
+    list-style: none;
+    padding: 0 0 0 0.8rem;
+    margin: 0.2rem 0 0.6rem;
+  }
+  .found-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    padding: 0.25rem 0;
+  }
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0.4rem 0 0.8rem;
+    flex-wrap: wrap;
+  }
+  .crumb {
+    background: none;
+    border: none;
+    padding: 0.1rem 0.2rem;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  .crumb:hover { text-decoration: underline; }
+  .crumb-current { font-weight: 600; }
+  .files-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .files-table th, .files-table td {
+    text-align: left;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--bg-button);
+  }
+  .files-table .num { text-align: right; white-space: nowrap; }
+  .files-table .row-actions { text-align: right; white-space: nowrap; }
+  .dir-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  .dir-link:hover { color: var(--accent); }
   .plan-summary {
     margin: 0.4rem 0;
     padding: 0.5rem 0.8rem;
