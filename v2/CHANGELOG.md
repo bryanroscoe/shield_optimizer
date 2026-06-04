@@ -17,6 +17,20 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.8
+
+### Fixed
+
+- **No more "Failed: Success" when setting a default launcher.**
+  `set-home-activity` acknowledges with a bare "Success" on many builds; that
+  ack was being recorded as the failure reason whenever the active-launcher
+  check didn't confirm the switch in time. The launcher set now verifies with
+  retries/backoff, treats the ack as acceptance, and when the device accepted
+  the change but hasn't applied it yet, says exactly that ("press Home on the
+  TV, then Refresh") instead of a contradictory error. (Beta feedback.)
+
+---
+
 ## v2-0.1.0-beta.7
 
 ### Changed
