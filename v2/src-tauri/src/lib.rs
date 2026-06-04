@@ -12,8 +12,8 @@ pub mod engine;
 use std::path::PathBuf;
 
 use commands::{
-    apps, devices, health, install, launcher, loader, optimize, reboot, recovery, scan, sideload,
-    snapshot, tuning, AppState,
+    apps, devices, health, install, launcher, loader, optimize, reboot, recovery, scan, screenshot,
+    sideload, snapshot, tuning, AppState,
 };
 
 /// Resolve the OS-appropriate snapshot directory.
@@ -80,6 +80,8 @@ pub fn run() {
             launcher::restore_stock_launchers,
             apps::disable_package,
             apps::enable_package,
+            apps::force_stop,
+            screenshot::take_screenshot,
             apps::uninstall_package,
             apps::reinstall_existing,
             apps::open_play_store,

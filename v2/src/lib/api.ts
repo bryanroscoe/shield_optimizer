@@ -31,6 +31,7 @@ import type {
   RestartResult,
   Safety,
   ScanResult,
+  ScreenshotResult,
   SetLauncherResult,
   SettingNamespace,
   SnapshotApplyPlan,
@@ -77,6 +78,11 @@ export const api = {
     invoke<StockLauncherResult>("disable_stock_launchers", { serial, packages }),
   restoreStockLaunchers: (serial: string, packages: string[]) =>
     invoke<StockLauncherResult>("restore_stock_launchers", { serial, packages }),
+
+  takeScreenshot: (serial: string) =>
+    invoke<ScreenshotResult>("take_screenshot", { serial }),
+  forceStop: (serial: string, pkg: string) =>
+    invoke<ActionResult>("force_stop", { serial, package: pkg }),
 
   disablePackage: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_package", { serial, package: pkg }),

@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -24,6 +25,7 @@
     OptimizePlanItem,
     HomeHandler,
     StockLauncherResult,
+    ScreenshotResult,
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
@@ -47,6 +49,9 @@
   /// in batch whenever the health report refreshes so each row knows whether
   /// the Disable button should be hard-blocked.
   let safetyMap = $state<Record<string, Safety>>({});
+
+  let screenshotBusy = $state(false);
+  let screenshot = $state<ScreenshotResult | null>(null);
 
   let launchers = $state<LauncherStatus[]>([]);
   let currentLauncher = $state<CurrentLauncher | null>(null);
@@ -276,6 +281,21 @@
   function riskLabel(entry: AppEntry | undefined): string {
     if (!entry) return "UNKNOWN";
     return entry.risk.toUpperCase();
+  }
+
+  async function forceStopFromMemory(pkg: string) {
+    appActionBusy = pkg;
+    appActionMessage = "";
+    try {
+      const r = await api.forceStop(serial, pkg);
+      appActionMessage = r.ok
+        ? `${pkg}: stopped — refresh the report to see freed RAM.`
+        : `${pkg}: ${r.message.trim()}`;
+    } catch (e) {
+      appActionMessage = String(e);
+    } finally {
+      appActionBusy = null;
+    }
   }
 
   async function safeDisableFromMemory(pkg: string, mb: number) {
@@ -719,6 +739,27 @@
     }
   }
 
+  async function takeScreenshot() {
+    screenshotBusy = true;
+    headerActionMsg = "";
+    try {
+      screenshot = await api.takeScreenshot(serial);
+    } catch (e) {
+      headerActionMsg = `Screenshot failed: ${e}`;
+    } finally {
+      screenshotBusy = false;
+    }
+  }
+
+  async function revealScreenshot() {
+    if (!screenshot) return;
+    try {
+      await revealItemInDir(screenshot.path);
+    } catch (e) {
+      headerActionMsg = `Open folder failed: ${e}`;
+    }
+  }
+
   async function disconnectAndLeave() {
     if (device?.connection === "usb") {
       if (!confirm("This is a USB device — disconnect will only forget it from the ADB server until you replug. Continue?")) return;
@@ -998,7 +1039,7 @@
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
-    headerActionMsg = ""; recoveryResult = null; recoveryErr = null;
+    headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -1061,6 +1102,13 @@
           {/if}
         </div>
         <button
+          onclick={takeScreenshot}
+          disabled={screenshotBusy}
+          title="Capture the TV screen (screencap) and save it as a PNG on this computer"
+        >
+          {screenshotBusy ? "Capturing…" : "Screenshot"}
+        </button>
+        <button
           class="small-action subtle"
           onclick={disconnectAndLeave}
           disabled={disconnectBusy}
@@ -1072,6 +1120,16 @@
     </div>
     {#if headerActionMsg}
       <p class="muted small mono action-message">{headerActionMsg}</p>
+    {/if}
+    {#if screenshot}
+      <div class="screenshot-preview">
+        <img src={`data:image/png;base64,${screenshot.base64}`} alt="TV screenshot" />
+        <div class="screenshot-meta">
+          <span class="muted small mono">{screenshot.path}</span>
+          <button class="small-action" onclick={revealScreenshot}>Open folder</button>
+          <button class="small-action subtle" onclick={() => (screenshot = null)}>Dismiss</button>
+        </div>
+      </div>
     {/if}
   </header>
 
@@ -1246,6 +1304,14 @@
                     {/if}
                   </td>
                   <td class="row-actions">
+                    <button
+                      class="small-action subtle"
+                      onclick={() => forceStopFromMemory(m.package)}
+                      disabled={appActionBusy === m.package}
+                      title="am force-stop {m.package} — frees its RAM now; the app restarts on next launch"
+                    >
+                      {appActionBusy === m.package ? "…" : "Force stop"}
+                    </button>
                     {#if blocked}
                       <span class="muted small" title={safety.reason}>Protected</span>
                     {:else}
@@ -2468,6 +2534,23 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .screenshot-preview {
+    margin-top: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .screenshot-preview img {
+    max-width: 480px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .screenshot-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
     flex-wrap: wrap;
   }
   .plan-summary {
