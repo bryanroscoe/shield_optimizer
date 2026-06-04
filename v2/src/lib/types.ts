@@ -181,6 +181,11 @@ export interface ScreenshotResult {
   base64: string;
 }
 
+export interface SendTextResult {
+  ok: boolean;
+  message: string;
+}
+
 export interface AdbStatus {
   available: boolean;
   path: string | null;

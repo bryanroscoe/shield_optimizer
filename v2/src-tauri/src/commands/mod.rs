@@ -8,6 +8,7 @@ pub mod backup;
 pub mod devices;
 pub mod health;
 pub mod home_tracking;
+pub mod input;
 pub mod install;
 pub mod launcher;
 pub mod loader;

@@ -133,6 +133,17 @@ pub async fn enable_package(
     run(&state, &serial, &format!("pm enable {package}")).await
 }
 
+/// `trim_caches` — ask the package manager to clear app caches device-wide.
+/// The huge byte count means "free everything trimmable"; caches rebuild on
+/// next app launch, so no confirmation ceremony is needed.
+#[tauri::command]
+pub async fn trim_caches(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ActionResult, String> {
+    run(&state, &serial, "pm trim-caches 999999999999").await
+}
+
 /// `force_stop` — `am force-stop <pkg>`. Kills the app's processes; it
 /// restarts on next launch, so unlike disable nothing persists and no safety
 /// gate beyond name validation is needed.
