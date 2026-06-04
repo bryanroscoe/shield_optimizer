@@ -351,7 +351,7 @@ pub async fn apply_snapshot(
         }
         let cmd = format!("pm disable-user --user 0 {pkg}");
         match adb.shell(&serial, &cmd).await {
-            Ok(out) if !out.stdout.contains("Failure") && !out.stdout.contains("Error") => {
+            Ok(out) if !out.shell_reported_failure() => {
                 packages_disabled.push(pkg.clone());
             }
             _ => packages_failed.push(pkg.clone()),
@@ -385,28 +385,29 @@ pub async fn apply_snapshot(
     // 3. Write tracked settings — batch into a single shell call.
     let mut settings_written = Vec::new();
     let mut settings_failed = Vec::new();
-    if !plan.settings_to_write.is_empty() {
-        let mut parts = Vec::new();
-        let mut keys: Vec<&String> = Vec::new();
-        for (k, v) in &plan.settings_to_write {
-            // Key shape is `"ns.subkey"` per the snapshot schema.
-            if let Some((ns, key)) = k.split_once('.') {
-                parts.push(format!("settings put {ns} {key} {v}"));
-                keys.push(k);
-            }
+    // Apply one setting per shell call. Batching with `;` meant a single failing
+    // `settings put` (e.g. a SecurityException on a protected key) was invisible
+    // — `adb shell` still exits 0, so the old code reported every key written.
+    // Per-key lets us report exactly which succeeded, and check the output.
+    for (k, v) in &plan.settings_to_write {
+        // Key shape is `"ns.subkey"` per the snapshot schema.
+        let Some((ns, key)) = k.split_once('.') else {
+            settings_failed.push(format!("{k}: malformed key (expected ns.subkey)"));
+            continue;
+        };
+        // Snapshots are user-editable files on disk; reject values that could
+        // break out of the shell command, matching write_setting's guard.
+        if v.contains(';') || v.contains('|') || v.contains('&') {
+            settings_failed.push(format!("{k}: value contains shell metacharacters"));
+            continue;
         }
-        let cmd = parts.join("; ");
-        match adb.shell(&serial, &cmd).await {
-            Ok(_) => {
-                for k in keys {
-                    settings_written.push(k.clone());
-                }
-            }
-            Err(e) => {
-                for k in keys {
-                    settings_failed.push(format!("{k}: {e}"));
-                }
-            }
+        match adb
+            .shell(&serial, &format!("settings put {ns} {key} {v}"))
+            .await
+        {
+            Ok(out) if !out.shell_reported_failure() => settings_written.push(k.clone()),
+            Ok(out) => settings_failed.push(format!("{k}: {}", out.combined().trim())),
+            Err(e) => settings_failed.push(format!("{k}: {e}")),
         }
     }
 

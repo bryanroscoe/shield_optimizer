@@ -3,7 +3,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::engine::{launcher_catalog, LauncherEntry};
+use crate::engine::{is_valid_package_name, launcher_catalog, LauncherEntry};
 
 use super::AppState;
 
@@ -121,6 +121,17 @@ pub async fn set_default_launcher_impl(
     serial: &str,
     package: &str,
 ) -> Result<SetLauncherResult, String> {
+    // `package` can come from a custom-launcher entry the user typed, so it's
+    // interpolated into shell commands below — validate it first.
+    if !is_valid_package_name(package) {
+        return Ok(SetLauncherResult {
+            ok: false,
+            strategy: None,
+            current_launcher: None,
+            last_error: Some(format!("Invalid package name: {package:?}")),
+        });
+    }
+
     let adb = state.adb_snapshot().await;
 
     // 1. Enable the package — no-op for already-enabled.
@@ -176,11 +187,17 @@ pub async fn set_default_launcher_impl(
             format!("pm set-home-activity --user 0 {comp}"),
         ] {
             if let Ok(out) = adb.shell(serial, &cmd).await {
-                last_error = Some(if out.stderr.is_empty() {
-                    out.stdout.clone()
+                // Only record a diagnostic if the attempt actually printed
+                // something — set-home-activity is silent on success, so
+                // capturing its empty output would mask the real last error.
+                let msg = if out.stderr.trim().is_empty() {
+                    out.stdout.trim()
                 } else {
-                    out.stderr.clone()
-                });
+                    out.stderr.trim()
+                };
+                if !msg.is_empty() {
+                    last_error = Some(msg.to_string());
+                }
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 if active_launcher(&*adb, serial).await.as_deref() == Some(package) {
                     return Ok(SetLauncherResult {
@@ -401,7 +418,7 @@ pub async fn disable_stock_launchers(
         }
         let cmd = format!("pm disable-user --user 0 {pkg}");
         match adb.shell(&serial, &cmd).await {
-            Ok(out) if !out.stdout.contains("Failure") && !out.stdout.contains("Error") => {
+            Ok(out) if !out.shell_reported_failure() => {
                 processed.push(pkg);
             }
             _ => failed.push(pkg),
@@ -435,7 +452,7 @@ pub async fn restore_stock_launchers(
     let mut failed = Vec::new();
     for pkg in packages {
         match adb.shell(&serial, &format!("pm enable {pkg}")).await {
-            Ok(out) if !out.stdout.contains("Failure") && !out.stdout.contains("Error") => {
+            Ok(out) if !out.shell_reported_failure() => {
                 processed.push(pkg);
             }
             _ => failed.push(pkg),
