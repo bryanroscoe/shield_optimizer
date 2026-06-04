@@ -35,11 +35,14 @@ Research notes: aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 
 
 ## Prioritized roadmap
 
-> **Status (2026-06-04):** P1.1 + P1.2 shipped in PR #40, P1.4 in PR #39,
-> P2.5 in PR #39, P2.6 + P2.8 in PR #41. Next up: **P1.3 file manager**
-> (Bryan re-confirmed: browse + download + upload, the biggest remaining
-> piece) and the **remote control panel** below (promoted from P3 on
-> request).
+> **Status (2026-06-04, end of day):** the wave below P3 is done.
+> *Merged & released in beta.8:* P1.1 + P1.2 (PR #40), P1.4 + P2.5
+> (PR #39), P2.6 + P2.8 (PR #41), plus device rename (PR #44).
+> *In review:* **P1.3 file manager → PR #46**, **9b remote panel →
+> PR #47**, **9d sideload catalog → PR #48**, **9c app-files backup →
+> PR #49** (stacked on #46 — merge #46 first).
+> Remaining: A (optional-apps section), P2.7 shell runner, P2.9 CPU/net
+> monitor, and P3.
 
 ### P1 — App backup / cloning + file management (the asked-for set)
 
