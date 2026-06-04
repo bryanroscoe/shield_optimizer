@@ -80,11 +80,12 @@ const launchers: LauncherStatus[] = [
     installed: true,
     enabled: true,
     stock: true,
+    other: false,
   },
-  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu" }, installed: true, enabled: true, stock: false },
-  { entry: { name: "FLauncher", package: "me.efesser.flauncher" }, installed: true, enabled: true, stock: false },
-  { entry: { name: "ATV Launcher", package: "com.sweech.launcher" }, installed: false, enabled: false, stock: false },
-  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher" }, installed: false, enabled: false, stock: false },
+  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu" }, installed: true, enabled: true, stock: false, other: false },
+  { entry: { name: "FLauncher", package: "me.efesser.flauncher" }, installed: true, enabled: true, stock: false, other: false },
+  { entry: { name: "ATV Launcher", package: "com.sweech.launcher" }, installed: false, enabled: false, stock: false, other: false },
+  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher" }, installed: false, enabled: false, stock: false, other: false },
 ];
 
 const tweaks: TweaksState = {

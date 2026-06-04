@@ -3,28 +3,94 @@
 use serde::Serialize;
 use tauri::State;
 
-use crate::engine::{is_valid_package_name, launcher_rows, LauncherStatus};
+use crate::engine::{
+    is_last_enabled_home_handler, is_valid_package_name, launcher_catalog, launcher_rows,
+    stock_launcher_catalog, LauncherStatus,
+};
 
-use super::AppState;
+use super::{home_tracking, AppState};
+
+const HOME_HANDLER_QUERY: &str =
+    "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME";
 
 #[tauri::command]
 pub async fn list_launchers(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<Vec<LauncherStatus>, String> {
-    // Pull installed + disabled package lists concurrently.
+    // Pull installed + disabled package lists and HOME handlers concurrently.
     let adb = state.adb_snapshot().await;
-    let (installed_res, disabled_res) = tokio::join!(
+    let (installed_res, disabled_res, handlers_res) = tokio::join!(
         adb.shell(&serial, "pm list packages"),
         adb.shell(&serial, "pm list packages -d"),
+        adb.shell(&serial, HOME_HANDLER_QUERY),
     );
     let installed = installed_res.map_err(|e| format!("pm list packages: {e}"))?;
     let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
+    // The HOME query only adds "other handler" rows — degrade to none rather
+    // than blanking the whole list on builds where `cmd package` is limited.
+    let handler_pkgs = match handlers_res {
+        Ok(out) => parse_home_handler_packages(&out.stdout),
+        Err(e) => {
+            tracing::warn!(error = %e, "query-activities failed; listing catalog launchers only");
+            Vec::new()
+        }
+    };
 
     let installed_pkgs = crate::adb::parse_installed_packages_output(&installed.stdout);
     let disabled_pkgs = crate::adb::parse_disabled_packages_output(&disabled.stdout);
 
-    Ok(launcher_rows(&installed_pkgs, &disabled_pkgs))
+    // Disabled handlers don't answer the HOME query — the tracker is what
+    // keeps their rows (and the Enable path back) alive. Prune entries that
+    // were re-enabled or uninstalled out-of-band.
+    let tracked = home_tracking::prune(&state.data_dir, &serial, &disabled_pkgs).await;
+
+    Ok(launcher_rows(
+        &installed_pkgs,
+        &disabled_pkgs,
+        &handler_pkgs,
+        &tracked,
+    ))
+}
+
+/// `disable_launcher` — `disable_package` plus the launcher-specific guard:
+/// refuses to disable the last enabled HOME handler, which would leave the
+/// device with nowhere to land on Home. Non-catalog handlers are recorded in
+/// the tracker so their row survives being disabled.
+#[tauri::command]
+pub async fn disable_launcher(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<crate::commands::apps::ActionResult, String> {
+    let adb = state.adb_snapshot().await;
+    let enabled_handlers = adb
+        .shell(&serial, HOME_HANDLER_QUERY)
+        .await
+        .map(|out| parse_home_handler_packages(&out.stdout))
+        .map_err(|e| format!("query-activities: {e}"))?;
+    if is_last_enabled_home_handler(&package, &enabled_handlers) {
+        return Ok(crate::commands::apps::ActionResult {
+            ok: false,
+            message: format!(
+                "Refusing to disable {package}: it's the only enabled launcher left on this \
+                 device. Enable another launcher first."
+            ),
+        });
+    }
+
+    let data_dir = state.data_dir.clone();
+    let result =
+        crate::commands::apps::disable_package(state, serial.clone(), package.clone()).await?;
+
+    let in_catalogs = stock_launcher_catalog()
+        .iter()
+        .chain(launcher_catalog().iter())
+        .any(|e| e.package == package);
+    if result.ok && !in_catalogs {
+        home_tracking::record(&data_dir, &serial, &package).await;
+    }
+    Ok(result)
 }
 
 #[derive(Serialize)]
@@ -307,95 +373,6 @@ async fn discover_home_activity(
         .map(str::to_string)
 }
 
-/// One HOME-capable package on the device, with a friendly name resolved via
-/// the launcher catalog (where possible) and its current enable state.
-#[derive(Serialize)]
-pub struct HomeHandler {
-    pub package: String,
-    pub name: String,
-    pub enabled: bool,
-    /// True when the v1 safe-fallback list says we must never disable this
-    /// package (e.g. `com.android.tv.settings` — emergency HOME fallback).
-    pub safe_fallback: bool,
-}
-
-/// Packages we never disable as part of the stock-launcher wizard, even if
-/// the user picked Yes. Matches v1's `Disable-AllStockLaunchers` safety list.
-const SAFE_FALLBACKS: &[&str] = &["com.android.tv.settings", "com.android.settings"];
-
-/// Friendly names for HOME-capable handlers we recognize but that aren't
-/// launchers (stock launcher names come from the engine's stock catalog).
-const EXTRA_HOME_HANDLER_NAMES: &[(&str, &str)] = &[
-    (
-        "com.google.android.tungsten.setupwraith",
-        "Setup Wraith (HOME)",
-    ),
-    (
-        "com.droidlogic.launcher.provider",
-        "Droidlogic Launcher Provider",
-    ),
-];
-
-/// `list_home_handlers` — every HOME-capable package the device reports,
-/// excluding `target_package` (the chosen custom launcher) and any custom
-/// launcher already in our catalog. Mirrors v1's `Get-HomeHandlers` (§6.4):
-/// invokes `cmd package query-activities` (without `--components`, which gives
-/// the richer ResolveInfo dump) and parses `packageName=<pkg>` rows.
-#[tauri::command]
-pub async fn list_home_handlers(
-    state: State<'_, AppState>,
-    serial: String,
-    target_package: String,
-) -> Result<Vec<HomeHandler>, String> {
-    let adb = state.adb_snapshot().await;
-    let out = adb
-        .shell(
-            &serial,
-            "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME",
-        )
-        .await
-        .map_err(|e| format!("query-activities: {e}"))?;
-
-    // Disabled package set so we can tag each handler.
-    let disabled_out = adb
-        .shell(&serial, "pm list packages -d")
-        .await
-        .map_err(|e| format!("pm list packages -d: {e}"))?;
-    let disabled = crate::adb::parse_disabled_packages_output(&disabled_out.stdout);
-
-    let mut seen = std::collections::HashSet::new();
-    let mut handlers = Vec::new();
-    for pkg in parse_home_handler_packages(&out.stdout) {
-        if pkg == target_package || !seen.insert(pkg.clone()) {
-            continue;
-        }
-        let name = crate::engine::stock_launcher_catalog()
-            .into_iter()
-            .find(|e| e.package == pkg)
-            .map(|e| e.name)
-            .or_else(|| {
-                EXTRA_HOME_HANDLER_NAMES
-                    .iter()
-                    .find(|(p, _)| *p == pkg.as_str())
-                    .map(|(_, n)| (*n).to_string())
-            })
-            .unwrap_or_else(|| pkg.clone());
-        let enabled = !disabled.iter().any(|d| d == &pkg);
-        // A handler is "off-limits" if it's a HOME-emergency fallback OR if
-        // the broader safety list says don't touch it. The UI uses this to
-        // disable the checkbox in the stock-launcher wizard.
-        let safe_fallback =
-            SAFE_FALLBACKS.contains(&pkg.as_str()) || crate::engine::is_never_disable(&pkg);
-        handlers.push(HomeHandler {
-            package: pkg,
-            name,
-            enabled,
-            safe_fallback,
-        });
-    }
-    Ok(handlers)
-}
-
 /// Parse `cmd package query-activities` output for `packageName=<pkg>` rows.
 /// Each Activity block exposes one packageName line. Strict regex (real
 /// package names start with a letter and only contain `[a-zA-Z0-9_.]`)
@@ -410,92 +387,7 @@ fn parse_home_handler_packages(stdout: &str) -> Vec<String> {
         .collect()
 }
 
-#[derive(Serialize)]
-pub struct StockLauncherResult {
-    pub processed: Vec<String>,
-    pub failed: Vec<String>,
-    pub skipped_safe: Vec<String>,
-    pub summary: String,
-}
-
-/// `disable_stock_launchers` — `pm disable-user --user 0` for each package
-/// passed in `packages`, refusing to touch safe-fallback packages. Designed
-/// to be called after `set_default_launcher` has promoted the chosen custom
-/// launcher. Mirrors v1's Disable-AllStockLaunchers (§6.4).
-#[tauri::command]
-pub async fn disable_stock_launchers(
-    state: State<'_, AppState>,
-    serial: String,
-    packages: Vec<String>,
-) -> Result<StockLauncherResult, String> {
-    let adb = state.adb_snapshot().await;
-    let mut processed = Vec::new();
-    let mut failed = Vec::new();
-    let mut skipped_safe = Vec::new();
-    for pkg in packages {
-        // Two-tier guard: the original SAFE_FALLBACKS list (HOME-handler
-        // emergency fallbacks like com.android.tv.settings), AND the broader
-        // engine::safety::NEVER_DISABLE list (anything that would brick).
-        if SAFE_FALLBACKS.contains(&pkg.as_str()) || crate::engine::is_never_disable(&pkg) {
-            skipped_safe.push(pkg);
-            continue;
-        }
-        let cmd = format!("pm disable-user --user 0 {pkg}");
-        match adb.shell(&serial, &cmd).await {
-            Ok(out) if !out.shell_reported_failure() => {
-                processed.push(pkg);
-            }
-            _ => failed.push(pkg),
-        }
-    }
-    let summary = format!(
-        "Disabled {} HOME handler(s). {} failed. {} safe fallback(s) skipped.",
-        processed.len(),
-        failed.len(),
-        skipped_safe.len(),
-    );
-    Ok(StockLauncherResult {
-        processed,
-        failed,
-        skipped_safe,
-        summary,
-    })
-}
-
-/// `restore_stock_launchers` — `pm enable` for each package. Mirrors v1's
-/// Restore-AllStockLaunchers (§6.5). Safe to call with arbitrary packages —
-/// `pm enable` on something that's already enabled is a no-op.
-#[tauri::command]
-pub async fn restore_stock_launchers(
-    state: State<'_, AppState>,
-    serial: String,
-    packages: Vec<String>,
-) -> Result<StockLauncherResult, String> {
-    let adb = state.adb_snapshot().await;
-    let mut processed = Vec::new();
-    let mut failed = Vec::new();
-    for pkg in packages {
-        match adb.shell(&serial, &format!("pm enable {pkg}")).await {
-            Ok(out) if !out.shell_reported_failure() => {
-                processed.push(pkg);
-            }
-            _ => failed.push(pkg),
-        }
-    }
-    let summary = format!(
-        "Re-enabled {} HOME handler(s). {} failed.",
-        processed.len(),
-        failed.len(),
-    );
-    Ok(StockLauncherResult {
-        processed,
-        failed,
-        skipped_safe: Vec::new(),
-        summary,
-    })
-}
-
-/// `channel_provider_disabled` — fast check used by the launcher wizard to warn
+/// `channel_provider_disabled` — fast check used by the Launcher tab to warn
 /// users that disabling `com.android.providers.tv` will break Watch Next rows.
 #[tauri::command]
 pub async fn channel_provider_disabled(

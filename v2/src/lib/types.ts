@@ -55,6 +55,9 @@ export interface LauncherStatus {
   enabled: boolean;
   /// Preinstalled launcher — shown so users can switch back to stock.
   stock: boolean;
+  /// HOME-capable app outside both catalogs (e.g. Setup Wraith, a sideloaded
+  /// HOME app).
+  other: boolean;
 }
 
 export interface CurrentLauncher {
@@ -106,20 +109,6 @@ export interface DeviceReport {
   name: string;
   report: HealthReport | null;
   error: string | null;
-}
-
-export interface HomeHandler {
-  package: string;
-  name: string;
-  enabled: boolean;
-  safe_fallback: boolean;
-}
-
-export interface StockLauncherResult {
-  processed: string[];
-  failed: string[];
-  skipped_safe: string[];
-  summary: string;
 }
 
 export interface RestartResult {

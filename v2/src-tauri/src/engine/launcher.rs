@@ -53,6 +53,15 @@ pub fn stock_launcher_catalog() -> Vec<LauncherEntry> {
     .collect()
 }
 
+/// Friendly names for known HOME-capable apps that aren't launchers.
+pub fn home_handler_name(pkg: &str) -> Option<&'static str> {
+    match pkg {
+        "com.google.android.tungsten.setupwraith" => Some("Setup Wraith (HOME)"),
+        "com.droidlogic.launcher.provider" => Some("Droidlogic Launcher Provider"),
+        _ => None,
+    }
+}
+
 /// One row of the Launchers list: a catalog entry plus its on-device state.
 #[derive(Debug, Clone, Serialize)]
 pub struct LauncherStatus {
@@ -62,34 +71,91 @@ pub struct LauncherStatus {
     /// True for the device's preinstalled launcher(s) — rendered with a STOCK
     /// badge and no Install button, since they aren't on the Play Store.
     pub stock: bool,
+    /// True for HOME-capable apps outside both catalogs (e.g. Setup Wraith,
+    /// a sideloaded HOME app) — rendered with a HOME APP badge.
+    pub other: bool,
 }
 
 /// Build the Launchers list: stock launchers actually present on the device
 /// first (so "back to stock" is always one click away), then the full custom
-/// catalog. Custom launchers are listed even when missing (they get an
-/// Install button); stock ones only when installed — a Shield shouldn't show
-/// a "missing" Amazon launcher row.
-pub fn launcher_rows(installed_pkgs: &[String], disabled_pkgs: &[String]) -> Vec<LauncherStatus> {
+/// catalog, then any other HOME-capable app. Custom launchers are listed even
+/// when missing (they get an Install button); stock ones only when installed —
+/// a Shield shouldn't show a "missing" Amazon launcher row.
+///
+/// `home_handler_pkgs` is the device's enabled HOME handlers (disabled
+/// packages don't answer the HOME intent query, which is why callers pass
+/// `tracked_disabled_pkgs` — handlers we disabled ourselves and remembered).
+/// Safe fallbacks (Settings) are deliberately absent: they must never be
+/// disabled, so we don't render them at all.
+pub fn launcher_rows(
+    installed_pkgs: &[String],
+    disabled_pkgs: &[String],
+    home_handler_pkgs: &[String],
+    tracked_disabled_pkgs: &[String],
+) -> Vec<LauncherStatus> {
     let is_disabled = |pkg: &str| disabled_pkgs.iter().any(|d| d == pkg);
-    let stock = stock_launcher_catalog()
-        .into_iter()
+    let stock_catalog = stock_launcher_catalog();
+    let custom_catalog = launcher_catalog();
+
+    let stock = stock_catalog
+        .iter()
         .filter(|e| installed_pkgs.iter().any(|p| p == &e.package))
         .map(|entry| LauncherStatus {
             enabled: !is_disabled(&entry.package),
             installed: true,
             stock: true,
-            entry,
+            other: false,
+            entry: entry.clone(),
         });
-    let custom = launcher_catalog().into_iter().map(|entry| {
+
+    let custom = custom_catalog.iter().map(|entry| {
         let installed = installed_pkgs.iter().any(|p| p == &entry.package);
         LauncherStatus {
             installed,
             enabled: installed && !is_disabled(&entry.package),
             stock: false,
-            entry,
+            other: false,
+            entry: entry.clone(),
         }
     });
-    stock.chain(custom).collect()
+
+    let in_catalogs = |pkg: &str| {
+        stock_catalog.iter().any(|e| e.package == pkg)
+            || custom_catalog.iter().any(|e| e.package == pkg)
+    };
+    let mut seen_other = std::collections::HashSet::new();
+    let other = home_handler_pkgs
+        .iter()
+        .chain(tracked_disabled_pkgs.iter())
+        .filter(|pkg| {
+            !in_catalogs(pkg)
+                && !safe_home_handlers().contains(&pkg.as_str())
+                && seen_other.insert(pkg.to_string())
+        })
+        .map(|pkg| LauncherStatus {
+            entry: LauncherEntry {
+                name: home_handler_name(pkg).unwrap_or(pkg).to_string(),
+                package: pkg.clone(),
+            },
+            installed: true,
+            enabled: !is_disabled(pkg),
+            stock: false,
+            other: true,
+        });
+
+    stock.chain(custom).chain(other).collect()
+}
+
+/// True when disabling `target` would leave the device without a single
+/// enabled HOME handler the user can actually land on. Safe fallbacks
+/// (Settings) don't count — they're a recovery hatch, not a launcher.
+pub fn is_last_enabled_home_handler(target: &str, enabled_handler_pkgs: &[String]) -> bool {
+    let target_is_enabled = enabled_handler_pkgs.iter().any(|h| h == target);
+    let remaining = enabled_handler_pkgs
+        .iter()
+        .filter(|h| h.as_str() != target && !safe_home_handlers().contains(&h.as_str()))
+        .count();
+    target_is_enabled && remaining == 0
 }
 
 /// HOME-capable packages that we must NEVER disable — fallback safety net.
@@ -145,6 +211,8 @@ mod tests {
         let rows = launcher_rows(
             &pkgs(&["com.google.android.tvlauncher", "com.spocky.projengmenu"]),
             &[],
+            &[],
+            &[],
         );
         assert_eq!(rows[0].entry.package, "com.google.android.tvlauncher");
         assert!(rows[0].stock);
@@ -158,22 +226,89 @@ mod tests {
     #[test]
     fn launcher_rows_omit_stock_not_on_device() {
         // A Shield shouldn't get an Amazon (or any "missing stock") row.
-        let rows = launcher_rows(&pkgs(&["com.spocky.projengmenu"]), &[]);
+        let rows = launcher_rows(&pkgs(&["com.spocky.projengmenu"]), &[], &[], &[]);
         assert!(rows.iter().all(|r| !r.stock));
         assert_eq!(rows.len(), 6);
     }
 
     #[test]
     fn launcher_rows_mark_disabled_stock() {
-        // The post-wizard state: stock disabled, custom active. The stock row
-        // must still appear — it's the path back.
+        // The post-cleanup state: stock disabled, custom active. The stock
+        // row must still appear — it's the path back.
         let rows = launcher_rows(
             &pkgs(&["com.google.android.tvlauncher", "com.spocky.projengmenu"]),
             &pkgs(&["com.google.android.tvlauncher"]),
+            &[],
+            &[],
         );
         assert!(rows[0].stock);
         assert!(rows[0].installed);
         assert!(!rows[0].enabled);
+    }
+
+    #[test]
+    fn launcher_rows_include_other_home_handlers_but_never_safe_fallbacks() {
+        let rows = launcher_rows(
+            &pkgs(&["com.spocky.projengmenu"]),
+            &[],
+            &pkgs(&[
+                "com.spocky.projengmenu",                  // catalog — already a row
+                "com.android.tv.settings",                 // safe fallback — never shown
+                "com.google.android.tungsten.setupwraith", // genuinely "other"
+            ]),
+            &[],
+        );
+        let others: Vec<_> = rows.iter().filter(|r| r.other).collect();
+        assert_eq!(others.len(), 1);
+        assert_eq!(
+            others[0].entry.package,
+            "com.google.android.tungsten.setupwraith"
+        );
+        assert_eq!(others[0].entry.name, "Setup Wraith (HOME)");
+        assert!(others[0].enabled);
+        assert!(!rows
+            .iter()
+            .any(|r| r.entry.package == "com.android.tv.settings"));
+    }
+
+    #[test]
+    fn launcher_rows_keep_tracked_disabled_handlers_visible() {
+        // A disabled handler doesn't answer the HOME query — the tracked list
+        // is what keeps its row (and its Enable path) alive.
+        let rows = launcher_rows(
+            &pkgs(&["com.spocky.projengmenu"]),
+            &pkgs(&["com.example.sideloaded.home"]),
+            &[],
+            &pkgs(&["com.example.sideloaded.home"]),
+        );
+        let row = rows
+            .iter()
+            .find(|r| r.entry.package == "com.example.sideloaded.home")
+            .unwrap();
+        assert!(row.other);
+        assert!(!row.enabled);
+    }
+
+    #[test]
+    fn last_enabled_home_handler_guard() {
+        let enabled = pkgs(&["com.spocky.projengmenu", "com.android.tv.settings"]);
+        // Projectivy is the only real launcher left — Settings doesn't count.
+        assert!(is_last_enabled_home_handler(
+            "com.spocky.projengmenu",
+            &enabled
+        ));
+
+        let two = pkgs(&["com.spocky.projengmenu", "com.google.android.tvlauncher"]);
+        assert!(!is_last_enabled_home_handler(
+            "com.spocky.projengmenu",
+            &two
+        ));
+
+        // Target already disabled (absent from the enabled list) — nothing to guard.
+        assert!(!is_last_enabled_home_handler(
+            "com.example.gone",
+            &pkgs(&["com.spocky.projengmenu"])
+        ));
     }
 
     #[test]
