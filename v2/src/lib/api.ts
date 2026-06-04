@@ -30,6 +30,7 @@ import type {
   RestartResult,
   Safety,
   ScanResult,
+  ScreenshotResult,
   SetLauncherResult,
   SettingNamespace,
   SnapshotApplyPlan,
@@ -71,6 +72,11 @@ export const api = {
     invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg }),
   disableLauncher: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_launcher", { serial, package: pkg }),
+
+  takeScreenshot: (serial: string) =>
+    invoke<ScreenshotResult>("take_screenshot", { serial }),
+  forceStop: (serial: string, pkg: string) =>
+    invoke<ActionResult>("force_stop", { serial, package: pkg }),
 
   disablePackage: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_package", { serial, package: pkg }),

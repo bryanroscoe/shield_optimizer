@@ -162,6 +162,11 @@ export interface ScanResult {
   message: string;
 }
 
+export interface ScreenshotResult {
+  path: string;
+  base64: string;
+}
+
 export interface AdbStatus {
   available: boolean;
   path: string | null;
