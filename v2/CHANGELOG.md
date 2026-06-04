@@ -17,6 +17,19 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.7
+
+### Changed
+
+- **Per-row action dropdown in the Optimize / Restore wizard.** The old
+  Apply/Skip checkbox is now a dropdown so you can choose what happens to each
+  app: **Disable / Uninstall / Skip** (Enable / Skip in Restore mode). It
+  defaults to the catalog's recommended action — so you can downgrade an
+  Uninstall to a safer Disable, or skip individual rows, without giving up the
+  recommendation. The do-not-disable safety list still gates every action.
+
+---
+
 ## v2-0.1.0-beta.6
 
 ### Fixed

@@ -120,9 +120,12 @@
   let optimizePlan = $state<OptimizePlan | null>(null);
   let optimizePlanLoading = $state(false);
   let optimizePlanErr = $state<string | null>(null);
-  /// Per-package override: `undefined` = follow plan default, `"skip"` = skip,
-  /// otherwise the action label to perform.
-  let optimizeOverrides = $state<Record<string, "skip" | "follow">>({});
+  /// Per-package action override. A package absent from the map follows the
+  /// plan's recommended action; a present value is the user's explicit pick
+  /// from the per-row dropdown (including "skip"). The execute loop dispatches
+  /// on effectiveAction(), so disable/uninstall/enable/skip all just work.
+  type RowAction = "disable" | "uninstall" | "enable" | "skip";
+  let optimizeOverrides = $state<Record<string, RowAction>>({});
   let optimizeRunning = $state(false);
   let optimizeCurrent = $state<string | null>(null); // package currently being acted on
   let optimizeProgress = $state<Record<string, "pending" | "done" | "skipped" | "failed">>({});
@@ -813,17 +816,35 @@
     }
   }
 
-  /// Skip = user explicitly opted out; Follow = take the engine's recommended
-  /// action. We toggle, defaulting to follow.
-  function toggleOptimizeOverride(pkg: string) {
-    optimizeOverrides[pkg] =
-      optimizeOverrides[pkg] === "skip" ? "follow" : "skip";
+  /// The plan's recommended action for a row (what the dropdown defaults to),
+  /// or null for rows the backend already marked skip (not installed / already
+  /// in target state) — those aren't actionable and get no dropdown.
+  function recommendedAction(item: OptimizePlanItem): RowAction | null {
+    return item.action.kind === "skip" ? null : item.action.kind;
   }
 
-  function effectiveAction(item: OptimizePlanItem): "disable" | "uninstall" | "enable" | "skip" {
-    if (optimizeOverrides[item.entry.package] === "skip") return "skip";
-    if (item.action.kind === "skip") return "skip";
-    return item.action.kind;
+  /// The action that will actually run: the user's dropdown pick if they made
+  /// one, otherwise the recommendation (or skip for non-actionable rows).
+  function effectiveAction(item: OptimizePlanItem): RowAction {
+    return optimizeOverrides[item.entry.package] ?? recommendedAction(item) ?? "skip";
+  }
+
+  /// Dropdown choices for a row, in mode-appropriate order. Restore only ever
+  /// produces enable rows, so its menu is Enable / Skip; optimize rows can be
+  /// downgraded (uninstall→disable) or upgraded (disable→uninstall).
+  function actionOptions(item: OptimizePlanItem): RowAction[] {
+    return recommendedAction(item) === "enable"
+      ? ["enable", "skip"]
+      : ["disable", "uninstall", "skip"];
+  }
+
+  function actionLabel(item: OptimizePlanItem, action: RowAction): string {
+    const base = { disable: "Disable", uninstall: "Uninstall", enable: "Enable", skip: "Skip" }[action];
+    return action === recommendedAction(item) ? `${base} (recommended)` : base;
+  }
+
+  function setOptimizeAction(pkg: string, action: RowAction) {
+    optimizeOverrides[pkg] = action;
   }
 
   async function executeOptimize() {
@@ -1486,8 +1507,8 @@
       </div>
       <p class="muted small">
         {optimizeMode === "optimize"
-          ? "Disable or uninstall bloat per the device's app catalog. Review each row, untick anything you want to keep, then Run."
-          : "Re-enable everything that's currently disabled per the device's app catalog. Restore is reversible by running Optimize again."}
+          ? "Disable or uninstall bloat per the device's app catalog. Each row defaults to the recommended action — change it (Disable / Uninstall / Skip) per row, then Run."
+          : "Re-enable everything that's currently disabled per the device's app catalog. Set any row to Skip to leave it, then Run. Restore is reversible by running Optimize again."}
       </p>
 
       {#if optimizePlanErr}
@@ -1538,17 +1559,15 @@
               <th>App</th>
               <th>RAM</th>
               <th>Risk</th>
-              <th>Plan</th>
-              <th>Override</th>
+              <th>Action</th>
               <th>Result</th>
             </tr>
           </thead>
           <tbody>
             {#each optimizePlan.items as item (item.entry.package)}
               {@const skip = skipReasonLabel(item)}
-              {@const overridden = optimizeOverrides[item.entry.package] === "skip"}
               {@const progress = optimizeProgress[item.entry.package]}
-              <tr class:dim={skip !== null || overridden}>
+              <tr class:dim={effectiveAction(item) === "skip"}>
                 <td>
                   <div class="app-name">
                     {item.entry.name}
@@ -1572,25 +1591,22 @@
                 <td>
                   {#if skip}
                     <span class="muted small">{skip}</span>
-                  {:else if item.action.kind === "disable"}
-                    <span class="action-disable">Disable</span>
-                  {:else if item.action.kind === "uninstall"}
-                    <span class="action-uninstall">Uninstall</span>
-                  {:else if item.action.kind === "enable"}
-                    <span class="action-enable">Enable</span>
-                  {/if}
-                </td>
-                <td>
-                  {#if !skip}
-                    <label class="checkbox-row">
-                      <input
-                        type="checkbox"
-                        checked={!overridden}
-                        onchange={() => toggleOptimizeOverride(item.entry.package)}
-                        disabled={optimizeRunning}
-                      />
-                      {overridden ? "Skipped" : "Apply"}
-                    </label>
+                  {:else}
+                    <select
+                      class="action-select"
+                      class:will-skip={effectiveAction(item) === "skip"}
+                      value={effectiveAction(item)}
+                      onchange={(e) =>
+                        setOptimizeAction(
+                          item.entry.package,
+                          (e.currentTarget as HTMLSelectElement).value as RowAction,
+                        )}
+                      disabled={optimizeRunning}
+                    >
+                      {#each actionOptions(item) as opt (opt)}
+                        <option value={opt}>{actionLabel(item, opt)}</option>
+                      {/each}
+                    </select>
                   {/if}
                 </td>
                 <td>
@@ -2405,9 +2421,17 @@
     color: var(--fg-secondary);
     cursor: pointer;
   }
-  .action-disable { color: var(--accent); font-weight: 500; }
-  .action-uninstall { color: var(--danger-strong); font-weight: 500; }
-  .action-enable { color: var(--ok); font-weight: 500; }
+  .action-select {
+    font-size: 0.85rem;
+    padding: 0.25rem 0.5rem;
+    min-width: 9.5rem;
+  }
+  /* Visually mark a row the user dropped to Skip without dimming the control
+     itself (the whole row dims via tr.dim). */
+  .action-select.will-skip {
+    color: var(--fg-muted);
+    font-style: italic;
+  }
   .legend {
     display: flex;
     align-items: center;
