@@ -537,5 +537,137 @@
     "default_optimize": false,
     "default_restore": true,
     "play_store": true
+  },
+  {
+    "package": "org.smarttube.stable",
+    "name": "SmartTube",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Ad-free YouTube client with SponsorBlock (sideloaded — not on the Play Store).",
+    "restore_description": "Re-enables SmartTube.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false
+  },
+  {
+    "package": "io.gh.reisxd.tizentube.cobalt",
+    "name": "TizenTube Cobalt",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Ad-free YouTube client (Cobalt build for Android TV, sideloaded).",
+    "restore_description": "Re-enables TizenTube Cobalt.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false
+  },
+  {
+    "package": "org.xbmc.kodi",
+    "name": "Kodi",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Open-source media center.",
+    "restore_description": "Re-enables Kodi.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "org.videolan.vlc",
+    "name": "VLC",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Plays virtually any audio or video file.",
+    "restore_description": "Re-enables VLC.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "com.limelight",
+    "name": "Moonlight Game Streaming",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Stream PC games to your TV (NVIDIA GameStream / Sunshine).",
+    "restore_description": "Re-enables Moonlight.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "com.limelight.noir",
+    "name": "Moonlight Noir",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Community fork of Moonlight with extra HDR / codec options (sideloaded).",
+    "restore_description": "Re-enables Moonlight Noir.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false
+  },
+  {
+    "package": "com.valvesoftware.steamlink",
+    "name": "Steam Link",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Stream your Steam library from a PC on your network.",
+    "restore_description": "Re-enables Steam Link.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "com.codingbuffalo.aerialdream",
+    "name": "Aerial Dream",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Apple TV-style aerial video screensaver.",
+    "restore_description": "Re-enables Aerial Dream.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "com.cybercat.adbappcontrol.tv",
+    "name": "ADB TV: App Manager",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "On-device app manager — disable / uninstall apps via ADB, no PC.",
+    "restore_description": "Re-enables ADB TV.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "com.lonelycatgames.Xplore",
+    "name": "X-plore File Manager",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Dual-pane file manager for Android TV.",
+    "restore_description": "Re-enables X-plore.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "com.yablio.sendfilestotv",
+    "name": "Send Files to TV",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Wireless file transfer between a phone and the TV.",
+    "restore_description": "Re-enables Send Files to TV.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
+  },
+  {
+    "package": "flar2.homebutton",
+    "name": "Button Mapper",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Remap remote / hardware buttons to custom actions.",
+    "restore_description": "Re-enables Button Mapper.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true
   }
 ]

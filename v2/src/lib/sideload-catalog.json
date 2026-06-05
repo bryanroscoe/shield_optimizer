@@ -1,9 +1,15 @@
 [
   {
     "name": "SmartTube",
-    "package": "com.teamsmart.videomanager.tv",
+    "package": "org.smarttube.stable",
     "description": "Ad-free YouTube client built for Android TV — SponsorBlock, adjustable speed, no Shorts. Not on the Play Store; download the stable APK from the official GitHub.",
     "url": "https://github.com/yuliskov/SmartTube"
+  },
+  {
+    "name": "TizenTube Cobalt",
+    "package": "io.gh.reisxd.tizentube.cobalt",
+    "description": "Ad-free YouTube with SponsorBlock and DeArrow — the Cobalt build runs on Android TV. Sideload from the official GitHub releases.",
+    "url": "https://github.com/reisxd/TizenTubeCobalt/releases"
   },
   {
     "name": "F-Droid",
