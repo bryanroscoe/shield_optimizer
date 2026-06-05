@@ -12,6 +12,7 @@ use tauri::State;
 
 use crate::adb::{
     parse_disabled_packages_output, parse_installed_packages_output, parse_total_pss_by_process,
+    parse_usage_stats, AppUsage,
 };
 use crate::engine::{classify_safety, is_valid_package_name, Safety};
 
@@ -198,6 +199,29 @@ pub async fn app_memory_map_impl(
         .await
         .map_err(|e| format!("dumpsys meminfo: {e}"))?;
     Ok(parse_total_pss_by_process(&out.stdout))
+}
+
+/// `app_usage_map` — package → last-used + launch count, from a single
+/// `dumpsys usagestats`. Powers the "Review / remove if unused" signal: an app
+/// never opened (or not in months) is a strong candidate to disable/uninstall.
+#[tauri::command]
+pub async fn app_usage_map(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HashMap<String, AppUsage>, String> {
+    app_usage_map_impl(state.inner(), &serial).await
+}
+
+pub async fn app_usage_map_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<HashMap<String, AppUsage>, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(serial, "dumpsys usagestats")
+        .await
+        .map_err(|e| format!("dumpsys usagestats: {e}"))?;
+    Ok(parse_usage_stats(&out.stdout))
 }
 
 #[derive(Serialize)]
@@ -492,5 +516,24 @@ mod tests {
         );
         assert!(map.contains_key("com.teamsmart.videomanager.tv"));
         assert!(!map.contains_key("com.not.running"));
+    }
+
+    #[tokio::test]
+    async fn app_usage_map_reports_last_used() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let usage = "package=com.netflix.ninja lastTimeUsed=\"2026-06-01 09:00:00\" appLaunchCount=5\n\
+                     package=com.unused.app lastTimeUsed=\"1969-12-31 18:00:00\" appLaunchCount=0\n";
+        let state = state_with(MockAdb::default().on_shell("dumpsys usagestats", usage));
+        let map = app_usage_map_impl(&state, "serial").await.unwrap();
+        assert_eq!(
+            map.get("com.netflix.ninja")
+                .and_then(|u| u.last_used.as_deref()),
+            Some("2026-06-01 09:00:00")
+        );
+        assert_eq!(
+            map.get("com.unused.app").and_then(|u| u.last_used.clone()),
+            None
+        );
     }
 }

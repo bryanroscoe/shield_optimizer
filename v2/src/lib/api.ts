@@ -107,6 +107,8 @@ export const api = {
     invoke<OtherPackage[]>("list_other_packages", { serial }),
   appMemoryMap: (serial: string) =>
     invoke<Record<string, number>>("app_memory_map", { serial }),
+  appUsageMap: (serial: string) =>
+    invoke<Record<string, import("$lib/types").AppUsage>>("app_usage_map", { serial }),
   safetyInfo: (pkg: string) => invoke<Safety>("safety_info", { package: pkg }),
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
   sendText: (serial: string, text: string) =>

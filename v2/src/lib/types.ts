@@ -42,6 +42,17 @@ export interface AppEntry {
   /// Whether this package has a real Google Play listing at this exact id
   /// (audited). Controls whether the "Play Store" button shows.
   play_store: boolean;
+  /// Discontinued service — safe to uninstall despite no Play Store listing.
+  defunct?: boolean;
+  /// "Remove if unused" tier — surfaced as a candidate with a usage signal.
+  review?: boolean;
+}
+
+/// When an app was last opened (from dumpsys usagestats).
+export interface AppUsage {
+  /// "YYYY-MM-DD HH:MM:SS" of last use, or null if never opened.
+  last_used: string | null;
+  launch_count: number;
 }
 
 export interface LauncherEntry {

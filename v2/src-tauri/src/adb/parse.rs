@@ -164,6 +164,57 @@ pub fn parse_total_pss_by_process(meminfo: &str) -> HashMap<String, f64> {
     parse_dumpsys_meminfo(meminfo)
 }
 
+/// When an app was last opened, from `dumpsys usagestats`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppUsage {
+    /// `"YYYY-MM-DD HH:MM:SS"` of the last foreground use, or `None` if the app
+    /// has never been opened (usagestats reports the 1969/1970 epoch for that).
+    pub last_used: Option<String>,
+    /// How many times the app has been launched (0 ⇒ never).
+    pub launch_count: u32,
+}
+
+/// Parse per-package last-used + launch count from `dumpsys usagestats`. Each
+/// package's usage appears across several stat buckets; we keep the most recent
+/// `lastTimeUsed` and the highest `appLaunchCount` seen. A `1969`/`1970`
+/// timestamp means "never opened" and maps to `last_used: None`.
+pub fn parse_usage_stats(dumpsys: &str) -> HashMap<String, AppUsage> {
+    // One package's stats sit on a single line:
+    //   package=<id> totalTimeUsed="…" lastTimeUsed="YYYY-MM-DD HH:MM:SS" … appLaunchCount=N …
+    static ROW: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r#"package=(\S+).*?lastTimeUsed="([^"]*)".*?appLaunchCount=(\d+)"#).unwrap()
+    });
+
+    let mut out: HashMap<String, AppUsage> = HashMap::new();
+    for caps in ROW.captures_iter(dumpsys) {
+        let package = caps[1].to_string();
+        let raw_last = &caps[2];
+        let count: u32 = caps[3].parse().unwrap_or(0);
+        // Epoch 0 in any local timezone renders as 1969-12-31 or 1970-01-01.
+        let last_used = if raw_last.starts_with("1969") || raw_last.starts_with("1970") {
+            None
+        } else {
+            Some(raw_last.to_string())
+        };
+
+        let entry = out.entry(package).or_insert(AppUsage {
+            last_used: None,
+            launch_count: 0,
+        });
+        entry.launch_count = entry.launch_count.max(count);
+        // "YYYY-MM-DD HH:MM:SS" sorts lexically == chronologically, so keep the
+        // larger string. Any real date beats `None` (never used).
+        match (&entry.last_used, &last_used) {
+            (Some(existing), Some(candidate)) if candidate > existing => {
+                entry.last_used = last_used;
+            }
+            (None, Some(_)) => entry.last_used = last_used,
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Free / used / total / swap MB parsed from the summary block at the bottom
 /// of `dumpsys meminfo`. Returns `None` for fields the device didn't report.
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
@@ -379,6 +430,23 @@ pub fn parse_active_audio_device(dumpsys_audio: &str) -> Option<String> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn parses_usage_stats_last_used_and_never_opened() {
+        let dump = r#"
+      package=com.netflix.ninja totalTimeUsed="07:22" lastTimeUsed="2026-05-25 16:37:01" appLaunchCount=3 lastTimeStamp=1780669160342
+      package=com.netflix.ninja totalTimeUsed="01:00" lastTimeUsed="2026-06-01 09:00:00" appLaunchCount=5 lastTimeStamp=1780669160342
+      package=com.android.shell totalTimeUsed="00:00" lastTimeUsed="1969-12-31 18:00:00" appLaunchCount=0 lastTimeStamp=1780669160342
+"#;
+        let map = parse_usage_stats(dump);
+        let netflix = map.get("com.netflix.ninja").expect("netflix present");
+        // Keeps the most recent timestamp and the highest launch count across buckets.
+        assert_eq!(netflix.last_used.as_deref(), Some("2026-06-01 09:00:00"));
+        assert_eq!(netflix.launch_count, 5);
+        let shell = map.get("com.android.shell").expect("shell present");
+        assert_eq!(shell.last_used, None, "1969 epoch == never opened");
+        assert_eq!(shell.launch_count, 0);
+    }
 
     #[test]
     fn parses_ls_rows_including_spaced_names_and_symlinks() {

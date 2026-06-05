@@ -87,6 +87,7 @@ pub fn run() {
             apps::package_states,
             apps::list_other_packages,
             apps::app_memory_map,
+            apps::app_usage_map,
             apps::safety_info,
             apps::trim_caches,
             input::send_text,

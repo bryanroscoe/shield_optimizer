@@ -238,6 +238,13 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.amazon.amazonvideo.livingroom.nvidia": 126.5,
         "com.spocky.projengmenu": 92.1,
       };
+    case "app_usage_map":
+      return {
+        "com.netflix.ninja": { last_used: "2026-06-05 20:10:00", launch_count: 412 },
+        "com.teamsmart.videomanager.tv": { last_used: "2026-06-04 21:30:00", launch_count: 88 },
+        "com.hulu.plus": { last_used: "2026-03-12 19:02:00", launch_count: 4 },
+        "com.showtime.standalone": { last_used: null, launch_count: 0 },
+      };
     case "safety_info":
       return { kind: "safe" };
     case "list_launchers":

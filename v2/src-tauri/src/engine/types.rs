@@ -140,6 +140,26 @@ pub struct AppEntry {
     /// would 404. Defaults to false for safety if a list omits it.
     #[serde(default)]
     pub play_store: bool,
+    /// The service/app is discontinued (Stadia, Quibi, …). Defunct apps are safe
+    /// to uninstall even without a Play Store listing — there's nothing to get
+    /// back. Feeds the uninstall-safety gate via `reinstallable`.
+    #[serde(default)]
+    pub defunct: bool,
+    /// Surface this app for the user to review and remove *if they don't use it*
+    /// (streaming services, etc.) — distinct from auto-remove bloat (`default_
+    /// optimize`) and apps you keep. The Optimize wizard shows these as
+    /// candidates with a usage signal but defaults them to Skip.
+    #[serde(default)]
+    pub review: bool,
+}
+
+impl AppEntry {
+    /// Can the user get this app back easily after uninstalling? True when it
+    /// has a Play Store listing, or it's defunct (nothing to get back). Drives
+    /// whether uninstall is a safe recommendation vs disable.
+    pub fn reinstallable(&self) -> bool {
+        self.play_store || self.defunct
+    }
 }
 
 /// Mode for an Optimize / Restore run.

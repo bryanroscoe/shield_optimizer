@@ -149,6 +149,8 @@ mod tests {
             default_optimize: true,
             default_restore: false,
             play_store: false,
+            defunct: false,
+            review: false,
         }
     }
 
