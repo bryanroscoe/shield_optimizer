@@ -138,6 +138,9 @@ export interface SetLauncherResult {
   strategy: string | null;
   current_launcher: string | null;
   last_error: string | null;
+  /// Polite strategies failed, but disabling the active stock launcher would
+  /// work — the UI confirms with the user and retries with allowStockDisable.
+  stock_takeover_available: boolean;
 }
 
 export interface InstallApkResult {

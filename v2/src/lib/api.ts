@@ -75,8 +75,8 @@ export const api = {
     invoke<CurrentLauncher>("current_launcher", { serial }),
   channelProviderDisabled: (serial: string) =>
     invoke<boolean>("channel_provider_disabled", { serial }),
-  setDefaultLauncher: (serial: string, pkg: string) =>
-    invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg }),
+  setDefaultLauncher: (serial: string, pkg: string, allowStockDisable = false) =>
+    invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg, allowStockDisable }),
   disableLauncher: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_launcher", { serial, package: pkg }),
 

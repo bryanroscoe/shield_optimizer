@@ -363,10 +363,14 @@ pub async fn apply_snapshot(
     let mut launcher_message = None;
     if let Some(launcher_pkg) = &plan.launcher_to_set {
         // Reuse the multi-strategy set-default helper from the launcher module.
+        // No stock takeover here: a snapshot that had stock disabled carries
+        // that in its disabled-packages list, so the polite strategies plus
+        // the package application get the same end state without surprises.
         let result = crate::commands::launcher::set_default_launcher_impl(
             state.inner(),
             &serial,
             launcher_pkg,
+            false,
         )
         .await;
         if let Ok(r) = result {

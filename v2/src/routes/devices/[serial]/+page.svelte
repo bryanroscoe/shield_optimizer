@@ -603,8 +603,10 @@
         await loadLauncher();
         launcherActionMessage = back.ok
           ? `Enabled ${pkg}. Android made it the active launcher, so ${prevDefault} was re-set as your default.`
-          : `Enabled ${pkg} — Android made it the active launcher, and re-setting ${prevDefault} failed` +
-            `${back.last_error ? `: ${back.last_error}` : ""}. Use "Set as default" on your preferred launcher.`;
+          : back.stock_takeover_available
+            ? `Enabled ${pkg} — it also took over HOME, and this build can't hand HOME back without disabling it again. Use "Set as default" on ${prevDefault} if you want it back.`
+            : `Enabled ${pkg} — Android made it the active launcher, and re-setting ${prevDefault} failed` +
+              `${back.last_error ? `: ${back.last_error}` : ""}. Use "Set as default" on your preferred launcher.`;
       } else {
         launcherActionMessage = `${pkg}: enabled`;
       }
@@ -637,11 +639,19 @@
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     try {
-      const r = await api.setDefaultLauncher(serial, pkg);
+      let r = await api.setDefaultLauncher(serial, pkg);
+      if (!r.ok && r.stock_takeover_available) {
+        // The only working method on this build disables the stock launcher.
+        // Never do that silently — ask, then retry with the opt-in flag.
+        const proceed = confirm(
+          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${pkg}? You can re-enable it from this list at any time.`,
+        );
+        if (proceed) r = await api.setDefaultLauncher(serial, pkg, true);
+      }
       if (r.ok) {
         launcherActionMessage =
           r.strategy === "disable_stock_takeover"
-            ? `Set ${pkg} as default. This device ignores the standard launcher-switch commands, so the stock launcher was disabled to hand HOME over — re-enable it from the list any time.`
+            ? `Set ${pkg} as default — the stock launcher was disabled to hand HOME over (re-enable it from the list any time).`
             : `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
         await loadLauncher();
       } else {
