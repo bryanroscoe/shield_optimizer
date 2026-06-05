@@ -31,6 +31,9 @@
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import RamBadge from "$lib/components/RamBadge.svelte";
+  import UsageBadge from "$lib/components/UsageBadge.svelte";
+  import StateBadge from "$lib/components/StateBadge.svelte";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
@@ -121,6 +124,9 @@
   /// the list paints; most apps aren't here (not running), so a value means the
   /// app is actively holding RAM — the cue for "disable this unused app".
   let appMemory = $state<Record<string, number>>({});
+  /// package → last-used / launch count, lazy-loaded alongside RAM. Powers the
+  /// "remove if unused" signal (never opened / months idle).
+  let appUsage = $state<Record<string, import("$lib/types").AppUsage>>({});
 
   function matchesSearch(name: string, pkg: string): boolean {
     const q = appSearch.trim().toLowerCase();
@@ -365,15 +371,16 @@
     loadAppMemory();
   }
 
-  /// Lazy RAM annotation: one `dumpsys meminfo`, mapped onto the rows. Runs
-  /// after the list paints and never blocks it — a failure just leaves the
-  /// memory cues off.
+  /// Lazy RAM + last-used annotations: one `dumpsys meminfo` and one
+  /// `dumpsys usagestats`, mapped onto the rows. Run after the list paints and
+  /// never block it — a failure just leaves those cues off.
   async function loadAppMemory() {
-    try {
-      appMemory = await api.appMemoryMap(serial);
-    } catch {
-      appMemory = {};
-    }
+    const [mem, usage] = await Promise.allSettled([
+      api.appMemoryMap(serial),
+      api.appUsageMap(serial),
+    ]);
+    appMemory = mem.status === "fulfilled" ? mem.value : {};
+    appUsage = usage.status === "fulfilled" ? usage.value : {};
   }
 
   // Everything installed that isn't in the curated catalog — sideloaded apps
@@ -588,28 +595,42 @@
   type Recommendation =
     | { kind: "done"; label: string }
     | { kind: "act"; label: string; action: "disable" | "uninstall" }
+    | { kind: "review"; label: string; action: "disable" | "uninstall" }
     | { kind: "restore"; label: string }
     | { kind: "keep" };
 
-  /// What v1's Optimize wizard would suggest for this row, given its current
-  /// on-device state. `done` = already where the recommendation wants it.
-  /// `act` = a recommended write action that's clickable. `restore` = the app
-  /// is gone and v1 would have brought it back. `keep` = no recommendation.
+  /// The action actually safe to offer — mirrors the engine's AppEntry::
+  /// safe_method: never uninstall an app you can't get back (not on the Play
+  /// Store and not defunct), downgrade to the reversible disable instead.
+  function effectiveMethod(a: AppEntry): "disable" | "uninstall" {
+    return a.method === "uninstall" && !(a.play_store || a.defunct) ? "disable" : a.method;
+  }
+
+  /// What the wizard would suggest for this row, given its current on-device
+  /// state. `act` = a recommended (default) action. `review` = a "remove if you
+  /// don't use it" candidate (optional, never a default). `restore` = the app
+  /// is gone and would be brought back. `done`/`keep` = nothing to do.
   function recommendation(a: AppEntry, state: "enabled" | "disabled" | "missing"): Recommendation {
     if (state === "missing") {
       if (a.default_restore) return { kind: "restore", label: "Reinstall" };
-      // Uninstalled and Optimize would also uninstall it — already there.
       if (a.default_optimize && a.method === "uninstall") return { kind: "done", label: "Already uninstalled" };
       return { kind: "keep" };
     }
-    if (!a.default_optimize) return { kind: "keep" };
-    if (a.method === "disable") {
-      return state === "disabled"
-        ? { kind: "done", label: "Already disabled" }
-        : { kind: "act", label: "Disable", action: "disable" };
+    const method = effectiveMethod(a);
+    if (a.default_optimize) {
+      if (method === "disable") {
+        return state === "disabled"
+          ? { kind: "done", label: "Already disabled" }
+          : { kind: "act", label: "Disable", action: "disable" };
+      }
+      return { kind: "act", label: "Uninstall", action: "uninstall" };
     }
-    // method === "uninstall"
-    return { kind: "act", label: "Uninstall", action: "uninstall" };
+    if (a.review && state === "enabled") {
+      return method === "disable"
+        ? { kind: "review", label: "Disable if unused", action: "disable" }
+        : { kind: "review", label: "Remove if unused", action: "uninstall" };
+    }
+    return { kind: "keep" };
   }
 
   function applyRecommendation(pkg: string, action: "disable" | "uninstall") {
@@ -1305,6 +1326,8 @@
     } finally {
       optimizePlanLoading = false;
     }
+    // Lazy "last used" cues for the Review rows (shared with the App List).
+    loadAppMemory();
   }
 
   /// The natural action the engine computed for an actionable row (disable /
@@ -1485,7 +1508,7 @@
     launchers = []; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
-    otherPackages = []; appMemory = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
+    otherPackages = []; appMemory = {}; appUsage = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null; apkInstallState = {};
@@ -2041,16 +2064,12 @@
                   <div class="muted small mono pkg-id">{a.package}</div>
                 </td>
                 <td class="center">
-                  <span class={`state-badge state-${state}`}>
-                    {state === "enabled" ? "Enabled" : state === "disabled" ? "Disabled" : "Missing"}
-                  </span>
+                  <StateBadge {state} />
                   {#if appMemory[a.package]}
-                    <div
-                      class="ram-tag"
-                      class:warn={appMemory[a.package] >= 200}
-                      class:caution={appMemory[a.package] >= 100 && appMemory[a.package] < 200}
-                      title="Resident RAM right now (dumpsys meminfo)"
-                    >{appMemory[a.package].toFixed(0)} MB</div>
+                    <div class="cell-cue"><RamBadge mb={appMemory[a.package]} /></div>
+                  {/if}
+                  {#if appUsage[a.package] && state !== "missing"}
+                    <div class="cell-cue"><UsageBadge usage={appUsage[a.package]} /></div>
                   {/if}
                 </td>
                 <td class={`risk center risk-${a.risk}`}>{a.risk.toUpperCase()}</td>
@@ -2062,6 +2081,16 @@
                       onclick={() => applyRecommendation(a.package, rec.action)}
                       disabled={appActionBusy === a.package}
                       title={a.optimize_description}
+                    >
+                      {appActionBusy === a.package ? "…" : rec.label}
+                    </button>
+                  {:else if rec.kind === "review"}
+                    <button
+                      class="small-action review-action"
+                      class:danger={rec.action === "uninstall"}
+                      onclick={() => applyRecommendation(a.package, rec.action)}
+                      disabled={appActionBusy === a.package}
+                      title="You may not use this one — check the last-used cue, then {rec.action} if so."
                     >
                       {appActionBusy === a.package ? "…" : rec.label}
                     </button>
@@ -2080,7 +2109,7 @@
                     <span class="muted small">Keep</span>
                   {/if}
 
-                  {#if state === "enabled" && rec.kind !== "act"}
+                  {#if state === "enabled" && rec.kind !== "act" && !(rec.kind === "review" && rec.action === "disable")}
                     <button
                       class="small-action subtle"
                       onclick={() => disableApp(a.package)}
@@ -2168,16 +2197,12 @@
                       <span class={`tag ${o.system ? "missing" : "installed"}`}>{o.system ? "SYSTEM" : "3RD-PARTY"}</span>
                     </td>
                     <td class="center">
-                      <span class={`state-badge state-${o.enabled ? "enabled" : "disabled"}`}>
-                        {o.enabled ? "Enabled" : "Disabled"}
-                      </span>
+                      <StateBadge state={o.enabled ? "enabled" : "disabled"} />
                       {#if appMemory[o.package]}
-                        <div
-                          class="ram-tag"
-                          class:warn={appMemory[o.package] >= 200}
-                          class:caution={appMemory[o.package] >= 100 && appMemory[o.package] < 200}
-                          title="Resident RAM right now (dumpsys meminfo)"
-                        >{appMemory[o.package].toFixed(0)} MB</div>
+                        <div class="cell-cue"><RamBadge mb={appMemory[o.package]} /></div>
+                      {/if}
+                      {#if appUsage[o.package]}
+                        <div class="cell-cue"><UsageBadge usage={appUsage[o.package]} /></div>
                       {/if}
                     </td>
                     <td class="rec-cell">
@@ -2288,24 +2313,24 @@
                     {item.entry.name}
                     {#if item.entry.default_optimize}
                       <span class="tag installed">DEFAULT</span>
+                    {:else if item.entry.review}
+                      <span class="tag review" title="Remove if you don't use it">REVIEW</span>
                     {/if}
                   </div>
                   {#if item.entry.optimize_description}
                     <div class="muted small app-desc">{item.entry.optimize_description}</div>
                   {/if}
                   <div class="muted small mono">{item.entry.package}</div>
+                  {#if appUsage[item.entry.package] && naturalAction(item) !== null}
+                    <div class="cell-cue"><UsageBadge usage={appUsage[item.entry.package]} /></div>
+                  {/if}
                 </td>
                 <td class="num">
+                  <!-- Live RAM for installed + enabled rows only (naturalAction
+                       null ⇒ not-installed / already-disabled, where a residual
+                       process isn't reclaimable). -->
                   {#if item.memory_mb && naturalAction(item) !== null}
-                    <!-- Show live RAM for any installed + enabled app (whether or
-                         not it's selected for action) — that's the "this is worth
-                         disabling" cue. Gate on state, not the chosen action.
-                         naturalAction is null for not-installed / already-disabled
-                         rows, so a residual process on a disabled app stays hidden. -->
-                    <span
-                      class:warn={item.memory_mb >= 200}
-                      class:caution={item.memory_mb >= 100 && item.memory_mb < 200}
-                    >{item.memory_mb.toFixed(1)} MB</span>
+                    <RamBadge mb={item.memory_mb} />
                   {:else}
                     <span class="muted">—</span>
                   {/if}
@@ -3081,14 +3106,10 @@
     font-size: 0.78rem;
     opacity: 0.7;
   }
-  .ram-tag {
+  /* Small stacked cue (RAM / last-used badge) under a row's state badge. */
+  .cell-cue {
     margin-top: 0.2rem;
-    font-size: 0.72rem;
-    font-family: ui-monospace, monospace;
-    color: var(--fg-muted);
   }
-  .ram-tag.caution { color: var(--warn); }
-  .ram-tag.warn { color: var(--danger-strong); }
   .app-table .rec-cell {
     /* Keep button + subtle override on one row when possible. */
     white-space: nowrap;
@@ -3155,6 +3176,7 @@
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
+  .tag.review { background: var(--warn-surface-2); color: var(--warn); }
   .tag.stock { background: var(--bg-muted); color: var(--accent); }
   .tag.missing { background: var(--bg-muted); color: var(--fg-faint); }
   .tag.disabled { background: var(--warn-surface-2); color: var(--warn); }
@@ -3268,6 +3290,16 @@
   }
   .small-action.recommended.danger:hover:not(:disabled) {
     background: var(--danger-border);
+  }
+  /* Review (remove-if-unused): optional, not a default — outlined in the warn
+     color so it reads as "consider this", lighter than a recommended action. */
+  .small-action.review-action {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+  .small-action.review-action.danger {
+    border-color: var(--danger-strong);
+    color: var(--danger-strong);
   }
   .small-action.subtle {
     background: transparent;
