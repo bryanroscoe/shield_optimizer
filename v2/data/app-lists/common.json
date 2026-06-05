@@ -15,9 +15,9 @@
     "name": "Print Spooler",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Print service \u2014 irrelevant on a TV.",
+    "optimize_description": "Print service \u2014 never runs on a TV, so disabling frees nothing; only declutters the app list.",
     "restore_description": "Restores print spooler.",
-    "default_optimize": true,
+    "default_optimize": false,
     "default_restore": true,
     "play_store": false
   },
@@ -84,61 +84,6 @@
     "optimize_description": "Service shut down January 2023.",
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
-    "default_restore": false,
-    "play_store": false
-  },
-  {
-    "package": "com.google.android.inputmethod.japanese",
-    "name": "Google Japanese Keyboard",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Extra language keyboard — disable if you don't type Japanese.",
-    "restore_description": "Re-enables the Japanese keyboard.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false
-  },
-  {
-    "package": "com.google.android.inputmethod.korean",
-    "name": "Google Korean Keyboard",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Extra language keyboard — disable if you don't type Korean.",
-    "restore_description": "Re-enables the Korean keyboard.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false
-  },
-  {
-    "package": "com.google.android.inputmethod.pinyin",
-    "name": "Google Pinyin Keyboard",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Extra language keyboard (Simplified Chinese) — disable if unused.",
-    "restore_description": "Re-enables the Pinyin keyboard.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false
-  },
-  {
-    "package": "com.google.android.apps.inputmethod.zhuyin",
-    "name": "Google Zhuyin Keyboard",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Extra language keyboard (Traditional Chinese) — disable if unused.",
-    "restore_description": "Re-enables the Zhuyin keyboard.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false
-  },
-  {
-    "package": "com.google.android.apps.inputmethod.hindi",
-    "name": "Google Hindi Keyboard",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Extra language keyboard — disable if you don't type Hindi.",
-    "restore_description": "Re-enables the Hindi keyboard.",
-    "default_optimize": false,
     "default_restore": false,
     "play_store": false
   },

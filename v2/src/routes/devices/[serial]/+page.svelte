@@ -2198,7 +2198,9 @@
         <p class="muted">Pick Optimize or Restore to load the plan.</p>
       {:else}
         {@const actionable = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length}
-        {@const totalRunning = optimizePlan.items.reduce((acc, i) => acc + (i.memory_mb ?? 0), 0)}
+        {@const totalRunning = optimizePlan.items
+          .filter((i) => effectiveAction(i) !== "skip")
+          .reduce((acc, i) => acc + (i.memory_mb ?? 0), 0)}
         <div class="plan-summary">
           <strong>{actionable}</strong> of {optimizePlan.items.length} items will be acted on.
           {#if totalRunning > 0}
@@ -2259,12 +2261,15 @@
                   <div class="muted small mono">{item.entry.package}</div>
                 </td>
                 <td class="num">
-                  {#if item.memory_mb}
+                  {#if item.memory_mb && eff !== "skip"}
                     <span
                       class:warn={item.memory_mb >= 200}
                       class:caution={item.memory_mb >= 100 && item.memory_mb < 200}
                     >{item.memory_mb.toFixed(1)} MB</span>
                   {:else}
+                    <!-- Skipped rows (already disabled / not installed) reclaim no
+                         RAM — a residual process lingering until reboot isn't
+                         actionable, so don't show a misleading figure. -->
                     <span class="muted">—</span>
                   {/if}
                 </td>
