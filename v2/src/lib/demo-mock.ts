@@ -231,6 +231,13 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         { package: "com.android.providers.media", system: true, enabled: true, name: null },
         { package: "com.nvidia.ota", system: true, enabled: false, name: null },
       ];
+    case "app_memory_map":
+      return {
+        "com.teamsmart.videomanager.tv": 184.2,
+        "com.netflix.ninja": 243.7,
+        "com.amazon.amazonvideo.livingroom.nvidia": 126.5,
+        "com.spocky.projengmenu": 92.1,
+      };
     case "safety_info":
       return { kind: "safe" };
     case "list_launchers":

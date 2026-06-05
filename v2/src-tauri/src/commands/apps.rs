@@ -10,7 +10,9 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 use tauri::State;
 
-use crate::adb::{parse_disabled_packages_output, parse_installed_packages_output};
+use crate::adb::{
+    parse_disabled_packages_output, parse_installed_packages_output, parse_total_pss_by_process,
+};
 use crate::engine::{classify_safety, is_valid_package_name, Safety};
 
 use super::AppState;
@@ -171,6 +173,31 @@ pub async fn list_other_packages_impl(
             .then_with(|| a.package.cmp(&b.package))
     });
     Ok(out)
+}
+
+/// `app_memory_map` — package → resident RAM (MB), from a single `dumpsys
+/// meminfo`. Lazy companion to the App List: the UI loads the list first, then
+/// fetches this and flags which apps are actually using RAM right now. Most
+/// apps return nothing (not running) — the ones that do are the real signal,
+/// e.g. an unused video app quietly holding background RAM.
+#[tauri::command]
+pub async fn app_memory_map(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HashMap<String, f64>, String> {
+    app_memory_map_impl(state.inner(), &serial).await
+}
+
+pub async fn app_memory_map_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<HashMap<String, f64>, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(serial, "dumpsys meminfo")
+        .await
+        .map_err(|e| format!("dumpsys meminfo: {e}"))?;
+    Ok(parse_total_pss_by_process(&out.stdout))
 }
 
 #[derive(Serialize)]
@@ -447,5 +474,23 @@ mod tests {
             unknown.name, None,
             "unrecognized package has no friendly name"
         );
+    }
+
+    #[tokio::test]
+    async fn app_memory_map_parses_running_processes() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let meminfo = "Total PSS by process:\n\
+             243,712K: com.netflix.ninja (pid 2201)\n\
+             184,200K: com.teamsmart.videomanager.tv (pid 1899)\n";
+        let state = state_with(MockAdb::default().on_shell("dumpsys meminfo", meminfo));
+        let map = app_memory_map_impl(&state, "serial").await.unwrap();
+        assert!(
+            (map.get("com.netflix.ninja").copied().unwrap_or(0.0) - 238.0).abs() < 1.0,
+            "netflix ~238 MB, got {:?}",
+            map.get("com.netflix.ninja")
+        );
+        assert!(map.contains_key("com.teamsmart.videomanager.tv"));
+        assert!(!map.contains_key("com.not.running"));
     }
 }

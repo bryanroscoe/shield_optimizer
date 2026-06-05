@@ -86,6 +86,7 @@ pub fn run() {
             apps::open_play_store,
             apps::package_states,
             apps::list_other_packages,
+            apps::app_memory_map,
             apps::safety_info,
             apps::trim_caches,
             input::send_text,

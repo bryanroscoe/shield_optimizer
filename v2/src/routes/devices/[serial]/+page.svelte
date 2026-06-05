@@ -114,6 +114,10 @@
   /// SmartTube + system internals). Loaded lazily on the Apps tab.
   let otherPackages = $state<OtherPackage[]>([]);
   let othersLoading = $state(false);
+  /// package → resident RAM (MB) for apps running right now. Lazy-loaded after
+  /// the list paints; most apps aren't here (not running), so a value means the
+  /// app is actively holding RAM — the cue for "disable this unused app".
+  let appMemory = $state<Record<string, number>>({});
 
   function matchesSearch(name: string, pkg: string): boolean {
     const q = appSearch.trim().toLowerCase();
@@ -355,6 +359,18 @@
       appsLoading = false;
     }
     loadOtherPackages();
+    loadAppMemory();
+  }
+
+  /// Lazy RAM annotation: one `dumpsys meminfo`, mapped onto the rows. Runs
+  /// after the list paints and never blocks it — a failure just leaves the
+  /// memory cues off.
+  async function loadAppMemory() {
+    try {
+      appMemory = await api.appMemoryMap(serial);
+    } catch {
+      appMemory = {};
+    }
   }
 
   // Everything installed that isn't in the curated catalog — sideloaded apps
@@ -1466,7 +1482,7 @@
     launchers = []; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
-    otherPackages = []; appSearch = ""; hideNotInstalled = false; showSystemOthers = false;
+    otherPackages = []; appMemory = {}; appSearch = ""; hideNotInstalled = false; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null; apkInstallState = {};
@@ -2025,6 +2041,14 @@
                   <span class={`state-badge state-${state}`}>
                     {state === "enabled" ? "Enabled" : state === "disabled" ? "Disabled" : "Missing"}
                   </span>
+                  {#if appMemory[a.package]}
+                    <div
+                      class="ram-tag"
+                      class:warn={appMemory[a.package] >= 200}
+                      class:caution={appMemory[a.package] >= 100 && appMemory[a.package] < 200}
+                      title="Resident RAM right now (dumpsys meminfo)"
+                    >{appMemory[a.package].toFixed(0)} MB</div>
+                  {/if}
                 </td>
                 <td class={`risk center risk-${a.risk}`}>{a.risk.toUpperCase()}</td>
                 <td class="rec-cell">
@@ -2144,6 +2168,14 @@
                       <span class={`state-badge state-${o.enabled ? "enabled" : "disabled"}`}>
                         {o.enabled ? "Enabled" : "Disabled"}
                       </span>
+                      {#if appMemory[o.package]}
+                        <div
+                          class="ram-tag"
+                          class:warn={appMemory[o.package] >= 200}
+                          class:caution={appMemory[o.package] >= 100 && appMemory[o.package] < 200}
+                          title="Resident RAM right now (dumpsys meminfo)"
+                        >{appMemory[o.package].toFixed(0)} MB</div>
+                      {/if}
                     </td>
                     <td class="rec-cell">
                       {#if o.enabled}
@@ -3044,6 +3076,14 @@
     font-size: 0.78rem;
     opacity: 0.7;
   }
+  .ram-tag {
+    margin-top: 0.2rem;
+    font-size: 0.72rem;
+    font-family: ui-monospace, monospace;
+    color: var(--fg-muted);
+  }
+  .ram-tag.caution { color: var(--warn); }
+  .ram-tag.warn { color: var(--danger-strong); }
   .app-table .rec-cell {
     /* Keep button + subtle override on one row when possible. */
     white-space: nowrap;
