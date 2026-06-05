@@ -108,7 +108,10 @@
   /// package → 'enabled' | 'disabled' | 'missing' — refreshed alongside the app list.
   let appStates = $state<Record<string, "enabled" | "disabled" | "missing">>({});
   let appSearch = $state("");
-  let hideNotInstalled = $state(false);
+  // Default on: the catalog lists ~70 known apps, most not present on any given
+  // device, so an unfiltered list is mostly un-actionable "Missing" rows. Start
+  // focused on what's installed; unticking reveals the full catalog.
+  let hideNotInstalled = $state(true);
   let showSystemOthers = $state(false);
   /// Installed packages not in the curated catalog (sideloaded apps like
   /// SmartTube + system internals). Loaded lazily on the Apps tab.
@@ -1482,7 +1485,7 @@
     launchers = []; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
     apps = []; appsErr = null; appStates = {}; appActionMessage = "";
-    otherPackages = []; appMemory = {}; appSearch = ""; hideNotInstalled = false; showSystemOthers = false;
+    otherPackages = []; appMemory = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null; apkInstallState = {};
