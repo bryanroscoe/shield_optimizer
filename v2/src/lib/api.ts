@@ -162,8 +162,8 @@ export const api = {
   getDisplayScaling: (serial: string) =>
     invoke<CurrentDisplayScaling>("get_display_scaling", { serial }),
 
-  prepareOptimize: (serial: string, mode: OptimizeMode) =>
-    invoke<OptimizePlan>("prepare_optimize", { serial, mode }),
+  prepareOptimize: (serial: string, deviceType: DeviceType, mode: OptimizeMode) =>
+    invoke<OptimizePlan>("prepare_optimize", { serial, deviceType, mode }),
   applyPerformanceSettings: (serial: string, profile: PerformanceProfile) =>
     invoke<PerformanceResult>("apply_performance_settings", { serial, profile }),
 };

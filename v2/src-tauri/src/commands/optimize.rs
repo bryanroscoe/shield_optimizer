@@ -22,15 +22,20 @@ use super::AppState;
 
 /// `prepare_optimize` — fetch installed, disabled, and memory map for `serial`,
 /// pick the device-appropriate app list, and run the engine planner.
+///
+/// `device_type` comes from the caller (the page already profiled the device on
+/// load) instead of re-detecting here. Re-detection went through
+/// `list_devices_impl`, which sequentially harvests properties for *every*
+/// connected device — slow with several devices, and worse when an unauthorized
+/// one stalls. The planner only needs the type, so the caller passes it.
 #[tauri::command]
 pub async fn prepare_optimize(
     state: State<'_, AppState>,
     serial: String,
+    device_type: crate::engine::DeviceType,
     mode: OptimizeMode,
 ) -> Result<OptimizePlan, String> {
-    let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
-
-    let apps = state.app_lists.for_device(device.device_type);
+    let apps = state.app_lists.for_device(device_type);
 
     let adb = state.adb_snapshot().await;
     let (installed_res, disabled_res, meminfo_res) = tokio::join!(

@@ -1269,6 +1269,7 @@
   }
 
   async function loadOptimizePlan(mode: OptimizeMode) {
+    if (!device) return;
     optimizeMode = mode;
     optimizePlanLoading = true;
     optimizePlanErr = null;
@@ -1279,7 +1280,7 @@
     optimizeSummary = "";
     optimizePerfApplied = false;
     try {
-      optimizePlan = await api.prepareOptimize(serial, mode);
+      optimizePlan = await api.prepareOptimize(serial, device.device_type, mode);
     } catch (e) {
       optimizePlanErr = String(e);
     } finally {
