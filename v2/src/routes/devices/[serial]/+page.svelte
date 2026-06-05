@@ -2479,6 +2479,41 @@
           </div>
         </div>
 
+        <h3>Background Process Limit</h3>
+        <p class="muted small">
+          Caps how many apps stay alive in the background — frees RAM and can make the
+          Shield feel snappier (2 is a good balance). <strong>Heads up:</strong> Android
+          resets this to Standard on every reboot (a platform limitation, not a bug), so
+          you'll need to re-apply it after a restart.
+        </p>
+        <div class="tweak-row">
+          <div>
+            <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit ?? "(Standard)"}</div>
+          </div>
+          <div class="row-actions">
+            <button
+              class="small-action"
+              class:active={!tweaks.background_process_limit}
+              disabled={tweaksActionBusy === "background_process_limit"}
+              onclick={() => writeTweak("global", "background_process_limit", "", "background_process_limit")}
+            >Standard</button>
+            {#each [
+              { v: "0", label: "None" },
+              { v: "1", label: "≤ 1" },
+              { v: "2", label: "≤ 2" },
+              { v: "3", label: "≤ 3" },
+              { v: "4", label: "≤ 4" },
+            ] as opt (opt.v)}
+              <button
+                class="small-action"
+                class:active={tweaks.background_process_limit === opt.v}
+                disabled={tweaksActionBusy === "background_process_limit"}
+                onclick={() => writeTweak("global", "background_process_limit", opt.v, "background_process_limit")}
+              >{opt.label}</button>
+            {/each}
+          </div>
+        </div>
+
         <h3>Long Press Timeout</h3>
         <p class="muted small">
           How long the remote OK button has to be held to register a long-press. Default

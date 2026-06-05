@@ -296,6 +296,8 @@ export interface TweaksState {
   window_animation_scale: string | null;
   transition_animation_scale: string | null;
   animator_duration_scale: string | null;
+  /// Background process limit: null = Standard, "0" = none, "1"–"4" = at most N.
+  background_process_limit: string | null;
 }
 
 export type SettingNamespace = "global" | "secure" | "system";

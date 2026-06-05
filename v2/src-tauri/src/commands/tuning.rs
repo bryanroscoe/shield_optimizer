@@ -23,6 +23,10 @@ pub struct TweaksState {
     pub window_animation_scale: Option<String>,
     pub transition_animation_scale: Option<String>,
     pub animator_duration_scale: Option<String>,
+    /// Developer-options "Background process limit". `null`/absent = Standard,
+    /// `0` = none, `1`–`4` = at most N. Frees RAM, but Android resets it on
+    /// reboot (see issue #11) — the UI says so.
+    pub background_process_limit: Option<String>,
 }
 
 /// `get_tweaks` — batch-fetch all Tweaks-relevant settings in one shell call.
@@ -37,7 +41,8 @@ pub async fn get_tweaks(state: State<'_, AppState>, serial: String) -> Result<Tw
                settings get secure long_press_timeout; \
                settings get global window_animation_scale; \
                settings get global transition_animation_scale; \
-               settings get global animator_duration_scale";
+               settings get global animator_duration_scale; \
+               settings get global background_process_limit";
     let out = adb
         .shell(&serial, cmd)
         .await
@@ -60,6 +65,7 @@ pub async fn get_tweaks(state: State<'_, AppState>, serial: String) -> Result<Tw
         window_animation_scale: lines.next().flatten(),
         transition_animation_scale: lines.next().flatten(),
         animator_duration_scale: lines.next().flatten(),
+        background_process_limit: lines.next().flatten(),
     })
 }
 

@@ -98,6 +98,7 @@ const tweaks: TweaksState = {
   window_animation_scale: "0.5",
   transition_animation_scale: "0.5",
   animator_duration_scale: "0.5",
+  background_process_limit: "2",
 };
 
 const snapshots: SnapshotFile[] = [
