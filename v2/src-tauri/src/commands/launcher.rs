@@ -131,7 +131,10 @@ pub async fn current_launcher(
 pub struct SetLauncherResult {
     pub ok: bool,
     /// Identifier of the strategy that worked (or the last one tried on failure).
-    /// One of: "role_api", "set_home_activity", "home_intent_kick".
+    /// One of: "role_api", "set_home_activity", "home_intent_kick",
+    /// "disable_stock_takeover" (stock launcher disabled to hand HOME over —
+    /// the only method that works on builds whose role/set-home-activity
+    /// commands accept-but-ignore).
     pub strategy: Option<String>,
     /// Active launcher after the attempt — useful for the UI to render
     /// the post-action state.
@@ -291,6 +294,47 @@ pub async fn set_default_launcher_impl(
             current_launcher: now_active,
             last_error: None,
         });
+    }
+
+    // 5. The strategy that actually works on Android 11 TV builds where the
+    // role API silently no-ops and set-home-activity answers "Success"
+    // without effect (verified live on a Shield 2019 / Android 11): when the
+    // app holding HOME is a *stock* launcher, disable it — Android then
+    // resolves HOME to the remaining launcher. This is v1's proven
+    // Setup-Launcher mechanism, applied automatically and verified. Never
+    // auto-disables a custom launcher; the NEVER_DISABLE gate still applies;
+    // and if the takeover doesn't verify, the stock launcher is re-enabled.
+    if let Some(active) = now_active.clone() {
+        let active_is_stock = stock_launcher_catalog().iter().any(|e| e.package == active);
+        let blocked = matches!(
+            crate::engine::classify_safety(&active),
+            crate::engine::Safety::NeverDisable { .. }
+        );
+        if active != package && active_is_stock && !blocked {
+            let disabled_ok = matches!(
+                adb.shell(serial, &format!("pm disable-user --user 0 {active}")).await,
+                Ok(ref o) if !o.shell_reported_failure()
+            );
+            if disabled_ok {
+                let _ = adb
+                    .shell(
+                        serial,
+                        "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME",
+                    )
+                    .await;
+                if verify_active(&*adb, serial, package).await {
+                    return Ok(SetLauncherResult {
+                        ok: true,
+                        strategy: Some("disable_stock_takeover".into()),
+                        current_launcher: Some(package.to_string()),
+                        last_error: None,
+                    });
+                }
+                // Takeover didn't verify — put the stock launcher back the
+                // way we found it rather than leaving a half-applied state.
+                let _ = adb.shell(serial, &format!("pm enable {active}")).await;
+            }
+        }
     }
 
     // The device acknowledged the change but the resolver never confirmed it.

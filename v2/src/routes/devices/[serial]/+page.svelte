@@ -639,7 +639,10 @@
     try {
       const r = await api.setDefaultLauncher(serial, pkg);
       if (r.ok) {
-        launcherActionMessage = `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
+        launcherActionMessage =
+          r.strategy === "disable_stock_takeover"
+            ? `Set ${pkg} as default. This device ignores the standard launcher-switch commands, so the stock launcher was disabled to hand HOME over — re-enable it from the list any time.`
+            : `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
         await loadLauncher();
       } else {
         // Backend messages are full sentences (including the "device accepted
