@@ -17,6 +17,63 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-0.1.0-beta.9
+
+### Added
+
+- **Files tab.** Browse the device's `/sdcard` storage with breadcrumbs and an
+  Up button; **Download** files to your computer, **Upload here** from your
+  computer, **Delete**, and **Copy to…** another connected device. Plus an
+  **App file backups** finder that locates app exports (Projectivy `.plbackup`,
+  SmartTube backups) and saves them locally.
+- **Remote tab.** Live typing — keystrokes (with Backspace and Enter) go to the
+  focused field on the TV — plus a D-pad, media, volume, and **Power / Wake**
+  buttons.
+- **App List shows every installed app.** A new "Everything else" section lists
+  non-catalog packages (sideloaded apps like SmartTube get the same Backup /
+  Copy-to tools), with a third-party vs. system toggle, a **search box**, and a
+  **Hide not installed** filter.
+- **More first-class apps.** 23 popular Android TV apps added to the catalog
+  with friendly names and audited Play Store links: SmartTube, TizenTube,
+  Kodi, VLC, Jellyfin, Moonlight, Steam Link, Plex-adjacent utilities,
+  Downloader, RetroArch, Tubi, Pluto TV, MX Player, Tailscale, WireGuard,
+  X-plore, Solid Explorer, TV Bro, and more.
+- **Popular sideloads** section on the Install APK tab — official download
+  links for apps that aren't on the Play Store (SmartTube, TizenTube, F-Droid,
+  Aurora Store).
+- **Install APK clarity.** Each discovered APK shows whether it's already
+  installed (read from the APK's manifest), and the install result now renders
+  as a concise ✓/✕ line under the row instead of a raw adb dump.
+- **Update check.** The header shows the installed version and an
+  "Update available →" badge when a newer GitHub release exists.
+- **Name your snapshots.** Snapshots take an optional name; the per-device
+  Snapshot tab now matches the global Snapshots page styling.
+
+### Fixed
+
+- **File browser showed nothing.** `/sdcard` is a symlink, so the directory
+  listing came back with one bogus row and nothing was navigable. Fixed.
+- **Launcher: enabling one no longer steals the default.** Android clears its
+  preferred-HOME record when a launcher's state changes; re-enabling a launcher
+  (especially stock) could hijack HOME. Enable now re-promotes your previous
+  default and explains it.
+- **Launcher: "Set as default" works on stubborn builds.** On TV builds where
+  the role API silently no-ops and `set-home-activity` reports success without
+  effect, the only working method is to disable the stock launcher — now done
+  only with an explicit confirm, never silently, and reversible.
+- **Snapshot apply no longer over-reports settings.** Settings already at the
+  snapshot's value are skipped instead of re-written; the preview shows how many
+  are no-ops.
+- **Temperature reads on more devices.** Falls back to `hardware_properties`
+  when `thermalservice` reports nothing (older Shield firmware).
+- **Disabling voice components now warns** that in-app mic search (SmartTube,
+  etc.) will stop working — Speech Services and the Assistant recognizer are
+  flagged with a caution.
+- **Install APK:** clicking Install on one APK in a folder list no longer shows
+  every row as installing.
+
+---
+
 ## v2-0.1.0-beta.8
 
 ### Added
