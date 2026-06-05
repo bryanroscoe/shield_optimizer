@@ -133,8 +133,8 @@ export const api = {
     invoke<DiscoveredApk[]>("list_apks_in_folder", { folder }),
 
   listSnapshots: () => invoke<SnapshotFile[]>("list_snapshots"),
-  saveSnapshot: (serial: string, deviceName: string) =>
-    invoke<SnapshotFile>("save_snapshot", { serial, deviceName }),
+  saveSnapshot: (serial: string, deviceName: string, label: string | null = null) =>
+    invoke<SnapshotFile>("save_snapshot", { serial, deviceName, label }),
   previewApply: (serial: string, snapshotPath: string) =>
     invoke<SnapshotApplyPlan>("preview_apply", { serial, snapshotPath }),
   applySnapshot: (serial: string, snapshotPath: string) =>

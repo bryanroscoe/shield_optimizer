@@ -4,8 +4,9 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    parse_active_audio_device, parse_display_mode, parse_meminfo_summary, parse_storage_info,
-    parse_thermal_max_celsius, parse_total_pss_by_process, DisplayMode, RamInfo, StorageInfo,
+    parse_active_audio_device, parse_display_mode, parse_hardware_properties_temp,
+    parse_meminfo_summary, parse_storage_info, parse_thermal_max_celsius,
+    parse_total_pss_by_process, DisplayMode, RamInfo, StorageInfo,
 };
 
 use super::AppState;
@@ -39,12 +40,13 @@ pub async fn health_report(
     serial: String,
 ) -> Result<HealthReport, String> {
     let adb = state.adb_snapshot().await;
-    let (display_res, mem_res, thermal_res, df_res, audio_res) = tokio::join!(
+    let (display_res, mem_res, thermal_res, df_res, audio_res, hwprops_res) = tokio::join!(
         adb.shell(&serial, "dumpsys display"),
         adb.shell(&serial, "dumpsys meminfo"),
         adb.shell(&serial, "dumpsys thermalservice"),
         adb.shell(&serial, "df -h /data"),
         adb.shell(&serial, "dumpsys audio"),
+        adb.shell(&serial, "dumpsys hardware_properties"),
     );
     let display_out = display_res.map_err(|e| format!("dumpsys display: {e}"))?;
     let mem_out = mem_res.map_err(|e| format!("dumpsys meminfo: {e}"))?;
@@ -57,7 +59,14 @@ pub async fn health_report(
     let display = parse_display_mode(&display_out.stdout);
     let ram = parse_meminfo_summary(&mem_out.stdout);
     let storage = parse_storage_info(&df_text);
-    let temperature_c = parse_thermal_max_celsius(&thermal_text);
+    let temperature_c = parse_thermal_max_celsius(&thermal_text).or_else(|| {
+        parse_hardware_properties_temp(
+            &hwprops_res
+                .as_ref()
+                .map(|o| o.stdout.clone())
+                .unwrap_or_default(),
+        )
+    });
     let audio_device = parse_active_audio_device(&audio_text);
 
     let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(&mem_out.stdout)
@@ -138,12 +147,13 @@ pub async fn report_all(state: State<'_, AppState>) -> Result<Vec<DeviceReport>,
 /// lifetime constraints.
 async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthReport, String> {
     let adb = state.adb_snapshot().await;
-    let (display_res, mem_res, thermal_res, df_res, audio_res) = tokio::join!(
+    let (display_res, mem_res, thermal_res, df_res, audio_res, hwprops_res) = tokio::join!(
         adb.shell(serial, "dumpsys display"),
         adb.shell(serial, "dumpsys meminfo"),
         adb.shell(serial, "dumpsys thermalservice"),
         adb.shell(serial, "df -h /data"),
         adb.shell(serial, "dumpsys audio"),
+        adb.shell(serial, "dumpsys hardware_properties"),
     );
     let display_out = display_res.map_err(|e| format!("dumpsys display: {e}"))?;
     let mem_out = mem_res.map_err(|e| format!("dumpsys meminfo: {e}"))?;
@@ -154,7 +164,14 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
     let display = parse_display_mode(&display_out.stdout);
     let ram = parse_meminfo_summary(&mem_out.stdout);
     let storage = parse_storage_info(&df_text);
-    let temperature_c = parse_thermal_max_celsius(&thermal_text);
+    let temperature_c = parse_thermal_max_celsius(&thermal_text).or_else(|| {
+        parse_hardware_properties_temp(
+            &hwprops_res
+                .as_ref()
+                .map(|o| o.stdout.clone())
+                .unwrap_or_default(),
+        )
+    });
     let audio_device = parse_active_audio_device(&audio_text);
 
     let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(&mem_out.stdout)

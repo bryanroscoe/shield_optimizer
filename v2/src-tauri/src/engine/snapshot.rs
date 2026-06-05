@@ -13,7 +13,9 @@ use super::detection::DeviceType;
 
 /// Current snapshot schema version. Bump when the structure changes; the
 /// reader will refuse future versions explicitly.
-pub const SCHEMA_VERSION: u32 = 1;
+// v2 added the optional `label` field. v1 snapshots still load (label
+// defaults to None via serde) — that's the migration; no transform needed.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Setting keys we track in a snapshot — matches v1's `$Script:SnapshotSettingKeys`.
 pub fn tracked_setting_keys() -> &'static [(&'static str, &'static str)] {
@@ -36,6 +38,10 @@ pub struct Snapshot {
     pub schema_version: u32,
     /// ISO-8601 UTC timestamp.
     pub saved_at: String,
+    /// Optional user-given name for the snapshot (e.g. "before debloat").
+    /// Added in schema v2 — `serde(default)` loads v1 snapshots with `None`.
+    #[serde(default)]
+    pub label: Option<String>,
     pub device_name: String,
     pub device_serial: String,
     pub device_type: DeviceType,
@@ -172,8 +178,9 @@ mod tests {
             "0.5".to_string(),
         );
         Snapshot {
-            schema_version: 1,
+            schema_version: SCHEMA_VERSION,
             saved_at: "2026-05-27T12:00:00Z".to_string(),
+            label: None,
             device_name: "Living Room TV".to_string(),
             device_serial: "192.168.42.71:5555".to_string(),
             device_type: DeviceType::Shield,
@@ -194,6 +201,33 @@ mod tests {
     }
 
     #[test]
+    fn v1_snapshot_loads_with_no_label() {
+        // A pre-label (schema v1) file must still parse — label defaults to None.
+        let payload = r#"{
+            "schema_version": 1,
+            "saved_at": "2026-05-27T12:00:00Z",
+            "device_name": "Old Shield",
+            "device_serial": "x",
+            "device_type": "shield",
+            "android_version": "11",
+            "disabled_packages": [],
+            "current_launcher": null,
+            "settings": {}
+        }"#;
+        let snap = Snapshot::from_json(payload).unwrap();
+        assert_eq!(snap.label, None);
+        assert_eq!(snap.device_name, "Old Shield");
+    }
+
+    #[test]
+    fn label_roundtrips() {
+        let mut snap = sample_snapshot();
+        snap.label = Some("before debloat".to_string());
+        let parsed = Snapshot::from_json(&snap.to_json().unwrap()).unwrap();
+        assert_eq!(parsed.label.as_deref(), Some("before debloat"));
+    }
+
+    #[test]
     fn rejects_zero_schema_version() {
         let payload = r#"{
             "schema_version": 0,
@@ -211,7 +245,7 @@ mod tests {
             err,
             SnapshotError::UnsupportedSchema {
                 found: 0,
-                supported: 1
+                supported: 2
             }
         ));
     }
@@ -233,7 +267,7 @@ mod tests {
         match err {
             SnapshotError::UnsupportedSchema {
                 found: 999,
-                supported: 1,
+                supported: 2,
             } => {}
             other => panic!("wrong error: {other:?}"),
         }

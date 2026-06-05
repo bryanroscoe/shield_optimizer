@@ -840,6 +840,10 @@
     return "Install failed.";
   }
 
+  function snapTimestamp(iso: string): string {
+    return iso.replace("T", " ").replace("Z", " UTC");
+  }
+
   function formatBytes(n: number): string {
     if (n < 1024) return `${n} B`;
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -858,11 +862,12 @@
 
   async function saveSnapshot() {
     if (!device) return;
+    const label = (prompt("Name this snapshot (optional):", "") ?? "").trim();
     saveBusy = true;
     saveResult = "";
     try {
-      const result = await api.saveSnapshot(serial, device.name);
-      saveResult = `Saved ${result.filename} — ${result.disabled_count} disabled packages captured.`;
+      const result = await api.saveSnapshot(serial, device.name, label || null);
+      saveResult = `Saved ${result.label ?? result.filename} — ${result.disabled_count} disabled packages captured.`;
       await loadSnapshots();
     } catch (e) {
       saveResult = `Failed: ${e}`;
@@ -2807,19 +2812,28 @@
       {#if snapshots.length === 0}
         <p class="muted">No snapshots yet. Use the button above to save one.</p>
       {:else}
-        <table class="snap-table">
-          <thead><tr><th>Saved</th><th>Device</th><th>Disabled</th><th></th></tr></thead>
-          <tbody>
-            {#each snapshots as s}
-              <tr>
-                <td class="mono small">{s.saved_at}</td>
-                <td>{s.device_name}</td>
-                <td>{s.disabled_count}</td>
-                <td><button onclick={() => previewSnapshot(s.path)}>Preview apply</button></td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
+        <ul class="snap-list">
+          {#each snapshots as s (s.path)}
+            <li>
+              <div class="snap-main">
+                <div class="snap-title">
+                  <strong>{s.label ?? s.device_name}</strong>
+                  <span class="tag installed">{deviceTypeLabel(s.device_type).toUpperCase()}</span>
+                  {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
+                </div>
+                <div class="muted small">
+                  {snapTimestamp(s.saved_at)} ·
+                  {s.disabled_count} disabled,
+                  {s.settings_count} settings,
+                  launcher {s.launcher ?? "—"}
+                </div>
+              </div>
+              <div class="snap-actions">
+                <button class="small-action" onclick={() => previewSnapshot(s.path)}>Preview apply</button>
+              </div>
+            </li>
+          {/each}
+        </ul>
       {/if}
       {#if previewBusy}
         <p class="muted">Computing plan…</p>
@@ -3075,6 +3089,31 @@
     font-family: ui-monospace, monospace;
     font-size: 0.85rem;
   }
+  .snap-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.6rem 0 0;
+  }
+  .snap-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 1rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+  }
+  .snap-main { flex: 1; min-width: 0; }
+  .snap-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.2rem;
+  }
+  .snap-actions { display: flex; gap: 0.4rem; align-items: center; flex-shrink: 0; }
   .preview-box {
     margin-top: 1rem;
     padding: 1rem;

@@ -120,6 +120,7 @@ export interface SnapshotFile {
   path: string;
   filename: string;
   saved_at: string;
+  label: string | null;
   device_name: string;
   device_serial: string;
   device_type: DeviceType;
