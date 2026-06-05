@@ -81,7 +81,9 @@ fn decide(entry: &AppEntry, mode: OptimizeMode, inputs: &OptimizeInputs) -> Opti
                     reason: SkipReason::AlreadyDisabled,
                 };
             }
-            match entry.method {
+            // Gate uninstall to reinstallable apps — never recommend removing
+            // something the user can't get back from the Play Store.
+            match entry.safe_method() {
                 ActionMethod::Disable => OptimizeAction::Disable,
                 ActionMethod::Uninstall => OptimizeAction::Uninstall,
             }
@@ -216,12 +218,14 @@ mod tests {
 
     #[test]
     fn uninstall_method_chosen_when_optimize_and_installed() {
-        let apps = vec![app("com.a", ActionMethod::Uninstall)];
+        // Reinstallable (on the Play Store) so uninstall is a safe recommendation.
+        let mut a = app("com.a", ActionMethod::Uninstall);
+        a.play_store = true;
         let installed = set(&["com.a"]);
         let disabled = set(&[]);
         let memory = HashMap::new();
         let plan = compute_plan(
-            &apps,
+            &[a],
             OptimizeMode::Optimize,
             &OptimizeInputs {
                 installed_packages: &installed,
@@ -230,5 +234,23 @@ mod tests {
             },
         );
         assert_eq!(plan.items[0].action, OptimizeAction::Uninstall);
+    }
+
+    #[test]
+    fn uninstall_downgraded_to_disable_when_not_reinstallable() {
+        // Active app, not on the Play Store and not defunct → uninstalling it is
+        // a trap, so the planner must pick the reversible disable instead.
+        let a = app("com.regional.app", ActionMethod::Uninstall); // play_store=false, defunct=false
+        let installed = set(&["com.regional.app"]);
+        let plan = compute_plan(
+            &[a],
+            OptimizeMode::Optimize,
+            &OptimizeInputs {
+                installed_packages: &installed,
+                disabled_packages: &HashSet::new(),
+                memory_map: &HashMap::new(),
+            },
+        );
+        assert_eq!(plan.items[0].action, OptimizeAction::Disable);
     }
 }

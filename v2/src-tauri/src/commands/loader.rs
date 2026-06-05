@@ -108,6 +108,46 @@ mod tests {
     }
 
     #[test]
+    fn non_reinstallable_uninstall_entries_are_gated_to_disable() {
+        // The safety guarantee: any catalog app whose method is uninstall but
+        // that isn't reinstallable must resolve to disable via the gate, so the
+        // wizard can never recommend an unrecoverable removal. (Preinstalled
+        // bloat like the Walmart app lands here and is safely disabled instead.)
+        use crate::engine::types::ActionMethod;
+        let bundle = load_embedded_app_lists().expect("parse");
+        for list in [&bundle.common, &bundle.shield, &bundle.googletv] {
+            for e in list {
+                if !e.reinstallable() {
+                    assert_eq!(
+                        e.safe_method(),
+                        ActionMethod::Disable,
+                        "{} is not reinstallable, so safe_method must be disable",
+                        e.package
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn review_apps_are_never_auto_selected() {
+        // The "remove if unused" tier is the user's call — it must never be
+        // pre-checked by the wizard.
+        let bundle = load_embedded_app_lists().expect("parse");
+        for list in [&bundle.common, &bundle.shield, &bundle.googletv] {
+            for e in list {
+                if e.review {
+                    assert!(
+                        !e.default_optimize,
+                        "{} is both review and default_optimize — pick one",
+                        e.package
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn no_duplicate_packages_within_any_bundled_list() {
         // A repeated package blanks the App List + Optimize tables (Svelte throws
         // on a duplicate `{#each}` key). Catch it here instead of in the field.

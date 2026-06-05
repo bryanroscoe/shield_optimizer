@@ -41,7 +41,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "defunct": true
   },
   {
     "package": "com.google.android.music",
@@ -52,7 +53,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "defunct": true
   },
   {
     "package": "com.Funimation.FunimationNow.androidtv",
@@ -63,7 +65,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "defunct": true
   },
   {
     "package": "com.google.stadia.android",
@@ -74,7 +77,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "defunct": true
   },
   {
     "package": "com.google.stadia.androidtv",
@@ -85,7 +89,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "defunct": true
   },
   {
     "package": "com.quibi.qlient",
@@ -96,7 +101,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "defunct": true
   },
   {
     "package": "com.hbo.hbonow",
@@ -107,7 +113,8 @@
     "restore_description": "Restores defunct app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "defunct": true
   },
   {
     "package": "com.netflix.ninja",
@@ -118,7 +125,8 @@
     "restore_description": "Restores Netflix.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.amazon.amazonvideo.livingroom",
@@ -129,7 +137,8 @@
     "restore_description": "Restores Prime Video.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.wbd.stream",
@@ -140,7 +149,8 @@
     "restore_description": "Restores Max.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.disney.disneyplus",
@@ -151,7 +161,8 @@
     "restore_description": "Restores Disney+.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.hulu.livingroomplus",
@@ -162,7 +173,8 @@
     "restore_description": "Restores Hulu.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.spotify.tv.android",
@@ -173,7 +185,8 @@
     "restore_description": "Restores Spotify.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.apple.atve.androidtv.appletv",
@@ -184,7 +197,8 @@
     "restore_description": "Restores Apple TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.crunchyroll.crunchyroid",
@@ -195,7 +209,8 @@
     "restore_description": "Restores Crunchyroll.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.google.android.youtube.tv",
@@ -206,7 +221,8 @@
     "restore_description": "Restores YouTube.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.google.android.youtube.tvmusic",
@@ -217,7 +233,8 @@
     "restore_description": "Restores YouTube Music.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.peacocktv.peacockandroid",
@@ -228,7 +245,8 @@
     "restore_description": "Restores Peacock.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.plexapp.android",
@@ -250,7 +268,8 @@
     "restore_description": "Restores Paramount+.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "tv.twitch.android.app",
@@ -261,7 +280,8 @@
     "restore_description": "Restores Twitch.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.google.android.tv.remote.service",
@@ -327,7 +347,8 @@
     "restore_description": "Restores Discovery+.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.disney.disneyplus.prod",
@@ -338,7 +359,8 @@
     "restore_description": "Restores Disney+.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.google.android.youtube.tvkids",
@@ -349,7 +371,8 @@
     "restore_description": "Restores YouTube Kids.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "ca.bellmedia.crave",
@@ -360,7 +383,8 @@
     "restore_description": "Restores Crave.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "ca.bell.tv",
@@ -371,7 +395,8 @@
     "restore_description": "Restores Bell Fibe TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.sling",
@@ -382,7 +407,8 @@
     "restore_description": "Restores Sling TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.philo.philo",
@@ -393,7 +419,8 @@
     "restore_description": "Restores Philo.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.fubo.firetv.screen",
@@ -404,7 +431,8 @@
     "restore_description": "Restores fuboTV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.haystack.android",
@@ -415,7 +443,8 @@
     "restore_description": "Restores Haystack News.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "air.com.vudu.air.DownloaderTablet",
@@ -426,7 +455,8 @@
     "restore_description": "Restores Vudu.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.starz.starzplay.android",
@@ -437,7 +467,8 @@
     "restore_description": "Restores STARZ.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.showtime.standalone",
@@ -448,7 +479,8 @@
     "restore_description": "Restores Showtime.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.amcplus.amcfiretv",
@@ -459,7 +491,8 @@
     "restore_description": "Restores AMC+.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.britbox.us",
@@ -470,7 +503,8 @@
     "restore_description": "Restores BritBox.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.epix.epixnow.google",
@@ -481,7 +515,8 @@
     "restore_description": "Restores MGM+.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "review": true
   },
   {
     "package": "com.google.android.apps.mediashell",
@@ -532,7 +567,7 @@
     "name": "SmartTube",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Ad-free YouTube client with SponsorBlock (sideloaded — not on the Play Store).",
+    "optimize_description": "Ad-free YouTube client with SponsorBlock (sideloaded \u2014 not on the Play Store).",
     "restore_description": "Re-enables SmartTube.",
     "default_optimize": false,
     "default_restore": false,
@@ -587,7 +622,7 @@
     "name": "Artemis (Moonlight Noir)",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Moonlight game-streaming fork, now branded Artemis — extra HDR / codec options (sideloaded).",
+    "optimize_description": "Moonlight game-streaming fork, now branded Artemis \u2014 extra HDR / codec options (sideloaded).",
     "restore_description": "Re-enables Artemis (Moonlight Noir).",
     "default_optimize": false,
     "default_restore": false,
@@ -620,7 +655,7 @@
     "name": "ADB TV: App Manager",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "On-device app manager — disable / uninstall apps via ADB, no PC.",
+    "optimize_description": "On-device app manager \u2014 disable / uninstall apps via ADB, no PC.",
     "restore_description": "Re-enables ADB TV.",
     "default_optimize": false,
     "default_restore": false,
@@ -675,7 +710,7 @@
     "name": "Downloader by AFTVnews",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Download APKs and files by URL — the standard sideload helper.",
+    "optimize_description": "Download APKs and files by URL \u2014 the standard sideload helper.",
     "restore_description": "Re-enables Downloader.",
     "default_optimize": false,
     "default_restore": false,
@@ -701,7 +736,8 @@
     "restore_description": "Re-enables Tubi.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "tv.pluto.android",
@@ -712,7 +748,8 @@
     "restore_description": "Re-enables Pluto TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "review": true
   },
   {
     "package": "com.mxtech.videoplayer.ad",
@@ -774,7 +811,7 @@
     "name": "Stremio",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Aggregated streaming via add-ons (sideloaded build varies — verify the package on your device).",
+    "optimize_description": "Aggregated streaming via add-ons (sideloaded build varies \u2014 verify the package on your device).",
     "restore_description": "Re-enables Stremio.",
     "default_optimize": false,
     "default_restore": false,

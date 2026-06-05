@@ -160,6 +160,18 @@ impl AppEntry {
     pub fn reinstallable(&self) -> bool {
         self.play_store || self.defunct
     }
+
+    /// The method actually safe to recommend. Uninstall is downgraded to disable
+    /// for apps that aren't reinstallable — removing one you can't get back from
+    /// the Play Store (and isn't defunct) is a trap, so prefer the reversible
+    /// disable. The curated `method` stays as authored; this is the gate.
+    pub fn safe_method(&self) -> ActionMethod {
+        if self.method == ActionMethod::Uninstall && !self.reinstallable() {
+            ActionMethod::Disable
+        } else {
+            self.method
+        }
+    }
 }
 
 /// Mode for an Optimize / Restore run.
