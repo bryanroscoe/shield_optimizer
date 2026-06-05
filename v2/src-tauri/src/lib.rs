@@ -98,6 +98,7 @@ pub fn run() {
             files::push_file,
             files::delete_path,
             files::find_files,
+            files::copy_file_to_device,
             snapshot::list_snapshots,
             snapshot::save_snapshot,
             snapshot::preview_apply,

@@ -137,6 +137,67 @@ pub async fn push_file(
     })
 }
 
+/// `copy_file_to_device` — pull a file from one connected device and push it
+/// to another's `/sdcard`. Both paths are `/sdcard`-confined; the file lands
+/// in `target_dir` under its original name. A temp file on this computer
+/// bridges the two transfers and is cleaned up either way.
+#[tauri::command]
+pub async fn copy_file_to_device(
+    state: State<'_, AppState>,
+    source_serial: String,
+    remote_path: String,
+    target_serial: String,
+    target_dir: String,
+) -> Result<FileTransferResult, String> {
+    let remote = validate_sdcard_path(&remote_path)?;
+    let target_dir = validate_sdcard_path(&target_dir)?;
+    if source_serial == target_serial {
+        return Err("Source and target device are the same.".to_string());
+    }
+    let file_name = Path::new(&remote)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("Not a file path: {remote}"))?
+        .to_string();
+
+    let temp = std::env::temp_dir().join(format!("shield-filecopy-{}", sanitize_temp(&file_name)));
+    let temp_str = temp.display().to_string();
+    let adb = state.adb_snapshot().await;
+
+    let result = async {
+        adb.raw(&["-s", &source_serial, "pull", &remote, &temp_str])
+            .await
+            .map_err(|e| format!("pull {remote}: {e}"))?;
+        let dest = format!("{}/{file_name}", target_dir.trim_end_matches('/'));
+        adb.raw(&["-s", &target_serial, "push", &temp_str, &dest])
+            .await
+            .map_err(|e| format!("push to {target_serial}: {e}"))?;
+        Ok::<FileTransferResult, String>(FileTransferResult {
+            ok: true,
+            message: format!("Copied {file_name} to {target_serial}:{target_dir}."),
+            local_path: None,
+        })
+    }
+    .await;
+
+    let _ = tokio::fs::remove_file(&temp).await;
+    result
+}
+
+/// Flatten a file name for use as a temp-file stem (avoids odd characters in
+/// the host temp path; the real name is reapplied on push).
+fn sanitize_temp(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
+
 /// `delete_path` — remove a file or directory (recursively) under `/sdcard`.
 /// The UI confirms before calling; `/sdcard` itself is refused.
 #[tauri::command]

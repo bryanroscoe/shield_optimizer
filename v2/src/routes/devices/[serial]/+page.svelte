@@ -75,6 +75,9 @@
   /// package → found backup-file paths (null until that app was searched).
   let appFilesResults = $state<Record<string, string[] | null>>({});
   let appFilesBusy = $state<string | null>(null);
+  /// File name the "copy to another device" picker is open for, plus targets.
+  let fileCopyName = $state<string | null>(null);
+  let fileCopyTargets = $state<Device[]>([]);
   let crumbs = $derived(
     filesPath
       .split("/")
@@ -986,6 +989,40 @@
     }
   }
 
+  async function startFileCopy(name: string) {
+    filesMessage = "";
+    try {
+      const all = await api.listDevices();
+      fileCopyTargets = all.filter((d) => d.status === "device" && d.serial !== serial);
+    } catch (e) {
+      filesMessage = String(e);
+      return;
+    }
+    if (fileCopyTargets.length === 0) {
+      filesMessage = "No other connected device to copy to — connect the target device first.";
+      return;
+    }
+    fileCopyName = name;
+  }
+
+  async function copyFileTo(target: Device) {
+    if (!fileCopyName) return;
+    const name = fileCopyName;
+    filesBusy = name;
+    // Land it in the same path on the target so a /sdcard/Download file
+    // arrives in /sdcard/Download there too.
+    filesMessage = `Copying ${name} to ${target.name}…`;
+    try {
+      const r = await api.copyFileToDevice(serial, `${filesPath}/${name}`, target.serial, filesPath);
+      filesMessage = r.message;
+      if (r.ok) fileCopyName = null;
+    } catch (e) {
+      filesMessage = String(e);
+    } finally {
+      filesBusy = null;
+    }
+  }
+
   async function downloadFile(name: string) {
     const folder = await openDialog({ directory: true, title: "Choose a download folder" });
     if (!folder) return;
@@ -1402,7 +1439,7 @@
     remoteEcho = ""; remoteMessage = ""; remoteBuffer = "";
     sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
     filesPath = "/sdcard"; filesEntries = null; filesErr = null; filesMessage = "";
-    appFilesResults = {};
+    appFilesResults = {}; fileCopyName = null; fileCopyTargets = [];
     applyResult = null; applyErr = null;
     tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
     optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
@@ -2508,6 +2545,19 @@
       {#if filesMessage}
         <p class="muted small mono action-message">{filesMessage}</p>
       {/if}
+      {#if fileCopyName}
+        <div class="clone-panel">
+          <span>Copy <code>{fileCopyName}</code> to:</span>
+          {#each fileCopyTargets as t (t.serial)}
+            <button class="small-action" onclick={() => copyFileTo(t)} disabled={filesBusy !== null}>
+              {filesBusy !== null ? "Copying…" : `${t.name} (${t.serial})`}
+            </button>
+          {/each}
+          <button class="small-action subtle" onclick={() => (fileCopyName = null)} disabled={filesBusy !== null}>
+            Cancel
+          </button>
+        </div>
+      {/if}
       {#if filesErr}
         <div class="error">{filesErr}</div>
       {:else if filesEntries === null}
@@ -2542,6 +2592,14 @@
                       title="Save this file to a folder on this computer"
                     >
                       {filesBusy === f.name ? "…" : "Download"}
+                    </button>
+                    <button
+                      class="small-action subtle"
+                      onclick={() => startFileCopy(f.name)}
+                      disabled={filesBusy !== null}
+                      title="Copy this file to another connected device"
+                    >
+                      Copy to…
                     </button>
                   {/if}
                   <button
