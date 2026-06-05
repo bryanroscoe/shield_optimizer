@@ -154,6 +154,10 @@
   let sideloadBusy = $state<string | null>(null);
   let sideloadResult = $state<string>("");
   let sideloadHint = $state<string | null>(null);
+  /// Path the current install result belongs to (so it renders under that
+  /// row), whether it succeeded, and the raw adb output for the details line.
+  let sideloadResultPath = $state<string | null>(null);
+  let sideloadOk = $state(false);
   // Auto-discovered APK list — re-scanned whenever the user picks a folder
   // (or after a successful install in case files were added/removed).
   let discoveredApks = $state<import("$lib/types").DiscoveredApk[]>([]);
@@ -803,17 +807,37 @@
 
   async function installApkPath(path: string) {
     sideloadBusy = path;
-    sideloadResult = `Installing ${path.split(/[\\/]/).pop()}…`;
+    sideloadResultPath = path;
+    sideloadOk = false;
+    sideloadResult = "";
     sideloadHint = null;
     try {
       const r = await api.installApk(serial, path, true);
-      sideloadResult = r.message;
+      sideloadOk = r.ok;
+      // Friendly summary; the raw adb output is kept for the details line.
+      sideloadResult = r.ok
+        ? "Installed."
+        : installFailureSummary(r.message);
       sideloadHint = r.hint;
     } catch (e) {
       sideloadResult = String(e);
     } finally {
       sideloadBusy = null;
     }
+  }
+
+  /// Turn raw `adb install` failure output into a one-line summary. The full
+  /// text still shows in the details line; this is the headline.
+  function installFailureSummary(raw: string): string {
+    const m = raw.match(/INSTALL_FAILED_[A-Z_]+|INSTALL_PARSE_FAILED[A-Z_]*/);
+    if (m) {
+      if (m[0].includes("ALREADY_EXISTS")) return "Already installed (same version).";
+      if (m[0].includes("VERSION_DOWNGRADE")) return "A newer version is already installed.";
+      if (m[0].includes("NO_MATCHING_ABIS")) return "Wrong CPU architecture for this device.";
+      if (m[0].includes("OLDER_SDK")) return "Needs a newer Android version than this device.";
+      return `Install failed (${m[0]}).`;
+    }
+    return "Install failed.";
   }
 
   function formatBytes(n: number): string {
@@ -1433,7 +1457,7 @@
     otherPackages = []; appSearch = ""; hideNotInstalled = false; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
-    sideloadResult = ""; sideloadHint = null; discoveredApks = []; discoveredFolder = null;
+    sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
     remoteEcho = ""; remoteMessage = ""; remoteBuffer = "";
@@ -2642,17 +2666,25 @@
         <ul class="apk-list">
           {#each discoveredApks as apk (apk.path)}
             <li>
-              <div class="apk-meta">
-                <div class="apk-name">{apk.name}</div>
-                <div class="muted small">{formatBytes(apk.size_bytes)}</div>
+              <div class="apk-row">
+                <div class="apk-meta">
+                  <div class="apk-name">{apk.name}</div>
+                  <div class="muted small">{formatBytes(apk.size_bytes)}</div>
+                </div>
+                <button
+                  class="small-action primary"
+                  onclick={() => installApkPath(apk.path)}
+                  disabled={sideloadBusy !== null}
+                >
+                  {sideloadBusy === apk.path ? "Installing…" : "Install"}
+                </button>
               </div>
-              <button
-                class="small-action primary"
-                onclick={() => installApkPath(apk.path)}
-                disabled={sideloadBusy !== null}
-              >
-                {sideloadBusy === apk.path ? "Installing…" : "Install"}
-              </button>
+              {#if sideloadResultPath === apk.path && sideloadResult}
+                <div class="install-result" class:ok={sideloadOk} class:bad={!sideloadOk}>
+                  <span>{sideloadOk ? "✓" : "✕"} {sideloadResult}</span>
+                  {#if sideloadHint}<span class="muted small"> — {sideloadHint}</span>{/if}
+                </div>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -2660,11 +2692,11 @@
         <p class="muted small">No <code>.apk</code> files in {discoveredFolder}.</p>
       {/if}
 
-      {#if sideloadResult}
-        <pre class="install-output">{sideloadResult}</pre>
-        {#if sideloadHint}
-          <div class="warning">{sideloadHint}</div>
-        {/if}
+      {#if sideloadResult && !discoveredApks.some((a) => a.path === sideloadResultPath)}
+        <div class="install-result" class:ok={sideloadOk} class:bad={!sideloadOk}>
+          <span>{sideloadOk ? "✓" : "✕"} {sideloadResult}</span>
+          {#if sideloadHint}<span class="muted small"> — {sideloadHint}</span>{/if}
+        </div>
       {/if}
 
       <details class="sideload-catalog">
@@ -2754,6 +2786,10 @@
             <button onclick={() => sendRemoteKey("volume_down")} title="Volume down">Vol −</button>
             <button onclick={() => sendRemoteKey("mute")} title="Mute">Mute</button>
             <button onclick={() => sendRemoteKey("volume_up")} title="Volume up">Vol +</button>
+          </div>
+          <div class="remote-row">
+            <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
+            <button onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)">Power</button>
           </div>
         </div>
       </div>
@@ -3509,7 +3545,7 @@
      accent bar and a faint tint so the consequential rows are obvious at a
      glance (the dim-everything approach was too subtle to read). */
   .optimize-table tr.dim {
-    opacity: 0.45;
+    opacity: 0.78;
   }
   .optimize-table tr.acting td {
     background: color-mix(in srgb, var(--accent-strong) 8%, transparent);
@@ -3583,16 +3619,24 @@
     margin: 0.4rem 0 0.8rem;
   }
   .apk-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.8rem;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--bg-button);
   }
   .apk-list li:last-child {
     border-bottom: none;
   }
+  .apk-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.8rem;
+  }
+  .install-result {
+    margin-top: 0.4rem;
+    font-size: 0.88rem;
+  }
+  .install-result.ok { color: var(--ok); }
+  .install-result.bad { color: var(--warn); }
   .apk-name {
     font-family: ui-monospace, monospace;
     font-size: 0.88rem;

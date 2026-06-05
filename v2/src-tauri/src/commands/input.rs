@@ -90,6 +90,10 @@ fn keycode_for(key: &str) -> Option<u32> {
         "volume_down" => 25,
         "mute" => 164,
         "power" => 26,
+        // WAKEUP (224) reliably turns the screen on; a plain D-pad press does
+        // not wake a sleeping Android TV, and POWER (26) toggles (so it can
+        // put an awake device back to sleep). Dedicated wake avoids that.
+        "wakeup" => 224,
         "delete" => 67,
         "enter" => 66,
         _ => return None,
@@ -157,6 +161,8 @@ mod tests {
         assert_eq!(keycode_for("select"), Some(23));
         assert_eq!(keycode_for("back"), Some(4));
         assert_eq!(keycode_for("delete"), Some(67));
+        assert_eq!(keycode_for("wakeup"), Some(224));
+        assert_eq!(keycode_for("power"), Some(26));
         // No arbitrary keycodes from the frontend.
         assert_eq!(keycode_for("42"), None);
         assert_eq!(keycode_for(""), None);
