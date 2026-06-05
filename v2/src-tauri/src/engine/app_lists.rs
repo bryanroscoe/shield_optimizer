@@ -28,7 +28,8 @@ impl AppListBundle {
     /// included; device-specific extras are appended.
     ///
     /// Duplicate packages (same package in common AND device-specific) prefer
-    /// the device-specific entry so per-device overrides work.
+    /// the device-specific entry so per-device overrides work. The result is
+    /// guaranteed unique by package — see the dedup note below.
     pub fn for_device(&self, device_type: DeviceType) -> Vec<AppEntry> {
         let device_specific: &[AppEntry] = match device_type {
             DeviceType::Shield => &self.shield,
@@ -36,16 +37,25 @@ impl AppListBundle {
             DeviceType::Unknown => &[],
         };
 
+        // Device-specific entries win over common, so reserve their packages.
         let overrides: HashSet<&str> = device_specific.iter().map(|e| e.package.as_str()).collect();
 
+        // Guarantee each package appears exactly once. The UI renders a keyed
+        // `{#each ... (package)}`; Svelte throws on a duplicate key and blanks
+        // the whole table (header counts still show), so a stray repeat in the
+        // data — even within a single list — must never reach it.
+        let mut seen: HashSet<&str> = HashSet::new();
         let mut out: Vec<AppEntry> = Vec::with_capacity(self.common.len() + device_specific.len());
-        out.extend(
-            self.common
-                .iter()
-                .filter(|e| !overrides.contains(e.package.as_str()))
-                .cloned(),
-        );
-        out.extend(device_specific.iter().cloned());
+        for entry in self
+            .common
+            .iter()
+            .filter(|e| !overrides.contains(e.package.as_str()))
+            .chain(device_specific.iter())
+        {
+            if seen.insert(entry.package.as_str()) {
+                out.push(entry.clone());
+            }
+        }
         out
     }
 
@@ -126,6 +136,29 @@ mod tests {
         let dup = result.iter().find(|e| e.package == "dup").unwrap();
         assert_eq!(dup.name, "Shield Override");
         assert_eq!(dup.risk, RiskTier::High);
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn duplicate_packages_within_a_list_are_collapsed() {
+        // A stray repeat inside one list (the catalog regression that blanked the
+        // App List + Optimize tables) must dedup, keeping the first occurrence.
+        let bundle = AppListBundle {
+            common: vec![
+                entry("tv.pluto.android", "Pluto TV"),
+                entry("c1", "Common1"),
+                entry("tv.pluto.android", "Pluto TV (dup)"),
+            ],
+            shield: vec![],
+            googletv: vec![],
+        };
+        let result = bundle.for_device(DeviceType::Shield);
+        let plutos: Vec<_> = result
+            .iter()
+            .filter(|e| e.package == "tv.pluto.android")
+            .collect();
+        assert_eq!(plutos.len(), 1, "duplicate package must collapse to one");
+        assert_eq!(plutos[0].name, "Pluto TV", "first occurrence wins");
         assert_eq!(result.len(), 2);
     }
 }

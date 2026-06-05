@@ -363,28 +363,6 @@
     "play_store": false
   },
   {
-    "package": "tv.pluto.android",
-    "name": "Pluto TV",
-    "method": "uninstall",
-    "risk": "safe",
-    "optimize_description": "Free streaming app.",
-    "restore_description": "Restores Pluto TV.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": true
-  },
-  {
-    "package": "com.tubitv",
-    "name": "Tubi",
-    "method": "uninstall",
-    "risk": "safe",
-    "optimize_description": "Free streaming app.",
-    "restore_description": "Restores Tubi.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": true
-  },
-  {
     "package": "com.sling",
     "name": "Sling TV",
     "method": "uninstall",

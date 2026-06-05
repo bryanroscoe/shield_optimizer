@@ -60,6 +60,27 @@ mod tests {
     }
 
     #[test]
+    fn no_duplicate_packages_within_any_bundled_list() {
+        // A repeated package blanks the App List + Optimize tables (Svelte throws
+        // on a duplicate `{#each}` key). Catch it here instead of in the field.
+        let bundle = load_embedded_app_lists().expect("parse");
+        for (name, list) in [
+            ("common", &bundle.common),
+            ("shield", &bundle.shield),
+            ("googletv", &bundle.googletv),
+        ] {
+            let mut seen = std::collections::HashSet::new();
+            for e in list {
+                assert!(
+                    seen.insert(e.package.as_str()),
+                    "duplicate package {:?} in {name}.json",
+                    e.package
+                );
+            }
+        }
+    }
+
+    #[test]
     fn channel_provider_entry_has_high_risk() {
         let bundle = load_embedded_app_lists().expect("parse");
         let entry = bundle
