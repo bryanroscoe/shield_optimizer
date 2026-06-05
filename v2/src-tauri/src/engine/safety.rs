@@ -206,7 +206,11 @@ const CAUTION: &[(&str, &str)] = &[
     ),
     (
         "com.google.android.katniss",
-        "Google Assistant. Disabling kills voice search and the remote's mic button.",
+        "Google app / Assistant — provides the device's voice RecognitionService. Disabling kills the remote mic button AND in-app voice search (SmartTube, etc.).",
+    ),
+    (
+        "com.google.android.speech.pumpkin",
+        "Google Speech Services (on-device recognition). Disabling can break voice dictation and in-app mic search.",
     ),
     (
         "com.google.android.apps.mediashell",
