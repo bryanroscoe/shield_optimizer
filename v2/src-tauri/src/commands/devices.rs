@@ -111,14 +111,24 @@ pub async fn connect_device(
         .raw(&["connect", &target])
         .await
         .map_err(|e| format!("adb connect: {e}"))?;
-    Ok(ConnectResult {
-        ok: out.success(),
-        message: if out.stdout.is_empty() {
-            out.stderr
+    Ok(connect_result_from(&out))
+}
+
+/// `adb connect` exits 0 even on "failed to connect", so classify by output
+/// text (same rule as scan_network). Unauthorized counts as ok — the device
+/// is connected and waiting for the user to approve this computer on the TV.
+fn connect_result_from(out: &crate::adb::AdbOutput) -> ConnectResult {
+    use super::scan::{classify_connect_output, ConnectOutcome};
+    let combined = format!("{}\n{}", out.stdout, out.stderr).trim().to_string();
+    let outcome = classify_connect_output(&combined);
+    ConnectResult {
+        ok: outcome != ConnectOutcome::Failed,
+        message: if outcome == ConnectOutcome::Unauthorized {
+            format!("{combined} — approve this computer on the TV, then refresh.")
         } else {
-            out.stdout
+            combined
         },
-    })
+    }
 }
 
 /// `disconnect_device` — `adb disconnect <serial>`.
@@ -187,15 +197,13 @@ pub async fn pair_device(
         .raw(&["connect", &connect_target])
         .await
         .map_err(|e| format!("adb connect after pair: {e}"))?;
-    let ok = connect_out.success();
-    let connect_msg = if connect_out.stdout.is_empty() {
-        connect_out.stderr
-    } else {
-        connect_out.stdout
-    };
+    let connect_result = connect_result_from(&connect_out);
     Ok(ConnectResult {
-        ok,
-        message: format!("Paired. Connect to {connect_target}: {connect_msg}"),
+        ok: connect_result.ok,
+        message: format!(
+            "Paired. Connect to {connect_target}: {}",
+            connect_result.message
+        ),
     })
 }
 

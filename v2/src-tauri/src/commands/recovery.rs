@@ -48,6 +48,13 @@ pub async fn panic_recovery(
     let mut failed = Vec::new();
 
     for pkg in &disabled {
+        if !crate::engine::is_valid_package_name(pkg) {
+            failed.push(RecoveryFailure {
+                package: pkg.clone(),
+                error: "invalid package name".to_string(),
+            });
+            continue;
+        }
         match adb.shell(&serial, &format!("pm enable {pkg}")).await {
             Ok(out) if !out.shell_reported_failure() => {
                 restored.push(pkg.clone());

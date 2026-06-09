@@ -46,7 +46,7 @@ pub async fn install_apk(
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
 
     let out = adb
-        .raw(&args_ref)
+        .raw_transfer(&args_ref)
         .await
         .map_err(|e| format!("adb install: {e}"))?;
     let combined = if out.stdout.trim().is_empty() {

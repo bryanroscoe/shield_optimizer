@@ -97,7 +97,7 @@ async fn pull_apks(
     for remote in remotes {
         let local = dest.join(backup_file_name(package, version, remote, split));
         let local_str = local.display().to_string();
-        adb.raw(&["-s", serial, "pull", remote, &local_str])
+        adb.raw_transfer(&["-s", serial, "pull", remote, &local_str])
             .await
             .map_err(|e| format!("pull {remote}: {e}"))?;
         locals.push(local);
@@ -209,7 +209,7 @@ pub async fn clone_app(
         let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
 
         let out = adb
-            .raw(&args_ref)
+            .raw_transfer(&args_ref)
             .await
             .map_err(|e| format!("adb install: {e}"))?;
         let combined = out.combined().trim().to_string();

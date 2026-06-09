@@ -110,7 +110,7 @@ pub async fn pull_file(
     let adb = state.adb_snapshot().await;
     // `adb pull` takes the remote path as a plain argument — no device-side
     // shell involved, so no quoting needed (spaces and specials are fine).
-    adb.raw(&["-s", &serial, "pull", &remote, &local_str])
+    adb.raw_transfer(&["-s", &serial, "pull", &remote, &local_str])
         .await
         .map_err(|e| format!("pull {remote}: {e}"))?;
     Ok(FileTransferResult {
@@ -141,7 +141,7 @@ pub async fn push_file(
     let remote = format!("{}/{}", remote_dir.trim_end_matches('/'), file_name);
 
     let adb = state.adb_snapshot().await;
-    adb.raw(&["-s", &serial, "push", &local_path, &remote])
+    adb.raw_transfer(&["-s", &serial, "push", &local_path, &remote])
         .await
         .map_err(|e| format!("push {file_name}: {e}"))?;
     Ok(FileTransferResult {
@@ -179,11 +179,11 @@ pub async fn copy_file_to_device(
     let adb = state.adb_snapshot().await;
 
     let result = async {
-        adb.raw(&["-s", &source_serial, "pull", &remote, &temp_str])
+        adb.raw_transfer(&["-s", &source_serial, "pull", &remote, &temp_str])
             .await
             .map_err(|e| format!("pull {remote}: {e}"))?;
         let dest = format!("{}/{file_name}", target_dir.trim_end_matches('/'));
-        adb.raw(&["-s", &target_serial, "push", &temp_str, &dest])
+        adb.raw_transfer(&["-s", &target_serial, "push", &temp_str, &dest])
             .await
             .map_err(|e| format!("push to {target_serial}: {e}"))?;
         Ok::<FileTransferResult, String>(FileTransferResult {

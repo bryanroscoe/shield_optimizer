@@ -39,51 +39,7 @@ pub async fn health_report(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<HealthReport, String> {
-    let adb = state.adb_snapshot().await;
-    let (display_res, mem_res, thermal_res, df_res, audio_res, hwprops_res) = tokio::join!(
-        adb.shell(&serial, "dumpsys display"),
-        adb.shell(&serial, "dumpsys meminfo"),
-        adb.shell(&serial, "dumpsys thermalservice"),
-        adb.shell(&serial, "df -h /data"),
-        adb.shell(&serial, "dumpsys audio"),
-        adb.shell(&serial, "dumpsys hardware_properties"),
-    );
-    let display_out = display_res.map_err(|e| format!("dumpsys display: {e}"))?;
-    let mem_out = mem_res.map_err(|e| format!("dumpsys meminfo: {e}"))?;
-    // Thermal, storage, audio are best-effort — some Android builds restrict
-    // access; surfacing them as missing is better than failing the whole report.
-    let thermal_text = thermal_res.map(|o| o.stdout).unwrap_or_default();
-    let df_text = df_res.map(|o| o.stdout).unwrap_or_default();
-    let audio_text = audio_res.map(|o| o.stdout).unwrap_or_default();
-
-    let display = parse_display_mode(&display_out.stdout);
-    let ram = parse_meminfo_summary(&mem_out.stdout);
-    let storage = parse_storage_info(&df_text);
-    let temperature_c = parse_thermal_max_celsius(&thermal_text).or_else(|| {
-        parse_hardware_properties_temp(
-            &hwprops_res
-                .as_ref()
-                .map(|o| o.stdout.clone())
-                .unwrap_or_default(),
-        )
-    });
-    let audio_device = parse_active_audio_device(&audio_text);
-
-    let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(&mem_out.stdout)
-        .into_iter()
-        .map(|(package, mb)| MemoryEntry { package, mb })
-        .collect();
-    top_memory.sort_by(|a, b| b.mb.partial_cmp(&a.mb).unwrap_or(std::cmp::Ordering::Equal));
-    top_memory.truncate(20);
-
-    Ok(HealthReport {
-        display,
-        ram,
-        storage,
-        temperature_c,
-        audio_device,
-        top_memory,
-    })
+    health_report_for(state.inner(), &serial).await
 }
 
 /// `app_list_for_device` — return the merged app list for a given device type.
@@ -142,9 +98,8 @@ pub async fn report_all(state: State<'_, AppState>) -> Result<Vec<DeviceReport>,
     Ok(out)
 }
 
-/// Internal helper — same as `health_report` but takes `&AppState`. Lets
-/// `report_all` reuse the implementation without juggling Tauri's State
-/// lifetime constraints.
+/// Shared implementation for `health_report` and `report_all`. Takes
+/// `&AppState` so both callers avoid juggling Tauri's State lifetime.
 async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthReport, String> {
     let adb = state.adb_snapshot().await;
     let (display_res, mem_res, thermal_res, df_res, audio_res, hwprops_res) = tokio::join!(

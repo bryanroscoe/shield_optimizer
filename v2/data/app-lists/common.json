@@ -288,7 +288,7 @@
     "name": "Virtual Remote Keyboard",
     "method": "disable",
     "risk": "medium",
-    "optimize_description": "Background phone-as-keyboard service. Disable if you don't use the Google TV mobile remote.",
+    "optimize_description": "Background keyboard/remote service. Powers the Google TV mobile remote and the Android TV Remote integration used by smart-home apps like Home Assistant. Disable only if you use none of those.",
     "restore_description": "Restores virtual remote keyboard.",
     "default_optimize": false,
     "default_restore": true,

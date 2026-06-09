@@ -367,7 +367,9 @@ pub async fn set_default_launcher_impl(
                 }
                 // Takeover didn't verify — put the stock launcher back the
                 // way we found it rather than leaving a half-applied state.
-                let _ = adb.shell(serial, &format!("pm enable {active}")).await;
+                if is_valid_package_name(&active) {
+                    let _ = adb.shell(serial, &format!("pm enable {active}")).await;
+                }
             }
         }
     }
@@ -488,6 +490,142 @@ pub async fn channel_provider_disabled(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn set_launcher_first_strategy_wins_and_skips_the_rest() {
+        // Role API succeeds and the resolver confirms it — the fallback ladder
+        // (set-home-activity, query-activities, HOME-intent kick) must not run.
+        let mock = MockAdb::default()
+            .on_shell("add-role-holder", "Success")
+            .on_shell("resolve-activity", "com.example.launcher/.MainActivity");
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
+            .await
+            .unwrap();
+
+        assert!(res.ok);
+        assert_eq!(res.strategy.as_deref(), Some("role_api"));
+        assert_eq!(
+            res.current_launcher.as_deref(),
+            Some("com.example.launcher")
+        );
+
+        let calls = log.lock().unwrap();
+        assert!(!calls.iter().any(|c| c.contains("set-home-activity")));
+        assert!(!calls.iter().any(|c| c.contains("query-activities")));
+        assert!(!calls.iter().any(|c| c.contains("am start")));
+    }
+
+    #[tokio::test]
+    async fn set_launcher_falls_back_to_set_home_activity_when_role_unsupported() {
+        // Build doesn't know the role command; the set-home-activity fallback
+        // takes over and verifies.
+        let mock = MockAdb::default()
+            .on_shell("add-role-holder", "Unknown command")
+            .on_shell("set-home-activity", "Success")
+            .on_shell("resolve-activity", "com.example.launcher/.MainActivity");
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
+            .await
+            .unwrap();
+
+        assert!(res.ok);
+        assert_eq!(res.strategy.as_deref(), Some("set_home_activity"));
+
+        let calls = log.lock().unwrap();
+        assert!(calls.iter().any(|c| c.contains("add-role-holder")));
+        assert!(calls.iter().any(|c| c.contains("set-home-activity")));
+    }
+
+    #[tokio::test]
+    async fn set_launcher_reports_failure_with_reason_when_all_strategies_fail() {
+        // Role errors out, set-home-activity returns a real error, the resolver
+        // never names the target — the result should fail and surface why.
+        let mock = MockAdb::default()
+            .on_shell_err("add-role-holder", "secure connection refused")
+            .on_shell_failure("set-home-activity", "Error: Activity class does not exist");
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
+            .await
+            .unwrap();
+
+        assert!(!res.ok);
+        assert_eq!(res.strategy, None);
+        let err = res.last_error.expect("a failure reason");
+        assert!(
+            err.contains("Activity class does not exist"),
+            "unhelpful failure message: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_launcher_stock_takeover_reverts_when_it_does_not_verify() {
+        // Resolver always names the stock launcher, so the takeover never
+        // verifies — the stock launcher must be re-enabled (revert).
+        let mock = MockAdb::default()
+            .on_shell("add-role-holder", "Unknown command")
+            .on_shell_failure("set-home-activity", "Error: no such activity")
+            .on_shell("resolve-activity", "com.google.android.tvlauncher/.Home");
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", true)
+            .await
+            .unwrap();
+
+        assert!(!res.ok);
+        let calls = log.lock().unwrap();
+        assert!(calls
+            .iter()
+            .any(|c| c == "pm disable-user --user 0 com.google.android.tvlauncher"));
+        assert!(
+            calls
+                .iter()
+                .any(|c| c == "pm enable com.google.android.tvlauncher"),
+            "stock launcher should be re-enabled after a failed takeover"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_launcher_stock_takeover_does_not_revert_when_it_verifies() {
+        // Resolver reports the stock launcher until it is disabled, then the
+        // target — the takeover verifies, so no revert should be issued.
+        let mock = MockAdb::default()
+            .on_shell("add-role-holder", "Unknown command")
+            .on_shell_failure("set-home-activity", "Error: no such activity")
+            .on_shell_seq(
+                "resolve-activity",
+                &[
+                    "com.google.android.tvlauncher/.Home",
+                    "com.example.launcher/.MainActivity",
+                ],
+            );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", true)
+            .await
+            .unwrap();
+
+        assert!(res.ok);
+        assert_eq!(res.strategy.as_deref(), Some("disable_stock_takeover"));
+        let calls = log.lock().unwrap();
+        assert!(calls
+            .iter()
+            .any(|c| c == "pm disable-user --user 0 com.google.android.tvlauncher"));
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c == "pm enable com.google.android.tvlauncher"),
+            "no revert expected after a verified takeover"
+        );
+    }
 
     #[test]
     fn parses_home_handler_packages_from_resolveinfo() {
