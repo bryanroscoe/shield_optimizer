@@ -548,4 +548,21 @@ mod tests {
             failed[0]
         );
     }
+
+    #[tokio::test]
+    async fn disable_from_plan_records_pm_failure_without_aborting() {
+        // `pm disable-user` reports failure via stdout while `adb shell` still
+        // exits 0 — that package must land in packages_failed, the others must
+        // still succeed.
+        let mock = MockAdb::default()
+            .on_shell_failure("com.fails.pkg", "Failure [not installed for user 0]");
+        let pkgs = vec![
+            "com.ok.one".to_string(),
+            "com.fails.pkg".to_string(),
+            "com.ok.two".to_string(),
+        ];
+        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
+        assert_eq!(disabled, ["com.ok.one", "com.ok.two"]);
+        assert_eq!(failed, ["com.fails.pkg"]);
+    }
 }

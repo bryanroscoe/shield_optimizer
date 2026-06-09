@@ -63,6 +63,12 @@ pub struct RestartResult {
 /// USB-cable swap. Does not redownload — for that use `install_adb`.
 #[tauri::command]
 pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, String> {
+    restart_adb_impl(state.inner()).await
+}
+
+/// Reusable implementation — callable from tests against an `AppState` without
+/// the `State<'_, T>` lifetime constraint.
+async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     let adb = state.adb_snapshot().await;
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
@@ -157,5 +163,53 @@ pub async fn install_adb(state: State<'_, AppState>) -> Result<InstallResult, St
             path: None,
             message: e.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn restart_adb_reports_failure_when_network_reconnect_fails() {
+        // Daemon restarts fine, but the previously-connected network device
+        // can't be reconnected — that's a user-visible failure, and the message
+        // must name the device and point at the recovery action.
+        let serial = "192.168.1.50:5555";
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{serial}\tdevice\n"),
+            )
+            .on_raw("start-server", "* daemon started successfully")
+            .on_raw_err("connect", "connection refused");
+        let state = state_with(mock);
+
+        let res = restart_adb_impl(&state).await.unwrap();
+
+        assert!(!res.ok);
+        assert!(
+            res.message.contains("Could not reconnect") && res.message.contains(serial),
+            "message should name the unreconnected device: {}",
+            res.message
+        );
+    }
+
+    #[tokio::test]
+    async fn restart_adb_reports_failure_when_start_server_errors() {
+        // No network devices to reconnect, but start-server itself fails — the
+        // result must be a failure carrying the daemon's error text.
+        let mock = MockAdb::default().on_raw_err("start-server", "cannot bind to port 5037");
+        let state = state_with(mock);
+
+        let res = restart_adb_impl(&state).await.unwrap();
+
+        assert!(!res.ok);
+        assert!(
+            res.message.contains("cannot bind to port 5037"),
+            "message should surface the daemon error: {}",
+            res.message
+        );
     }
 }
