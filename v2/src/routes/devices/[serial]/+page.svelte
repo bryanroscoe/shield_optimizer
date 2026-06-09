@@ -3,9 +3,7 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-  import sideloadCatalog from "$lib/sideload-catalog.json";
-  import appFilesCatalog from "$lib/app-files-catalog.json";
+  import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -18,22 +16,19 @@
     ApplyResult,
     RecoveryResult,
     RebootMode,
-    TweaksState,
-    SettingNamespace,
-    DisplayScalePreset,
-    CurrentDisplayScaling,
-    OptimizeMode,
-    OptimizePlan,
-    OptimizePlanItem,
     OtherPackage,
     ScreenshotResult,
-    FileEntry,
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
   import StateBadge from "$lib/components/StateBadge.svelte";
+  import FilesTab from "$lib/components/FilesTab.svelte";
+  import TweaksTab from "$lib/components/TweaksTab.svelte";
+  import SideloadTab from "$lib/components/SideloadTab.svelte";
+  import RemoteTab from "$lib/components/RemoteTab.svelte";
+  import OptimizeTab from "$lib/components/OptimizeTab.svelte";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
@@ -59,39 +54,6 @@
   let renameValue = $state("");
   let renameBusy = $state(false);
 
-  /// Rolling echo of what live typing has sent (display only).
-  let remoteEcho = $state("");
-  let remoteMessage = $state("");
-  let remoteCaptureFocused = $state(false);
-  // Keystrokes are sent strictly in order through one promise chain — a
-  // backspace must never overtake the characters typed before it.
-  let remoteQueue: Promise<void> = Promise.resolve();
-  let remoteBuffer = "";
-  let remoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
-
-  let filesPath = $state("/sdcard");
-  let filesEntries = $state<FileEntry[] | null>(null);
-  let filesLoading = $state(false);
-  let filesErr = $state<string | null>(null);
-  /// Power-user opt-in: browse the whole filesystem, not just /sdcard. Most
-  /// system paths are permission-denied without root; deletes outside /sdcard
-  /// get an extra confirmation and protected mounts are refused outright.
-  let powerUserPaths = $state(false);
-  let filesBusy = $state<string | null>(null); // entry name currently being acted on
-  let filesMessage = $state("");
-  /// package → found backup-file paths (null until that app was searched).
-  let appFilesResults = $state<Record<string, string[] | null>>({});
-  let appFilesBusy = $state<string | null>(null);
-  /// File name the "copy to another device" picker is open for, plus targets.
-  let fileCopyName = $state<string | null>(null);
-  let fileCopyTargets = $state<Device[]>([]);
-  let crumbs = $derived(
-    filesPath
-      .split("/")
-      .filter(Boolean)
-      .map((seg, i, all) => ({ label: seg, path: "/" + all.slice(0, i + 1).join("/") })),
-  );
-
   let screenshotBusy = $state(false);
   let screenshot = $state<ScreenshotResult | null>(null);
 
@@ -102,6 +64,10 @@
   let trimMessage = $state("");
 
   let launchers = $state<LauncherStatus[]>([]);
+  // "Loaded" flags track load *attempts* — an empty result is a valid loaded
+  // state. Guarding the lazy-load effect on `length === 0` instead re-fetches
+  // forever when a list is legitimately empty (e.g. zero snapshots).
+  let launchersLoaded = $state(false);
   let currentLauncher = $state<CurrentLauncher | null>(null);
   let channelDisabled = $state<boolean | null>(null);
   let launcherLoading = $state(false);
@@ -110,6 +76,7 @@
   let launcherActionMessage = $state("");
 
   let apps = $state<AppEntry[]>([]);
+  let appsLoaded = $state(false);
   let appsLoading = $state(false);
   let appsErr = $state<string | null>(null);
   /// package → 'enabled' | 'disabled' | 'missing' — refreshed alongside the app list.
@@ -158,6 +125,7 @@
   let cloneBusy = $state(false);
 
   let snapshots = $state<SnapshotFile[]>([]);
+  let snapshotsLoaded = $state(false);
   let snapshotsErr = $state<string | null>(null);
   let saveBusy = $state(false);
   let saveResult = $state<string>("");
@@ -165,21 +133,6 @@
   let preview = $state<SnapshotApplyPlan | null>(null);
   let previewBusy = $state(false);
   let previewErr = $state<string | null>(null);
-
-  /// Path of the APK currently installing (null when idle) — per-path so a
-  /// multi-APK list only shows the spinner on the row actually installing.
-  let sideloadBusy = $state<string | null>(null);
-  let sideloadResult = $state<string>("");
-  let sideloadHint = $state<string | null>(null);
-  /// Path the current install result belongs to (so it renders under that
-  /// row), whether it succeeded, and the raw adb output for the details line.
-  let sideloadResultPath = $state<string | null>(null);
-  let sideloadOk = $state(false);
-  // Auto-discovered APK list — re-scanned whenever the user picks a folder
-  // (or after a successful install in case files were added/removed).
-  let discoveredApks = $state<import("$lib/types").DiscoveredApk[]>([]);
-  let discoveredFolder = $state<string | null>(null);
-  let discoveryBusy = $state(false);
 
   // Header actions: reboot menu visibility, disconnect/reboot status, recovery.
   let rebootMenuOpen = $state(false);
@@ -196,34 +149,10 @@
   let applyResult = $state<ApplyResult | null>(null);
   let applyErr = $state<string | null>(null);
 
-  // Tweaks tab.
-  let tweaks = $state<TweaksState | null>(null);
-  let tweaksLoading = $state(false);
-  let tweaksErr = $state<string | null>(null);
-  let tweaksActionBusy = $state<string | null>(null);
-  let tweaksActionMessage = $state<string>("");
-  let displayScaleBusy = $state<DisplayScalePreset | null>(null);
-  let displayScaleMessage = $state<string>("");
-  let currentDisplayScaling = $state<CurrentDisplayScaling | null>(null);
-
-  // Optimize / Restore wizard.
-  let optimizeMode = $state<OptimizeMode>("optimize");
-  let optimizePlan = $state<OptimizePlan | null>(null);
-  let optimizePlanLoading = $state(false);
-  let optimizePlanErr = $state<string | null>(null);
-  /// Per-package action override. A package absent from the map follows the
-  /// plan's recommended action; a present value is the user's explicit pick
-  /// from the per-row dropdown (including "skip"). The execute loop dispatches
-  /// on effectiveAction(), so disable/uninstall/enable/skip all just work.
-  type RowAction = "disable" | "uninstall" | "enable" | "skip";
-  let optimizeOverrides = $state<Record<string, RowAction>>({});
-  let optimizeRunning = $state(false);
-  let optimizeCurrent = $state<string | null>(null); // package currently being acted on
-  let optimizeProgress = $state<Record<string, "pending" | "done" | "skipped" | "failed">>({});
-  let optimizeFailureMessages = $state<Record<string, string>>({});
-  let optimizeAbort = $state(false);
-  let optimizeSummary = $state<string>("");
-  let optimizePerfApplied = $state<boolean>(false);
+  // OptimizeTab caches a plan keyed on the installed/disabled sets. Bumping
+  // this token (after an App List action, snapshot apply, or panic recovery)
+  // tells the tab to drop that stale plan and reload fresh next run.
+  let optimizeResetToken = $state(0);
 
   async function loadDevice() {
     deviceErr = null;
@@ -352,6 +281,7 @@
       launcherErr = String(e);
     } finally {
       launcherLoading = false;
+      launchersLoaded = true;
     }
   }
 
@@ -370,6 +300,7 @@
       appsErr = String(e);
     } finally {
       appsLoading = false;
+      appsLoaded = true;
     }
     loadOtherPackages();
     loadAppMemory();
@@ -465,6 +396,14 @@
     }
   }
 
+  /// Re-sync the App List's cached states after the Optimize wizard runs —
+  /// it cached states before the run, same as executeOptimize used to do inline.
+  async function resyncAppStates() {
+    if (apps.length > 0) {
+      appStates = await fetchAppStates(apps.map((a) => a.package));
+    }
+  }
+
   /// Lookup a package in the loaded app catalog (if it's there) for risk-aware
   /// prompts when disabling from the memory table — where the user picked a
   /// process by RAM, not a curated bloat entry.
@@ -541,7 +480,7 @@
   /// it — it reloads fresh next time the Optimize tab is opened.
   function setCatalogState(pkg: string, state: "enabled" | "disabled" | "missing") {
     appStates[pkg] = state;
-    optimizePlan = null;
+    optimizeResetToken++;
   }
 
   async function disableApp(pkg: string) {
@@ -820,93 +759,8 @@
     }
   }
 
-  async function pickAndInstallApk() {
-    const selected = await openDialog({
-      multiple: false,
-      directory: false,
-      filters: [{ name: "Android Packages", extensions: ["apk"] }],
-    });
-    if (!selected || Array.isArray(selected)) return;
-    // Remember the folder the user picked from so we can show the
-    // surrounding APKs as a quick-pick list.
-    const lastSep = Math.max(selected.lastIndexOf("/"), selected.lastIndexOf("\\"));
-    if (lastSep > 0) {
-      const folder = selected.slice(0, lastSep);
-      localStorage.setItem("shieldopt.lastApkFolder", folder);
-      await scanApkFolder(folder);
-    }
-    await installApkPath(selected);
-  }
-
-  async function pickApkFolder() {
-    const picked = await openDialog({ multiple: false, directory: true });
-    if (!picked || Array.isArray(picked)) return;
-    localStorage.setItem("shieldopt.lastApkFolder", picked);
-    await scanApkFolder(picked);
-  }
-
-  /// package id → state, for the discovered APKs, so each row can say whether
-  /// it's already installed on this device.
-  let apkInstallState = $state<Record<string, "enabled" | "disabled" | "missing">>({});
-
-  async function scanApkFolder(folder: string) {
-    discoveryBusy = true;
-    try {
-      discoveredApks = await api.listApksInFolder(folder);
-      discoveredFolder = folder;
-      const pkgs = discoveredApks.map((a) => a.package).filter((p): p is string => !!p);
-      apkInstallState = pkgs.length ? await api.packageStates(serial, pkgs) : {};
-    } catch (e) {
-      sideloadResult = `Scan failed: ${e}`;
-    } finally {
-      discoveryBusy = false;
-    }
-  }
-
-  async function installApkPath(path: string) {
-    sideloadBusy = path;
-    sideloadResultPath = path;
-    sideloadOk = false;
-    sideloadResult = "";
-    sideloadHint = null;
-    try {
-      const r = await api.installApk(serial, path, true);
-      sideloadOk = r.ok;
-      // Friendly summary; the raw adb output is kept for the details line.
-      sideloadResult = r.ok
-        ? "Installed."
-        : installFailureSummary(r.message);
-      sideloadHint = r.hint;
-    } catch (e) {
-      sideloadResult = String(e);
-    } finally {
-      sideloadBusy = null;
-    }
-  }
-
-  /// Turn raw `adb install` failure output into a one-line summary. The full
-  /// text still shows in the details line; this is the headline.
-  function installFailureSummary(raw: string): string {
-    const m = raw.match(/INSTALL_FAILED_[A-Z_]+|INSTALL_PARSE_FAILED[A-Z_]*/);
-    if (m) {
-      if (m[0].includes("ALREADY_EXISTS")) return "Already installed (same version).";
-      if (m[0].includes("VERSION_DOWNGRADE")) return "A newer version is already installed.";
-      if (m[0].includes("NO_MATCHING_ABIS")) return "Wrong CPU architecture for this device.";
-      if (m[0].includes("OLDER_SDK")) return "Needs a newer Android version than this device.";
-      return `Install failed (${m[0]}).`;
-    }
-    return "Install failed.";
-  }
-
   function snapTimestamp(iso: string): string {
     return iso.replace("T", " ").replace("Z", " UTC");
-  }
-
-  function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 
   async function loadSnapshots() {
@@ -915,6 +769,8 @@
       snapshots = await api.listSnapshots();
     } catch (e) {
       snapshotsErr = String(e);
+    } finally {
+      snapshotsLoaded = true;
     }
   }
 
@@ -951,6 +807,21 @@
     }
   }
 
+  /// Bulk mutations (snapshot apply, panic recovery) change package and
+  /// launcher state behind the App List / Optimize / Launcher caches — re-sync
+  /// them the same way executeOptimize does after a run. A partial failure
+  /// still changed state, so callers resync unconditionally.
+  async function resyncAfterBulkChange() {
+    optimizeResetToken++;
+    launchersLoaded = false;
+    if (apps.length === 0) return;
+    try {
+      appStates = await fetchAppStates(apps.map((a) => a.package));
+    } catch {
+      appsLoaded = false; // fall back to the lazy reload next tab visit
+    }
+  }
+
   async function applySnapshot() {
     if (!previewPath || !preview) return;
     const total =
@@ -968,6 +839,7 @@
     } finally {
       applyBusy = false;
     }
+    await resyncAfterBulkChange();
   }
 
   async function runRecovery() {
@@ -982,6 +854,7 @@
     } finally {
       recoveryBusy = false;
     }
+    await resyncAfterBulkChange();
   }
 
   async function rebootDevice(mode: RebootMode) {
@@ -998,210 +871,6 @@
     } finally {
       rebootBusy = false;
     }
-  }
-
-  async function openDownloadPage(url: string) {
-    try {
-      await openUrl(url);
-    } catch (e) {
-      sideloadResult = `Open link failed: ${e}`;
-    }
-  }
-
-  function remoteEnqueue(work: () => Promise<void>) {
-    remoteQueue = remoteQueue.then(work).catch((e) => {
-      remoteMessage = String(e);
-    });
-  }
-
-  function remoteFlushBuffer() {
-    if (remoteFlushTimer) {
-      clearTimeout(remoteFlushTimer);
-      remoteFlushTimer = null;
-    }
-    if (!remoteBuffer) return;
-    const chunk = remoteBuffer;
-    remoteBuffer = "";
-    remoteEnqueue(async () => {
-      const r = await api.sendText(serial, chunk);
-      if (!r.ok) remoteMessage = r.message;
-    });
-  }
-
-  function sendRemoteKey(key: string) {
-    remoteFlushBuffer();
-    remoteEnqueue(async () => {
-      const r = await api.sendKey(serial, key);
-      remoteMessage = r.ok ? "" : r.message;
-    });
-  }
-
-  function remoteKeydown(e: KeyboardEvent) {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === "Backspace") {
-      e.preventDefault();
-      remoteEcho = remoteEcho.slice(0, -1);
-      sendRemoteKey("delete");
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      remoteEcho = "";
-      sendRemoteKey("enter");
-      return;
-    }
-    if (e.key.length === 1 && e.key >= " " && e.key <= "~") {
-      e.preventDefault();
-      remoteBuffer += e.key;
-      remoteEcho = (remoteEcho + e.key).slice(-60);
-      // Batch rapid typing into one `input text` per pause — each adb call
-      // is a ~100-300 ms round-trip, so per-character would lag behind fast
-      // typists forever.
-      if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
-      remoteFlushTimer = setTimeout(remoteFlushBuffer, 250);
-    }
-  }
-
-  async function loadFiles(path: string) {
-    filesLoading = true;
-    filesErr = null;
-    filesMessage = "";
-    try {
-      filesEntries = await api.listDir(serial, path, powerUserPaths);
-      filesPath = path;
-    } catch (e) {
-      filesErr = String(e);
-    } finally {
-      filesLoading = false;
-    }
-  }
-
-  async function startFileCopy(name: string) {
-    filesMessage = "";
-    try {
-      const all = await api.listDevices();
-      fileCopyTargets = all.filter((d) => d.status === "device" && d.serial !== serial);
-    } catch (e) {
-      filesMessage = String(e);
-      return;
-    }
-    if (fileCopyTargets.length === 0) {
-      filesMessage = "No other connected device to copy to — connect the target device first.";
-      return;
-    }
-    fileCopyName = name;
-  }
-
-  async function copyFileTo(target: Device) {
-    if (!fileCopyName) return;
-    const name = fileCopyName;
-    filesBusy = name;
-    // Land it in the same path on the target so a /sdcard/Download file
-    // arrives in /sdcard/Download there too.
-    filesMessage = `Copying ${name} to ${target.name}…`;
-    try {
-      const r = await api.copyFileToDevice(serial, `${filesPath}/${name}`, target.serial, filesPath);
-      filesMessage = r.message;
-      if (r.ok) fileCopyName = null;
-    } catch (e) {
-      filesMessage = String(e);
-    } finally {
-      filesBusy = null;
-    }
-  }
-
-  async function downloadFile(name: string) {
-    const folder = await openDialog({ directory: true, title: "Choose a download folder" });
-    if (!folder) return;
-    filesBusy = name;
-    filesMessage = "";
-    try {
-      const r = await api.pullFile(serial, `${filesPath}/${name}`, folder as string, powerUserPaths);
-      filesMessage = r.message;
-    } catch (e) {
-      filesMessage = String(e);
-    } finally {
-      filesBusy = null;
-    }
-  }
-
-  async function uploadToCurrentDir() {
-    const file = await openDialog({ title: "Choose a file to upload" });
-    if (!file) return;
-    filesBusy = "__upload__";
-    filesMessage = "";
-    try {
-      const r = await api.pushFile(serial, file as string, filesPath, powerUserPaths);
-      filesMessage = r.message;
-      if (r.ok) await loadFiles(filesPath);
-    } catch (e) {
-      filesMessage = String(e);
-    } finally {
-      filesBusy = null;
-    }
-  }
-
-  async function deleteEntry(entry: FileEntry) {
-    const what = entry.is_dir ? "folder AND EVERYTHING IN IT" : "file";
-    const outsideSdcard = !filesPath.startsWith("/sdcard");
-    const prefix = outsideSdcard
-      ? `⚠️ SYSTEM PATH (${filesPath}). Deleting here can break the device.\n\n`
-      : "";
-    if (!confirm(`${prefix}Delete ${what} "${entry.name}" from the device? This cannot be undone.`))
-      return;
-    filesBusy = entry.name;
-    filesMessage = "";
-    try {
-      const r = await api.deletePath(serial, `${filesPath}/${entry.name}`, powerUserPaths);
-      filesMessage = r.message;
-      if (r.ok) await loadFiles(filesPath);
-    } catch (e) {
-      filesMessage = String(e);
-    } finally {
-      filesBusy = null;
-    }
-  }
-
-  async function findAppFiles(entry: (typeof appFilesCatalog)[number]) {
-    appFilesBusy = entry.package;
-    filesMessage = "";
-    try {
-      appFilesResults[entry.package] = await api.findFiles(serial, entry.search_dirs, entry.pattern);
-    } catch (e) {
-      filesMessage = String(e);
-    } finally {
-      appFilesBusy = null;
-    }
-  }
-
-  async function downloadFoundFile(path: string) {
-    const folder = await openDialog({ directory: true, title: "Choose a folder for the backup" });
-    if (!folder) return;
-    appFilesBusy = path;
-    filesMessage = "";
-    try {
-      const r = await api.pullFile(serial, path, folder as string);
-      filesMessage = r.message;
-    } catch (e) {
-      filesMessage = String(e);
-    } finally {
-      appFilesBusy = null;
-    }
-  }
-
-  function goToFolder(path: string) {
-    // Parent dir. Below /sdcard normally; in power-user mode you can climb to
-    // the filesystem root.
-    const floor = powerUserPaths ? "/" : "/sdcard";
-    const dir = path.slice(0, path.lastIndexOf("/")) || floor;
-    loadFiles(dir);
-  }
-
-  function formatSize(bytes: number): string {
-    if (bytes >= 1 << 30) return `${(bytes / (1 << 30)).toFixed(2)} GB`;
-    if (bytes >= 1 << 20) return `${(bytes / (1 << 20)).toFixed(1)} MB`;
-    if (bytes >= 1 << 10) return `${(bytes / (1 << 10)).toFixed(0)} KB`;
-    return `${bytes} B`;
   }
 
   function startRename() {
@@ -1268,252 +937,24 @@
     }
   }
 
-  async function loadTweaks() {
-    tweaksLoading = true;
-    tweaksErr = null;
-    try {
-      const [t, s] = await Promise.all([
-        api.getTweaks(serial),
-        api.getDisplayScaling(serial).catch(() => null),
-      ]);
-      tweaks = t;
-      currentDisplayScaling = s;
-    } catch (e) {
-      tweaksErr = String(e);
-    } finally {
-      tweaksLoading = false;
-    }
-  }
+  // Extracted tabs (Files, …) mount once on first visit and stay mounted
+  // (hidden while inactive) so their state and fetched data survive tab
+  // switches — they load their own data in onMount. `visited` gates that
+  // first mount; clearing it (on a serial change) unmounts them.
+  let visited = $state<Record<string, boolean>>({});
 
-  // Write a setting, then refresh the on-screen state for that key by
-  // re-pulling all tweaks. Cheap (one batched shell call).
-  async function writeTweak(
-    namespace: SettingNamespace,
-    key: string,
-    value: string,
-    busyId: string,
-  ) {
-    tweaksActionBusy = busyId;
-    tweaksActionMessage = "";
-    try {
-      const r = await api.writeSetting(serial, namespace, key, value);
-      tweaksActionMessage = `${key} → ${value || "(default)"}: ${r.message.trim()}`;
-      await loadTweaks();
-    } catch (e) {
-      tweaksActionMessage = `${key}: ${e}`;
-    } finally {
-      tweaksActionBusy = null;
-    }
-  }
-
-  // Animation triple is one logical control — write all three keys in one go.
-  async function setAnimationScale(scale: string) {
-    tweaksActionBusy = "animations";
-    tweaksActionMessage = "";
-    try {
-      const keys = ["window_animation_scale", "transition_animation_scale", "animator_duration_scale"];
-      const results = await Promise.all(
-        keys.map((k) => api.writeSetting(serial, "global", k, scale)),
-      );
-      const failed = results.filter((r) => !r.ok);
-      tweaksActionMessage =
-        failed.length === 0
-          ? `Animations → ${scale || "default"}`
-          : `Animations partially failed (${failed.length}/3): ${failed.map((r) => r.message).join("; ")}`;
-      await loadTweaks();
-    } catch (e) {
-      tweaksActionMessage = `Animations: ${e}`;
-    } finally {
-      tweaksActionBusy = null;
-    }
-  }
-
-  async function loadOptimizePlan(mode: OptimizeMode) {
-    if (!device) return;
-    optimizeMode = mode;
-    optimizePlanLoading = true;
-    optimizePlanErr = null;
-    optimizePlan = null;
-    optimizeOverrides = {};
-    optimizeProgress = {};
-    optimizeFailureMessages = {};
-    optimizeSummary = "";
-    optimizePerfApplied = false;
-    try {
-      optimizePlan = await api.prepareOptimize(serial, device.device_type, mode);
-    } catch (e) {
-      optimizePlanErr = String(e);
-    } finally {
-      optimizePlanLoading = false;
-    }
-    // Lazy "last used" cues for the Review rows (shared with the App List).
-    loadAppMemory();
-  }
-
-  /// The natural action the engine computed for an actionable row (disable /
-  /// uninstall in optimize mode, enable in restore mode), or null for rows the
-  /// backend marked skip (not installed / already in target state) — those
-  /// aren't actionable and get no dropdown.
-  function naturalAction(item: OptimizePlanItem): RowAction | null {
-    return item.action.kind === "skip" ? null : item.action.kind;
-  }
-
-  /// What the dropdown defaults to. This mirrors v1's per-app defaults: only
-  /// apps flagged default_optimize / default_restore are pre-selected for
-  /// action; everything else defaults to Skip so the wizard never removes a
-  /// streaming app (or anything not on the curated default list) unless the
-  /// user explicitly chooses to. Returns null for non-actionable rows.
-  function defaultAction(item: OptimizePlanItem): RowAction | null {
-    const natural = naturalAction(item);
-    if (natural === null) return null;
-    const isDefault =
-      optimizeMode === "optimize" ? item.entry.default_optimize : item.entry.default_restore;
-    return isDefault ? natural : "skip";
-  }
-
-  /// The action that will actually run: the user's dropdown pick if they made
-  /// one, otherwise the per-app default (or skip for non-actionable rows).
-  function effectiveAction(item: OptimizePlanItem): RowAction {
-    return optimizeOverrides[item.entry.package] ?? defaultAction(item) ?? "skip";
-  }
-
-  /// Dropdown choices for a row, in mode-appropriate order. Restore only ever
-  /// produces enable rows, so its menu is Enable / Skip; optimize rows can be
-  /// downgraded (uninstall→disable) or upgraded (disable→uninstall).
-  function actionOptions(item: OptimizePlanItem): RowAction[] {
-    return naturalAction(item) === "enable"
-      ? ["enable", "skip"]
-      : ["disable", "uninstall", "skip"];
-  }
-
-  function actionLabel(item: OptimizePlanItem, action: RowAction): string {
-    const base = { disable: "Disable", uninstall: "Uninstall", enable: "Enable", skip: "Skip" }[action];
-    return action === defaultAction(item) ? `${base} (recommended)` : base;
-  }
-
-  function setOptimizeAction(pkg: string, action: RowAction) {
-    optimizeOverrides[pkg] = action;
-  }
-
-  async function executeOptimize() {
-    if (!optimizePlan) return;
-    const total = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length;
-    if (total === 0) {
-      optimizeSummary = "Nothing to do — every item is in its target state.";
-      return;
-    }
-    const label = optimizeMode === "optimize" ? "Optimize" : "Restore";
-    if (!confirm(`Run ${label} on ${total} package(s)? Disabled packages can be re-enabled via Emergency Recovery.`)) return;
-
-    optimizeRunning = true;
-    optimizeAbort = false;
-    optimizeProgress = {};
-    optimizeFailureMessages = {};
-
-    let done = 0, skipped = 0, failed = 0;
-    for (const item of optimizePlan.items) {
-      if (optimizeAbort) break;
-      const pkg = item.entry.package;
-      const action = effectiveAction(item);
-      if (action === "skip") {
-        optimizeProgress[pkg] = "skipped";
-        skipped++;
-        continue;
-      }
-      optimizeCurrent = pkg;
-      optimizeProgress[pkg] = "pending";
-      try {
-        let r: { ok: boolean; message: string };
-        if (action === "disable") r = await api.disablePackage(serial, pkg);
-        else if (action === "uninstall") r = await api.uninstallPackage(serial, pkg);
-        else r = await api.enablePackage(serial, pkg);
-        if (r.ok) {
-          optimizeProgress[pkg] = "done";
-          done++;
-        } else {
-          optimizeProgress[pkg] = "failed";
-          optimizeFailureMessages[pkg] = r.message;
-          failed++;
-        }
-      } catch (e) {
-        optimizeProgress[pkg] = "failed";
-        optimizeFailureMessages[pkg] = String(e);
-        failed++;
-      }
-    }
-    optimizeCurrent = null;
-    optimizeRunning = false;
-    optimizeSummary = optimizeAbort
-      ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
-      : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
-    // Keep the App List in parity — it cached states before this run.
-    if (apps.length > 0) {
-      appStates = await fetchAppStates(apps.map((a) => a.package));
-    }
-  }
-
-  async function applyPerformanceSettings() {
-    if (!optimizePlan) return;
-    const profile = optimizeMode === "optimize" ? "optimized" : "default";
-    try {
-      const r = await api.applyPerformanceSettings(serial, profile);
-      optimizePerfApplied = r.ok;
-      optimizeSummary = optimizeSummary
-        ? `${optimizeSummary} Performance: ${r.message.trim()}.`
-        : `Performance: ${r.message.trim()}.`;
-    } catch (e) {
-      optimizeSummary = optimizeSummary
-        ? `${optimizeSummary} Performance failed: ${e}.`
-        : `Performance failed: ${e}.`;
-    }
-  }
-
-  function skipReasonLabel(item: OptimizePlanItem): string | null {
-    if (item.action.kind !== "skip") return null;
-    switch (item.action.reason) {
-      case "not_installed": return "Not installed";
-      case "already_disabled": return "Already disabled";
-      case "already_enabled": return "Already enabled";
-      case "user_choice": return "Skipped";
-    }
-  }
-
-  async function applyDisplayScaling(preset: DisplayScalePreset) {
-    const label = preset === "uhd_4k" ? "4K (3839x2160, density 640)"
-      : preset === "fhd_1080p" ? "1080p (1920x1080, density 320)"
-      : "device defaults";
-    if (!confirm(`Apply display scaling: ${label}? The screen will reflow.`)) return;
-    displayScaleBusy = preset;
-    displayScaleMessage = "";
-    try {
-      const r = await api.setDisplayScaling(serial, preset);
-      displayScaleMessage = r.message.trim() || (r.ok ? "ok" : "no output");
-      // Refresh the displayed current values.
-      currentDisplayScaling = await api.getDisplayScaling(serial).catch(() => currentDisplayScaling);
-    } catch (e) {
-      displayScaleMessage = String(e);
-    } finally {
-      displayScaleBusy = null;
-    }
-  }
-
-  // Lazy-load each tab the first time it's opened. Sideload doesn't need
-  // any prefetch — the file picker fires on user action.
+  // Lazy-load each non-extracted tab the first time it's opened. Extracted
+  // tabs (tweaks/files/sideload/…) load their own data in onMount.
   $effect(() => {
+    visited[activeTab] = true;
     if (activeTab === "health") {
       if (report === null && !reportLoading && !reportErr) loadHealth();
       // Preload catalog so the memory table can show risk tiers.
-      if (apps.length === 0 && !appsLoading && !appsErr) loadApps();
+      if (!appsLoaded && !appsLoading) loadApps();
     }
-    if (activeTab === "launcher" && launchers.length === 0 && !launcherLoading && !launcherErr) loadLauncher();
-    if (activeTab === "apps" && apps.length === 0 && !appsLoading && !appsErr) loadApps();
-    if (activeTab === "tweaks" && tweaks === null && !tweaksLoading && !tweaksErr) loadTweaks();
-    if (activeTab === "files" && filesEntries === null && !filesLoading && !filesErr) loadFiles(filesPath);
-    if (activeTab === "snapshot" && snapshots.length === 0) loadSnapshots();
-    if (activeTab === "sideload" && discoveredApks.length === 0 && !discoveryBusy) {
-      const last = localStorage.getItem("shieldopt.lastApkFolder");
-      if (last) scanApkFolder(last);
-    }
+    if (activeTab === "launcher" && !launchersLoaded && !launcherLoading) loadLauncher();
+    if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
+    if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
   });
 
   /// Wipe all per-device state. Used if the route's serial changes under a
@@ -1527,25 +968,20 @@
     }
     liveRefresh = false;
     activeTab = "overview";
+    // Unmount the extracted tab components — their state dies with them.
+    visited = {};
     device = null; deviceErr = null;
     report = null; reportErr = null; reportLastRefreshed = null; safetyMap = {};
-    launchers = []; currentLauncher = null; channelDisabled = null;
+    launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
-    apps = []; appsErr = null; appStates = {}; appActionMessage = "";
+    apps = []; appsLoaded = false; appsErr = null; appStates = {}; appActionMessage = "";
     otherPackages = []; appMemory = {}; appUsage = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
-    snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
-    sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null; apkInstallState = {};
+    snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
-    remoteEcho = ""; remoteMessage = ""; remoteBuffer = "";
     sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
-    filesPath = "/sdcard"; filesEntries = null; filesErr = null; filesMessage = ""; powerUserPaths = false;
-    appFilesResults = {}; fileCopyName = null; fileCopyTargets = [];
     applyResult = null; applyErr = null;
-    tweaks = null; tweaksErr = null; tweaksActionMessage = ""; currentDisplayScaling = null; displayScaleMessage = "";
-    optimizePlan = null; optimizePlanErr = null; optimizeOverrides = {};
-    optimizeProgress = {}; optimizeSummary = ""; optimizeFailureMessages = {}; optimizePerfApplied = false;
   }
 
   // Track the serial so a *change* (not the initial mount) resets and reloads.
@@ -2249,722 +1685,6 @@
         </div>
       {/if}
     </div>
-  {:else if activeTab === "optimize"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize">
-      <div class="card-header">
-        <h2>Optimize / Restore Wizard</h2>
-        <div class="header-actions">
-          <button
-            class:primary={optimizeMode === "optimize"}
-            onclick={() => loadOptimizePlan("optimize")}
-            disabled={optimizePlanLoading || optimizeRunning}
-          >Optimize</button>
-          <button
-            class:primary={optimizeMode === "restore"}
-            onclick={() => loadOptimizePlan("restore")}
-            disabled={optimizePlanLoading || optimizeRunning}
-          >Restore</button>
-        </div>
-      </div>
-      <p class="muted small">
-        {optimizeMode === "optimize"
-          ? "Disable or uninstall bloat per the device's app catalog. Each row defaults to the recommended action — change it (Disable / Uninstall / Skip) per row, then Run."
-          : "Re-enable everything that's currently disabled per the device's app catalog. Set any row to Skip to leave it, then Run. Restore is reversible by running Optimize again."}
-      </p>
-
-      {#if optimizePlanErr}
-        <div class="error">{optimizePlanErr}</div>
-      {/if}
-
-      {#if optimizePlanLoading}
-        <p class="muted">Querying device…</p>
-      {:else if !optimizePlan}
-        <p class="muted">Pick Optimize or Restore to load the plan.</p>
-      {:else}
-        {@const actionable = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length}
-        {@const totalRunning = optimizePlan.items
-          .filter((i) => naturalAction(i) !== null)
-          .reduce((acc, i) => acc + (i.memory_mb ?? 0), 0)}
-        <div class="plan-summary">
-          <strong>{actionable}</strong> of {optimizePlan.items.length} items will be acted on.
-          {#if totalRunning > 0}
-            <span class="muted">≈ {totalRunning.toFixed(0)} MB of RAM in play.</span>
-          {/if}
-        </div>
-        <div class="apply-row">
-          <button
-            class="primary"
-            onclick={executeOptimize}
-            disabled={optimizeRunning || actionable === 0}
-          >
-            {optimizeRunning ? `Running… (${optimizeCurrent ?? ""})` : `Run ${optimizeMode === "optimize" ? "Optimize" : "Restore"}`}
-          </button>
-          {#if optimizeRunning}
-            <button onclick={() => (optimizeAbort = true)}>Abort</button>
-          {/if}
-          {#if optimizeSummary && !optimizeRunning}
-            <button
-              onclick={applyPerformanceSettings}
-              disabled={optimizePerfApplied}
-              title={optimizeMode === "optimize" ? "Set animation scales to 0.5×" : "Reset animation scales to 1×"}
-            >
-              {optimizePerfApplied ? "Performance applied" : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
-            </button>
-          {/if}
-        </div>
-        {#if optimizeSummary}
-          <p class="muted small mono action-message">{optimizeSummary}</p>
-        {/if}
-
-        <table class="optimize-table">
-          <thead>
-            <tr>
-              <th>App</th>
-              <th>RAM</th>
-              <th>Risk</th>
-              <th>Action</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each optimizePlan.items as item (item.entry.package)}
-              {@const skip = skipReasonLabel(item)}
-              {@const progress = optimizeProgress[item.entry.package]}
-              {@const eff = effectiveAction(item)}
-              <tr class:dim={eff === "skip"} class:acting={!skip && eff !== "skip"}>
-                <td>
-                  <div class="app-name">
-                    {item.entry.name}
-                    {#if item.entry.default_optimize}
-                      <span class="tag installed">DEFAULT</span>
-                    {:else if item.entry.review}
-                      <span class="tag review" title="Remove if you don't use it">REVIEW</span>
-                    {/if}
-                  </div>
-                  {#if item.entry.optimize_description}
-                    <div class="muted small app-desc">{item.entry.optimize_description}</div>
-                  {/if}
-                  <div class="muted small mono">{item.entry.package}</div>
-                  {#if appUsage[item.entry.package] && naturalAction(item) !== null}
-                    <div class="cell-cue"><UsageBadge usage={appUsage[item.entry.package]} /></div>
-                  {/if}
-                </td>
-                <td class="num">
-                  <!-- Live RAM for installed + enabled rows only (naturalAction
-                       null ⇒ not-installed / already-disabled, where a residual
-                       process isn't reclaimable). -->
-                  {#if item.memory_mb && naturalAction(item) !== null}
-                    <RamBadge mb={item.memory_mb} label={false} />
-                  {:else}
-                    <span class="muted">—</span>
-                  {/if}
-                </td>
-                <td class={`risk risk-${item.entry.risk}`}>{item.entry.risk.toUpperCase()}</td>
-                <td>
-                  {#if skip}
-                    <span class="terminal-reason">{skip}</span>
-                  {:else}
-                    <select
-                      class="action-select"
-                      class:will-skip={eff === "skip"}
-                      class:will-remove={eff === "uninstall"}
-                      class:will-act={eff === "disable" || eff === "enable"}
-                      value={eff}
-                      onchange={(e) =>
-                        setOptimizeAction(
-                          item.entry.package,
-                          (e.currentTarget as HTMLSelectElement).value as RowAction,
-                        )}
-                      disabled={optimizeRunning}
-                    >
-                      {#each actionOptions(item) as opt (opt)}
-                        <option value={opt}>{actionLabel(item, opt)}</option>
-                      {/each}
-                    </select>
-                  {/if}
-                </td>
-                <td>
-                  {#if progress === "done"}
-                    <span class="tag installed">✓ DONE</span>
-                  {:else if progress === "pending"}
-                    <span class="muted small">…</span>
-                  {:else if progress === "skipped"}
-                    <span class="muted small">skipped</span>
-                  {:else if progress === "failed"}
-                    <span class="tag" style="background:var(--danger-surface); color:var(--danger-text)" title={optimizeFailureMessages[item.entry.package] ?? ""}>FAILED</span>
-                  {/if}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      {/if}
-    </div>
-  {:else if activeTab === "tweaks"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-tweaks" aria-labelledby="tab-tweaks">
-      <div class="card-header">
-        <h2>System Tweaks</h2>
-        <button onclick={loadTweaks} disabled={tweaksLoading}>
-          {tweaksLoading ? "Loading…" : "Refresh"}
-        </button>
-      </div>
-      <p class="muted small">
-        Flip the same settings v1's Display/Input Tuning menu wrote. Each click runs
-        <code>settings put</code>. Empty value resets to device default.
-      </p>
-      {#if tweaksErr}
-        <div class="error">{tweaksErr}</div>
-      {:else if !tweaks}
-        <div class="muted">{tweaksLoading ? "Querying…" : "—"}</div>
-      {:else}
-        {#if tweaksActionMessage}
-          <p class="muted small mono action-message">{tweaksActionMessage}</p>
-        {/if}
-
-        <h3>HDMI-CEC</h3>
-        <p class="muted small">
-          Master switch plus three sub-toggles. Disabling the master typically also
-          turns off the sub-controls.
-        </p>
-        <div class="tweak-grid">
-          {#each [
-            { key: "hdmi_control_enabled", label: "Master (control on/off)", value: tweaks.hdmi_control_enabled },
-            { key: "hdmi_control_auto_wakeup_enabled", label: "Auto wake on TV power", value: tweaks.hdmi_control_auto_wakeup_enabled },
-            { key: "hdmi_control_auto_device_off_enabled", label: "Auto sleep when TV off", value: tweaks.hdmi_control_auto_device_off_enabled },
-            { key: "hdmi_system_audio_control_enabled", label: "System audio control", value: tweaks.hdmi_system_audio_control_enabled },
-          ] as row (row.key)}
-            <div class="tweak-row">
-              <div>
-                <div>{row.label}</div>
-                <div class="muted small mono">global.{row.key} = {row.value ?? "(unset)"}</div>
-              </div>
-              <div class="row-actions">
-                <button
-                  class="small-action"
-                  class:active={row.value === "1"}
-                  disabled={tweaksActionBusy === row.key}
-                  onclick={() => writeTweak("global", row.key, "1", row.key)}
-                >On</button>
-                <button
-                  class="small-action"
-                  class:active={row.value === "0"}
-                  disabled={tweaksActionBusy === row.key}
-                  onclick={() => writeTweak("global", row.key, "0", row.key)}
-                >Off</button>
-                <button
-                  class="small-action"
-                  disabled={tweaksActionBusy === row.key}
-                  onclick={() => writeTweak("global", row.key, "", row.key)}
-                >Reset</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-
-        <h3>Match Content Frame Rate</h3>
-        <p class="muted small">
-          Lets apps switch refresh rate to match video content (24/25/30/60 Hz). Seamless
-          only avoids visible black flashes during the switch.
-        </p>
-        <div class="tweak-row">
-          <div>
-            <div class="muted small mono">secure.match_content_frame_rate = {tweaks.match_content_frame_rate ?? "(unset)"}</div>
-          </div>
-          <div class="row-actions">
-            {#each [
-              { v: "0", label: "Never" },
-              { v: "1", label: "Seamless only" },
-              { v: "2", label: "Always" },
-            ] as opt (opt.v)}
-              <button
-                class="small-action"
-                class:active={tweaks.match_content_frame_rate === opt.v}
-                disabled={tweaksActionBusy === "match_content_frame_rate"}
-                onclick={() => writeTweak("secure", "match_content_frame_rate", opt.v, "match_content_frame_rate")}
-              >{opt.label}</button>
-            {/each}
-            <button
-              class="small-action"
-              disabled={tweaksActionBusy === "match_content_frame_rate"}
-              onclick={() => writeTweak("secure", "match_content_frame_rate", "", "match_content_frame_rate")}
-            >Reset</button>
-          </div>
-        </div>
-
-        <h3>Background Process Limit</h3>
-        <p class="muted small">
-          Caps how many apps stay alive in the background — frees RAM and can make the
-          Shield feel snappier (2 is a good balance). <strong>Heads up:</strong> Android
-          resets this to Standard on every reboot (a platform limitation, not a bug), so
-          you'll need to re-apply it after a restart.
-        </p>
-        <div class="tweak-row">
-          <div>
-            <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit ?? "(Standard)"}</div>
-          </div>
-          <div class="row-actions">
-            <button
-              class="small-action"
-              class:active={!tweaks.background_process_limit}
-              disabled={tweaksActionBusy === "background_process_limit"}
-              onclick={() => writeTweak("global", "background_process_limit", "", "background_process_limit")}
-            >Standard</button>
-            {#each [
-              { v: "0", label: "None" },
-              { v: "1", label: "≤ 1" },
-              { v: "2", label: "≤ 2" },
-              { v: "3", label: "≤ 3" },
-              { v: "4", label: "≤ 4" },
-            ] as opt (opt.v)}
-              <button
-                class="small-action"
-                class:active={tweaks.background_process_limit === opt.v}
-                disabled={tweaksActionBusy === "background_process_limit"}
-                onclick={() => writeTweak("global", "background_process_limit", opt.v, "background_process_limit")}
-              >{opt.label}</button>
-            {/each}
-          </div>
-        </div>
-
-        <h3>Long Press Timeout</h3>
-        <p class="muted small">
-          How long the remote OK button has to be held to register a long-press. Default
-          is 400ms; 300ms feels snappier.
-        </p>
-        <div class="tweak-row">
-          <div>
-            <div class="muted small mono">secure.long_press_timeout = {tweaks.long_press_timeout ?? "(unset)"}</div>
-          </div>
-          <div class="row-actions">
-            {#each ["300", "400", "500"] as v (v)}
-              <button
-                class="small-action"
-                class:active={tweaks.long_press_timeout === v}
-                disabled={tweaksActionBusy === "long_press_timeout"}
-                onclick={() => writeTweak("secure", "long_press_timeout", v, "long_press_timeout")}
-              >{v} ms</button>
-            {/each}
-            <button
-              class="small-action"
-              disabled={tweaksActionBusy === "long_press_timeout"}
-              onclick={() => writeTweak("secure", "long_press_timeout", "", "long_press_timeout")}
-            >Reset</button>
-          </div>
-        </div>
-
-        <h3>UI Animations</h3>
-        <p class="muted small">
-          Sets all three animation scales (window / transition / animator) at once.
-          0.5× is a noticeable speedup; 0× disables them entirely.
-        </p>
-        <div class="tweak-row">
-          <div>
-            <div class="muted small mono">
-              window = {tweaks.window_animation_scale ?? "(unset)"} /
-              transition = {tweaks.transition_animation_scale ?? "(unset)"} /
-              animator = {tweaks.animator_duration_scale ?? "(unset)"}
-            </div>
-          </div>
-          <div class="row-actions">
-            {#each [
-              { v: "0", label: "Off" },
-              { v: "0.5", label: "Fast (0.5×)" },
-              { v: "1", label: "Default (1×)" },
-            ] as opt (opt.v)}
-              <button
-                class="small-action"
-                class:active={tweaks.window_animation_scale === opt.v && tweaks.transition_animation_scale === opt.v && tweaks.animator_duration_scale === opt.v}
-                disabled={tweaksActionBusy === "animations"}
-                onclick={() => setAnimationScale(opt.v)}
-              >{opt.label}</button>
-            {/each}
-            <button
-              class="small-action"
-              disabled={tweaksActionBusy === "animations"}
-              onclick={() => setAnimationScale("")}
-            >Reset</button>
-          </div>
-        </div>
-
-        <h3>Display Scaling</h3>
-        <p class="muted small">
-          Forces a specific resolution + density via <code>wm size</code> + <code>wm density</code>.
-          Mostly for Shield TV — useful for testing 1080p mode on a 4K device.
-        </p>
-        {#if currentDisplayScaling}
-          <div class="current-scaling muted small mono">
-            {currentDisplayScaling.size || "Size: unknown"}
-            <br />
-            {currentDisplayScaling.density || "Density: unknown"}
-          </div>
-        {/if}
-        <div class="scale-options">
-          <button
-            class="scale-option"
-            disabled={displayScaleBusy !== null}
-            onclick={() => applyDisplayScaling("uhd_4k")}
-          >
-            <span class="scale-title">{displayScaleBusy === "uhd_4k" ? "Applying…" : "Shield 4K"}</span>
-            <span class="muted small">3839×2160, density 640</span>
-          </button>
-          <button
-            class="scale-option"
-            disabled={displayScaleBusy !== null}
-            onclick={() => applyDisplayScaling("fhd_1080p")}
-          >
-            <span class="scale-title">{displayScaleBusy === "fhd_1080p" ? "Applying…" : "Shield 1080p"}</span>
-            <span class="muted small">1920×1080, density 320</span>
-          </button>
-          <button
-            class="scale-option"
-            disabled={displayScaleBusy !== null}
-            onclick={() => applyDisplayScaling("reset")}
-          >
-            <span class="scale-title">{displayScaleBusy === "reset" ? "Resetting…" : "Reset"}</span>
-            <span class="muted small">Restore device defaults</span>
-          </button>
-        </div>
-        {#if displayScaleMessage}
-          <p class="muted small mono action-message">{displayScaleMessage}</p>
-        {/if}
-      {/if}
-    </div>
-  {:else if activeTab === "files"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-files" aria-labelledby="tab-files">
-      <div class="card-header">
-        <h2>Files</h2>
-        <div class="header-actions">
-          <button onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
-            {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}
-          </button>
-          <button onclick={() => loadFiles(filesPath)} disabled={filesLoading}>
-            {filesLoading ? "Loading…" : "Refresh"}
-          </button>
-        </div>
-      </div>
-      <p class="muted small files-intro">
-        {#if powerUserPaths}
-          Browsing the whole filesystem. Most system paths are read-only without root;
-          deletes outside <code>/sdcard</code> are double-confirmed and critical mounts are refused.
-        {:else}
-          Browsing the device's user storage (<code>/sdcard</code>).
-        {/if}
-        <label class="inline-check">
-          <input
-            type="checkbox"
-            checked={powerUserPaths}
-            onchange={(e) => {
-              powerUserPaths = e.currentTarget.checked;
-              loadFiles(powerUserPaths ? filesPath : "/sdcard");
-            }}
-          />
-          Show system paths (power user)
-        </label>
-      </p>
-
-      <details class="app-backups">
-        <summary>App file backups — find &amp; save exports (Projectivy theme, SmartTube settings, …)</summary>
-        <p class="muted small">
-          App settings live in protected storage, but most apps can export a backup to
-          <code>/sdcard</code>. Export in the app first, then find the file here and save it to
-          this computer. To restore later: browse to the folder below and use <strong>Upload here</strong>,
-          then import it in the app.
-        </p>
-        {#each appFilesCatalog as entry (entry.package)}
-          <div class="app-backup-row">
-            <div>
-              <div class="apk-name">{entry.name}</div>
-              <div class="muted small">{entry.hint}</div>
-            </div>
-            <button
-              class="small-action"
-              onclick={() => findAppFiles(entry)}
-              disabled={appFilesBusy !== null}
-            >
-              {appFilesBusy === entry.package ? "Searching…" : "Find backup files"}
-            </button>
-          </div>
-          {#if appFilesResults[entry.package]}
-            {@const found = appFilesResults[entry.package] ?? []}
-            {#if found.length === 0}
-              <p class="muted small found-list">No matches — export from the app first, then search again.</p>
-            {:else}
-              <ul class="found-list">
-                {#each found as path (path)}
-                  <li>
-                    <span class="mono small">{path}</span>
-                    <span>
-                      <button class="small-action" onclick={() => downloadFoundFile(path)} disabled={appFilesBusy !== null}>
-                        Save to computer
-                      </button>
-                      <button class="small-action subtle" onclick={() => goToFolder(path)} disabled={appFilesBusy !== null}>
-                        Go to folder
-                      </button>
-                    </span>
-                  </li>
-                {/each}
-              </ul>
-            {/if}
-          {/if}
-        {/each}
-      </details>
-
-      <nav class="crumbs" aria-label="Path">
-        <button
-          class="small-action subtle"
-          onclick={() => goToFolder(filesPath)}
-          disabled={filesPath === "/" || (filesPath === "/sdcard" && !powerUserPaths) || filesLoading}
-          title="Up one level"
-        >
-          ↑ Up
-        </button>
-        {#each crumbs as c, i (c.path)}
-          {#if i > 0}<span class="muted">/</span>{/if}
-          {#if i === crumbs.length - 1}
-            <span class="crumb-current">{c.label}</span>
-          {:else}
-            <button class="crumb" onclick={() => loadFiles(c.path)}>{c.label}</button>
-          {/if}
-        {/each}
-      </nav>
-      {#if filesMessage}
-        <p class="muted small mono action-message">{filesMessage}</p>
-      {/if}
-      {#if fileCopyName}
-        <div class="clone-panel">
-          <span>Copy <code>{fileCopyName}</code> to:</span>
-          {#each fileCopyTargets as t (t.serial)}
-            <button class="small-action" onclick={() => copyFileTo(t)} disabled={filesBusy !== null}>
-              {filesBusy !== null ? "Copying…" : `${t.name} (${t.serial})`}
-            </button>
-          {/each}
-          <button class="small-action subtle" onclick={() => (fileCopyName = null)} disabled={filesBusy !== null}>
-            Cancel
-          </button>
-        </div>
-      {/if}
-      {#if filesErr}
-        <div class="error">{filesErr}</div>
-      {:else if filesEntries === null}
-        <div class="muted">{filesLoading ? "Loading…" : "—"}</div>
-      {:else if filesEntries.length === 0}
-        <p class="muted">Empty folder.</p>
-      {:else}
-        <table class="files-table">
-          <thead>
-            <tr><th>Name</th><th class="num">Size</th><th>Modified</th><th></th></tr>
-          </thead>
-          <tbody>
-            {#each filesEntries as f (f.name)}
-              <tr>
-                <td class="file-name">
-                  {#if f.is_dir}
-                    <button class="dir-link" onclick={() => loadFiles(`${filesPath}/${f.name}`)}>
-                      📁 {f.name}
-                    </button>
-                  {:else}
-                    <span>{f.is_symlink ? "🔗" : "📄"} {f.name}</span>
-                  {/if}
-                </td>
-                <td class="num muted">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
-                <td class="muted small">{f.modified}</td>
-                <td class="row-actions">
-                  {#if !f.is_dir && !f.is_symlink}
-                    <button
-                      class="small-action"
-                      onclick={() => downloadFile(f.name)}
-                      disabled={filesBusy !== null}
-                      title="Save this file to a folder on this computer"
-                    >
-                      {filesBusy === f.name ? "…" : "Download"}
-                    </button>
-                    <button
-                      class="small-action subtle"
-                      onclick={() => startFileCopy(f.name)}
-                      disabled={filesBusy !== null}
-                      title="Copy this file to another connected device"
-                    >
-                      Copy to…
-                    </button>
-                  {/if}
-                  <button
-                    class="small-action subtle danger"
-                    onclick={() => deleteEntry(f)}
-                    disabled={filesBusy !== null}
-                    title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      {/if}
-    </div>
-  {:else if activeTab === "sideload"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-sideload" aria-labelledby="tab-sideload">
-      <div class="card-header">
-        <h2>Install APK</h2>
-        <div class="header-actions">
-          <button onclick={pickApkFolder} disabled={sideloadBusy !== null || discoveryBusy}>
-            {discoveryBusy ? "Scanning…" : "Choose folder…"}
-          </button>
-          <button class="primary" onclick={pickAndInstallApk} disabled={sideloadBusy !== null}>
-            {sideloadBusy !== null ? "Installing…" : "Pick file…"}
-          </button>
-        </div>
-      </div>
-      <p class="muted small">
-        Pick a file directly, or point at a folder and we'll list every APK inside.
-        Either way, install runs <code>adb install -r &lt;file&gt;</code>.
-      </p>
-
-      {#if discoveredFolder && discoveredApks.length > 0}
-        <div class="apk-folder muted small mono">
-          {discoveredFolder} — {discoveredApks.length} APK{discoveredApks.length === 1 ? "" : "s"} found
-        </div>
-        <ul class="apk-list">
-          {#each discoveredApks as apk (apk.path)}
-            <li>
-              <div class="apk-row">
-                <div class="apk-meta">
-                  <div class="apk-name">{apk.name}</div>
-                  <div class="muted small">
-                    {formatBytes(apk.size_bytes)}
-                    {#if apk.package}
-                      · {apk.package}
-                      {#if apkInstallState[apk.package] === "enabled"}
-                        <span class="tag installed">INSTALLED</span>
-                      {:else if apkInstallState[apk.package] === "disabled"}
-                        <span class="tag disabled">INSTALLED (disabled)</span>
-                      {/if}
-                    {/if}
-                  </div>
-                </div>
-                <button
-                  class="small-action primary"
-                  onclick={() => installApkPath(apk.path)}
-                  disabled={sideloadBusy !== null}
-                >
-                  {sideloadBusy === apk.path ? "Installing…" : "Install"}
-                </button>
-              </div>
-              {#if sideloadResultPath === apk.path && sideloadResult}
-                <div class="install-result" class:ok={sideloadOk} class:bad={!sideloadOk}>
-                  <span>{sideloadOk ? "✓" : "✕"} {sideloadResult}</span>
-                  {#if sideloadHint}<span class="muted small"> — {sideloadHint}</span>{/if}
-                </div>
-              {/if}
-            </li>
-          {/each}
-        </ul>
-      {:else if discoveredFolder}
-        <p class="muted small">No <code>.apk</code> files in {discoveredFolder}.</p>
-      {/if}
-
-      {#if sideloadResult && !discoveredApks.some((a) => a.path === sideloadResultPath)}
-        <div class="install-result" class:ok={sideloadOk} class:bad={!sideloadOk}>
-          <span>{sideloadOk ? "✓" : "✕"} {sideloadResult}</span>
-          {#if sideloadHint}<span class="muted small"> — {sideloadHint}</span>{/if}
-        </div>
-      {/if}
-
-      <details class="sideload-catalog">
-        <summary>Popular sideloads — common apps you download to install ({sideloadCatalog.length})</summary>
-        <p class="muted small">
-          Apps people commonly install that aren't on the Play Store. Links go to the
-          official source only — download the APK there, then install it with the
-          buttons above. You're sideloading third-party software; check it's the
-          official release.
-        </p>
-        <ul class="catalog-list">
-          {#each sideloadCatalog as entry (entry.package)}
-            <li>
-              <div>
-                <div class="apk-name">{entry.name}</div>
-                <div class="muted small">{entry.description}</div>
-                <div class="muted small mono">{entry.package}</div>
-              </div>
-              <button
-                class="small-action"
-                onclick={() => openDownloadPage(entry.url)}
-                title={entry.url}
-              >
-                Open download page
-              </button>
-            </li>
-          {/each}
-        </ul>
-      </details>
-    </div>
-  {:else if activeTab === "remote"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-remote" aria-labelledby="tab-remote">
-      <h2>Remote</h2>
-      <div class="remote-layout">
-        <div class="remote-typing">
-          <h3>Live typing</h3>
-          <p class="muted small">
-            Click below and type — keystrokes go straight to whatever field has
-            focus on the TV, including Backspace and Enter. Each press is an ADB
-            round-trip, so it feels like typing over SSH.
-          </p>
-          <div
-            class="type-capture"
-            class:focused={remoteCaptureFocused}
-            tabindex="0"
-            role="textbox"
-            aria-label="Live typing capture — keystrokes are sent to the TV"
-            onkeydown={remoteKeydown}
-            onfocus={() => (remoteCaptureFocused = true)}
-            onblur={() => (remoteCaptureFocused = false)}
-          >
-            {#if remoteEcho}
-              <span class="mono">{remoteEcho}</span><span class="caret">▏</span>
-            {:else if remoteCaptureFocused}
-              <span class="muted">Type now — sending to the TV…</span><span class="caret">▏</span>
-            {:else}
-              <span class="muted">Click here, then type</span>
-            {/if}
-          </div>
-          {#if remoteMessage}
-            <p class="warn-text small mono">{remoteMessage}</p>
-          {/if}
-        </div>
-        <div class="remote-pad">
-          <h3>Buttons</h3>
-          <div class="dpad">
-            <span></span>
-            <button onclick={() => sendRemoteKey("up")} title="D-pad up">▲</button>
-            <span></span>
-            <button onclick={() => sendRemoteKey("left")} title="D-pad left">◀</button>
-            <button class="ok" onclick={() => sendRemoteKey("select")} title="Select / OK">OK</button>
-            <button onclick={() => sendRemoteKey("right")} title="D-pad right">▶</button>
-            <span></span>
-            <button onclick={() => sendRemoteKey("down")} title="D-pad down">▼</button>
-            <span></span>
-          </div>
-          <div class="remote-row">
-            <button onclick={() => sendRemoteKey("back")} title="Back">Back</button>
-            <button onclick={() => sendRemoteKey("home")} title="Home">Home</button>
-          </div>
-          <div class="remote-row">
-            <button onclick={() => sendRemoteKey("rewind")} title="Rewind">◀◀</button>
-            <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause">▶❙❙</button>
-            <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward">▶▶</button>
-          </div>
-          <div class="remote-row">
-            <button onclick={() => sendRemoteKey("volume_down")} title="Volume down">Vol −</button>
-            <button onclick={() => sendRemoteKey("mute")} title="Mute">Mute</button>
-            <button onclick={() => sendRemoteKey("volume_up")} title="Volume up">Vol +</button>
-          </div>
-          <div class="remote-row">
-            <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
-            <button onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)">Power</button>
-          </div>
-        </div>
-      </div>
-    </div>
   {:else if activeTab === "snapshot"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-snapshot" aria-labelledby="tab-snapshot">
       <div class="card-header">
@@ -3057,6 +1777,41 @@
           {/if}
         </div>
       {/if}
+    </div>
+  {/if}
+
+  <!-- Extracted tabs: mount once on first visit, then toggle visibility so
+       their state and fetched data persist across tab switches. -->
+  {#if visited.tweaks}
+    <div hidden={activeTab !== "tweaks"}>
+      <TweaksTab {serial} />
+    </div>
+  {/if}
+  {#if visited.files}
+    <div hidden={activeTab !== "files"}>
+      <FilesTab {serial} />
+    </div>
+  {/if}
+  {#if visited.sideload}
+    <div hidden={activeTab !== "sideload"}>
+      <SideloadTab {serial} />
+    </div>
+  {/if}
+  {#if visited.remote}
+    <div hidden={activeTab !== "remote"}>
+      <RemoteTab {serial} />
+    </div>
+  {/if}
+  {#if visited.optimize}
+    <div hidden={activeTab !== "optimize"}>
+      <OptimizeTab
+        {serial}
+        deviceType={device.device_type}
+        {appUsage}
+        resetToken={optimizeResetToken}
+        onStatesChanged={resyncAppStates}
+        onPlanLoaded={loadAppMemory}
+      />
     </div>
   {/if}
 {/if}
@@ -3476,25 +2231,6 @@
     margin: 0.4rem 0 0;
     padding-left: 1.2rem;
   }
-  .tweak-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin: 0.4rem 0 0.8rem;
-  }
-  .tweak-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--bg-button);
-  }
-  .small-action.active {
-    background: var(--accent-strong);
-    color: #fff;
-    border-color: var(--accent);
-  }
   .apply-row {
     display: flex;
     align-items: center;
@@ -3515,39 +2251,6 @@
   }
   .warn-text {
     color: var(--warn);
-  }
-  .current-scaling {
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.5rem 0.7rem;
-    margin: 0.4rem 0 0.6rem;
-    line-height: 1.4;
-  }
-  .scale-options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 0.5rem;
-    margin: 0.4rem 0;
-  }
-  .scale-option {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    text-align: left;
-    padding: 0.6rem 0.8rem;
-    gap: 0.2rem;
-    background: var(--bg-button);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  .scale-option:hover:not(:disabled) {
-    background: var(--border);
-  }
-  .scale-option .scale-title {
-    font-weight: 500;
-    font-size: 0.92rem;
   }
   .screenshot-preview {
     margin-top: 0.8rem;
@@ -3608,142 +2311,6 @@
     vertical-align: middle;
     margin-left: 0.5rem;
   }
-  .sideload-catalog {
-    margin-top: 1.5rem;
-    padding-top: 1.2rem;
-    border-top: 1px solid var(--border);
-  }
-  .sideload-catalog summary {
-    cursor: pointer;
-    font-weight: 600;
-  }
-  .catalog-list {
-    list-style: none;
-    padding: 0;
-    margin: 0.5rem 0 0;
-  }
-  .catalog-list li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.6rem 0;
-    border-bottom: 1px solid var(--bg-button);
-  }
-  .catalog-list li button {
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .remote-layout {
-    display: flex;
-    gap: 2.5rem;
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
-  .remote-typing { flex: 1; min-width: 280px; max-width: 480px; }
-  .type-capture {
-    min-height: 3.2rem;
-    padding: 0.8rem;
-    border: 1px dashed var(--border);
-    border-radius: 6px;
-    cursor: text;
-    background: var(--bg-inset);
-  }
-  .type-capture.focused {
-    border-style: solid;
-    border-color: var(--accent);
-  }
-  .type-capture .caret {
-    color: var(--accent);
-    animation: caret-blink 1s steps(1) infinite;
-  }
-  @keyframes caret-blink { 50% { opacity: 0; } }
-  .remote-pad { display: flex; flex-direction: column; gap: 0.6rem; }
-  .dpad {
-    display: grid;
-    grid-template-columns: repeat(3, 3.2rem);
-    grid-auto-rows: 3.2rem;
-    gap: 0.4rem;
-    justify-items: stretch;
-  }
-  .dpad button { font-size: 1rem; }
-  .dpad .ok { font-weight: 700; }
-  .remote-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.4rem;
-    max-width: 10.4rem;
-  }
-  .remote-row button { padding: 0.45rem 0.3rem; white-space: nowrap; }
-  .app-backups {
-    margin: 0.6rem 0 1rem;
-    padding: 0.6rem 0.8rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-  }
-  .app-backups summary {
-    cursor: pointer;
-    font-weight: 600;
-  }
-  .app-backup-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.5rem 0;
-    border-top: 1px solid var(--bg-button);
-    margin-top: 0.5rem;
-  }
-  .found-list {
-    list-style: none;
-    padding: 0 0 0 0.8rem;
-    margin: 0.2rem 0 0.6rem;
-  }
-  .found-list li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.8rem;
-    padding: 0.25rem 0;
-  }
-  .crumbs {
-    display: flex;
-    align-items: center;
-    gap: 0.35rem;
-    margin: 0.4rem 0 0.8rem;
-    flex-wrap: wrap;
-  }
-  .crumb {
-    background: none;
-    border: none;
-    padding: 0.1rem 0.2rem;
-    color: var(--accent);
-    cursor: pointer;
-    font-size: 0.95rem;
-  }
-  .crumb:hover { text-decoration: underline; }
-  .crumb-current { font-weight: 600; }
-  .files-table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-  .files-table th, .files-table td {
-    text-align: left;
-    padding: 0.4rem 0.6rem;
-    border-bottom: 1px solid var(--bg-button);
-  }
-  .files-table .num { text-align: right; white-space: nowrap; }
-  .files-table .row-actions { text-align: right; white-space: nowrap; }
-  .dir-link {
-    background: none;
-    border: none;
-    padding: 0;
-    color: var(--fg);
-    cursor: pointer;
-    font-size: 0.95rem;
-  }
-  .dir-link:hover { color: var(--accent); }
   .app-toolbar {
     display: flex;
     align-items: center;
@@ -3770,26 +2337,6 @@
   }
   .type-cell { white-space: nowrap; }
   .type-cell .tag { white-space: nowrap; }
-  .plan-summary {
-    margin: 0.4rem 0;
-    padding: 0.5rem 0.8rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    font-size: 0.9rem;
-  }
-  /* Skipped rows recede; rows that WILL be acted on stand out with a left
-     accent bar and a faint tint so the consequential rows are obvious at a
-     glance (the dim-everything approach was too subtle to read). */
-  .optimize-table tr.dim {
-    opacity: 0.78;
-  }
-  .optimize-table tr.acting td {
-    background: color-mix(in srgb, var(--accent-strong) 8%, transparent);
-  }
-  .optimize-table tr.acting td:first-child {
-    box-shadow: inset 3px 0 0 var(--accent-strong);
-  }
   .checkbox-row {
     display: flex;
     align-items: center;
@@ -3797,38 +2344,6 @@
     font-size: 0.85rem;
     color: var(--fg-secondary);
     cursor: pointer;
-  }
-  .action-select {
-    font-size: 0.85rem;
-    padding: 0.25rem 0.5rem;
-    min-width: 9.5rem;
-  }
-  /* Color the dropdown by what it will do, so each row's intent is legible at
-     a glance: muted italic for Skip, accent for disable/enable, danger for the
-     destructive uninstall. */
-  .action-select.will-skip {
-    color: var(--fg-muted);
-    font-style: italic;
-  }
-  .action-select.will-act {
-    color: var(--accent);
-    font-weight: 500;
-  }
-  .action-select.will-remove {
-    color: var(--danger-strong);
-    font-weight: 500;
-  }
-  /* Terminal rows (not installed / already in target state) can't be acted on —
-     a neutral pill, distinct from the italic "Skip (recommended)" dropdown so
-     "nothing to do here" doesn't read like "you chose to skip this". */
-  .terminal-reason {
-    display: inline-block;
-    font-size: 0.74rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    background: var(--bg-muted);
-    color: var(--fg-faint);
-    letter-spacing: 0.02em;
   }
   .legend {
     display: flex;
@@ -3841,43 +2356,6 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     line-height: 1.4;
-  }
-  .apk-folder {
-    margin: 0.4rem 0;
-    padding: 0.4rem 0.6rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    word-break: break-all;
-  }
-  .apk-list {
-    list-style: none;
-    padding: 0;
-    margin: 0.4rem 0 0.8rem;
-  }
-  .apk-list li {
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--bg-button);
-  }
-  .apk-list li:last-child {
-    border-bottom: none;
-  }
-  .apk-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 0.8rem;
-  }
-  .install-result {
-    margin-top: 0.4rem;
-    font-size: 0.88rem;
-  }
-  .install-result.ok { color: var(--ok); }
-  .install-result.bad { color: var(--warn); }
-  .apk-name {
-    font-family: ui-monospace, monospace;
-    font-size: 0.88rem;
-    word-break: break-all;
   }
   .install-output {
     background: var(--bg-inset);

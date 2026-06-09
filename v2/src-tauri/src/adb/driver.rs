@@ -74,6 +74,14 @@ pub trait AdbDriver: Send + Sync {
     /// Run `adb <args...>` (no `-s` prefix).
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput>;
 
+    /// Run `adb <args...>` with a transfer-sized timeout — for `pull` / `push`
+    /// / `install`, which stream whole files and legitimately take minutes on
+    /// big payloads (the standard timeout would kill them mid-transfer).
+    /// Default delegates to `raw` so mocks need no extra wiring.
+    async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+        self.raw(args).await
+    }
+
     /// Run `adb -s <serial> shell <command>`.
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput>;
 
@@ -126,6 +134,10 @@ impl SubprocessAdb {
     }
 
     async fn run(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+        self.run_with_timeout(args, self.command_timeout).await
+    }
+
+    async fn run_with_timeout(&self, args: &[&str], dur: Duration) -> AdbResult<AdbOutput> {
         if !self.binary.exists() {
             return Err(AdbError::BinaryMissing {
                 path: self.binary.display().to_string(),
@@ -139,12 +151,12 @@ impl SubprocessAdb {
         super::hide_console_window(&mut cmd);
         let fut = cmd.output();
 
-        let output = match timeout(self.command_timeout, fut).await {
+        let output = match timeout(dur, fut).await {
             Ok(r) => r?,
             Err(_) => {
                 warn!(?args, "adb timeout");
                 return Err(AdbError::Timeout {
-                    seconds: self.command_timeout.as_secs(),
+                    seconds: dur.as_secs(),
                 });
             }
         };
@@ -178,10 +190,18 @@ impl SubprocessAdb {
     }
 }
 
+/// Ceiling for file transfers: long enough for multi-GB pulls over slow Wi-Fi,
+/// short enough that a genuinely hung adb still surfaces as an error.
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+
 #[async_trait]
 impl AdbDriver for SubprocessAdb {
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.run(args).await
+    }
+
+    async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+        self.run_with_timeout(args, TRANSFER_TIMEOUT).await
     }
 
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {

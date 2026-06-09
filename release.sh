@@ -45,8 +45,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Get the latest version tag
-LATEST_TAG=$(git tag --list 'v*.*.*' --sort=-v:refname | head -1)
+# Get the latest v1 version tag. Strictly vX.Y.Z only — the glob 'v*.*.*'
+# also matches v2's tag namespace (v2-2.0.0-beta.N), which version-sorts above
+# every v1 tag and would make this script bump from a v2 version.
+LATEST_TAG=$(git tag --list --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
 
 if [ -z "$LATEST_TAG" ]; then
     NEW_VERSION="v${INITIAL_VERSION}"
