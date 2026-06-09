@@ -10,7 +10,7 @@ Feature parity gaps against aTV Tools — see **[`v2/ATVTOOLS-PARITY.md`](ATVTOO
 
 ## Known deferred items
 
-- **Remote-control latency** — persistent ADB shell + scrcpy-style input injection was investigated. Deferred; current `send_text` / `send_key` commands cover the common case.
+- **Remote-control latency** — investigated and planned: see [`REMOTE-LATENCY-PLAN.md`](REMOTE-LATENCY-PLAN.md) (scrcpy-server control channel, with a benchmark gate). Current `send_text` / `send_key` commands cover the common case.
 - **Memory-usage spike (user report)** — likely root-caused to a tab lazy-load re-fetch loop (fixed in PR #62); confirm it's gone on the next release build.
 
 ## Invariants + release process
