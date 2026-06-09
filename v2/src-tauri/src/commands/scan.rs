@@ -29,7 +29,7 @@ pub struct ScanResult {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum ConnectOutcome {
+pub(crate) enum ConnectOutcome {
     Connected,
     /// Device reachable but this host's ADB key isn't approved yet. The
     /// device is still added to `adb devices` (as `unauthorized`), so this
@@ -42,7 +42,7 @@ enum ConnectOutcome {
 /// combined streams rather than the exit code, since `adb connect` exits 0
 /// even on "failed to authenticate" / "failed to connect" with current
 /// platform-tools, and exit-code conventions vary across versions.
-fn classify_connect_output(combined: &str) -> ConnectOutcome {
+pub(crate) fn classify_connect_output(combined: &str) -> ConnectOutcome {
     let s = combined.to_lowercase();
     if s.contains("failed to authenticate") {
         ConnectOutcome::Unauthorized
