@@ -30,6 +30,15 @@ fn default_data_dir() -> PathBuf {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Some Wayland/Mesa setups crash WebKitGTK's DMABUF renderer on startup
+    // ("Could not create default EGL display: EGL_BAD_PARAMETER"), leaving a
+    // blank window. Disabling that renderer falls back to a path that works
+    // everywhere. Honor an existing value so power users can still force it on.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     // Best-effort tracing setup; fall back silently if EnvFilter parse fails.
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
