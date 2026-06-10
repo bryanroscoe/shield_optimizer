@@ -37,6 +37,39 @@ fleet, a persistent shell + `cmd input` is competitive and much simpler — stop
 here and build that instead. Otherwise (expected on 2019-era firmware),
 proceed to the scrcpy design.
 
+### Phase 0 results (2026-06-10, two Shield Android-TV units, Android 11)
+
+Measured on `192.168.42.196` and `192.168.42.71` (both NVIDIA SHIELD Android TV,
+Android 11) — identical results:
+
+- **`input keyevent` ≈ 690 ms** per press (0.69s real, of which only ~0.18s is
+  user CPU — the rest is JVM cold-start). First call ~6.1s (one-time warm-up).
+  Confirms the original estimate and that the Java VM boot dominates.
+- **`cmd input` → "No shell command implementation."** The fast binder path
+  does **not** exist on Shield Android 11. The simple fallback is off the
+  table; scrcpy is the answer.
+- **Multi-key batching** (`input keyevent 20 20 20`) is still one ~0.69s call —
+  no help (one JVM boot covers all three, but you can't stream live presses
+  through it).
+
+**scrcpy control channel — verified working on this hardware:**
+- scrcpy-server **v3.1** (90 640 bytes, SHA-256
+  `958f0944a62f23b1f33a16e9eb14844c1a04b882ca175a738c16d23cb22b86c0`) pushed to
+  `/data/local/tmp`, launched via `app_process` in control-only mode
+  (`video=false audio=false control=true tunnel_forward=true
+  send_device_meta=false send_dummy_byte=true`).
+- Server identified the device ("Device: [NVIDIA] NVIDIA SHIELD Android TV
+  (Android 11)") and accepted a TCP control connection over `adb forward`.
+- Our own client received the 1-byte handshake (`\x00`) and wrote 20
+  `INJECT_KEYCODE` messages (14 bytes each: `>BBIII` = type, action, keycode,
+  repeat, metaState) — accepted at **~0.01 ms/write**. Protocol encoding
+  confirmed; per-press cost collapses from 690 ms to network RTT.
+
+**Verdict: build the scrcpy control channel (Phases 1–3 below).** The only
+lifecycle note for the Rust impl: a control-only server exits the moment its
+client socket closes, so the session must hold the socket open for the life of
+the Remote tab and tear it down explicitly.
+
 ## The fix — scrcpy-server control channel
 
 scrcpy (Apache-2.0) pushes a ~90 KB Java server to the device, runs it once via
