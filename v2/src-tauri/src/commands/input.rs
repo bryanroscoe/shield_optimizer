@@ -1,15 +1,37 @@
-//! Send text to the TV — `input text` over ADB, for typing Wi-Fi passwords
-//! and searches from a real keyboard instead of the on-screen D-pad grid.
+//! Remote input — keys and text to the TV.
+//!
+//! Two transports, tried in order:
+//! 1. The persistent scrcpy control channel (`adb::remote_input`) — per-press
+//!    cost is network RTT (~ms). Lazily started on first use; full UTF-8 text.
+//! 2. `adb shell input …` — the slow (~690 ms/press, ASCII-only) but
+//!    universally-available fallback when the channel can't start or its
+//!    socket dies. A failed channel send drops the session so the next press
+//!    retries a fresh start.
 
 use serde::Serialize;
 use tauri::State;
 
+use super::state::resolve_scrcpy_server_jar;
 use super::AppState;
 
 #[derive(Serialize)]
 pub struct SendTextResult {
     pub ok: bool,
     pub message: String,
+    /// Which transport served this request: "channel" (scrcpy control socket)
+    /// or "shell" (legacy `input` fallback). The Remote tab shows a live cue.
+    pub transport: &'static str,
+}
+
+/// Make sure the scrcpy session for `serial` is up (starting it if needed).
+async fn channel_ready(
+    state: &AppState,
+    app: &tauri::AppHandle,
+    serial: &str,
+) -> Result<(), String> {
+    let jar = resolve_scrcpy_server_jar(app)?;
+    let adb = state.adb_snapshot().await;
+    state.ensure_remote_session(adb, &jar, serial).await
 }
 
 const MAX_TEXT_LEN: usize = 500;
@@ -42,15 +64,53 @@ fn encode_input_text(text: &str) -> Result<String, String> {
 }
 
 /// `send_text` — type `text` into whatever input field has focus on the TV.
+/// Channel first (full UTF-8, instant); `input text` (ASCII-only) fallback.
 #[tauri::command]
 pub async fn send_text(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     serial: String,
     text: String,
 ) -> Result<SendTextResult, String> {
+    if text.is_empty() {
+        return Ok(SendTextResult {
+            ok: false,
+            message: "Nothing to send.".to_string(),
+            transport: "none",
+        });
+    }
+
+    let channel = match channel_ready(&state, &app, &serial).await {
+        Ok(()) => match state.remote_send_text(&serial, &text).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                state.drop_remote_session(&serial).await;
+                Err(e)
+            }
+        },
+        Err(e) => Err(e),
+    };
+    if channel.is_ok() {
+        return Ok(SendTextResult {
+            ok: true,
+            message: format!(
+                "Sent {} character(s) to the focused field.",
+                text.chars().count()
+            ),
+            transport: "channel",
+        });
+    }
+    tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input text");
+
     let encoded = match encode_input_text(&text) {
         Ok(e) => e,
-        Err(message) => return Ok(SendTextResult { ok: false, message }),
+        Err(message) => {
+            return Ok(SendTextResult {
+                ok: false,
+                message,
+                transport: "shell",
+            })
+        }
     };
     let adb = state.adb_snapshot().await;
     let out = adb
@@ -63,11 +123,13 @@ pub async fn send_text(
         Ok(SendTextResult {
             ok: true,
             message: format!("Sent {} character(s) to the focused field.", text.len()),
+            transport: "shell",
         })
     } else {
         Ok(SendTextResult {
             ok: false,
             message: noise,
+            transport: "shell",
         })
     }
 }
@@ -100,10 +162,12 @@ fn keycode_for(key: &str) -> Option<u32> {
     })
 }
 
-/// `send_key` — one remote button press (`input keyevent <code>`). Used by
-/// the Remote panel's D-pad and by live typing for Backspace/Enter.
+/// `send_key` — one remote button press. Channel first (instant, real
+/// down/up); `input keyevent` fallback. Used by the Remote panel's D-pad and
+/// by live typing for Backspace/Enter.
 #[tauri::command]
 pub async fn send_key(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     serial: String,
     key: String,
@@ -111,6 +175,26 @@ pub async fn send_key(
     let Some(code) = keycode_for(&key) else {
         return Err(format!("Unknown remote key: {key:?}"));
     };
+
+    let channel = match channel_ready(&state, &app, &serial).await {
+        Ok(()) => match state.remote_send_key_press(&serial, code).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                state.drop_remote_session(&serial).await;
+                Err(e)
+            }
+        },
+        Err(e) => Err(e),
+    };
+    if channel.is_ok() {
+        return Ok(SendTextResult {
+            ok: true,
+            message: format!("Sent {key}."),
+            transport: "channel",
+        });
+    }
+    tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input keyevent");
+
     let adb = state.adb_snapshot().await;
     let out = adb
         .shell(&serial, &format!("input keyevent {code}"))
@@ -124,6 +208,7 @@ pub async fn send_key(
         } else {
             noise
         },
+        transport: "shell",
     })
 }
 

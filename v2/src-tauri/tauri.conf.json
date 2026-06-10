@@ -45,6 +45,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "resources/scrcpy-server-v3.1"
+    ],
     "windows": {
       "wix": {
         "version": "2.0.314"

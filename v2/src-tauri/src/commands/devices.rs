@@ -137,6 +137,9 @@ pub async fn disconnect_device(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ConnectResult, String> {
+    // A live remote-input session holds an open socket + forward to this
+    // device — tear it down before dropping the connection.
+    state.drop_remote_session(&serial).await;
     let adb = state.adb_snapshot().await;
     let out = adb
         .raw(&["disconnect", &serial])
