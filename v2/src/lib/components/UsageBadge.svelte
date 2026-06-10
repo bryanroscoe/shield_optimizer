@@ -1,48 +1,21 @@
 <script lang="ts">
   import type { AppUsage } from "$lib/types";
+  import { isStaleUsage, usageLabel } from "$lib/usage";
 
   // "last used" cue for the Review / remove-if-unused decision. Renders nothing
   // until usage data is loaded. Never-opened and long-idle apps read as stale
-  // (highlighted) — the candidates to remove.
+  // (highlighted) — the candidates to remove. Interpretation lives in
+  // $lib/usage so the Optimize review callout can't drift from this badge.
   let { usage }: { usage?: AppUsage } = $props();
-
-  const DAY_MS = 86_400_000;
-
-  function daysSince(u: AppUsage): number | null {
-    if (!u.last_used || u.launch_count === 0) return null;
-    // "YYYY-MM-DD HH:MM:SS" → parse as local time (device-local, close enough).
-    const then = new Date(u.last_used.replace(" ", "T"));
-    if (Number.isNaN(then.getTime())) return null;
-    return Math.floor((Date.now() - then.getTime()) / DAY_MS);
-  }
-
-  function label(u: AppUsage): string {
-    const days = daysSince(u);
-    // No record ≠ literally never: usagestats keeps only ~1 year of rolling
-    // buckets and resets on a factory wipe, so old usage ages out. Say "no
-    // recent use" rather than overclaiming "never".
-    if (days === null) return "no recent use";
-    if (days <= 0) return "used today";
-    if (days === 1) return "used yesterday";
-    if (days < 30) return `${days}d ago`;
-    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-    return `${Math.floor(days / 365)}y ago`;
-  }
-
-  // Stale = a removal candidate: never opened, or untouched for 30+ days.
-  function isStale(u: AppUsage): boolean {
-    const days = daysSince(u);
-    return days === null || days >= 30;
-  }
 </script>
 
 {#if usage}
   <span
     class="usage-tag"
-    class:stale={isStale(usage)}
+    class:stale={isStaleUsage(usage)}
     title="Last foreground use from usagestats. History is limited (~1 year of rolling buckets) and resets on a factory wipe, so 'no recent use' may just mean it aged out."
   >
-    {label(usage)}
+    {usageLabel(usage)}
   </span>
 {/if}
 

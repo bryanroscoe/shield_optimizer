@@ -1,8 +1,8 @@
 <script lang="ts">
   import { api } from "$lib/api";
   import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage } from "$lib/types";
-  import UsageBadge from "$lib/components/UsageBadge.svelte";
   import AppRow from "$lib/components/AppRow.svelte";
+  import { isStaleUsage, usageLabel } from "$lib/usage";
 
   let {
     serial,
@@ -263,6 +263,28 @@
         <span class="muted">≈ {totalRunning.toFixed(0)} MB of RAM in play.</span>
       {/if}
     </div>
+    {#if optimizeMode === "optimize"}
+      {@const reviewItems = optimizePlan.items.filter((i) => i.entry.review && rowState(i) === "enabled")}
+      {@const usageLoaded = Object.keys(appUsage).length > 0}
+      {@const staleReview = usageLoaded ? reviewItems.filter((i) => isStaleUsage(appUsage[i.entry.package])) : []}
+      {#if reviewItems.length > 0}
+        <!-- The wizard's real value-add: the catalog can't know which streaming
+             apps YOU use, so these rows need a human call — and the usage data
+             says where to look first. -->
+        <div class="review-callout">
+          <strong>{reviewItems.length}</strong> app{reviewItems.length === 1 ? "" : "s"} flagged for review (orange bar) — remove the ones you don't use.
+          {#if staleReview.length > 0}
+            <span class="stale-line">
+              <strong>{staleReview.length}</strong> show no recent use:
+              {staleReview
+                .slice(0, 5)
+                .map((i) => `${i.entry.name} (${usageLabel(appUsage[i.entry.package])})`)
+                .join(", ")}{staleReview.length > 5 ? `, +${staleReview.length - 5} more` : ""}.
+            </span>
+          {/if}
+        </div>
+      {/if}
+    {/if}
     <div class="apply-row">
       <button
         class="primary"
@@ -320,7 +342,13 @@
             usage={appUsage[item.entry.package]}
             showUsage={naturalAction(item) !== null}
             risk={item.entry.risk}
-            rowClass={eff === "skip" ? "dim" : !skip ? "acting" : undefined}
+            rowClass={eff === "skip"
+              ? item.entry.review && !skip
+                ? "review-flag"
+                : "dim"
+              : !skip
+                ? "acting"
+                : undefined}
           >
             {#snippet actions()}
             <td>
@@ -466,6 +494,19 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     font-size: 0.9rem;
+  }
+  .review-callout {
+    margin: 0.4rem 0;
+    padding: 0.5rem 0.8rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--warn);
+    border-radius: 4px;
+    font-size: 0.85rem;
+  }
+  .review-callout .stale-line {
+    display: block;
+    margin-top: 0.2rem;
+    color: var(--warn);
   }
   .action-select {
     font-size: 0.85rem;

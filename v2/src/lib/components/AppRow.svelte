@@ -139,4 +139,9 @@
   tr.acting td:first-child {
     box-shadow: inset 3px 0 0 var(--accent-strong);
   }
+  /* Review rows awaiting a human call: full opacity (unlike other skipped
+     rows) + a warn accent bar — the wizard wants eyes here. */
+  tr.review-flag td:first-child {
+    box-shadow: inset 3px 0 0 var(--warn);
+  }
 </style>
