@@ -60,15 +60,27 @@ Android 11) — identical results:
   send_device_meta=false send_dummy_byte=true`).
 - Server identified the device ("Device: [NVIDIA] NVIDIA SHIELD Android TV
   (Android 11)") and accepted a TCP control connection over `adb forward`.
-- Our own client received the 1-byte handshake (`\x00`) and wrote 20
+- Our own client received the 1-byte handshake (`\x00`) and wrote
   `INJECT_KEYCODE` messages (14 bytes each: `>BBIII` = type, action, keycode,
-  repeat, metaState) — accepted at **~0.01 ms/write**. Protocol encoding
-  confirmed; per-press cost collapses from 690 ms to network RTT.
+  repeat, metaState) at **~0.01 ms/write**.
+- **End-to-end injection proven with state read-back**: SLEEP (223) through
+  the channel flipped the device Dreaming → Asleep — observed via an
+  independent `dumpsys power` poll in **152 ms including the polling
+  overhead** — and WAKEUP (224) restored it. The encoding is correct and the
+  per-press cost collapses from 690 ms to network RTT.
 
-**Verdict: build the scrcpy control channel (Phases 1–3 below).** The only
-lifecycle note for the Rust impl: a control-only server exits the moment its
-client socket closes, so the session must hold the socket open for the life of
-the Remote tab and tear it down explicitly.
+**Verdict: build the scrcpy control channel (Phases 1–3 below).** Lifecycle
+notes for the Rust impl, all verified on hardware:
+
+- A control-only server **exits on its own the moment the control socket
+  closes** — hold the socket for the tab's lifetime; on teardown drop the
+  socket first, then best-effort `pkill -f com.genymobile.scrcpy` (present at
+  `/system/bin/pkill` on this firmware, supports `-f`), then remove the
+  forward.
+- **Spawn the server child with stdin explicitly `/dev/null`** (open, EOF) and
+  stdout/stderr piped or nulled. The device-side `app_process` aborts at
+  startup (exit 134, zero Java output) when the adb client's stdin is fully
+  closed; a GUI app's inherited stdin is unreliable, so never inherit it.
 
 ## The fix — scrcpy-server control channel
 
