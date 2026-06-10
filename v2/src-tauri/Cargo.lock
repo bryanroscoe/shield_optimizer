@@ -3508,7 +3508,6 @@ dependencies = [
 name = "shield-optimizer-v2"
 version = "2.0.0-beta.12"
 dependencies = [
- "anyhow",
  "async-trait",
  "axmldecoder",
  "base64 0.22.1",

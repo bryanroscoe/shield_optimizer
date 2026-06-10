@@ -98,21 +98,6 @@ pub enum RiskTier {
     Advanced,
 }
 
-impl RiskTier {
-    /// Parse a risk-tier label permissively. Accepts v1's strings
-    /// ("Safe" / "Medium" / "High Risk" / "Advanced") case-insensitively.
-    /// Defaults to `Medium` for unrecognized strings — safer than `Safe`.
-    pub fn parse_label(s: &str) -> Self {
-        match s.to_ascii_lowercase().as_str() {
-            "safe" => Self::Safe,
-            "medium" => Self::Medium,
-            "advanced" => Self::Advanced,
-            "high" | "high risk" => Self::High,
-            _ => Self::Medium,
-        }
-    }
-}
-
 /// One entry in the bloat list — direct port of v1's app schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppEntry {

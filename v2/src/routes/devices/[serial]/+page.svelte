@@ -2026,9 +2026,6 @@
     margin: 0.4rem 0;
     padding-left: 1.2rem;
   }
-  .preview-disclaimer {
-    margin-top: 0 !important;
-  }
   .header-actions {
     display: flex;
     gap: 0.8rem;
@@ -2097,27 +2094,6 @@
   .small-action.subtle:hover:not(:disabled) {
     background: var(--bg-button);
     color: var(--fg-secondary);
-  }
-  .state-badge {
-    display: inline-block;
-    font-size: 0.74rem;
-    padding: 0.15rem 0.55rem;
-    border-radius: 4px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    font-family: ui-monospace, monospace;
-  }
-  .state-badge.state-enabled {
-    background: var(--ok-surface);
-    color: var(--ok);
-  }
-  .state-badge.state-disabled {
-    background: var(--warn-surface-2);
-    color: var(--warn);
-  }
-  .state-badge.state-missing {
-    background: var(--bg-muted);
-    color: var(--fg-faint);
   }
   .action-message {
     margin-top: 0.4rem;
@@ -2294,14 +2270,6 @@
   }
   .type-cell { white-space: nowrap; }
   .type-cell .tag { white-space: nowrap; }
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.85rem;
-    color: var(--fg-secondary);
-    cursor: pointer;
-  }
   .legend {
     display: flex;
     align-items: center;
@@ -2313,17 +2281,6 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     line-height: 1.4;
-  }
-  .install-output {
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.7rem 1rem;
-    margin: 0.8rem 0;
-    font-family: ui-monospace, monospace;
-    font-size: 0.82rem;
-    white-space: pre-wrap;
-    word-break: break-word;
   }
   code {
     background: var(--bg-inset);

@@ -545,7 +545,7 @@
     background: none;
     border: none;
     padding: 0;
-    color: var(--fg);
+    color: var(--fg-primary);
     cursor: pointer;
     font-size: 0.95rem;
   }

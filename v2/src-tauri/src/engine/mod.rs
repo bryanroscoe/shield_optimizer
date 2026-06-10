@@ -13,7 +13,7 @@ pub mod safety;
 pub mod snapshot;
 pub mod types;
 
-pub use app_lists::{AppList, AppListBundle};
+pub use app_lists::AppListBundle;
 pub use detection::{detect_device_type, DeviceType};
 pub use launcher::{
     is_last_enabled_home_handler, is_valid_package_name, launcher_catalog, launcher_rows,

@@ -8,13 +8,6 @@ use serde::{Deserialize, Serialize};
 use super::detection::DeviceType;
 use super::types::AppEntry;
 
-/// A named app list — one of common / shield / googletv (or any user/community add).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AppList {
-    pub name: String,
-    pub entries: Vec<AppEntry>,
-}
-
 /// All loaded app lists, indexed for lookup.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppListBundle {

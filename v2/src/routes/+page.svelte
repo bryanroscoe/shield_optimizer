@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { goto } from "$app/navigation";
   import { onMount } from "svelte";
   import { api } from "$lib/api";
   import type { Device, DeviceReport } from "$lib/types";
