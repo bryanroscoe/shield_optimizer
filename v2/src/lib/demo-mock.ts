@@ -12,6 +12,7 @@
 // real build.
 
 import demoApps from "./demo-apps.json";
+import pkg from "../../package.json";
 import type {
   AppEntry,
   Device,
@@ -207,9 +208,10 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
     case "check_for_update":
+      // Real version so screenshots never show a stale header badge.
       return {
-        current: "0.1.0-beta.9",
-        latest: "0.1.0-beta.9",
+        current: pkg.version,
+        latest: pkg.version,
         update_available: false,
         url: "https://github.com/bryanroscoe/shield_optimizer/releases",
       };

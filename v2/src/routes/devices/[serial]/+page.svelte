@@ -102,6 +102,10 @@
   let trimMessage = $state("");
 
   let launchers = $state<LauncherStatus[]>([]);
+  // "Loaded" flags track load *attempts* — an empty result is a valid loaded
+  // state. Guarding the lazy-load effect on `length === 0` instead re-fetches
+  // forever when a list is legitimately empty (e.g. zero snapshots).
+  let launchersLoaded = $state(false);
   let currentLauncher = $state<CurrentLauncher | null>(null);
   let channelDisabled = $state<boolean | null>(null);
   let launcherLoading = $state(false);
@@ -110,6 +114,7 @@
   let launcherActionMessage = $state("");
 
   let apps = $state<AppEntry[]>([]);
+  let appsLoaded = $state(false);
   let appsLoading = $state(false);
   let appsErr = $state<string | null>(null);
   /// package → 'enabled' | 'disabled' | 'missing' — refreshed alongside the app list.
@@ -158,6 +163,7 @@
   let cloneBusy = $state(false);
 
   let snapshots = $state<SnapshotFile[]>([]);
+  let snapshotsLoaded = $state(false);
   let snapshotsErr = $state<string | null>(null);
   let saveBusy = $state(false);
   let saveResult = $state<string>("");
@@ -180,6 +186,9 @@
   let discoveredApks = $state<import("$lib/types").DiscoveredApk[]>([]);
   let discoveredFolder = $state<string | null>(null);
   let discoveryBusy = $state(false);
+  /// The remembered-folder auto-scan runs at most once per device visit —
+  /// an empty or failing folder must not re-trigger it.
+  let apkAutoScanAttempted = $state(false);
 
   // Header actions: reboot menu visibility, disconnect/reboot status, recovery.
   let rebootMenuOpen = $state(false);
@@ -352,6 +361,7 @@
       launcherErr = String(e);
     } finally {
       launcherLoading = false;
+      launchersLoaded = true;
     }
   }
 
@@ -370,6 +380,7 @@
       appsErr = String(e);
     } finally {
       appsLoading = false;
+      appsLoaded = true;
     }
     loadOtherPackages();
     loadAppMemory();
@@ -915,6 +926,8 @@
       snapshots = await api.listSnapshots();
     } catch (e) {
       snapshotsErr = String(e);
+    } finally {
+      snapshotsLoaded = true;
     }
   }
 
@@ -951,6 +964,21 @@
     }
   }
 
+  /// Bulk mutations (snapshot apply, panic recovery) change package and
+  /// launcher state behind the App List / Optimize / Launcher caches — re-sync
+  /// them the same way executeOptimize does after a run. A partial failure
+  /// still changed state, so callers resync unconditionally.
+  async function resyncAfterBulkChange() {
+    optimizePlan = null;
+    launchersLoaded = false;
+    if (apps.length === 0) return;
+    try {
+      appStates = await fetchAppStates(apps.map((a) => a.package));
+    } catch {
+      appsLoaded = false; // fall back to the lazy reload next tab visit
+    }
+  }
+
   async function applySnapshot() {
     if (!previewPath || !preview) return;
     const total =
@@ -968,6 +996,7 @@
     } finally {
       applyBusy = false;
     }
+    await resyncAfterBulkChange();
   }
 
   async function runRecovery() {
@@ -982,6 +1011,7 @@
     } finally {
       recoveryBusy = false;
     }
+    await resyncAfterBulkChange();
   }
 
   async function rebootDevice(mode: RebootMode) {
@@ -1503,14 +1533,15 @@
     if (activeTab === "health") {
       if (report === null && !reportLoading && !reportErr) loadHealth();
       // Preload catalog so the memory table can show risk tiers.
-      if (apps.length === 0 && !appsLoading && !appsErr) loadApps();
+      if (!appsLoaded && !appsLoading) loadApps();
     }
-    if (activeTab === "launcher" && launchers.length === 0 && !launcherLoading && !launcherErr) loadLauncher();
-    if (activeTab === "apps" && apps.length === 0 && !appsLoading && !appsErr) loadApps();
+    if (activeTab === "launcher" && !launchersLoaded && !launcherLoading) loadLauncher();
+    if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
     if (activeTab === "tweaks" && tweaks === null && !tweaksLoading && !tweaksErr) loadTweaks();
     if (activeTab === "files" && filesEntries === null && !filesLoading && !filesErr) loadFiles(filesPath);
-    if (activeTab === "snapshot" && snapshots.length === 0) loadSnapshots();
-    if (activeTab === "sideload" && discoveredApks.length === 0 && !discoveryBusy) {
+    if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
+    if (activeTab === "sideload" && !apkAutoScanAttempted) {
+      apkAutoScanAttempted = true;
       const last = localStorage.getItem("shieldopt.lastApkFolder");
       if (last) scanApkFolder(last);
     }
@@ -1529,13 +1560,13 @@
     activeTab = "overview";
     device = null; deviceErr = null;
     report = null; reportErr = null; reportLastRefreshed = null; safetyMap = {};
-    launchers = []; currentLauncher = null; channelDisabled = null;
+    launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
-    apps = []; appsErr = null; appStates = {}; appActionMessage = "";
+    apps = []; appsLoaded = false; appsErr = null; appStates = {}; appActionMessage = "";
     otherPackages = []; appMemory = {}; appUsage = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
-    snapshots = []; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
-    sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null; apkInstallState = {};
+    snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
+    sideloadResult = ""; sideloadHint = null; sideloadResultPath = null; discoveredApks = []; discoveredFolder = null; apkInstallState = {}; apkAutoScanAttempted = false;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
     remoteEcho = ""; remoteMessage = ""; remoteBuffer = "";
