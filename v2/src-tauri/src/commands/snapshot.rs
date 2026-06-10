@@ -10,8 +10,9 @@ use crate::engine::snapshot::{
     compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan,
     SCHEMA_VERSION,
 };
+use crate::engine::{is_never_disable, is_valid_package_name};
 
-use super::AppState;
+use super::{is_valid_setting_key, quote_shell_arg, AppState};
 
 /// Read the device's current values for the tracked setting keys, keyed the
 /// same way snapshots store them (`"<ns>.<key>"`). Used so apply-plans can
@@ -330,6 +331,35 @@ pub struct ApplyResult {
     pub summary: String,
 }
 
+/// Execute the disable portion of an apply-plan. Extracted for testability.
+/// Returns `(packages_disabled, packages_failed)`.
+async fn disable_from_plan(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    packages_to_disable: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let mut packages_disabled = Vec::new();
+    let mut packages_failed = Vec::new();
+    for pkg in packages_to_disable {
+        if !is_valid_package_name(pkg) {
+            packages_failed.push(format!("{pkg:?} (invalid package name in snapshot)"));
+            continue;
+        }
+        if is_never_disable(pkg) {
+            packages_failed.push(format!("{pkg} (refused: brick risk)"));
+            continue;
+        }
+        let cmd = format!("pm disable-user --user 0 {pkg}");
+        match adb.shell(serial, &cmd).await {
+            Ok(out) if !out.shell_reported_failure() => {
+                packages_disabled.push(pkg.clone());
+            }
+            _ => packages_failed.push(pkg.clone()),
+        }
+    }
+    (packages_disabled, packages_failed)
+}
+
 /// `apply_snapshot` — actually run the previewed plan against the device.
 /// Honors commitment #7 (reversibility): only `pm disable-user` writes,
 /// never re-enables a currently-enabled package the snapshot didn't list.
@@ -381,24 +411,8 @@ pub async fn apply_snapshot(
     );
 
     // 1. Disable packages from the plan (additive only — never re-enable).
-    // Defense-in-depth: refuse to disable anything on the NEVER_DISABLE list
-    // even if a malformed snapshot lists it. Categorized as "failed" so the
-    // UI surfaces it instead of silently ignoring.
-    let mut packages_disabled = Vec::new();
-    let mut packages_failed = Vec::new();
-    for pkg in &plan.packages_to_disable {
-        if crate::engine::is_never_disable(pkg) {
-            packages_failed.push(format!("{pkg} (refused: brick risk)"));
-            continue;
-        }
-        let cmd = format!("pm disable-user --user 0 {pkg}");
-        match adb.shell(&serial, &cmd).await {
-            Ok(out) if !out.shell_reported_failure() => {
-                packages_disabled.push(pkg.clone());
-            }
-            _ => packages_failed.push(pkg.clone()),
-        }
-    }
+    let (packages_disabled, packages_failed) =
+        disable_from_plan(adb.as_ref(), &serial, &plan.packages_to_disable).await;
 
     // 2. Set launcher if requested.
     let mut launcher_set = false;
@@ -441,14 +455,19 @@ pub async fn apply_snapshot(
             settings_failed.push(format!("{k}: malformed key (expected ns.subkey)"));
             continue;
         };
-        // Snapshots are user-editable files on disk; reject values that could
-        // break out of the shell command, matching write_setting's guard.
-        if v.contains(';') || v.contains('|') || v.contains('&') {
-            settings_failed.push(format!("{k}: value contains shell metacharacters"));
+        if !matches!(ns, "global" | "secure" | "system") {
+            settings_failed.push(format!("{k}: unrecognized namespace"));
             continue;
         }
+        if !is_valid_setting_key(key) {
+            settings_failed.push(format!("{k}: key contains invalid characters"));
+            continue;
+        }
+        // Single-quote the value so shell metacharacters inside it are inert;
+        // legitimate content (numbers, spaces, device names) passes through.
+        let quoted_v = quote_shell_arg(v);
         match adb
-            .shell(&serial, &format!("settings put {ns} {key} {v}"))
+            .shell(&serial, &format!("settings put {ns} {key} {quoted_v}"))
             .await
         {
             Ok(out) if !out.shell_reported_failure() => settings_written.push(k.clone()),
@@ -478,7 +497,7 @@ pub async fn apply_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::current_settings_map;
+    use super::{current_settings_map, disable_from_plan};
     use crate::commands::test_support::MockAdb;
 
     #[tokio::test]
@@ -508,5 +527,25 @@ mod tests {
         );
         // "null" line is dropped, not stored.
         assert!(!map.contains_key("global.hdmi_control_auto_wakeup_enabled"));
+    }
+
+    #[tokio::test]
+    async fn disable_from_plan_records_invalid_name_without_aborting() {
+        // A snapshot file might contain a malformed or injected package name.
+        // The invalid entry must go to packages_failed; valid ones still run.
+        let mock = MockAdb::default(); // empty stdout = pm success for all calls
+        let pkgs = vec![
+            "com.valid.package".to_string(),
+            "evil; reboot".to_string(),
+            "com.another.valid".to_string(),
+        ];
+        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
+        assert_eq!(disabled, ["com.valid.package", "com.another.valid"]);
+        assert_eq!(failed.len(), 1, "exactly the invalid entry should fail");
+        assert!(
+            failed[0].contains("invalid package name"),
+            "failure reason missing from message: {}",
+            failed[0]
+        );
     }
 }

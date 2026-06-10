@@ -26,6 +26,25 @@ pub mod update;
 
 pub use state::AppState;
 
+/// Setting keys must match `[A-Za-z0-9._-]+` — all real Android setting keys
+/// do. Anything else (spaces, semicolons, `$`, backticks, …) would be
+/// interpolated verbatim into a `settings` command and re-parsed by the
+/// device shell. Shared by the tweaks writer and snapshot apply — one
+/// implementation so the security check can't drift.
+pub(crate) fn is_valid_setting_key(key: &str) -> bool {
+    !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Single-quote a value for the device-side shell — the standard `'\''`
+/// idiom (same as `quote_path` in files.rs). Spaces and all shell
+/// metacharacters inside the value are inert once wrapped.
+pub(crate) fn quote_shell_arg(s: &str) -> String {
+    format!("'{}'", s.replace('\'', r"'\''"))
+}
+
 /// Test-only ADB driver + state builder, shared across command unit tests.
 /// Lets a test stub `adb`/`shell` output by substring and run a command's
 /// reusable `_impl` against it without a real device.

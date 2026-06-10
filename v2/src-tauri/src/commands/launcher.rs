@@ -367,7 +367,9 @@ pub async fn set_default_launcher_impl(
                 }
                 // Takeover didn't verify — put the stock launcher back the
                 // way we found it rather than leaving a half-applied state.
-                let _ = adb.shell(serial, &format!("pm enable {active}")).await;
+                if is_valid_package_name(&active) {
+                    let _ = adb.shell(serial, &format!("pm enable {active}")).await;
+                }
             }
         }
     }

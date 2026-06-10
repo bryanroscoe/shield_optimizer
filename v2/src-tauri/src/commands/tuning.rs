@@ -4,7 +4,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use super::AppState;
+use super::{is_valid_setting_key, quote_shell_arg, AppState};
 
 /// Snapshot of all the settings the Tweaks UI reads/writes. Matches the keys
 /// in `engine::snapshot::tracked_setting_keys` so a snapshot save captures
@@ -85,15 +85,16 @@ fn build_setting_command(namespace: &str, key: &str, value: &str) -> Result<Stri
             "namespace must be global/secure/system, got {namespace}"
         ));
     }
+    if !is_valid_setting_key(key) {
+        return Err(format!("key contains invalid characters: {key:?}"));
+    }
     if value.is_empty() {
         return Ok(format!("settings delete {namespace} {key}"));
     }
-    // Settings values in practice are numbers or short identifiers; reject
-    // anything that could break out of the shell quoting.
-    if value.contains(';') || value.contains('|') || value.contains('&') {
-        return Err("value contains shell metacharacters".to_string());
-    }
-    Ok(format!("settings put {namespace} {key} {value}"))
+    Ok(format!(
+        "settings put {namespace} {key} {}",
+        quote_shell_arg(value)
+    ))
 }
 
 /// `write_setting` — `settings put <namespace> <key> <value>`. Pass an empty
@@ -218,14 +219,14 @@ mod tests {
     use super::build_setting_command;
 
     #[test]
-    fn builds_put_for_valid_namespaces() {
+    fn builds_put_with_quoted_value() {
         assert_eq!(
             build_setting_command("global", "window_animation_scale", "0.5").unwrap(),
-            "settings put global window_animation_scale 0.5"
+            "settings put global window_animation_scale '0.5'"
         );
         assert_eq!(
             build_setting_command("secure", "match_content_frame_rate", "2").unwrap(),
-            "settings put secure match_content_frame_rate 2"
+            "settings put secure match_content_frame_rate '2'"
         );
     }
 
@@ -238,10 +239,39 @@ mod tests {
     }
 
     #[test]
-    fn rejects_bad_namespace_and_metacharacters() {
+    fn rejects_bad_namespace_and_bad_key() {
         assert!(build_setting_command("evil", "k", "1").is_err());
-        assert!(build_setting_command("global", "k", "1; rm -rf /").is_err());
-        assert!(build_setting_command("global", "k", "a|b").is_err());
-        assert!(build_setting_command("global", "k", "a&b").is_err());
+        assert!(build_setting_command("global", "x; reboot", "1").is_err());
+        assert!(build_setting_command("global", "x`whoami`", "1").is_err());
+        assert!(build_setting_command("global", "$(reboot)", "1").is_err());
+        assert!(build_setting_command("global", "", "1").is_err());
+    }
+
+    #[test]
+    fn value_quoting_handles_spaces_and_single_quotes() {
+        // Spaces in values (e.g. device names) must be quoted, not rejected.
+        let cmd = build_setting_command("global", "device_name", "My Shield TV").unwrap();
+        assert!(
+            cmd.contains("'My Shield TV'"),
+            "spaces in value must be single-quoted: {cmd}"
+        );
+
+        // Single quotes inside values use the standard `'\''` idiom.
+        let cmd = build_setting_command("secure", "device_name", "it's").unwrap();
+        assert!(
+            cmd.contains(r"'it'\''s'"),
+            "embedded single-quote must use the backslash idiom: {cmd}"
+        );
+    }
+
+    #[test]
+    fn value_metacharacters_are_quoted_not_rejected() {
+        // Values containing shell metacharacters are now quoted rather than
+        // rejected — the device shell cannot interpret them inside single quotes.
+        assert!(build_setting_command("global", "k", "1; rm -rf /").is_ok());
+        assert!(build_setting_command("global", "k", "a|b").is_ok());
+        assert!(build_setting_command("global", "k", "a&b").is_ok());
+        assert!(build_setting_command("global", "k", "$(whoami)").is_ok());
+        assert!(build_setting_command("global", "k", "`id`").is_ok());
     }
 }
