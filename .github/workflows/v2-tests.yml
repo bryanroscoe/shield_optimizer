@@ -1,8 +1,8 @@
 # Shield Optimizer v2 CI — Rust engine + ADB layer tests and frontend type check.
 #
 # This workflow does NOT run Tauri's full bundle build (that lives in
-# v2-release.yml). It does run `cargo clippy --lib --tests` and `cargo test`
-# which still need the platform-specific dev libs because the tauri crate's
+# v2-release.yml). It does run `cargo clippy --all-targets -- -D warnings` and
+# `cargo test` which still need the platform-specific dev libs because the tauri crate's
 # build script links against them — hence the Linux apt-get step.
 
 name: v2 Tests
@@ -70,11 +70,11 @@ jobs:
 
       - name: cargo clippy
         working-directory: v2/src-tauri
-        run: cargo clippy --lib --tests -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
         working-directory: v2/src-tauri
-        run: cargo test --lib
+        run: cargo test
 
   frontend:
     name: Frontend type check

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Cut a v2 release. Bumps the version atomically across the three files that
-# carry it (tauri.conf.json, Cargo.toml, package.json), tags the commit
+# Cut a v2 release. Bumps the version atomically across the four files that
+# carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the commit
 # `v2-VERSION`, and pushes — the GitHub Actions workflow at
 # .github/workflows/v2-release.yml takes it from there to produce installers.
 #
@@ -9,7 +9,7 @@
 #   ./release.sh --minor          minor:  v2-0.1.5    -> v2-0.2.0
 #   ./release.sh --major          major:  v2-0.9.0    -> v2-1.0.0
 #   ./release.sh --beta           beta:   v2-0.1.0    -> v2-0.1.0-beta (or beta.N)
-#   ./release.sh --rc             rc:     v2-0.1.0    -> v2-0.1.0-rc1 (or rc-N)
+#   ./release.sh --rc             rc:     v2-0.1.0    -> v2-0.1.0-rc (or -rc.N)
 #   ./release.sh --set 0.2.0      explicit: any value, e.g. 0.2.0-preview
 #
 # Combine bump kind with a pre-release flag if needed:

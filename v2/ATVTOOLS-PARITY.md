@@ -16,16 +16,16 @@ Research notes: aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 
 | Network scan / auto-discovery | partial (manual IP) | ✅ |
 | Disable/enable/uninstall apps | ✅ (Pro) | ✅ |
 | Sideload APK | ✅ | ✅ |
-| **APK backup/extract (device → local file)** | ✅ | ❌ |
-| **Install extracted APK to another device (app cloning)** | manual two-step | ❌ (have install half) |
-| **File manager (browse / push / pull)** | ✅ | ❌ |
-| **Screenshots of the TV** | ✅ | ❌ |
+| **APK backup/extract (device → local file)** | ✅ | ✅ |
+| **Install extracted APK to another device (app cloning)** | manual two-step | ✅ |
+| **File manager (browse / push / pull)** | ✅ | ✅ |
+| **Screenshots of the TV** | ✅ | ✅ |
 | Screen recording | ✅ (Pro, no DRM content) | ❌ |
-| Remote control / D-pad / mouse | ✅ (Pro) | ❌ |
-| **Send text to TV (type from keyboard)** | ✅ | ❌ |
+| Remote control / D-pad / mouse | ✅ (Pro) | partial (D-pad + typing, no mouse) |
+| **Send text to TV (type from keyboard)** | ✅ | ✅ |
 | Permissions grant/revoke | ✅ | ❌ |
-| Bulk cache clear | ✅ | ❌ |
-| Running apps + force-stop | ✅ | partial (top-memory + disable, no force-stop) |
+| Bulk cache clear | ✅ | ✅ |
+| Running apps + force-stop | ✅ | ✅ |
 | Resource monitor | CPU/RAM/net/storage | RAM/temp/storage/display (no CPU/net) |
 | Shell runner with bookmarks | ✅ | ❌ |
 | Screen mirroring / gamepad / media remote | ✅ (phone-centric) | — (out of scope for desktop) |

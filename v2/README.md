@@ -17,24 +17,15 @@ This directory is the v2 workspace. v1 (`Shield-Optimizer.ps1` at the repo root)
 
 ## Status
 
-🚧 **Foundation built — read-only features working.** Phases 1–4 from [PLAN.md](PLAN.md) are landed. v2 currently:
+✅ **Shipping — v2-2.0.0-beta.11.** Full feature set landed. v2 currently:
 
 - Builds: `cargo build` and `npm run build` both produce artifacts
-- Tests: **36 Rust tests** (engine + ADB parsers + loader sanity), 0 failing
-- Runs as a real Tauri desktop app (`npm run tauri dev` opens a window)
-- Lists ADB devices with friendly Shield model names + device-type detection
-- Shows a per-device profile, health report (display mode, HDR support, top memory), launcher catalog (with installed/disabled state), full app list for the detected device type, and snapshot save / list / preview-apply
+- Tests: Rust tests (engine + ADB parsers + loader sanity), all passing
+- Runs as an installable desktop app (`npm run tauri dev` for dev; download from [Releases](https://github.com/bryanroscoe/shield_optimizer/releases) or `brew install --cask shield-optimizer`)
+- Lists ADB devices with friendly model names + device-type detection
+- Full device management: profile, health report, launcher wizard (install/set-default/disable stock), optimize wizard with per-app defaults, full app list with disable/enable/force-stop/uninstall, Tweaks (HDMI-CEC, animations, display scaling), APK sideload, APK backup and cross-device clone, file manager, device screenshots, reboot + recovery, and snapshot save/preview/apply
 
-**Not yet wired (next phases):**
-
-- Optimize / Restore execution (the engine computes plans; execution is the next layer)
-- Launcher set-default actions (UI shows status; promotion logic next)
-- Snapshot *apply* (preview works; execution comes with optimize)
-- Tweaks (HDMI-CEC, match-content-frame-rate, long-press-timeout)
-- Display Scaling, APK sideload, Reboot, Recovery
-- Bundler config for installers (Phase 10)
-- Auto-update plugin (Phase 10)
-- Mobile (Phase 11 — pending the ADB-wire-protocol research spike)
+**Remaining feature gaps vs. aTV Tools:** see [`ATVTOOLS-PARITY.md`](ATVTOOLS-PARITY.md). Headline items not yet shipped: screen recording, shell runner, permissions viewer, CPU + network monitor.
 
 The behavior spec is at [`docs/FEATURES.md`](../docs/FEATURES.md). The porting roadmap is in [`PLAN.md`](PLAN.md).
 

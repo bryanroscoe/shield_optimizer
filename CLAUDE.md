@@ -2,7 +2,7 @@
 
 Two products live in this tree:
 
-- **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released on `v0.x.x` tags via `.github/workflows/release.yml`. Still maintained.
+- **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). Still maintained.
 - **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`). Released on `v2-*` tags via `.github/workflows/v2-release.yml`.
 
 The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
@@ -16,10 +16,10 @@ These are load-bearing — break them and the safety story falls over.
 - **`v2/src-tauri/src/engine/` is pure.** No I/O, no ADB calls, no filesystem. Pure functions and pure types only. All I/O lives in `commands/` and `adb/`. The engine is the audited safety layer; keeping it pure is what makes the unit tests trustworthy.
 - **One ADB wrapper.** Everything subprocess-y goes through `SubprocessAdb` in `adb/driver.rs`. Don't add a second wrapper — extend the `AdbDriver` trait if you need a new capability. The active driver lives behind `RwLock<Arc<dyn AdbDriver>>` so `install_adb` can hot-swap it without a restart.
 - **One detection function.** Device profiling has a single canonical implementation. Don't fork.
-- **App lists are runtime data, not code.** Add/edit packages in `v2/data/app-lists/{common,shield,googletv}.json`. `engine/app_lists.rs` loads them. Never hard-code packages in Rust.
+- **App lists live in JSON, not in code.** Add/edit packages in `v2/data/app-lists/{common,shield,googletv}.json`. They are embedded at compile time via `include_str!` in `commands/loader.rs` — editing the JSON requires a rebuild. Never hard-code packages in Rust.
 - **Snapshots are versioned.** `schema_version == 0` is rejected. `schema_version > current` is rejected. Bump the constant in `engine/snapshot.rs` when the schema changes and write an explicit migration.
 - **Snapshot reads are path-confined** to `snapshot_dir` via `canonicalize` + `starts_with`. Keep that check on any new read path that takes a user-supplied snapshot location — zip-slip / traversal protection is the same pattern in `adb/install.rs`.
-- **The do-not-disable list is mandatory.** `engine::safety::is_safe_to_disable` must gate every disable code path (apply-snapshot, optimize wizard, memory-table Disable button, stock-launcher wizard, panic-recovery's inverse, …). Bypassing it bricks devices.
+- **The do-not-disable list is mandatory.** `engine::safety::classify` / `is_never_disable` must gate every disable code path (apply-snapshot, optimize wizard, memory-table Disable button, stock-launcher wizard, panic-recovery's inverse, …). Bypassing it bricks devices.
 - **Tauri commands return `Result<T, String>`.** The error type is serialized to the frontend. Convert with `.map_err(|e| e.to_string())`.
 - **Frontend is Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) on SvelteKit in SPA mode (`adapter-static`). No legacy stores.
 
@@ -49,7 +49,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
 
 ```
-cd v2 && npm run screenshots   # captures all 10 screens (demo data, dark theme) + rebuilds the GIF
+cd v2 && npm run screenshots   # captures all 12 screens (demo data, dark theme) + rebuilds the GIF
 ```
 
 It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:
