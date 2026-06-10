@@ -23,9 +23,9 @@ export function usageLabel(u: AppUsage | undefined): string {
   if (days === null) return "no recent use";
   if (days <= 0) return "used today";
   if (days === 1) return "used yesterday";
-  if (days < 30) return `${days}d ago`;
-  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-  return `${Math.floor(days / 365)}y ago`;
+  if (days < 30) return `last used ${days}d ago`;
+  if (days < 365) return `last used ${Math.floor(days / 30)}mo ago`;
+  return `last used ${Math.floor(days / 365)}y ago`;
 }
 
 /// Stale = a removal candidate: no record at all, or untouched for 30+ days.

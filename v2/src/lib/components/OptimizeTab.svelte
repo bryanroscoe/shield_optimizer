@@ -380,7 +380,7 @@
                   {/each}
                 </select>
                 {#if item.entry.review && naturalAction(item) !== "enable"}
-                  <div class="muted small review-hint">Uninstall if unused</div>
+                  <div class="muted small review-hint">Uninstall / disable if unused</div>
                 {/if}
               {/if}
             </td>
@@ -518,9 +518,13 @@
     margin-top: 0.2rem;
     color: var(--warn);
   }
+  /* Width-capped to the dropdown's footprint so the text centers under the
+     control rather than the (wider) table cell. */
   .review-hint {
     margin-top: 0.2rem;
     font-size: 0.72rem;
+    max-width: 11rem;
+    text-align: center;
   }
   .action-select {
     font-size: 0.85rem;

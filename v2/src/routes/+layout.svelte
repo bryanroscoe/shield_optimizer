@@ -82,7 +82,9 @@
     {@render children?.()}
   </main>
   <footer>
-    <span class="muted">v1 (PowerShell) is still supported. See repo README.</span>
+    <button class="kofi" onclick={() => openUrl("https://ko-fi.com/bryanroscoe")}>
+      ☕ Enjoying Shield Optimizer? Support it on Ko-fi
+    </button>
   </footer>
 </div>
 
@@ -369,5 +371,19 @@
     border-top: 1px solid var(--border);
     font-size: 0.82rem;
     text-align: center;
+  }
+  /* Link-styled button: external URLs must go through the opener plugin
+     (a plain <a target="_blank"> doesn't reach the system browser in Tauri). */
+  .kofi {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--fg-muted);
+    cursor: pointer;
+  }
+  .kofi:hover {
+    color: var(--fg-primary);
+    text-decoration: underline;
   }
 </style>

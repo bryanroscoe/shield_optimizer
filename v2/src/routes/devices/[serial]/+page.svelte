@@ -58,9 +58,6 @@
   let screenshotBusy = $state(false);
   let screenshot = $state<ScreenshotResult | null>(null);
 
-  let sendTextValue = $state("");
-  let sendTextBusy = $state(false);
-  let sendTextMessage = $state("");
   let trimBusy = $state(false);
   let trimMessage = $state("");
 
@@ -161,21 +158,6 @@
       device = await api.deviceProfile(serial);
     } catch (e) {
       deviceErr = String(e);
-    }
-  }
-
-  async function sendTextToTv() {
-    if (!sendTextValue) return;
-    sendTextBusy = true;
-    sendTextMessage = "";
-    try {
-      const r = await api.sendText(serial, sendTextValue);
-      sendTextMessage = r.message;
-      if (r.ok) sendTextValue = "";
-    } catch (e) {
-      sendTextMessage = String(e);
-    } finally {
-      sendTextBusy = false;
     }
   }
 
@@ -981,7 +963,7 @@
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
-    sendTextValue = ""; sendTextMessage = ""; trimMessage = "";
+    trimMessage = "";
     applyResult = null; applyErr = null;
   }
 
@@ -1142,32 +1124,6 @@
           <dt>Board platform</dt><dd>{device.properties.board_platform}</dd>
         </dl>
       {/if}
-
-      <div class="send-text-section">
-        <h3>Send text to TV</h3>
-        <p class="muted small">
-          Types into whatever field has focus on the TV — put the cursor in the
-          Wi-Fi password or search box first, then send from a real keyboard.
-        </p>
-        <div class="send-text-row">
-          <input
-            placeholder="Text to type on the TV"
-            bind:value={sendTextValue}
-            onkeydown={(e) => e.key === "Enter" && sendTextToTv()}
-          />
-          <button
-            class="primary"
-            onclick={sendTextToTv}
-            disabled={sendTextBusy || !sendTextValue}
-            title="adb shell input text — printable ASCII only"
-          >
-            {sendTextBusy ? "Sending…" : "Send"}
-          </button>
-        </div>
-        {#if sendTextMessage}
-          <p class="muted small mono">{sendTextMessage}</p>
-        {/if}
-      </div>
 
       <div class="recovery-section">
         <h3>Emergency Recovery</h3>
@@ -2282,19 +2238,6 @@
     align-items: center;
     gap: 0.6rem;
     flex-wrap: wrap;
-  }
-  .send-text-section {
-    margin-top: 1.5rem;
-    padding-top: 1.2rem;
-    border-top: 1px solid var(--border);
-  }
-  .send-text-row {
-    display: flex;
-    gap: 0.5rem;
-    max-width: 480px;
-  }
-  .send-text-row input {
-    flex: 1;
   }
   .clone-panel {
     display: flex;
