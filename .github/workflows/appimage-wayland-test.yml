@@ -54,7 +54,7 @@ jobs:
             'XDG_RUNTIME_DIR=/tmp/xdg weston --backend=headless --socket=wayland-1 --xwayland >/tmp/weston.log 2>&1'
           sleep 5
           docker exec wayland-box bash -c \
-            'ls -la /tmp/xdg/; grep -i xwayland /tmp/weston.log || head -8 /tmp/weston.log'
+            'ls -la /tmp/xdg/; echo "--- weston log:"; cat /tmp/weston.log'
           docker exec wayland-box test -S /tmp/xdg/wayland-1
 
       - name: "Control: host GTK app against the same compositor"
