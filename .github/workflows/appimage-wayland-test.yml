@@ -38,22 +38,23 @@ jobs:
           docker exec wayland-box bash -c '
             pacman -Syu --noconfirm --needed \
               weston mesa wayland libxkbcommon fontconfig ttf-dejavu \
-              gtk3 webkit2gtk-4.1 dbus glibc >/dev/null 2>&1 || \
-            pacman -Syu --noconfirm --needed \
-              weston mesa wayland libxkbcommon fontconfig ttf-dejavu \
-              gtk3 dbus glibc >/dev/null
-            pacman -Q mesa wayland weston
+              gtk3 dbus glibc xorg-xwayland xkeyboard-config >/dev/null
+            pacman -Q mesa wayland weston xorg-xwayland
           '
 
-      - name: Start headless weston (detached, survives exec sessions)
+      # The AppImage's linuxdeploy GTK hook forces GDK_BACKEND=x11 (Tauri
+      # workaround for a GTK-Wayland crash), so on a real Wayland desktop the
+      # app runs under XWayland — recreate exactly that: headless weston WITH
+      # --xwayland, giving the app an X server backed by a Wayland compositor.
+      - name: Start headless weston + XWayland (detached)
         run: |
           docker exec wayland-box bash -c \
             'mkdir -p /tmp/xdg && chmod 700 /tmp/xdg'
           docker exec -d wayland-box bash -c \
-            'XDG_RUNTIME_DIR=/tmp/xdg weston --backend=headless --socket=wayland-1 >/tmp/weston.log 2>&1'
-          sleep 4
+            'XDG_RUNTIME_DIR=/tmp/xdg weston --backend=headless --socket=wayland-1 --xwayland >/tmp/weston.log 2>&1'
+          sleep 5
           docker exec wayland-box bash -c \
-            'ls -la /tmp/xdg/; head -5 /tmp/weston.log'
+            'ls -la /tmp/xdg/; grep -i xwayland /tmp/weston.log || head -8 /tmp/weston.log'
           docker exec wayland-box test -S /tmp/xdg/wayland-1
 
       - name: "Control: host GTK app against the same compositor"
@@ -72,8 +73,8 @@ jobs:
         run: |
           docker exec wayland-box bash -c '
             export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root
-            export WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
-            export G_MESSAGES_DEBUG=all
+            export WAYLAND_DISPLAY=wayland-1 DISPLAY=:0
+            # No GDK_BACKEND here — the AppRun hook forces x11 itself.
             cp -r /unpatched /app
             timeout 20 /app/AppRun >/tmp/run.log 2>&1; echo "exit=$?"
             echo "--- app output (unpatched):"
@@ -84,12 +85,12 @@ jobs:
         run: |
           docker exec wayland-box bash -c '
             export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root \
-                   WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
+                   WAYLAND_DISPLAY=wayland-1 DISPLAY=:0
             cp -r /unpatched /app-patched
             rm -v /app-patched/usr/lib/libwayland-*.so*
             timeout 20 /app-patched/AppRun >/tmp/run2.log 2>&1; echo "exit=$?"
             echo "--- app output (patched):"
-            cat /tmp/run2.log
+            cat /tmp/run2.log | head -40
           ' | tee patched.log
 
       - name: Verdict
