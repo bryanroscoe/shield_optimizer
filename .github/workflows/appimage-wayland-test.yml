@@ -56,15 +56,28 @@ jobs:
             'ls -la /tmp/xdg/; head -5 /tmp/weston.log'
           docker exec wayland-box test -S /tmp/xdg/wayland-1
 
+      - name: "Control: host GTK app against the same compositor"
+        run: |
+          docker exec wayland-box bash -c '
+            pacman -S --noconfirm --needed gtk3-demos >/dev/null 2>&1 || true
+            export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root \
+                   WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
+            app=$(command -v gtk3-demo || command -v gtk3-widget-factory || echo none)
+            echo "control app: $app"
+            timeout 10 "$app" >/tmp/control.log 2>&1; echo "control exit=$?"
+            tail -3 /tmp/control.log
+          '
+
       - name: "Run 1: unpatched AppImage (expect EGL failure)"
         run: |
           docker exec wayland-box bash -c '
             export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root
             export WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
+            export G_MESSAGES_DEBUG=all
             cp -r /unpatched /app
             timeout 20 /app/AppRun >/tmp/run.log 2>&1; echo "exit=$?"
             echo "--- app output (unpatched):"
-            cat /tmp/run.log
+            cat /tmp/run.log | head -40
           ' | tee unpatched.log
 
       - name: "Run 2: libwayland stripped (the fix — expect clean boot)"
