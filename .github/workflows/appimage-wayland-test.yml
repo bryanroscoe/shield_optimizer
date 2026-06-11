@@ -45,14 +45,21 @@ jobs:
             pacman -Q mesa wayland weston
           '
 
+      - name: Start headless weston (detached, survives exec sessions)
+        run: |
+          docker exec wayland-box bash -c \
+            'mkdir -p /tmp/xdg && chmod 700 /tmp/xdg'
+          docker exec -d wayland-box bash -c \
+            'XDG_RUNTIME_DIR=/tmp/xdg weston --backend=headless --socket=wayland-1 >/tmp/weston.log 2>&1'
+          sleep 4
+          docker exec wayland-box bash -c \
+            'ls -la /tmp/xdg/; head -5 /tmp/weston.log'
+          docker exec wayland-box test -S /tmp/xdg/wayland-1
+
       - name: "Run 1: unpatched AppImage (expect EGL failure)"
         run: |
           docker exec wayland-box bash -c '
             export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root
-            mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
-            weston --backend=headless-backend.so --socket=wayland-1 \
-              >/tmp/weston.log 2>&1 &
-            sleep 3
             export WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
             cp -r /unpatched /app
             timeout 20 /app/AppRun >/tmp/run.log 2>&1; echo "exit=$?"
