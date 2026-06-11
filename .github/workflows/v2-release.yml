@@ -204,6 +204,45 @@ jobs:
           includeUpdaterJson: false
           args: ${{ matrix.args }}
 
+      # The AppImage bundles Ubuntu 22.04's libwayland-*, which shadows the
+      # host's copy and breaks EGL display creation on newer Wayland stacks
+      # ("Could not create default EGL display: EGL_BAD_PARAMETER" on
+      # CachyOS/Arch + KDE — issue #60; the reporter's LD_PRELOAD of the
+      # system libwayland-client confirmed the diagnosis). Upstream
+      # linuxdeploy excludes libwayland for exactly this reason; Tauri's
+      # bundler doesn't yet, so strip it here, repack, and replace the asset
+      # tauri-action already uploaded.
+      - name: Strip bundled libwayland from AppImage (issue #60)
+        if: matrix.os == 'ubuntu-22.04'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.notes.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          appimages=(v2/src-tauri/target/release/bundle/appimage/*.AppImage)
+          [ ${#appimages[@]} -eq 1 ] || { echo "expected exactly one AppImage, found: ${appimages[*]}"; exit 1; }
+          appimage="${appimages[0]}"
+
+          curl -fsSL -o /tmp/appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  /tmp/appimagetool" | sha256sum -c -
+          chmod +x /tmp/appimagetool
+
+          workdir=$(mktemp -d)
+          (cd "$workdir" && "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null)
+          rm -v "$workdir"/squashfs-root/usr/lib/libwayland-*.so*
+
+          # --appimage-extract-and-run: the tool itself is an AppImage and the
+          # runner may lack FUSE.
+          ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run \
+            "$workdir/squashfs-root" "$appimage"
+
+          # Replace the unpatched asset tauri-action uploaded. GitHub turns
+          # spaces in filenames into dots, so the names match up.
+          gh release upload "$TAG" "$appimage" --clobber
+          echo "patched + re-uploaded: $appimage"
+
   # Bump the Homebrew tap (bryanroscoe/homebrew-shield-optimizer) to point at
   # the new universal macOS DMG. Runs after all three bundlers succeed so the
   # asset is guaranteed to be on the GitHub Release before we reference it.
