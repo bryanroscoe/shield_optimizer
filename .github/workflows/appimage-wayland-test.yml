@@ -1,27 +1,35 @@
-# One-off verification harness for issue #60 (AppImage blank window on
-# Wayland). Recreates the reporter's environment — bleeding-edge Arch
-# userspace (CachyOS is Arch-based) + a Wayland compositor — headlessly in a
-# container, then runs the SHIPPED beta.12 AppImage twice:
+# Verification harness for issue #60 (AppImage blank window on Wayland).
+# Recreates the affected environment — bleeding-edge Arch userspace (CachyOS
+# is Arch-based) + headless weston with XWayland (the AppRun GTK hook forces
+# GDK_BACKEND=x11, so that's what real Wayland desktops run the app under) —
+# then runs a released AppImage twice:
 #
-#   1. unpatched            → expect "Could not create default EGL display"
-#   2. libwayland stripped  → expect a clean boot (the PR's fix)
+#   1. as shipped           → a broken build hits "Could not create default
+#                             EGL display: EGL_BAD_PARAMETER"
+#   2. libwayland stripped  → must boot clean
 #
-# Delete this workflow once the fix is confirmed and released.
+# Verified 2026-06-11 against v2-2.0.0-beta.12: run 1 reproduced the
+# reporter's crash exactly; run 2 booted clean. Releases built after the
+# strip-libwayland step shipped should pass BOTH runs (nothing to strip).
 name: AppImage Wayland repro test
 
 on:
-  push:
-    branches: [fix/appimage-bundled-wayland]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag whose AppImage to test"
+        required: true
+        default: "v2-2.0.0-beta.12"
 
 jobs:
   repro:
     runs-on: ubuntu-latest
     steps:
-      - name: Download shipped beta.12 AppImage
+      - name: Download released AppImage
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download v2-2.0.0-beta.12 -R "$GITHUB_REPOSITORY" \
+          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" \
             -p '*.AppImage' -O shield.AppImage
           chmod +x shield.AppImage
           # Extract on the host (no FUSE needed) and mount the tree into the
