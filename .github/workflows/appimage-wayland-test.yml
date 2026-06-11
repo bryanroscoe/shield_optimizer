@@ -1,0 +1,97 @@
+# One-off verification harness for issue #60 (AppImage blank window on
+# Wayland). Recreates the reporter's environment — bleeding-edge Arch
+# userspace (CachyOS is Arch-based) + a Wayland compositor — headlessly in a
+# container, then runs the SHIPPED beta.12 AppImage twice:
+#
+#   1. unpatched            → expect "Could not create default EGL display"
+#   2. libwayland stripped  → expect a clean boot (the PR's fix)
+#
+# Delete this workflow once the fix is confirmed and released.
+name: AppImage Wayland repro test
+
+on:
+  push:
+    branches: [fix/appimage-bundled-wayland]
+
+jobs:
+  repro:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download shipped beta.12 AppImage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v2-2.0.0-beta.12 -R "$GITHUB_REPOSITORY" \
+            -p '*.AppImage' -O shield.AppImage
+          chmod +x shield.AppImage
+          # Extract on the host (no FUSE needed) and mount the tree into the
+          # container — sidesteps AppImage runtime/FUSE issues entirely.
+          ./shield.AppImage --appimage-extract >/dev/null
+          ls squashfs-root/usr/lib/ | grep wayland || true
+
+      - name: Prepare Arch container with headless Wayland
+        run: |
+          docker pull -q archlinux:latest
+          docker run -d --name wayland-box \
+            -v "$PWD/squashfs-root:/unpatched:ro" \
+            archlinux:latest sleep infinity
+          docker exec wayland-box bash -c '
+            pacman -Syu --noconfirm --needed \
+              weston mesa wayland libxkbcommon fontconfig ttf-dejavu \
+              gtk3 webkit2gtk-4.1 dbus glibc >/dev/null 2>&1 || \
+            pacman -Syu --noconfirm --needed \
+              weston mesa wayland libxkbcommon fontconfig ttf-dejavu \
+              gtk3 dbus glibc >/dev/null
+            pacman -Q mesa wayland weston
+          '
+
+      - name: "Run 1: unpatched AppImage (expect EGL failure)"
+        run: |
+          docker exec wayland-box bash -c '
+            export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root
+            mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
+            weston --backend=headless-backend.so --socket=wayland-1 \
+              >/tmp/weston.log 2>&1 &
+            sleep 3
+            export WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
+            cp -r /unpatched /app
+            timeout 20 /app/AppRun >/tmp/run.log 2>&1; echo "exit=$?"
+            echo "--- app output (unpatched):"
+            cat /tmp/run.log
+          ' | tee unpatched.log
+
+      - name: "Run 2: libwayland stripped (the fix — expect clean boot)"
+        run: |
+          docker exec wayland-box bash -c '
+            export XDG_RUNTIME_DIR=/tmp/xdg HOME=/root \
+                   WAYLAND_DISPLAY=wayland-1 GDK_BACKEND=wayland
+            cp -r /unpatched /app-patched
+            rm -v /app-patched/usr/lib/libwayland-*.so*
+            timeout 20 /app-patched/AppRun >/tmp/run2.log 2>&1; echo "exit=$?"
+            echo "--- app output (patched):"
+            cat /tmp/run2.log
+          ' | tee patched.log
+
+      - name: Verdict
+        run: |
+          echo "==================== VERDICT ===================="
+          if grep -q "Could not create default EGL display" unpatched.log; then
+            echo "REPRO CONFIRMED: unpatched AppImage hits the EGL failure."
+            repro=yes
+          else
+            echo "NOTE: unpatched run did NOT reproduce the EGL failure in this env."
+            repro=no
+          fi
+          if grep -q "Could not create default EGL display" patched.log; then
+            echo "FIX FAILED: patched AppImage still hits the EGL failure."
+            exit 1
+          fi
+          # timeout(1) exits 124 when the process was still alive at the
+          # deadline — for a GUI app that's the success signal.
+          if grep -q "exit=124" patched.log; then
+            echo "FIX VERIFIED: patched AppImage boots and stays alive (no EGL error)."
+          else
+            echo "WARN: patched app exited early — check its output above."
+            grep -q "exit=124" unpatched.log || echo "(unpatched also exited early)"
+            [ "$repro" = yes ] && exit 1 || echo "inconclusive but no EGL error in patched run"
+          fi
