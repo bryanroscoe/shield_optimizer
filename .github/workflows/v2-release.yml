@@ -231,7 +231,15 @@ jobs:
 
           workdir=$(mktemp -d)
           (cd "$workdir" && "$GITHUB_WORKSPACE/$appimage" --appimage-extract >/dev/null)
-          rm -v "$workdir"/squashfs-root/usr/lib/libwayland-*.so*
+          # nullglob is on: if a future Tauri bundler stops bundling libwayland
+          # (upstream linuxdeploy already excludes it), this becomes a no-op
+          # skip instead of a failed release.
+          stale=("$workdir"/squashfs-root/usr/lib/libwayland-*.so*)
+          if [ ${#stale[@]} -eq 0 ]; then
+            echo "no bundled libwayland found — bundler fixed upstream; skipping repack"
+            exit 0
+          fi
+          rm -v "${stale[@]}"
 
           # --appimage-extract-and-run: the tool itself is an AppImage and the
           # runner may lack FUSE.
