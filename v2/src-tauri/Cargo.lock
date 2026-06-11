@@ -3506,7 +3506,7 @@ dependencies = [
 
 [[package]]
 name = "shield-optimizer-v2"
-version = "2.0.0-beta.12"
+version = "2.0.0-beta.13"
 dependencies = [
  "anyhow",
  "async-trait",

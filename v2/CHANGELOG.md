@@ -17,6 +17,18 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-2.0.0-beta.13
+
+### Fixed
+
+- **Linux: AppImage blank window / EGL crash on modern Wayland systems**
+  (CachyOS, Arch, and other rolling distros — "Could not create default EGL
+  display: EGL_BAD_PARAMETER"). The AppImage bundled its own copies of
+  `libwayland`, which clash with current Mesa graphics drivers; they are now
+  removed so the system's own libraries are used, matching current AppImage
+  tooling defaults. The crash was reproduced and the fix verified in CI
+  against an Arch userspace. No more `LD_PRELOAD` workaround. (#60)
+
 ## v2-2.0.0-beta.12
 
 The audit release: a full codebase review, every finding fixed, plus a big

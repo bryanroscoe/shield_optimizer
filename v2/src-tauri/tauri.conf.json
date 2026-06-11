@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Shield Optimizer",
-  "version": "2.0.0-beta.12",
+  "version": "2.0.0-beta.13",
   "identifier": "com.shieldoptimizer.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -39,7 +39,7 @@
     ],
     "windows": {
       "wix": {
-        "version": "2.0.312"
+        "version": "2.0.313"
       }
     }
   }
