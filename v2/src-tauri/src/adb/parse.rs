@@ -129,7 +129,7 @@ pub fn parse_disabled_packages_output(output: &str) -> Vec<String> {
 ///
 /// Per v1's Get-AppMemoryMap learnings: per-process query (`dumpsys meminfo <pkg>`)
 /// is unreliable across Android versions; the system-wide section is robust.
-pub fn parse_dumpsys_meminfo(meminfo: &str) -> HashMap<String, f64> {
+fn parse_dumpsys_meminfo(meminfo: &str) -> HashMap<String, f64> {
     static ROW: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^\s*([\d,]+)K:\s+([a-zA-Z0-9_.]+)").unwrap());
 

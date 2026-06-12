@@ -119,20 +119,6 @@ impl SubprocessAdb {
         discover_adb_binary().map(Self::new)
     }
 
-    /// Back-compat alias for the old PATH-only discovery.
-    pub fn from_path() -> Option<Self> {
-        Self::discover()
-    }
-
-    pub fn binary(&self) -> &PathBuf {
-        &self.binary
-    }
-
-    pub fn with_timeout(mut self, dur: Duration) -> Self {
-        self.command_timeout = dur;
-        self
-    }
-
     async fn run(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.run_with_timeout(args, self.command_timeout).await
     }
