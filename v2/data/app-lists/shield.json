@@ -56,11 +56,11 @@
   },
   {
     "package": "com.nvidia.shieldtech.hooks",
-    "name": "Nvidia System Hooks",
+    "name": "Nvidia System Hooks (Netflix button)",
     "method": "disable",
     "risk": "medium",
-    "optimize_description": "Shield-specific system integration hooks.",
-    "restore_description": "Restores Shield hooks.",
+    "optimize_description": "Shield remote integration hooks. Disabling stops the remote's dedicated Netflix button from launching Netflix — no Button Mapper app needed.",
+    "restore_description": "Restores Shield hooks — the remote's Netflix button works again.",
     "default_optimize": false,
     "default_restore": false,
     "play_store": false

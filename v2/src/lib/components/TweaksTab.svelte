@@ -19,20 +19,48 @@
   let displayScaleMessage = $state<string>("");
   let currentDisplayScaling = $state<CurrentDisplayScaling | null>(null);
 
+  // Disabling Nvidia's system hooks frees the Shield remote's hardwired Netflix
+  // button (the common ask in #73). "missing" => not a Shield, so hide the
+  // control. null until loaded.
+  const NETFLIX_HOOKS_PKG = "com.nvidia.shieldtech.hooks";
+  let netflixHooksState = $state<"enabled" | "disabled" | "missing" | null>(null);
+  let netflixBusy = $state(false);
+
   async function loadTweaks() {
     tweaksLoading = true;
     tweaksErr = null;
     try {
-      const [t, s] = await Promise.all([
+      const [t, s, states] = await Promise.all([
         api.getTweaks(serial),
         api.getDisplayScaling(serial).catch(() => null),
+        api.packageStates(serial, [NETFLIX_HOOKS_PKG]).catch(() => null),
       ]);
       tweaks = t;
       currentDisplayScaling = s;
+      netflixHooksState = states ? (states[NETFLIX_HOOKS_PKG] ?? null) : null;
     } catch (e) {
       tweaksErr = String(e);
     } finally {
       tweaksLoading = false;
+    }
+  }
+
+  // On = enable the hooks (Netflix button works); Off = disable them (button
+  // does nothing). Both go through the safety-gated package commands.
+  async function setNetflixButton(enabled: boolean) {
+    netflixBusy = true;
+    tweaksActionMessage = "";
+    try {
+      const r = enabled
+        ? await api.enablePackage(serial, NETFLIX_HOOKS_PKG)
+        : await api.disablePackage(serial, NETFLIX_HOOKS_PKG);
+      tweaksActionMessage = `Netflix button ${enabled ? "on" : "off"}: ${r.message.trim()}`;
+      const states = await api.packageStates(serial, [NETFLIX_HOOKS_PKG]);
+      netflixHooksState = states[NETFLIX_HOOKS_PKG] ?? netflixHooksState;
+    } catch (e) {
+      tweaksActionMessage = `Netflix button: ${e}`;
+    } finally {
+      netflixBusy = false;
     }
   }
 
@@ -109,8 +137,8 @@
     </button>
   </div>
   <p class="muted small">
-    Flip the same settings v1's Display/Input Tuning menu wrote. Each click runs
-    <code>settings put</code>. Empty value resets to device default.
+    Flip device behaviors from v1's Display/Input Tuning menu. Most run
+    <code>settings put</code> (empty value resets to default).
   </p>
   {#if tweaksErr}
     <div class="error">{tweaksErr}</div>
@@ -119,6 +147,36 @@
   {:else}
     {#if tweaksActionMessage}
       <p class="muted small mono action-message">{tweaksActionMessage}</p>
+    {/if}
+
+    {#if netflixHooksState && netflixHooksState !== "missing"}
+      <h3>Remote Netflix Button</h3>
+      <p class="muted small">
+        The Shield remote's dedicated Netflix button is hardwired to launch Netflix.
+        Turning it off disables Nvidia's system hooks
+        (<code>com.nvidia.shieldtech.hooks</code>), freeing the button — no Button
+        Mapper app needed. Reversible any time.
+      </p>
+      <div class="tweak-row">
+        <div>
+          <div>Netflix button: {netflixHooksState === "disabled" ? "disabled" : "active"}</div>
+          <div class="muted small mono">{NETFLIX_HOOKS_PKG} = {netflixHooksState}</div>
+        </div>
+        <div class="row-actions">
+          <button
+            class="small-action"
+            class:active={netflixHooksState === "enabled"}
+            disabled={netflixBusy}
+            onclick={() => setNetflixButton(true)}
+          >On</button>
+          <button
+            class="small-action"
+            class:active={netflixHooksState === "disabled"}
+            disabled={netflixBusy}
+            onclick={() => setNetflixButton(false)}
+          >Off</button>
+        </div>
+      </div>
     {/if}
 
     <h3>HDMI-CEC</h3>
