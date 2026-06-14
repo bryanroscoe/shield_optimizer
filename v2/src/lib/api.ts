@@ -103,6 +103,19 @@ export const api = {
       "package_states",
       { serial, packages },
     ),
+  appPermissionState: (serial: string, pkg: string, permission: string) =>
+    invoke<"granted" | "revoked" | "missing">("app_permission_state", {
+      serial,
+      package: pkg,
+      permission,
+    }),
+  setAppPermission: (serial: string, pkg: string, permission: string, grant: boolean) =>
+    invoke<ActionResult>("set_app_permission", {
+      serial,
+      package: pkg,
+      permission,
+      grant,
+    }),
   listOtherPackages: (serial: string) =>
     invoke<OtherPackage[]>("list_other_packages", { serial }),
   appMemoryMap: (serial: string) =>

@@ -26,18 +26,27 @@
   let netflixHooksState = $state<"enabled" | "disabled" | "missing" | null>(null);
   let netflixBusy = $state(false);
 
+  // Revoking RECORD_AUDIO from Google's search app disables the remote's
+  // Assistant/mic button (#77). "missing" => the app/permission isn't here.
+  const ASSISTANT_PKG = "com.google.android.katniss";
+  const ASSISTANT_PERM = "android.permission.RECORD_AUDIO";
+  let assistantState = $state<"granted" | "revoked" | "missing" | null>(null);
+  let assistantBusy = $state(false);
+
   async function loadTweaks() {
     tweaksLoading = true;
     tweaksErr = null;
     try {
-      const [t, s, states] = await Promise.all([
+      const [t, s, states, perm] = await Promise.all([
         api.getTweaks(serial),
         api.getDisplayScaling(serial).catch(() => null),
         api.packageStates(serial, [NETFLIX_HOOKS_PKG]).catch(() => null),
+        api.appPermissionState(serial, ASSISTANT_PKG, ASSISTANT_PERM).catch(() => null),
       ]);
       tweaks = t;
       currentDisplayScaling = s;
       netflixHooksState = states ? (states[NETFLIX_HOOKS_PKG] ?? null) : null;
+      assistantState = perm ?? null;
     } catch (e) {
       tweaksErr = String(e);
     } finally {
@@ -62,6 +71,43 @@
     } finally {
       netflixBusy = false;
     }
+  }
+
+  // On = grant RECORD_AUDIO (Assistant button works); Off = revoke it.
+  async function setAssistantButton(enabled: boolean) {
+    assistantBusy = true;
+    tweaksActionMessage = "";
+    try {
+      const r = await api.setAppPermission(serial, ASSISTANT_PKG, ASSISTANT_PERM, enabled);
+      tweaksActionMessage = `Assistant button ${enabled ? "on" : "off"}: ${r.message.trim()}`;
+      assistantState = await api.appPermissionState(serial, ASSISTANT_PKG, ASSISTANT_PERM);
+    } catch (e) {
+      tweaksActionMessage = `Assistant button: ${e}`;
+    } finally {
+      assistantBusy = false;
+    }
+  }
+
+  // Human-readable "current value" for each tweak — raw setting values like
+  // "2" or "400" aren't self-explanatory.
+  function hdmiLabel(v: string | null): string {
+    return v === "1" ? "On" : v === "0" ? "Off" : "Unset";
+  }
+  function matchContentLabel(v: string | null): string {
+    return v === "0" ? "Never" : v === "1" ? "Seamless only" : v === "2" ? "Always" : "Unset (default)";
+  }
+  function bgLimitLabel(v: string | null): string {
+    if (!v) return "Standard";
+    return v === "0" ? "None" : `At most ${v}`;
+  }
+  function longPressLabel(v: string | null): string {
+    return v ? `${v} ms` : "Unset (default 400 ms)";
+  }
+  function animationsLabel(t: TweaksState): string {
+    const w = t.window_animation_scale;
+    const same = w === t.transition_animation_scale && w === t.animator_duration_scale;
+    if (!same) return `mixed (${w ?? "?"} / ${t.transition_animation_scale ?? "?"} / ${t.animator_duration_scale ?? "?"})`;
+    return w === "0" ? "Off" : w === "0.5" ? "Fast (0.5×)" : w === "1" ? "Default (1×)" : w ? `${w}×` : "Unset (default)";
   }
 
   // Write a setting, then refresh the on-screen state for that key by
@@ -159,7 +205,7 @@
       </p>
       <div class="tweak-row">
         <div>
-          <div>Netflix button: {netflixHooksState === "disabled" ? "disabled" : "active"}</div>
+          <div class="current">Current: <strong>{netflixHooksState === "disabled" ? "button disabled" : "button active"}</strong></div>
           <div class="muted small mono">{NETFLIX_HOOKS_PKG} = {netflixHooksState}</div>
         </div>
         <div class="row-actions">
@@ -174,6 +220,36 @@
             class:active={netflixHooksState === "disabled"}
             disabled={netflixBusy}
             onclick={() => setNetflixButton(false)}
+          >Off</button>
+        </div>
+      </div>
+    {/if}
+
+    {#if assistantState && assistantState !== "missing"}
+      <h3>Remote Assistant Button</h3>
+      <p class="muted small">
+        Turning this off revokes the microphone permission from Google's search
+        app (<code>com.google.android.katniss</code>), so the remote's dedicated
+        Assistant/mic button stops triggering. <strong>Trade-off:</strong> this
+        also disables voice search in the Play Store. Reversible any time.
+      </p>
+      <div class="tweak-row">
+        <div>
+          <div class="current">Current: <strong>{assistantState === "revoked" ? "button disabled" : "button active"}</strong></div>
+          <div class="muted small mono">{ASSISTANT_PKG} mic = {assistantState}</div>
+        </div>
+        <div class="row-actions">
+          <button
+            class="small-action"
+            class:active={assistantState === "granted"}
+            disabled={assistantBusy}
+            onclick={() => setAssistantButton(true)}
+          >On</button>
+          <button
+            class="small-action"
+            class:active={assistantState === "revoked"}
+            disabled={assistantBusy}
+            onclick={() => setAssistantButton(false)}
           >Off</button>
         </div>
       </div>
@@ -194,6 +270,7 @@
         <div class="tweak-row">
           <div>
             <div>{row.label}</div>
+            <div class="current">Current: <strong>{hdmiLabel(row.value)}</strong></div>
             <div class="muted small mono">global.{row.key} = {row.value ?? "(unset)"}</div>
           </div>
           <div class="row-actions">
@@ -226,6 +303,7 @@
     </p>
     <div class="tweak-row">
       <div>
+        <div class="current">Current: <strong>{matchContentLabel(tweaks.match_content_frame_rate)}</strong></div>
         <div class="muted small mono">secure.match_content_frame_rate = {tweaks.match_content_frame_rate ?? "(unset)"}</div>
       </div>
       <div class="row-actions">
@@ -258,6 +336,7 @@
     </p>
     <div class="tweak-row">
       <div>
+        <div class="current">Current: <strong>{bgLimitLabel(tweaks.background_process_limit)}</strong></div>
         <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit ?? "(Standard)"}</div>
       </div>
       <div class="row-actions">
@@ -291,6 +370,7 @@
     </p>
     <div class="tweak-row">
       <div>
+        <div class="current">Current: <strong>{longPressLabel(tweaks.long_press_timeout)}</strong></div>
         <div class="muted small mono">secure.long_press_timeout = {tweaks.long_press_timeout ?? "(unset)"}</div>
       </div>
       <div class="row-actions">
@@ -317,6 +397,7 @@
     </p>
     <div class="tweak-row">
       <div>
+        <div class="current">Current: <strong>{animationsLabel(tweaks)}</strong></div>
         <div class="muted small mono">
           window = {tweaks.window_animation_scale ?? "(unset)"} /
           transition = {tweaks.transition_animation_scale ?? "(unset)"} /
@@ -440,6 +521,13 @@
     background: var(--accent-strong);
     color: #fff;
     border-color: var(--accent);
+  }
+  .current {
+    font-size: 0.85rem;
+    color: var(--fg-secondary);
+  }
+  .current strong {
+    color: var(--fg-primary);
   }
   .action-message {
     margin-top: 0.4rem;

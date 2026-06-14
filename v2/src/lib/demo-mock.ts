@@ -225,6 +225,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return apps;
     case "package_states":
       return packageStates((args.packages as string[]) ?? []);
+    case "app_permission_state":
+      return "granted";
     case "list_other_packages":
       return [
         { package: "com.teamsmart.videomanager.tv", system: false, enabled: true, name: "SmartTube" },

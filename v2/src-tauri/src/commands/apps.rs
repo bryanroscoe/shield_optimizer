@@ -11,8 +11,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    parse_disabled_packages_output, parse_installed_packages_output, parse_total_pss_by_process,
-    parse_usage_stats, AppUsage,
+    parse_disabled_packages_output, parse_installed_packages_output, parse_permission_granted,
+    parse_total_pss_by_process, parse_usage_stats, AppUsage,
 };
 use crate::engine::{classify_safety, is_valid_package_name, Safety};
 
@@ -299,6 +299,87 @@ pub async fn force_stop(
     run(&state, &serial, &format!("am force-stop {package}")).await
 }
 
+/// Permission names share the package-name character set; reuse the setting-key
+/// allowlist so neither value can carry shell metacharacters into the command.
+fn is_valid_permission(permission: &str) -> bool {
+    crate::commands::is_valid_setting_key(permission)
+}
+
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PermissionState {
+    Granted,
+    Revoked,
+    /// Package not installed, or it doesn't declare the permission.
+    Missing,
+}
+
+/// `app_permission_state` — is `permission` granted to `package` right now?
+/// Reads `dumpsys package <pkg>`. Used by the Tweaks "disable the Assistant
+/// button" toggle (revoking RECORD_AUDIO from Google's search app).
+#[tauri::command]
+pub async fn app_permission_state(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    permission: String,
+) -> Result<PermissionState, String> {
+    app_permission_state_impl(state.inner(), &serial, &package, &permission).await
+}
+
+pub async fn app_permission_state_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    permission: &str,
+) -> Result<PermissionState, String> {
+    if !is_valid_package_name(package) || !is_valid_permission(permission) {
+        return Ok(PermissionState::Missing);
+    }
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(serial, &format!("dumpsys package {package}"))
+        .await
+        .map_err(|e| format!("dumpsys package {package}: {e}"))?;
+    Ok(match parse_permission_granted(&out.stdout, permission) {
+        Some(true) => PermissionState::Granted,
+        Some(false) => PermissionState::Revoked,
+        None => PermissionState::Missing,
+    })
+}
+
+/// `set_app_permission` — `pm grant`/`pm revoke <pkg> <permission>`. Reversible.
+/// Powers the Assistant-button toggle; the safety gate that matters for disable
+/// doesn't apply (revoking one runtime permission can't brick the device), but
+/// inputs are still validated so nothing reaches the shell unchecked.
+#[tauri::command]
+pub async fn set_app_permission(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    permission: String,
+    grant: bool,
+) -> Result<ActionResult, String> {
+    set_app_permission_impl(state.inner(), &serial, &package, &permission, grant).await
+}
+
+pub async fn set_app_permission_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    permission: &str,
+    grant: bool,
+) -> Result<ActionResult, String> {
+    if !is_valid_package_name(package) || !is_valid_permission(permission) {
+        return Ok(ActionResult {
+            ok: false,
+            message: format!("Refusing: invalid package/permission ({package:?}, {permission:?})"),
+        });
+    }
+    let verb = if grant { "grant" } else { "revoke" };
+    run(state, serial, &format!("pm {verb} {package} {permission}")).await
+}
+
 /// Decode a `pm uninstall` failure into a user-readable hint. Mirrors v1's
 /// `Get-UninstallErrorReason` (§16.6). Returns `None` when nothing matches
 /// so the caller can fall back to the raw output.
@@ -534,6 +615,82 @@ mod tests {
         assert_eq!(
             map.get("com.unused.app").and_then(|u| u.last_used.clone()),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn app_permission_state_reads_grant() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let dump = "android.permission.RECORD_AUDIO: granted=true, flags=[ GRANTED_BY_DEFAULT ]";
+        let state = state_with(MockAdb::default().on_shell("dumpsys package", dump));
+        let got = app_permission_state_impl(
+            &state,
+            "serial",
+            "com.google.android.katniss",
+            "android.permission.RECORD_AUDIO",
+        )
+        .await
+        .unwrap();
+        assert_eq!(got, PermissionState::Granted);
+    }
+
+    #[tokio::test]
+    async fn app_permission_state_missing_when_not_listed() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        // Empty dumpsys (package absent / no such permission) → Missing.
+        let state = state_with(MockAdb::default());
+        let got = app_permission_state_impl(
+            &state,
+            "serial",
+            "com.google.android.katniss",
+            "android.permission.RECORD_AUDIO",
+        )
+        .await
+        .unwrap();
+        assert_eq!(got, PermissionState::Missing);
+    }
+
+    #[tokio::test]
+    async fn set_app_permission_revoke_succeeds_silently() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        // pm revoke is silent on success; run() reports ok with "(no output)".
+        let state = state_with(MockAdb::default());
+        let r = set_app_permission_impl(
+            &state,
+            "serial",
+            "com.google.android.katniss",
+            "android.permission.RECORD_AUDIO",
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(
+            r.ok,
+            "silent pm revoke should read as success: {}",
+            r.message
+        );
+    }
+
+    #[tokio::test]
+    async fn set_app_permission_rejects_injection() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let state = state_with(MockAdb::default());
+        let r = set_app_permission_impl(
+            &state,
+            "serial",
+            "com.google.android.katniss",
+            "RECORD_AUDIO; reboot",
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(
+            !r.ok,
+            "a permission with shell metacharacters must be refused"
         );
     }
 }

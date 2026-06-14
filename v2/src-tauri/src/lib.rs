@@ -99,6 +99,8 @@ pub fn run() {
             apps::app_usage_map,
             apps::safety_info,
             apps::trim_caches,
+            apps::app_permission_state,
+            apps::set_app_permission,
             input::send_text,
             input::send_key,
             sideload::install_apk,

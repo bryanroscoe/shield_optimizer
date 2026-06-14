@@ -426,10 +426,54 @@ pub fn parse_active_audio_device(dumpsys_audio: &str) -> Option<String> {
         .map(|m| m.as_str().to_ascii_uppercase())
 }
 
+/// Whether `permission` is currently granted to a package, read from
+/// `dumpsys package <pkg>`. The grant lives on a line like
+/// `android.permission.RECORD_AUDIO: granted=true, flags=[ ... ]`. Returns
+/// `None` if the permission isn't listed (package missing, or it doesn't
+/// declare the permission) so callers can distinguish "revoked" from "absent".
+pub fn parse_permission_granted(dumpsys_package: &str, permission: &str) -> Option<bool> {
+    let needle = format!("{permission}: granted=");
+    dumpsys_package.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix(needle.as_str())?;
+        Some(rest.starts_with("true"))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn parses_permission_grant_state() {
+        // Real `dumpsys package com.google.android.katniss` shape — the name
+        // appears once on its own line, then again with the grant.
+        let granted = "      android.permission.RECORD_AUDIO\n        \
+            android.permission.RECORD_AUDIO: granted=true, flags=[ GRANTED_BY_DEFAULT ]";
+        assert_eq!(
+            parse_permission_granted(granted, "android.permission.RECORD_AUDIO"),
+            Some(true)
+        );
+        let revoked =
+            "        android.permission.RECORD_AUDIO: granted=false, flags=[ USER_FIXED ]";
+        assert_eq!(
+            parse_permission_granted(revoked, "android.permission.RECORD_AUDIO"),
+            Some(false)
+        );
+        // Permission not present at all (or wrong package) → None.
+        assert_eq!(
+            parse_permission_granted("nothing here", "android.permission.RECORD_AUDIO"),
+            None
+        );
+        // A bare name line without ": granted=" must not match.
+        assert_eq!(
+            parse_permission_granted(
+                "      android.permission.RECORD_AUDIO",
+                "android.permission.RECORD_AUDIO"
+            ),
+            None
+        );
+    }
 
     #[test]
     fn parses_usage_stats_last_used_and_never_opened() {
