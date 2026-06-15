@@ -48,7 +48,11 @@ pub fn parse_device_list(adb_devices_output: &str) -> Vec<DeviceListEntry> {
         let Some(status) = DeviceStatus::from_adb_str(status_str) else {
             continue;
         };
-        let connection = if IP_PORT.is_match(serial) {
+        // Network if it's an `ip:port` serial OR an mDNS wireless-debugging
+        // serial (Android 11+ pairs over `_adb-tls-connect._tcp` etc.; those
+        // never look like `ip:port` but always carry the `_tcp` service tag).
+        // USB serials are plain hardware ids and contain neither.
+        let connection = if IP_PORT.is_match(serial) || serial.contains("._tcp") {
             ConnectionType::Network
         } else {
             ConnectionType::Usb
@@ -532,6 +536,17 @@ mod tests {
         assert_eq!(entries[1].status, DeviceStatus::Unauthorized);
         assert_eq!(entries[2].connection, ConnectionType::Usb);
         assert_eq!(entries[3].status, DeviceStatus::Offline);
+    }
+
+    #[test]
+    fn mdns_wireless_debugging_serial_is_network_not_usb() {
+        // Android 11+ wireless debugging registers over mDNS; the serial is the
+        // service name, not an ip:port. It must still classify as Network.
+        let input = "List of devices attached\n\
+            adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\tdevice\n";
+        let entries = parse_device_list(input);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].connection, ConnectionType::Network);
     }
 
     #[test]
