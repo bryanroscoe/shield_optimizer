@@ -214,9 +214,199 @@ pub async fn set_display_scaling(
     })
 }
 
+#[derive(Serialize)]
+pub struct PrivateDnsState {
+    /// `off` / `opportunistic` / `hostname`, or None if unset.
+    pub mode: Option<String>,
+    /// The DoT hostname when mode is `hostname`.
+    pub hostname: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct PrivateDnsResult {
+    pub ok: bool,
+    pub message: String,
+    /// True when a custom hostname failed to resolve and we reverted to
+    /// automatic to keep the device online.
+    pub reverted: bool,
+}
+
+/// A DNS hostname safe to interpolate into a `settings put` shell command.
+/// Mirrors v1's regex (Set-PrivateDns): dot-separated labels of
+/// `[A-Za-z0-9-]`, no label starting/ending with `-`, at least two labels.
+/// Pure so it can be unit-tested; the value is still shell-quoted on use.
+fn is_valid_dns_hostname(host: &str) -> bool {
+    if host.is_empty() || host.len() > 253 {
+        return false;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 {
+        return false;
+    }
+    labels.iter().all(|l| {
+        !l.is_empty()
+            && l.len() <= 63
+            && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+    })
+}
+
+/// `get_private_dns` — read the device's current Private DNS mode + hostname.
+#[tauri::command]
+pub async fn get_private_dns(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<PrivateDnsState, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(
+            &serial,
+            "settings get global private_dns_mode; settings get global private_dns_specifier",
+        )
+        .await
+        .map_err(|e| format!("settings get: {e}"))?;
+    let mut lines = out.stdout.lines().map(|s| {
+        let v = s.trim();
+        if v.is_empty() || v == "null" {
+            None
+        } else {
+            Some(v.to_string())
+        }
+    });
+    Ok(PrivateDnsState {
+        mode: lines.next().flatten(),
+        hostname: lines.next().flatten(),
+    })
+}
+
+/// `set_private_dns` — switch Private DNS (DNS-over-TLS) mode. For a custom
+/// hostname, validate it, apply it, then probe DNS resolution and revert to
+/// automatic if the host is dead — a bad DoT host otherwise strands the device
+/// with no working DNS (Android won't fall back). Mirrors v1's Set-PrivateDns.
+#[tauri::command]
+pub async fn set_private_dns(
+    state: State<'_, AppState>,
+    serial: String,
+    mode: String,
+    hostname: Option<String>,
+) -> Result<PrivateDnsResult, String> {
+    let adb = state.adb_snapshot().await;
+    match mode.as_str() {
+        "off" => {
+            adb.shell(&serial, "settings put global private_dns_mode off")
+                .await
+                .map_err(|e| format!("settings put: {e}"))?;
+            Ok(PrivateDnsResult {
+                ok: true,
+                message: "Private DNS off.".to_string(),
+                reverted: false,
+            })
+        }
+        "opportunistic" => {
+            adb.shell(
+                &serial,
+                "settings put global private_dns_mode opportunistic",
+            )
+            .await
+            .map_err(|e| format!("settings put: {e}"))?;
+            Ok(PrivateDnsResult {
+                ok: true,
+                message: "Private DNS set to automatic.".to_string(),
+                reverted: false,
+            })
+        }
+        "hostname" => {
+            let host = hostname.unwrap_or_default();
+            let host = host.trim();
+            if !is_valid_dns_hostname(host) {
+                return Ok(PrivateDnsResult {
+                    ok: false,
+                    message: format!(
+                        "Invalid hostname {host:?}. Expected something like 'dns.adguard.com'."
+                    ),
+                    reverted: false,
+                });
+            }
+            let set_cmd = format!(
+                "settings put global private_dns_specifier {}; \
+                 settings put global private_dns_mode hostname",
+                quote_shell_arg(host)
+            );
+            adb.shell(&serial, &set_cmd)
+                .await
+                .map_err(|e| format!("settings put: {e}"))?;
+
+            // Probe: a custom DoT host that can't be reached leaves the device
+            // with no DNS. Retry a few times (DoT validation lags a few seconds)
+            // before deciding it's dead.
+            let mut resolved = false;
+            for _ in 0..3 {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                if let Ok(out) = adb
+                    .shell(&serial, "ping -c1 -W3 connectivitycheck.gstatic.com")
+                    .await
+                {
+                    if out.combined().contains("bytes from") {
+                        resolved = true;
+                        break;
+                    }
+                }
+            }
+            if resolved {
+                Ok(PrivateDnsResult {
+                    ok: true,
+                    message: format!("Private DNS set to {host}; resolution verified."),
+                    reverted: false,
+                })
+            } else {
+                adb.shell(
+                    &serial,
+                    "settings put global private_dns_mode opportunistic",
+                )
+                .await
+                .map_err(|e| format!("settings put: {e}"))?;
+                Ok(PrivateDnsResult {
+                    ok: false,
+                    message: format!(
+                        "No DNS resolution via {host} — reverted to automatic to keep the device \
+                         online. Check the hostname."
+                    ),
+                    reverted: true,
+                })
+            }
+        }
+        other => Ok(PrivateDnsResult {
+            ok: false,
+            message: format!("unknown Private DNS mode: {other}"),
+            reverted: false,
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::build_setting_command;
+    use super::{build_setting_command, is_valid_dns_hostname};
+
+    #[test]
+    fn accepts_real_dot_hostnames() {
+        assert!(is_valid_dns_hostname("dns.adguard.com"));
+        assert!(is_valid_dns_hostname("one.one.one.one"));
+        assert!(is_valid_dns_hostname("abcd.dns.nextdns.io"));
+        assert!(is_valid_dns_hostname("a-b.example-host.net"));
+    }
+
+    #[test]
+    fn rejects_bad_or_unsafe_hostnames() {
+        assert!(!is_valid_dns_hostname("")); // empty
+        assert!(!is_valid_dns_hostname("localhost")); // no dot
+        assert!(!is_valid_dns_hostname("-bad.com")); // label starts with -
+        assert!(!is_valid_dns_hostname("bad-.com")); // label ends with -
+        assert!(!is_valid_dns_hostname("a..b")); // empty label
+        assert!(!is_valid_dns_hostname("dns.adguard.com; reboot")); // shell metachar
+        assert!(!is_valid_dns_hostname("a$(whoami).com")); // injection attempt
+        assert!(!is_valid_dns_hostname("space host.com")); // space
+    }
 
     #[test]
     fn builds_put_with_quoted_value() {

@@ -29,6 +29,8 @@ import type {
   OtherPackage,
   PerformanceProfile,
   PerformanceResult,
+  PrivateDnsResult,
+  PrivateDnsState,
   RebootMode,
   RebootResult,
   RecoveryResult,
@@ -182,6 +184,10 @@ export const api = {
     invoke<DisplayScaleResult>("set_display_scaling", { serial, preset }),
   getDisplayScaling: (serial: string) =>
     invoke<CurrentDisplayScaling>("get_display_scaling", { serial }),
+  getPrivateDns: (serial: string) =>
+    invoke<PrivateDnsState>("get_private_dns", { serial }),
+  setPrivateDns: (serial: string, mode: string, hostname: string | null = null) =>
+    invoke<PrivateDnsResult>("set_private_dns", { serial, mode, hostname }),
 
   prepareOptimize: (serial: string, deviceType: DeviceType, mode: OptimizeMode) =>
     invoke<OptimizePlan>("prepare_optimize", { serial, deviceType, mode }),

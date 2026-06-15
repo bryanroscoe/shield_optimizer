@@ -243,6 +243,17 @@ export interface InstallResult {
   message: string;
 }
 
+export interface PrivateDnsState {
+  mode: string | null;
+  hostname: string | null;
+}
+
+export interface PrivateDnsResult {
+  ok: boolean;
+  message: string;
+  reverted: boolean;
+}
+
 export interface SnapshotApplyPlan {
   packages_to_disable: string[];
   packages_already_disabled: string[];

@@ -128,6 +128,8 @@ pub fn run() {
             tuning::write_setting,
             tuning::set_display_scaling,
             tuning::get_display_scaling,
+            tuning::get_private_dns,
+            tuning::set_private_dns,
             optimize::prepare_optimize,
             optimize::apply_performance_settings,
             update::check_for_update,

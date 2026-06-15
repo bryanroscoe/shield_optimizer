@@ -264,6 +264,10 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return demoFiles(args.path as string);
     case "get_display_scaling":
       return { size: "1920x1080 (default)", density: "320 (default)" };
+    case "get_private_dns":
+      return { mode: "opportunistic", hostname: null };
+    case "set_private_dns":
+      return { ok: true, message: "Private DNS updated.", reverted: false };
     case "list_snapshots":
       return snapshots;
     case "snapshot_dir_path":

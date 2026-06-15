@@ -6,6 +6,7 @@
     SettingNamespace,
     DisplayScalePreset,
     CurrentDisplayScaling,
+    PrivateDnsState,
   } from "$lib/types";
 
   let { serial }: { serial: string } = $props();
@@ -34,20 +35,29 @@
   let assistantState = $state<"granted" | "revoked" | "missing" | null>(null);
   let assistantBusy = $state(false);
 
+  // Private DNS (DNS-over-TLS) — off / opportunistic (automatic) / hostname.
+  let privateDns = $state<PrivateDnsState | null>(null);
+  let dnsHostInput = $state("");
+  let dnsBusy = $state(false);
+  let dnsMessage = $state("");
+
   async function loadTweaks() {
     tweaksLoading = true;
     tweaksErr = null;
     try {
-      const [t, s, states, perm] = await Promise.all([
+      const [t, s, states, perm, dns] = await Promise.all([
         api.getTweaks(serial),
         api.getDisplayScaling(serial).catch(() => null),
         api.packageStates(serial, [NETFLIX_HOOKS_PKG]).catch(() => null),
         api.appPermissionState(serial, ASSISTANT_PKG, ASSISTANT_PERM).catch(() => null),
+        api.getPrivateDns(serial).catch(() => null),
       ]);
       tweaks = t;
       currentDisplayScaling = s;
       netflixHooksState = states ? (states[NETFLIX_HOOKS_PKG] ?? null) : null;
       assistantState = perm ?? null;
+      privateDns = dns;
+      dnsHostInput = dns?.hostname ?? "";
     } catch (e) {
       tweaksErr = String(e);
     } finally {
@@ -86,6 +96,35 @@
     } finally {
       assistantBusy = false;
     }
+  }
+
+  // Apply a Private DNS mode. For a custom hostname the backend validates it,
+  // probes resolution, and reverts to automatic if the host is dead — so a bad
+  // entry can't strand the device offline.
+  async function applyPrivateDns(mode: "off" | "opportunistic" | "hostname") {
+    if (mode === "hostname" && !dnsHostInput.trim()) {
+      dnsMessage = "Enter a hostname first (e.g. dns.adguard.com).";
+      return;
+    }
+    dnsBusy = true;
+    dnsMessage = mode === "hostname" ? "Applying and verifying resolution…" : "";
+    try {
+      const r = await api.setPrivateDns(serial, mode, mode === "hostname" ? dnsHostInput.trim() : null);
+      dnsMessage = r.message;
+      privateDns = await api.getPrivateDns(serial);
+      dnsHostInput = privateDns?.hostname ?? dnsHostInput;
+    } catch (e) {
+      dnsMessage = `Private DNS: ${e}`;
+    } finally {
+      dnsBusy = false;
+    }
+  }
+
+  function dnsModeLabel(mode: string | null, hostname: string | null): string {
+    if (mode === "off") return "Off";
+    if (mode === "opportunistic") return "Automatic";
+    if (mode === "hostname") return hostname ? `Custom (${hostname})` : "Custom";
+    return "Unset";
   }
 
   // Human-readable "current value" for each tweak — raw setting values like
@@ -257,6 +296,54 @@
           >Off</button>
         </div>
       </div>
+    {/if}
+
+    {#if privateDns}
+      <h3>Private DNS (DNS-over-TLS)</h3>
+      <p class="muted small">
+        Encrypt DNS lookups. <strong>Automatic</strong> uses the network's DoT if
+        offered; <strong>Custom</strong> routes through a host you pick (AdGuard,
+        NextDNS, Cloudflare…). A bad custom host is auto-reverted to Automatic so
+        the device never loses DNS.
+      </p>
+      <div class="tweak-row">
+        <div>
+          <div class="current">Current: <strong>{dnsModeLabel(privateDns.mode, privateDns.hostname)}</strong></div>
+          <div class="muted small mono">private_dns_mode = {privateDns.mode ?? "unset"}</div>
+        </div>
+        <div class="row-actions">
+          <button
+            class="small-action"
+            class:active={privateDns.mode === "off"}
+            disabled={dnsBusy}
+            onclick={() => applyPrivateDns("off")}
+          >Off</button>
+          <button
+            class="small-action"
+            class:active={privateDns.mode === "opportunistic"}
+            disabled={dnsBusy}
+            onclick={() => applyPrivateDns("opportunistic")}
+          >Automatic</button>
+        </div>
+      </div>
+      <div class="dns-custom">
+        <input
+          type="text"
+          placeholder="dns.adguard.com"
+          bind:value={dnsHostInput}
+          disabled={dnsBusy}
+          onkeydown={(e) => e.key === "Enter" && applyPrivateDns("hostname")}
+        />
+        <button
+          class="small-action"
+          class:active={privateDns.mode === "hostname"}
+          disabled={dnsBusy}
+          onclick={() => applyPrivateDns("hostname")}
+        >Use custom</button>
+      </div>
+      {#if dnsMessage}
+        <p class="muted small mono action-message">{dnsMessage}</p>
+      {/if}
     {/if}
 
     <h3>HDMI-CEC</h3>
@@ -525,6 +612,18 @@
     background: var(--accent-strong);
     color: #fff;
     border-color: var(--accent);
+  }
+  .dns-custom {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .dns-custom input {
+    flex: 1;
+    min-width: 200px;
+    max-width: 320px;
   }
   .current {
     font-size: 0.85rem;
