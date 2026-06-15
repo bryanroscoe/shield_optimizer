@@ -137,6 +137,9 @@ pub async fn disconnect_device(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ConnectResult, String> {
+    // A live remote-input session holds an open socket + forward to this
+    // device — tear it down before dropping the connection.
+    state.drop_remote_session(&serial).await;
     let adb = state.adb_snapshot().await;
     let out = adb
         .raw(&["disconnect", &serial])
@@ -249,7 +252,7 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
                getprop ro.product.model; getprop ro.product.device; \
                getprop ro.product.manufacturer; getprop ro.build.version.release; \
                getprop ro.build.version.sdk; getprop ro.build.id; \
-               getprop ro.board.platform";
+               getprop ro.board.platform; getprop ro.build.characteristics";
 
     let Ok(out) = adb.shell(serial, cmd).await else {
         return DeviceProperties::default();
@@ -285,6 +288,7 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
         sdk_level: get(6),
         build_id: get(7),
         board_platform: get(8),
+        characteristics: get(9),
     }
 }
 

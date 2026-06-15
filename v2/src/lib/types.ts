@@ -17,6 +17,7 @@ export interface DeviceProperties {
   sdk_level: string;
   build_id: string;
   board_platform: string;
+  characteristics?: string;
 }
 
 export interface Device {
@@ -208,6 +209,9 @@ export interface ScreenshotResult {
 export interface SendTextResult {
   ok: boolean;
   message: string;
+  /// "channel" = scrcpy control socket (instant), "shell" = legacy `input`
+  /// fallback (~700 ms/press), "none" = nothing was sent.
+  transport: "channel" | "shell" | "none";
 }
 
 export interface FileEntry {

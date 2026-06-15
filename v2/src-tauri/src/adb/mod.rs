@@ -7,6 +7,7 @@
 pub mod driver;
 pub mod install;
 pub mod parse;
+pub mod remote_input;
 pub mod scan;
 
 use tokio::process::Command;
@@ -38,4 +39,5 @@ pub use parse::{
     parse_total_pss_by_process, parse_usage_stats, AppUsage, DisplayMode, FileEntry, RamInfo,
     StorageInfo,
 };
+pub use remote_input::RemoteInputSession;
 pub use scan::{local_subnet_prefix, scan_subnet, ScanHit};

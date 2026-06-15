@@ -198,3 +198,13 @@ Default in the plan is **Svelte**. Override before running `create-tauri-app` if
 - [PLAN.md](PLAN.md) — phased porting roadmap with milestones
 - [`../docs/FEATURES.md`](../docs/FEATURES.md) — behavior spec (the source of truth)
 - v1: `Shield-Optimizer.ps1` at repo root
+
+## Third-party components
+
+The Remote tab's low-latency input channel bundles the
+[scrcpy](https://github.com/Genymobile/scrcpy) server
+(`src-tauri/resources/scrcpy-server-v3.1`, © Genymobile, licensed under the
+[Apache License 2.0](https://github.com/Genymobile/scrcpy/blob/master/LICENSE)).
+It is pushed to the device's temp storage (`/data/local/tmp`) and runs with
+shell privileges only while a Remote session is open; the process exits when
+the session closes.

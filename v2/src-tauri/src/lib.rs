@@ -106,6 +106,7 @@ pub fn run() {
             apps::get_app_op,
             input::send_text,
             input::send_key,
+            input::open_settings,
             sideload::install_apk,
             sideload::list_apks_in_folder,
             backup::backup_apk,

@@ -94,6 +94,17 @@ pub trait AdbDriver: Send + Sync {
             "binary capture not supported by this driver",
         )))
     }
+
+    /// Spawn `adb <args...>` as a long-lived child WITHOUT awaiting completion,
+    /// handing the caller the `Child` to own (configured `kill_on_drop(true)`).
+    /// Unlike `raw`/`shell`, the process is expected to keep running — for
+    /// resident helpers like the scrcpy control server. Default reports
+    /// unsupported so mocks need no extra wiring.
+    async fn spawn(&self, _args: &[&str]) -> AdbResult<tokio::process::Child> {
+        Err(AdbError::Io(std::io::Error::other(
+            "process spawn not supported by this driver",
+        )))
+    }
 }
 
 /// The standard subprocess-backed driver. Wraps `tokio::process::Command`.
@@ -241,6 +252,30 @@ impl AdbDriver for SubprocessAdb {
         }
 
         Ok(output.stdout)
+    }
+
+    async fn spawn(&self, args: &[&str]) -> AdbResult<tokio::process::Child> {
+        if !self.binary.exists() {
+            return Err(AdbError::BinaryMissing {
+                path: self.binary.display().to_string(),
+            });
+        }
+
+        debug!(adb = ?self.binary, ?args, "adb spawn (long-lived)");
+
+        let mut cmd = Command::new(&self.binary);
+        cmd.args(args).kill_on_drop(true);
+        // Verified on device: the device-side `app_process` aborts at startup
+        // (exit 134, no Java output) when the adb client's stdin is fully
+        // *closed*. It needs an open fd — /dev/null works. A GUI app's inherited
+        // stdin is unreliable, so pin it to null explicitly. stdout/stderr are
+        // nulled too so the resident child can never block on a full pipe.
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        super::hide_console_window(&mut cmd);
+
+        cmd.spawn().map_err(AdbError::Io)
     }
 }
 

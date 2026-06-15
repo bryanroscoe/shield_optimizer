@@ -37,8 +37,17 @@ pub fn detect_device_type(props: &DeviceProperties) -> DeviceType {
     let model = props.model.to_ascii_lowercase();
     let device = props.device_codename.to_ascii_lowercase();
     let manufacturer = props.manufacturer.to_ascii_lowercase();
+    // `ro.build.characteristics` carries `tv` on Android TV / Google TV. It is
+    // the signal that separates a TV from a phone or tablet sharing the same
+    // brand — a Google Pixel is `brand == "google"` too, so brand alone is not
+    // enough to call something a TV.
+    let is_tv = props
+        .characteristics
+        .split(',')
+        .any(|c| c.trim().eq_ignore_ascii_case("tv"));
 
-    // Shield: any signal from Nvidia or known Shield codenames.
+    // Shield: any signal from Nvidia or known Shield codenames. Shield boxes
+    // are never phones, so these strong signals don't need the `tv` gate.
     if brand == "nvidia"
         || manufacturer == "nvidia"
         || model.contains("shield")
@@ -47,13 +56,10 @@ pub fn detect_device_type(props: &DeviceProperties) -> DeviceType {
         return DeviceType::Shield;
     }
 
-    // Google TV: Onn (Walmart), Google-branded, or device codename matching
-    // known Google TV products. Amlogic-based Onn boxes (`ott_...`) and the
-    // newer Chromecast / Streamer codenames (`sabrina`, `boreal`) belong here.
+    // Google TV by strong product-specific signals: Onn (Walmart) boxes
+    // (`ott_...`), Chromecast, and the newer Streamer codenames are TV-only
+    // products, so they stand on their own.
     if brand == "onn"
-        || brand == "google"
-        || manufacturer == "google"
-        || manufacturer == "amlogic"
         || model.contains("onn")
         || model.contains("chromecast")
         || model.contains("sabrina")
@@ -61,6 +67,19 @@ pub fn detect_device_type(props: &DeviceProperties) -> DeviceType {
         || device.starts_with("ott_")
         || matches!(device.as_str(), "sabrina" | "boreal")
     {
+        return DeviceType::GoogleTv;
+    }
+
+    // Google / Amlogic branding only means Google TV when the device actually
+    // reports the `tv` characteristic — otherwise it's a phone or tablet (e.g.
+    // a Google Pixel) that happens to share the brand.
+    if is_tv && (brand == "google" || manufacturer == "google" || manufacturer == "amlogic") {
+        return DeviceType::GoogleTv;
+    }
+
+    // Any other device that reports itself as a TV: classify as Google TV so it
+    // gets the Android-TV app list rather than nothing.
+    if is_tv {
         return DeviceType::GoogleTv;
     }
 
@@ -90,6 +109,19 @@ mod tests {
             device_codename: device.to_string(),
             manufacturer: manufacturer.to_string(),
             ..Default::default()
+        }
+    }
+
+    fn props_ch(
+        brand: &str,
+        model: &str,
+        device: &str,
+        manufacturer: &str,
+        characteristics: &str,
+    ) -> DeviceProperties {
+        DeviceProperties {
+            characteristics: characteristics.to_string(),
+            ..props(brand, model, device, manufacturer)
         }
     }
 
@@ -130,6 +162,32 @@ mod tests {
     fn detects_googletv_streamer() {
         assert_eq!(
             detect_device_type(&props("Google", "Google TV Streamer", "boreal", "Google")),
+            DeviceType::GoogleTv
+        );
+    }
+
+    #[test]
+    fn google_branded_phone_is_not_google_tv() {
+        // A Google Pixel phone shares brand/manufacturer "google" but reports
+        // no `tv` characteristic — it must not be classified as Google TV.
+        assert_eq!(
+            detect_device_type(&props_ch("google", "Pixel 10 Pro", "blazer", "Google", "")),
+            DeviceType::Unknown
+        );
+    }
+
+    #[test]
+    fn google_branded_tv_with_tv_characteristic_is_google_tv() {
+        assert_eq!(
+            detect_device_type(&props_ch("google", "Some TV", "generic", "Google", "tv")),
+            DeviceType::GoogleTv
+        );
+    }
+
+    #[test]
+    fn generic_box_reporting_tv_characteristic_is_google_tv() {
+        assert_eq!(
+            detect_device_type(&props_ch("Generic", "TV Box", "rk3328", "Generic", "tv")),
             DeviceType::GoogleTv
         );
     }
