@@ -3686,14 +3686,19 @@ function Set-PrivateDns ($Target) {
         0 { & $Script:AdbPath -s $Target shell "settings put global private_dns_mode off" | Out-Null; Write-Success "Private DNS off." }
         1 { & $Script:AdbPath -s $Target shell "settings put global private_dns_mode opportunistic" | Out-Null; Write-Success "Private DNS automatic." }
         2 {
-            $dnsHost = Read-Host "Hostname (e.g. dns.adguard.com)"
-            if (-not [string]::IsNullOrWhiteSpace($dnsHost)) {
-                & $Script:AdbPath -s $Target shell "settings put global private_dns_specifier $($dnsHost.Trim())" | Out-Null
+            $dnsHost = (Read-Host "Hostname (e.g. dns.adguard.com)").Trim()
+            if ([string]::IsNullOrWhiteSpace($dnsHost)) {
+                Write-Warn "No hostname entered; unchanged."
+            } elseif ($dnsHost -notmatch "^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$") {
+                # Validate before interpolating into adb shell — a bare hostname can't carry shell metacharacters.
+                Write-ErrorMsg "Invalid hostname format. Expected something like 'dns.adguard.com'."
+            } else {
+                & $Script:AdbPath -s $Target shell "settings put global private_dns_specifier $dnsHost" | Out-Null
                 & $Script:AdbPath -s $Target shell "settings put global private_dns_mode hostname" | Out-Null
                 # A bad/unreachable DoT host leaves the device with NO working DNS (Android won't fall back).
                 # Probe by resolving+pinging a name; revert to automatic if it's dead so we never strand the device.
-                # ponytail: "bytes from" means resolution worked. DoT validation can lag a few seconds, so retry
-                # before giving up — a single probe false-negatives a good host. Swap for a real DoT handshake check if that's not enough.
+                # "bytes from" means resolution worked. DoT validation can lag a few seconds, so retry before
+                # giving up — a single probe false-negatives a good host. Swap for a real DoT handshake check if that's not enough.
                 $resolved = $false
                 foreach ($attempt in 1..3) {
                     Start-Sleep -Seconds 2
@@ -3701,12 +3706,12 @@ function Set-PrivateDns ($Target) {
                     if ($probe -match "bytes from") { $resolved = $true; break }
                 }
                 if ($resolved) {
-                    Write-Success "Private DNS set to $($dnsHost.Trim()); resolution verified."
+                    Write-Success "Private DNS set to $dnsHost; resolution verified."
                 } else {
                     & $Script:AdbPath -s $Target shell "settings put global private_dns_mode opportunistic" | Out-Null
-                    Write-Warn "No DNS resolution via $($dnsHost.Trim()) — reverted to automatic to keep the device online. Check the hostname."
+                    Write-Warn "No DNS resolution via $dnsHost — reverted to automatic to keep the device online. Check the hostname."
                 }
-            } else { Write-Warn "No hostname entered; unchanged." }
+            }
         }
     }
     if ($sel -ne -1 -and $sel -ne 3) { Pause }
@@ -4076,7 +4081,7 @@ while ($true) {
                 "Return to Main Menu.",
                 "Exit Optimizer."
             )
-            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, S=Scaling, K=tweaKs, N=sNapshot, T=reboot, D=Disconnect, B=Back, Q=Quit
+            # Shortcuts: O=Optimize, R=Restore, E=rEport, L=Launcher, I=Install APK, P=Profile, C=reCovery, S=Scaling, K=tweaKs, Y=privacY DNS, N=sNapshot, T=reboot, D=Disconnect, B=Back, Q=Quit
             $actionShortcuts = @("O", "R", "E", "L", "I", "P", "C", "S", "K", "Y", "N", "T", "D", "B", "Q")
             $aSel = Read-Menu -Title "Action Menu: $($target.Name) ($deviceTypeName)" -Options $aOpts -Descriptions $aDescs -Shortcuts $actionShortcuts
 
