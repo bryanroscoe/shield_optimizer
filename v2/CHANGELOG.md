@@ -17,6 +17,33 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-2.0.0
+
+The first stable release of the v2 rewrite — Shield Optimizer is a full
+Rust/Tauri desktop app for debloating and tuning Android TV devices, no
+PowerShell required. Everything from the beta line, now stable:
+
+### Highlights
+
+- **One-click device management** over ADB — auto-discovers devices on USB and
+  the local network (including Android 11+ wireless debugging), with guided
+  on-TV authorization.
+- **Optimize wizard** with safe, reversible recommendations: per-app RAM and
+  last-used cues, a "remove if unused" review tier, and a mandatory
+  do-not-disable safety gate so you can't brick a device.
+- **Snapshots** — capture and restore the full disable/launcher/settings state.
+- **App List, Launcher takeover, Install APK, Files, Health report.**
+- **Instant Remote control** — a low-latency scrcpy channel (key presses in
+  milliseconds), full-UTF-8 typing, hold-to-repeat D-pad, Recents and Settings
+  buttons, with a compatible-mode fallback.
+- **Tweaks** — HDMI-CEC, display scaling, frame-rate matching, background
+  process limit, the Nvidia system-hooks and Assistant-mic toggles, and
+  **Private DNS (DNS-over-TLS)** with a dead-host safety revert.
+- **In-app auto-update** — signed updates with an auto-update toggle and an
+  "Update now" button.
+- Cross-platform: macOS (universal .dmg + Homebrew tap), Windows (.msi/.exe),
+  Linux (.deb/.AppImage/.rpm).
+
 ## v2-2.0.0-beta.15
 
 ### Added

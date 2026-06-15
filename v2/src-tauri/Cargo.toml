@@ -1,6 +1,6 @@
 [package]
 name = "shield-optimizer-v2"
-version = "2.0.0-beta.15"
+version = "2.0.0"
 description = "Shield Optimizer v2 — Tauri/Rust rewrite of the Android TV debloater"
 authors = ["Bryan Roscoe"]
 edition = "2021"
