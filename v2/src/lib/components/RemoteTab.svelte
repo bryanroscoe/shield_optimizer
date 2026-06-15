@@ -166,6 +166,10 @@
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("back")} title="Back">Back</button>
         <button onclick={() => sendRemoteKey("home")} title="Home">Home</button>
+        <button onclick={() => sendRemoteKey("menu")} title="Menu (KEYCODE_MENU)">Menu</button>
+      </div>
+      <div class="remote-row">
+        <button onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher">Recents</button>
       </div>
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("rewind")} title="Rewind">◀◀</button>

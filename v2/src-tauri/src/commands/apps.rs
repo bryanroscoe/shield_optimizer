@@ -414,7 +414,12 @@ pub async fn set_app_op_impl(
         });
     }
     let mode = if allow { "allow" } else { "deny" };
-    run(state, serial, &format!("cmd appops set {package} {op} {mode}")).await
+    run(
+        state,
+        serial,
+        &format!("cmd appops set {package} {op} {mode}"),
+    )
+    .await
 }
 
 /// `get_app_op` — reads the current appops mode for `<pkg> <op>`.
@@ -435,7 +440,10 @@ pub async fn get_app_op_impl(
     package: &str,
     op: &str,
 ) -> Result<String, String> {
-    if !is_valid_package_name(package) || !op.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || op.is_empty() {
+    if !is_valid_package_name(package)
+        || !op.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || op.is_empty()
+    {
         return Ok("missing".to_string());
     }
     let adb = state.adb_snapshot().await;

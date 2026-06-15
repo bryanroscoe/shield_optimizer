@@ -145,6 +145,8 @@ fn keycode_for(key: &str) -> Option<u32> {
         "select" => 23,
         "back" => 4,
         "home" => 3,
+        "menu" => 82,
+        "recents" => 187,
         "play_pause" => 85,
         "rewind" => 89,
         "fast_forward" => 90,
@@ -245,6 +247,8 @@ mod tests {
         assert_eq!(keycode_for("up"), Some(19));
         assert_eq!(keycode_for("select"), Some(23));
         assert_eq!(keycode_for("back"), Some(4));
+        assert_eq!(keycode_for("menu"), Some(82));
+        assert_eq!(keycode_for("recents"), Some(187));
         assert_eq!(keycode_for("delete"), Some(67));
         assert_eq!(keycode_for("wakeup"), Some(224));
         assert_eq!(keycode_for("power"), Some(26));
