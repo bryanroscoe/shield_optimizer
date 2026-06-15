@@ -76,6 +76,9 @@
       installMessage = r.message;
       if (r.ok) {
         await refresh();
+        if (!devices.some((d) => d.status === "device")) {
+          await scan();
+        }
       }
     } catch (e) {
       installMessage = String(e);

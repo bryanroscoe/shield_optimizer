@@ -380,6 +380,83 @@ pub async fn set_app_permission_impl(
     run(state, serial, &format!("pm {verb} {package} {permission}")).await
 }
 
+/// `set_app_op` — `appops set <pkg> <op> allow|deny`. Unlike `pm revoke`,
+/// `appops deny` blocks the operation silently without triggering Android's
+/// re-grant dialog. Powers the Assistant-button toggle.
+#[tauri::command]
+pub async fn set_app_op(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    op: String,
+    allow: bool,
+) -> Result<ActionResult, String> {
+    set_app_op_impl(state.inner(), &serial, &package, &op, allow).await
+}
+
+pub async fn set_app_op_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    op: &str,
+    allow: bool,
+) -> Result<ActionResult, String> {
+    if !is_valid_package_name(package) {
+        return Ok(ActionResult {
+            ok: false,
+            message: format!("Refusing: invalid package ({package:?})"),
+        });
+    }
+    if !op.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || op.is_empty() {
+        return Ok(ActionResult {
+            ok: false,
+            message: format!("Refusing: invalid op ({op:?})"),
+        });
+    }
+    let mode = if allow { "allow" } else { "deny" };
+    run(state, serial, &format!("cmd appops set {package} {op} {mode}")).await
+}
+
+/// `get_app_op` — reads the current appops mode for `<pkg> <op>`.
+/// Returns `"allow"`, `"deny"`, `"ignore"`, `"default"`, or `"missing"`.
+#[tauri::command]
+pub async fn get_app_op(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    op: String,
+) -> Result<String, String> {
+    get_app_op_impl(state.inner(), &serial, &package, &op).await
+}
+
+pub async fn get_app_op_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    op: &str,
+) -> Result<String, String> {
+    if !is_valid_package_name(package) || !op.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || op.is_empty() {
+        return Ok("missing".to_string());
+    }
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(serial, &format!("cmd appops get {package} {op}"))
+        .await
+        .map_err(|e| format!("cmd appops get: {e}"))?;
+    let stdout = out.stdout.trim().to_lowercase();
+    if stdout.contains("allow") {
+        Ok("allow".to_string())
+    } else if stdout.contains("deny") {
+        Ok("deny".to_string())
+    } else if stdout.contains("ignore") {
+        Ok("ignore".to_string())
+    } else if stdout.contains("default") {
+        Ok("default".to_string())
+    } else {
+        Ok("missing".to_string())
+    }
+}
+
 /// Decode a `pm uninstall` failure into a user-readable hint. Mirrors v1's
 /// `Get-UninstallErrorReason` (§16.6). Returns `None` when nothing matches
 /// so the caller can fall back to the raw output.

@@ -116,6 +116,10 @@ export const api = {
       permission,
       grant,
     }),
+  setAppOp: (serial: string, pkg: string, op: string, allow: boolean) =>
+    invoke<ActionResult>("set_app_op", { serial, package: pkg, op, allow }),
+  getAppOp: (serial: string, pkg: string, op: string) =>
+    invoke<string>("get_app_op", { serial, package: pkg, op }),
   listOtherPackages: (serial: string) =>
     invoke<OtherPackage[]>("list_other_packages", { serial }),
   appMemoryMap: (serial: string) =>

@@ -19,9 +19,10 @@
   let displayScaleMessage = $state<string>("");
   let currentDisplayScaling = $state<CurrentDisplayScaling | null>(null);
 
-  // Disabling Nvidia's system hooks frees the Shield remote's hardwired Netflix
-  // button (the common ask in #73). "missing" => not a Shield, so hide the
-  // control. null until loaded.
+  // Disabling Nvidia's system hooks package. This controls Xbox controller
+  // button remapping (Guide → Home). On the 2019+ remote the dedicated
+  // Netflix button is handled at the firmware/keylayout level and cannot be
+  // disabled via ADB — a button remapper app is needed for that.
   const NETFLIX_HOOKS_PKG = "com.nvidia.shieldtech.hooks";
   let netflixHooksState = $state<"enabled" | "disabled" | "missing" | null>(null);
   let netflixBusy = $state(false);
@@ -54,8 +55,7 @@
     }
   }
 
-  // On = enable the hooks (Netflix button works); Off = disable them (button
-  // does nothing). Both go through the safety-gated package commands.
+  // On = enable the hooks (Xbox Guide → Home works); Off = disable them.
   async function setNetflixButton(enabled: boolean) {
     netflixBusy = true;
     tweaksActionMessage = "";
@@ -63,11 +63,11 @@
       const r = enabled
         ? await api.enablePackage(serial, NETFLIX_HOOKS_PKG)
         : await api.disablePackage(serial, NETFLIX_HOOKS_PKG);
-      tweaksActionMessage = `Netflix button ${enabled ? "on" : "off"}: ${r.message.trim()}`;
+      tweaksActionMessage = `System hooks ${enabled ? "on" : "off"}: ${r.message.trim()}`;
       const states = await api.packageStates(serial, [NETFLIX_HOOKS_PKG]);
       netflixHooksState = states[NETFLIX_HOOKS_PKG] ?? netflixHooksState;
     } catch (e) {
-      tweaksActionMessage = `Netflix button: ${e}`;
+      tweaksActionMessage = `System hooks: ${e}`;
     } finally {
       netflixBusy = false;
     }
@@ -196,16 +196,18 @@
     {/if}
 
     {#if netflixHooksState && netflixHooksState !== "missing"}
-      <h3>Remote Netflix Button</h3>
+      <h3>Nvidia System Hooks</h3>
       <p class="muted small">
-        The Shield remote's dedicated Netflix button is hardwired to launch Netflix.
-        Turning it off disables Nvidia's system hooks
-        (<code>com.nvidia.shieldtech.hooks</code>), freeing the button — no Button
-        Mapper app needed. Reversible any time.
+        Controls Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>) which
+        remap the Xbox controller's Guide button to Home. Disabling fixes Guide
+        button conflicts in Steam Link and Moonlight. <strong>Note:</strong> the
+        Shield remote's dedicated Netflix button is hardwired at the firmware level
+        and cannot be disabled via ADB — use a button remapper app for that.
+        Reversible any time.
       </p>
       <div class="tweak-row">
         <div>
-          <div class="current">Current: <strong>{netflixHooksState === "disabled" ? "button disabled" : "button active"}</strong></div>
+          <div class="current">Current: <strong>{netflixHooksState === "disabled" ? "hooks disabled" : "hooks active"}</strong></div>
           <div class="muted small mono">{NETFLIX_HOOKS_PKG} = {netflixHooksState}</div>
         </div>
         <div class="row-actions">
@@ -229,13 +231,15 @@
       <h3>Remote Assistant Button</h3>
       <p class="muted small">
         Turning this off revokes the microphone permission from Google's search
-        app (<code>com.google.android.katniss</code>), so the remote's dedicated
-        Assistant/mic button stops triggering. <strong>Trade-off:</strong> this
-        also disables voice search in the Play Store. Reversible any time.
+        app (<code>{ASSISTANT_PKG}</code>), so the remote's dedicated
+        Assistant/mic button stops listening. The button may still open the
+        assistant UI briefly, but it won't be able to hear you.
+        <strong>Trade-off:</strong> this also disables voice search in the
+        Play Store. Reversible any time.
       </p>
       <div class="tweak-row">
         <div>
-          <div class="current">Current: <strong>{assistantState === "revoked" ? "button disabled" : "button active"}</strong></div>
+          <div class="current">Current: <strong>{assistantState === "revoked" ? "mic revoked" : "mic active"}</strong></div>
           <div class="muted small mono">{ASSISTANT_PKG} mic = {assistantState}</div>
         </div>
         <div class="row-actions">

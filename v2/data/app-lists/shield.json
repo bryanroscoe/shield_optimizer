@@ -56,11 +56,11 @@
   },
   {
     "package": "com.nvidia.shieldtech.hooks",
-    "name": "Nvidia System Hooks (Netflix button)",
+    "name": "Nvidia System Hooks",
     "method": "disable",
     "risk": "medium",
-    "optimize_description": "Shield remote integration hooks. Disabling stops the remote's dedicated Netflix button from launching Netflix — no Button Mapper app needed.",
-    "restore_description": "Restores Shield hooks — the remote's Netflix button works again.",
+    "optimize_description": "Shield system hooks — remaps the Xbox controller Guide button to Home. Disabling fixes Guide button conflicts in Steam Link and Moonlight.",
+    "restore_description": "Restores Shield system hooks (Xbox Guide → Home remapping).",
     "default_optimize": false,
     "default_restore": false,
     "play_store": false

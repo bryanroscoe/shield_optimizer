@@ -23,6 +23,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcxMTFEMjVENTI5OEM3QjEKUldTeHg1aFNYZElSY1k0c3B2VmN0SlM1SUw5ZWdoWkVWeXVvR3RmRkNnNDNrWm1NanhOcTNOUjAK",
+      "endpoints": [
+        "https://raw.githubusercontent.com/bryanroscoe/shield_optimizer/main/v2/updater/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

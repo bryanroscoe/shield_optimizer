@@ -194,6 +194,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: v2
           tagName: ${{ needs.notes.outputs.tag }}
@@ -201,7 +203,7 @@ jobs:
           releaseBody: ${{ needs.notes.outputs.body }}
           releaseDraft: false
           prerelease: ${{ needs.notes.outputs.prerelease == 'true' }}
-          includeUpdaterJson: false
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
 
       # The AppImage bundles Ubuntu 22.04's libwayland-*, which shadows the
@@ -328,6 +330,63 @@ jobs:
             git commit -m "Bump shield-optimizer to $version"
             git push
             echo "Tap updated to $version."
+          fi
+
+  # Merge the per-OS latest.json files that tauri-action uploaded and commit the
+  # result to v2/updater/latest.json on the default branch. The Tauri updater
+  # plugin reads this file to decide whether an update is available. Each matrix
+  # leg uploads its own latest.json (last writer wins on the release asset), so
+  # we download the release asset, which already contains the merged platforms
+  # from tauri-action's built-in asset-update logic. We then commit it to the
+  # repo so the raw.githubusercontent endpoint in tauri.conf.json resolves.
+  merge-updater:
+    needs: [notes, build]
+    name: Publish updater manifest
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download latest.json from release
+        env:
+          TAG: ${{ needs.notes.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p v2/updater
+
+          # tauri-action may take a moment to finalize the asset; retry a few times.
+          for attempt in 1 2 3 4 5; do
+            if gh release download "$TAG" --pattern 'latest.json' --dir /tmp --clobber; then
+              break
+            fi
+            echo "  attempt $attempt: latest.json not ready, retrying in 15s…"
+            sleep 15
+          done
+          [[ -f /tmp/latest.json ]] || { echo "latest.json not found on release $TAG"; exit 1; }
+
+          cp /tmp/latest.json v2/updater/latest.json
+          echo "Updater manifest for $TAG:"
+          cat v2/updater/latest.json
+
+      - name: Commit updater manifest
+        env:
+          TAG: ${{ needs.notes.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add v2/updater/latest.json
+          if git diff --cached --quiet; then
+            echo "Updater manifest unchanged; nothing to commit."
+          else
+            git commit -m "Update updater manifest for ${TAG}"
+            git push origin HEAD:${{ github.event.repository.default_branch }}
+            echo "Updater manifest published for ${TAG}."
           fi
 
   # Regenerate the README gallery GIF from the released UI and commit it back

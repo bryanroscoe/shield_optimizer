@@ -2,31 +2,69 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import { check, type Update } from "@tauri-apps/plugin-updater";
   import { getThemePref, setThemePref, type ThemePref } from "$lib/theme";
+  import { getAutoUpdate, setAutoUpdate } from "$lib/prefs";
   import { api } from "$lib/api";
   import type { UpdateInfo } from "$lib/types";
 
   let { children } = $props();
 
   let theme = $state<ThemePref>("system");
+  let autoUpdate = $state(true);
   let update = $state<UpdateInfo | null>(null);
+  let pendingUpdate = $state<Update | null>(null);
+  let updateBusy = $state(false);
+  let updateProgress = $state("");
 
   onMount(() => {
     theme = getThemePref();
-    // Best-effort update check — never blocks the UI; failures stay silent.
+    autoUpdate = getAutoUpdate();
+
     api
       .checkForUpdate()
       .then((u) => (update = u))
       .catch(() => {});
+
+    checkForUpdate();
   });
 
-  async function openReleasePage() {
-    if (!update) return;
+  async function checkForUpdate() {
     try {
-      await openUrl(update.url);
+      const available = await check();
+      if (available) {
+        pendingUpdate = available;
+        if (autoUpdate) {
+          await installUpdate();
+        }
+      }
     } catch {
-      /* ignore */
+      /* silent — network/signing failures don't block the app */
     }
+  }
+
+  async function installUpdate() {
+    if (!pendingUpdate || updateBusy) return;
+    updateBusy = true;
+    updateProgress = "Downloading…";
+    try {
+      await pendingUpdate.downloadAndInstall((event) => {
+        if (event.event === "Started" && event.data.contentLength) {
+          updateProgress = `Downloading (${Math.round(event.data.contentLength / 1024 / 1024)} MB)…`;
+        } else if (event.event === "Finished") {
+          updateProgress = "Installing…";
+        }
+      });
+      updateProgress = "Update installed — restart the app to apply.";
+    } catch (e) {
+      updateProgress = `Update failed: ${e}`;
+      updateBusy = false;
+    }
+  }
+
+  function toggleAutoUpdate() {
+    autoUpdate = !autoUpdate;
+    setAutoUpdate(autoUpdate);
   }
 
   function pickTheme(pref: ThemePref) {
@@ -48,8 +86,16 @@
       <span class="title">Shield Optimizer</span>
       {#if update}
         <span class="version" title="Installed version">v{update.current}</span>
-        {#if update.update_available}
-          <button class="update-badge" onclick={openReleasePage} title="Open the release page">
+        {#if pendingUpdate}
+          {#if updateBusy}
+            <span class="update-badge updating">{updateProgress}</span>
+          {:else}
+            <button class="update-badge" onclick={installUpdate} title="Download and install now">
+              Update now → v{update.latest}
+            </button>
+          {/if}
+        {:else if update.update_available}
+          <button class="update-badge" onclick={() => openUrl(update!.url)} title="Open the release page">
             Update available → v{update.latest}
           </button>
         {/if}
@@ -64,6 +110,10 @@
           Snapshots
         </a>
       </nav>
+      <label class="auto-update-toggle" title="Automatically download and install updates on launch">
+        <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
+        Auto-update
+      </label>
       <div class="theme-toggle" role="group" aria-label="Theme">
         {#each THEMES as t (t.id)}
           <button
@@ -317,6 +367,10 @@
     white-space: nowrap;
   }
   .update-badge:hover { background: var(--accent); color: #fff; }
+  .update-badge.updating {
+    cursor: default;
+    opacity: 0.8;
+  }
   .header-right {
     display: flex;
     align-items: center;
@@ -335,6 +389,19 @@
   nav a.active {
     color: var(--accent);
     background: var(--bg-nav-active);
+  }
+  .auto-update-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .auto-update-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
   }
   .theme-toggle {
     display: flex;
