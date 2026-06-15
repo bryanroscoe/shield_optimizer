@@ -132,6 +132,8 @@ export const api = {
     invoke<SendTextResult>("send_text", { serial, text, forceShell }),
   sendKey: (serial: string, key: string, forceShell = false) =>
     invoke<SendTextResult>("send_key", { serial, key, forceShell }),
+  openSettings: (serial: string) =>
+    invoke<SendTextResult>("open_settings", { serial }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),

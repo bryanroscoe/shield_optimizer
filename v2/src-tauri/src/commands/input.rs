@@ -155,9 +155,6 @@ fn keycode_for(key: &str) -> Option<u32> {
         "select" => 23,
         "back" => 4,
         "home" => 3,
-        // The Shield remote's gear button sends KEYCODE_SETTINGS; replicate it
-        // rather than KEYCODE_MENU (82), which is a no-op on modern Android TV.
-        "settings" => 176,
         "recents" => 187,
         "play_pause" => 85,
         "rewind" => 89,
@@ -234,6 +231,35 @@ pub async fn send_key(
     })
 }
 
+/// `open_settings` — launch the system Settings activity. The Shield remote's
+/// hamburger/gear button opens Settings via an *intent*, not a keycode — which
+/// is why `KEYCODE_SETTINGS` (176) and `KEYCODE_MENU` (82) both no-op when
+/// injected. `am start` reliably opens Settings on Android TV / Google TV.
+#[tauri::command]
+pub async fn open_settings(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<SendTextResult, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(&serial, "am start -a android.settings.SETTINGS")
+        .await
+        .map_err(|e| format!("am start: {e}"))?;
+    // `am start` prints "Starting: Intent { ... }" on success and an
+    // "Error"/"Exception" line on failure.
+    let combined = out.combined();
+    let ok = !combined.contains("Error") && !combined.contains("Exception");
+    Ok(SendTextResult {
+        ok,
+        message: if ok {
+            "Opened Settings.".to_string()
+        } else {
+            combined.trim().to_string()
+        },
+        transport: "shell",
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,7 +293,6 @@ mod tests {
         assert_eq!(keycode_for("up"), Some(19));
         assert_eq!(keycode_for("select"), Some(23));
         assert_eq!(keycode_for("back"), Some(4));
-        assert_eq!(keycode_for("settings"), Some(176));
         assert_eq!(keycode_for("recents"), Some(187));
         assert_eq!(keycode_for("delete"), Some(67));
         assert_eq!(keycode_for("wakeup"), Some(224));

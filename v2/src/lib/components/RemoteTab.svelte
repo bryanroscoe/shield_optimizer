@@ -64,6 +64,16 @@
     });
   }
 
+  // Settings opens via an intent (am start), not a keycode — the Shield's gear
+  // button is an intent launch, and KEYCODE_SETTINGS/MENU no-op when injected.
+  function openSettings() {
+    remoteFlushBuffer();
+    remoteEnqueue(async () => {
+      const r = await api.openSettings(serial);
+      remoteMessage = r.ok ? "" : r.message;
+    });
+  }
+
   // Hold-to-repeat for the D-pad: first repeat after 400 ms, then ~7/s. Only
   // armed on the instant channel — on the slow shell transport the queue
   // would pile up far behind the finger, so a hold is just one press there.
@@ -182,7 +192,7 @@
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("back")} title="Back">Back</button>
         <button onclick={() => sendRemoteKey("home")} title="Home">Home</button>
-        <button onclick={() => sendRemoteKey("settings")} title="Settings (the Shield remote's gear button)">⚙ Settings</button>
+        <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)">⚙ Settings</button>
       </div>
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher">Recents</button>
