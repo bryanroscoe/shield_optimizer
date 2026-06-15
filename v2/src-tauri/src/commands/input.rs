@@ -71,6 +71,10 @@ pub async fn send_text(
     state: State<'_, AppState>,
     serial: String,
     text: String,
+    // When true, skip the fast channel and use `input text` directly — the
+    // Remote tab's "Force compatible mode" escape hatch for devices where the
+    // channel starts but misbehaves.
+    force_shell: bool,
 ) -> Result<SendTextResult, String> {
     if text.is_empty() {
         return Ok(SendTextResult {
@@ -80,15 +84,19 @@ pub async fn send_text(
         });
     }
 
-    let channel = match channel_ready(&state, &app, &serial).await {
-        Ok(()) => match state.remote_send_text(&serial, &text).await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                state.drop_remote_session(&serial).await;
-                Err(e)
-            }
-        },
-        Err(e) => Err(e),
+    let channel = if force_shell {
+        Err("compatibility mode forced".to_string())
+    } else {
+        match channel_ready(&state, &app, &serial).await {
+            Ok(()) => match state.remote_send_text(&serial, &text).await {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    state.drop_remote_session(&serial).await;
+                    Err(e)
+                }
+            },
+            Err(e) => Err(e),
+        }
     };
     if channel.is_ok() {
         return Ok(SendTextResult {
@@ -100,7 +108,9 @@ pub async fn send_text(
             transport: "channel",
         });
     }
-    tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input text");
+    if !force_shell {
+        tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input text");
+    }
 
     let encoded = match encode_input_text(&text) {
         Ok(e) => e,
@@ -173,20 +183,26 @@ pub async fn send_key(
     state: State<'_, AppState>,
     serial: String,
     key: String,
+    // See `send_text` — forces the slow `input keyevent` path.
+    force_shell: bool,
 ) -> Result<SendTextResult, String> {
     let Some(code) = keycode_for(&key) else {
         return Err(format!("Unknown remote key: {key:?}"));
     };
 
-    let channel = match channel_ready(&state, &app, &serial).await {
-        Ok(()) => match state.remote_send_key_press(&serial, code).await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                state.drop_remote_session(&serial).await;
-                Err(e)
-            }
-        },
-        Err(e) => Err(e),
+    let channel = if force_shell {
+        Err("compatibility mode forced".to_string())
+    } else {
+        match channel_ready(&state, &app, &serial).await {
+            Ok(()) => match state.remote_send_key_press(&serial, code).await {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    state.drop_remote_session(&serial).await;
+                    Err(e)
+                }
+            },
+            Err(e) => Err(e),
+        }
     };
     if channel.is_ok() {
         return Ok(SendTextResult {
@@ -195,7 +211,9 @@ pub async fn send_key(
             transport: "channel",
         });
     }
-    tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input keyevent");
+    if !force_shell {
+        tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input keyevent");
+    }
 
     let adb = state.adb_snapshot().await;
     let out = adb

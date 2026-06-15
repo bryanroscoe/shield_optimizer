@@ -1,8 +1,20 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { api } from "$lib/api";
+  import { getRemoteForceShell, setRemoteForceShell } from "$lib/prefs";
 
   let { serial }: { serial: string } = $props();
+
+  // Escape hatch: force the slow but universal `input` transport, skipping the
+  // fast scrcpy channel. Persisted across sessions.
+  let forceShell = $state(getRemoteForceShell());
+
+  function toggleForceShell() {
+    forceShell = !forceShell;
+    setRemoteForceShell(forceShell);
+    // Reset the cue so it reflects the next send's actual transport.
+    transport = null;
+  }
 
   /// Rolling echo of what live typing has sent (display only).
   let remoteEcho = $state("");
@@ -37,7 +49,7 @@
     const chunk = remoteBuffer;
     remoteBuffer = "";
     remoteEnqueue(async () => {
-      const r = await api.sendText(serial, chunk);
+      const r = await api.sendText(serial, chunk, forceShell);
       noteTransport(r.transport);
       if (!r.ok) remoteMessage = r.message;
     });
@@ -46,7 +58,7 @@
   function sendRemoteKey(key: string) {
     remoteFlushBuffer();
     remoteEnqueue(async () => {
-      const r = await api.sendKey(serial, key);
+      const r = await api.sendKey(serial, key, forceShell);
       noteTransport(r.transport);
       remoteMessage = r.ok ? "" : r.message;
     });
@@ -113,10 +125,14 @@
       <span class="transport" class:live={transport === "channel"}
         title={transport === "channel"
           ? "Low-latency control channel — presses reach the TV in milliseconds, and holding a D-pad button repeats."
-          : "Compatibility mode — the fast channel could not start on this device, so each press is a slower ADB call (~0.7s)."}>
+          : "Compatibility mode — each press is a slower ADB call (~0.7s)."}>
         {transport === "channel" ? "● instant" : "○ compatible (slower)"}
       </span>
     {/if}
+    <label class="compat-toggle" title="Skip the fast channel and use the slower, universal ADB input — use this if the instant channel misbehaves on your device.">
+      <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
+      Force compatible mode
+    </label>
   </div>
   <div class="remote-layout">
     <div class="remote-typing">
@@ -206,11 +222,25 @@
     display: flex;
     align-items: baseline;
     gap: 0.8rem;
+    flex-wrap: wrap;
   }
   .transport {
     font-size: 0.74rem;
     color: var(--fg-muted);
     cursor: default;
+  }
+  .compat-toggle {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+  }
+  .compat-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
   }
   .transport.live {
     color: var(--ok);

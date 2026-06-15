@@ -128,10 +128,10 @@ export const api = {
     invoke<Record<string, import("$lib/types").AppUsage>>("app_usage_map", { serial }),
   safetyInfo: (pkg: string) => invoke<Safety>("safety_info", { package: pkg }),
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
-  sendText: (serial: string, text: string) =>
-    invoke<SendTextResult>("send_text", { serial, text }),
-  sendKey: (serial: string, key: string) =>
-    invoke<SendTextResult>("send_key", { serial, key }),
+  sendText: (serial: string, text: string, forceShell = false) =>
+    invoke<SendTextResult>("send_text", { serial, text, forceShell }),
+  sendKey: (serial: string, key: string, forceShell = false) =>
+    invoke<SendTextResult>("send_key", { serial, key, forceShell }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
