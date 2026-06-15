@@ -55,6 +55,11 @@ pub struct DeviceProperties {
     pub build_id: String,
     /// `getprop ro.board.platform`.
     pub board_platform: String,
+    /// `getprop ro.build.characteristics` — comma-separated list that includes
+    /// `tv` on Android TV / Google TV devices. The signal that distinguishes a
+    /// TV from a phone or tablet sharing the same brand (e.g. Google Pixel).
+    #[serde(default)]
+    pub characteristics: String,
 }
 
 /// A connected device — what the device list shows and what every action targets.

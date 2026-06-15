@@ -17,6 +17,7 @@ export interface DeviceProperties {
   sdk_level: string;
   build_id: string;
   board_platform: string;
+  characteristics?: string;
 }
 
 export interface Device {
