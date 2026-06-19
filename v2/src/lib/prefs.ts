@@ -1,8 +1,11 @@
 const KEY = "shieldopt.autoUpdate";
 
+// Opt-in: off unless the user explicitly enables it. The build is unsigned, so
+// silently downloading + installing a new version on launch (possibly mid-task)
+// is surprising — the update is still surfaced via the badge / "Update now".
 export function getAutoUpdate(): boolean {
-  if (typeof localStorage === "undefined") return true;
-  return localStorage.getItem(KEY) !== "false";
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(KEY) === "true";
 }
 
 export function setAutoUpdate(enabled: boolean): void {
