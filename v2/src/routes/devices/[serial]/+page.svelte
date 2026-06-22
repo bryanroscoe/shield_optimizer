@@ -458,6 +458,13 @@
     prompt += "Proceed?";
     if (!confirm(prompt)) return;
     await disableApp(pkg);
+    // The memory table is fed by the health report's top_memory list, which
+    // disableApp doesn't touch — so the row lingered until a full refresh. A
+    // disabled app isn't running, so drop its row now (freed RAM and the rest
+    // reconcile on the next report refresh).
+    if (appStates[pkg] === "disabled" && report) {
+      report.top_memory = report.top_memory.filter((m) => m.package !== pkg);
+    }
   }
 
   /// Record a curated app's new on-device state and keep the two tabs in
