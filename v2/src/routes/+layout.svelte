@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check, type Update } from "@tauri-apps/plugin-updater";
+  import { relaunch } from "@tauri-apps/plugin-process";
   import { getThemePref, setThemePref, type ThemePref } from "$lib/theme";
   import { getAutoUpdate, setAutoUpdate } from "$lib/prefs";
   import { api } from "$lib/api";
@@ -15,6 +16,7 @@
   let update = $state<UpdateInfo | null>(null);
   let pendingUpdate = $state<Update | null>(null);
   let updateBusy = $state(false);
+  let updateInstalled = $state(false);
   let updateProgress = $state("");
 
   onMount(() => {
@@ -55,10 +57,21 @@
           updateProgress = "Installing…";
         }
       });
-      updateProgress = "Update installed — restart the app to apply.";
+      updateInstalled = true;
+      updateBusy = false;
     } catch (e) {
       updateProgress = `Update failed: ${e}`;
       updateBusy = false;
+    }
+  }
+
+  async function restartApp() {
+    try {
+      await relaunch();
+    } catch (e) {
+      updateProgress = `Couldn't restart automatically (${e}) — quit and reopen to finish updating.`;
+      updateInstalled = false;
+      updateBusy = true;
     }
   }
 
@@ -87,7 +100,11 @@
       {#if update}
         <span class="version" title="Installed version">v{update.current}</span>
         {#if pendingUpdate}
-          {#if updateBusy}
+          {#if updateInstalled}
+            <button class="update-badge installed" onclick={restartApp} title="Relaunch to finish updating">
+              Update installed — Restart now ↻
+            </button>
+          {:else if updateBusy}
             <span class="update-badge updating">{updateProgress}</span>
           {:else}
             <button class="update-badge" onclick={installUpdate} title="Download and install now">
@@ -370,6 +387,13 @@
   .update-badge.updating {
     cursor: default;
     opacity: 0.8;
+  }
+  .update-badge.installed {
+    background: var(--accent);
+    color: #fff;
+  }
+  .update-badge.installed:hover {
+    background: var(--accent-strong-hover);
   }
   .header-right {
     display: flex;
