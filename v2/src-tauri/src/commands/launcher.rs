@@ -240,7 +240,6 @@ pub async fn set_default_launcher_impl(
         .await;
     match role_out {
         Ok(out) if !out.stdout.contains("Unknown command") => {
-            progress.step("Confirming the switch took");
             if verify_active(&*adb, serial, package).await {
                 return Ok(SetLauncherResult {
                     ok: true,
@@ -297,7 +296,6 @@ pub async fn set_default_launcher_impl(
                 };
                 if is_success_ack(msg) || msg.is_empty() {
                     device_accepted = true;
-                    progress.step("Confirming the switch took");
                     if verify_active(&*adb, serial, package).await {
                         return Ok(SetLauncherResult {
                             ok: true,
@@ -385,7 +383,7 @@ pub async fn set_default_launcher_impl(
                         "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME",
                     )
                     .await;
-                progress.step("Confirming the switch took");
+                progress.step("Checking whether Home switched over");
                 if verify_active(&*adb, serial, package).await {
                     return Ok(SetLauncherResult {
                         ok: true,
