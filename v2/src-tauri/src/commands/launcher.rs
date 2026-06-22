@@ -13,6 +13,23 @@ use super::{home_tracking, AppState};
 const HOME_HANDLER_QUERY: &str =
     "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME";
 
+/// Per-step progress sink for `set_default_launcher`. The multi-strategy
+/// switch can take a few seconds (enable → role → set-home-activity → verify,
+/// with backoff polls in between), so the frontend passes a Channel to narrate
+/// each step. Internal callers (snapshot apply, tests) use `Progress::Silent`.
+pub enum Progress {
+    Channel(tauri::ipc::Channel<String>),
+    Silent,
+}
+
+impl Progress {
+    fn step(&self, msg: &str) {
+        if let Progress::Channel(ch) = self {
+            let _ = ch.send(msg.to_string());
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn list_launchers(
     state: State<'_, AppState>,
@@ -151,27 +168,32 @@ pub struct SetLauncherResult {
 /// `set_default_launcher` — port of v1's multi-strategy promotion (PR #17/#18).
 /// Strategy:
 ///   1. `pm enable <pkg>` — unblock a previously-disabled launcher.
-///   2. Modern role API: `cmd role add-role-holder android.app.role.HOME <pkg>`.
-///      Skipped immediately when the build returns "Unknown command".
-///   3. For each discovered HOME activity (via `cmd package query-activities
-///      --components`, falling back to common-name guesses), try
-///      `cmd package set-home-activity --user 0 <comp>` then `pm
-///      set-home-activity --user 0 <comp>`.
-///   4. Last resort: send a HOME intent — when other launchers are disabled,
-///      the system resolves to the only remaining one.
-/// Every attempt is verified by re-resolving the active launcher.
+///   2. Stock fast path: if a *stock* launcher currently holds HOME, try the
+///      polite setters (role + set-home-activity) once and, if HOME still
+///      resolves to stock, go straight to the opt-in disable-stock takeover.
+///      An enabled stock launcher overrides set-home-activity / the role API
+///      (they answer "Success" but HOME stays on stock; verified live on
+///      Shield / Android 11), so the only reliable switch is to disable stock —
+///      v1's Launcher-Wizard move. Other launchers are never touched.
+///   3. Otherwise (switching between non-stock launchers) run the full ladder:
+///      role API → set-home-activity over discovered/guessed HOME activities →
+///      HOME-intent kick → disable-stock takeover as a last resort.
+/// Every attempt is verified by re-resolving the active launcher, and the
+/// takeover is gated on the caller's explicit `allow_stock_disable` opt-in.
 #[tauri::command]
 pub async fn set_default_launcher(
     state: State<'_, AppState>,
     serial: String,
     package: String,
     allow_stock_disable: Option<bool>,
+    on_progress: tauri::ipc::Channel<String>,
 ) -> Result<SetLauncherResult, String> {
     set_default_launcher_impl(
         state.inner(),
         &serial,
         &package,
         allow_stock_disable.unwrap_or(false),
+        &Progress::Channel(on_progress),
     )
     .await
 }
@@ -185,6 +207,7 @@ pub async fn set_default_launcher_impl(
     serial: &str,
     package: &str,
     allow_stock_disable: bool,
+    progress: &Progress,
 ) -> Result<SetLauncherResult, String> {
     // `package` can come from a custom-launcher entry the user typed, so it's
     // interpolated into shell commands below — validate it first.
@@ -201,7 +224,67 @@ pub async fn set_default_launcher_impl(
     let adb = state.adb_snapshot().await;
 
     // 1. Enable the package — no-op for already-enabled.
+    progress.step("Enabling this launcher");
     let _ = adb.shell(serial, &format!("pm enable {package}")).await;
+
+    // Stock fast path: when the launcher currently holding HOME is *stock*, the
+    // polite setters can't win — an enabled stock launcher overrides
+    // set-home-activity and the role API (they return "Success" but HOME keeps
+    // resolving to stock; verified live on Shield / Android 11). So try the
+    // cheap setters exactly once, and if HOME still resolves to stock go
+    // straight to the opt-in disable-stock takeover rather than grinding the
+    // full strategy ladder with its multi-second verify back-offs. Switches
+    // between non-stock launchers fall through to the normal ladder below,
+    // which works for them.
+    if let Some(active) = active_launcher(&*adb, serial).await {
+        let active_is_stock = stock_launcher_catalog().iter().any(|e| e.package == active);
+        if active_is_stock && active != package {
+            progress.step("Assigning the Home role to it");
+            let _ = adb
+                .shell(
+                    serial,
+                    &format!("cmd role add-role-holder android.app.role.HOME {package}"),
+                )
+                .await;
+            if let Some(comp) = discover_home_activity(&*adb, serial, package).await {
+                progress.step("Registering it as the Home app");
+                let _ = adb
+                    .shell(
+                        serial,
+                        &format!("cmd package set-home-activity --user 0 {comp}"),
+                    )
+                    .await;
+            }
+            // When the setters work they take effect immediately; when stock
+            // overrides them they never will — one quick check is enough.
+            progress.step("Checking whether Home switched over");
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+            if active_launcher(&*adb, serial).await.as_deref() == Some(package) {
+                focus_home(&*adb, serial, progress).await;
+                return Ok(SetLauncherResult {
+                    ok: true,
+                    strategy: Some("set_home_activity".into()),
+                    current_launcher: Some(package.to_string()),
+                    last_error: None,
+                    stock_takeover_available: false,
+                });
+            }
+            if let Some(result) = stock_takeover(
+                &*adb,
+                serial,
+                package,
+                &active,
+                allow_stock_disable,
+                progress,
+            )
+            .await
+            {
+                return Ok(result);
+            }
+            // Stock is on the NEVER_DISABLE list — fall through to the ladder,
+            // which will at least try the polite strategies and report cleanly.
+        }
+    }
 
     let mut last_error: Option<String> = None;
     // Set when a strategy was acknowledged by the device ("Success" or a clean
@@ -210,6 +293,7 @@ pub async fn set_default_launcher_impl(
     let mut device_accepted = false;
 
     // 2. Role API.
+    progress.step("Assigning the Home role to it");
     let role_out = adb
         .shell(
             serial,
@@ -219,6 +303,7 @@ pub async fn set_default_launcher_impl(
     match role_out {
         Ok(out) if !out.stdout.contains("Unknown command") => {
             if verify_active(&*adb, serial, package).await {
+                focus_home(&*adb, serial, progress).await;
                 return Ok(SetLauncherResult {
                     ok: true,
                     strategy: Some("role_api".into()),
@@ -243,6 +328,7 @@ pub async fn set_default_launcher_impl(
     }
 
     // 3. Discover activity candidates.
+    progress.step("Registering it as the Home app");
     let mut candidates: Vec<String> = Vec::new();
     if let Some(activity) = discover_home_activity(&*adb, serial, package).await {
         candidates.push(activity);
@@ -274,6 +360,7 @@ pub async fn set_default_launcher_impl(
                 if is_success_ack(msg) || msg.is_empty() {
                     device_accepted = true;
                     if verify_active(&*adb, serial, package).await {
+                        focus_home(&*adb, serial, progress).await;
                         return Ok(SetLauncherResult {
                             ok: true,
                             strategy: Some("set_home_activity".into()),
@@ -297,6 +384,7 @@ pub async fn set_default_launcher_impl(
 
     // 4. HOME-intent kick — system will resolve to the only remaining HOME app
     // if everything else got disabled.
+    progress.step("Switching Home over to it");
     let _ = adb
         .shell(
             serial,
@@ -315,62 +403,22 @@ pub async fn set_default_launcher_impl(
         });
     }
 
-    // 5. The strategy that actually works on Android 11 TV builds where the
-    // role API silently no-ops and set-home-activity answers "Success"
-    // without effect (verified live on a Shield 2019 / Android 11): when the
-    // app holding HOME is a *stock* launcher, disable it — Android then
-    // resolves HOME to the remaining launcher. This is v1's proven
-    // Setup-Launcher mechanism — but it is NEVER applied without the
-    // caller's explicit opt-in (`allow_stock_disable`); otherwise we report
-    // that the option exists and let the user decide. Never touches a custom
-    // launcher; the NEVER_DISABLE gate still applies; and if the takeover
-    // doesn't verify, the stock launcher is re-enabled.
+    // 5. Last resort: if the launcher still holding HOME is *stock*, disable it
+    // (the same takeover the stock fast path uses). This catches the case where
+    // HOME wasn't stock at the start but resolved back to it after the polite
+    // strategies. Gated, never touches other launchers, re-enables on failure.
     if let Some(active) = now_active.clone() {
-        let active_is_stock = stock_launcher_catalog().iter().any(|e| e.package == active);
-        let blocked = matches!(
-            crate::engine::classify_safety(&active),
-            crate::engine::Safety::NeverDisable { .. }
-        );
-        if active != package && active_is_stock && !blocked {
-            if !allow_stock_disable {
-                return Ok(SetLauncherResult {
-                    ok: false,
-                    strategy: None,
-                    current_launcher: Some(active.clone()),
-                    last_error: Some(format!(
-                        "This device ignores the standard launcher-switch commands. The only \
-                         way to hand HOME to {package} is to disable the stock launcher \
-                         ({active}) — it can be re-enabled from the list at any time."
-                    )),
-                    stock_takeover_available: true,
-                });
-            }
-            let disabled_ok = matches!(
-                adb.shell(serial, &format!("pm disable-user --user 0 {active}")).await,
-                Ok(ref o) if !o.shell_reported_failure()
-            );
-            if disabled_ok {
-                let _ = adb
-                    .shell(
-                        serial,
-                        "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME",
-                    )
-                    .await;
-                if verify_active(&*adb, serial, package).await {
-                    return Ok(SetLauncherResult {
-                        ok: true,
-                        strategy: Some("disable_stock_takeover".into()),
-                        current_launcher: Some(package.to_string()),
-                        last_error: None,
-                        stock_takeover_available: false,
-                    });
-                }
-                // Takeover didn't verify — put the stock launcher back the
-                // way we found it rather than leaving a half-applied state.
-                if is_valid_package_name(&active) {
-                    let _ = adb.shell(serial, &format!("pm enable {active}")).await;
-                }
-            }
+        if let Some(result) = stock_takeover(
+            &*adb,
+            serial,
+            package,
+            &active,
+            allow_stock_disable,
+            progress,
+        )
+        .await
+        {
+            return Ok(result);
         }
     }
 
@@ -395,12 +443,108 @@ pub async fn set_default_launcher_impl(
     })
 }
 
+/// Disable the active *stock* launcher so HOME resolves to `package`. On builds
+/// where an enabled stock launcher overrides set-home-activity / the role API
+/// (they answer "Success" but HOME keeps resolving to stock — verified live on
+/// Shield / Android 11), this is the only switch that sticks. It's v1's proven
+/// Launcher-Wizard move: leave the *other* launchers alone, just take stock out
+/// of the way. Gated on `allow_stock_disable`; without it, returns
+/// `stock_takeover_available` so the UI can confirm. Never disables a
+/// NEVER_DISABLE package, and re-enables stock if the switch doesn't verify.
+/// Returns `None` when `active` isn't a disable-able stock launcher — the
+/// caller then falls through to its normal failure path.
+async fn stock_takeover(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    package: &str,
+    active: &str,
+    allow_stock_disable: bool,
+    progress: &Progress,
+) -> Option<SetLauncherResult> {
+    let active_is_stock = stock_launcher_catalog().iter().any(|e| e.package == active);
+    let blocked = matches!(
+        crate::engine::classify_safety(active),
+        crate::engine::Safety::NeverDisable { .. }
+    );
+    if active == package || !active_is_stock || blocked {
+        return None;
+    }
+    if !allow_stock_disable {
+        return Some(SetLauncherResult {
+            ok: false,
+            strategy: None,
+            current_launcher: Some(active.to_string()),
+            last_error: Some(format!(
+                "Switching to {package} means disabling the stock launcher ({active}) — on this \
+                 device that's the only thing that hands HOME over. Your other launchers are left \
+                 alone, and stock can be re-enabled from this list at any time."
+            )),
+            stock_takeover_available: true,
+        });
+    }
+    progress.step(&format!(
+        "Disabling the stock launcher ({active}) to hand Home over"
+    ));
+    let disabled_ok = matches!(
+        adb.shell(serial, &format!("pm disable-user --user 0 {active}")).await,
+        Ok(ref o) if !o.shell_reported_failure()
+    );
+    if disabled_ok {
+        let _ = adb
+            .shell(
+                serial,
+                "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME",
+            )
+            .await;
+        progress.step("Checking whether Home switched over");
+        if verify_active(adb, serial, package).await {
+            return Some(SetLauncherResult {
+                ok: true,
+                strategy: Some("disable_stock_takeover".into()),
+                current_launcher: Some(package.to_string()),
+                last_error: None,
+                stock_takeover_available: false,
+            });
+        }
+        // Didn't verify — put stock back rather than leave a half-applied state.
+        if is_valid_package_name(active) {
+            let _ = adb.shell(serial, &format!("pm enable {active}")).await;
+        }
+    }
+    Some(SetLauncherResult {
+        ok: false,
+        strategy: None,
+        current_launcher: Some(active.to_string()),
+        last_error: Some(format!(
+            "Disabled {active} but HOME still didn't switch to {package}, so it was re-enabled to \
+             avoid leaving the device without a launcher. Try again, or set it from the TV's \
+             Settings."
+        )),
+        stock_takeover_available: false,
+    })
+}
+
 /// `cmd package set-home-activity` / `pm set-home-activity` acknowledge with a
 /// bare "Success" line on many builds (and stay silent on others). That's an
 /// acceptance, not a diagnostic — surfacing it as an error produced the
 /// infamous "Failed: Success" message.
 fn is_success_ack(s: &str) -> bool {
     s.trim().eq_ignore_ascii_case("success")
+}
+
+/// Foreground the now-default launcher so the TV actually shows it the moment
+/// we report success — otherwise the screen sits on whatever was up (or the
+/// screensaver) until the user presses Home. HOME resolves to the default we
+/// just set, so this brings the new launcher forward. Fire-and-forget; the
+/// takeover and HOME-intent-kick paths already do this inline.
+async fn focus_home(adb: &dyn crate::adb::AdbDriver, serial: &str, progress: &Progress) {
+    progress.step("Opening the new launcher");
+    let _ = adb
+        .shell(
+            serial,
+            "am start -a android.intent.action.MAIN -c android.intent.category.HOME",
+        )
+        .await;
 }
 
 /// Poll the active-HOME resolver until it reports `package`, with backoff.
@@ -502,9 +646,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(res.ok);
         assert_eq!(res.strategy.as_deref(), Some("role_api"));
@@ -516,7 +666,9 @@ mod tests {
         let calls = log.lock().unwrap();
         assert!(!calls.iter().any(|c| c.contains("set-home-activity")));
         assert!(!calls.iter().any(|c| c.contains("query-activities")));
-        assert!(!calls.iter().any(|c| c.contains("am start")));
+        // The HOME-intent *kick* (am start -W) must not run; the plain `am start`
+        // that foregrounds the launcher on success is expected.
+        assert!(!calls.iter().any(|c| c.contains("am start -W")));
     }
 
     #[tokio::test]
@@ -530,9 +682,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(res.ok);
         assert_eq!(res.strategy.as_deref(), Some("set_home_activity"));
@@ -551,9 +709,15 @@ mod tests {
             .on_shell_failure("set-home-activity", "Error: Activity class does not exist");
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(!res.ok);
         assert_eq!(res.strategy, None);
@@ -575,9 +739,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", true)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            true,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(!res.ok);
         let calls = log.lock().unwrap();
@@ -593,6 +763,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_launcher_from_stock_offers_takeover_without_grinding_the_ladder() {
+        // Stock holds HOME and overrides the polite setters (the resolver keeps
+        // naming stock even after set-home-activity "Success"). Without the
+        // opt-in, the fast path should try the setter once and then surface the
+        // takeover immediately — no HOME-intent kick, no stock disabled.
+        let mock = MockAdb::default()
+            .on_shell("add-role-holder", "Success")
+            .on_shell("query-activities", "com.example.launcher/.MainActivity")
+            .on_shell("set-home-activity", "Success")
+            .on_shell("resolve-activity", "com.google.android.tvlauncher/.Home");
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
+
+        assert!(!res.ok);
+        assert!(
+            res.stock_takeover_available,
+            "should offer the disable-stock takeover"
+        );
+        let calls = log.lock().unwrap();
+        assert!(
+            calls.iter().any(|c| c.contains("set-home-activity")),
+            "fast path should try the polite setter once"
+        );
+        assert!(
+            !calls.iter().any(|c| c.contains("am start")),
+            "fast path should skip the HOME-intent kick"
+        );
+        assert!(
+            !calls.iter().any(|c| c.contains("disable-user")),
+            "must not disable stock without the opt-in"
+        );
+    }
+
+    #[tokio::test]
     async fn set_launcher_stock_takeover_does_not_revert_when_it_verifies() {
         // Resolver reports the stock launcher until it is disabled, then the
         // target — the takeover verifies, so no revert should be issued.
@@ -602,6 +816,9 @@ mod tests {
             .on_shell_seq(
                 "resolve-activity",
                 &[
+                    // stock holds HOME on the fast-path read and the quick check,
+                    // then the target after the takeover disables stock.
+                    "com.google.android.tvlauncher/.Home",
                     "com.google.android.tvlauncher/.Home",
                     "com.example.launcher/.MainActivity",
                 ],
@@ -609,9 +826,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", true)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            true,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(res.ok);
         assert_eq!(res.strategy.as_deref(), Some("disable_stock_takeover"));

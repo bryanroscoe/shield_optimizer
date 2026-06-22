@@ -427,6 +427,7 @@ pub async fn apply_snapshot(
             &serial,
             launcher_pkg,
             false,
+            &crate::commands::launcher::Progress::Silent,
         )
         .await;
         if let Ok(r) = result {

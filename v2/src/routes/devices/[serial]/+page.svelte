@@ -4,6 +4,7 @@
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { Channel } from "@tauri-apps/api/core";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -42,6 +43,10 @@
   let report = $state<HealthReport | null>(null);
   let reportLoading = $state(false);
   let reportErr = $state<string | null>(null);
+  // Set when a device-state change in another tab makes the health report
+  // stale, so it re-fetches (in the background, keeping current data on screen)
+  // the next time the Memory tab is opened.
+  let healthStale = $state(false);
   let reportLastRefreshed = $state<Date | null>(null);
   let liveRefresh = $state(false);
   let liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -72,6 +77,7 @@
   let launcherErr = $state<string | null>(null);
   let launcherActionBusy = $state<string | null>(null); // package id currently being acted on
   let launcherActionMessage = $state("");
+  let launcherProgress = $state(""); // live per-step status while a switch is in flight
 
   let apps = $state<AppEntry[]>([]);
   let appsLoaded = $state(false);
@@ -329,7 +335,10 @@
     try {
       const r = await api.disablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
-      if (r.ok) patchOtherState(pkg, false);
+      if (r.ok) {
+        patchOtherState(pkg, false);
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -343,7 +352,10 @@
     try {
       const r = await api.enablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "enabled" : "failed")}`;
-      if (r.ok) patchOtherState(pkg, true);
+      if (r.ok) {
+        patchOtherState(pkg, true);
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -358,7 +370,10 @@
     try {
       const r = await api.uninstallPackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) patchOtherState(pkg, "removed");
+      if (r.ok) {
+        patchOtherState(pkg, "removed");
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -385,6 +400,9 @@
     if (apps.length > 0) {
       appStates = await fetchAppStates(apps.map((a) => a.package));
     }
+    // The Optimize wizard can disable launchers and many packages — mark the
+    // Launcher and Memory caches stale so they reload fresh on next visit.
+    invalidateDeviceCaches();
   }
 
   /// Lookup a package in the loaded app catalog (if it's there) for risk-aware
@@ -405,8 +423,8 @@
     try {
       const r = await api.forceStop(serial, pkg);
       appActionMessage = r.ok
-        ? `${pkg}: stopped — refresh the report to see freed RAM.`
-        : `${pkg}: ${r.message.trim()}`;
+        ? `${pkg} stopped — its RAM frees up now (it restarts on next launch). Refresh the report to see the change.`
+        : `Couldn't stop ${pkg}: ${r.message.trim()}`;
     } catch (e) {
       appActionMessage = String(e);
     } finally {
@@ -456,6 +474,13 @@
     prompt += "Proceed?";
     if (!confirm(prompt)) return;
     await disableApp(pkg);
+    // The memory table is fed by the health report's top_memory list, which
+    // disableApp doesn't touch — so the row lingered until a full refresh. A
+    // disabled app isn't running, so drop its row now (freed RAM and the rest
+    // reconcile on the next report refresh).
+    if (appStates[pkg] === "disabled" && report) {
+      report.top_memory = report.top_memory.filter((m) => m.package !== pkg);
+    }
   }
 
   /// Record a curated app's new on-device state and keep the two tabs in
@@ -472,7 +497,10 @@
     try {
       const r = await api.disablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) setCatalogState(pkg, "disabled");
+      if (r.ok) {
+        setCatalogState(pkg, "disabled");
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -486,7 +514,10 @@
     try {
       const r = await api.enablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) setCatalogState(pkg, "enabled");
+      if (r.ok) {
+        setCatalogState(pkg, "enabled");
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -658,76 +689,104 @@
   }
 
   async function enableLauncher(pkg: string) {
+    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     const prevDefault = currentLauncher?.package ?? null;
+    const prevName = prevDefault
+      ? (launchers.find((l) => l.entry.package === prevDefault)?.entry.name ?? prevDefault)
+      : null;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherProgress = "Enabling this launcher";
     try {
       const r = await api.enablePackage(serial, pkg);
       if (!r.ok) {
-        launcherActionMessage = `${pkg}: ${r.message.trim() || "failed"}`;
+        launcherActionMessage = `Couldn't enable ${name}: ${r.message.trim() || "failed"}`;
         return;
       }
+      launcherProgress = "Refreshing the launcher list";
       await loadLauncher();
       // Android clears its preferred-HOME record when a launcher package's
       // state changes, so a freshly re-enabled launcher (especially stock)
       // can steal the active-launcher slot. Enabling ≠ switching — put the
       // user's previous default back.
       if (prevDefault && prevDefault !== pkg && currentLauncher?.package === pkg) {
+        launcherProgress = `Restoring ${prevName} as default`;
         const back = await api.setDefaultLauncher(serial, prevDefault);
         await loadLauncher();
         launcherActionMessage = back.ok
-          ? `Enabled ${pkg}. Android made it the active launcher, so ${prevDefault} was re-set as your default.`
+          ? `Enabled ${name}. Android made it the active launcher, so ${prevName} was re-set as your default.`
           : back.stock_takeover_available
-            ? `Enabled ${pkg} — it also took over HOME, and this build can't hand HOME back without disabling it again. Use "Set as default" on ${prevDefault} if you want it back.`
-            : `Enabled ${pkg} — Android made it the active launcher, and re-setting ${prevDefault} failed` +
+            ? `Enabled ${name} — it also took over HOME, and this build can't hand HOME back without disabling it again. Use "Set as default" on ${prevName} if you want it back.`
+            : `Enabled ${name} — Android made it the active launcher, and re-setting ${prevName} failed` +
               `${back.last_error ? `: ${back.last_error}` : ""}. Use "Set as default" on your preferred launcher.`;
       } else {
-        launcherActionMessage = `${pkg}: enabled`;
+        launcherActionMessage = `${name} enabled.`;
       }
+      // A launcher's enabled state changed — the Memory tab's report is now stale.
+      invalidateDeviceCaches();
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
       launcherActionBusy = null;
+      launcherProgress = "";
     }
   }
 
   async function disableLauncher(pkg: string) {
+    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     const advice = launchers.find((l) => l.entry.package === pkg)?.other
       ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
       : "";
-    if (!confirm(`Disable ${pkg}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
+    if (!confirm(`Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherProgress = "Disabling this launcher";
     try {
       const r = await api.disableLauncher(serial, pkg);
-      launcherActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
-      if (r.ok) await loadLauncher();
+      if (r.ok) {
+        launcherProgress = "Refreshing the launcher list";
+        await loadLauncher();
+        invalidateDeviceCaches();
+        launcherActionMessage = `${name} disabled.`;
+      } else {
+        launcherActionMessage = `Couldn't disable ${name}: ${r.message.trim() || "failed"}`;
+      }
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
       launcherActionBusy = null;
+      launcherProgress = "";
     }
   }
 
   async function setDefaultLauncher(pkg: string) {
+    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherProgress = "";
+    // The backend works through several strategies (enable → role → set-home-
+    // activity → verify) that can take a few seconds; narrate each step so the
+    // user knows it's working rather than hung.
+    const onProgress = new Channel<string>();
+    onProgress.onmessage = (step) => {
+      if (launcherActionBusy === pkg) launcherProgress = step;
+    };
     try {
-      let r = await api.setDefaultLauncher(serial, pkg);
+      let r = await api.setDefaultLauncher(serial, pkg, false, onProgress);
       if (!r.ok && r.stock_takeover_available) {
         // The only working method on this build disables the stock launcher.
         // Never do that silently — ask, then retry with the opt-in flag.
+        launcherProgress = "";
         const proceed = confirm(
-          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${pkg}? You can re-enable it from this list at any time.`,
+          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.`,
         );
-        if (proceed) r = await api.setDefaultLauncher(serial, pkg, true);
+        if (proceed) r = await api.setDefaultLauncher(serial, pkg, true, onProgress);
       }
       if (r.ok) {
         launcherActionMessage =
           r.strategy === "disable_stock_takeover"
-            ? `Set ${pkg} as default — the stock launcher was disabled to hand HOME over (re-enable it from the list any time).`
-            : `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
-        await loadLauncher();
+            ? `${name} is now your default launcher — the stock launcher was disabled to hand it over. Re-enable it from this list any time.`
+            : `${name} is now your default launcher.`;
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than
@@ -735,10 +794,21 @@
         launcherActionMessage =
           r.last_error ?? "Could not set default launcher. Try disabling other launchers first.";
       }
+      // Always re-read state: the switch can land a beat after the backend's
+      // own poll window, and the takeover path flips enabled/disabled badges —
+      // so the list should redraw without the user hitting Refresh. This reload
+      // is itself a few ADB queries, so keep the row's status line alive for it
+      // rather than leaving the spinner frozen on the last backend step.
+      if (launcherActionBusy === pkg) launcherProgress = "Refreshing the launcher list";
+      await loadLauncher();
+      // The takeover may have disabled stock; either way launcher state changed,
+      // so the Memory tab's report is stale.
+      invalidateDeviceCaches();
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
       launcherActionBusy = null;
+      launcherProgress = "";
     }
   }
 
@@ -797,6 +867,7 @@
   async function resyncAfterBulkChange() {
     optimizeResetToken++;
     launchersLoaded = false;
+    healthStale = true;
     if (apps.length === 0) return;
     try {
       appStates = await fetchAppStates(apps.map((a) => a.package));
@@ -931,7 +1002,10 @@
   $effect(() => {
     visited[activeTab] = true;
     if (activeTab === "health") {
-      if (report === null && !reportLoading && !reportErr) loadHealth();
+      if ((report === null || healthStale) && !reportLoading) {
+        healthStale = false;
+        loadHealth();
+      }
       // Preload catalog so the memory table can show risk tiers.
       if (!appsLoaded && !appsLoading) loadApps();
     }
@@ -939,6 +1013,17 @@
     if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
     if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
   });
+
+  // A device-state change (enable/disable/uninstall/launcher switch) in one tab
+  // leaves the other tabs' cached snapshots stale — e.g. disabling a launcher
+  // from the Memory tab must show up on the Launchers tab. Mark the *other*
+  // data tabs for a fresh load on their next visit; the tab the action happened
+  // on refreshes itself inline. Existing data stays on screen until each reload
+  // finishes, so there's no flash of empty state.
+  function invalidateDeviceCaches() {
+    if (activeTab !== "launcher") launchersLoaded = false;
+    if (activeTab !== "health") healthStale = true;
+  }
 
   /// Wipe all per-device state. Used if the route's serial changes under a
   /// live component (today the only way off this page is "← Back to devices",
@@ -1271,7 +1356,11 @@
                       disabled={appActionBusy === m.package}
                       title="am force-stop {m.package} — frees its RAM now; the app restarts on next launch"
                     >
-                      {appActionBusy === m.package ? "…" : "Force stop"}
+                      {#if appActionBusy === m.package}
+                        <span class="busy"><span class="spinner" aria-hidden="true"></span>Stopping…</span>
+                      {:else}
+                        Force stop
+                      {/if}
                     </button>
                     {#if blocked}
                       <span class="muted small" title={safety.reason}>Protected</span>
@@ -1283,7 +1372,11 @@
                         disabled={appActionBusy === m.package}
                         title="pm disable-user --user 0 {m.package}"
                       >
-                        {appActionBusy === m.package ? "…" : "Disable"}
+                        {#if appActionBusy === m.package}
+                          <span class="busy"><span class="spinner" aria-hidden="true"></span>Disabling…</span>
+                        {:else}
+                          Disable
+                        {/if}
                       </button>
                     {/if}
                   </td>
@@ -1336,6 +1429,11 @@
                     {/if}
                   </div>
                   <div class="muted small mono">{l.entry.package}</div>
+                  {#if busy && launcherProgress}
+                    <div class="launcher-progress" role="status" aria-live="polite">
+                      <span class="spinner" aria-hidden="true"></span>{launcherProgress}…
+                    </div>
+                  {/if}
                 </div>
                 <div class="row-actions">
                   <div class="tags">
@@ -1376,10 +1474,12 @@
                       <button
                         class="primary small-action"
                         onclick={() => setDefaultLauncher(l.entry.package)}
-                        disabled={launcherActionBusy !== null || !l.enabled}
-                        title="Run pm enable + role API + set-home-activity strategies"
+                        disabled={launcherActionBusy !== null}
+                        title={l.enabled
+                          ? "Make this the default launcher (role API / set-home-activity)"
+                          : "Enable this launcher, then make it the default"}
                       >
-                        {busy ? "Setting…" : "Set as default"}
+                        {busy ? "Setting…" : l.enabled ? "Set as default" : "Enable & set default"}
                       </button>
                     {/if}
                     {#if !isCurrent && l.enabled}
@@ -1388,7 +1488,7 @@
                         onclick={() => disableLauncher(l.entry.package)}
                         disabled={launcherActionBusy !== null}
                         title="pm disable-user --user 0 {l.entry.package}"
-                      >Disable</button>
+                      >{busy ? "Disabling…" : "Disable"}</button>
                     {:else if isCurrent}
                       <span
                         class="muted small"
@@ -2126,6 +2226,42 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     word-break: break-word;
+  }
+  .launcher-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.35rem;
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  .spinner {
+    width: 0.8rem;
+    height: 0.8rem;
+    flex: none;
+    display: inline-block;
+    vertical-align: -0.12em;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: launcher-spin 0.7s linear infinite;
+  }
+  /* Inline wrapper so a spinner + label sit centred inside a button. */
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  @keyframes launcher-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
   }
   .dismiss {
     margin-left: 0.5rem;
