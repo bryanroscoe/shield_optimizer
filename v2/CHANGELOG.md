@@ -17,6 +17,43 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## v2-2.1.0
+
+Launcher switching is now fast and reliable, with much clearer feedback across
+the app.
+
+### Launchers
+
+- **Reliable switch away from the stock launcher.** On builds where an enabled
+  stock launcher overrides the normal launcher-switch commands (e.g. Shield /
+  Android 11), switching now goes straight to disabling stock — the only thing
+  that actually hands HOME over — instead of grinding through several seconds of
+  commands that report success but don't take effect. Your other launchers are
+  never touched.
+- **One click on a disabled launcher.** "Set as default" used to do nothing on a
+  disabled launcher; it now reads **"Enable & set default"** and enables it
+  first.
+- **It opens the new launcher** on the TV the moment the switch succeeds, instead
+  of leaving you on the old screen until you press Home.
+- **Live, per-step status** while a switch runs, shown right in the launcher's
+  row, and the list refreshes itself when done — no manual Refresh.
+
+### App & memory actions
+
+- Force stop / Disable buttons show a spinner and a clear label while working,
+  and confirm what happened in plain language (friendly names, not raw package
+  ids).
+- Disabling an app from the Memory tab removes its row immediately.
+
+### Everywhere
+
+- **Cross-tab consistency** — an action in one tab (e.g. disabling a launcher
+  from the Memory tab) now updates the others instead of leaving them stale.
+- **Automatic updates now default to off** — opt in from Settings if you want
+  them.
+
+---
+
 ## v2-2.0.0
 
 The first stable release of the v2 rewrite — Shield Optimizer is a full
