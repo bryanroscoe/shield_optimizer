@@ -1,22 +1,30 @@
 #!/bin/bash
-# Cut a v2 release. Bumps the version atomically across the four files that
-# carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the commit
-# `v2-VERSION`, and pushes — the GitHub Actions workflow at
+# Cut a desktop-app release. Bumps the version atomically across the four files
+# that carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the
+# commit `desktop-VERSION`, and pushes — the GitHub Actions workflow at
 # .github/workflows/v2-release.yml takes it from there to produce installers.
 #
+# The `desktop-` prefix is the release-track namespace that keeps this app's
+# tags separate from v1's PowerShell-debloater tags; the version itself is plain
+# semver. (Older releases used a `v2-` prefix — the workflow still accepts both.)
+#
 # Usage:
-#   ./release.sh                  patch:  v2-0.1.0    -> v2-0.1.1
-#   ./release.sh --minor          minor:  v2-0.1.5    -> v2-0.2.0
-#   ./release.sh --major          major:  v2-0.9.0    -> v2-1.0.0
-#   ./release.sh --beta           beta:   v2-0.1.0    -> v2-0.1.0-beta (or beta.N)
-#   ./release.sh --rc             rc:     v2-0.1.0    -> v2-0.1.0-rc (or -rc.N)
+#   ./release.sh                  patch:  desktop-0.1.0 -> desktop-0.1.1
+#   ./release.sh --minor          minor:  desktop-0.1.5 -> desktop-0.2.0
+#   ./release.sh --major          major:  desktop-0.9.0 -> desktop-1.0.0
+#   ./release.sh --beta           beta:   desktop-0.1.0 -> desktop-0.1.0-beta (or beta.N)
+#   ./release.sh --rc             rc:     desktop-0.1.0 -> desktop-0.1.0-rc (or -rc.N)
 #   ./release.sh --set 0.2.0      explicit: any value, e.g. 0.2.0-preview
 #
 # Combine bump kind with a pre-release flag if needed:
-#   ./release.sh --minor --beta   v2-0.1.5 -> v2-0.2.0-beta
+#   ./release.sh --minor --beta   desktop-0.1.5 -> desktop-0.2.0-beta
 #
 # Pre-release tags are auto-flagged as GitHub prereleases by the workflow's
 # regex (matches -(alpha|beta|rc|preview|pre)([.-]?[0-9]+)?).
+
+# Release-track tag prefix. Keep in sync with the workflow trigger in
+# .github/workflows/v2-release.yml.
+TAG_PREFIX="desktop"
 
 set -euo pipefail
 
@@ -32,20 +40,34 @@ PACKAGE_JSON="package.json"
 BUMP="patch"
 PRE=""
 EXPLICIT=""
+ASSUME_YES=0
+
+# Auto-confirm a y/N gate when --yes was passed; otherwise prompt as usual.
+# Returns success (proceed) / failure (the caller aborts).
+confirm() {
+  local prompt="$1"
+  if [[ "$ASSUME_YES" == "1" ]]; then
+    echo "$prompt [auto-yes]"
+    return 0
+  fi
+  read -p "$prompt " -n 1 -r; echo
+  [[ $REPLY =~ ^[Yy]$ ]]
+}
 
 usage() {
   cat <<EOF
-Usage: $0 [--major|--minor|--patch] [--beta|--rc|--alpha] [--set X.Y.Z]
+Usage: $0 [--major|--minor|--patch] [--beta|--rc|--alpha] [--set X.Y.Z] [--yes]
   bump kind:    --patch (default) | --minor | --major
   pre-release:  --beta | --rc | --alpha | --preview
   explicit:     --set X.Y.Z[-tag]   (overrides bump kind, used verbatim)
+  --yes, -y:    skip all confirmation prompts (non-interactive / CI use)
 
 Examples:
   $0                       # 0.1.0 -> 0.1.1
   $0 --minor               # 0.1.5 -> 0.2.0
   $0 --beta                # 0.1.0 -> 0.1.0-beta (or .N if -beta already exists)
   $0 --minor --beta        # 0.1.5 -> 0.2.0-beta
-  $0 --set 0.3.0-preview   # exact value, tagged as v2-0.3.0-preview
+  $0 --set 0.3.0-preview   # exact value, tagged as desktop-0.3.0-preview
 EOF
   exit 1
 }
@@ -60,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --alpha) PRE="alpha"; shift ;;
     --preview) PRE="preview"; shift ;;
     --set) EXPLICIT="$2"; shift 2 ;;
+    --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1" >&2; usage ;;
   esac
@@ -75,8 +98,7 @@ fi
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree has uncommitted changes:" >&2
   git status --short >&2
-  read -p "Continue anyway? (y/N) " -n 1 -r; echo
-  [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+  confirm "Continue anyway? (y/N)" || { echo "Aborted."; exit 1; }
 fi
 
 # --- Read current version ----------------------------------------------------
@@ -114,7 +136,7 @@ else
   fi
 fi
 
-TAG="v2-$NEW"
+TAG="$TAG_PREFIX-$NEW"
 echo "New version:     $NEW"
 echo "Tag:             $TAG"
 
@@ -123,8 +145,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-read -p "Bump + tag? (y/N) " -n 1 -r; echo
-[[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+confirm "Bump + tag? (y/N)" || { echo "Aborted."; exit 1; }
 
 # --- Patch the version into all three files ---------------------------------
 
@@ -209,8 +230,7 @@ git add "$TAURI_CONF" "$CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
 git commit -m "Release $TAG"
 git tag -a "$TAG" -m "Release $TAG"
 
-read -p "Push the tag? (this fires the build workflow) (y/N) " -n 1 -r; echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if confirm "Push the tag? (this fires the build workflow) (y/N)"; then
   git push origin HEAD
   git push origin "$TAG"
   echo
