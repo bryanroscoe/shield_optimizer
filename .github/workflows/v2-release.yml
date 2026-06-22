@@ -1,7 +1,11 @@
-# Shield Optimizer v2 release pipeline.
+# Shield Optimizer desktop-app release pipeline.
 #
-# Trigger: push of a `v2-*` tag (matches `v2-0.1.0`, `v2-0.1.0-rc1`, etc.).
-# v1's `v0.x.x` tags do NOT fire this — keep the two release tracks separate.
+# Trigger: push of a `desktop-*` tag (matches `desktop-0.1.0`,
+# `desktop-0.1.0-rc1`, etc.). The legacy `v2-*` prefix is still accepted so old
+# tags can be re-run. The `desktop-`/`v2-` prefix is just the release-track
+# namespace; everything human-facing (release title, Homebrew, changelog) uses
+# the bare semver after it. v1's `v0.x.x` PowerShell tags do NOT fire this —
+# the two tracks stay separate.
 #
 # What runs:
 #   - ubuntu-22.04 → .deb, .AppImage, .rpm
@@ -25,7 +29,8 @@ name: v2 Release
 on:
   push:
     tags:
-      - 'v2-*'
+      - 'desktop-*'
+      - 'v2-*' # legacy prefix — still accepted for older / re-run tags
   workflow_dispatch:
     inputs:
       tag:
@@ -38,17 +43,18 @@ permissions:
 jobs:
   # Compute the release notes once on a cheap runner and share the body with
   # every per-OS bundler job. Two sources:
-  #   1. If v2/CHANGELOG.md contains a section for this tag, use it verbatim.
-  #      Format: a `## v2-X.Y.Z` heading followed by Markdown until the next
+  #   1. If v2/CHANGELOG.md contains a section for this version, use it verbatim.
+  #      Format: a `## X.Y.Z` heading followed by Markdown until the next
   #      `## ` heading. This is the rich, human-written path — mirrors how
   #      v1 wrote its release bodies.
-  #   2. Otherwise auto-generate from `git log <prev-v2-tag>..<this-tag>`.
+  #   2. Otherwise auto-generate from `git log <prev-tag>..<this-tag>`.
   notes:
     name: Build release notes
     runs-on: ubuntu-latest
     outputs:
       body: ${{ steps.compose.outputs.body }}
       tag: ${{ steps.compose.outputs.tag }}
+      version: ${{ steps.compose.outputs.version }}
       prerelease: ${{ steps.compose.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v5
@@ -62,31 +68,47 @@ jobs:
         run: |
           set -euo pipefail
           tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          # Strip the release-track prefix (desktop- now, v2- historically) to
+          # the bare semver used everywhere human-facing.
+          version="${tag#*-}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
           # Prerelease detection: any tag containing one of the standard
           # pre-release markers becomes a GitHub prerelease. Covers
-          # v2-0.1.0-beta, v2-0.1.0-beta.1, v2-0.1.0-rc1, -alpha, -preview, -pre.
+          # desktop-0.1.0-beta, -beta.1, -rc1, -alpha, -preview, -pre.
           if [[ "$tag" =~ -(alpha|beta|rc|preview|pre)([.-]?[0-9]+)?$ ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
+          # CHANGELOG sections are headed by the bare version (`## 1.2.3`).
+          # Older entries used the full prefixed tag (`## v2-2.1.0`) — accept
+          # either so re-running an old tag still finds its notes.
           changelog="v2/CHANGELOG.md"
           body=""
-          if [[ -f "$changelog" ]] && grep -q "^## $tag\b" "$changelog"; then
-            echo "Pulling notes for $tag from $changelog"
-            body=$(awk -v tag="## $tag" '
-              $0 ~ "^"tag {flag=1; next}
-              flag && /^## / {flag=0}
-              flag {print}
-            ' "$changelog")
+          if [[ -f "$changelog" ]]; then
+            if grep -q "^## $version\b" "$changelog"; then
+              heading="## $version"
+            elif grep -q "^## $tag\b" "$changelog"; then
+              heading="## $tag"
+            else
+              heading=""
+            fi
+            if [[ -n "$heading" ]]; then
+              echo "Pulling notes for '$heading' from $changelog"
+              body=$(awk -v tag="$heading" '
+                $0 ~ "^"tag {flag=1; next}
+                flag && /^## / {flag=0}
+                flag {print}
+              ' "$changelog")
+            fi
           fi
 
           if [[ -z "$body" ]]; then
             echo "No CHANGELOG entry for $tag — auto-generating from git log."
-            prev=$(git tag --list 'v2-*' --sort=-v:refname | grep -v "^$tag$" | head -1 || true)
+            prev=$(git tag --list 'desktop-*' 'v2-*' --sort=-v:refname | grep -v "^$tag$" | head -1 || true)
             if [[ -n "$prev" ]]; then
               range="$prev..$tag"
               body="### Changes since $prev"$'\n\n'
@@ -141,7 +163,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          # Need history so we can diff against the previous v2-* tag for
+          # Need history so we can diff against the previous release tag for
           # auto-generated release notes.
           fetch-depth: 0
 
@@ -199,7 +221,7 @@ jobs:
         with:
           projectPath: v2
           tagName: ${{ needs.notes.outputs.tag }}
-          releaseName: 'Shield Optimizer ${{ needs.notes.outputs.tag }}'
+          releaseName: 'Shield Optimizer ${{ needs.notes.outputs.version }}'
           releaseBody: ${{ needs.notes.outputs.body }}
           releaseDraft: false
           prerelease: ${{ needs.notes.outputs.prerelease == 'true' }}
@@ -291,10 +313,11 @@ jobs:
         working-directory: tap
         env:
           TAG: ${{ needs.notes.outputs.tag }}
+          VERSION: ${{ needs.notes.outputs.version }}
         run: |
           set -euo pipefail
-          # Tag is v2-X.Y.Z[-pre]; cask version is the part after v2-.
-          version="${TAG#v2-}"
+          # Bare semver (tag with the desktop-/v2- track prefix stripped).
+          version="$VERSION"
           dmg_url="https://github.com/${{ github.repository }}/releases/download/${TAG}/Shield.Optimizer_${version}_universal.dmg"
 
           echo "Fetching $dmg_url to compute SHA256…"
@@ -385,7 +408,15 @@ jobs:
             echo "Updater manifest unchanged; nothing to commit."
           else
             git commit -m "Update updater manifest for ${TAG}"
-            git push origin HEAD:${{ github.event.repository.default_branch }}
+            # refresh-screenshots also commits to the default branch in parallel,
+            # so rebase-and-retry to avoid a non-fast-forward push race.
+            branch="${{ github.event.repository.default_branch }}"
+            for attempt in 1 2 3 4 5; do
+              if git push origin "HEAD:$branch"; then break; fi
+              echo "  push attempt $attempt rejected; rebasing on origin/$branch…"
+              git pull --rebase origin "$branch"
+              [[ $attempt -eq 5 ]] && { echo "push still failing after rebase"; exit 1; }
+            done
             echo "Updater manifest published for ${TAG}."
           fi
 
@@ -448,5 +479,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add screenshots/gallery.gif screenshots/gallery-light.gif
           git commit -m "Regenerate gallery GIFs for ${TAG}"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          # merge-updater also commits to the default branch in parallel, so
+          # rebase-and-retry to avoid a non-fast-forward push race.
+          branch="${{ github.event.repository.default_branch }}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:$branch"; then break; fi
+            echo "  push attempt $attempt rejected; rebasing on origin/$branch…"
+            git pull --rebase origin "$branch"
+            [[ $attempt -eq 5 ]] && { echo "push still failing after rebase"; exit 1; }
+          done
           echo "Galleries refreshed for ${TAG}."

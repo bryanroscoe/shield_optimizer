@@ -1,22 +1,30 @@
 #!/bin/bash
-# Cut a v2 release. Bumps the version atomically across the four files that
-# carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the commit
-# `v2-VERSION`, and pushes — the GitHub Actions workflow at
+# Cut a desktop-app release. Bumps the version atomically across the four files
+# that carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the
+# commit `desktop-VERSION`, and pushes — the GitHub Actions workflow at
 # .github/workflows/v2-release.yml takes it from there to produce installers.
 #
+# The `desktop-` prefix is the release-track namespace that keeps this app's
+# tags separate from v1's PowerShell-debloater tags; the version itself is plain
+# semver. (Older releases used a `v2-` prefix — the workflow still accepts both.)
+#
 # Usage:
-#   ./release.sh                  patch:  v2-0.1.0    -> v2-0.1.1
-#   ./release.sh --minor          minor:  v2-0.1.5    -> v2-0.2.0
-#   ./release.sh --major          major:  v2-0.9.0    -> v2-1.0.0
-#   ./release.sh --beta           beta:   v2-0.1.0    -> v2-0.1.0-beta (or beta.N)
-#   ./release.sh --rc             rc:     v2-0.1.0    -> v2-0.1.0-rc (or -rc.N)
+#   ./release.sh                  patch:  desktop-0.1.0 -> desktop-0.1.1
+#   ./release.sh --minor          minor:  desktop-0.1.5 -> desktop-0.2.0
+#   ./release.sh --major          major:  desktop-0.9.0 -> desktop-1.0.0
+#   ./release.sh --beta           beta:   desktop-0.1.0 -> desktop-0.1.0-beta (or beta.N)
+#   ./release.sh --rc             rc:     desktop-0.1.0 -> desktop-0.1.0-rc (or -rc.N)
 #   ./release.sh --set 0.2.0      explicit: any value, e.g. 0.2.0-preview
 #
 # Combine bump kind with a pre-release flag if needed:
-#   ./release.sh --minor --beta   v2-0.1.5 -> v2-0.2.0-beta
+#   ./release.sh --minor --beta   desktop-0.1.5 -> desktop-0.2.0-beta
 #
 # Pre-release tags are auto-flagged as GitHub prereleases by the workflow's
 # regex (matches -(alpha|beta|rc|preview|pre)([.-]?[0-9]+)?).
+
+# Release-track tag prefix. Keep in sync with the workflow trigger in
+# .github/workflows/v2-release.yml.
+TAG_PREFIX="desktop"
 
 set -euo pipefail
 
@@ -59,7 +67,7 @@ Examples:
   $0 --minor               # 0.1.5 -> 0.2.0
   $0 --beta                # 0.1.0 -> 0.1.0-beta (or .N if -beta already exists)
   $0 --minor --beta        # 0.1.5 -> 0.2.0-beta
-  $0 --set 0.3.0-preview   # exact value, tagged as v2-0.3.0-preview
+  $0 --set 0.3.0-preview   # exact value, tagged as desktop-0.3.0-preview
 EOF
   exit 1
 }
@@ -128,7 +136,7 @@ else
   fi
 fi
 
-TAG="v2-$NEW"
+TAG="$TAG_PREFIX-$NEW"
 echo "New version:     $NEW"
 echo "Tag:             $TAG"
 

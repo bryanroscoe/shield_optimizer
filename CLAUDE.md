@@ -3,7 +3,7 @@
 Two products live in this tree:
 
 - **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). Still maintained.
-- **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`). Released on `v2-*` tags via `.github/workflows/v2-release.yml`.
+- **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`). Released on `desktop-*` tags (legacy `v2-*` still accepted) via `.github/workflows/v2-release.yml`. The `desktop-` prefix is the release-track namespace; everything human-facing (release title, Homebrew cask, changelog headings) uses the bare semver after it.
 
 The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
 
@@ -57,12 +57,12 @@ It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated be
 - **New screen/tab** → add a visit + capture step in `screenshots/capture.mjs`.
 - **New `invoke` command that loads on a screen** → add a fixture case in `src/lib/demo-mock.ts`, or that screen renders empty.
 
-The release workflow also regenerates the gallery on every `v2-*` tag (the `refresh-screenshots` job) and commits it to the default branch, so a release always ships current screenshots even if a manual regen was missed. Requires `ffmpeg` + `npx playwright install chromium` locally. Full pipeline docs: `v2/screenshots/README.md`.
+The release workflow also regenerates the gallery on every release tag (the `refresh-screenshots` job) and commits it to the default branch, so a release always ships current screenshots even if a manual regen was missed. Requires `ffmpeg` + `npx playwright install chromium` locally. Full pipeline docs: `v2/screenshots/README.md`.
 
 ## Cutting a v2 release
 
-- Run `v2/release.sh` from `v2/`. Flags: `--patch` (default), `--minor`, `--major`, plus `--beta` / `--rc` / `--alpha` / `--preview`, or `--set X.Y.Z[-tag]` for an explicit version. The script bumps `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, and `package.json`, commits as `Release v2-X.Y.Z[-tag]`, creates an annotated tag, and pushes (with confirmation).
-- Release notes come from `v2/CHANGELOG.md`'s `## v2-X.Y.Z[-tag]` section — add a new section above the existing ones for every release. If no matching section exists, the workflow falls back to `git log` between the previous and current tag.
+- Run `v2/release.sh` from `v2/`. Flags: `--patch` (default), `--minor`, `--major`, plus `--beta` / `--rc` / `--alpha` / `--preview`, or `--set X.Y.Z[-tag]` for an explicit version; add `--yes`/`-y` for a non-interactive run. The script bumps `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, and `package.json`, commits as `Release desktop-X.Y.Z[-tag]`, creates an annotated tag (prefix from `TAG_PREFIX` in the script), and pushes (with confirmation). The tag prefix in `release.sh` must stay in sync with the workflow trigger.
+- Release notes come from `v2/CHANGELOG.md`'s `## X.Y.Z[-tag]` section (bare semver, no track prefix) — add a new section above the existing ones for every release. The workflow also still matches an old prefixed `## v2-X.Y.Z` heading for re-runs. If no matching section exists, it falls back to `git log` between the previous and current tag.
 - Pre-release suffixes (`-alpha`, `-beta`, `-rc`, `-preview`, `-pre`, with optional `.N`) are auto-detected by the workflow and flag the GitHub Release as a prerelease.
 - Builds are unsigned. Users hit Gatekeeper (macOS) and SmartScreen (Windows) on first launch; the workflow appends the dismissal instructions to every release body. Signing setup is documented at the top of `.github/workflows/v2-release.yml` for when we add it.
 - The tag push fires the workflow. Builds take ~15-25 min across the three OS bundlers and produce: `.deb / .AppImage / .rpm` (Linux), universal `.dmg` + `.app.tar.gz` (macOS), `.msi` + `.exe` (Windows).
@@ -75,7 +75,7 @@ The release workflow also regenerates the gallery on every `v2-*` tag (the `refr
 
 ### Homebrew tap
 
-The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `shield-optimizer`, pointing at the universal `.dmg` from the latest `v2-*` release.
+The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `shield-optimizer`, pointing at the universal `.dmg` from the latest desktop-app release.
 
 - The cask strips `com.apple.quarantine` in a `postflight` block. This is what lets users skip the macOS 15+ Gatekeeper dance after `brew install --cask`. Don't remove that block unless we start signing the build.
 - The `bump-tap` job in `.github/workflows/v2-release.yml` updates the cask on every release: downloads the universal DMG, computes the SHA256, rewrites `version` and `sha256` in `Casks/shield-optimizer.rb`, and pushes to the tap. It needs the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the tap repo with `contents:write`. If the secret is missing the job logs that and skips (rather than failing the whole release).
