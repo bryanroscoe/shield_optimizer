@@ -344,13 +344,50 @@ jobs:
           p.write_text(t)
           PY
 
+          # Also write a pinned, versioned cask so an exact release stays
+          # installable: brew install --cask .../shield-optimizer@X.Y.Z
+          # Pinned (no livecheck); the URL uses the literal tag so it survives a
+          # release-track prefix change. Conflicts with the rolling cask since
+          # both install the same .app.
+          cat > "Casks/shield-optimizer@${version}.rb" <<CASK
+          cask "shield-optimizer@${version}" do
+            version "${version}"
+            sha256 "${sha}"
+
+            url "https://github.com/${{ github.repository }}/releases/download/${TAG}/Shield.Optimizer_#{version}_universal.dmg",
+                verified: "github.com/bryanroscoe/shield_optimizer/"
+            name "Shield Optimizer"
+            desc "Debloat and tune Android TV devices via ADB"
+            homepage "https://github.com/bryanroscoe/shield_optimizer"
+
+            conflicts_with cask: "bryanroscoe/shield-optimizer/shield-optimizer"
+
+            depends_on :macos
+
+            app "Shield Optimizer.app"
+
+            postflight do
+              system_command "/usr/bin/xattr",
+                             args: ["-dr", "com.apple.quarantine", "#{appdir}/Shield Optimizer.app"],
+                             sudo: false
+            end
+
+            zap trash: [
+              "~/Library/Application Support/com.shieldoptimizer.app",
+              "~/Library/Caches/com.shieldoptimizer.app",
+              "~/Library/Preferences/com.shieldoptimizer.app.plist",
+              "~/Library/WebKit/com.shieldoptimizer.app",
+            ]
+          end
+          CASK
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/shield-optimizer.rb
+          git add Casks/shield-optimizer.rb "Casks/shield-optimizer@${version}.rb"
           if git diff --cached --quiet; then
             echo "Cask already up to date; nothing to commit."
           else
-            git commit -m "Bump shield-optimizer to $version"
+            git commit -m "Bump shield-optimizer to $version (+ pinned @$version cask)"
             git push
             echo "Tap updated to $version."
           fi
