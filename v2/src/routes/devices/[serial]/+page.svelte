@@ -43,6 +43,10 @@
   let report = $state<HealthReport | null>(null);
   let reportLoading = $state(false);
   let reportErr = $state<string | null>(null);
+  // Set when a device-state change in another tab makes the health report
+  // stale, so it re-fetches (in the background, keeping current data on screen)
+  // the next time the Memory tab is opened.
+  let healthStale = $state(false);
   let reportLastRefreshed = $state<Date | null>(null);
   let liveRefresh = $state(false);
   let liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -331,7 +335,10 @@
     try {
       const r = await api.disablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
-      if (r.ok) patchOtherState(pkg, false);
+      if (r.ok) {
+        patchOtherState(pkg, false);
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -345,7 +352,10 @@
     try {
       const r = await api.enablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "enabled" : "failed")}`;
-      if (r.ok) patchOtherState(pkg, true);
+      if (r.ok) {
+        patchOtherState(pkg, true);
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -360,7 +370,10 @@
     try {
       const r = await api.uninstallPackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) patchOtherState(pkg, "removed");
+      if (r.ok) {
+        patchOtherState(pkg, "removed");
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -387,6 +400,9 @@
     if (apps.length > 0) {
       appStates = await fetchAppStates(apps.map((a) => a.package));
     }
+    // The Optimize wizard can disable launchers and many packages — mark the
+    // Launcher and Memory caches stale so they reload fresh on next visit.
+    invalidateDeviceCaches();
   }
 
   /// Lookup a package in the loaded app catalog (if it's there) for risk-aware
@@ -481,7 +497,10 @@
     try {
       const r = await api.disablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) setCatalogState(pkg, "disabled");
+      if (r.ok) {
+        setCatalogState(pkg, "disabled");
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -495,7 +514,10 @@
     try {
       const r = await api.enablePackage(serial, pkg);
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) setCatalogState(pkg, "enabled");
+      if (r.ok) {
+        setCatalogState(pkg, "enabled");
+        invalidateDeviceCaches();
+      }
     } catch (e) {
       appActionMessage = `${pkg}: ${e}`;
     } finally {
@@ -700,6 +722,8 @@
       } else {
         launcherActionMessage = `${name} enabled.`;
       }
+      // A launcher's enabled state changed — the Memory tab's report is now stale.
+      invalidateDeviceCaches();
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
@@ -722,6 +746,7 @@
       if (r.ok) {
         launcherProgress = "Refreshing the launcher list";
         await loadLauncher();
+        invalidateDeviceCaches();
         launcherActionMessage = `${name} disabled.`;
       } else {
         launcherActionMessage = `Couldn't disable ${name}: ${r.message.trim() || "failed"}`;
@@ -776,6 +801,9 @@
       // rather than leaving the spinner frozen on the last backend step.
       if (launcherActionBusy === pkg) launcherProgress = "Refreshing the launcher list";
       await loadLauncher();
+      // The takeover may have disabled stock; either way launcher state changed,
+      // so the Memory tab's report is stale.
+      invalidateDeviceCaches();
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
@@ -839,6 +867,7 @@
   async function resyncAfterBulkChange() {
     optimizeResetToken++;
     launchersLoaded = false;
+    healthStale = true;
     if (apps.length === 0) return;
     try {
       appStates = await fetchAppStates(apps.map((a) => a.package));
@@ -973,7 +1002,10 @@
   $effect(() => {
     visited[activeTab] = true;
     if (activeTab === "health") {
-      if (report === null && !reportLoading && !reportErr) loadHealth();
+      if ((report === null || healthStale) && !reportLoading) {
+        healthStale = false;
+        loadHealth();
+      }
       // Preload catalog so the memory table can show risk tiers.
       if (!appsLoaded && !appsLoading) loadApps();
     }
@@ -981,6 +1013,17 @@
     if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
     if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
   });
+
+  // A device-state change (enable/disable/uninstall/launcher switch) in one tab
+  // leaves the other tabs' cached snapshots stale — e.g. disabling a launcher
+  // from the Memory tab must show up on the Launchers tab. Mark the *other*
+  // data tabs for a fresh load on their next visit; the tab the action happened
+  // on refreshes itself inline. Existing data stays on screen until each reload
+  // finishes, so there's no flash of empty state.
+  function invalidateDeviceCaches() {
+    if (activeTab !== "launcher") launchersLoaded = false;
+    if (activeTab !== "health") healthStale = true;
+  }
 
   /// Wipe all per-device state. Used if the route's serial changes under a
   /// live component (today the only way off this page is "← Back to devices",
