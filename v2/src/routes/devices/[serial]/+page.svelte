@@ -712,6 +712,7 @@
   }
 
   async function setDefaultLauncher(pkg: string) {
+    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     launcherProgress = "";
@@ -729,15 +730,15 @@
         // Never do that silently — ask, then retry with the opt-in flag.
         launcherProgress = "";
         const proceed = confirm(
-          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${pkg}? You can re-enable it from this list at any time.`,
+          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.`,
         );
         if (proceed) r = await api.setDefaultLauncher(serial, pkg, true, onProgress);
       }
       if (r.ok) {
         launcherActionMessage =
           r.strategy === "disable_stock_takeover"
-            ? `Set ${pkg} as default — the stock launcher was disabled to hand HOME over (re-enable it from the list any time).`
-            : `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
+            ? `${name} is now your default launcher — the stock launcher was disabled to hand it over. Re-enable it from this list any time.`
+            : `${name} is now your default launcher.`;
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than

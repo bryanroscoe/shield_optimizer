@@ -260,6 +260,7 @@ pub async fn set_default_launcher_impl(
             progress.step("Checking whether Home switched over");
             tokio::time::sleep(std::time::Duration::from_millis(400)).await;
             if active_launcher(&*adb, serial).await.as_deref() == Some(package) {
+                focus_home(&*adb, serial, progress).await;
                 return Ok(SetLauncherResult {
                     ok: true,
                     strategy: Some("set_home_activity".into()),
@@ -302,6 +303,7 @@ pub async fn set_default_launcher_impl(
     match role_out {
         Ok(out) if !out.stdout.contains("Unknown command") => {
             if verify_active(&*adb, serial, package).await {
+                focus_home(&*adb, serial, progress).await;
                 return Ok(SetLauncherResult {
                     ok: true,
                     strategy: Some("role_api".into()),
@@ -358,6 +360,7 @@ pub async fn set_default_launcher_impl(
                 if is_success_ack(msg) || msg.is_empty() {
                     device_accepted = true;
                     if verify_active(&*adb, serial, package).await {
+                        focus_home(&*adb, serial, progress).await;
                         return Ok(SetLauncherResult {
                             ok: true,
                             strategy: Some("set_home_activity".into()),
@@ -529,6 +532,21 @@ fn is_success_ack(s: &str) -> bool {
     s.trim().eq_ignore_ascii_case("success")
 }
 
+/// Foreground the now-default launcher so the TV actually shows it the moment
+/// we report success — otherwise the screen sits on whatever was up (or the
+/// screensaver) until the user presses Home. HOME resolves to the default we
+/// just set, so this brings the new launcher forward. Fire-and-forget; the
+/// takeover and HOME-intent-kick paths already do this inline.
+async fn focus_home(adb: &dyn crate::adb::AdbDriver, serial: &str, progress: &Progress) {
+    progress.step("Opening the new launcher");
+    let _ = adb
+        .shell(
+            serial,
+            "am start -a android.intent.action.MAIN -c android.intent.category.HOME",
+        )
+        .await;
+}
+
 /// Poll the active-HOME resolver until it reports `package`, with backoff.
 /// Propagation after set-home-activity / role changes isn't instant on every
 /// build — a single immediate check produced false "failed" results even when
@@ -648,7 +666,9 @@ mod tests {
         let calls = log.lock().unwrap();
         assert!(!calls.iter().any(|c| c.contains("set-home-activity")));
         assert!(!calls.iter().any(|c| c.contains("query-activities")));
-        assert!(!calls.iter().any(|c| c.contains("am start")));
+        // The HOME-intent *kick* (am start -W) must not run; the plain `am start`
+        // that foregrounds the launcher on success is expected.
+        assert!(!calls.iter().any(|c| c.contains("am start -W")));
     }
 
     #[tokio::test]
