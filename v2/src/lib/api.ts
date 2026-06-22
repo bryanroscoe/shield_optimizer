@@ -1,7 +1,7 @@
 // Typed wrappers around Tauri's `invoke()`. Single point of contact with the
 // Rust backend — every command goes through here.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 import type {
   ActionResult,
   AdbStatus,
@@ -80,8 +80,20 @@ export const api = {
     invoke<CurrentLauncher>("current_launcher", { serial }),
   channelProviderDisabled: (serial: string) =>
     invoke<boolean>("channel_provider_disabled", { serial }),
-  setDefaultLauncher: (serial: string, pkg: string, allowStockDisable = false) =>
-    invoke<SetLauncherResult>("set_default_launcher", { serial, package: pkg, allowStockDisable }),
+  setDefaultLauncher: (
+    serial: string,
+    pkg: string,
+    allowStockDisable = false,
+    onProgress?: Channel<string>,
+  ) =>
+    invoke<SetLauncherResult>("set_default_launcher", {
+      serial,
+      package: pkg,
+      allowStockDisable,
+      // The command always expects a progress channel; callers that don't care
+      // (e.g. the enable-then-restore path) get a throwaway one.
+      onProgress: onProgress ?? new Channel<string>(),
+    }),
   disableLauncher: (serial: string, pkg: string) =>
     invoke<ActionResult>("disable_launcher", { serial, package: pkg }),
 

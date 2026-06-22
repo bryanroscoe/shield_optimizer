@@ -4,6 +4,7 @@
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
+  import { Channel } from "@tauri-apps/api/core";
   import { api } from "$lib/api";
   import type {
     Device,
@@ -72,6 +73,7 @@
   let launcherErr = $state<string | null>(null);
   let launcherActionBusy = $state<string | null>(null); // package id currently being acted on
   let launcherActionMessage = $state("");
+  let launcherProgress = $state(""); // live per-step status while a switch is in flight
 
   let apps = $state<AppEntry[]>([]);
   let appsLoaded = $state(false);
@@ -712,22 +714,30 @@
   async function setDefaultLauncher(pkg: string) {
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherProgress = "";
+    // The backend works through several strategies (enable → role → set-home-
+    // activity → verify) that can take a few seconds; narrate each step so the
+    // user knows it's working rather than hung.
+    const onProgress = new Channel<string>();
+    onProgress.onmessage = (step) => {
+      if (launcherActionBusy === pkg) launcherProgress = step;
+    };
     try {
-      let r = await api.setDefaultLauncher(serial, pkg);
+      let r = await api.setDefaultLauncher(serial, pkg, false, onProgress);
       if (!r.ok && r.stock_takeover_available) {
         // The only working method on this build disables the stock launcher.
         // Never do that silently — ask, then retry with the opt-in flag.
+        launcherProgress = "";
         const proceed = confirm(
           `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${pkg}? You can re-enable it from this list at any time.`,
         );
-        if (proceed) r = await api.setDefaultLauncher(serial, pkg, true);
+        if (proceed) r = await api.setDefaultLauncher(serial, pkg, true, onProgress);
       }
       if (r.ok) {
         launcherActionMessage =
           r.strategy === "disable_stock_takeover"
             ? `Set ${pkg} as default — the stock launcher was disabled to hand HOME over (re-enable it from the list any time).`
             : `Set ${pkg} as default launcher (via ${r.strategy ?? "ok"}).`;
-        await loadLauncher();
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than
@@ -735,10 +745,18 @@
         launcherActionMessage =
           r.last_error ?? "Could not set default launcher. Try disabling other launchers first.";
       }
+      // Always re-read state: the switch can land a beat after the backend's
+      // own poll window, and the takeover path flips enabled/disabled badges —
+      // so the list should redraw without the user hitting Refresh. This reload
+      // is itself a few ADB queries, so keep the row's status line alive for it
+      // rather than leaving the spinner frozen on the last backend step.
+      if (launcherActionBusy === pkg) launcherProgress = "Refreshing the launcher list";
+      await loadLauncher();
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
       launcherActionBusy = null;
+      launcherProgress = "";
     }
   }
 
@@ -1336,6 +1354,11 @@
                     {/if}
                   </div>
                   <div class="muted small mono">{l.entry.package}</div>
+                  {#if busy && launcherProgress}
+                    <div class="launcher-progress" role="status" aria-live="polite">
+                      <span class="spinner" aria-hidden="true"></span>{launcherProgress}…
+                    </div>
+                  {/if}
                 </div>
                 <div class="row-actions">
                   <div class="tags">
@@ -1376,10 +1399,12 @@
                       <button
                         class="primary small-action"
                         onclick={() => setDefaultLauncher(l.entry.package)}
-                        disabled={launcherActionBusy !== null || !l.enabled}
-                        title="Run pm enable + role API + set-home-activity strategies"
+                        disabled={launcherActionBusy !== null}
+                        title={l.enabled
+                          ? "Make this the default launcher (role API / set-home-activity)"
+                          : "Enable this launcher, then make it the default"}
                       >
-                        {busy ? "Setting…" : "Set as default"}
+                        {busy ? "Setting…" : l.enabled ? "Set as default" : "Enable & set default"}
                       </button>
                     {/if}
                     {#if !isCurrent && l.enabled}
@@ -2126,6 +2151,34 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     word-break: break-word;
+  }
+  .launcher-progress {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.35rem;
+    color: var(--accent);
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  .launcher-progress .spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    flex: none;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: launcher-spin 0.7s linear infinite;
+  }
+  @keyframes launcher-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .launcher-progress .spinner {
+      animation: none;
+    }
   }
   .dismiss {
     margin-left: 0.5rem;

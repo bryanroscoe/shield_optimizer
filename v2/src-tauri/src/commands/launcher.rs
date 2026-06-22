@@ -13,6 +13,23 @@ use super::{home_tracking, AppState};
 const HOME_HANDLER_QUERY: &str =
     "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME";
 
+/// Per-step progress sink for `set_default_launcher`. The multi-strategy
+/// switch can take a few seconds (enable → role → set-home-activity → verify,
+/// with backoff polls in between), so the frontend passes a Channel to narrate
+/// each step. Internal callers (snapshot apply, tests) use `Progress::Silent`.
+pub enum Progress {
+    Channel(tauri::ipc::Channel<String>),
+    Silent,
+}
+
+impl Progress {
+    fn step(&self, msg: &str) {
+        if let Progress::Channel(ch) = self {
+            let _ = ch.send(msg.to_string());
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn list_launchers(
     state: State<'_, AppState>,
@@ -166,12 +183,14 @@ pub async fn set_default_launcher(
     serial: String,
     package: String,
     allow_stock_disable: Option<bool>,
+    on_progress: tauri::ipc::Channel<String>,
 ) -> Result<SetLauncherResult, String> {
     set_default_launcher_impl(
         state.inner(),
         &serial,
         &package,
         allow_stock_disable.unwrap_or(false),
+        &Progress::Channel(on_progress),
     )
     .await
 }
@@ -185,6 +204,7 @@ pub async fn set_default_launcher_impl(
     serial: &str,
     package: &str,
     allow_stock_disable: bool,
+    progress: &Progress,
 ) -> Result<SetLauncherResult, String> {
     // `package` can come from a custom-launcher entry the user typed, so it's
     // interpolated into shell commands below — validate it first.
@@ -201,6 +221,7 @@ pub async fn set_default_launcher_impl(
     let adb = state.adb_snapshot().await;
 
     // 1. Enable the package — no-op for already-enabled.
+    progress.step("Enabling this launcher");
     let _ = adb.shell(serial, &format!("pm enable {package}")).await;
 
     let mut last_error: Option<String> = None;
@@ -210,6 +231,7 @@ pub async fn set_default_launcher_impl(
     let mut device_accepted = false;
 
     // 2. Role API.
+    progress.step("Assigning the Home role to it");
     let role_out = adb
         .shell(
             serial,
@@ -218,6 +240,7 @@ pub async fn set_default_launcher_impl(
         .await;
     match role_out {
         Ok(out) if !out.stdout.contains("Unknown command") => {
+            progress.step("Confirming the switch took");
             if verify_active(&*adb, serial, package).await {
                 return Ok(SetLauncherResult {
                     ok: true,
@@ -243,6 +266,7 @@ pub async fn set_default_launcher_impl(
     }
 
     // 3. Discover activity candidates.
+    progress.step("Registering it as the Home app");
     let mut candidates: Vec<String> = Vec::new();
     if let Some(activity) = discover_home_activity(&*adb, serial, package).await {
         candidates.push(activity);
@@ -273,6 +297,7 @@ pub async fn set_default_launcher_impl(
                 };
                 if is_success_ack(msg) || msg.is_empty() {
                     device_accepted = true;
+                    progress.step("Confirming the switch took");
                     if verify_active(&*adb, serial, package).await {
                         return Ok(SetLauncherResult {
                             ok: true,
@@ -297,6 +322,7 @@ pub async fn set_default_launcher_impl(
 
     // 4. HOME-intent kick — system will resolve to the only remaining HOME app
     // if everything else got disabled.
+    progress.step("Switching Home over to it");
     let _ = adb
         .shell(
             serial,
@@ -345,6 +371,9 @@ pub async fn set_default_launcher_impl(
                     stock_takeover_available: true,
                 });
             }
+            progress.step(&format!(
+                "Disabling the stock launcher ({active}) to hand Home over"
+            ));
             let disabled_ok = matches!(
                 adb.shell(serial, &format!("pm disable-user --user 0 {active}")).await,
                 Ok(ref o) if !o.shell_reported_failure()
@@ -356,6 +385,7 @@ pub async fn set_default_launcher_impl(
                         "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME",
                     )
                     .await;
+                progress.step("Confirming the switch took");
                 if verify_active(&*adb, serial, package).await {
                     return Ok(SetLauncherResult {
                         ok: true,
@@ -502,9 +532,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(res.ok);
         assert_eq!(res.strategy.as_deref(), Some("role_api"));
@@ -530,9 +566,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(res.ok);
         assert_eq!(res.strategy.as_deref(), Some("set_home_activity"));
@@ -551,9 +593,15 @@ mod tests {
             .on_shell_failure("set-home-activity", "Error: Activity class does not exist");
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", false)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            false,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(!res.ok);
         assert_eq!(res.strategy, None);
@@ -575,9 +623,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", true)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            true,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(!res.ok);
         let calls = log.lock().unwrap();
@@ -609,9 +663,15 @@ mod tests {
         let log = mock.shell_log();
         let state = state_with(mock);
 
-        let res = set_default_launcher_impl(&state, "serial", "com.example.launcher", true)
-            .await
-            .unwrap();
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            true,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
 
         assert!(res.ok);
         assert_eq!(res.strategy.as_deref(), Some("disable_stock_takeover"));
