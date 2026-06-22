@@ -407,8 +407,8 @@
     try {
       const r = await api.forceStop(serial, pkg);
       appActionMessage = r.ok
-        ? `${pkg}: stopped — refresh the report to see freed RAM.`
-        : `${pkg}: ${r.message.trim()}`;
+        ? `${pkg} stopped — its RAM frees up now (it restarts on next launch). Refresh the report to see the change.`
+        : `Couldn't stop ${pkg}: ${r.message.trim()}`;
     } catch (e) {
       appActionMessage = String(e);
     } finally {
@@ -660,54 +660,70 @@
   }
 
   async function enableLauncher(pkg: string) {
+    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     const prevDefault = currentLauncher?.package ?? null;
+    const prevName = prevDefault
+      ? (launchers.find((l) => l.entry.package === prevDefault)?.entry.name ?? prevDefault)
+      : null;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherProgress = "Enabling this launcher";
     try {
       const r = await api.enablePackage(serial, pkg);
       if (!r.ok) {
-        launcherActionMessage = `${pkg}: ${r.message.trim() || "failed"}`;
+        launcherActionMessage = `Couldn't enable ${name}: ${r.message.trim() || "failed"}`;
         return;
       }
+      launcherProgress = "Refreshing the launcher list";
       await loadLauncher();
       // Android clears its preferred-HOME record when a launcher package's
       // state changes, so a freshly re-enabled launcher (especially stock)
       // can steal the active-launcher slot. Enabling ≠ switching — put the
       // user's previous default back.
       if (prevDefault && prevDefault !== pkg && currentLauncher?.package === pkg) {
+        launcherProgress = `Restoring ${prevName} as default`;
         const back = await api.setDefaultLauncher(serial, prevDefault);
         await loadLauncher();
         launcherActionMessage = back.ok
-          ? `Enabled ${pkg}. Android made it the active launcher, so ${prevDefault} was re-set as your default.`
+          ? `Enabled ${name}. Android made it the active launcher, so ${prevName} was re-set as your default.`
           : back.stock_takeover_available
-            ? `Enabled ${pkg} — it also took over HOME, and this build can't hand HOME back without disabling it again. Use "Set as default" on ${prevDefault} if you want it back.`
-            : `Enabled ${pkg} — Android made it the active launcher, and re-setting ${prevDefault} failed` +
+            ? `Enabled ${name} — it also took over HOME, and this build can't hand HOME back without disabling it again. Use "Set as default" on ${prevName} if you want it back.`
+            : `Enabled ${name} — Android made it the active launcher, and re-setting ${prevName} failed` +
               `${back.last_error ? `: ${back.last_error}` : ""}. Use "Set as default" on your preferred launcher.`;
       } else {
-        launcherActionMessage = `${pkg}: enabled`;
+        launcherActionMessage = `${name} enabled.`;
       }
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
       launcherActionBusy = null;
+      launcherProgress = "";
     }
   }
 
   async function disableLauncher(pkg: string) {
+    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     const advice = launchers.find((l) => l.entry.package === pkg)?.other
       ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
       : "";
-    if (!confirm(`Disable ${pkg}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
+    if (!confirm(`Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherProgress = "Disabling this launcher";
     try {
       const r = await api.disableLauncher(serial, pkg);
-      launcherActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
-      if (r.ok) await loadLauncher();
+      if (r.ok) {
+        launcherProgress = "Refreshing the launcher list";
+        await loadLauncher();
+        launcherActionMessage = `${name} disabled.`;
+      } else {
+        launcherActionMessage = `Couldn't disable ${name}: ${r.message.trim() || "failed"}`;
+      }
     } catch (e) {
       launcherActionMessage = String(e);
     } finally {
       launcherActionBusy = null;
+      launcherProgress = "";
     }
   }
 
@@ -1290,7 +1306,11 @@
                       disabled={appActionBusy === m.package}
                       title="am force-stop {m.package} — frees its RAM now; the app restarts on next launch"
                     >
-                      {appActionBusy === m.package ? "…" : "Force stop"}
+                      {#if appActionBusy === m.package}
+                        <span class="busy"><span class="spinner" aria-hidden="true"></span>Stopping…</span>
+                      {:else}
+                        Force stop
+                      {/if}
                     </button>
                     {#if blocked}
                       <span class="muted small" title={safety.reason}>Protected</span>
@@ -1302,7 +1322,11 @@
                         disabled={appActionBusy === m.package}
                         title="pm disable-user --user 0 {m.package}"
                       >
-                        {appActionBusy === m.package ? "…" : "Disable"}
+                        {#if appActionBusy === m.package}
+                          <span class="busy"><span class="spinner" aria-hidden="true"></span>Disabling…</span>
+                        {:else}
+                          Disable
+                        {/if}
                       </button>
                     {/if}
                   </td>
@@ -1414,7 +1438,7 @@
                         onclick={() => disableLauncher(l.entry.package)}
                         disabled={launcherActionBusy !== null}
                         title="pm disable-user --user 0 {l.entry.package}"
-                      >Disable</button>
+                      >{busy ? "Disabling…" : "Disable"}</button>
                     {:else if isCurrent}
                       <span
                         class="muted small"
@@ -2162,14 +2186,22 @@
     font-size: 0.8rem;
     font-weight: 500;
   }
-  .launcher-progress .spinner {
-    width: 0.85rem;
-    height: 0.85rem;
+  .spinner {
+    width: 0.8rem;
+    height: 0.8rem;
     flex: none;
+    display: inline-block;
+    vertical-align: -0.12em;
     border: 2px solid var(--border);
     border-top-color: var(--accent);
     border-radius: 50%;
     animation: launcher-spin 0.7s linear infinite;
+  }
+  /* Inline wrapper so a spinner + label sit centred inside a button. */
+  .busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
   @keyframes launcher-spin {
     to {
@@ -2177,7 +2209,7 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .launcher-progress .spinner {
+    .spinner {
       animation: none;
     }
   }
