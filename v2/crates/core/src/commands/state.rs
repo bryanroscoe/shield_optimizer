@@ -1,15 +1,22 @@
 //! Shared application state held across Tauri command invocations.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "android"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, RwLock};
+#[cfg(not(target_os = "android"))]
+use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
-use crate::adb::driver::discover_adb_binary;
+#[cfg(not(target_os = "android"))]
 use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
-use crate::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, RemoteInputSession, SubprocessAdb};
+use crate::adb::AdbDriver;
+#[cfg(not(target_os = "android"))]
+use crate::adb::RemoteInputSession;
 use crate::engine::AppListBundle;
+use crate::license::{Entitlement, Feature};
 
 /// State managed by Tauri's state store. Held by `tauri::Builder::manage`.
 pub struct AppState {
@@ -27,10 +34,14 @@ pub struct AppState {
     /// catalog (Artemis, Overseerr, …). Display-only: lets the App List show and
     /// search "Everything else" by a recognizable name instead of a bare package
     /// ID. There's no cheap way to read an app's label over adb, so this is a
-    /// curated map loaded from `data/app-lists/known-names.json`.
+    /// curated map loaded from `crates/core/data/app-lists/known-names.json`.
     pub known_names: HashMap<String, String>,
+    /// Current product entitlement. Desktop constructs this as Pro; mobile starts Free
+    /// and replaces it after license validation.
+    pub entitlement: Entitlement,
     /// Live scrcpy control sessions, keyed by device serial. Lazily started on
     /// the first remote key and held open for the Remote tab's lifetime.
+    #[cfg(not(target_os = "android"))]
     pub remote_sessions: Mutex<HashMap<String, RemoteInputSession>>,
 }
 
@@ -42,6 +53,8 @@ impl AppState {
             snapshot_dir: data_dir.join("snapshots"),
             data_dir,
             known_names: HashMap::new(),
+            entitlement: Entitlement::Pro,
+            #[cfg(not(target_os = "android"))]
             remote_sessions: Mutex::new(HashMap::new()),
         }
     }
@@ -53,23 +66,16 @@ impl AppState {
         self
     }
 
-    /// Build the standard runtime state. If no adb binary can be found, we
-    /// still construct an `AppState` so the GUI can render — but every ADB
-    /// call returns `AdbError::BinaryNotFound`, which renders as an
-    /// actionable error in the device list. The user can then trigger a
-    /// download via the `install_adb` command.
-    pub fn default_for_runtime(app_lists: AppListBundle, data_dir: PathBuf) -> Self {
-        let adb: Arc<dyn AdbDriver> = match discover_adb_binary() {
-            Some(path) => {
-                tracing::info!(adb = %path.display(), "adb located");
-                Arc::new(SubprocessAdb::new(path))
-            }
-            None => {
-                tracing::warn!("no adb binary located; commands will return BinaryNotFound");
-                Arc::new(NoAdbDriver)
-            }
-        };
-        Self::new(adb, app_lists, data_dir)
+    pub fn with_entitlement(mut self, entitlement: Entitlement) -> Self {
+        self.entitlement = entitlement;
+        self
+    }
+
+    pub fn require_pro(&self, feature: Feature) -> Result<(), String> {
+        match self.entitlement {
+            Entitlement::Pro => Ok(()),
+            Entitlement::Free => Err(format!("LOCKED:{}", feature.code())),
+        }
     }
 
     /// Snapshot the current driver `Arc` — cheap clone for command bodies.
@@ -87,6 +93,7 @@ impl AppState {
     /// cold start can't block other commands; the lock is only taken for the
     /// fast presence check and the final insert. If two callers race, the loser
     /// tears its extra session down.
+    #[cfg(not(target_os = "android"))]
     pub async fn ensure_remote_session(
         &self,
         adb: Arc<dyn AdbDriver>,
@@ -110,6 +117,7 @@ impl AppState {
     /// Inject a single key-down / key-up via the live session. Errors if no
     /// session exists — Phase 3 calls `ensure_remote_session` first, and on a
     /// write error should `drop_remote_session` and fall back to `input`.
+    #[cfg(not(target_os = "android"))]
     pub async fn remote_send_key(
         &self,
         serial: &str,
@@ -124,6 +132,7 @@ impl AppState {
     }
 
     /// Inject a full key press (down + up) via the live session.
+    #[cfg(not(target_os = "android"))]
     pub async fn remote_send_key_press(&self, serial: &str, keycode: u32) -> Result<(), String> {
         let mut guard = self.remote_sessions.lock().await;
         let session = guard
@@ -133,6 +142,7 @@ impl AppState {
     }
 
     /// Inject UTF-8 text via the live session.
+    #[cfg(not(target_os = "android"))]
     pub async fn remote_send_text(&self, serial: &str, text: &str) -> Result<(), String> {
         let mut guard = self.remote_sessions.lock().await;
         let session = guard
@@ -143,6 +153,7 @@ impl AppState {
 
     /// Tear down and forget the session for `serial`, if any. Removes it from
     /// the registry first, then closes outside the lock.
+    #[cfg(not(target_os = "android"))]
     pub async fn drop_remote_session(&self, serial: &str) {
         let session = self.remote_sessions.lock().await.remove(serial);
         if let Some(session) = session {
@@ -157,6 +168,7 @@ impl AppState {
 ///
 /// Phase 3: the remote-input command calls this with its `AppHandle` to get the
 /// jar path, then hands it to `AppState::ensure_remote_session`.
+#[cfg(not(target_os = "android"))]
 pub fn resolve_scrcpy_server_jar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
     if let Ok(p) = app.path().resolve(
@@ -167,7 +179,9 @@ pub fn resolve_scrcpy_server_jar(app: &tauri::AppHandle) -> Result<PathBuf, Stri
             return Ok(p);
         }
     }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SERVER_JAR_RESOURCE_PATH);
+    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../src-tauri")
+        .join(SERVER_JAR_RESOURCE_PATH);
     if dev.is_file() {
         return Ok(dev);
     }
@@ -175,19 +189,4 @@ pub fn resolve_scrcpy_server_jar(app: &tauri::AppHandle) -> Result<PathBuf, Stri
         "scrcpy server jar not found (looked in the Tauri resource dir and {})",
         dev.display()
     ))
-}
-
-/// Driver used when no adb binary could be discovered at startup. Every call
-/// returns the actionable `BinaryNotFound` error so the UI tells the user
-/// exactly what to do.
-struct NoAdbDriver;
-
-#[async_trait::async_trait]
-impl AdbDriver for NoAdbDriver {
-    async fn raw(&self, _args: &[&str]) -> AdbResult<AdbOutput> {
-        Err(AdbError::BinaryNotFound)
-    }
-    async fn shell(&self, _serial: &str, _command: &str) -> AdbResult<AdbOutput> {
-        Err(AdbError::BinaryNotFound)
-    }
 }

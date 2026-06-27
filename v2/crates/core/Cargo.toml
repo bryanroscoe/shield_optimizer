@@ -1,0 +1,28 @@
+[package]
+name = "shield-optimizer-core"
+version = "2.1.0"
+description = "Shared engine, ADB abstractions, and Tauri commands for Shield Optimizer / ATV Optimizer"
+authors = ["Bryan Roscoe"]
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+
+[features]
+test-support = []
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "time", "macros", "rt-multi-thread", "sync", "fs", "net", "process"] }
+anyhow = "1"
+thiserror = "1"
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+tracing = "0.1"
+async-trait = "0.1"
+
+[dev-dependencies]
+pretty_assertions = "1"
+tempfile = "3"

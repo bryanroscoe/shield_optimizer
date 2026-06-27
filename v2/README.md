@@ -17,9 +17,9 @@ This directory is the v2 workspace. v1 (`Shield-Optimizer.ps1` at the repo root)
 
 ## Status
 
-✅ **Shipping — v2-2.0.0-beta.11.** Full feature set landed. v2 currently:
+✅ **Shipping — v2-2.1.0.** Full feature set landed. v2 currently:
 
-- Builds: `cargo build` and `npm run build` both produce artifacts
+- Builds: `cargo build -p shield-optimizer-v2` and `npm run build` both produce artifacts
 - Tests: Rust tests (engine + ADB parsers + loader sanity), all passing
 - Runs as an installable desktop app (`npm run tauri dev` for dev; download from [Releases](https://github.com/bryanroscoe/shield_optimizer/releases) or `brew install --cask shield-optimizer`)
 - Lists ADB devices with friendly model names + device-type detection
@@ -27,7 +27,7 @@ This directory is the v2 workspace. v1 (`Shield-Optimizer.ps1` at the repo root)
 
 **Remaining feature gaps vs. aTV Tools:** see [`ATVTOOLS-PARITY.md`](ATVTOOLS-PARITY.md). Headline items not yet shipped: screen recording, shell runner, permissions viewer, CPU + network monitor.
 
-The behavior spec is at [`docs/FEATURES.md`](../docs/FEATURES.md). The porting roadmap is in [`PLAN.md`](PLAN.md).
+The behavior spec is at [`docs/FEATURES.md`](../docs/FEATURES.md). The ATV Optimizer Android app plan is in [`ATV-OPTIMIZER-ANDROID-PLAN.md`](ATV-OPTIMIZER-ANDROID-PLAN.md).
 
 ## Install
 
@@ -89,49 +89,25 @@ The engine is the part that's portable. It knows what the rules are (which packa
 
 ```
 v2/
-├── README.md, PLAN.md       # this doc + porting roadmap
-├── package.json             # frontend dependencies
-├── svelte.config.js         # SvelteKit (SPA mode, adapter-static)
-├── vite.config.js
-├── tsconfig.json
-├── data/
-│   └── app-lists/
-│       ├── common.json      # universal bloat list (incl. defunct apps)
-│       ├── shield.json      # Shield-specific
-│       └── googletv.json    # Google TV / Onn / Chromecast-specific
-├── src/                     # Svelte frontend (TypeScript)
-│   ├── app.html
-│   ├── lib/
-│   │   ├── api.ts           # typed wrappers around Tauri invoke()
-│   │   └── types.ts         # TS counterparts of Rust types
-│   └── routes/
-│       ├── +layout.svelte   # app shell, nav, global styles
-│       ├── +layout.ts       # SSR disabled (Tauri SPA mode)
-│       ├── +page.svelte     # device list + Connect IP form
-│       ├── devices/[serial]/+page.svelte  # tabs: Overview / Health / Launcher / Apps / Snapshot
-│       └── snapshots/+page.svelte         # global snapshot list
-└── src-tauri/               # Rust backend
+├── README.md, ATV-OPTIMIZER-ANDROID-PLAN.md
+├── Cargo.toml, Cargo.lock    # Rust workspace
+├── package.json              # desktop frontend dependencies
+├── crates/
+│   └── core/
+│       ├── data/app-lists/   # embedded app catalog JSON
+│       └── src/
+│           ├── engine/       # pure safety/planning logic (no I/O)
+│           ├── adb/          # shared driver trait + parsers
+│           └── commands/     # driver-generic Tauri commands
+├── src/                      # desktop Svelte frontend (TypeScript)
+└── src-tauri/                # desktop Tauri app
     ├── Cargo.toml, build.rs, tauri.conf.json
-    ├── icons/, capabilities/
+    ├── icons/, capabilities/, resources/
     └── src/
-        ├── lib.rs           # Tauri entry — registers commands, manages state
-        ├── main.rs
-        ├── engine/          # pure logic (no I/O — commitment #1)
-        │   ├── types.rs     # Device, AppEntry, OptimizeAction, etc.
-        │   ├── detection.rs # ONE device-type-detection fn (resolves v1 duplicate paths)
-        │   ├── app_lists.rs # merge logic for common + device-specific lists
-        │   ├── launcher.rs  # custom launcher catalog + package validation
-        │   └── snapshot.rs  # versioned schema + apply-plan computation
-        ├── adb/             # ADB driver
-        │   ├── driver.rs    # AdbDriver trait + SubprocessAdb impl
-        │   └── parse.rs     # output parsers (devices, packages, meminfo, display)
-        └── commands/        # Tauri command bridge (thin)
-            ├── state.rs     # AppState held by tauri::manage
-            ├── loader.rs    # embeds + loads app-lists JSON (host layer, not engine)
-            ├── devices.rs   # list_devices, device_profile, connect/disconnect
-            ├── health.rs    # health_report, app_list_for_device
-            ├── launcher.rs  # list_launchers, current_launcher, channel_provider_disabled
-            └── snapshot.rs  # list/save snapshots, preview_apply
+        ├── adb/              # desktop SubprocessAdb + install/scan helpers
+        ├── commands/         # desktop-only file/install/update commands
+        ├── lib.rs            # desktop Tauri entrypoint
+        └── main.rs
 ```
 
 ## Architectural commitments
@@ -139,7 +115,7 @@ v2/
 These are non-negotiable; deviating is a regression:
 
 1. **Engine has no I/O.** It returns plans and inspects results — does not call `adb`, does not read files, does not make HTTP requests, does not log. The tests prove this by injecting a mock ADB driver.
-2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the Tauri host layer (next to the command bridge, not in the engine). The loader is responsible for: shipping with embedded JSON defaults; fetching the latest from a versioned URL (`raw.githubusercontent.com/.../v2/data/app-lists/<file>.json` or similar) on launch; falling back to embedded on offline; signature-verifying fetched lists. The engine accepts app lists as inputs and is agnostic to where they came from. This is the only way to honor commitment #1 while supporting hot-shipping of dead-app updates.
+2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the shared command layer (next to the command bridge, not in the engine). The loader is responsible for: shipping with embedded JSON defaults; fetching the latest from a versioned URL (`raw.githubusercontent.com/.../v2/crates/core/data/app-lists/<file>.json` or similar) on launch; falling back to embedded on offline; signature-verifying fetched lists. The engine accepts app lists as inputs and is agnostic to where they came from. This is the only way to honor commitment #1 while supporting hot-shipping of dead-app updates.
 3. **All ADB output goes through one wrapper.** Single point for tracing, retries, structured logging. No naked `adb ...` calls scattered through the codebase.
 4. **The detection logic exists exactly once.** v1 has two device-type-detection paths that don't agree on edge cases (see `docs/FEATURES.md` §13.1). v2 must have one.
 5. **Snapshots are versioned.** `schemaVersion` in every snapshot file. The reader handles old versions or rejects them with a clear error.
@@ -179,7 +155,7 @@ npm run tauri dev          # run in development (opens a window)
 
 For now, the development flow is:
 - `cd v2 && npm run tauri dev` to run the GUI
-- `cd v2/src-tauri && cargo test --lib` to run engine tests
+- `cd v2 && cargo test -p shield-optimizer-core -p shield-optimizer-v2` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
 
 ## Frontend framework decision
@@ -195,7 +171,8 @@ Default in the plan is **Svelte**. Override before running `create-tauri-app` if
 
 ## See also
 
-- [PLAN.md](PLAN.md) — phased porting roadmap with milestones
+- [ATV-OPTIMIZER-ANDROID-PLAN.md](ATV-OPTIMIZER-ANDROID-PLAN.md) — Android app implementation plan
+- [PLAN.md](PLAN.md) — historical phased porting roadmap
 - [`../docs/FEATURES.md`](../docs/FEATURES.md) — behavior spec (the source of truth)
 - v1: `Shield-Optimizer.ps1` at repo root
 

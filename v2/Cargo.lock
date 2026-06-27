@@ -3659,6 +3659,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "shield-optimizer-core"
+version = "2.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "pretty_assertions",
+ "regex",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "shield-optimizer-v2"
 version = "2.1.0"
 dependencies = [
@@ -3674,6 +3693,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "shield-optimizer-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

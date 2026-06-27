@@ -1,10 +1,12 @@
 # v2 — current state
 
-v2 is a shipping desktop app. Current version: **2.0.0-beta.11**.
+v2 is a shipping desktop app. Current version: **2.1.0**.
 
-58 Tauri commands registered (`v2/src-tauri/src/lib.rs`). Full release pipeline live: installers built for macOS/Linux/Windows on every `v2-*` tag push via `.github/workflows/v2-release.yml`; macOS also distributed via Homebrew tap (`bryanroscoe/homebrew-shield-optimizer`).
+65 Tauri commands registered (`v2/src-tauri/src/lib.rs`). Full release pipeline live: installers built for macOS/Linux/Windows on every `v2-*` tag push via `.github/workflows/v2-release.yml`; macOS also distributed via Homebrew tap (`bryanroscoe/homebrew-shield-optimizer`).
 
 ## Roadmap
+
+ATV Optimizer Android app plan: see **[`ATV-OPTIMIZER-ANDROID-PLAN.md`](ATV-OPTIMIZER-ANDROID-PLAN.md)**.
 
 Feature parity gaps against aTV Tools — see **[`v2/ATVTOOLS-PARITY.md`](ATVTOOLS-PARITY.md)** for the current comparison table and prioritized plan.
 

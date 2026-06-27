@@ -1,19 +1,22 @@
-//! Shield Optimizer v2 — Tauri entry point.
+//! Shield Optimizer v2 — desktop Tauri entry point.
 //!
-//! Layout:
-//! - `engine/` — pure logic (no I/O).
-//! - `adb/`    — subprocess wrapper + output parsers.
-//! - `commands/` — Tauri command handlers and shared state.
+//! Shared engine and driver-generic commands live in `shield_optimizer_core`.
+//! This crate keeps the desktop-only subprocess ADB driver, installer/updater,
+//! host-network scan, and file-path based commands.
 
 pub mod adb;
 pub mod commands;
-pub mod engine;
+pub use shield_optimizer_core::engine;
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use commands::{
-    apps, backup, devices, files, health, input, install, launcher, loader, optimize, reboot,
-    recovery, scan, screenshot, sideload, snapshot, tuning, update, AppState,
+use adb::SubprocessAdb;
+use commands::{backup, files, install, scan, sideload, update, AppState};
+use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use shield_optimizer_core::commands::{
+    apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot,
+    snapshot, tuning,
 };
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
@@ -26,6 +29,36 @@ fn default_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("ShieldOptimizer")
+}
+
+/// Driver used when no adb binary could be discovered at startup. Every call
+/// returns the actionable `BinaryNotFound` error so the UI tells the user
+/// exactly what to do.
+struct NoAdbDriver;
+
+#[async_trait::async_trait]
+impl AdbDriver for NoAdbDriver {
+    async fn raw(&self, _args: &[&str]) -> AdbResult<AdbOutput> {
+        Err(AdbError::BinaryNotFound)
+    }
+
+    async fn shell(&self, _serial: &str, _command: &str) -> AdbResult<AdbOutput> {
+        Err(AdbError::BinaryNotFound)
+    }
+}
+
+fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
+    let adb: Arc<dyn AdbDriver> = match adb::discover_adb_binary() {
+        Some(path) => {
+            tracing::info!(adb = %path.display(), "adb located");
+            Arc::new(SubprocessAdb::new(path))
+        }
+        None => {
+            tracing::warn!("no adb binary located; commands will return BinaryNotFound");
+            Arc::new(NoAdbDriver)
+        }
+    };
+    AppState::new(adb, app_lists, data_dir)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -56,12 +89,12 @@ pub fn run() {
             // Surface the build-time mistake but don't crash the GUI — let the
             // frontend show an empty state.
             tracing::error!(error = %e, "failed to load embedded app lists");
-            crate::engine::AppListBundle::default()
+            engine::AppListBundle::default()
         }
     };
 
-    let state = AppState::default_for_runtime(app_lists, default_data_dir())
-        .with_known_names(loader::load_known_names());
+    let state =
+        default_state(app_lists, default_data_dir()).with_known_names(loader::load_known_names());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

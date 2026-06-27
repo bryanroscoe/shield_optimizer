@@ -224,10 +224,10 @@ Ship target: v2.1.0 with phone client. **Realistic timeline depends on 11.0 outc
 
 ## Phase 5 addenda — data additions (folded in from the research pass)
 
-These are *data changes* to the app lists shipping with v2, not separate features. They live in `data/app-lists/*.json` and are picked up by the runtime loader (commitment #2). Lumping them with Phase 5 because the loader is what unlocks them.
+These are *data changes* to the app lists shipping with v2, not separate features. They live in `crates/core/data/app-lists/*.json` and are picked up by the runtime loader (commitment #2). Lumping them with Phase 5 because the loader is what unlocks them.
 
 - **"Disable Nvidia telemetry" preset** — curated bundle of Nvidia telemetry packages exposed as a one-click preset. Implementation: a new `data/presets/*.json` schema lets the engine compose multiple package-actions into a single named preset; Phase 5 ships at least this one preset to validate the schema.
-- **More Shield bloat from florisse.nl** — additional packages catalogued in the [florisse Shield-debloat guide](https://florisse.nl/shield-debloat/) that v1 doesn't have. Update `data/app-lists/shield.json` rather than touching code.
+- **More Shield bloat from florisse.nl** — additional packages catalogued in the [florisse Shield-debloat guide](https://florisse.nl/shield-debloat/) that v1 doesn't have. Update `crates/core/data/app-lists/shield.json` rather than touching code.
 
 ## Out-of-scope ideas (parking lot)
 

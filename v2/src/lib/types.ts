@@ -1,4 +1,4 @@
-// TypeScript counterparts of the Rust types in src-tauri/src/engine/types.rs
+// TypeScript counterparts of the Rust types in crates/core/src/engine/types.rs
 // and src-tauri/src/commands/*.rs. Keep in sync.
 
 export type ConnectionType = "network" | "usb";

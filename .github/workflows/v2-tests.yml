@@ -61,20 +61,20 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            v2/src-tauri/target
-          key: ${{ runner.os }}-cargo-v2-${{ hashFiles('v2/src-tauri/Cargo.lock') }}
+            v2/target
+          key: ${{ runner.os }}-cargo-v2-${{ hashFiles('v2/Cargo.lock') }}
 
       - name: cargo fmt
-        working-directory: v2/src-tauri
-        run: cargo fmt --check
+        working-directory: v2
+        run: cargo fmt --all --check
 
       - name: cargo clippy
-        working-directory: v2/src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        working-directory: v2
+        run: cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 --all-targets -- -D warnings
 
       - name: cargo test
-        working-directory: v2/src-tauri
-        run: cargo test
+        working-directory: v2
+        run: cargo test -p shield-optimizer-core -p shield-optimizer-v2
 
   frontend:
     name: Frontend type check

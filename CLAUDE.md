@@ -13,10 +13,10 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
 
 These are load-bearing — break them and the safety story falls over.
 
-- **`v2/src-tauri/src/engine/` is pure.** No I/O, no ADB calls, no filesystem. Pure functions and pure types only. All I/O lives in `commands/` and `adb/`. The engine is the audited safety layer; keeping it pure is what makes the unit tests trustworthy.
-- **One ADB wrapper.** Everything subprocess-y goes through `SubprocessAdb` in `adb/driver.rs`. Don't add a second wrapper — extend the `AdbDriver` trait if you need a new capability. The active driver lives behind `RwLock<Arc<dyn AdbDriver>>` so `install_adb` can hot-swap it without a restart.
+- **`v2/crates/core/src/engine/` is pure.** No I/O, no ADB calls, no filesystem. Pure functions and pure types only. All I/O lives in shared or desktop `commands/` and `adb/` modules outside the engine. The engine is the audited safety layer; keeping it pure is what makes the unit tests trustworthy.
+- **One ADB wrapper.** Everything subprocess-y goes through `SubprocessAdb` in `v2/src-tauri/src/adb/driver.rs`. Don't add a second wrapper — extend the `AdbDriver` trait if you need a new capability. The active driver lives behind `RwLock<Arc<dyn AdbDriver>>` so `install_adb` can hot-swap it without a restart.
 - **One detection function.** Device profiling has a single canonical implementation. Don't fork.
-- **App lists live in JSON, not in code.** Add/edit packages in `v2/data/app-lists/{common,shield,googletv}.json`. They are embedded at compile time via `include_str!` in `commands/loader.rs` — editing the JSON requires a rebuild. Never hard-code packages in Rust.
+- **App lists live in JSON, not in code.** Add/edit packages in `v2/crates/core/data/app-lists/{common,shield,googletv}.json`. They are embedded at compile time via `include_str!` in `crates/core/src/commands/loader.rs` — editing the JSON requires a rebuild. Never hard-code packages in Rust.
 - **Snapshots are versioned.** `schema_version == 0` is rejected. `schema_version > current` is rejected. Bump the constant in `engine/snapshot.rs` when the schema changes and write an explicit migration.
 - **Snapshot reads are path-confined** to `snapshot_dir` via `canonicalize` + `starts_with`. Keep that check on any new read path that takes a user-supplied snapshot location — zip-slip / traversal protection is the same pattern in `adb/install.rs`.
 - **The do-not-disable list is mandatory.** `engine::safety::classify` / `is_never_disable` must gate every disable code path (apply-snapshot, optimize wizard, memory-table Disable button, stock-launcher wizard, panic-recovery's inverse, …). Bypassing it bricks devices.

@@ -11,10 +11,10 @@ use crate::engine::AppListBundle;
 /// Embedded JSON for the three default app lists. Loaded at compile time so
 /// the binary works offline. Future versions will additionally check a
 /// versioned URL and prefer fresher copies; that goes here.
-const COMMON_JSON: &str = include_str!("../../../data/app-lists/common.json");
-const SHIELD_JSON: &str = include_str!("../../../data/app-lists/shield.json");
-const GOOGLETV_JSON: &str = include_str!("../../../data/app-lists/googletv.json");
-const KNOWN_NAMES_JSON: &str = include_str!("../../../data/app-lists/known-names.json");
+const COMMON_JSON: &str = include_str!("../../data/app-lists/common.json");
+const SHIELD_JSON: &str = include_str!("../../data/app-lists/shield.json");
+const GOOGLETV_JSON: &str = include_str!("../../data/app-lists/googletv.json");
+const KNOWN_NAMES_JSON: &str = include_str!("../../data/app-lists/known-names.json");
 
 /// Load the bundled defaults. Returns a useful error string if any of the
 /// embedded JSON files fail to parse — that's a build-time mistake worth

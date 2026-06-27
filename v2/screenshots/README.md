@@ -20,7 +20,7 @@ That runs two steps:
 
 Devices list → device Overview → Health → Launcher → App List → Optimize wizard → Tweaks → Remote → Files → Install APK → Snapshot → global Snapshots page.
 
-The demo data is a faithful Nvidia Shield — real package names, the real launcher catalog, and the real merged app list ([`../src/lib/demo-apps.json`](../src/lib/demo-apps.json), regenerated from `../data/app-lists/`). It is **not** a real device; it's fixtures so the capture is deterministic and hardware-free.
+The demo data is a faithful Nvidia Shield — real package names, the real launcher catalog, and the real merged app list ([`../src/lib/demo-apps.json`](../src/lib/demo-apps.json), regenerated from `../crates/core/data/app-lists/`). It is **not** a real device; it's fixtures so the capture is deterministic and hardware-free.
 
 `frames/` and `frames-light/` are gitignored (regenerable). Only `gallery.gif` and `gallery-light.gif` are committed.
 

@@ -165,8 +165,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            v2/src-tauri/target
-          key: ${{ runner.os }}-cargo-v2-release-${{ hashFiles('v2/src-tauri/Cargo.lock') }}
+            v2/target
+          key: ${{ runner.os }}-cargo-v2-release-${{ hashFiles('v2/Cargo.lock') }}
 
       # Tauri's bundler on Linux needs webkit2gtk and friends. Pinning to
       # 22.04 because 24.04 ships libwebkit2gtk-4.1 only under a slightly
@@ -222,7 +222,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          appimages=(v2/src-tauri/target/release/bundle/appimage/*.AppImage)
+          appimages=(v2/target/release/bundle/appimage/*.AppImage)
           [ ${#appimages[@]} -eq 1 ] || { echo "expected exactly one AppImage, found: ${appimages[*]}"; exit 1; }
           appimage="${appimages[0]}"
 

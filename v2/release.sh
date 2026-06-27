@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cut a v2 release. Bumps the version atomically across the four files that
+# Cut a v2 release. Bumps the version atomically across the release metadata files that
 # carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the commit
 # `v2-VERSION`, and pushes — the GitHub Actions workflow at
 # .github/workflows/v2-release.yml takes it from there to produce installers.
@@ -24,7 +24,8 @@ cd "$(dirname "$0")"
 
 TAURI_CONF="src-tauri/tauri.conf.json"
 CARGO_TOML="src-tauri/Cargo.toml"
-CARGO_LOCK="src-tauri/Cargo.lock"
+CORE_CARGO_TOML="crates/core/Cargo.toml"
+CARGO_LOCK="Cargo.lock"
 PACKAGE_JSON="package.json"
 
 # --- Parse flags -------------------------------------------------------------
@@ -174,24 +175,26 @@ conf["version"] = new
 conf.setdefault("bundle", {}).setdefault("windows", {}).setdefault("wix", {})["version"] = wix_version
 p.write_text(json.dumps(conf, indent=2) + "\n")
 
-# Cargo.toml — keep formatting, edit only the [package].version line
-cargo = pathlib.Path("$CARGO_TOML").read_text()
-cargo, n = re.subn(r'(?m)^(version\s*=\s*)"[^"]+"', rf'\1"{new}"', cargo, count=1)
-assert n == 1, "Cargo.toml: no top-level version= line found"
-pathlib.Path("$CARGO_TOML").write_text(cargo)
+# Cargo.toml files — keep formatting, edit only each [package].version line.
+for cargo_path in ["$CARGO_TOML", "$CORE_CARGO_TOML"]:
+    cargo = pathlib.Path(cargo_path).read_text()
+    cargo, n = re.subn(r'(?m)^(version\s*=\s*)"[^"]+"', rf'\1"{new}"', cargo, count=1)
+    assert n == 1, f"{cargo_path}: no top-level version= line found"
+    pathlib.Path(cargo_path).write_text(cargo)
 
 # Cargo.lock — find the [[package]] block whose name matches the crate and
 # rewrite its version line. Without this, the next `cargo build` rewrites
 # Cargo.lock and leaves the working tree dirty after a release.
 lock_path = pathlib.Path("$CARGO_LOCK")
 lock = lock_path.read_text()
-lock, n = re.subn(
-    r'(\[\[package\]\]\r?\nname = "shield-optimizer-v2"\r?\nversion = )"[^"]+"',
-    rf'\1"{new}"',
-    lock,
-    count=1,
-)
-assert n == 1, "Cargo.lock: shield-optimizer-v2 package entry not found"
+for package_name in ["shield-optimizer-v2", "shield-optimizer-core"]:
+    lock, n = re.subn(
+        rf'(\[\[package\]\]\r?\nname = "{package_name}"\r?\nversion = )"[^"]+"',
+        rf'\1"{new}"',
+        lock,
+        count=1,
+    )
+    assert n == 1, f"Cargo.lock: {package_name} package entry not found"
 lock_path.write_text(lock)
 
 # package.json
@@ -201,11 +204,11 @@ pkg["version"] = new
 p.write_text(json.dumps(pkg, indent=2) + "\n")
 PY
 
-git diff --stat "$TAURI_CONF" "$CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
+git diff --stat "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
 
 # --- Commit + tag + push -----------------------------------------------------
 
-git add "$TAURI_CONF" "$CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
+git add "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
 git commit -m "Release $TAG"
 git tag -a "$TAG" -m "Release $TAG"
 

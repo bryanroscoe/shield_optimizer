@@ -114,11 +114,28 @@ pub async fn connect_device(
     Ok(connect_result_from(&out))
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum ConnectOutcome {
+    Connected,
+    Unauthorized,
+    Failed,
+}
+
+fn classify_connect_output(combined: &str) -> ConnectOutcome {
+    let s = combined.to_lowercase();
+    if s.contains("failed to authenticate") {
+        ConnectOutcome::Unauthorized
+    } else if s.contains("connected to") && !s.contains("failed") && !s.contains("cannot") {
+        ConnectOutcome::Connected
+    } else {
+        ConnectOutcome::Failed
+    }
+}
+
 /// `adb connect` exits 0 even on "failed to connect", so classify by output
 /// text (same rule as scan_network). Unauthorized counts as ok — the device
 /// is connected and waiting for the user to approve this computer on the TV.
 fn connect_result_from(out: &crate::adb::AdbOutput) -> ConnectResult {
-    use super::scan::{classify_connect_output, ConnectOutcome};
     let combined = format!("{}\n{}", out.stdout, out.stderr).trim().to_string();
     let outcome = classify_connect_output(&combined);
     ConnectResult {
@@ -139,6 +156,7 @@ pub async fn disconnect_device(
 ) -> Result<ConnectResult, String> {
     // A live remote-input session holds an open socket + forward to this
     // device — tear it down before dropping the connection.
+    #[cfg(not(target_os = "android"))]
     state.drop_remote_session(&serial).await;
     let adb = state.adb_snapshot().await;
     let out = adb
