@@ -1,4 +1,4 @@
-package com.atvoptimizer.mobile.adb
+package app.tauri.atvadb
 
 import android.content.Context
 import android.os.Build

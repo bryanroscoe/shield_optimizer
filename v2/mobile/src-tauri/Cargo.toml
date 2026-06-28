@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 shield-optimizer-core = { path = "../../crates/core" }
+tauri-plugin-atv-adb = { path = "../tauri-plugin-atv-adb" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -70,11 +70,11 @@ jobs:
 
       - name: cargo clippy
         working-directory: v2
-        run: cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile --all-targets -- -D warnings
+        run: cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings
 
       - name: cargo test
         working-directory: v2
-        run: cargo test -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile
+        run: cargo test -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb
 
   frontend:
     name: Frontend type check

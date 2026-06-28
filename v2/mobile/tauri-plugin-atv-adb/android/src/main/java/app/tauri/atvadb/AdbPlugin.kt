@@ -1,17 +1,26 @@
-package com.atvoptimizer.mobile.adb
+package app.tauri.atvadb
 
 import android.app.Activity
-import app.tauri.plugin.JSObject
+import android.webkit.WebView
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import io.github.muntashirakon.adb.PRNGFixes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.conscrypt.Conscrypt
 import org.json.JSONArray
+import java.security.Security
+
+@InvokeArg
+internal class DiscoverArgs {
+  var timeoutMs: Long = 3_000
+}
 
 @InvokeArg
 internal class PairArgs {
@@ -42,9 +51,20 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val service by lazy { AdbService(activity.applicationContext) }
 
+  // Insert the Conscrypt security provider + libadb's PRNG fixes before any
+  // pairing/connect happens. Done here (not in the app's Application class) so
+  // the transport stays self-contained and survives app project regeneration.
+  override fun load(webView: WebView) {
+    PRNGFixes.apply()
+    if (Security.getProvider(Conscrypt.newProvider().name) == null) {
+      Security.insertProviderAt(Conscrypt.newProvider(), 1)
+    }
+  }
+
   @Command
   fun discover(invoke: Invoke) = launch(invoke) {
-    val devices = service.discover()
+    val args = invoke.parseArgs(DiscoverArgs::class.java)
+    val devices = service.discover(args.timeoutMs)
     val response = JSONArray()
     devices.forEach { response.put(it.toJson()) }
     invoke.resolve(JSObject().put("devices", response))
@@ -78,7 +98,7 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun screencap(invoke: Invoke) = launch(invoke) {
     invoke.parseArgs(SerialArgs::class.java)
-    invoke.resolve(JSObject().put("base64", service.screencap()))
+    invoke.resolve(JSObject().put("png_base64", service.screencap()))
   }
 
   private fun launch(invoke: Invoke, block: suspend () -> Unit) {

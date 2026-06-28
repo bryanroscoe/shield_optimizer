@@ -1,4 +1,4 @@
-package com.atvoptimizer.mobile.adb
+package app.tauri.atvadb
 
 import android.content.Context
 import android.net.nsd.NsdManager
@@ -6,7 +6,6 @@ import android.net.nsd.NsdServiceInfo
 import android.os.Build
 import android.util.Base64
 import io.github.muntashirakon.adb.AdbStream
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex

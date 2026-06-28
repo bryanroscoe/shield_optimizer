@@ -1,16 +1,8 @@
 package com.atvoptimizer.mobile
 
 import android.app.Application
-import io.github.muntashirakon.adb.PRNGFixes
-import org.conscrypt.Conscrypt
-import java.security.Security
 
-class App : Application() {
-  override fun onCreate() {
-    super.onCreate()
-    PRNGFixes.apply()
-    if (Security.getProvider(Conscrypt.newProvider().name) == null) {
-      Security.insertProviderAt(Conscrypt.newProvider(), 1)
-    }
-  }
-}
+// Security-provider setup (Conscrypt + libadb PRNG fixes) lives in the
+// tauri-plugin-atv-adb plugin's load(), so this stays a plain Application and
+// the app module carries none of the transport's native dependencies.
+class App : Application()

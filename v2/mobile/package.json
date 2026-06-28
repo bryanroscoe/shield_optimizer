@@ -19,5 +19,8 @@
     "svelte": "^5.0.0",
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
   }
 }

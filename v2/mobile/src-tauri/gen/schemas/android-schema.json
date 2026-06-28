@@ -177,6 +177,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "ATV Optimizer wireless-ADB transport. Exposes no JS-invokable commands; it is used from Rust by the app's WirelessAdb driver.",
+          "type": "string",
+          "const": "atv-adb:default",
+          "markdownDescription": "ATV Optimizer wireless-ADB transport. Exposes no JS-invokable commands; it is used from Rust by the app's WirelessAdb driver."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

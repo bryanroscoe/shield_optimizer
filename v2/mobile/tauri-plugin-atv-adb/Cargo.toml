@@ -1,0 +1,19 @@
+[package]
+name = "tauri-plugin-atv-adb"
+version = "0.1.0"
+description = "Wireless-ADB transport for ATV Optimizer (libadb-android bridge)"
+authors = ["Bryan Roscoe"]
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+links = "tauri-plugin-atv-adb"
+build = "build.rs"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"

@@ -4,7 +4,6 @@
 //! builds compile the same code with a stub transport so CI can validate the
 //! Rust command surface before Android hardware is available.
 
-mod adb_plugin;
 mod wireless_adb;
 mod wireless_commands;
 
@@ -36,7 +35,7 @@ pub fn run() {
         .try_init();
 
     tauri::Builder::default()
-        .plugin(adb_plugin::init())
+        .plugin(tauri_plugin_atv_adb::init())
         .setup(|app| {
             let app_lists = match loader::load_embedded_app_lists() {
                 Ok(lists) => {

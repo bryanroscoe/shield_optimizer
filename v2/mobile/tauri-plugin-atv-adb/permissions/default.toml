@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "ATV Optimizer wireless-ADB transport. Exposes no JS-invokable commands; it is used from Rust by the app's WirelessAdb driver."
+permissions = []
