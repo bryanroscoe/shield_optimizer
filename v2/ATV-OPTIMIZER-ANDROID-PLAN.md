@@ -42,10 +42,17 @@ After M1, run from `v2/`:
 
 ```bash
 cargo fmt --all --check
-cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 --all-targets -- -D warnings
-cargo test -p shield-optimizer-core -p shield-optimizer-v2
+cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile --all-targets -- -D warnings
+cargo test -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile
 npm run check
 npm run build
+```
+
+For the mobile scaffold, run from `v2/mobile/`:
+
+```bash
+npm run build
+npx tauri android build --target aarch64 --apk
 ```
 
 From M2 onward, add hardware validation for pairing, reconnect, screencap, shell command success/failure, mDNS fallback, persisted ADB keypair, and Android network permissions.

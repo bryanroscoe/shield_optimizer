@@ -100,6 +100,7 @@ v2/
 │           ├── adb/          # shared driver trait + parsers
 │           └── commands/     # driver-generic Tauri commands
 ├── src/                      # desktop Svelte frontend (TypeScript)
+├── mobile/                   # ATV Optimizer Android app scaffold
 └── src-tauri/                # desktop Tauri app
     ├── Cargo.toml, build.rs, tauri.conf.json
     ├── icons/, capabilities/, resources/

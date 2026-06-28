@@ -3,4 +3,5 @@ resolver = "2"
 members = [
     "crates/core",
     "src-tauri",
+    "mobile/src-tauri",
 ]

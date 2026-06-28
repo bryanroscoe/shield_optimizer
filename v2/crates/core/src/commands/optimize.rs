@@ -17,6 +17,7 @@ use crate::adb::{
     parse_disabled_packages_output, parse_installed_packages_output, parse_total_pss_by_process,
 };
 use crate::engine::{compute_plan, OptimizeInputs, OptimizeMode, OptimizePlan};
+use crate::license::Feature;
 
 use super::AppState;
 
@@ -45,6 +46,7 @@ pub async fn prepare_optimize_impl(
     device_type: crate::engine::DeviceType,
     mode: OptimizeMode,
 ) -> Result<OptimizePlan, String> {
+    state.require_pro(Feature::OptimizeWizard)?;
     let apps = state.app_lists.for_device(device_type);
 
     let adb = state.adb_snapshot().await;
@@ -100,6 +102,7 @@ pub async fn apply_performance_settings(
     serial: String,
     profile: PerformanceProfile,
 ) -> Result<PerformanceResult, String> {
+    state.require_pro(Feature::TweaksWrite)?;
     let value = match profile {
         PerformanceProfile::Optimized => "0.5",
         PerformanceProfile::Default => "1",

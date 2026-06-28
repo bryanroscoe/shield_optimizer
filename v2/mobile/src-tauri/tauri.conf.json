@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ATV Optimizer",
+  "version": "0.1.0",
+  "identifier": "com.atvoptimizer.mobile",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1421",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "ATV Optimizer",
+        "width": 390,
+        "height": 844,
+        "minWidth": 320,
+        "minHeight": 568
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Optimize Android TV devices from your phone.",
+    "longDescription": "ATV Optimizer connects to Android TV and Google TV devices over wireless debugging for no-PC diagnostics and optimization."
+  }
+}

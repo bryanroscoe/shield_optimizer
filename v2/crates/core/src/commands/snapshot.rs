@@ -11,6 +11,7 @@ use crate::engine::snapshot::{
     SCHEMA_VERSION,
 };
 use crate::engine::{is_never_disable, is_valid_package_name};
+use crate::license::Feature;
 
 use super::{is_valid_setting_key, quote_shell_arg, AppState};
 
@@ -62,6 +63,7 @@ pub async fn delete_snapshot(
     state: State<'_, AppState>,
     snapshot_path: String,
 ) -> Result<(), String> {
+    state.require_pro(Feature::Snapshot)?;
     let path = PathBuf::from(&snapshot_path);
     let canonical_path = tokio::fs::canonicalize(&path)
         .await
@@ -85,6 +87,7 @@ pub async fn delete_snapshot(
 /// to create still returns the path (the reveal will simply error in the UI).
 #[tauri::command]
 pub async fn snapshot_dir_path(state: State<'_, AppState>) -> Result<String, String> {
+    state.require_pro(Feature::Snapshot)?;
     let _ = tokio::fs::create_dir_all(&state.snapshot_dir).await;
     Ok(state.snapshot_dir.display().to_string())
 }
@@ -92,6 +95,7 @@ pub async fn snapshot_dir_path(state: State<'_, AppState>) -> Result<String, Str
 /// `list_snapshots` — return saved snapshots in `snapshot_dir`, newest first.
 #[tauri::command]
 pub async fn list_snapshots(state: State<'_, AppState>) -> Result<Vec<SnapshotFile>, String> {
+    state.require_pro(Feature::Snapshot)?;
     let dir = state.snapshot_dir.clone();
     if !dir.exists() {
         return Ok(Vec::new());
@@ -144,6 +148,7 @@ pub async fn save_snapshot(
     device_name: String,
     label: Option<String>,
 ) -> Result<SnapshotFile, String> {
+    state.require_pro(Feature::Snapshot)?;
     // Empty/whitespace label is treated as "no label".
     let label = label
         .map(|s| s.trim().to_string())
@@ -273,6 +278,7 @@ pub async fn preview_apply(
     serial: String,
     snapshot_path: String,
 ) -> Result<SnapshotApplyPlan, String> {
+    state.require_pro(Feature::Snapshot)?;
     // Confine reads to the configured snapshot directory — the frontend
     // hands us paths and we should not blindly read arbitrary locations.
     let path = PathBuf::from(&snapshot_path);
@@ -369,6 +375,7 @@ pub async fn apply_snapshot(
     serial: String,
     snapshot_path: String,
 ) -> Result<ApplyResult, String> {
+    state.require_pro(Feature::Snapshot)?;
     // Same containment check as preview_apply.
     let path = PathBuf::from(&snapshot_path);
     let canonical_path = tokio::fs::canonicalize(&path)

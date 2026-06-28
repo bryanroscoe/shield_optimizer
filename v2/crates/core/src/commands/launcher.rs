@@ -7,6 +7,7 @@ use crate::engine::{
     is_last_enabled_home_handler, is_valid_package_name, launcher_catalog, launcher_rows,
     stock_launcher_catalog, LauncherStatus,
 };
+use crate::license::Feature;
 
 use super::{home_tracking, AppState};
 
@@ -188,6 +189,7 @@ pub async fn set_default_launcher(
     allow_stock_disable: Option<bool>,
     on_progress: tauri::ipc::Channel<String>,
 ) -> Result<SetLauncherResult, String> {
+    state.require_pro(Feature::LauncherTakeover)?;
     set_default_launcher_impl(
         state.inner(),
         &serial,

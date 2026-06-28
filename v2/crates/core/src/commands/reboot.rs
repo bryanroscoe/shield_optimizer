@@ -3,6 +3,8 @@
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::license::Feature;
+
 use super::AppState;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -28,6 +30,9 @@ pub async fn reboot_device(
     serial: String,
     mode: RebootMode,
 ) -> Result<RebootResult, String> {
+    if !matches!(mode, RebootMode::Normal) {
+        state.require_pro(Feature::AdvancedReboot)?;
+    }
     let adb = state.adb_snapshot().await;
     let args: Vec<&str> = match mode {
         RebootMode::Normal => vec!["-s", &serial, "reboot"],

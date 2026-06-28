@@ -4,6 +4,8 @@
 use serde::Serialize;
 use tauri::State;
 
+use crate::license::Feature;
+
 use super::{is_valid_setting_key, quote_shell_arg, AppState};
 
 /// Snapshot of all the settings the Tweaks UI reads/writes. Matches the keys
@@ -107,6 +109,7 @@ pub async fn write_setting(
     key: String,
     value: String,
 ) -> Result<WriteResult, String> {
+    state.require_pro(Feature::TweaksWrite)?;
     let cmd = match build_setting_command(&namespace, &key, &value) {
         Ok(c) => c,
         Err(message) => return Ok(WriteResult { ok: false, message }),
@@ -193,6 +196,7 @@ pub async fn set_display_scaling(
     serial: String,
     preset: DisplayScalePreset,
 ) -> Result<DisplayScaleResult, String> {
+    state.require_pro(Feature::TweaksWrite)?;
     let adb = state.adb_snapshot().await;
     let cmds: Vec<&str> = match preset {
         DisplayScalePreset::Uhd4k => vec!["wm size 3839x2160", "wm density 640"],
@@ -291,6 +295,7 @@ pub async fn set_private_dns(
     mode: String,
     hostname: Option<String>,
 ) -> Result<PrivateDnsResult, String> {
+    state.require_pro(Feature::TweaksWrite)?;
     let adb = state.adb_snapshot().await;
     match mode.as_str() {
         "off" => {

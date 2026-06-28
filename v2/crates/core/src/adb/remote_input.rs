@@ -15,6 +15,7 @@
 
 #[cfg(not(target_os = "android"))]
 use std::path::Path;
+#[cfg(not(target_os = "android"))]
 use std::sync::atomic::{AtomicU32, Ordering};
 #[cfg(not(target_os = "android"))]
 use std::sync::Arc;
@@ -50,7 +51,9 @@ const TYPE_INJECT_KEYCODE: u8 = 0;
 const TYPE_INJECT_TEXT: u8 = 1;
 
 /// Android `KeyEvent` actions.
+#[cfg(not(target_os = "android"))]
 const ACTION_DOWN: u8 = 0;
+#[cfg(not(target_os = "android"))]
 const ACTION_UP: u8 = 1;
 
 /// scrcpy caps a single INJECT_TEXT at 300 chars; longer strings are clamped.
@@ -92,6 +95,7 @@ pub fn encode_inject_text(text: &str) -> Vec<u8> {
 /// Format a scid as scrcpy expects: 8 lowercase hex digits, masked to 31 bits
 /// (the high bit must be clear — the server parses scid as a positive int and
 /// treats a negative value as "no scid").
+#[cfg(not(target_os = "android"))]
 fn format_scid(value: u32) -> String {
     format!("{:08x}", value & 0x7fff_ffff)
 }

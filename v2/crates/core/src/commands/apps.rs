@@ -15,6 +15,7 @@ use crate::adb::{
     parse_total_pss_by_process, parse_usage_stats, AppUsage,
 };
 use crate::engine::{classify_safety, is_valid_package_name, Safety};
+use crate::license::Feature;
 
 use super::AppState;
 
@@ -252,6 +253,7 @@ pub async fn disable_package(
             message: format!("Refusing to disable {package}: {reason}"),
         });
     }
+    state.require_pro(Feature::CuratedDebloat)?;
     run(
         &state,
         &serial,
@@ -376,6 +378,7 @@ pub async fn set_app_permission_impl(
             message: format!("Refusing: invalid package/permission ({package:?}, {permission:?})"),
         });
     }
+    state.require_pro(Feature::AppPermissionWrite)?;
     let verb = if grant { "grant" } else { "revoke" };
     run(state, serial, &format!("pm {verb} {package} {permission}")).await
 }
@@ -413,6 +416,7 @@ pub async fn set_app_op_impl(
             message: format!("Refusing: invalid op ({op:?})"),
         });
     }
+    state.require_pro(Feature::AppPermissionWrite)?;
     let mode = if allow { "allow" } else { "deny" };
     run(
         state,
@@ -508,6 +512,7 @@ pub async fn uninstall_package(
             message: format!("Refusing to uninstall {package}: {reason}"),
         });
     }
+    state.require_pro(Feature::CuratedDebloat)?;
     let mut result = run(&state, &serial, &format!("pm uninstall --user 0 {package}")).await?;
     if !result.ok {
         if let Some(hint) = decode_uninstall_error(&result.message) {
@@ -777,5 +782,53 @@ mod tests {
             !r.ok,
             "a permission with shell metacharacters must be refused"
         );
+    }
+
+    #[tokio::test]
+    async fn free_entitlement_blocks_permission_writes_before_adb() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        use crate::license::Entitlement;
+
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        let state = state_with(mock).with_entitlement(Entitlement::Free);
+        let err = match set_app_permission_impl(
+            &state,
+            "SERIAL",
+            "com.example.app",
+            "android.permission.RECORD_AUDIO",
+            false,
+        )
+        .await
+        {
+            Ok(result) => panic!(
+                "free entitlement unexpectedly allowed write: {}",
+                result.message
+            ),
+            Err(err) => err,
+        };
+        assert_eq!(err, "LOCKED:app_permission_write");
+        assert!(log.lock().unwrap().is_empty(), "ADB must not be called");
+    }
+
+    #[tokio::test]
+    async fn free_entitlement_blocks_appops_before_adb() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        use crate::license::Entitlement;
+
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        let state = state_with(mock).with_entitlement(Entitlement::Free);
+        let err = match set_app_op_impl(&state, "SERIAL", "com.example.app", "RECORD_AUDIO", false)
+            .await
+        {
+            Ok(result) => panic!(
+                "free entitlement unexpectedly allowed appops: {}",
+                result.message
+            ),
+            Err(err) => err,
+        };
+        assert_eq!(err, "LOCKED:app_permission_write");
+        assert!(log.lock().unwrap().is_empty(), "ADB must not be called");
     }
 }
