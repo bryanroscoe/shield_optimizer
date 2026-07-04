@@ -3,35 +3,41 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- ATV Optimizer "TV Tuner" glyph: an outlined TV/monitor on a stand with a
-         3-dot tuner readout, centered in the adaptive-icon safe zone (glyph occupies
-         roughly the center 42% of the 108 viewport so the launcher mask never clips it) -->
-    <!-- Screen body (rounded-rect outline) -->
+    <!-- ATV Optimizer "Tuner" glyph: three vertical faders (a mixing-console / graphic
+         equalizer), each with a horizontal knob crossing the track at a different height
+         (left high, middle low, right mid) — reads as "tune & optimize". Dark #0B0D10 on
+         the lime tile, centered in the adaptive-icon safe zone (glyph spans roughly
+         x 34-74, y 32-76 — ~40% of the 108 viewport so the launcher mask never clips it). -->
+    <!-- Fader tracks -->
     <path
         android:strokeColor="#0B0D10"
-        android:strokeWidth="5"
-        android:strokeLineJoin="round"
+        android:strokeWidth="4"
         android:strokeLineCap="round"
-        android:pathData="M37,34 L71,34 A6,6 0 0 1 77,40 L77,58 A6,6 0 0 1 71,64 L37,64 A6,6 0 0 1 31,58 L31,40 A6,6 0 0 1 37,34 Z" />
-    <!-- Stand legs -->
+        android:pathData="M40,32 L40,76" />
     <path
         android:strokeColor="#0B0D10"
-        android:strokeWidth="5"
+        android:strokeWidth="4"
         android:strokeLineCap="round"
-        android:pathData="M45,64 L41,73" />
+        android:pathData="M54,32 L54,76" />
     <path
         android:strokeColor="#0B0D10"
-        android:strokeWidth="5"
+        android:strokeWidth="4"
         android:strokeLineCap="round"
-        android:pathData="M63,64 L67,73" />
-    <!-- Tuner readout: three dots inside the screen -->
+        android:pathData="M68,32 L68,76" />
+    <!-- Knobs (offset heights: left high, middle low, right mid) -->
     <path
-        android:fillColor="#0B0D10"
-        android:pathData="M40.3,49 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0 Z" />
+        android:strokeColor="#0B0D10"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M36.5,42 L43.5,42" />
     <path
-        android:fillColor="#0B0D10"
-        android:pathData="M50.8,49 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0 Z" />
+        android:strokeColor="#0B0D10"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M50.5,66 L57.5,66" />
     <path
-        android:fillColor="#0B0D10"
-        android:pathData="M61.3,49 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0 Z" />
+        android:strokeColor="#0B0D10"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M64.5,54 L71.5,54" />
 </vector>

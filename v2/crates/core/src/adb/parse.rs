@@ -682,6 +682,20 @@ DisplayDeviceInfo{"Built-in Screen": uniqueId="local:0", 3840 x 2160, modeId 20,
     }
 
     #[test]
+    fn parses_real_shield_df_output() {
+        // Verbatim from a live Nvidia Shield: mount point is /data/user/0 (still
+        // contains "/data"); non-wrapped row.
+        let input = "\
+            Filesystem            Size  Used Avail Use% Mounted on\n\
+            /dev/block/mmcblk0p32  12G  3.7G  7.7G  33% /data/user/0\n";
+        let info = parse_storage_info(input);
+        assert_eq!(info.total.as_deref(), Some("12G"));
+        assert_eq!(info.used.as_deref(), Some("3.7G"));
+        assert_eq!(info.available.as_deref(), Some("7.7G"));
+        assert_eq!(info.used_percent, Some(33));
+    }
+
+    #[test]
     fn parses_df_data_storage_when_filesystem_name_wraps() {
         // A long filesystem path wraps the row onto its own line — the data
         // columns then start at index 0. The %-anchored parse must still work.

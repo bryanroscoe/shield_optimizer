@@ -1,13 +1,16 @@
 <svg width="1024" height="1024" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
   <rect width="108" height="108" rx="24" fill="#C9F24E"/>
-  <g fill="none" stroke="#0B0D10" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="31" y="34" width="46" height="30" rx="6"/>
-    <line x1="45" y1="64" x2="41" y2="73"/>
-    <line x1="63" y1="64" x2="67" y2="73"/>
-  </g>
-  <g fill="#0B0D10">
-    <circle cx="43.5" cy="49" r="3.2"/>
-    <circle cx="54" cy="49" r="3.2"/>
-    <circle cx="64.5" cy="49" r="3.2"/>
+  <!-- Three vertical faders with offset knobs — "Tuner" glyph -->
+  <g stroke="#0B0D10" stroke-linecap="round" fill="none">
+    <g stroke-width="4">
+      <line x1="40" y1="32" x2="40" y2="76"/>
+      <line x1="54" y1="32" x2="54" y2="76"/>
+      <line x1="68" y1="32" x2="68" y2="76"/>
+    </g>
+    <g stroke-width="7">
+      <line x1="36.5" y1="42" x2="43.5" y2="42"/>
+      <line x1="50.5" y1="66" x2="57.5" y2="66"/>
+      <line x1="64.5" y1="54" x2="71.5" y2="54"/>
+    </g>
   </g>
 </svg>
