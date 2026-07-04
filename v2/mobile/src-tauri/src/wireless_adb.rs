@@ -126,10 +126,21 @@ impl AdbDriver for WirelessAdb {
             ["pair", ..] => Err(AdbError::Unsupported { operation: "pair" }),
             // No adb server on the phone to run `reboot` as a host command, so
             // route it through the device shell — `reboot [recovery|bootloader]`
-            // is the same on-device command.
+            // is the same on-device command. The reboot tears down the socket
+            // before the stream closes cleanly, so a transport error here IS the
+            // success signal — report ok and forget the now-dead connection.
             ["-s", serial, "reboot", rest @ ..] => {
                 let command = format!("reboot {}", rest.join(" "));
-                self.shell(serial, command.trim()).await
+                let result = self.shell(serial, command.trim()).await;
+                *self.connected.write().await = None;
+                match result {
+                    Ok(out) => Ok(out),
+                    Err(_) => Ok(AdbOutput {
+                        stdout: "Reboot command sent.".to_string(),
+                        stderr: String::new(),
+                        exit_code: Some(0),
+                    }),
+                }
             }
             _ => Err(AdbError::Unsupported { operation: "raw" }),
         }

@@ -8,9 +8,11 @@ import android.util.Base64
 import android.util.Log
 import io.github.muntashirakon.adb.AdbStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -191,7 +193,10 @@ class AdbService(private val context: Context) {
         val seen = bytesRead.get()
         val detail = if (seen == 0L) "no bytes before timeout" else "$seen bytes arrived but stream never closed (no EOF)"
         Log.w(TAG, "readStream: timed out after ${STREAM_READ_TIMEOUT_MS}ms — $detail; closing $destination")
-        runCatching { stream.close() }
+        // Close synchronously (uncancellable) BEFORE throwing: closing sends CLSE
+        // and unblocks the parked read. A `launch` here would be cancelled by the
+        // throw before it runs, leaking the parked read thread for the process life.
+        withContext(NonCancellable) { runCatching { stream.close() } }
         readJob.cancel()
         throw IOException("Timed out after ${STREAM_READ_TIMEOUT_MS}ms reading $destination")
       }
