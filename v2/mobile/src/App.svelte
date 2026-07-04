@@ -31,14 +31,19 @@
   const selectedDevice = $derived(devices.find((d) => d.serial === selectedSerial) ?? null);
   const connectedDevice = $derived(devices.find((d) => d.status === "device") ?? null);
 
-  // One card per TV: fold the pairing + connect mDNS services of the same host together.
-  type Found = { host: string; pairingPort?: number; connectPort?: number };
+  // One card per TV: fold a host's mDNS services together. `legacy` marks a TV on
+  // "Network debugging" (_adb._tcp :5555) — no pairing code, connect straight away.
+  type Found = { host: string; pairingPort?: number; connectPort?: number; legacy?: boolean };
   const found = $derived.by(() => {
     const byHost = new Map<string, Found>();
     for (const d of discoveries) {
       const entry = byHost.get(d.host) ?? { host: d.host };
-      if (d.service.includes("pairing")) entry.pairingPort = d.port;
-      else if (d.service.includes("connect")) entry.connectPort = d.port;
+      if (d.service.includes("pairing")) {
+        entry.pairingPort = d.port;
+      } else {
+        entry.connectPort = d.port; // _adb-tls-connect or legacy _adb._tcp
+        if (!d.service.includes("tls")) entry.legacy = true;
+      }
       byHost.set(d.host, entry);
     }
     return [...byHost.values()];
@@ -167,8 +172,11 @@
             <span class="mono device-addr">{f.host}</span>
             <span class="tags">
               {#if f.pairingPort}<span class="tag pair">pair · {f.pairingPort}</span>{/if}
-              {#if f.connectPort}<span class="tag conn">connect · {f.connectPort}</span>{/if}
+              {#if f.connectPort}<span class="tag conn">{f.legacy ? "network" : "connect"} · {f.connectPort}</span>{/if}
             </span>
+            {#if f.legacy && !f.pairingPort}
+              <span class="hint">No code needed — tap Connect, then allow it on the TV.</span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -198,7 +206,7 @@
       <span class="num">2</span>
       <div class="step-head">
         <h2>Pair &amp; connect</h2>
-        <p class="muted">Enter the 6-digit code the TV shows the first time. After that, just Connect.</p>
+        <p class="muted">Wireless debugging: enter the 6-digit code, then Pair. Network debugging: skip the code and just Connect, then allow it on the TV.</p>
       </div>
     </div>
 
@@ -490,6 +498,7 @@
   /* Buttons */
   button {
     font: inherit;
+    color: var(--text);
     cursor: pointer;
     border: 0;
     border-radius: 13px;
@@ -591,6 +600,12 @@
   .tag.conn {
     color: var(--ok);
     background: rgba(87, 217, 163, 0.12);
+  }
+
+  .hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+    line-height: 1.35;
   }
 
   /* Manual entry */

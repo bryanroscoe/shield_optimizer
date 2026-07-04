@@ -30,7 +30,10 @@ class AdbService(private val context: Context) {
     // This phone advertises its own wireless-debugging service when USB/Wi-Fi debugging
     // is on; drop anything resolving to a local interface so we never list ourselves.
     val locals = localAddresses()
-    val serviceTypes = listOf("_adb-tls-pairing._tcp.", "_adb-tls-connect._tcp.")
+    // TLS pairing/connect are Android-11 "Wireless debugging"; _adb._tcp is the
+    // legacy "Network debugging" (:5555) that Shield and older TVs advertise —
+    // it needs no pairing code, just an RSA-auth connect.
+    val serviceTypes = listOf("_adb-tls-pairing._tcp.", "_adb-tls-connect._tcp.", "_adb._tcp.")
     val listeners = serviceTypes.map { serviceType ->
       object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(regType: String) = Unit
