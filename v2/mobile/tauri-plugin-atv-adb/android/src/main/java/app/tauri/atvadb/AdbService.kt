@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
+import java.net.NetworkInterface
 import java.util.Collections
 
 class AdbService(private val context: Context) {
@@ -23,10 +24,12 @@ class AdbService(private val context: Context) {
 
   suspend fun discover(timeoutMs: Long = 3_000): List<DiscoveredAdbDevice> = withContext(Dispatchers.IO) {
     val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
-    val out = linkedMapOf<String, DiscoveredAdbDevice>()
-    // Track which service types have resolved at least one entry. Mutated from NSD
-    // resolve callbacks on a different thread, so keep it thread-safe.
+    // Mutated from NSD resolve callbacks on a different thread, so keep it thread-safe.
+    val out = Collections.synchronizedMap(linkedMapOf<String, DiscoveredAdbDevice>())
     val resolvedTypes = Collections.synchronizedSet(mutableSetOf<String>())
+    // This phone advertises its own wireless-debugging service when USB/Wi-Fi debugging
+    // is on; drop anything resolving to a local interface so we never list ourselves.
+    val locals = localAddresses()
     val serviceTypes = listOf("_adb-tls-pairing._tcp.", "_adb-tls-connect._tcp.")
     val listeners = serviceTypes.map { serviceType ->
       object : NsdManager.DiscoveryListener {
@@ -41,6 +44,7 @@ class AdbService(private val context: Context) {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
             override fun onServiceResolved(resolved: NsdServiceInfo) {
               val host = resolved.hostAddress ?: return
+              if (host in locals) return
               val key = "$host:${resolved.port}:${resolved.serviceType}"
               out[key] = DiscoveredAdbDevice(
                 name = resolved.serviceName ?: "Wireless debugging",
@@ -54,20 +58,33 @@ class AdbService(private val context: Context) {
         }
       }.also { nsd.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, it) }
     }
-    // Poll until both service types have resolved (a TV in pairing mode advertises both),
-    // capped at timeoutMs. A TV NOT in pairing mode only advertises _adb-tls-connect, so
-    // requiring one of EACH type keeps us waiting the full timeout for possible pairing
-    // services rather than exiting early on connect-only results.
+    // Exit as soon as we're confident we've seen the TV: either both service types
+    // resolved (a TV in pairing mode advertises both) or at least one device has
+    // resolved and a short grace window has passed to let a second one arrive. This
+    // keeps a common connect-only scan under ~1.5s instead of always burning timeoutMs.
     val pollMs = 100L
+    val graceMs = 1_500L
     var waited = 0L
     while (waited < timeoutMs) {
       delay(pollMs)
       waited += pollMs
-      if (resolvedTypes.containsAll(serviceTypes)) break
+      val bothTypes = resolvedTypes.containsAll(serviceTypes)
+      val foundAndSettled = resolvedTypes.isNotEmpty() && waited >= graceMs
+      if (bothTypes || foundAndSettled) break
     }
     listeners.forEach { runCatching { nsd.stopServiceDiscovery(it) } }
     out.values.toList()
   }
+
+  /** Non-loopback local interface addresses, used to filter this phone out of discovery. */
+  private fun localAddresses(): Set<String> =
+    runCatching {
+      NetworkInterface.getNetworkInterfaces().asSequence()
+        .flatMap { it.inetAddresses.asSequence() }
+        .filterNot { it.isLoopbackAddress }
+        .mapNotNull { it.hostAddress?.substringBefore('%') }
+        .toSet()
+    }.getOrDefault(emptySet())
 
   suspend fun pair(host: String, port: Int, code: String): ConnectResponse = mutex.withLock {
     withContext(Dispatchers.IO) {
