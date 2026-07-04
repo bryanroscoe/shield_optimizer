@@ -343,7 +343,9 @@
     flex-direction: column;
     gap: 9px;
     overflow-y: auto;
-    max-height: 380px;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 12px;
   }
   .app-row {
     display: flex;
