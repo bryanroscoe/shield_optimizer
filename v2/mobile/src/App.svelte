@@ -98,11 +98,14 @@
   }
 
   async function connect() {
-    const result = await run("Connecting…", "", () =>
+    const result = await run("Connecting…", "Connected.", () =>
       invoke<ConnectResult>("wireless_connect", { host, port: Number(connectPort) }),
     );
-    if (result) status = result.message;
-    await refreshDevices();
+    if (!result) return; // invoke threw — run() left the error on screen
+    status = result.message;
+    // Only refresh (which rewrites the status) when the connect actually worked,
+    // otherwise the device list would clobber the error message with a blank.
+    if (result.ok) await refreshDevices();
   }
 
   async function disconnect() {

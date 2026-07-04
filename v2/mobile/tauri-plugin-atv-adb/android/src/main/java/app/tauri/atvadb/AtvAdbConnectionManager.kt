@@ -4,17 +4,15 @@ import android.content.Context
 import android.os.Build
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import org.bouncycastle.asn1.x500.X500Name
-import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
-import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
 import java.math.BigInteger
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.PrivateKey
+import java.security.PublicKey
 import java.security.SecureRandom
-import java.security.Security
 import java.security.cert.Certificate
 import java.security.cert.CertificateFactory
 import java.security.spec.PKCS8EncodedKeySpec
@@ -76,10 +74,7 @@ class AtvAdbConnectionManager private constructor(private val context: Context) 
         instance ?: AtvAdbConnectionManager(context.applicationContext).also { instance = it }
       }
 
-    private fun buildCertificate(publicKey: java.security.PublicKey, privateKey: PrivateKey): Certificate {
-      if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-        Security.addProvider(BouncyCastleProvider())
-      }
+    private fun buildCertificate(publicKey: PublicKey, privateKey: PrivateKey): Certificate {
       val now = System.currentTimeMillis()
       val subject = X500Name("CN=ATV Optimizer")
       val builder = JcaX509v3CertificateBuilder(
@@ -91,9 +86,12 @@ class AtvAdbConnectionManager private constructor(private val context: Context) 
         publicKey,
       )
       val signer = JcaContentSignerBuilder("SHA256withRSA").build(privateKey)
-      return JcaX509CertificateConverter()
-        .setProvider(BouncyCastleProvider.PROVIDER_NAME)
-        .getCertificate(builder.build(signer))
+      // Convert with the platform's default X.509 factory (Conscrypt/AndroidOpenSSL),
+      // the same one readCertificate() uses. Do NOT pin the "BC" provider: Android's
+      // built-in BouncyCastle is stripped and has no X.509 CertificateFactory, which
+      // threw NoSuchAlgorithmException and blocked every connect/pair here.
+      return CertificateFactory.getInstance("X.509")
+        .generateCertificate(builder.build(signer).encoded.inputStream())
     }
   }
 }

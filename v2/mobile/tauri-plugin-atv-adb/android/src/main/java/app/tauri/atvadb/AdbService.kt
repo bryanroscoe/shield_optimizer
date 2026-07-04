@@ -5,6 +5,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
 import android.util.Base64
+import android.util.Log
 import io.github.muntashirakon.adb.AdbStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -15,6 +16,8 @@ import java.io.ByteArrayOutputStream
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.Collections
+
+private const val TAG = "AtvAdb"
 
 class AdbService(private val context: Context) {
   private val mutex = Mutex()
@@ -100,9 +103,16 @@ class AdbService(private val context: Context) {
 
   suspend fun connect(host: String, port: Int): ConnectResponse = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val connected = manager.connect(host, port)
-      if (!connected && !manager.isConnected) error("Could not connect to $host:$port.")
-      ConnectResponse(serial = "$host:$port", host = host, port = port, message = "Connected to $host:$port.")
+      try {
+        Log.i(TAG, "connect $host:$port")
+        val connected = manager.connect(host, port)
+        Log.i(TAG, "connect $host:$port -> connected=$connected isConnected=${manager.isConnected}")
+        if (!connected && !manager.isConnected) error("Could not connect to $host:$port.")
+        ConnectResponse(serial = "$host:$port", host = host, port = port, message = "Connected to $host:$port.")
+      } catch (e: Throwable) {
+        Log.e(TAG, "connect $host:$port failed", e)
+        throw e
+      }
     }
   }
 
