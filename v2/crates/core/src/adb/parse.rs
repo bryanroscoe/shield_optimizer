@@ -337,14 +337,21 @@ pub fn parse_storage_info(df_output: &str) -> StorageInfo {
             continue;
         }
         let cols: Vec<&str> = line.split_whitespace().collect();
-        if cols.len() < 5 {
+        // Anchor on the `Use%` column (the token ending in `%`) rather than a
+        // fixed offset. `df -h /data` renders as
+        //   Filesystem  Size  Used  Avail  Use%  Mounted-on
+        // but a long filesystem name wraps the row onto its own line, so the
+        // data columns can start at index 0 or 1 depending on the device. The
+        // `%` token is unambiguous; Size/Used/Avail are the three before it.
+        let pct_idx = cols.iter().position(|c| c.ends_with('%'));
+        let Some(p) = pct_idx else { continue };
+        if p < 3 {
             continue;
         }
-        // Layout: Filesystem Size Used Avail Use% Mounted-on
-        info.total = Some(cols[1].to_string());
-        info.used = Some(cols[2].to_string());
-        info.available = Some(cols[3].to_string());
-        info.used_percent = cols[4].trim_end_matches('%').parse::<u8>().ok();
+        info.total = Some(cols[p - 3].to_string());
+        info.used = Some(cols[p - 2].to_string());
+        info.available = Some(cols[p - 1].to_string());
+        info.used_percent = cols[p].trim_end_matches('%').parse::<u8>().ok();
         break;
     }
     info
@@ -672,6 +679,21 @@ DisplayDeviceInfo{"Built-in Screen": uniqueId="local:0", 3840 x 2160, modeId 20,
         assert_eq!(info.used.as_deref(), Some("6.4G"));
         assert_eq!(info.available.as_deref(), Some("4.6G"));
         assert_eq!(info.used_percent, Some(60));
+    }
+
+    #[test]
+    fn parses_df_data_storage_when_filesystem_name_wraps() {
+        // A long filesystem path wraps the row onto its own line — the data
+        // columns then start at index 0. The %-anchored parse must still work.
+        let input = "\
+            Filesystem                        Size  Used  Avail  Use%  Mounted on\n\
+            /dev/block/dm-9\n\
+            113G   98G   15G  87%  /data\n";
+        let info = parse_storage_info(input);
+        assert_eq!(info.total.as_deref(), Some("113G"));
+        assert_eq!(info.used.as_deref(), Some("98G"));
+        assert_eq!(info.available.as_deref(), Some("15G"));
+        assert_eq!(info.used_percent, Some(87));
     }
 
     #[test]

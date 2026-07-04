@@ -101,32 +101,101 @@ pub async fn report_all(state: State<'_, AppState>) -> Result<Vec<DeviceReport>,
 /// Shared implementation for `health_report` and `report_all`. Takes
 /// `&AppState` so both callers avoid juggling Tauri's State lifetime.
 async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthReport, String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
     let adb = state.adb_snapshot().await;
+    // These run concurrently here, but the mobile transport serializes them
+    // behind one connection mutex, so a per-command timeout counts wall-clock
+    // that includes waiting for earlier commands. Keep it generous (the
+    // transport layer caps each individual read) so a slow neighbour can't
+    // starve `df` and blank out storage — that was a real regression.
+    let cmd_timeout = Duration::from_secs(10);
     let (display_res, mem_res, thermal_res, df_res, audio_res, hwprops_res) = tokio::join!(
-        adb.shell(serial, "dumpsys display"),
-        adb.shell(serial, "dumpsys meminfo"),
-        adb.shell(serial, "dumpsys thermalservice"),
-        adb.shell(serial, "df -h /data"),
-        adb.shell(serial, "dumpsys audio"),
-        adb.shell(serial, "dumpsys hardware_properties"),
+        timeout(cmd_timeout, adb.shell(serial, "dumpsys display")),
+        timeout(cmd_timeout, adb.shell(serial, "dumpsys meminfo")),
+        timeout(cmd_timeout, adb.shell(serial, "dumpsys thermalservice")),
+        timeout(cmd_timeout, adb.shell(serial, "df -h /data")),
+        timeout(cmd_timeout, adb.shell(serial, "dumpsys audio")),
+        timeout(
+            cmd_timeout,
+            adb.shell(serial, "dumpsys hardware_properties")
+        ),
     );
-    let display_out = display_res.map_err(|e| format!("dumpsys display: {e}"))?;
-    let mem_out = mem_res.map_err(|e| format!("dumpsys meminfo: {e}"))?;
-    let thermal_text = thermal_res.map(|o| o.stdout).unwrap_or_default();
-    let df_text = df_res.map(|o| o.stdout).unwrap_or_default();
-    let audio_text = audio_res.map(|o| o.stdout).unwrap_or_default();
+
+    let display_out = display_res
+        .map_err(|_| "dumpsys display timed out".to_string())?
+        .map_err(|e| format!("dumpsys display: {e}"))?;
+
+    let mem_out = mem_res
+        .unwrap_or_else(|_| {
+            tracing::warn!("dumpsys meminfo timed out");
+            Ok(crate::adb::AdbOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(1),
+            })
+        })
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "dumpsys meminfo failed");
+            crate::adb::AdbOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(1),
+            }
+        });
+
+    let thermal_text = thermal_res
+        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
+        .unwrap_or_default();
+
+    let df_text = df_res
+        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
+        .unwrap_or_default();
+
+    let audio_text = audio_res
+        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
+        .unwrap_or_default();
+
+    let hwprops_text = hwprops_res
+        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
+        .unwrap_or_default();
 
     let display = parse_display_mode(&display_out.stdout);
-    let ram = parse_meminfo_summary(&mem_out.stdout);
+    let mut ram = parse_meminfo_summary(&mem_out.stdout);
+
+    // Fast, local fallback for RAM info when dumpsys meminfo times out or fails
+    if ram.total_mb.is_none() || ram.free_mb.is_none() {
+        if let Ok(proc_mem) = adb.shell(serial, "cat /proc/meminfo").await {
+            let mut total: Option<u64> = None;
+            let mut free: Option<u64> = None;
+            let mut avail: Option<u64> = None;
+            for line in proc_mem.stdout.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if parts[0] == "MemTotal:" {
+                        total = parts[1].parse().ok().map(|kb: u64| kb / 1024);
+                    } else if parts[0] == "MemFree:" {
+                        free = parts[1].parse().ok().map(|kb: u64| kb / 1024);
+                    } else if parts[0] == "MemAvailable:" {
+                        avail = parts[1].parse().ok().map(|kb: u64| kb / 1024);
+                    }
+                }
+            }
+            if total.is_some() {
+                ram.total_mb = total;
+                // Use MemAvailable as free RAM if reported, else MemFree
+                ram.free_mb = avail.or(free);
+                if let (Some(t), Some(f)) = (total, ram.free_mb) {
+                    ram.used_mb = Some(t - f);
+                }
+            }
+        }
+    }
+
     let storage = parse_storage_info(&df_text);
-    let temperature_c = parse_thermal_max_celsius(&thermal_text).or_else(|| {
-        parse_hardware_properties_temp(
-            &hwprops_res
-                .as_ref()
-                .map(|o| o.stdout.clone())
-                .unwrap_or_default(),
-        )
-    });
+    let temperature_c = parse_thermal_max_celsius(&thermal_text)
+        .or_else(|| parse_hardware_properties_temp(&hwprops_text));
     let audio_device = parse_active_audio_device(&audio_text);
 
     let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(&mem_out.stdout)
