@@ -9,6 +9,17 @@ remaining roadmap. Pair it with the top-level plan at
 
 Working branch: **`feat/atv-optimizer-mobile`** (based off `main`). Nothing pushed yet.
 
+> **See also `ARCHITECTURE-REVIEW.md`** (same dir) — a full 3-pass review (transport/core,
+> frontend, build/distribution/security) with prioritized, file-cited findings. It supersedes
+> a few stale notes below. Corrections it established: **Pro commands ARE registered and gated
+> on the mobile handler** (§6's old "not registered yet" was wrong — there are core tests
+> asserting ADB isn't called on Free); the **global Kotlin shell mutex** (not the parse) is the
+> real root cause of the storage/health starvation; and **device-info enrichment already exists**
+> in `list_devices_impl` (`harvest_properties` getprop) — the generic "Android TV/unknown" was
+> that getprop silently degraded under the old `shell:` hang, so it likely resolves now that
+> `exec:` works (verify on device). Storage itself is fixed (commit `3ef29de`: %-anchored parse
+> kept, df timeout starvation eased); the deeper fix is removing the mutex (T1 in the review).
+
 ---
 
 ## 1. What it is / product intent
