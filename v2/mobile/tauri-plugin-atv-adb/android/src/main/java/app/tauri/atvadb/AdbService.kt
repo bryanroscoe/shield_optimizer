@@ -8,16 +8,30 @@ import android.util.Base64
 import android.util.Log
 import io.github.muntashirakon.adb.AdbStream
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.InetAddress
 import java.net.NetworkInterface
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicLong
 
 private const val TAG = "AtvAdb"
+
+// AdbStream.read() blocks in mReadQueue.wait() with no time bound of its own; it only
+// returns EOF when libadb's background reader routes a peer A_CLSE to the stream. The
+// connection manager's setTimeout(30s) governs only the connect handshake, not stream
+// reads. Cap a single service read so a peer that never sends CLSE (empirically: the
+// legacy Nvidia Shield's adbd, over libadb's demux) can't hang the diagnostic forever.
+// Kept short so a stuck read surfaces in the UI fast instead of appearing frozen.
+private const val STREAM_READ_TIMEOUT_MS = 8_000L
 
 class AdbService(private val context: Context) {
   private val mutex = Mutex()
@@ -124,7 +138,22 @@ class AdbService(private val context: Context) {
 
   suspend fun shell(command: String): AdbCommandOutput = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val bytes = readStream(manager.openStream("shell:$command"))
+      Log.i(TAG, "shell start: $command")
+      // Run one-shot commands over the `exec:` service, not `shell:`. The interactive
+      // `shell:` service runs the command under a pty and — on some adbd builds, notably
+      // the legacy Nvidia Shield — does not reliably send a CLSE when a one-shot command
+      // with sizable output (e.g. `dumpsys`) exits. AdbStream.read() only reaches EOF on
+      // that peer CLSE and otherwise blocks forever, which hangs the whole diagnostic.
+      // `exec:` runs the command without a pty on a raw pipe and closes cleanly on exit —
+      // the same service `adb exec-out` uses.
+      //
+      // stderr caveat: `exec:` returns stdout only (no stderr merge), so `stderr` below is
+      // always empty. The core's AdbOutput.shell_reported_failure() scans combined
+      // stdout+stderr for pm/settings error markers; those tools write their errors to
+      // stdout, so the heuristic still fires. Revisit if a command whose failures surface
+      // only on stderr is ever routed through here.
+      val bytes = readServiceOutput("exec:$command")
+      Log.i(TAG, "shell done (${bytes.size}B): $command")
       AdbCommandOutput(stdout = bytes.toString(Charsets.UTF_8), stderr = "", exitCode = 0)
     }
   }
@@ -133,19 +162,57 @@ class AdbService(private val context: Context) {
     withContext(Dispatchers.IO) {
       // Use exec: not shell: so screencap runs without a pty — binary PNG output must
       // avoid the pty's LF->CRLF translation. This is what `adb exec-out` does under the hood.
-      val bytes = readStream(manager.openStream("exec:screencap -p"))
+      val bytes = readServiceOutput("exec:screencap -p")
       Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
   }
 
-  private fun readStream(stream: AdbStream): ByteArray {
+  /**
+   * Opens [destination], reads it to EOF, and returns the bytes, bounded by
+   * [STREAM_READ_TIMEOUT_MS].
+   *
+   * AdbStream.read() parks in mReadQueue.wait() until libadb's background reader routes a
+   * peer A_CLSE to the stream, and does not reliably honor coroutine cancellation via a
+   * thread interrupt (an earlier runInterruptible attempt never fired at 87s on the legacy
+   * Shield). So we do NOT rely on interruption: the read runs in its own [async] job and we
+   * time out the [await]. On timeout we call stream.close() first — that sends an A_CLSE and
+   * sets mIsClosed, which unblocks the parked read (it throws "Stream closed.") so the job
+   * actually ends and adbd's side of the stream is torn down — then throw. A supervisorScope
+   * keeps the read job's post-close IOException from racing/propagating over our timeout.
+   */
+  private suspend fun readServiceOutput(destination: String): ByteArray {
+    val stream = manager.openStream(destination)
+    val bytesRead = AtomicLong(0)
+    return supervisorScope {
+      val readJob = async(Dispatchers.IO) { readStream(stream, bytesRead) }
+      try {
+        withTimeout(STREAM_READ_TIMEOUT_MS) { readJob.await() }
+      } catch (e: TimeoutCancellationException) {
+        val seen = bytesRead.get()
+        val detail = if (seen == 0L) "no bytes before timeout" else "$seen bytes arrived but stream never closed (no EOF)"
+        Log.w(TAG, "readStream: timed out after ${STREAM_READ_TIMEOUT_MS}ms — $detail; closing $destination")
+        runCatching { stream.close() }
+        readJob.cancel()
+        throw IOException("Timed out after ${STREAM_READ_TIMEOUT_MS}ms reading $destination")
+      }
+    }
+  }
+
+  private fun readStream(stream: AdbStream, bytesRead: AtomicLong): ByteArray {
     stream.openInputStream().use { input ->
       val output = ByteArrayOutputStream()
       val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+      var loggedFirst = false
       while (true) {
         val read = input.read(buffer)
+        if (!loggedFirst) {
+          loggedFirst = true
+          if (read < 0) Log.i(TAG, "readStream: first read returned -1 (immediate EOF, 0B)")
+          else Log.i(TAG, "readStream: first read returned ${read}B")
+        }
         if (read < 0) break
         output.write(buffer, 0, read)
+        bytesRead.addAndGet(read.toLong())
       }
       return output.toByteArray()
     }
