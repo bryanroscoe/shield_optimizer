@@ -12,7 +12,9 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@tauri-apps/api": "^2"
+    "@tauri-apps/api": "^2",
+    "geist": "^1.7.2",
+    "material-symbols": "^0.45.5"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",

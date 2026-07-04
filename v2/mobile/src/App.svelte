@@ -11,28 +11,32 @@
     status: string;
     device_type: string;
   };
-  type HealthReport = {
-    ram: { total_mb: number | null; free_mb: number | null; used_mb: number | null };
-    storage: { total: string | null; used: string | null; available: string | null; used_percent: number | null };
-    top_memory: Array<{ package: string; mb: number }>;
-  };
 
+  type Step = "scan" | "pair" | "connecting" | "connected";
+  let step = $state<Step>("scan");
+
+  // Connection target + inputs (shapes match the Rust commands exactly).
   let host = $state("");
   let pairPort = $state(37099);
   let connectPort = $state(5555);
   let code = $state("");
-  let status = $state("Turn on Wireless debugging on your TV, then scan.");
+
   let busy = $state(false);
+  let error = $state("");
   let discoveries = $state<Discovery[]>([]);
   let devices = $state<Device[]>([]);
-  let selectedSerial = $state("");
-  let health = $state<HealthReport | null>(null);
+  let scanned = $state(false);
+  let manual = $state(false);
 
-  const selectedDevice = $derived(devices.find((d) => d.serial === selectedSerial) ?? null);
-  const connectedDevice = $derived(devices.find((d) => d.status === "device") ?? null);
+  // Remember which path we took into 'connecting' so retry replays the right one.
+  let needsPairing = $state(false);
 
-  // One card per TV: fold a host's mDNS services together. `legacy` marks a TV on
-  // "Network debugging" (_adb._tcp :5555) — no pairing code, connect straight away.
+  const connectedDevice = $derived(
+    devices.find((d) => d.status === "device") ?? devices[0] ?? null,
+  );
+
+  // One card per TV: fold a host's mDNS services together. A service whose string
+  // does NOT contain "tls" is LEGACY (network debugging, :5555) — no pairing code.
   type Found = { host: string; pairingPort?: number; connectPort?: number; legacy?: boolean };
   const found = $derived.by(() => {
     const byHost = new Map<string, Found>();
@@ -49,609 +53,671 @@
     return [...byHost.values()];
   });
 
-  type Phase = "idle" | "working" | "connected";
-  const phase = $derived<Phase>(busy ? "working" : connectedDevice ? "connected" : "idle");
-  const phaseLabel = $derived(
-    busy ? "Working" : connectedDevice ? "Connected" : "Not connected",
+  const foundLabel = $derived(
+    found.length === 1 ? "1 device found" : `${found.length} devices found`,
   );
+  const codeReady = $derived(/^\d{6}$/.test(code));
 
-  async function run<T>(working: string, done: string, fn: () => Promise<T>): Promise<T | null> {
+  async function scan() {
+    error = "";
     busy = true;
-    status = working;
     try {
-      const result = await fn();
-      status = done;
-      return result;
-    } catch (error) {
-      status = String(error);
-      return null;
+      const result = await invoke<DiscoveryResult>("wireless_discover");
+      discoveries = result.devices;
+      scanned = true;
+    } catch (e) {
+      error = String(e);
     } finally {
       busy = false;
     }
   }
 
-  async function scan() {
-    const result = await run("Scanning your network…", "", () =>
-      invoke<DiscoveryResult>("wireless_discover"),
-    );
-    if (!result) return;
-    discoveries = result.devices;
-    if (found.length === 0) {
-      status = "No TVs found. Confirm Wireless debugging is on, then scan again.";
-      return;
-    }
-    status = found.length === 1 ? "Found 1 TV." : `Found ${found.length} TVs.`;
-    pick(found[0]);
-  }
-
-  function pick(f: Found) {
+  function selectFound(f: Found) {
     host = f.host;
     if (f.pairingPort) pairPort = f.pairingPort;
     if (f.connectPort) connectPort = f.connectPort;
+
+    if (f.pairingPort && !f.legacy) {
+      // TLS device — needs a 6-digit code first.
+      code = "";
+      needsPairing = true;
+      step = "pair";
+    } else {
+      // Legacy / network debugging — no code, just connect and Allow on the TV.
+      needsPairing = false;
+      startConnect();
+    }
   }
 
-  async function pair() {
-    const result = await run("Pairing with the TV…", "", () =>
-      invoke<ConnectResult>("wireless_pair", { host, port: Number(pairPort), code }),
-    );
-    if (result) status = result.message;
+  // Manual entry escape hatches (from the "Enter IP address manually" panel).
+  function manualPair() {
+    if (!host) return;
+    code = "";
+    needsPairing = true;
+    step = "pair";
+  }
+  function manualConnect() {
+    if (!host) return;
+    needsPairing = false;
+    startConnect();
   }
 
-  async function connect() {
-    const result = await run("Connecting…", "Connected.", () =>
-      invoke<ConnectResult>("wireless_connect", { host, port: Number(connectPort) }),
-    );
-    if (!result) return; // invoke threw — run() left the error on screen
-    status = result.message;
-    // Only refresh (which rewrites the status) when the connect actually worked,
-    // otherwise the device list would clobber the error message with a blank.
-    if (result.ok) await refreshDevices();
+  function onCodeInput(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
+    code = el.value.replace(/\D/g, "").slice(0, 6);
   }
 
-  async function disconnect() {
-    const result = await run("Disconnecting…", "Disconnected.", () =>
-      invoke<ConnectResult>("wireless_disconnect"),
-    );
-    if (result) status = result.message;
-    devices = [];
-    selectedSerial = "";
-    health = null;
+  // Pair (if needed) then connect. Drives the 'connecting' → 'connected' transition.
+  async function startConnect() {
+    error = "";
+    step = "connecting";
+    busy = true;
+    try {
+      if (needsPairing) {
+        const paired = await invoke<ConnectResult>("wireless_pair", {
+          host,
+          port: Number(pairPort),
+          code,
+        });
+        if (!paired.ok) {
+          error = paired.message;
+          return;
+        }
+      }
+      const result = await invoke<ConnectResult>("wireless_connect", {
+        host,
+        port: Number(connectPort),
+      });
+      if (!result.ok) {
+        error = result.message; // surface it — do not clobber.
+        return;
+      }
+      await refreshDevices();
+      step = "connected";
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = false;
+    }
   }
 
   async function refreshDevices() {
-    const result = await run("Refreshing…", "", () => invoke<Device[]>("list_devices"));
-    if (!result) return;
-    devices = result;
-    selectedSerial = connectedDevice?.serial ?? result[0]?.serial ?? "";
-    if (result.length) status = "Connected. Load a diagnostic below.";
+    try {
+      devices = await invoke<Device[]>("list_devices");
+    } catch (e) {
+      error = String(e);
+    }
   }
 
-  async function loadHealth() {
-    if (!selectedSerial) return;
-    const report = await run("Reading the TV…", "Diagnostic ready.", () =>
-      invoke<HealthReport>("health_report", { serial: selectedSerial }),
-    );
-    if (report) health = report;
+  async function disconnect() {
+    busy = true;
+    try {
+      await invoke<ConnectResult>("wireless_disconnect");
+    } catch (e) {
+      error = String(e);
+    } finally {
+      busy = false;
+    }
+    devices = [];
+    code = "";
+    discoveries = [];
+    scanned = false;
+    step = "scan";
   }
 
-  const canPair = $derived(!busy && !!host && code.length === 6);
-  const canConnect = $derived(!busy && !!host);
+  function backToScan() {
+    error = "";
+    code = "";
+    step = "scan";
+  }
+
+  // Connected-device display helpers.
+  const connName = $derived(
+    connectedDevice?.name || connectedDevice?.model || "your Android TV",
+  );
 </script>
 
-<header class="appbar">
-  <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
-    <span class="wordmark">ATV&nbsp;Optimizer</span>
-  </div>
-  <span class="statuspill" data-phase={phase}>
-    <span class="dot"></span>{phaseLabel}
-  </span>
-</header>
-
-<main>
-  <section class="intro">
-    <p class="eyebrow">No computer required</p>
-    <h1>Tune your Android&nbsp;TV from your phone.</h1>
-  </section>
-
-  <section class="card">
-    <div class="step">
-      <span class="num">1</span>
-      <div class="step-head">
-        <h2>Find your TV</h2>
-        <p class="muted">On the TV: Settings › System › Developer options › Wireless debugging.</p>
+<div class="screen">
+  {#if step === "scan"}
+    <!-- 1.1 — Scan & discover -->
+    <div class="topline">
+      <div class="brand">
+        <span class="logo"><span class="msr">tune</span></span>
+        <span class="wordmark">ATV&nbsp;Optimizer</span>
       </div>
+      <span class="statuspill" class:live={busy}>
+        <span class="pdot" class:blink={busy}></span>{busy ? "Scanning" : "Ready"}
+      </span>
     </div>
+
+    <p class="eyebrow">Step 1 of 2</p>
+    <h1>Find your TV</h1>
+    <p class="lede">
+      On the TV, open <span class="soft">Settings › System › Developer options › Wireless
+        debugging</span>.
+    </p>
+
+    <div class="radar" aria-hidden="true">
+      <span class="ring"></span>
+      <span class="ring ring2"></span>
+      <span class="radar-core"><span class="msr">tv_gen</span></span>
+    </div>
+
+    {#if scanned && found.length}
+      <p class="section-label">{foundLabel}</p>
+      <div class="devices">
+        {#each found as f (f.host)}
+          <button class="device" onclick={() => selectFound(f)}>
+            <span class="device-icon"><span class="msr">cast</span></span>
+            <span class="device-body">
+              <span class="device-name">Android&nbsp;TV</span>
+              <span class="mono device-addr">{f.host}</span>
+              {#if f.legacy && !f.pairingPort}
+                <span class="device-tag">No code needed</span>
+              {/if}
+            </span>
+            <span class="msr device-go">arrow_forward</span>
+          </button>
+        {/each}
+      </div>
+    {:else if scanned}
+      <p class="section-label">No devices found</p>
+      <p class="lede empty">Confirm Wireless debugging is on, then scan again.</p>
+    {/if}
+
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+
+    <div class="spacer"></div>
 
     <button class="primary" disabled={busy} onclick={scan}>
-      {busy ? "Scanning…" : "Scan network"}
+      <span class="msr">wifi_tethering</span>{scanned ? "Scan again" : "Scan network"}
+    </button>
+    <button class="ghost-link" onclick={() => (manual = !manual)}>
+      {manual ? "Hide manual entry" : "Enter IP address manually"}
     </button>
 
-    {#if found.length}
-      <div class="found">
-        {#each found as f (f.host)}
-          <button class="device" class:active={host === f.host} onclick={() => pick(f)}>
-            <span class="device-name">Android TV</span>
-            <span class="mono device-addr">{f.host}</span>
-            <span class="tags">
-              {#if f.pairingPort}<span class="tag pair">pair · {f.pairingPort}</span>{/if}
-              {#if f.connectPort}<span class="tag conn">{f.legacy ? "network" : "connect"} · {f.connectPort}</span>{/if}
-            </span>
-            {#if f.legacy && !f.pairingPort}
-              <span class="hint">No code needed — tap Connect, then allow it on the TV.</span>
-            {/if}
-          </button>
-        {/each}
+    {#if manual}
+      <div class="manual">
+        <label>
+          TV IP address
+          <input class="mono" bind:value={host} placeholder="192.168.1.42" inputmode="decimal" />
+        </label>
+        <div class="grid2">
+          <label>
+            Pairing port
+            <input class="mono" bind:value={pairPort} type="number" min="1" max="65535" />
+          </label>
+          <label>
+            Connect port
+            <input class="mono" bind:value={connectPort} type="number" min="1" max="65535" />
+          </label>
+        </div>
+        <div class="manual-actions">
+          <button class="primary small" disabled={!host} onclick={manualPair}>Pair with code</button>
+          <button class="ghost small" disabled={!host} onclick={manualConnect}>Connect (no code)</button>
+        </div>
       </div>
     {/if}
-
-    <details class="manual">
-      <summary>Enter address manually</summary>
-      <label>
-        TV IP address
-        <input class="mono" bind:value={host} placeholder="192.168.1.42" inputmode="decimal" />
-      </label>
-      <div class="grid2">
-        <label>
-          Pairing port
-          <input class="mono" bind:value={pairPort} type="number" min="1" max="65535" />
-        </label>
-        <label>
-          Connect port
-          <input class="mono" bind:value={connectPort} type="number" min="1" max="65535" />
-        </label>
-      </div>
-    </details>
-  </section>
-
-  <section class="card">
-    <div class="step">
-      <span class="num">2</span>
-      <div class="step-head">
-        <h2>Pair &amp; connect</h2>
-        <p class="muted">Wireless debugging: enter the 6-digit code, then Pair. Network debugging: skip the code and just Connect, then allow it on the TV.</p>
-      </div>
+  {:else if step === "pair"}
+    <!-- 1.2 — Pair with code -->
+    <div class="pairhead">
+      <button class="iconbtn" aria-label="Back" onclick={backToScan}>
+        <span class="msr">arrow_back</span>
+      </button>
+      <span class="mono target">{host}</span>
     </div>
 
-    <label>
-      Pairing code
+    <p class="eyebrow">Step 2 of 2</p>
+    <h1>Enter pairing code</h1>
+    <p class="lede">
+      Newer Google&nbsp;TV devices show a <span class="soft">6-digit code</span> the first time.
+      Older ones (like Shield) connect directly — no code.
+    </p>
+
+    <div class="code-row">
       <input
-        class="mono code"
-        bind:value={code}
+        class="code-input"
+        value={code}
+        oninput={onCodeInput}
         inputmode="numeric"
         maxlength="6"
-        placeholder="000000"
+        autocomplete="one-time-code"
+        aria-label="6-digit pairing code"
       />
-    </label>
-    <div class="actions">
-      <button class="primary" disabled={!canPair} onclick={pair}>Pair</button>
-      <button class="ghost" disabled={!canConnect} onclick={connect}>Connect</button>
-      <button class="ghost" disabled={busy || !connectedDevice} onclick={disconnect}>Disconnect</button>
-    </div>
-  </section>
-
-  <section class="card">
-    <div class="step">
-      <span class="num">3</span>
-      <div class="step-head">
-        <h2>Diagnose</h2>
-        <p class="muted">A free read of what's eating memory and storage.</p>
-      </div>
+      {#each Array(6) as _, i (i)}
+        <div class="digit" class:active={i === code.length && code.length < 6}>
+          {#if code[i]}
+            <span class="mono">{code[i]}</span>
+          {:else if i === code.length}
+            <span class="caret"></span>
+          {/if}
+        </div>
+      {/each}
     </div>
 
-    {#if devices.length}
-      <div class="found">
-        {#each devices as device (device.serial)}
-          <button
-            class="device"
-            class:active={device.serial === selectedSerial}
-            onclick={() => (selectedSerial = device.serial)}
-          >
-            <span class="device-name">{device.name || device.model || "Android TV"}</span>
-            <span class="mono device-addr">{device.serial}</span>
-            <span class="tags"><span class="tag conn">{device.device_type}</span></span>
-          </button>
-        {/each}
-      </div>
-      <button class="primary" disabled={busy || !selectedSerial} onclick={loadHealth}>
-        Run free diagnostic
-      </button>
-    {:else}
-      <p class="empty">Connect a TV in step 2 to run a diagnostic.</p>
-    {/if}
+    <div class="callout teal">
+      <span class="msr">lock</span>
+      <span>The pairing key stays on your phone. Nothing is sent to a server.</span>
+    </div>
 
-    {#if health}
-      <div class="metrics">
-        <div class="metric">
-          <span class="metric-label">RAM free</span>
-          <strong class="mono">{health.ram.free_mb ?? "—"}<span class="unit">MB</span></strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Storage used</span>
-          <strong class="mono">{health.storage.used_percent ?? "—"}<span class="unit">%</span></strong>
-        </div>
-      </div>
-      <h3>Top memory users</h3>
-      <ul class="hogs">
-        {#each health.top_memory.slice(0, 5) as item (item.package)}
-          <li>
-            <span class="pkg">{item.package}</span>
-            <span class="mono">{item.mb.toFixed(0)} MB</span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
-</main>
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
 
-<p class="toast" class:busy aria-live="polite">{status}</p>
+    <div class="spacer"></div>
+
+    <button class="primary" disabled={!codeReady || busy} onclick={startConnect}>
+      Pair &amp; connect
+    </button>
+  {:else if step === "connecting"}
+    <!-- Connecting / handshaking (covers pair-then-connect and no-code connect) -->
+    <div class="center">
+      <div class="radar" aria-hidden="true">
+        <span class="ring"></span>
+        <span class="ring ring2"></span>
+        <span class="radar-core"><span class="msr">cast</span></span>
+      </div>
+
+      <div class="connect-copy">
+        <h1>{error ? "Couldn't connect" : "Connecting…"}</h1>
+        <p class="lede">
+          {#if error}
+            The connection didn't complete.
+          {:else}
+            Reaching <span class="soft">{host}</span>
+          {/if}
+        </p>
+        {#if !error}
+          <span class="handshake">
+            <span class="hdot blink"></span>Handshaking…
+          </span>
+        {/if}
+      </div>
+
+      {#if error}
+        <p class="error" role="alert">{error}</p>
+      {:else}
+        <div class="callout accent">
+          <span class="msr">tv_gen</span>
+          <span>
+            Look at your TV — if an <span class="soft">"Allow debugging?"</span> prompt appears,
+            select <span class="soft">Allow</span> to finish connecting.
+          </span>
+        </div>
+      {/if}
+    </div>
+
+    <div class="spacer"></div>
+
+    {#if error}
+      <button class="primary" disabled={busy} onclick={startConnect}>Try again</button>
+      <button class="ghost-link" onclick={backToScan}>Back to scan</button>
+    {/if}
+  {:else if step === "connected"}
+    <!-- 1.3 — Connected -->
+    <div class="center connected">
+      <div class="check-wrap" aria-hidden="true">
+        <span class="check-halo"></span>
+        <span class="check-circle"><span class="msr">check</span></span>
+      </div>
+      <div class="connect-copy">
+        <h1>Connected</h1>
+        <p class="lede">You're now controlling<br /><span class="soft strong">{connName}</span></p>
+      </div>
+      <div class="pills">
+        {#if connectedDevice?.device_type}
+          <span class="infopill"><span class="msr">memory</span>{connectedDevice.device_type}</span>
+        {/if}
+        <span class="infopill"><span class="msr">lan</span><span class="mono">{host}</span></span>
+      </div>
+    </div>
+
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
+
+    <div class="spacer"></div>
+
+    <button class="primary" onclick={() => (step = "connected")}>
+      Open dashboard<span class="msr">arrow_forward</span>
+    </button>
+    <button class="ghost-link" onclick={disconnect}>Disconnect</button>
+  {/if}
+</div>
 
 <style>
-  :root {
-    --bg: #0a0c10;
-    --surface: #12161d;
-    --surface-2: #191f29;
-    --line: rgba(255, 255, 255, 0.08);
-    --text: #eaeef4;
-    --muted: #828d9e;
-    --accent: #f5b942;
-    --accent-ink: #1a1206;
-    --ok: #57d9a3;
-    --danger: #ff7a7a;
-    --mono: ui-monospace, "Roboto Mono", "SF Mono", Menlo, monospace;
-    --sans: system-ui, -apple-system, "Roboto", "Segoe UI", sans-serif;
+  .screen {
+    box-sizing: border-box;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 14px) max(24px, env(safe-area-inset-right))
+      calc(env(safe-area-inset-bottom) + 28px) max(24px, env(safe-area-inset-left));
+    background: radial-gradient(
+      1200px 800px at 20% -5%,
+      color-mix(in srgb, var(--accent) 5%, transparent),
+      transparent 60%
+    );
   }
 
-  :global(html) {
-    background: var(--bg);
+  .spacer {
+    flex: 1;
+    min-height: 20px;
   }
 
-  :global(body) {
-    margin: 0;
-    font-family: var(--sans);
-    background: var(--bg);
-    color: var(--text);
-    -webkit-font-smoothing: antialiased;
-  }
-
-  .mono {
-    font-family: var(--mono);
-    font-feature-settings: "tnum" 1;
-  }
-
-  /* Top bar — pinned, clears the status bar / notch. */
-  .appbar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
+  /* Header */
+  .topline {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: calc(env(safe-area-inset-top) + 12px) max(16px, env(safe-area-inset-left)) 12px
-      max(16px, env(safe-area-inset-right));
-    background: color-mix(in srgb, var(--bg) 82%, transparent);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--line);
+    margin-bottom: 32px;
   }
-
   .brand {
     display: flex;
     align-items: center;
     gap: 10px;
   }
-
-  .mark {
-    width: 22px;
-    height: 22px;
-    border-radius: 7px;
+  .logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
     background: var(--accent);
-    box-shadow: 0 0 18px rgba(245, 185, 66, 0.45);
-    position: relative;
+    display: grid;
+    place-items: center;
   }
-
-  .mark::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    margin: auto;
-    width: 0;
-    height: 0;
-    border-left: 7px solid var(--accent-ink);
-    border-top: 5px solid transparent;
-    border-bottom: 5px solid transparent;
-    transform: translateX(1px);
+  .logo .msr {
+    font-size: 19px;
+    color: var(--accent-ink);
   }
-
   .wordmark {
-    font-weight: 800;
-    font-size: 1.02rem;
+    font-weight: 700;
+    font-size: 15px;
     letter-spacing: -0.01em;
   }
-
   .statuspill {
     display: inline-flex;
     align-items: center;
-    gap: 7px;
-    padding: 6px 11px;
-    border-radius: 999px;
-    font-size: 0.74rem;
-    font-weight: 700;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--muted);
     background: var(--surface-2);
-    border: 1px solid var(--line);
-    white-space: nowrap;
+    padding: 6px 11px;
+    border-radius: 999px;
   }
-
-  .dot {
-    width: 8px;
-    height: 8px;
+  .statuspill.live {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .pdot {
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: var(--muted);
   }
-
-  .statuspill[data-phase="working"] {
-    color: var(--accent);
-  }
-  .statuspill[data-phase="working"] .dot {
+  .statuspill.live .pdot {
     background: var(--accent);
-    animation: pulse 1s ease-in-out infinite;
-  }
-  .statuspill[data-phase="connected"] {
-    color: var(--ok);
-  }
-  .statuspill[data-phase="connected"] .dot {
-    background: var(--ok);
-    box-shadow: 0 0 10px var(--ok);
   }
 
-  @keyframes pulse {
-    50% {
-      opacity: 0.35;
-    }
-  }
-
-  main {
-    display: grid;
-    gap: 14px;
-    padding: 16px max(16px, env(safe-area-inset-left))
-      calc(env(safe-area-inset-bottom) + 88px) max(16px, env(safe-area-inset-right));
-    box-sizing: border-box;
-  }
-
-  .intro {
-    padding: 8px 4px 2px;
-  }
-
+  /* Type */
   .eyebrow {
-    margin: 0 0 8px;
-    color: var(--accent);
-    font-size: 0.72rem;
-    font-weight: 800;
+    margin: 0 0 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
     letter-spacing: 0.16em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  .lede {
+    margin: 0 0 26px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .lede.empty {
+    margin-bottom: 0;
+  }
+  .soft {
+    color: var(--text-soft);
+  }
+  .soft.strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .section-label {
+    margin: 22px 0 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--dim);
     text-transform: uppercase;
   }
 
-  h1 {
-    margin: 0;
-    font-size: 1.7rem;
-    line-height: 1.12;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
-
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 20px;
-    padding: 18px;
-    display: grid;
-    gap: 14px;
-  }
-
-  .step {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-  }
-
-  .num {
-    flex: none;
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
+  /* Radar */
+  .radar {
+    position: relative;
+    height: 184px;
     display: grid;
     place-items: center;
-    font-family: var(--mono);
-    font-size: 0.85rem;
-    font-weight: 700;
-    color: var(--accent);
-    background: rgba(245, 185, 66, 0.12);
-    border: 1px solid rgba(245, 185, 66, 0.28);
+    margin-bottom: 6px;
   }
-
-  .step-head {
+  .ring {
+    position: absolute;
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    border: 1.5px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    animation: radar 2.4s ease-out infinite;
+  }
+  .ring2 {
+    animation-delay: 1.2s;
+  }
+  .radar-core {
+    width: 92px;
+    height: 92px;
+    border-radius: 26px;
+    background: var(--surface);
+    border: 1px solid var(--line);
     display: grid;
-    gap: 4px;
+    place-items: center;
+    box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .radar-core .msr {
+    font-size: 44px;
+    color: var(--accent);
+  }
+  @keyframes radar {
+    0% {
+      transform: scale(0.55);
+      opacity: 0.9;
+    }
+    100% {
+      transform: scale(1.9);
+      opacity: 0;
+    }
+  }
+  @keyframes blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .blink {
+    animation: blink 1s infinite;
   }
 
-  h2 {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
+  /* Device cards */
+  .devices {
+    display: grid;
+    gap: 10px;
   }
-
-  h3 {
-    margin: 4px 0 0;
-    font-size: 0.8rem;
-    font-weight: 700;
-    letter-spacing: 0.02em;
+  .device {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border-radius: 18px;
+    background: var(--surface);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 6%, transparent);
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    min-height: 44px;
+  }
+  .device:active {
+    transform: translateY(1px);
+  }
+  .device-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    display: grid;
+    place-items: center;
+    flex: none;
+  }
+  .device-icon .msr {
+    font-size: 24px;
+    color: var(--text);
+  }
+  .device-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+  }
+  .device-name {
+    font-weight: 600;
+    font-size: 15px;
+  }
+  .device-addr {
+    font-size: 12px;
     color: var(--muted);
-    text-transform: uppercase;
   }
-
-  .muted {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.85rem;
-    line-height: 1.4;
+  .device-tag {
+    margin-top: 4px;
+    align-self: flex-start;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 14%, transparent);
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .device-go {
+    font-size: 22px;
+    color: var(--accent);
+    flex: none;
   }
 
   /* Buttons */
-  button {
-    font: inherit;
-    color: var(--text);
-    cursor: pointer;
-    border: 0;
-    border-radius: 13px;
-    min-height: 50px;
-    padding: 0 18px;
-    font-weight: 700;
-  }
-
   .primary {
-    color: var(--accent-ink);
+    width: 100%;
+    min-height: 54px;
+    border: 0;
+    border-radius: 16px;
     background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .primary .msr {
+    font-size: 20px;
   }
   .primary:active {
     transform: translateY(1px);
   }
-
-  .ghost {
-    color: var(--text);
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-  }
-
-  button:disabled {
-    opacity: 0.55;
-  }
-
-  /* Disabled primary reads as a clean neutral, not a muddy dimmed amber. */
   .primary:disabled {
     background: var(--surface-2);
     color: var(--muted);
-    border: 1px solid var(--line);
-    opacity: 1;
+    cursor: default;
   }
-
-  .actions {
-    display: flex;
-    gap: 10px;
-  }
-  .actions .primary {
-    flex: 1.2;
-  }
-  .actions .ghost {
+  .primary.small,
+  .ghost.small {
+    min-height: 48px;
+    font-size: 14px;
     flex: 1;
-    padding: 0 12px;
   }
-
-  /* Discovered / connected device cards */
-  .found {
-    display: grid;
-    gap: 10px;
-  }
-
-  .device {
-    display: grid;
-    gap: 6px;
-    text-align: left;
-    padding: 14px;
-    min-height: 0;
-    border-radius: 14px;
-    background: var(--surface-2);
+  .ghost {
+    border-radius: 16px;
+    background: var(--surface);
     border: 1px solid var(--line);
-  }
-
-  .device.active {
-    border-color: var(--accent);
-    background: rgba(245, 185, 66, 0.08);
-  }
-
-  .device-name {
-    font-weight: 700;
-    font-size: 0.95rem;
-  }
-
-  .device-addr {
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 2px;
-  }
-
-  .tag {
-    font-family: var(--mono);
-    font-size: 0.7rem;
+    color: var(--text);
+    font-family: var(--sans);
     font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .ghost:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .ghost-link {
+    width: 100%;
+    min-height: 48px;
+    margin-top: 10px;
+    border: 0;
+    background: transparent;
     color: var(--muted);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
   }
-  .tag.pair {
-    color: var(--accent);
-    background: rgba(245, 185, 66, 0.12);
+  .iconbtn {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    flex: none;
   }
-  .tag.conn {
-    color: var(--ok);
-    background: rgba(87, 217, 163, 0.12);
-  }
-
-  .hint {
-    font-size: 0.78rem;
-    color: var(--muted);
-    line-height: 1.35;
+  .iconbtn .msr {
+    font-size: 22px;
+    color: var(--text);
   }
 
   /* Manual entry */
   .manual {
-    border-top: 1px solid var(--line);
-    padding-top: 12px;
-  }
-  .manual summary {
-    cursor: pointer;
-    color: var(--muted);
-    font-size: 0.85rem;
-    font-weight: 600;
-    list-style: none;
-  }
-  .manual summary::-webkit-details-marker {
-    display: none;
-  }
-  .manual summary::after {
-    content: " +";
-    color: var(--accent);
-  }
-  .manual[open] summary::after {
-    content: " –";
-  }
-  .manual[open] {
+    margin-top: 14px;
     display: grid;
     gap: 12px;
   }
-
   label {
     display: grid;
     gap: 7px;
-    font-size: 0.78rem;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--muted);
   }
-
   input {
     min-height: 48px;
     border-radius: 12px;
     border: 1px solid var(--line);
     padding: 0 14px;
-    background: #0d1117;
+    background: var(--canvas);
     color: var(--text);
     font: inherit;
   }
@@ -660,102 +726,212 @@
     outline-offset: 1px;
     border-color: transparent;
   }
-
-  .code {
-    font-size: 1.5rem;
-    letter-spacing: 0.4em;
-    text-align: center;
-  }
-
   .grid2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
-
-  .empty {
-    margin: 0;
-    color: var(--muted);
-    font-size: 0.85rem;
-    padding: 6px 0;
-  }
-
-  /* Metrics */
-  .metrics {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .manual-actions {
+    display: flex;
     gap: 10px;
   }
-  .metric {
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 14px;
-    display: grid;
-    gap: 6px;
+
+  /* Pair header */
+  .pairhead {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 34px;
   }
-  .metric-label {
-    font-size: 0.75rem;
+  .target {
+    font-size: 15px;
+    font-weight: 600;
     color: var(--muted);
+  }
+
+  /* Code boxes */
+  .code-row {
+    position: relative;
+    display: flex;
+    gap: 9px;
+    margin-bottom: 28px;
+  }
+  .code-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: transparent;
+    z-index: 2;
+  }
+  .code-input:focus-visible {
+    outline: none;
+  }
+  .digit {
+    flex: 1;
+    height: 60px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1.5px solid var(--line);
+    display: grid;
+    place-items: center;
+    font-size: 26px;
     font-weight: 600;
   }
-  .metric strong {
-    font-size: 1.6rem;
-    font-weight: 700;
+  .digit .mono {
+    color: var(--text);
   }
-  .unit {
-    font-size: 0.8rem;
-    color: var(--muted);
-    margin-left: 3px;
+  .digit.active {
+    background: var(--canvas);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .caret {
+    width: 2px;
+    height: 26px;
+    background: var(--accent);
+    animation: blink 1s infinite;
   }
 
-  .hogs {
-    list-style: none;
+  /* Callouts */
+  .callout {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+  .callout .msr {
+    font-size: 22px;
+    flex: none;
+  }
+  .callout.teal {
+    background: color-mix(in srgb, var(--teal) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--teal) 25%, transparent);
+  }
+  .callout.teal .msr {
+    color: var(--teal);
+  }
+  .callout.accent {
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+  .callout.accent .msr {
+    color: var(--accent);
+  }
+
+  /* Connecting */
+  .center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 26px;
+  }
+  .center .lede {
     margin: 0;
-    padding: 0;
-    display: grid;
+  }
+  .connect-copy {
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
-  .hogs li {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
+  .handshake {
+    display: inline-flex;
     align-items: center;
-    font-size: 0.85rem;
-    color: var(--muted);
+    justify-content: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--teal);
   }
-  .pkg {
-    overflow-wrap: anywhere;
-  }
-  .hogs .mono {
-    flex: none;
-    color: var(--text);
-    font-size: 0.8rem;
+  .hdot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--teal);
   }
 
-  /* Bottom status toast */
-  .toast {
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    bottom: calc(env(safe-area-inset-bottom) + 12px);
-    margin: 0;
-    padding: 13px 16px;
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--surface-2) 92%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--line);
-    color: var(--text);
-    font-size: 0.85rem;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  /* Connected */
+  .check-wrap {
+    position: relative;
+    display: grid;
+    place-items: center;
   }
-  .toast.busy {
-    border-color: rgba(245, 185, 66, 0.4);
+  .check-halo {
+    position: absolute;
+    width: 150px;
+    height: 150px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--teal) 12%, transparent);
+  }
+  .check-circle {
+    width: 104px;
+    height: 104px;
+    border-radius: 50%;
+    background: var(--teal);
+    display: grid;
+    place-items: center;
+    box-shadow: 0 0 46px color-mix(in srgb, var(--teal) 45%, transparent);
+  }
+  .check-circle .msr {
+    font-size: 60px;
+    color: #06231a;
+    font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 24;
+  }
+  .pills {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .infopill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 8px 12px;
+    border-radius: 999px;
+  }
+  .infopill .msr {
+    font-size: 15px;
+    color: var(--muted);
+  }
+
+  .error {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+    color: var(--danger);
+    font-size: 13px;
+    line-height: 1.4;
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .statuspill[data-phase="working"] .dot {
+    .ring,
+    .blink,
+    .caret {
       animation: none;
+    }
+    .ring {
+      opacity: 0.4;
+      transform: scale(1.4);
     }
   }
 </style>

@@ -1,0 +1,68 @@
+/* Offline-bundled fonts — the app can't fetch Google Fonts (CSP + no network
+   guarantee). Geist + Geist Mono + Material Symbols Rounded ship in the APK. */
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Material Symbols Rounded";
+  src: url("./fonts/material-symbols-rounded.woff2") format("woff2");
+  font-weight: 100 700;
+  font-display: block;
+}
+
+.msr {
+  font-family: "Material Symbols Rounded";
+  font-weight: normal;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+.msr.fill {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+
+:root {
+  --accent: #c9f24e;
+  --accent-ink: #0b0d10;
+  --canvas: #0b0d10;
+  --surface: #16191e;
+  --surface-2: #1e2229;
+  --line: rgba(255, 255, 255, 0.08);
+  --text: #f2f5f8;
+  --text-soft: #c7cdd6;
+  --muted: #8a929e;
+  --dim: #5b626d;
+  --teal: #35d6a5;
+  --amber: #f5b544;
+  --danger: #fb6b5f;
+  --advanced: #a78bfa;
+  --sans: "Geist", system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "Roboto Mono", monospace;
+}
+
+html {
+  background: var(--canvas);
+}
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: var(--canvas);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
