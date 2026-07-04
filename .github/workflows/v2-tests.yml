@@ -100,3 +100,28 @@ jobs:
       - name: Frontend build
         working-directory: v2
         run: npm run build
+
+  frontend-mobile:
+    name: Mobile frontend type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v2/mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v2/mobile
+        run: npm ci
+
+      - name: svelte-check
+        working-directory: v2/mobile
+        run: npm run check
+
+      - name: Frontend build
+        working-directory: v2/mobile
+        run: npm run build

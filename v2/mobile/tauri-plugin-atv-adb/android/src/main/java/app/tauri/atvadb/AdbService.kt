@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.net.InetAddress
+import java.util.Collections
 
 class AdbService(private val context: Context) {
   private val mutex = Mutex()
@@ -23,7 +24,11 @@ class AdbService(private val context: Context) {
   suspend fun discover(timeoutMs: Long = 3_000): List<DiscoveredAdbDevice> = withContext(Dispatchers.IO) {
     val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
     val out = linkedMapOf<String, DiscoveredAdbDevice>()
-    val listeners = listOf("_adb-tls-pairing._tcp.", "_adb-tls-connect._tcp.").map { serviceType ->
+    // Track which service types have resolved at least one entry. Mutated from NSD
+    // resolve callbacks on a different thread, so keep it thread-safe.
+    val resolvedTypes = Collections.synchronizedSet(mutableSetOf<String>())
+    val serviceTypes = listOf("_adb-tls-pairing._tcp.", "_adb-tls-connect._tcp.")
+    val listeners = serviceTypes.map { serviceType ->
       object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(regType: String) = Unit
         override fun onDiscoveryStopped(serviceType: String) = Unit
@@ -43,12 +48,23 @@ class AdbService(private val context: Context) {
                 port = resolved.port,
                 service = resolved.serviceType,
               )
+              resolvedTypes.add(serviceType)
             }
           })
         }
       }.also { nsd.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, it) }
     }
-    delay(timeoutMs)
+    // Poll until both service types have resolved (a TV in pairing mode advertises both),
+    // capped at timeoutMs. A TV NOT in pairing mode only advertises _adb-tls-connect, so
+    // requiring one of EACH type keeps us waiting the full timeout for possible pairing
+    // services rather than exiting early on connect-only results.
+    val pollMs = 100L
+    var waited = 0L
+    while (waited < timeoutMs) {
+      delay(pollMs)
+      waited += pollMs
+      if (resolvedTypes.containsAll(serviceTypes)) break
+    }
     listeners.forEach { runCatching { nsd.stopServiceDiscovery(it) } }
     out.values.toList()
   }
@@ -85,7 +101,9 @@ class AdbService(private val context: Context) {
 
   suspend fun screencap(): String = mutex.withLock {
     withContext(Dispatchers.IO) {
-      val bytes = readStream(manager.openStream("shell:exec-out screencap -p"))
+      // Use exec: not shell: so screencap runs without a pty — binary PNG output must
+      // avoid the pty's LF->CRLF translation. This is what `adb exec-out` does under the hood.
+      val bytes = readStream(manager.openStream("exec:screencap -p"))
       Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
   }

@@ -19,6 +19,9 @@ use tauri::Manager;
 use wireless_adb::WirelessAdb;
 use wireless_commands::MobileState;
 
+/// Host-dev fallback when Tauri's app-scoped data dir is unavailable. On Android
+/// `dirs::data_local_dir()` returns None (dirs-sys hard-codes a None home there),
+/// so this is only used off-device where the current dir is writable.
 fn default_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -48,8 +51,17 @@ pub fn run() {
                 }
             };
 
+            // On Android the dirs crate returns no writable location, so resolve
+            // the app-scoped data dir through Tauri's path resolver (already
+            // namespaced by the bundle identifier — no extra segment needed).
+            let data_dir = app.path().app_data_dir().unwrap_or_else(|e| {
+                tracing::warn!(error = %e, "app_data_dir unavailable; using dev fallback");
+                default_data_dir()
+            });
+            tracing::info!(data_dir = %data_dir.display(), "resolved data dir");
+
             let wireless = Arc::new(WirelessAdb::new(app.handle().clone()));
-            let state = AppState::new(wireless.clone(), app_lists, default_data_dir())
+            let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
                 .with_entitlement(Entitlement::Free);
             app.manage(state);

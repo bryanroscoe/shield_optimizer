@@ -191,11 +191,8 @@ pub async fn pair_device(
     pair_address: String,
     pin: String,
 ) -> Result<ConnectResult, String> {
-    if pin.len() != 6 || !pin.chars().all(|c| c.is_ascii_digit()) {
-        return Ok(ConnectResult {
-            ok: false,
-            message: "PIN must be exactly 6 digits.".to_string(),
-        });
+    if let Err(message) = validate_pairing_pin(&pin) {
+        return Ok(ConnectResult { ok: false, message });
     }
     let target = normalize_connect_address(&pair_address)?;
     let adb = state.adb_snapshot().await;
@@ -228,10 +225,20 @@ pub async fn pair_device(
     })
 }
 
+/// Validate a wireless-debugging pairing PIN. The message is surfaced verbatim
+/// to the user, so keep it stable — shared by desktop `pair_device` and the
+/// mobile `WirelessAdb::pair` path.
+pub fn validate_pairing_pin(pin: &str) -> Result<(), String> {
+    if pin.len() != 6 || !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Err("PIN must be exactly 6 digits.".to_string());
+    }
+    Ok(())
+}
+
 /// Validate and normalize an `IP[:port]` string. Rejects empty input, IPs
 /// with the wrong shape, and any port that's not a positive 16-bit number.
 /// Returns the canonical `IP:port` string ADB expects.
-pub(crate) fn normalize_connect_address(address: &str) -> Result<String, String> {
+pub fn normalize_connect_address(address: &str) -> Result<String, String> {
     let address = address.trim();
     if address.is_empty() {
         return Err("address is empty".to_string());

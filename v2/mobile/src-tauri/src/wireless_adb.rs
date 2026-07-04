@@ -2,20 +2,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine as _;
-use serde::{Deserialize, Serialize};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use shield_optimizer_core::commands::devices::{normalize_connect_address, validate_pairing_pin};
 use tokio::sync::RwLock;
 
-use tauri_plugin_atv_adb::AdbExt;
+use tauri_plugin_atv_adb::{AdbExt, ConnectResponse};
 // Re-exported so wireless_commands.rs and the mobile handler keep one import path.
 pub use tauri_plugin_atv_adb::DiscoveredAdbDevice;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WirelessDevice {
-    pub serial: String,
-    pub host: String,
-    pub port: u16,
-}
 
 /// `AdbDriver` over the libadb-android transport (the `tauri-plugin-atv-adb`
 /// Kotlin plugin). The connection lifecycle (`pair`/`connect`/`disconnect`) has
@@ -25,7 +18,7 @@ pub struct WirelessDevice {
 /// are structurally impossible on a phone and report `Unsupported`.
 pub struct WirelessAdb {
     app: tauri::AppHandle,
-    connected: RwLock<Option<WirelessDevice>>,
+    connected: RwLock<Option<ConnectResponse>>,
 }
 
 impl WirelessAdb {
@@ -36,33 +29,47 @@ impl WirelessAdb {
         }
     }
 
+    /// Run a blocking plugin call off the async runtime. Each `Adb` method
+    /// blocks on a JNI hop, so calling one directly on a Tokio worker would
+    /// stall the runtime — core commands fan several out with `join!`.
+    async fn on_blocking<T, F>(&self, f: F) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&tauri::AppHandle) -> T + Send + 'static,
+    {
+        let app = self.app.clone();
+        tokio::task::spawn_blocking(move || f(&app))
+            .await
+            .map_err(|e| format!("wireless-adb task failed: {e}"))
+    }
+
     pub async fn discover(&self) -> Result<Vec<DiscoveredAdbDevice>, String> {
-        self.app.adb().discover(3_000).map_err(|e| e.to_string())
+        self.on_blocking(|app| app.adb().discover(3_000))
+            .await?
+            .map_err(|e| e.to_string())
     }
 
     pub async fn pair(&self, host: &str, port: u16, code: &str) -> Result<String, String> {
-        if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
-            return Err("PIN must be exactly 6 digits.".to_string());
-        }
-        self.app
-            .adb()
-            .pair(host, port, code)
+        validate_pairing_pin(code)?;
+        normalize_connect_address(&format!("{host}:{port}"))?;
+        let host = host.to_string();
+        let code = code.to_string();
+        self.on_blocking(move |app| app.adb().pair(&host, port, &code))
+            .await?
             .map(|r| r.message)
             .map_err(|e| e.to_string())
     }
 
     pub async fn connect(&self, host: &str, port: u16) -> Result<String, String> {
+        normalize_connect_address(&format!("{host}:{port}"))?;
+        let host_owned = host.to_string();
         let response = self
-            .app
-            .adb()
-            .connect(host, port)
+            .on_blocking(move |app| app.adb().connect(&host_owned, port))
+            .await?
             .map_err(|e| e.to_string())?;
-        *self.connected.write().await = Some(WirelessDevice {
-            serial: response.serial.clone(),
-            host: response.host.clone(),
-            port: response.port,
-        });
-        Ok(response.message)
+        let message = response.message.clone();
+        *self.connected.write().await = Some(response);
+        Ok(message)
     }
 
     pub async fn disconnect(&self) -> Result<String, String> {
@@ -72,10 +79,9 @@ impl WirelessAdb {
             .await
             .as_ref()
             .map(|d| d.serial.clone());
-        if let Some(serial) = serial.as_deref() {
-            self.app
-                .adb()
-                .disconnect(serial)
+        if let Some(serial) = serial {
+            self.on_blocking(move |app| app.adb().disconnect(&serial))
+                .await?
                 .map_err(|e| e.to_string())?;
         }
         *self.connected.write().await = None;
@@ -118,6 +124,13 @@ impl AdbDriver for WirelessAdb {
                 operation: "connect",
             }),
             ["pair", ..] => Err(AdbError::Unsupported { operation: "pair" }),
+            // No adb server on the phone to run `reboot` as a host command, so
+            // route it through the device shell — `reboot [recovery|bootloader]`
+            // is the same on-device command.
+            ["-s", serial, "reboot", rest @ ..] => {
+                let command = format!("reboot {}", rest.join(" "));
+                self.shell(serial, command.trim()).await
+            }
             _ => Err(AdbError::Unsupported { operation: "raw" }),
         }
     }
@@ -129,10 +142,12 @@ impl AdbDriver for WirelessAdb {
     }
 
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
+        let serial = serial.to_string();
+        let command = command.to_string();
         let out = self
-            .app
-            .adb()
-            .shell(serial, command)
+            .on_blocking(move |app| app.adb().shell(&serial, &command))
+            .await
+            .map_err(AdbError::Transport)?
             .map_err(|e| AdbError::Transport(e.to_string()))?;
         Ok(AdbOutput {
             stdout: out.stdout,
@@ -147,11 +162,11 @@ impl AdbDriver for WirelessAdb {
                 operation: "raw_bytes",
             });
         }
-        let serial = args[1];
+        let serial = args[1].to_string();
         let png_base64 = self
-            .app
-            .adb()
-            .screencap(serial)
+            .on_blocking(move |app| app.adb().screencap(&serial))
+            .await
+            .map_err(AdbError::Transport)?
             .map_err(|e| AdbError::Transport(e.to_string()))?;
         base64::engine::general_purpose::STANDARD
             .decode(png_base64)
