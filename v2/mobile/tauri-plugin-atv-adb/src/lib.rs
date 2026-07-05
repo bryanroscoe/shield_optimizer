@@ -1,9 +1,12 @@
-//! Wireless-ADB transport plugin for ATV Optimizer.
+//! mDNS discovery plugin for ATV Optimizer.
 //!
-//! On Android this ships a libadb-android-backed Kotlin plugin (see `android/`)
-//! and exposes it to Rust as [`Adb`]. The app's `WirelessAdb` (`impl AdbDriver`)
-//! drives a TV over Wi-Fi through it — no PC, no adb server. The plugin has no
-//! JS-invokable commands; the frontend talks to the app's `wireless_*`
+//! On Android this ships a thin Kotlin plugin (see `android/`) that uses the
+//! framework `NsdManager` to discover the TV's wireless/network-debugging
+//! services on the LAN, and exposes it to Rust as [`Adb`]. Everything else —
+//! connect, shell, screencap, reboot — is driven directly from Rust by the
+//! app's `WirelessAdb` (`impl AdbDriver`) via the pure-Rust `adb_client` crate,
+//! so no adb binary, no adb server, and no GPL transport code ships. The plugin
+//! has no JS-invokable commands; the frontend talks to the app's `wireless_*`
 //! commands, which call [`AdbExt::adb`].
 
 use tauri::{
@@ -15,7 +18,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{AdbCommandOutput, ConnectResponse, DiscoveredAdbDevice};
+pub use models::DiscoveredAdbDevice;
 
 #[cfg(not(mobile))]
 mod desktop;

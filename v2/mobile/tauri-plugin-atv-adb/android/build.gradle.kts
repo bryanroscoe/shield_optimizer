@@ -30,22 +30,14 @@ android {
     }
 }
 
-// Self-declared so the plugin resolves libadb-android even against a pristine
-// (regenerated) app project that hasn't had jitpack added to its root.
 repositories {
     google()
     mavenCentral()
-    maven(url = "https://jitpack.io")
 }
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    // Discovery runs NsdManager on a coroutine dispatcher.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    // Android-11+ wireless-debugging client (pairing-code TLS + shell streams).
-    implementation("com.github.MuntashirAkon:libadb-android:3.1.1")
-    // TLS 1.3 + SPAKE2 provider libadb-android relies on for pairing.
-    implementation("org.conscrypt:conscrypt-android:2.5.3")
-    // X.509 self-signed cert generation for the persisted ADB key.
-    implementation("org.bouncycastle:bcpkix-jdk15to18:1.81")
     implementation(project(":tauri-android"))
 }
