@@ -2,6 +2,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Discovery } from "../lib/types";
+  import BrandMark from "../components/BrandMark.svelte";
 
   let { onConnected }: { onConnected: () => void } = $props();
 
@@ -134,7 +135,7 @@
   {#if step === "scan"}
     <div class="topline">
       <div class="brand">
-        <span class="logo"><span class="msr">tune</span></span>
+        <BrandMark size={30} />
         <span class="wordmark">ATV&nbsp;Optimizer</span>
       </div>
       <span class="statuspill" class:live={busy}>
