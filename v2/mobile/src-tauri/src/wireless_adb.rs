@@ -1,7 +1,9 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine as _;
+use serde::Serialize;
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::devices::{normalize_connect_address, validate_pairing_pin};
 use tokio::sync::RwLock;
@@ -88,6 +90,53 @@ impl WirelessAdb {
         Ok("Disconnected.".to_string())
     }
 
+    /// Forget the cached connection after a transport failure. A dead socket
+    /// must stop reporting as a live device, so any `shell`/`raw_bytes`
+    /// transport error clears it and a follow-up `list_devices` shows nothing.
+    async fn mark_transport_dead(&self) {
+        if self.connected.write().await.take().is_some() {
+            tracing::warn!("wireless transport error — cleared cached connection (socket dead)");
+        }
+    }
+
+    /// Cheap liveness probe for the frontend's connection watchdog. Returns the
+    /// cached device only if a fast `echo` round-trips; otherwise clears the
+    /// cached connection and reports disconnected.
+    pub async fn status(&self) -> WirelessStatus {
+        let info = self.connected.read().await.clone();
+        let Some(device) = info else {
+            return WirelessStatus::disconnected();
+        };
+        let serial = device.serial.clone();
+        // `shell` already clears `connected` on a transport error; the timeout
+        // arm handles a hung-but-not-errored socket.
+        let alive = match tokio::time::timeout(
+            Duration::from_secs(3),
+            self.shell(&serial, "echo ok"),
+        )
+        .await
+        {
+            Ok(Ok(out)) => out.stdout.contains("ok"),
+            Ok(Err(e)) => {
+                tracing::warn!(serial = %serial, error = %e, "wireless_status probe failed");
+                false
+            }
+            Err(_) => {
+                tracing::warn!(serial = %serial, "wireless_status probe timed out");
+                false
+            }
+        };
+        if !alive {
+            *self.connected.write().await = None;
+            return WirelessStatus::disconnected();
+        }
+        WirelessStatus {
+            connected: true,
+            serial: Some(device.serial),
+            host: Some(device.host),
+        }
+    }
+
     async fn devices_output(&self) -> AdbOutput {
         let stdout = if let Some(device) = self.connected.read().await.as_ref() {
             format!("List of devices attached\n{}\tdevice\n", device.serial)
@@ -155,11 +204,20 @@ impl AdbDriver for WirelessAdb {
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
         let serial = serial.to_string();
         let command = command.to_string();
-        let out = self
+        let out = match self
             .on_blocking(move |app| app.adb().shell(&serial, &command))
             .await
-            .map_err(AdbError::Transport)?
-            .map_err(|e| AdbError::Transport(e.to_string()))?;
+        {
+            Ok(Ok(out)) => out,
+            Ok(Err(e)) => {
+                self.mark_transport_dead().await;
+                return Err(AdbError::Transport(e.to_string()));
+            }
+            Err(e) => {
+                self.mark_transport_dead().await;
+                return Err(AdbError::Transport(e));
+            }
+        };
         Ok(AdbOutput {
             stdout: out.stdout,
             stderr: out.stderr,
@@ -174,11 +232,20 @@ impl AdbDriver for WirelessAdb {
             });
         }
         let serial = args[1].to_string();
-        let png_base64 = self
+        let png_base64 = match self
             .on_blocking(move |app| app.adb().screencap(&serial))
             .await
-            .map_err(AdbError::Transport)?
-            .map_err(|e| AdbError::Transport(e.to_string()))?;
+        {
+            Ok(Ok(png)) => png,
+            Ok(Err(e)) => {
+                self.mark_transport_dead().await;
+                return Err(AdbError::Transport(e.to_string()));
+            }
+            Err(e) => {
+                self.mark_transport_dead().await;
+                return Err(AdbError::Transport(e));
+            }
+        };
         base64::engine::general_purpose::STANDARD
             .decode(png_base64)
             .map_err(|e| AdbError::Transport(format!("invalid screencap base64: {e}")))
@@ -186,3 +253,21 @@ impl AdbDriver for WirelessAdb {
 }
 
 pub type SharedWirelessAdb = Arc<WirelessAdb>;
+
+/// Live connection state for the frontend watchdog (`wireless_status`).
+#[derive(Serialize)]
+pub struct WirelessStatus {
+    pub connected: bool,
+    pub serial: Option<String>,
+    pub host: Option<String>,
+}
+
+impl WirelessStatus {
+    fn disconnected() -> Self {
+        Self {
+            connected: false,
+            serial: None,
+            host: None,
+        }
+    }
+}

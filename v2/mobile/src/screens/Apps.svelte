@@ -1,52 +1,52 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import { api } from "../lib/api";
+  import { session } from "../lib/session.svelte";
+  import type { Screen } from "../lib/router.svelte";
+  import type { OtherPackage } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
+  import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import Toast from "../components/Toast.svelte";
 
-  let {
-    host,
-    connectPort,
-    connectedDevice,
-    navigate,
-  }: {
-    host: string;
-    connectPort: number;
-    connectedDevice: any;
-    navigate: (screen: string) => void;
-  } = $props();
+  let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
   let loading = $state(true);
+  let loaded = $state(false);
   let error = $state("");
   let searchQuery = $state("");
   let activeFilter = $state<"all" | "enabled" | "disabled" | "system">("all");
-  let selectedApp = $state<any>(null);
+  let selectedApp = $state<OtherPackage | null>(null);
 
-  // App data list
-  let apps = $state<any[]>([]);
+  let apps = $state<OtherPackage[]>([]);
   let busyAction = $state("");
 
-  // Lightweight toast — replaces blocking alert()s for action feedback.
   let toast = $state("");
+  let toastType = $state<"success" | "error" | "info">("info");
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
-  function showToast(message: string) {
+  function showToast(message: string, type: "success" | "error" | "info" = "info") {
     toast = message;
+    toastType = type;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast = ""), 2600);
+    toastTimer = setTimeout(() => (toast = ""), 2800);
   }
 
-  async function loadApps() {
-    if (!connectedDevice?.serial) {
+  // Lazy load guarded by a loaded-flag (not length===0) and keeping stale rows
+  // on screen during a refresh — no empty flash.
+  async function loadApps(force = false) {
+    if (!session.serial) {
       error = "No TV connected. Go back and connect first.";
       loading = false;
       return;
     }
-    loading = true;
+    if (loaded && !force) {
+      loading = false;
+      return;
+    }
+    if (apps.length === 0) loading = true;
     error = "";
     try {
-      const list = await invoke<any[]>("list_other_packages", {
-        serial: connectedDevice.serial,
-      });
-      apps = list;
+      apps = await api.listOtherPackages(session.serial);
+      loaded = true;
     } catch (e) {
       error = String(e);
     } finally {
@@ -54,20 +54,15 @@
     }
   }
 
-  onMount(() => {
-    loadApps();
-  });
+  onMount(() => loadApps());
 
   const filteredApps = $derived.by(() => {
-    return apps.filter(app => {
-      // Filter by search query
-      const matchesSearch = 
-        (app.name && app.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        app.package.toLowerCase().includes(searchQuery.toLowerCase());
-      
+    const q = searchQuery.toLowerCase();
+    return apps.filter((app) => {
+      const matchesSearch =
+        (app.name && app.name.toLowerCase().includes(q)) ||
+        app.package.toLowerCase().includes(q);
       if (!matchesSearch) return false;
-
-      // Filter by category
       if (activeFilter === "enabled") return app.enabled;
       if (activeFilter === "disabled") return !app.enabled;
       if (activeFilter === "system") return app.system;
@@ -75,124 +70,105 @@
     });
   });
 
-  async function handleDisable(app: any) {
-    if (busyAction || !connectedDevice?.serial) return;
+  function label(app: OtherPackage): string {
+    return app.name || app.package.split(".").pop() || app.package;
+  }
+
+  function patch(pkg: string, enabled: boolean) {
+    apps = apps.map((a) => (a.package === pkg ? { ...a, enabled } : a));
+  }
+
+  // Optimistic enable/disable: flip the row immediately, revert on failure.
+  async function handleToggle(app: OtherPackage) {
+    if (busyAction || !session.serial) return;
     const enabling = !app.enabled;
-    busyAction = "disable";
+    const pkg = app.package;
+    busyAction = pkg;
+    patch(pkg, enabling);
+    selectedApp = null;
     try {
-      await invoke(enabling ? "enable_package" : "disable_package", {
-        serial: connectedDevice.serial,
-        package: app.package,
-      });
-      showToast(`${enabling ? "Enabled" : "Disabled"} ${app.name || app.package}`);
-      selectedApp = null;
-      await loadApps();
+      const r = enabling
+        ? await api.enablePackage(session.serial, pkg)
+        : await api.disablePackage(session.serial, pkg);
+      if (r.ok) {
+        showToast(`${enabling ? "Enabled" : "Disabled"} ${label(app)}`, "success");
+        session.invalidateAll();
+      } else {
+        patch(pkg, !enabling);
+        showToast(r.message || "Action failed.", "error");
+      }
     } catch (e) {
-      showToast(String(e));
+      patch(pkg, !enabling);
+      showToast(String(e), "error");
     } finally {
       busyAction = "";
     }
   }
 
-  function handleUninstall(_app: any) {
-    showToast("Uninstall is a Pro feature — upgrade in the More tab.");
+  function handleUninstall() {
+    // Uninstall (with snapshot rollback) is a Pro feature not wired on mobile
+    // yet — route to the upsell rather than performing anything.
+    selectedApp = null;
+    showToast("Uninstall is a Pro feature — upgrade in the More tab.", "info");
   }
 
-  let findingRemote = $state(false);
-  async function handleFindRemote() {
-    if (findingRemote || !connectedDevice?.serial) return;
-    findingRemote = true;
-    showToast("Locating remote — listen for your Shield remote to beep…");
-    try {
-      const res = await invoke<{ ok: boolean; message: string }>("find_remote", {
-        serial: connectedDevice.serial,
-      });
-      showToast(res.ok ? "Remote locator triggered on the TV." : res.message || "Couldn't trigger the remote locator.");
-    } catch (e) {
-      showToast(String(e));
-    } finally {
-      findingRemote = false;
-    }
+  function iconFor(app: OtherPackage): string {
+    if (app.system) return "system_update";
+    const n = (app.name ?? "").toLowerCase();
+    return n.includes("video") || n.includes("tv") ? "smart_display" : "apps";
   }
 </script>
 
 <div class="screen">
-  <!-- Header -->
   <div class="topline">
-    <div style="display: flex; gap: 8px; align-items: center;">
+    <div class="header-left">
       <button class="iconbtn" onclick={() => navigate("dashboard")} aria-label="Back">
         <span class="msr">arrow_back</span>
       </button>
-      <button
-        class="iconbtn"
-        class:busy={findingRemote}
-        onclick={handleFindRemote}
-        disabled={findingRemote}
-        aria-label="Find remote"
-        title="Find remote"
-      >
-        <span class="msr">settings_remote</span>
-      </button>
+      <FindRemoteButton />
     </div>
     <h3 class="header-title">Apps</h3>
     <span class="mono apps-count-badge">{filteredApps.length} found</span>
   </div>
 
-  <!-- Search -->
   <div class="search-box">
     <span class="msr search-icon">search</span>
-    <input 
-      type="text" 
-      placeholder="Search apps or packages" 
+    <input
+      type="text"
+      placeholder="Search apps or packages"
       bind:value={searchQuery}
       class="search-input"
     />
   </div>
 
-  <!-- Filters -->
   <div class="filters-row">
-    <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => activeFilter = "all"}>
-      All
-    </button>
-    <button class="filter-chip" class:active={activeFilter === "enabled"} onclick={() => activeFilter = "enabled"}>
-      Enabled
-    </button>
-    <button class="filter-chip" class:active={activeFilter === "disabled"} onclick={() => activeFilter = "disabled"}>
-      Disabled
-    </button>
-    <button class="filter-chip" class:active={activeFilter === "system"} onclick={() => activeFilter = "system"}>
-      System
-    </button>
+    <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>
+    <button class="filter-chip" class:active={activeFilter === "enabled"} onclick={() => (activeFilter = "enabled")}>Enabled</button>
+    <button class="filter-chip" class:active={activeFilter === "disabled"} onclick={() => (activeFilter = "disabled")}>Disabled</button>
+    <button class="filter-chip" class:active={activeFilter === "system"} onclick={() => (activeFilter = "system")}>System</button>
   </div>
 
-  <!-- Apps List -->
-  {#if loading}
+  {#if loading && apps.length === 0}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Loading packages…</span>
     </div>
-  {:else if error}
+  {:else if error && apps.length === 0}
     <p class="error">{error}</p>
-    <button class="primary" onclick={loadApps}>Retry</button>
+    <button class="primary" onclick={() => loadApps(true)}>Retry</button>
   {:else}
     <div class="apps-list">
-      {#each filteredApps as app}
-        <button 
-          class="app-row" 
+      {#each filteredApps as app (app.package)}
+        <button
+          class="app-row"
           class:selected={selectedApp?.package === app.package}
-          onclick={() => selectedApp = app}
+          onclick={() => (selectedApp = app)}
         >
-          <div class="app-avatar">
-            <span class="msr">
-              {app.system ? "system_update" : app.name?.toLowerCase().includes("video") || app.name?.toLowerCase().includes("tv") ? "smart_display" : "apps"}
-            </span>
-          </div>
+          <div class="app-avatar"><span class="msr">{iconFor(app)}</span></div>
           <div class="app-details">
-            <span class="app-name-text">{app.name || app.package.split(".").pop()}</span>
+            <span class="app-name-text">{label(app)}</span>
             <span class="mono app-pkg-text">{app.package}</span>
           </div>
-          <span class="status-badge" class:off={!app.enabled}>
-            {app.enabled ? "ON" : "OFF"}
-          </span>
+          <span class="status-badge" class:off={!app.enabled}>{app.enabled ? "ON" : "OFF"}</span>
           <span class="msr more-icon">more_vert</span>
         </button>
       {/each}
@@ -201,39 +177,25 @@
 
   <div class="spacer"></div>
 
-  <!-- Bottom Drawer for selected app -->
   {#if selectedApp}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="action-drawer-overlay" onclick={() => selectedApp = null}>
+    <div class="action-drawer-overlay" onclick={() => (selectedApp = null)}>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="action-drawer" onclick={(e) => e.stopPropagation()}>
         <div class="selected-app-header">
-          <div class="app-avatar">
-            <span class="msr">
-              {selectedApp.system ? "system_update" : "apps"}
-            </span>
-          </div>
+          <div class="app-avatar"><span class="msr">{iconFor(selectedApp)}</span></div>
           <div class="app-details">
-            <span class="app-name-text">{selectedApp.name || selectedApp.package.split(".").pop()}</span>
+            <span class="app-name-text">{label(selectedApp)}</span>
             <span class="mono app-pkg-text">{selectedApp.package}</span>
           </div>
           <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <span class="close-drawer msr" onclick={() => selectedApp = null}>close</span>
+          <span class="close-drawer msr" onclick={() => (selectedApp = null)}>close</span>
         </div>
-        
         <div class="drawer-actions">
-          <button 
-            class="drawer-btn" 
-            disabled={busyAction !== ""}
-            onclick={() => handleDisable(selectedApp)}
-          >
+          <button class="drawer-btn" disabled={busyAction !== ""} onclick={() => selectedApp && handleToggle(selectedApp)}>
             {selectedApp.enabled ? "Disable" : "Enable"}
           </button>
-          
-          <button 
-            class="drawer-btn danger" 
-            onclick={() => handleUninstall(selectedApp)}
-          >
+          <button class="drawer-btn danger" onclick={handleUninstall}>
             Uninstall <span class="pro-badge">PRO</span>
           </button>
         </div>
@@ -241,33 +203,16 @@
     </div>
   {/if}
 
-  {#if toast}
-    <div class="toast" role="status" aria-live="polite">{toast}</div>
-  {/if}
+  <Toast message={toast} type={toastType} />
 
   <BottomTabs active="apps" {navigate} />
 </div>
 
 <style>
-  .toast {
-    position: fixed;
-    left: 16px;
-    right: 16px;
-    bottom: calc(env(safe-area-inset-bottom) + 92px);
-    z-index: 50;
-    padding: 13px 16px;
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--surface-2) 94%, transparent);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--line);
-    color: var(--text);
-    font-size: 13px;
-    line-height: 1.4;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  }
-  .iconbtn.busy {
-    color: var(--accent);
-    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  .header-left {
+    display: flex;
+    gap: 8px;
+    align-items: center;
   }
   .header-title {
     margin: 0;
@@ -281,7 +226,6 @@
     margin-left: auto;
   }
 
-  /* Search box */
   .search-box {
     display: flex;
     align-items: center;
@@ -310,7 +254,6 @@
     outline: none;
   }
 
-  /* Filters row */
   .filters-row {
     display: flex;
     gap: 8px;
@@ -337,7 +280,6 @@
     font-weight: 600;
   }
 
-  /* Apps list */
   .apps-list {
     display: flex;
     flex-direction: column;
@@ -413,11 +355,10 @@
     flex-shrink: 0;
   }
 
-  /* Action drawer overlay */
   .action-drawer-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.6);
+    background: rgba(0, 0, 0, 0.6);
     z-index: 100;
     display: flex;
     align-items: flex-end;
@@ -471,6 +412,10 @@
   .drawer-btn:active {
     background: var(--surface-2);
   }
+  .drawer-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
   .drawer-btn.danger {
     border-color: rgba(251, 107, 95, 0.3);
     background: rgba(251, 107, 95, 0.1);
@@ -484,9 +429,12 @@
     padding: 2px 5px;
     border-radius: 5px;
   }
-
   @keyframes slideUpDrawer {
-    from { transform: translateY(100%); }
-    to { transform: translateY(0); }
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
   }
 </style>

@@ -1,16 +1,17 @@
-<svg width="1024" height="1024" viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
-  <rect width="108" height="108" rx="24" fill="#C9F24E"/>
-  <!-- Three vertical faders with offset knobs — "Tuner" glyph -->
-  <g stroke="#0B0D10" stroke-linecap="round" fill="none">
-    <g stroke-width="4">
-      <line x1="40" y1="32" x2="40" y2="76"/>
-      <line x1="54" y1="32" x2="54" y2="76"/>
-      <line x1="68" y1="32" x2="68" y2="76"/>
-    </g>
-    <g stroke-width="7">
-      <line x1="36.5" y1="42" x2="43.5" y2="42"/>
-      <line x1="50.5" y1="66" x2="57.5" y2="66"/>
-      <line x1="64.5" y1="54" x2="71.5" y2="54"/>
-    </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <rect width="120" height="120" rx="28" fill="#C9F24E"/>
+  <g fill="#0B0D10">
+    <rect x="18" y="22" width="84" height="58" rx="14"/>
+    <path d="M34 80 L26 91 L33 91 L41 80 Z"/>
+    <path d="M86 80 L94 91 L87 91 L79 80 Z"/>
+  </g>
+  <rect x="27" y="30" width="66" height="42" rx="8" fill="#C9F24E"/>
+  <g fill="#0B0D10">
+    <rect x="42.75" y="34" width="2.5" height="34" rx="1.25"/>
+    <rect x="58.75" y="34" width="2.5" height="34" rx="1.25"/>
+    <rect x="74.75" y="34" width="2.5" height="34" rx="1.25"/>
+    <rect x="37" y="48" width="14" height="9" rx="4.5"/>
+    <rect x="53" y="37" width="14" height="9" rx="4.5"/>
+    <rect x="69" y="55" width="14" height="9" rx="4.5"/>
   </g>
 </svg>

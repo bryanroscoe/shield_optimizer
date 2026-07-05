@@ -57,13 +57,19 @@ class AdbService(private val context: Context) {
       object : NsdManager.DiscoveryListener {
         override fun onDiscoveryStarted(regType: String) = Unit
         override fun onDiscoveryStopped(serviceType: String) = Unit
-        override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
-        override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) = Unit
+        override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
+          Log.w(TAG, "discovery start failed for $serviceType (errorCode=$errorCode)")
+        }
+        override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
+          Log.w(TAG, "discovery stop failed for $serviceType (errorCode=$errorCode)")
+        }
         override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
         override fun onServiceFound(serviceInfo: NsdServiceInfo) {
           if (serviceInfo.serviceType != serviceType) return
           nsd.resolveService(serviceInfo, object : NsdManager.ResolveListener {
-            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) = Unit
+            override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+              Log.w(TAG, "resolve failed for ${serviceInfo.serviceName} (errorCode=$errorCode)")
+            }
             override fun onServiceResolved(resolved: NsdServiceInfo) {
               val host = resolved.hostAddress ?: return
               if (host in locals) return
@@ -154,10 +160,38 @@ class AdbService(private val context: Context) {
       // stdout+stderr for pm/settings error markers; those tools write their errors to
       // stdout, so the heuristic still fires. Revisit if a command whose failures surface
       // only on stderr is ever routed through here.
-      val bytes = readServiceOutput("exec:$command")
+      // `exec:` carries no exit status (the stream always closes 0) and no
+      // stderr, so AdbOutput.success() was always true on mobile. Append an
+      // exit-code marker — `; echo "__EXIT__$?"` — then recover the real code
+      // from the trailing marker and strip it from stdout. If the marker is
+      // missing or unparseable we fall back to exitCode 0 and warn (never crash).
+      val marked = "$command; echo \"__EXIT__\$?\""
+      val bytes = readServiceOutput("exec:$marked")
+      val raw = bytes.toString(Charsets.UTF_8)
       Log.i(TAG, "shell done (${bytes.size}B): $command")
-      AdbCommandOutput(stdout = bytes.toString(Charsets.UTF_8), stderr = "", exitCode = 0)
+      parseExitMarker(raw)
     }
+  }
+
+  /** Split the trailing `__EXIT__<n>` marker off [raw], returning real stdout + exit code. */
+  private fun parseExitMarker(raw: String): AdbCommandOutput {
+    val marker = "__EXIT__"
+    val idx = raw.lastIndexOf(marker)
+    if (idx < 0) {
+      Log.w(TAG, "shell: exit marker not found; defaulting exitCode=0")
+      return AdbCommandOutput(stdout = raw, stderr = "", exitCode = 0)
+    }
+    val code = raw.substring(idx + marker.length).trim().toIntOrNull()
+    // Everything before the marker is the command's own output; the echo added a
+    // single trailing newline that we drop to restore the real stdout.
+    var stdout = raw.substring(0, idx)
+    if (stdout.endsWith("\n")) stdout = stdout.dropLast(1)
+    if (stdout.endsWith("\r")) stdout = stdout.dropLast(1)
+    if (code == null) {
+      Log.w(TAG, "shell: unparseable exit marker; defaulting exitCode=0")
+      return AdbCommandOutput(stdout = stdout, stderr = "", exitCode = 0)
+    }
+    return AdbCommandOutput(stdout = stdout, stderr = "", exitCode = code)
   }
 
   suspend fun screencap(): String = mutex.withLock {

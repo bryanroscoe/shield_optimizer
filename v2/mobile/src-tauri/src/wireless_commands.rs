@@ -2,7 +2,7 @@ use serde::Serialize;
 use shield_optimizer_core::commands::devices::ConnectResult;
 use tauri::State;
 
-use crate::wireless_adb::{DiscoveredAdbDevice, SharedWirelessAdb};
+use crate::wireless_adb::{DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus};
 
 #[derive(Clone)]
 pub struct MobileState {
@@ -57,5 +57,35 @@ pub async fn wireless_disconnect(state: State<'_, MobileState>) -> Result<Connec
     match state.wireless.disconnect().await {
         Ok(message) => Ok(ConnectResult { ok: true, message }),
         Err(message) => Ok(ConnectResult { ok: false, message }),
+    }
+}
+
+/// `wireless_status` — cheap liveness probe the frontend polls to detect a
+/// broken connection. Runs a fast `echo` over the cached connection; if it
+/// fails the cached connection is cleared and `connected: false` is returned.
+#[tauri::command]
+pub async fn wireless_status(state: State<'_, MobileState>) -> Result<WirelessStatus, String> {
+    Ok(state.wireless.status().await)
+}
+
+#[tauri::command]
+pub async fn find_remote(
+    state: State<'_, shield_optimizer_core::commands::AppState>,
+    serial: String,
+) -> Result<ConnectResult, String> {
+    let adb = state.adb_snapshot().await;
+    let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";
+    match adb.shell(&serial, cmd).await {
+        Ok(out) => Ok(ConnectResult {
+            ok: true,
+            message: out.stdout,
+        }),
+        Err(e) => {
+            tracing::warn!(serial = %serial, error = %e, "find_remote shell failed");
+            Ok(ConnectResult {
+                ok: false,
+                message: e.to_string(),
+            })
+        }
     }
 }

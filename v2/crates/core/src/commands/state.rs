@@ -4,6 +4,7 @@ use std::collections::HashMap;
 #[cfg(not(target_os = "android"))]
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 #[cfg(not(target_os = "android"))]
@@ -36,9 +37,11 @@ pub struct AppState {
     /// ID. There's no cheap way to read an app's label over adb, so this is a
     /// curated map loaded from `crates/core/data/app-lists/known-names.json`.
     pub known_names: HashMap<String, String>,
-    /// Current product entitlement. Desktop constructs this as Pro; mobile starts Free
-    /// and replaces it after license validation.
-    pub entitlement: Entitlement,
+    /// Current product entitlement, stored atomically so it can be flipped at
+    /// runtime (mobile's `activate_license`) while `require_pro` stays a cheap
+    /// synchronous read. Desktop constructs this as Pro; mobile starts Free and
+    /// replaces it after license validation. Encoded via [`entitlement_to_u8`].
+    entitlement: AtomicU8,
     /// Live scrcpy control sessions, keyed by device serial. Lazily started on
     /// the first remote key and held open for the Remote tab's lifetime.
     #[cfg(not(target_os = "android"))]
@@ -53,7 +56,7 @@ impl AppState {
             snapshot_dir: data_dir.join("snapshots"),
             data_dir,
             known_names: HashMap::new(),
-            entitlement: Entitlement::Pro,
+            entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Pro)),
             #[cfg(not(target_os = "android"))]
             remote_sessions: Mutex::new(HashMap::new()),
         }
@@ -66,13 +69,24 @@ impl AppState {
         self
     }
 
-    pub fn with_entitlement(mut self, entitlement: Entitlement) -> Self {
-        self.entitlement = entitlement;
+    pub fn with_entitlement(self, entitlement: Entitlement) -> Self {
+        self.set_entitlement(entitlement);
         self
     }
 
+    /// Read the live entitlement.
+    pub fn entitlement(&self) -> Entitlement {
+        entitlement_from_u8(self.entitlement.load(Ordering::Relaxed))
+    }
+
+    /// Flip the live entitlement at runtime (mobile `activate_license`).
+    pub fn set_entitlement(&self, entitlement: Entitlement) {
+        self.entitlement
+            .store(entitlement_to_u8(entitlement), Ordering::Relaxed);
+    }
+
     pub fn require_pro(&self, feature: Feature) -> Result<(), String> {
-        match self.entitlement {
+        match self.entitlement() {
             Entitlement::Pro => Ok(()),
             Entitlement::Free => Err(format!("LOCKED:{}", feature.code())),
         }
@@ -159,6 +173,23 @@ impl AppState {
         if let Some(session) = session {
             session.close().await;
         }
+    }
+}
+
+/// Encode an [`Entitlement`] into the byte stored in the atomic cell.
+const fn entitlement_to_u8(entitlement: Entitlement) -> u8 {
+    match entitlement {
+        Entitlement::Free => 0,
+        Entitlement::Pro => 1,
+    }
+}
+
+/// Decode a stored byte back into an [`Entitlement`]. Any unexpected value maps
+/// to the safe default (`Free`).
+fn entitlement_from_u8(value: u8) -> Entitlement {
+    match value {
+        1 => Entitlement::Pro,
+        _ => Entitlement::Free,
     }
 }
 

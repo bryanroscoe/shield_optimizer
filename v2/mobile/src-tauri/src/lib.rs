@@ -7,17 +7,96 @@
 mod wireless_adb;
 mod wireless_commands;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use shield_optimizer_core::commands::{
-    apps, devices, health, input, launcher, loader, reboot, recovery, screenshot, AppState,
+    apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot,
+    snapshot, tuning, AppState,
 };
 use shield_optimizer_core::engine;
-use shield_optimizer_core::license::Entitlement;
-use tauri::Manager;
+use shield_optimizer_core::license::{validate_license_key, Entitlement};
+use tauri::{Manager, State};
 use wireless_adb::WirelessAdb;
 use wireless_commands::MobileState;
+
+/// On-disk record of an activated license. Persisted to
+/// `app_data_dir()/license.json` so Pro survives restarts.
+#[derive(Debug, Serialize, Deserialize)]
+struct LicenseFile {
+    key: String,
+    entitlement: Entitlement,
+}
+
+fn license_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("license.json")
+}
+
+/// Read the persisted entitlement at startup. Returns `Free` when there is no
+/// license file, it can't be read/parsed, or the stored key no longer
+/// validates — so a tampered or stale file safely degrades to Free.
+fn read_persisted_entitlement(data_dir: &Path) -> Entitlement {
+    let path = license_path(data_dir);
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        return Entitlement::Free;
+    };
+    match serde_json::from_str::<LicenseFile>(&contents) {
+        Ok(file) if validate_license_key(&file.key) => Entitlement::Pro,
+        Ok(_) => {
+            tracing::warn!("license.json present but key no longer validates; treating as Free");
+            Entitlement::Free
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to parse license.json; treating as Free");
+            Entitlement::Free
+        }
+    }
+}
+
+/// `activate_license` — validate a key and, if valid, flip the live entitlement
+/// to Pro and persist it. Returns the resulting entitlement.
+#[tauri::command]
+async fn activate_license(state: State<'_, AppState>, key: String) -> Result<Entitlement, String> {
+    let key = key.trim().to_string();
+    if !validate_license_key(&key) {
+        return Err("That license key isn't valid.".to_string());
+    }
+    state.set_entitlement(Entitlement::Pro);
+    let file = LicenseFile {
+        key,
+        entitlement: Entitlement::Pro,
+    };
+    let path = license_path(&state.data_dir);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let json = serde_json::to_string(&file).map_err(|e| format!("serialize license: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("persist license: {e}"))?;
+    tracing::info!("license activated; entitlement set to Pro");
+    Ok(state.entitlement())
+}
+
+/// `get_entitlement` — the current live entitlement, for the frontend to gate UI.
+#[tauri::command]
+async fn get_entitlement(state: State<'_, AppState>) -> Result<Entitlement, String> {
+    Ok(state.entitlement())
+}
+
+/// `read_debug_log` — return the last ~500 lines of the on-disk debug log for
+/// the More screen. An absent log is not an error — returns an empty string.
+#[tauri::command]
+async fn read_debug_log(state: State<'_, AppState>) -> Result<String, String> {
+    let path = state.data_dir.join("debug.log");
+    let contents = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(e) => return Err(format!("read debug log: {e}")),
+    };
+    let lines: Vec<&str> = contents.lines().collect();
+    let start = lines.len().saturating_sub(500);
+    Ok(lines[start..].join("\n"))
+}
 
 /// Host-dev fallback when Tauri's app-scoped data dir is unavailable. On Android
 /// `dirs::data_local_dir()` returns None (dirs-sys hard-codes a None home there),
@@ -28,18 +107,46 @@ fn default_data_dir() -> PathBuf {
         .join("ATVOptimizer")
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+/// Install the tracing subscriber: logcat/stdout as before, PLUS a plain-text
+/// file layer at `data_dir/debug.log` that the More screen can surface. Called
+/// once from `setup`, after the data dir is known.
+fn init_logging(data_dir: &Path) {
+    use tracing_subscriber::prelude::*;
+
+    let _ = std::fs::create_dir_all(data_dir);
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+    let file_appender = tracing_appender::rolling::never(data_dir, "debug.log");
+
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(file_appender),
         )
         .try_init();
+}
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_atv_adb::init())
         .setup(|app| {
+            // On Android the dirs crate returns no writable location, so resolve
+            // the app-scoped data dir through Tauri's path resolver (already
+            // namespaced by the bundle identifier — no extra segment needed).
+            // `app_data_dir()` failing here is fatal for logging/persistence, so
+            // fall back to a dev-writable dir (logging isn't up yet, so this
+            // pre-init failure can't be logged to file).
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| default_data_dir());
+            init_logging(&data_dir);
+            tracing::info!(data_dir = %data_dir.display(), "resolved data dir");
+
             let app_lists = match loader::load_embedded_app_lists() {
                 Ok(lists) => {
                     tracing::info!(total = lists.total(), "app lists loaded");
@@ -51,19 +158,14 @@ pub fn run() {
                 }
             };
 
-            // On Android the dirs crate returns no writable location, so resolve
-            // the app-scoped data dir through Tauri's path resolver (already
-            // namespaced by the bundle identifier — no extra segment needed).
-            let data_dir = app.path().app_data_dir().unwrap_or_else(|e| {
-                tracing::warn!(error = %e, "app_data_dir unavailable; using dev fallback");
-                default_data_dir()
-            });
-            tracing::info!(data_dir = %data_dir.display(), "resolved data dir");
+            // Restore Pro if a valid license was persisted; default Free.
+            let entitlement = read_persisted_entitlement(&data_dir);
+            tracing::info!(?entitlement, "startup entitlement");
 
             let wireless = Arc::new(WirelessAdb::new(app.handle().clone()));
             let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
-                .with_entitlement(Entitlement::Free);
+                .with_entitlement(entitlement);
             app.manage(state);
             app.manage(MobileState { wireless });
             Ok(())
@@ -73,6 +175,11 @@ pub fn run() {
             wireless_commands::wireless_pair,
             wireless_commands::wireless_connect,
             wireless_commands::wireless_disconnect,
+            wireless_commands::wireless_status,
+            wireless_commands::find_remote,
+            activate_license,
+            get_entitlement,
+            read_debug_log,
             devices::list_devices,
             devices::device_profile,
             devices::rename_device,
@@ -82,6 +189,8 @@ pub fn run() {
             launcher::list_launchers,
             launcher::current_launcher,
             launcher::channel_provider_disabled,
+            launcher::set_default_launcher,
+            launcher::disable_launcher,
             apps::force_stop,
             screenshot::take_screenshot,
             apps::package_states,
@@ -90,11 +199,34 @@ pub fn run() {
             apps::app_usage_map,
             apps::safety_info,
             apps::trim_caches,
+            apps::disable_package,
+            apps::enable_package,
+            apps::uninstall_package,
+            apps::reinstall_existing,
+            apps::set_app_permission,
+            apps::app_permission_state,
+            apps::set_app_op,
+            apps::get_app_op,
+            apps::open_play_store,
             input::send_text,
             input::send_key,
             input::open_settings,
             recovery::panic_recovery,
             reboot::reboot_device,
+            optimize::prepare_optimize,
+            optimize::apply_performance_settings,
+            tuning::get_tweaks,
+            tuning::write_setting,
+            tuning::get_display_scaling,
+            tuning::set_display_scaling,
+            tuning::get_private_dns,
+            tuning::set_private_dns,
+            snapshot::delete_snapshot,
+            snapshot::snapshot_dir_path,
+            snapshot::list_snapshots,
+            snapshot::save_snapshot,
+            snapshot::apply_snapshot,
+            snapshot::preview_apply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ATV Optimizer mobile application");

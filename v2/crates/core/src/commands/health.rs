@@ -123,9 +123,12 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
         ),
     );
 
-    let display_out = display_res
-        .map_err(|_| "dumpsys display timed out".to_string())?
-        .map_err(|e| format!("dumpsys display: {e}"))?;
+    // `dumpsys display` must not be able to fail the whole report — a missing
+    // display should still leave RAM / storage / temp intact. Swallow to a
+    // default (parse what we can) exactly like the other calls below.
+    let display_text = display_res
+        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
+        .unwrap_or_default();
 
     let mem_out = mem_res
         .unwrap_or_else(|_| {
@@ -161,7 +164,7 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
         .map(|r| r.map(|o| o.stdout).unwrap_or_default())
         .unwrap_or_default();
 
-    let display = parse_display_mode(&display_out.stdout);
+    let display = parse_display_mode(&display_text);
     let mut ram = parse_meminfo_summary(&mem_out.stdout);
 
     // Fast, local fallback for RAM info when dumpsys meminfo times out or fails

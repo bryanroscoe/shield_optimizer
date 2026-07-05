@@ -132,20 +132,51 @@ pub async fn list_other_packages_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<Vec<OtherPackage>, String> {
-    let adb = state.adb_snapshot().await;
-    let (all_res, third_res, disabled_res) = tokio::join!(
-        adb.shell(serial, "pm list packages"),
-        adb.shell(serial, "pm list packages -3"),
-        adb.shell(serial, "pm list packages -d"),
-    );
-    let all = all_res.map_err(|e| format!("pm list packages: {e}"))?;
-    let third = third_res.map_err(|e| format!("pm list packages -3: {e}"))?;
-    let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
+    use std::time::Duration;
+    use tokio::time::timeout;
 
-    let third: HashSet<String> = parse_installed_packages_output(&third.stdout)
+    let adb = state.adb_snapshot().await;
+
+    // Run sequentially to avoid Mutex queuing races
+    let all_res = timeout(
+        Duration::from_secs(6),
+        adb.shell(serial, "pm list packages"),
+    )
+    .await;
+    let all = all_res
+        .map_err(|_| "pm list packages timed out".to_string())?
+        .map_err(|e| format!("pm list packages: {e}"))?;
+
+    let third_res = timeout(
+        Duration::from_secs(4),
+        adb.shell(serial, "pm list packages -3"),
+    )
+    .await;
+    let third_out = match third_res {
+        Ok(Ok(o)) => o.stdout,
+        _ => {
+            tracing::warn!("pm list packages -3 failed or timed out; falling back");
+            String::new()
+        }
+    };
+
+    let disabled_res = timeout(
+        Duration::from_secs(4),
+        adb.shell(serial, "pm list packages -d"),
+    )
+    .await;
+    let disabled_out = match disabled_res {
+        Ok(Ok(o)) => o.stdout,
+        _ => {
+            tracing::warn!("pm list packages -d failed or timed out; falling back");
+            String::new()
+        }
+    };
+
+    let third: HashSet<String> = parse_installed_packages_output(&third_out)
         .into_iter()
         .collect();
-    let disabled: HashSet<String> = parse_disabled_packages_output(&disabled.stdout)
+    let disabled: HashSet<String> = parse_disabled_packages_output(&disabled_out)
         .into_iter()
         .collect();
     let catalog: HashSet<&str> = state

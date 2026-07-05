@@ -279,8 +279,19 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
                getprop ro.build.version.sdk; getprop ro.build.id; \
                getprop ro.board.platform; getprop ro.build.characteristics";
 
-    let Ok(out) = adb.shell(serial, cmd).await else {
-        return DeviceProperties::default();
+    let out = match adb.shell(serial, cmd).await {
+        Ok(out) => out,
+        Err(e) => {
+            // A transport error here degrades the device to generic
+            // "Android TV" / "Unknown Device" names. Log it so a degraded
+            // label is diagnosable instead of silently swallowed.
+            tracing::warn!(
+                serial = %serial,
+                error = %e,
+                "harvest_properties: getprop shell failed; using default device properties"
+            );
+            return DeviceProperties::default();
+        }
     };
 
     let lines: Vec<&str> = out.stdout.lines().collect();

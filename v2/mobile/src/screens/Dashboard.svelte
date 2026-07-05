@@ -1,99 +1,102 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
+  import { api } from "../lib/api";
+  import { session } from "../lib/session.svelte";
+  import type { Screen } from "../lib/router.svelte";
   import BottomTabs from "../components/BottomTabs.svelte";
+  import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import Toast from "../components/Toast.svelte";
 
-  type Tab = "home" | "optimize" | "apps" | "remote" | "more";
-
-  let {
-    host,
-    connectPort,
-    connectedDevice,
-    onDisconnect,
-    navigate,
-  }: {
-    host: string;
-    connectPort: number;
-    connectedDevice: any;
+  let { onDisconnect, navigate }: {
     onDisconnect: () => void;
-    navigate: (screen: string) => void;
+    navigate: (screen: Screen) => void;
   } = $props();
 
   let showDeviceMenu = $state(false);
-  let healthReport = $state<any>(null);
-  let loadingHealth = $state(true);
-  let errorHealth = $state("");
-
-  // Optimization plan summary calculated in Free mode
-  let activeBloatCount = $state(0);
-  let freedRamEst = $derived(activeBloatCount * 45);
-  let healthScore = $derived(Math.max(60, 100 - activeBloatCount * 3));
-  let strokeDashoffset = $derived(289 * (1 - healthScore / 100));
-
-  // Quick Action States
   let busyAction = $state("");
+  let rebootConfirm = $state(false);
+  let reconnecting = $state(false);
+
   let toastMessage = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
-
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
   function showToast(msg: string, type: "success" | "error" | "info" = "success") {
     toastMessage = msg;
     toastType = type;
-    setTimeout(() => {
-      if (toastMessage === msg) toastMessage = "";
-    }, 4000);
-  }
-
-  async function loadData() {
-    loadingHealth = true;
-    errorHealth = "";
-    try {
-      // 1. Fetch health report
-      healthReport = await invoke("health_report", { serial: connectedDevice.serial });
-
-      // 2. Fetch catalog apps and query their states to count active recommended bloats
-      const catalogApps = await invoke<any[]>("app_list_for_device", {
-        deviceType: connectedDevice.device_type || "unknown"
-      });
-      
-      const defaultOptimizeApps = catalogApps.filter(a => a.default_optimize);
-      if (defaultOptimizeApps.length > 0) {
-        const packages = defaultOptimizeApps.map(a => a.package);
-        const states = await invoke<Record<string, string>>("package_states", {
-          serial: connectedDevice.serial,
-          packages
-        });
-        activeBloatCount = Object.values(states).filter(s => s === "enabled").length;
-      }
-    } catch (e) {
-      errorHealth = String(e);
-    } finally {
-      loadingHealth = false;
-    }
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toastMessage = ""), 4000);
   }
 
   onMount(() => {
-    loadData();
+    session.loadHealth();
+    session.loadBloat();
+    session.checkLiveness();
   });
 
+  // Score comes from a REAL signal (count of enabled recommended-debloat
+  // packages). null when that signal failed to load — we render "—", never a
+  // fabricated 100/healthy device.
+  const score = $derived(
+    session.bloatLoaded && !session.bloatError
+      ? Math.max(60, 100 - session.bloatCount * 3)
+      : null,
+  );
+  const strokeDashoffset = $derived(289 * (1 - (score ?? 0) / 100));
+
+  const ramFreeText = $derived(
+    session.health?.ram?.free_mb != null
+      ? `${(session.health.ram.free_mb / 1024).toFixed(1)} GB`
+      : "—",
+  );
+  const storageUsedText = $derived(
+    session.health?.storage?.used_percent != null
+      ? `${session.health.storage.used_percent}%`
+      : "—",
+  );
+  const tempText = $derived(
+    session.health?.temperature_c != null
+      ? `${Math.round(session.health.temperature_c)}°C`
+      : "—",
+  );
+
   async function handleDisconnect() {
-    try {
-      await invoke("wireless_disconnect");
-    } catch (e) {
-      // ignore
-    }
+    showDeviceMenu = false;
     onDisconnect();
+  }
+
+  async function handleReconnect() {
+    if (reconnecting) return;
+    reconnecting = true;
+    try {
+      const r = await session.reconnect();
+      if (r.ok) {
+        showToast("Reconnected.", "success");
+        session.loadHealth(true);
+        session.loadBloat(true);
+      } else {
+        showToast(r.message || "Couldn't reconnect.", "error");
+      }
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      reconnecting = false;
+    }
+  }
+
+  async function retryHealth() {
+    await Promise.all([session.loadHealth(true), session.loadBloat(true)]);
   }
 
   async function handleTrimCaches() {
     if (busyAction) return;
     busyAction = "trim_caches";
     try {
-      const result = await invoke<any>("trim_caches", { serial: connectedDevice.serial });
+      const result = await api.trimCaches(session.serial);
+      showToast(result.message || (result.ok ? "Caches trimmed." : "Failed to trim caches."), result.ok ? "success" : "error");
       if (result.ok) {
-        showToast(result.message || "Caches trimmed successfully!", "success");
-        loadData();
-      } else {
-        showToast(result.message || "Failed to trim caches.", "error");
+        session.invalidateHealth();
+        session.loadHealth(true);
       }
     } catch (e) {
       showToast(String(e), "error");
@@ -106,9 +109,8 @@
     if (busyAction) return;
     busyAction = "screenshot";
     try {
-      // take_screenshot writes it to a file or returns the base64 png
-      const result = await invoke<any>("take_screenshot", { serial: connectedDevice.serial });
-      showToast("Screenshot captured and saved to device snapshots!", "success");
+      await api.takeScreenshot(session.serial);
+      showToast("Screenshot captured.", "success");
     } catch (e) {
       showToast(String(e), "error");
     } finally {
@@ -116,72 +118,33 @@
     }
   }
 
-  async function handleReboot() {
+  async function doReboot() {
+    rebootConfirm = false;
     if (busyAction) return;
-    if (!confirm("Are you sure you want to reboot the TV?")) return;
     busyAction = "reboot";
     try {
-      // Core signature is reboot_device(serial, mode) — Tauri lowercases to
-      // `mode`; passing `rebootMode` dropped the required field and silently failed.
-      await invoke<any>("reboot_device", {
-        serial: connectedDevice.serial,
-        mode: "normal",
-      });
-      showToast("Reboot command sent!", "success");
-      setTimeout(() => {
-        onDisconnect();
-      }, 2000);
+      const r = await api.rebootDevice(session.serial, "normal");
+      showToast(r.ok ? "Reboot command sent." : r.message || "Reboot failed.", r.ok ? "success" : "error");
+      if (r.ok) {
+        // Device drops the ADB socket on reboot; tear down and return to scan.
+        setTimeout(() => onDisconnect(), 1500);
+      }
     } catch (e) {
       showToast(String(e), "error");
     } finally {
       busyAction = "";
-    }
-  }
-
-  // Display value helpers
-  const ramFreeText = $derived(
-    healthReport?.ram?.free_mb
-      ? `${(healthReport.ram.free_mb / 1024).toFixed(1)} GB`
-      : "—"
-  );
-  
-  const storageUsedText = $derived(
-    healthReport?.storage?.used_percent
-      ? `${healthReport.storage.used_percent} %`
-      : "—"
-  );
-
-  const tempText = $derived(
-    healthReport?.temperature_c !== undefined && healthReport?.temperature_c !== null
-      ? `${Math.round(healthReport.temperature_c)} °C`
-      : "48 °C" // standard mockup fallback or reasonable default
-  );
-
-  const deviceLabel = $derived(
-    connectedDevice?.properties?.friendly_name || connectedDevice?.name || "Android TV"
-  );
-
-  async function handleFindRemote() {
-    try {
-      await invoke("find_remote", { serial: connectedDevice.serial });
-    } catch (e) {
-      console.error("Failed to find remote:", e);
     }
   }
 </script>
 
 <div class="screen">
-  <!-- Top Bar -->
   <div class="topline">
     <div class="device-menu-wrap">
-      <button 
-        class="device-selector"
-        onclick={() => showDeviceMenu = !showDeviceMenu}
-      >
-        <span class="d-dot"></span>
+      <button class="device-selector" onclick={() => (showDeviceMenu = !showDeviceMenu)}>
+        <span class="d-dot" class:lost={session.liveness === "lost"}></span>
         <div class="device-details">
-          <span class="device-name">{deviceLabel}</span>
-          <span class="mono device-ip">{host}</span>
+          <span class="device-name">{session.deviceLabel}</span>
+          <span class="mono device-ip">{session.host}</span>
         </div>
         <span class="msr">expand_more</span>
       </button>
@@ -194,83 +157,104 @@
         </div>
       {/if}
     </div>
-    
-    <div style="display: flex; gap: 8px; align-items: center;">
-      <button class="iconbtn" onclick={handleFindRemote} aria-label="Find Remote">
-        <span class="msr">notifications_active</span>
-      </button>
+
+    <div class="header-actions">
+      <FindRemoteButton />
       <button class="iconbtn" onclick={() => navigate("more")} aria-label="Settings">
         <span class="msr">settings</span>
       </button>
     </div>
   </div>
 
-  {#if loadingHealth && !healthReport}
+  {#if session.liveness === "lost"}
+    <div class="reconnect-banner">
+      <span class="msr">wifi_off</span>
+      <span class="rb-text">Connection lost. The TV is no longer reachable.</span>
+      <button class="rb-btn" disabled={reconnecting} onclick={handleReconnect}>
+        {reconnecting ? "Reconnecting…" : "Reconnect"}
+      </button>
+    </div>
+  {/if}
+
+  {#if session.healthLoading && !session.health && !session.healthError}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Loading stats…</span>
     </div>
   {:else}
-    <!-- Health Ring Card -->
-    <div class="health-card">
-      <div class="ring-container">
-        <svg width="104" height="104" viewBox="0 0 104 104" class="svg-ring">
-          <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="9"></circle>
-          <circle 
-            cx="52" 
-            cy="52" 
-            r="46" 
-            fill="none" 
-            stroke="var(--accent)" 
-            stroke-width="9" 
-            stroke-linecap="round" 
-            stroke-dasharray="289" 
-            stroke-dashoffset={strokeDashoffset}
-            class="progress-circle"
-          ></circle>
-        </svg>
-        <div class="ring-text">
-          <span class="mono score-value">{healthScore}</span>
-          <span class="score-label">score</span>
+    {#if session.healthError}
+      <div class="error-card">
+        <span class="msr">error</span>
+        <div class="ec-body">
+          <span class="ec-title">Couldn't read device health</span>
+          <span class="ec-desc mono">{session.healthError}</span>
+        </div>
+        <button class="rb-btn" onclick={retryHealth}>Retry</button>
+      </div>
+    {:else}
+      <!-- Health Ring Card -->
+      <div class="health-card">
+        <div class="ring-container">
+          <svg width="104" height="104" viewBox="0 0 104 104" class="svg-ring">
+            <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="9"></circle>
+            {#if score !== null}
+              <circle
+                cx="52" cy="52" r="46" fill="none" stroke="var(--accent)"
+                stroke-width="9" stroke-linecap="round" stroke-dasharray="289"
+                stroke-dashoffset={strokeDashoffset} class="progress-circle"
+              ></circle>
+            {/if}
+          </svg>
+          <div class="ring-text">
+            <span class="mono score-value">{score ?? "—"}</span>
+            <span class="score-label">score</span>
+          </div>
+        </div>
+
+        <div class="health-details">
+          {#if score === null}
+            <span class="health-title">Couldn't assess</span>
+            <span class="health-desc">{session.bloatError || "App status unavailable."}</span>
+            <button class="optimize-link" onclick={retryHealth}>
+              Retry<span class="msr">refresh</span>
+            </button>
+          {:else if session.bloatCount > 0}
+            <span class="health-title">Room to optimize</span>
+            <span class="health-desc">
+              <span class="accent-text">{session.bloatCount}</span>
+              {session.bloatCount === 1 ? "bloat app is" : "bloat apps are"} still active.
+            </span>
+            <button class="optimize-link" onclick={() => navigate("optimize")}>
+              Run optimize<span class="msr">arrow_forward</span>
+            </button>
+          {:else}
+            <span class="health-title">System optimized</span>
+            <span class="health-desc">Running clean — 0 active recommended-bloat apps.</span>
+            <button class="optimize-link" onclick={() => navigate("optimize")}>
+              Review apps<span class="msr">arrow_forward</span>
+            </button>
+          {/if}
         </div>
       </div>
 
-      <div class="health-details">
-        <span class="health-title">
-          {activeBloatCount > 0 ? "Room to optimize" : "System optimized"}
-        </span>
-        <span class="health-desc">
-          {#if activeBloatCount > 0}
-            {activeBloatCount} bloat apps still active. Debloating frees an est. <span class="accent-text">{freedRamEst} MB</span> of RAM.
-          {:else}
-            Your Android TV is running clean with 0 active bloat apps!
-          {/if}
-        </span>
-        <button class="optimize-link" onclick={() => navigate("optimize")}>
-          Run optimize<span class="msr">arrow_forward</span>
+      <!-- Stat Tiles -->
+      <div class="stats-grid">
+        <button class="stat-tile" onclick={() => navigate("diagnostics")}>
+          <span class="msr memory-icon">memory</span>
+          <span class="mono stat-value">{ramFreeText}</span>
+          <span class="stat-desc">RAM free</span>
+        </button>
+        <button class="stat-tile" onclick={() => navigate("diagnostics")}>
+          <span class="msr storage-icon">database</span>
+          <span class="mono stat-value">{storageUsedText}</span>
+          <span class="stat-desc">Storage used</span>
+        </button>
+        <button class="stat-tile" onclick={() => navigate("diagnostics")}>
+          <span class="msr temp-icon">thermostat</span>
+          <span class="mono stat-value">{tempText}</span>
+          <span class="stat-desc">Temp</span>
         </button>
       </div>
-    </div>
-
-    <!-- Stat Tiles -->
-    <div class="stats-grid">
-      <button class="stat-tile" onclick={() => navigate("diagnostics")}>
-        <span class="msr memory-icon">memory</span>
-        <span class="mono stat-value">{ramFreeText}</span>
-        <span class="stat-desc">RAM free</span>
-      </button>
-      
-      <button class="stat-tile" onclick={() => navigate("diagnostics")}>
-        <span class="msr storage-icon">database</span>
-        <span class="mono stat-value">{storageUsedText}</span>
-        <span class="stat-desc">Storage used</span>
-      </button>
-      
-      <button class="stat-tile" onclick={() => navigate("diagnostics")}>
-        <span class="msr temp-icon">thermostat</span>
-        <span class="mono stat-value">{tempText}</span>
-        <span class="stat-desc">Temp</span>
-      </button>
-    </div>
+    {/if}
 
     <!-- Quick Actions -->
     <div class="quick-actions-section">
@@ -280,75 +264,63 @@
           <span class="msr action-icon primary-color">auto_fix_high</span>
           <span class="action-text">Optimize</span>
         </button>
-        
-        <button 
-          class="action-btn" 
-          disabled={busyAction !== ""} 
-          onclick={handleTrimCaches}
-        >
+
+        <button class="action-btn" disabled={busyAction !== ""} onclick={handleTrimCaches}>
           {#if busyAction === "trim_caches"}
-            <span class="pdot blink"></span>
-            <span class="action-text">Trimming…</span>
+            <span class="pdot blink"></span><span class="action-text">Trimming…</span>
           {:else}
-            <span class="msr action-icon">cleaning_services</span>
-            <span class="action-text">Trim caches</span>
+            <span class="msr action-icon">cleaning_services</span><span class="action-text">Trim caches</span>
           {/if}
         </button>
-        
-        <button 
-          class="action-btn" 
-          disabled={busyAction !== ""} 
-          onclick={handleScreenshot}
-        >
+
+        <button class="action-btn" disabled={busyAction !== ""} onclick={handleScreenshot}>
           {#if busyAction === "screenshot"}
-            <span class="pdot blink"></span>
-            <span class="action-text">Capturing…</span>
+            <span class="pdot blink"></span><span class="action-text">Capturing…</span>
           {:else}
-            <span class="msr action-icon">screenshot_monitor</span>
-            <span class="action-text">Screenshot</span>
+            <span class="msr action-icon">screenshot_monitor</span><span class="action-text">Screenshot</span>
           {/if}
         </button>
-        
-        <button 
-          class="action-btn" 
-          disabled={busyAction !== ""} 
-          onclick={handleReboot}
-        >
+
+        <button class="action-btn" disabled={busyAction !== ""} onclick={() => (rebootConfirm = true)}>
           {#if busyAction === "reboot"}
-            <span class="pdot blink"></span>
-            <span class="action-text">Rebooting…</span>
+            <span class="pdot blink"></span><span class="action-text">Rebooting…</span>
           {:else}
-            <span class="msr action-icon">restart_alt</span>
-            <span class="action-text">Reboot</span>
+            <span class="msr action-icon">restart_alt</span><span class="action-text">Reboot</span>
           {/if}
         </button>
       </div>
     </div>
 
-    <!-- Bottom Banner Callout -->
     <div class="callout teal bottom-callout">
       <span class="msr">verified_user</span>
       <span class="callout-text">Tuned for maximum performance — every change is reversible.</span>
     </div>
   {/if}
 
-  <!-- Toast Notification -->
-  {#if toastMessage}
-    <div class="toast" class:error={toastType === "error"} class:success={toastType === "success"}>
-      <span class="msr">
-        {toastType === "success" ? "check_circle" : toastType === "error" ? "error" : "info"}
-      </span>
-      <span>{toastMessage}</span>
-    </div>
-  {/if}
+  <ConfirmDialog
+    open={rebootConfirm}
+    icon="restart_alt"
+    danger
+    title="Reboot the TV?"
+    message="The TV will restart and this connection will drop. You can reconnect once it's back."
+    confirmLabel="Reboot"
+    onConfirm={doReboot}
+    onCancel={() => (rebootConfirm = false)}
+  />
+
+  <Toast message={toastMessage} type={toastType} />
 
   <div class="spacer"></div>
-
-  <!-- Bottom Navigation -->
-  <BottomTabs active="home" {navigate} />
+  <BottomTabs active="dashboard" {navigate} />
 </div>
 
 <style>
+  .header-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
   /* Device Menu & Selector */
   .device-menu-wrap {
     position: relative;
@@ -376,6 +348,10 @@
     box-shadow: 0 0 8px var(--teal);
     flex-shrink: 0;
   }
+  .d-dot.lost {
+    background: var(--danger);
+    box-shadow: 0 0 8px var(--danger);
+  }
   .device-details {
     display: flex;
     flex-direction: column;
@@ -395,7 +371,6 @@
     color: var(--muted);
     margin-left: 2px;
   }
-
   .device-dropdown {
     position: absolute;
     top: 54px;
@@ -404,7 +379,7 @@
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 12px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
     z-index: 20;
     overflow: hidden;
   }
@@ -424,13 +399,84 @@
     gap: 8px;
   }
   .dropdown-item:active {
-    background: rgba(255,255,255,0.05);
+    background: rgba(255, 255, 255, 0.05);
   }
-  .dropdown-item.danger {
-    color: var(--danger);
-  }
+  .dropdown-item.danger,
   .dropdown-item.danger .msr {
     color: var(--danger);
+  }
+
+  /* Reconnect banner */
+  .reconnect-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+    margin-bottom: 12px;
+  }
+  .reconnect-banner .msr {
+    color: var(--danger);
+    font-size: 20px;
+    flex: none;
+  }
+  .rb-text {
+    flex: 1;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-soft);
+  }
+  .rb-btn {
+    flex: none;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .rb-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  /* Error card (health load failed) */
+  .error-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 18px;
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--danger) 8%, #141519);
+    border: 1px solid color-mix(in srgb, var(--danger) 26%, transparent);
+    margin-bottom: 8px;
+  }
+  .error-card > .msr {
+    color: var(--danger);
+    font-size: 28px;
+    flex: none;
+  }
+  .ec-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .ec-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .ec-desc {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+    word-break: break-word;
   }
 
   /* Health Card */
@@ -478,7 +524,6 @@
     text-transform: uppercase;
     margin-top: 2px;
   }
-
   .health-details {
     display: flex;
     flex-direction: column;
@@ -514,6 +559,9 @@
     margin-top: 2px;
     align-self: flex-start;
   }
+  .optimize-link .msr {
+    font-size: 15px;
+  }
 
   /* Stats Grid */
   .stats-grid {
@@ -543,7 +591,6 @@
   .memory-icon { color: var(--teal); }
   .storage-icon { color: var(--amber); }
   .temp-icon { color: var(--teal); }
-
   .stat-value {
     font-size: 18px;
     font-weight: 600;
@@ -598,7 +645,6 @@
     font-size: 13px;
     font-weight: 600;
   }
-
   .bottom-callout {
     margin-top: 14px;
   }
@@ -606,46 +652,5 @@
     flex: 1;
     font-size: 12px;
     line-height: 1.45;
-  }
-
-  /* Toast Notification */
-  .toast {
-    position: fixed;
-    bottom: 96px;
-    left: 24px;
-    right: 24px;
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 16px;
-    color: var(--text);
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
-    z-index: 100;
-    animation: slideUp 0.3s ease-out;
-  }
-  .toast.success {
-    border-color: var(--teal);
-    background: color-mix(in srgb, var(--teal) 8%, var(--surface-2));
-  }
-  .toast.success .msr { color: var(--teal); }
-  .toast.error {
-    border-color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 8%, var(--surface-2));
-  }
-  .toast.error .msr { color: var(--danger); }
-
-  @keyframes slideUp {
-    from {
-      transform: translateY(20px);
-      opacity: 0;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
   }
 </style>

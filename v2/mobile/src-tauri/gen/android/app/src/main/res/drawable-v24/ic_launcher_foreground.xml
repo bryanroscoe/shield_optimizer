@@ -3,41 +3,20 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- ATV Optimizer "Tuner" glyph: three vertical faders (a mixing-console / graphic
-         equalizer), each with a horizontal knob crossing the track at a different height
-         (left high, middle low, right mid) — reads as "tune & optimize". Dark #0B0D10 on
-         the lime tile, centered in the adaptive-icon safe zone (glyph spans roughly
-         x 34-74, y 32-76 — ~40% of the 108 viewport so the launcher mask never clips it). -->
-    <!-- Fader tracks -->
-    <path
-        android:strokeColor="#0B0D10"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M40,32 L40,76" />
-    <path
-        android:strokeColor="#0B0D10"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M54,32 L54,76" />
-    <path
-        android:strokeColor="#0B0D10"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M68,32 L68,76" />
-    <!-- Knobs (offset heights: left high, middle low, right mid) -->
-    <path
-        android:strokeColor="#0B0D10"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:pathData="M36.5,42 L43.5,42" />
-    <path
-        android:strokeColor="#0B0D10"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:pathData="M50.5,66 L57.5,66" />
-    <path
-        android:strokeColor="#0B0D10"
-        android:strokeWidth="7"
-        android:strokeLineCap="round"
-        android:pathData="M64.5,54 L71.5,54" />
+    <!-- ATV Optimizer glyph: dark TV/monitor on two splayed stand legs; the screen is
+         cut back to lime and holds three VERTICAL faders (thin dark tracks with knob
+         caps at staggered heights). Designer art (120 viewBox) scaled 0.66 and centered
+         into the 108 adaptive-icon safe zone. -->
+    <group android:scaleX="0.66" android:scaleY="0.66" android:translateX="14.4" android:translateY="14.4">
+        <path android:fillColor="#0B0D10" android:pathData="M32,22 L88,22 A14,14 0 0 1 102,36 L102,66 A14,14 0 0 1 88,80 L32,80 A14,14 0 0 1 18,66 L18,36 A14,14 0 0 1 32,22 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M34,80 L26,91 L33,91 L41,80 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M86,80 L94,91 L87,91 L79,80 Z" />
+        <path android:fillColor="#C9F24E" android:pathData="M35,30 L85,30 A8,8 0 0 1 93,38 L93,64 A8,8 0 0 1 85,72 L35,72 A8,8 0 0 1 27,64 L27,38 A8,8 0 0 1 35,30 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M44.0,34 L44.0,34 A1.25,1.25 0 0 1 45.25,35.25 L45.25,66.75 A1.25,1.25 0 0 1 44.0,68 L44.0,68 A1.25,1.25 0 0 1 42.75,66.75 L42.75,35.25 A1.25,1.25 0 0 1 44.0,34 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M60.0,34 L60.0,34 A1.25,1.25 0 0 1 61.25,35.25 L61.25,66.75 A1.25,1.25 0 0 1 60.0,68 L60.0,68 A1.25,1.25 0 0 1 58.75,66.75 L58.75,35.25 A1.25,1.25 0 0 1 60.0,34 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M76.0,34 L76.0,34 A1.25,1.25 0 0 1 77.25,35.25 L77.25,66.75 A1.25,1.25 0 0 1 76.0,68 L76.0,68 A1.25,1.25 0 0 1 74.75,66.75 L74.75,35.25 A1.25,1.25 0 0 1 76.0,34 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M41.5,48 L46.5,48 A4.5,4.5 0 0 1 51,52.5 L51,52.5 A4.5,4.5 0 0 1 46.5,57 L41.5,57 A4.5,4.5 0 0 1 37,52.5 L37,52.5 A4.5,4.5 0 0 1 41.5,48 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M57.5,37 L62.5,37 A4.5,4.5 0 0 1 67,41.5 L67,41.5 A4.5,4.5 0 0 1 62.5,46 L57.5,46 A4.5,4.5 0 0 1 53,41.5 L53,41.5 A4.5,4.5 0 0 1 57.5,37 Z" />
+        <path android:fillColor="#0B0D10" android:pathData="M73.5,55 L78.5,55 A4.5,4.5 0 0 1 83,59.5 L83,59.5 A4.5,4.5 0 0 1 78.5,64 L73.5,64 A4.5,4.5 0 0 1 69,59.5 L69,59.5 A4.5,4.5 0 0 1 73.5,55 Z" />
+    </group>
 </vector>
