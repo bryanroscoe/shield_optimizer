@@ -3,9 +3,12 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import type { OtherPackage } from "../lib/types";
+  import type { AppUsage, OtherPackage } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import AppDetailSheet from "../components/AppDetailSheet.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
@@ -16,9 +19,18 @@
   let searchQuery = $state("");
   let activeFilter = $state<"all" | "enabled" | "disabled" | "system">("all");
   let selectedApp = $state<OtherPackage | null>(null);
+  let showPaywall = $state(false);
+  let uninstallTarget = $state<OtherPackage | null>(null);
 
   let apps = $state<OtherPackage[]>([]);
+  // Lazily-loaded, best-effort enrichment maps for the detail sheet.
+  let memoryMap = $state<Record<string, number>>({});
+  let usageMap = $state<Record<string, AppUsage>>({});
   let busyAction = $state("");
+
+  function isLocked(e: unknown): boolean {
+    return String(e).includes("LOCKED:");
+  }
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -47,10 +59,27 @@
     try {
       apps = await api.listOtherPackages(session.serial);
       loaded = true;
+      loadEnrichment();
     } catch (e) {
       error = String(e);
     } finally {
       loading = false;
+    }
+  }
+
+  // Memory + usage power the detail sheet's "142 MB" / "never opened" signals.
+  // Best-effort: on failure the sheet simply omits those rows (no fabrication).
+  async function loadEnrichment() {
+    if (!session.serial) return;
+    try {
+      memoryMap = await api.appMemoryMap(session.serial);
+    } catch {
+      // leave empty
+    }
+    try {
+      usageMap = await api.appUsageMap(session.serial);
+    } catch {
+      // leave empty
     }
   }
 
@@ -105,11 +134,60 @@
     }
   }
 
-  function handleUninstall() {
-    // Uninstall (with snapshot rollback) is a Pro feature not wired on mobile
-    // yet — route to the upsell rather than performing anything.
+  async function handleForceStop(app: OtherPackage) {
+    if (busyAction || !session.serial) return;
+    busyAction = app.package;
+    try {
+      const r = await api.forceStop(session.serial, app.package);
+      showToast(r.ok ? `Stopped ${label(app)}.` : r.message || "Couldn't stop the app.", r.ok ? "success" : "error");
+      if (r.ok) session.invalidateHealth();
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      busyAction = "";
+    }
+  }
+
+  async function handlePlayStore(app: OtherPackage) {
+    if (busyAction || !session.serial) return;
+    busyAction = app.package;
+    try {
+      const r = await api.openPlayStore(session.serial, app.package);
+      showToast(r.ok ? `Opened the Play Store for ${label(app)} on the TV.` : r.message, r.ok ? "success" : "error");
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      busyAction = "";
+    }
+  }
+
+  // Uninstall is Pro (Feature::CuratedDebloat). Confirm, then attempt — a
+  // LOCKED response routes to the paywall instead of a raw error.
+  function requestUninstall(app: OtherPackage) {
     selectedApp = null;
-    showToast("Uninstall is a Pro feature — upgrade in the More tab.", "info");
+    uninstallTarget = app;
+  }
+
+  async function confirmUninstall() {
+    const app = uninstallTarget;
+    uninstallTarget = null;
+    if (!app || !session.serial) return;
+    busyAction = app.package;
+    try {
+      const r = await api.uninstallPackage(session.serial, app.package);
+      if (r.ok) {
+        apps = apps.filter((a) => a.package !== app.package);
+        showToast(`Uninstalled ${label(app)}.`, "success");
+        session.invalidateAll();
+      } else {
+        showToast(r.message || "Uninstall failed.", "error");
+      }
+    } catch (e) {
+      if (isLocked(e)) showPaywall = true;
+      else showToast(String(e), "error");
+    } finally {
+      busyAction = "";
+    }
   }
 
   function iconFor(app: OtherPackage): string {
@@ -177,32 +255,30 @@
 
   <div class="spacer"></div>
 
-  {#if selectedApp}
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="action-drawer-overlay" onclick={() => (selectedApp = null)}>
-      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="action-drawer" onclick={(e) => e.stopPropagation()}>
-        <div class="selected-app-header">
-          <div class="app-avatar"><span class="msr">{iconFor(selectedApp)}</span></div>
-          <div class="app-details">
-            <span class="app-name-text">{label(selectedApp)}</span>
-            <span class="mono app-pkg-text">{selectedApp.package}</span>
-          </div>
-          <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-          <span class="close-drawer msr" onclick={() => (selectedApp = null)}>close</span>
-        </div>
-        <div class="drawer-actions">
-          <button class="drawer-btn" disabled={busyAction !== ""} onclick={() => selectedApp && handleToggle(selectedApp)}>
-            {selectedApp.enabled ? "Disable" : "Enable"}
-          </button>
-          <button class="drawer-btn danger" onclick={handleUninstall}>
-            Uninstall <span class="pro-badge">PRO</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
+  <AppDetailSheet
+    app={selectedApp}
+    memoryMb={selectedApp ? (memoryMap[selectedApp.package] ?? null) : null}
+    usage={selectedApp ? (usageMap[selectedApp.package] ?? null) : null}
+    busy={busyAction !== ""}
+    onClose={() => (selectedApp = null)}
+    onToggle={handleToggle}
+    onForceStop={handleForceStop}
+    onUninstall={requestUninstall}
+    onPlayStore={handlePlayStore}
+  />
 
+  <ConfirmDialog
+    open={uninstallTarget !== null}
+    danger
+    icon="delete"
+    title={`Uninstall ${uninstallTarget ? label(uninstallTarget) : "app"}?`}
+    message="Removes it for the current user and frees storage. You can reinstall from the Play Store or a snapshot restore."
+    confirmLabel="Uninstall"
+    onConfirm={confirmUninstall}
+    onCancel={() => (uninstallTarget = null)}
+  />
+
+  <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
   <Toast message={toast} type={toastType} />
 
   <BottomTabs active="apps" {navigate} />
@@ -353,88 +429,5 @@
     font-size: 22px;
     color: var(--dim);
     flex-shrink: 0;
-  }
-
-  .action-drawer-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 100;
-    display: flex;
-    align-items: flex-end;
-  }
-  .action-drawer {
-    width: 100%;
-    background: var(--surface-2);
-    border-top: 1px solid var(--line);
-    border-radius: 20px 20px 0 0;
-    padding: 20px 24px calc(env(safe-area-inset-bottom) + 20px);
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    animation: slideUpDrawer 0.25s ease-out;
-  }
-  .selected-app-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    position: relative;
-  }
-  .close-drawer {
-    position: absolute;
-    top: 0;
-    right: 0;
-    font-size: 20px;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .drawer-actions {
-    display: flex;
-    gap: 9px;
-  }
-  .drawer-btn {
-    flex: 1;
-    height: 44px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 13px;
-    background: var(--surface);
-    color: var(--text-soft);
-    font-family: var(--sans);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-  .drawer-btn:active {
-    background: var(--surface-2);
-  }
-  .drawer-btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .drawer-btn.danger {
-    border-color: rgba(251, 107, 95, 0.3);
-    background: rgba(251, 107, 95, 0.1);
-    color: var(--danger);
-  }
-  .pro-badge {
-    font-size: 9px;
-    font-weight: 700;
-    background: var(--danger);
-    color: var(--accent-ink);
-    padding: 2px 5px;
-    border-radius: 5px;
-  }
-  @keyframes slideUpDrawer {
-    from {
-      transform: translateY(100%);
-    }
-    to {
-      transform: translateY(0);
-    }
   }
 </style>

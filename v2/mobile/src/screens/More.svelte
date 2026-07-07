@@ -50,13 +50,15 @@
     }
   }
 
-  function proFeature(name: string) {
-    if (session.isPro) {
-      showToast(`${name} is coming in a later update.`, "info");
-    } else {
-      showToast(`${name} is a Pro feature — activate a license above.`, "info");
-    }
-  }
+  // Detail screens reachable from More. Pro tools show a lock for free users;
+  // the screen itself still handles the LOCKED paywall on any write.
+  const tools: { screen: Screen; icon: string; title: string; desc: string; pro: boolean }[] = [
+    { screen: "devices", icon: "devices_other", title: "Devices", desc: "Manage and reconnect your TVs", pro: false },
+    { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
+    { screen: "tweaks", icon: "tune", title: "Tweaks", desc: "CEC, frame rate, DNS, animations", pro: true },
+    { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Save, restore & clone a setup", pro: true },
+    { screen: "riskguide", icon: "help", title: "Risk & actions guide", desc: "What each tier and action means", pro: false },
+  ];
 
   // Debug log — the native tail plus the frontend call ring buffer, both
   // copyable for support.
@@ -131,44 +133,23 @@
       {/if}
     </div>
 
-    <!-- Snapshots -->
+    <!-- Tools -->
     <div class="more-card">
-      <span class="card-label">Snapshots</span>
-      <p class="card-desc">Restore a previously saved system state or back up the current package configuration.</p>
-      <div class="btn-row">
-        <button class="ghost-btn" onclick={() => proFeature("Snapshots")}>
-          <span class="msr">settings_backup_restore</span>Restore snapshot
+      <span class="card-label">Tools</span>
+      {#each tools as t (t.screen)}
+        <button class="setting-row" onclick={() => navigate(t.screen)}>
+          <span class="msr tool-icon">{t.icon}</span>
+          <div class="setting-info">
+            <span class="setting-title">{t.title}</span>
+            <span class="setting-desc">{t.desc}</span>
+          </div>
+          {#if t.pro && !session.isPro}
+            <span class="msr lock-icon">lock</span>
+          {:else}
+            <span class="msr chevron">chevron_right</span>
+          {/if}
         </button>
-        <button class="ghost-btn" onclick={() => proFeature("Snapshots")}>
-          <span class="msr">add_circle</span>Create snapshot
-        </button>
-      </div>
-    </div>
-
-    <!-- System Tweaks -->
-    <div class="more-card">
-      <span class="card-label">System Tweaks{session.isPro ? "" : " (Pro)"}</span>
-      <button class="setting-row" onclick={() => proFeature("System Tweaks")}>
-        <div class="setting-info">
-          <span class="setting-title">HDMI-CEC control</span>
-          <span class="setting-desc">One remote for TV + soundbar</span>
-        </div>
-        {#if !session.isPro}<span class="msr lock-icon">lock</span>{/if}
-      </button>
-      <button class="setting-row" onclick={() => proFeature("System Tweaks")}>
-        <div class="setting-info">
-          <span class="setting-title">Long-press timeout</span>
-          <span class="setting-desc">Remote hold delay</span>
-        </div>
-        {#if !session.isPro}<span class="msr lock-icon">lock</span>{/if}
-      </button>
-      <button class="setting-row" onclick={() => proFeature("System Tweaks")}>
-        <div class="setting-info">
-          <span class="setting-title">Disable Assistant mic button</span>
-          <span class="setting-desc">Revoke remote mic access</span>
-        </div>
-        {#if !session.isPro}<span class="msr lock-icon">lock</span>{/if}
-      </button>
+      {/each}
     </div>
 
     <!-- Debug log -->
@@ -306,10 +287,6 @@
     border-radius: 9px;
   }
 
-  .btn-row {
-    display: flex;
-    gap: 10px;
-  }
   .ghost-btn {
     flex: 1;
     min-height: 44px;
@@ -358,6 +335,8 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    flex: 1;
+    min-width: 0;
   }
   .setting-title {
     font-size: 14px;
@@ -367,8 +346,18 @@
     font-size: 12px;
     color: var(--muted);
   }
+  .tool-icon {
+    font-size: 22px;
+    color: var(--text-soft);
+    flex: none;
+  }
   .lock-icon {
     font-size: 18px;
+    color: var(--dim);
+    flex: none;
+  }
+  .chevron {
+    font-size: 20px;
     color: var(--dim);
     flex: none;
   }

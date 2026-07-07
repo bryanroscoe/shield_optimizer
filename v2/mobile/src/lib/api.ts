@@ -7,26 +7,41 @@
 // `pkg` -> `package` mapping and `mode` (NOT `rebootMode`) for reboot — the
 // class of silent-failure bug this module exists to prevent.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { logCall, summarizeArgs } from "./log";
 import type {
   ActionResult,
   AppEntry,
+  AppUsage,
+  ApplyResult,
   ConnectResult,
+  CurrentDisplayScaling,
+  CurrentLauncher,
   Device,
+  DeviceReport,
   DeviceType,
   DiscoveryResult,
+  DisplayScalePreset,
+  DisplayScaleResult,
   Entitlement,
   HealthReport,
+  LauncherStatus,
   OptimizeMode,
   OptimizePlan,
   OtherPackage,
+  PrivateDnsResult,
+  PrivateDnsState,
   RebootMode,
   RebootResult,
   Safety,
   ScreenshotResult,
   SendTextResult,
+  SetLauncherResult,
+  SnapshotApplyPlan,
+  SnapshotFile,
+  TweaksState,
   WirelessStatus,
+  WriteResult,
 } from "./types";
 
 type PackageState = "enabled" | "disabled" | "missing";
@@ -106,6 +121,73 @@ export const api = {
   // ---- Optimize ----
   prepareOptimize: (serial: string, deviceType: DeviceType, mode: OptimizeMode) =>
     call<OptimizePlan>("prepare_optimize", { serial, deviceType, mode }),
+
+  // ---- App detail / catalog extras ----
+  appMemoryMap: (serial: string) =>
+    call<Record<string, number>>("app_memory_map", { serial }),
+  appUsageMap: (serial: string) =>
+    call<Record<string, AppUsage>>("app_usage_map", { serial }),
+  openPlayStore: (serial: string, pkg: string) =>
+    call<ActionResult>("open_play_store", { serial, package: pkg }),
+  reinstallExisting: (serial: string, pkg: string) =>
+    call<ActionResult>("reinstall_existing", { serial, package: pkg }),
+
+  // ---- Launcher (4.2) — set/disable are Pro (LauncherTakeover) ----
+  listLaunchers: (serial: string) =>
+    call<LauncherStatus[]>("list_launchers", { serial }),
+  currentLauncher: (serial: string) =>
+    call<CurrentLauncher>("current_launcher", { serial }),
+  channelProviderDisabled: (serial: string) =>
+    call<boolean>("channel_provider_disabled", { serial }),
+  /// `set_default_launcher` takes a per-step progress Channel in core. Pass a
+  /// callback to narrate the multi-second switch, or omit for a no-op channel.
+  setDefaultLauncher: (
+    serial: string,
+    pkg: string,
+    allowStockDisable = false,
+    onProgress?: (msg: string) => void,
+  ) => {
+    const channel = new Channel<string>();
+    if (onProgress) channel.onmessage = onProgress;
+    return call<SetLauncherResult>("set_default_launcher", {
+      serial,
+      package: pkg,
+      allowStockDisable,
+      onProgress: channel,
+    });
+  },
+  disableLauncher: (serial: string, pkg: string) =>
+    call<ActionResult>("disable_launcher", { serial, package: pkg }),
+
+  // ---- Tweaks (5.1) — writes are Pro (TweaksWrite) ----
+  getTweaks: (serial: string) => call<TweaksState>("get_tweaks", { serial }),
+  writeSetting: (serial: string, namespace: string, key: string, value: string) =>
+    call<WriteResult>("write_setting", { serial, namespace, key, value }),
+  getDisplayScaling: (serial: string) =>
+    call<CurrentDisplayScaling>("get_display_scaling", { serial }),
+  setDisplayScaling: (serial: string, preset: DisplayScalePreset) =>
+    call<DisplayScaleResult>("set_display_scaling", { serial, preset }),
+  getPrivateDns: (serial: string) =>
+    call<PrivateDnsState>("get_private_dns", { serial }),
+  setPrivateDns: (serial: string, mode: string, hostname?: string) =>
+    call<PrivateDnsResult>("set_private_dns", { serial, mode, hostname }),
+
+  // ---- Snapshots (5.2) — all Pro (Snapshot) ----
+  listSnapshots: () => call<SnapshotFile[]>("list_snapshots"),
+  saveSnapshot: (serial: string, deviceName: string, label?: string) =>
+    call<SnapshotFile>("save_snapshot", { serial, deviceName, label }),
+  previewApply: (serial: string, snapshotPath: string) =>
+    call<SnapshotApplyPlan>("preview_apply", { serial, snapshotPath }),
+  applySnapshot: (serial: string, snapshotPath: string) =>
+    call<ApplyResult>("apply_snapshot", { serial, snapshotPath }),
+  deleteSnapshot: (snapshotPath: string) =>
+    call<void>("delete_snapshot", { snapshotPath }),
+  snapshotDirPath: () => call<string>("snapshot_dir_path"),
+
+  // ---- Devices hub (7.1) ----
+  reportAll: () => call<DeviceReport[]>("report_all"),
+  renameDevice: (serial: string, name: string) =>
+    call<ActionResult>("rename_device", { serial, name }),
 
   // ---- Licensing ----
   getEntitlement: () => call<Entitlement>("get_entitlement"),

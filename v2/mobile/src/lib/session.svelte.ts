@@ -7,6 +7,7 @@
 // old divergent derivations in Onboarding/Dashboard/Remote are gone.
 
 import { api } from "./api";
+import { rememberDevice } from "./savedDevices";
 import { deviceLabelOf } from "./types";
 import type {
   ConnectResult,
@@ -77,6 +78,8 @@ class Session {
       this.connectPort = port;
       await this.refreshDevices();
       this.liveness = "live";
+      // Remember this TV so §1.0 can offer a one-tap reconnect next launch.
+      rememberDevice(host, port, this.connectedDevice);
     } else {
       this.liveness = "idle";
     }

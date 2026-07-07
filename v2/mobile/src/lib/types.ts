@@ -174,6 +174,152 @@ export interface WirelessStatus {
 
 export type Entitlement = "free" | "pro";
 
+// ---- Launcher (crates/core/src/commands/launcher.rs + engine/launcher.rs) ----
+
+export interface LauncherEntry {
+  name: string;
+  package: string;
+}
+
+export interface LauncherStatus {
+  entry: LauncherEntry;
+  installed: boolean;
+  enabled: boolean;
+  /// Device's preinstalled launcher — STOCK badge, no Install button.
+  stock: boolean;
+  /// HOME-capable app outside both catalogs (e.g. Setup Wraith, a sideload).
+  other: boolean;
+}
+
+export interface CurrentLauncher {
+  package: string | null;
+  activity: string | null;
+}
+
+export interface SetLauncherResult {
+  ok: boolean;
+  strategy: string | null;
+  current_launcher: string | null;
+  last_error: string | null;
+  /// True when the only working switch is to disable the active stock launcher;
+  /// the UI must confirm and retry with allow_stock_disable.
+  stock_takeover_available: boolean;
+}
+
+// ---- Tweaks (crates/core/src/commands/tuning.rs) ----
+
+/// Every field is `"1"` / `"0"` / a raw value string, or null when unset on the
+/// device. Never fabricate a value for a null field.
+export interface TweaksState {
+  hdmi_control_enabled: string | null;
+  hdmi_control_auto_wakeup_enabled: string | null;
+  hdmi_control_auto_device_off_enabled: string | null;
+  hdmi_system_audio_control_enabled: string | null;
+  /// `0` = Never, `1` = Seamless only, `2` = Always.
+  match_content_frame_rate: string | null;
+  long_press_timeout: string | null;
+  window_animation_scale: string | null;
+  transition_animation_scale: string | null;
+  animator_duration_scale: string | null;
+  background_process_limit: string | null;
+}
+
+export interface WriteResult {
+  ok: boolean;
+  message: string;
+}
+
+/// Must stay in lockstep with the Rust `DisplayScalePreset` serde renames.
+export type DisplayScalePreset = "uhd_4k" | "fhd_1080p" | "reset";
+
+export interface CurrentDisplayScaling {
+  size: string;
+  density: string;
+}
+
+export interface DisplayScaleResult {
+  ok: boolean;
+  message: string;
+}
+
+export interface PrivateDnsState {
+  /// `off` / `opportunistic` / `hostname`, or null if unset.
+  mode: string | null;
+  hostname: string | null;
+}
+
+export interface PrivateDnsResult {
+  ok: boolean;
+  message: string;
+  /// True when a bad custom hostname was reverted to automatic.
+  reverted: boolean;
+}
+
+// ---- Snapshots (crates/core/src/commands/snapshot.rs + engine/snapshot.rs) ----
+
+export interface SnapshotFile {
+  path: string;
+  filename: string;
+  saved_at: string;
+  label: string | null;
+  device_name: string;
+  device_serial: string;
+  device_type: DeviceType;
+  disabled_count: number;
+  settings_count: number;
+  launcher: string | null;
+}
+
+export interface SnapshotApplyPlan {
+  packages_to_disable: string[];
+  packages_already_disabled: string[];
+  packages_not_installed: string[];
+  launcher_to_set: string | null;
+  settings_to_write: Record<string, string>;
+  settings_already_set: string[];
+}
+
+export interface ApplyResult {
+  packages_disabled: string[];
+  packages_failed: string[];
+  launcher_set: boolean;
+  launcher_message: string | null;
+  settings_written: string[];
+  settings_failed: string[];
+  summary: string;
+}
+
+// ---- App detail (crates/core/src/adb/parse.rs) ----
+
+export interface AppUsage {
+  /// `"YYYY-MM-DD HH:MM:SS"` of last foreground use, or null if never opened.
+  last_used: string | null;
+  launch_count: number;
+}
+
+// ---- Devices hub (crates/core/src/commands/health.rs) ----
+
+export interface DeviceReport {
+  serial: string;
+  name: string;
+  report: HealthReport | null;
+  error: string | null;
+}
+
+// ---- Saved-TV persistence (mobile-only, localStorage) ----
+
+/// A previously-paired TV remembered on this phone so the app can offer a
+/// one-tap reconnect on launch (design §1.0). The RSA pairing key is persisted
+/// Kotlin-side, so a reconnect is silent — this is just app-side bookkeeping.
+export interface SavedDevice {
+  host: string;
+  connectPort: number;
+  name: string;
+  deviceType: DeviceType;
+  /// ISO timestamp of the last successful connect, for "last used" copy.
+  lastUsed: string;
+}
+
 /// Canonical device label — prefer the friendly name, then the reported
 /// name, then model, then a generic fallback. This is the ONLY place a
 /// device label should be derived; every screen reads it via the session

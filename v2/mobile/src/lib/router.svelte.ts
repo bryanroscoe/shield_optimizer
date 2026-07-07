@@ -10,7 +10,13 @@ export type Screen =
   | "optimize"
   | "apps"
   | "remote"
-  | "more";
+  | "more"
+  // Detail screens reached from More / Dashboard (not bottom tabs).
+  | "launcher"
+  | "tweaks"
+  | "snapshots"
+  | "devices"
+  | "riskguide";
 
 /// Screens that live behind the bottom tab bar (top-level). Everything else
 /// (e.g. diagnostics) is a detail screen reached from the dashboard.

@@ -151,6 +151,9 @@
 
       {#if showDeviceMenu}
         <div class="device-dropdown">
+          <button class="dropdown-item" onclick={() => { showDeviceMenu = false; navigate("devices"); }}>
+            <span class="msr">devices_other</span>Manage devices
+          </button>
           <button class="dropdown-item danger" onclick={handleDisconnect}>
             <span class="msr">power_settings_new</span>Disconnect
           </button>

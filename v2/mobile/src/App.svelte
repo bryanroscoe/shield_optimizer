@@ -9,6 +9,11 @@
   import Apps from "./screens/Apps.svelte";
   import Remote from "./screens/Remote.svelte";
   import More from "./screens/More.svelte";
+  import Launcher from "./screens/Launcher.svelte";
+  import Tweaks from "./screens/Tweaks.svelte";
+  import Snapshots from "./screens/Snapshots.svelte";
+  import Devices from "./screens/Devices.svelte";
+  import RiskGuide from "./screens/RiskGuide.svelte";
 
   function navigate(screen: Screen) {
     router.navigate(screen);
@@ -58,4 +63,14 @@
   <Remote {navigate} />
 {:else if router.current === "more"}
   <More {navigate} onDisconnect={handleDisconnect} />
+{:else if router.current === "launcher"}
+  <Launcher {navigate} />
+{:else if router.current === "tweaks"}
+  <Tweaks {navigate} />
+{:else if router.current === "snapshots"}
+  <Snapshots {navigate} />
+{:else if router.current === "devices"}
+  <Devices {navigate} onDisconnect={handleDisconnect} />
+{:else if router.current === "riskguide"}
+  <RiskGuide {navigate} />
 {/if}
