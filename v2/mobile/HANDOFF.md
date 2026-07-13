@@ -1,292 +1,160 @@
-# ATV Optimizer (mobile) — handoff & operations guide
+# ATV Optimizer (mobile) — HANDOFF
 
-This is the continuation guide for the **ATV Optimizer Android app**: a phone/tablet app
-that drives an Android TV over **wireless ADB** (no PC), monetized freemium. It lives in the
-`shield_optimizer` monorepo under `v2/mobile/`. Read this end-to-end before continuing — it
-carries the current state, the build/test/iterate playbook, the known blockers, and the
-remaining roadmap. Pair it with the top-level plan at
-`~/.claude/plans/i-m-fine-to-release-bright-cascade.md` and `v2/ATV-OPTIMIZER-ANDROID-PLAN.md`.
+Read this top-to-bottom before doing any mobile work. It is the authoritative, current handoff.
+Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (findings audit),
+`FEATURES.md` (screen ↔ command map), `TRANSPORT-LICENSING-RESEARCH.md` (why the transport is
+what it is), `CLOUD-TASK.md` (brief for the nightly cloud agent). Cross-session memory also lives
+in `~/.claude/projects/-Users-bryanroscoe-Developer-shield-optimizer/memory/`.
 
-Working branch: **`feat/atv-optimizer-mobile`** (based off `main`). Nothing pushed yet.
-
-> **See also `ARCHITECTURE-REVIEW.md`** (same dir) — a full 3-pass review (transport/core,
-> frontend, build/distribution/security) with prioritized, file-cited findings. It supersedes
-> a few stale notes below. Corrections it established: **Pro commands ARE registered and gated
-> on the mobile handler** (§6's old "not registered yet" was wrong — there are core tests
-> asserting ADB isn't called on Free); the **global Kotlin shell mutex** (not the parse) is the
-> real root cause of the storage/health starvation; and **device-info enrichment already exists**
-> in `list_devices_impl` (`harvest_properties` getprop) — the generic "Android TV/unknown" was
-> that getprop silently degraded under the old `shell:` hang, so it likely resolves now that
-> `exec:` works (verify on device). Storage itself is fixed (commit `3ef29de`: %-anchored parse
-> kept, df timeout starvation eased); the deeper fix is removing the mutex (T1 in the review).
+Branch: **`feat/atv-optimizer-mobile`** (pushed to origin, in sync). Working tree clean.
+Last commit: `bd6cbd8`. Not merged to `main` and no PR yet.
 
 ---
 
-## 1. What it is / product intent
+## 1. What this is
+A phone/tablet app (**Tauri 2 + Rust + Svelte 5**, in `v2/mobile/`) that drives an **Android TV
+over wireless ADB** — no PC. Debloat / optimize / launcher / tweaks / snapshots / remote, etc.
+Monetized **freemium**; the owner (Bryan) **wants to sell it** (this drove the transport rewrite —
+see §3). Product name **ATV Optimizer**. It shares the audited engine (`v2/crates/core`) with the
+mature **desktop** app (`v2/src-tauri` + `v2/src`); the rule is *reuse the desktop, keep core
+aligned, never fork it*.
 
-- Phone is the **ADB client**; the TV is the target. The phone talks to the TV's `adbd`
-  directly over Wi-Fi using **libadb-android** bundled in the APK — this is a *separate* ADB
-  stack from any desktop `adb`. None of it shows up in a computer's `adb devices`.
-- Rebrand: **ATV Optimizer** (covers all Android TV, not just Shield).
-- Freemium: free = no-PC connect + curated diagnostic + safe reversible quick-wins; Pro
-  (one-time ~$4–6) = debloat / launcher / snapshots / tweaks / remote / multi-device.
-- Reuses the desktop v2 engine + commands verbatim through the `AdbDriver` seam; only the
-  transport is new.
+## 2. Current state — what's DONE (all committed + pushed, gate-green)
+- **Full frontend re-architecture** (`b7c3d75`): shared typed `api.ts`/`types.ts` (mirror desktop
+  + core), a central `invoke` wrapper with a debug-log ring buffer (`lib/log.ts`), a runes
+  **session store** (`lib/session.svelte.ts` — device/host/entitlement/liveness + health/bloat
+  cache), a real **router with a screen stack + Android hardware-back** (`lib/router.svelte.ts`,
+  fixed the Home-tab→blank bug), and the desktop fast-load patterns (lazy per-screen load,
+  invalidate-on-mutation, optimistic UI, progressive enrichment).
+- **Never-fake-data + trust fixes**: Dashboard shows a real error+retry on a failed health load
+  (no fabricated "healthy" device); Diagnostics/Optimize render `—`/skeleton/error, never fake
+  numbers; safety tags come only from core `safety_info` (no inline classifier).
+- **Transport swapped to pure-Rust `adb_client`** (`3e8bcfc`) — see §3. This is the biggest change.
+- **All screens built** (14 total): Onboarding (+Reconnect/saved-TV), Dashboard, Diagnostics,
+  Optimize, Apps (+AppDetailSheet), Remote, More, Launcher, Tweaks, Snapshots, Devices, RiskGuide,
+  Files, Backups. Components: BottomTabs, Toast, ConfirmDialog, FindRemoteButton (one consistent
+  "ring the remote?" affordance, Shield-gated), BrandMark, PaywallSheet, AppDetailSheet.
+- **Real Pro unlock**: `activate_license` flips + persists backend entitlement; **test key
+  `ATVOPT-PRO-2025`** (case-insensitive). `LOCKED:<feature>` errors route to PaywallSheet.
+- **Icon + branding**: launcher icon and in-app BrandMark are the designer's exact glyph — a
+  TV/monitor on a stand with three **vertical faders** (exact SVG in `src-tauri/icons/icon.svg`).
+- **On-device validated**: connected to a real Shield over the new transport; the app is fully
+  usable; the connection-lost banner + real device name resolve. (Pixel 10 Pro test device.)
 
-## 2. Architecture (as built)
+## 3. THE transport story (most important context)
+Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
+Two fatal problems: (a) **GPLv3 blocks selling** a closed-source product; (b) **unreliable** — its
+`exec:` streams hung on an older Nvidia Shield's adbd waiting for a CLSE that never came.
+**We replaced it with `adb_client`** — a **third-party MIT-licensed pure-Rust crate** (Corentin
+Liaud / `cocool97`, crates.io v3.2.2). We did NOT write it. It reimplements the ADB client
+protocol (connect, RSA auth, stream multiplexing, shell/exec/push/pull) in pure Rust. Proven:
+a spike ran every previously-hanging command cleanly on the real Shield; it cross-compiles to
+aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_optimizer_mobile_lib.so`).
+- `WirelessAdb` (`src-tauri/src/wireless_adb.rs`) now owns an `adb_client::tcp::ADBTcpDevice`
+  (blocking calls via `spawn_blocking`), implementing the core `AdbDriver` trait. Real exit codes
+  + stderr now flow through. A persistent **RSA key is generated/persisted in `app_data_dir`**
+  (`ensure_adb_key`, PKCS#8 PEM) — first connect prompts "Allow debugging" on the TV, then silent.
+- The **Kotlin plugin (`tauri-plugin-atv-adb`) is now mDNS-discovery ONLY** (NsdManager, a pure
+  Android framework, no GPL). libadb/Conscrypt/BouncyCastle Gradle deps + the jitpack repo are gone.
+- **Legacy network-debugging (`:5555`, no pairing code) works now** — that's the proven path.
+- **Gap:** `adb_client` does NOT do the Android-11 **SPAKE2 pairing** for *new* Google-TV devices
+  (the 6-digit-code flow). `wireless_pair` returns a clear "use network debugging for now" error.
+  Clean-room SPAKE2 (referencing Apache-2.0 AOSP) is a queued follow-up. Licensing note: for a
+  commercial release, add a third-party-licenses acknowledgment (MIT for adb_client + rustls/rsa/
+  rcgen); generate with `cargo about`.
 
-Cargo workspace at `v2/` (`v2/Cargo.toml` members): `crates/core`, `src-tauri` (desktop),
-`mobile/src-tauri` (mobile app), `mobile/tauri-plugin-atv-adb` (transport plugin).
+## 4. Repo layout (mobile)
+- `v2/mobile/src/` — Svelte 5 frontend. `lib/{api,types,session.svelte,router.svelte,log,savedDevices}.ts`,
+  `screens/*.svelte` (14), `components/*.svelte` (7), `app.css` (design tokens + offline @font-face).
+- `v2/mobile/src-tauri/src/` — mobile Tauri app: `lib.rs` (builder + `generate_handler!`),
+  `wireless_adb.rs` (adb_client transport = `AdbDriver`), `wireless_commands.rs` (wireless_*),
+  `file_commands.rs` (list_remote_dir/pull_file/backup_apk/list_backups).
+- `v2/mobile/tauri-plugin-atv-adb/` — mDNS discovery plugin (Kotlin NsdManager + thin Rust).
+- `v2/crates/core/` — SHARED engine+commands (pure `engine/`, `commands/*`, `adb/{driver,parse}`,
+  `license.rs`). Desktop and mobile both register from here. **Keep `engine/` pure; keep aligned
+  with desktop.**
+- Design source of truth: `~/Downloads/Shield Optimizer mobile design (1)/ATV Optimizer Mobile.dc.html`
+  (20 screen sections; lime `#C9F24E`, Geist/Geist Mono). The `claude_design` MCP is NOT available
+  in this environment — work from the downloaded folder.
 
-- **`crates/core`** — platform-neutral: pure `engine/`, the `AdbDriver` trait +
-  `AdbError`/`AdbOutput`, `commands/*` (devices, health, apps, launcher, optimize, snapshot,
-  tuning, reboot, recovery, screenshot, input), `AppState` (holds `entitlement`), and
-  `license.rs` (`Entitlement::{Free,Pro}`, `require_pro(Feature)` → `Err("LOCKED:<feature>")`).
-  Pro command paths call `require_pro` AFTER the do-not-disable safety check.
-- **`mobile/tauri-plugin-atv-adb`** — the Tauri plugin that IS the transport. This is the
-  regen-safe home for the Android native code (a `tauri android init` regenerates
-  `mobile/src-tauri/gen/` and would wipe anything custom there — so it must NOT live in gen).
-  - `src/{lib.rs,mobile.rs,desktop.rs,models.rs,error.rs}` — Rust: `init()` + `AdbExt`
-    (`app.adb()`) + `Adb<R>` handle (blocking `run_mobile_plugin`; desktop stub for host/CI).
-  - `android/` — Android library project: `build.gradle.kts` (declares libadb-android 3.1.1,
-    conscrypt-android 2.5.3, bcpkix-jdk15to18 1.81, its OWN jitpack repo), `AndroidManifest.xml`
-    (INTERNET / NEARBY_WIFI_DEVICES etc. — merged into the app), and Kotlin in
-    `src/main/java/app/tauri/atvadb/`: `AdbPlugin.kt` (@TauriPlugin @Command discover/pair/
-    connect/disconnect/shell/screencap + Conscrypt/PRNG init in `load()`), `AdbService.kt`
-    (libadb calls, mDNS discovery, stream reads), `AtvAdbConnectionManager.kt`
-    (AbsAdbConnectionManager: persisted RSA key + self-signed cert).
-  - Tauri auto-wires the plugin's android project by its tracked path via the generated
-    (gitignored) `gen/android/tauri.settings.gradle` + `app/tauri.build.gradle.kts`.
-- **`mobile/src-tauri`** — the mobile app crate: `lib.rs` (builder, plugin, `AppState` as
-  `Entitlement::Free`, `app_data_dir()` for the data dir, `generate_handler!` registering the
-  wireless_* commands + the reused core commands), `wireless_adb.rs` (`WirelessAdb impl
-  AdbDriver` over the plugin via `spawn_blocking`; synthesizes `raw(["devices"])`; `shell`/
-  `raw_bytes` through the bridge; forward/push/pull/spawn = Unsupported), `wireless_commands.rs`
-  (`wireless_discover/pair/connect/disconnect`).
-- **`mobile/src`** — the Svelte 5 (runes, plain Vite, NOT SvelteKit) frontend. Currently a
-  single `App.svelte` implementing the onboarding flow. `app.css` holds the design tokens +
-  offline `@font-face` (Geist, Geist Mono, Material Symbols Rounded in `src/fonts/`). `main.ts`
-  mounts via Svelte 5 `mount()`.
+## 5. What REMAINS (in priority order; also in CLOUD-TASK.md)
+1. **Fast remote** — the remote works but in slow "compat" mode (`adb shell input`, ~690ms/press).
+   The desktop's fast path (scrcpy control channel) is `#[cfg(not(android))]` and can't port.
+   Needs a mobile equivalent (scrcpy-server over an `adb_client` stream). **Spike first** — I was
+   mid-check on whether `adb_client` can open the `localabstract:` stream a scrcpy control channel
+   needs; `adb_client` has `Forward/Reverse` local commands (server-mode) but the direct
+   `ADBTcpDevice` (no-server) generic-stream support is unconfirmed. If it can't, options: a
+   persistent-shell input pipe (won't fix the JVM-cold-start latency), `sendevent`, or bundle
+   scrcpy differently. Write `FAST-REMOTE-PLAN.md` if you can't validate without a device.
+2. **SPAKE2 pairing** — for new Google-TV devices (legacy Shields don't need it). Clean-room from
+   Apache-2.0 AOSP pairing sources; plan first if risky.
+3. **SAF push picker + Google Drive sync** — Files/Backups are app-scoped-storage only for now.
+4. **Polish** — subset the **5.3 MB Material Symbols font** to the ~40 icons actually used
+   (`grep 'class="msr"'` → pyftsubset); the debug APK is ~386 MB (release strips + should minify +
+   per-ABI split). Disable autocorrect/autocapitalize on the **license-key input** (More screen) —
+   autocorrect fights the key entry.
+5. **Release prep** — signing keystore, versionCode process, own-site APK distribution (M6), the
+   third-party-licenses screen. `ARCHITECTURE-REVIEW.md` §B4 has details.
+6. **Desktop rebrand** to ATV Optimizer is a separate, later migration (MSI UpgradeCode risk) —
+   out of scope for mobile.
 
-## 3. Design source of truth
+## 6. OPERATIONS PLAYBOOK (how to build / deploy / test)
+Env: `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli 2.11.x, the 4 android Rust
+targets installed. Test device: **Pixel 10 Pro**.
 
-`~/Downloads/Shield Optimizer mobile design/` — `ATV Optimizer Mobile.dc.html` (full multi-screen
-spec) + `screenshots/`. Tokens: accent lime `#C9F24E` (+ `--accent-ink #0B0D10`), canvas
-`#0B0D10`, surface `#16191E` / `#1E2229`, text `#F2F5F8` / soft `#C7CDD6` / muted `#8A929E` /
-dim `#5B626D`, teal `#35D6A5` (connected/safe), amber `#F5B544` (storage/review), danger
-`#FB6B5F`, purple `#A78BFA`. Fonts: **Geist** (UI) + **Geist Mono** (all machine values:
-IP:port, MB, serials) + **Material Symbols Rounded** (icons via `<span class="msr">name</span>`,
-`.fill` for filled). Phone-frame/status-bar/home-indicator in the mockup are CANVAS CHROME —
-do NOT render them; the real app uses safe-area insets.
+- **Deploy to the phone over WIRELESS ADB, never USB** (Bryan's rule). Phone at `192.168.42.211`;
+  its adb-connect port is random per session. To connect: it sometimes auto-connects via mDNS
+  (`adb-58040...._adb-tls-connect._tcp`); otherwise `adb pair 192.168.42.211:<pairport> <6-digit>`
+  (Bryan reads the code+port off the phone's Wireless-debugging screen), then `adb connect
+  192.168.42.211:<connectport>`. The phone auto-locks/sleeps off USB power and drops the
+  connection — this is a recurring friction; when it's offline just wait/ask Bryan to nudge it.
+- **Build APK** (~2-4 min, run backgrounded): `cd v2/mobile && PATH="$ANDROID_HOME/platform-tools:$PATH"
+  NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" npx tauri android build --apk --debug --target aarch64`.
+  Do a `gradlew clean` first if stale native libs linger. Kotlin only compiles in this build.
+- **Install/launch**: `adb -s <serial> install -r -d <apk>`; `adb -s <serial> shell am start -n
+  com.atvoptimizer.mobile/.MainActivity`. First launch after install may need a second `am start`.
+- **Screenshots**: `adb -s <serial> exec-out screencap -p > shot.png` then Read it. Can't get past
+  the secure lock — ask Bryan to unlock. WebView is opaque to `uiautomator`, so blind `input tap`
+  by pixel coords is unreliable (device 1080×2410; the Read tool shows images at 896×2000 → ×1.21);
+  prefer having Bryan drive flows that need the TV's "Allow" prompt.
+- **Debug logging (built)**: Rust `tracing` → logcat tag `RustStdoutStderr` + a `debug.log` file in
+  the app data dir (pull via `run-as com.atvoptimizer.mobile`), surfaced via `read_debug_log` in the
+  More screen. macOS has NO `timeout`; quote logcat tag filters in zsh (`'Tag:V' '*:S'`).
+- **Fast device-less UI loop**: `npm run build`, serve `build/` on a port, Playwright headless
+  (chromium installed) at 384×812, stub `window.__TAURI_INTERNALS__.invoke`. Validates layout/flows
+  without a device (safe-area reads 0 in browser, so still spot-check on device).
+- **GATES (all must pass)**: from `v2/`: `cargo fmt --check`, `cargo clippy -p shield-optimizer-core
+  -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings`,
+  `cargo test -p shield-optimizer-core`; from `v2/mobile/`: `npm run check` (0/0) + `npm run build`.
 
-Screens in the spec: §1 Onboarding (1.0 Reconnect, 1.1 Scan+radar, 1.2 Pair-code, 1.3
-Connected) — **done**; §2 Home dashboard (health-score ring, 3 stat tiles, quick-actions grid,
-bottom tab bar) + Diagnostics (memory/storage/temp bars, top memory consumers with risk tags);
-§3 Optimize wizard (per-app risk tiers, Pro); plus more below in the file (apps, remote,
-settings, paywall — read the rest of the .dc.html for these).
+## 7. Invariants / conventions (from CLAUDE.md + the review)
+Engine (`crates/core/src/engine/`) stays pure (no I/O). One `AdbDriver` seam (desktop `SubprocessAdb`,
+mobile `WirelessAdb`). One detection/safety function — `engine::safety` gates every disable path;
+`require_pro(Feature)` runs AFTER the safety check. App lists in JSON, not code. Tauri commands
+return `Result<T,String>`. Svelte 5 runes only. **Never fake data.** Commits: new commit each time,
+no `Co-Authored-By`. Command arg names: camelCase in TS → Tauri maps to snake_case; `pkg`→`package`.
 
-## 4. Current state — what works (verified on a Pixel 10 Pro)
+## 8. How Bryan wants work done
+Aggressive **parallel Opus** sub-agents for independent work; action over asking; commit/push
+checkpoints. But sequence work that shares hot files (the transport `wireless_adb.rs` and the shared
+frontend `api.ts`/`router`/`App.svelte`) — parallel agents corrupt those. On-device screenshot/verify
+stays on the main thread (agents can't drive the phone). There is a **nightly cloud routine** intended
+(midnight = cron `0 5 * * *` UTC) that runs `CLOUD-TASK.md` against this branch — note the RemoteTrigger
+tool has a low body-size limit, so its prompt is a short pointer; set it up via https://claude.ai/code/routines.
 
-- **Onboarding UI** matches the mockup on-device: Scan (radar, `tv_gen` core) → device cards
-  (cast icon, friendly label, mono IP, "No code needed" teal tag for legacy) → Pair-code
-  (6 segmented boxes + privacy callout) OR no-code straight to connect → Connected (teal check).
-  Safe areas correct; Geist + Material Symbols render from the offline bundle.
-- **Discovery** finds all LAN TVs: scans `_adb-tls-pairing._tcp`, `_adb-tls-connect._tcp`
-  (Android-11 wireless debugging) AND legacy `_adb._tcp` (:5555 network debugging), folds
-  services per host into one card, filters out the phone itself (local-interface addresses),
-  early-exits ~1.5s.
-- **Connect + pair** work: cert-generation bug fixed (see §6), RSA-auth connect to a legacy
-  Shield reaches the Connected screen (`connected=true`).
-- **Free/Pro gating** scaffolded in core (`require_pro`), desktop stays Pro (unchanged).
-- Gates green: `cargo fmt/clippy/test` across all four crates, mobile `npm run check` 0/0 +
-  build, aarch64 debug APK builds and installs.
-
-## 5. THE current blocker (in progress)
-
-**libadb-android's stream read hangs for command output on the legacy Shield.**
-`manager.connect()` succeeds, but `manager.openStream("exec:<cmd>")` → read-to-EOF never
-returns (observed 87s+). This blocks device-info enrichment (Connected screen shows generic
-"Android TV" / "unknown" instead of "Bedroom Shield" / Android 11) and ALL diagnostics/shell
-features.
-
-**Proven it is NOT the command/device/exec: service:** the exact same commands return instantly
-via native `adb exec-out` from a Mac connected to the same Shield (`getprop`, `settings get`,
-the compound device-info command, and `dumpsys meminfo` 31 KB). So the hang is inside
-libadb-android's read/close/demux path. The `withTimeout`/`runInterruptible` guard did NOT abort
-the blocked read (interrupt not surfaced by libadb's `AdbStream.read()` `Object.wait()`).
-
-**Investigated (Opus, against libadb-android source) — `setApi` hypothesis DISPROVEN:** libadb's
-CNXN banner is the fixed minimal `"host::\0"` with NO feature list (no `shell_v2`/`cmd`), and
-`setApi` only picks the protocol version (`0x01000001` at API ≥ 28) + max payload (1 MB) — both
-byte-identical to what native `adb` (which works against this same Shield) sends. So negotiation
-is not the cause. The real mechanism: `AdbStream.read()` reaches EOF only via `notifyClose()`,
-which the reader thread calls only on a peer `A_CLSE`; for this Shield's `exec:` stream over
-libadb's demux, the `A_WRTE`/`A_CLSE` packets never reach the stream, so `read()` parks forever.
-
-**Done so far (in `AdbService.kt`, committed but NOT yet device-verified):** (a) a timeout that genuinely aborts — `readStream`
-runs in an `async(IO)` job inside a `supervisorScope`, `withTimeout(await())`, and on timeout
-calls `stream.close()` FIRST (sends CLSE, wakes the parked read) then cancels + throws
-`IOException`; **lowered to 8s** so it fails fast instead of hanging. (b) First-read diagnostic
-logging so the NEXT device run categorizes the failure:
-- no `first read` line + `no bytes before timeout` → `A_WRTE` never routed to the stream
-  (reader-thread / local-id demux issue).
-- `first read returned {N}B` then `{N} bytes arrived but stream never closed` → bytes flow but
-  the peer `A_CLSE` never arrives/routes (CLSE/EOF handling).
-- `first read returned -1 (immediate EOF, 0B)` → clean empty (not a hang).
-
-**NEXT STEP: device build → connect to `.196` → read the `AtvAdb` log to categorize**, then fix
-accordingly. Likely endgame is a small libadb-android patch/fork (vendor the demux/close path)
-or a protocol workaround; if command output proves unreliable via libadb on legacy `:5555`
-devices generally, reconsider the transport for legacy TVs. Device-info enrichment + all
-diagnostics remain blocked until command output returns.
-
-## 6. Bugs already fixed this effort (don't re-introduce)
-
-- **Cert generation blocked every connect/pair** (`bb472f3`): `JcaX509CertificateConverter()
-  .setProvider("BC")` throws `NoSuchAlgorithmException: X.509 for provider BC` — Android's
-  built-in BouncyCastle is stripped and has no X.509 factory. Fixed by converting with the
-  platform default X.509 factory (Conscrypt), same as `readCertificate()`.
-- **screencap wrong service**: was `shell:exec-out screencap -p` (exec-out is a host-client
-  subcommand, not a device binary, and pty mangles binary). Now `exec:screencap -p`.
-- **data dir unwritable on Android**: `dirs::data_local_dir()` returns None → `./` (EACCES).
-  Now `app.path().app_data_dir()` with dirs as host-dev fallback.
-- **blocking JNI on the async runtime**: every `WirelessAdb` call now goes through
-  `spawn_blocking`.
-- **connect error clobbered**: `connect()` used to run `refreshDevices()` unconditionally,
-  wiping the error to blank ("flashes and vanishes"). Now only refreshes on `ok`.
-- **invisible device text**: device cards are `<button>`s and inherited the WebView's default
-  black text; base `button { color: … }` fixed it.
-- **notch cutoff**: `viewport-fit=cover` + `env(safe-area-inset-*)`.
-
-## 7. Known issues / follow-ups (not yet fixed)
-
-- **Webview blank on resume**: after the app is backgrounded, the Tauri webview process is
-  frozen and can repaint blank; a cold start fixes it. Add an onResume reload/handler.
-- **Material Symbols font is 5.1 MB** (full set). Subset to the ~30 icons actually used
-  (fonttools/glyphhanger) before release.
-- **Diagnostic screen not built** — blocked by §5 anyway.
-- **Global Kotlin `Mutex`** serializes all shell streams (kept for correctness; libadb streams
-  may not be concurrency-safe). Revisit only if verified safe.
-- **`exec:` returns stdout only** (no stderr) — fine for diagnostics; `AdbOutput
-  .shell_reported_failure()` scans stdout+stderr but pm/settings write errors to stdout. Note
-  in `AdbService.shell`.
-- **Mobile frontend has its own inlined types/invoke wrappers** — duplicates desktop
-  `src/lib/{types,api}.ts`. Plan M4 = extract a shared package. Until then they can drift.
-- **Pro commands are not registered in the mobile handler yet** — the `require_pro` gates
-  aren't reachable on mobile until they are.
-
-## 8. Remaining roadmap (phased)
-
-1. **Fix §5 transport read hang** (current). Then re-test device info + a real diagnostic.
-2. **§2 Dashboard + Diagnostics screens** — health-score ring, stat tiles, quick actions,
-   bottom tab bar; wire to `health_report` / `report_all` / `device_profile` / `trim_caches` /
-   `reboot` / `take_screenshot`. Introduce a router / component-per-screen structure
-   (`src/screens/*.svelte`) so screens can be built in parallel without `App.svelte` conflicts.
-3. **§3 Optimize wizard** — per-app risk tiers from the engine; Pro-gated apply; register the
-   Pro commands in the mobile handler behind `require_pro`.
-4. **Apps / Remote / Settings** screens.
-5. **M5 licensing** — real key validation + signed-token offline grace + educational paywall
-   on `LOCKED:` (Lemon Squeezy/Gumroad).
-6. **M6 distribution** — release keystore/signing, own-site APK; subset the icon font.
-
-## 9. OPERATIONS PLAYBOOK — how to build, test, iterate
-
-Environment (this machine): `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli
-2.11.x, four android Rust targets installed, `adb` at `/opt/homebrew/bin/adb` (also
-`$ANDROID_HOME/platform-tools/adb` — identical build).
-
-### Fast UI iteration (sub-second, NO device build) — use this for all pure-frontend work
+## 9. Commit history (this effort, newest first)
 ```
-cd v2/mobile && npm run build                 # vite build → build/
-(cd build && python3 -m http.server 8899 &)   # serve it
+bd6cbd8 CLOUD-TASK: mark transport swap + Phase 6 done; queue remaining
+44579c1 File transfer + Backups screens (adb_client push/pull)
+fdeb62d Phase 6 screens (Launcher, Tweaks, Snapshots, Devices, App detail, Risk guide, Reconnect)
+3e8bcfc Transport: replace GPL libadb-android with pure-Rust adb_client (MIT)
+e6dd7f5 in-app BrandMark, soft-EOF workaround, transport/licensing research
+b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
+8bb6b17 architecture review + reboot/stream-close fixes
+3ef29de storage regression fix (%-anchored df parse)
+88f7123 / 7c17c41 / 9efde3d icon iterations
+41d1dc7 Apps cutoff fix
+ac9c3cd onboarding design
+16e5c42 (earlier) extract shared core workspace
 ```
-Then a Playwright headless screenshot (chromium is installed at ~/Library/Caches/ms-playwright).
-A harness that stubs the Tauri IPC so `invoke()` resolves canned data (drive scan→found→pair→
-connected without a device) is at
-`/private/tmp/.../scratchpad/flow.mjs` (recreate from §here if gone): set
-`window.__TAURI_INTERNALS__ = { invoke: (cmd)=>Promise.resolve(mock(cmd)), transformCallback:(c)=>c, ipc:()=>{} }`
-via `page.addInitScript`, viewport 384×812 dpr 2. This validates layout/fonts/flow fast; safe-area
-insets read as 0 in the browser, so still spot-check on device.
-
-### Device build (~2–4 min; needed for Kotlin/Rust changes + safe-area + real transport)
-```
-cd v2/mobile
-PATH="$ANDROID_HOME/platform-tools:$PATH" NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" \
-  npx tauri android build --apk --debug --target aarch64
-```
-APK → `mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`
-(~280 MB debug). Gradle caches Rust/Kotlin, so a frontend-only rebuild is faster. Run this in
-the background and wait for the completion notification — do NOT start it while an agent is
-mid-editing a Kotlin/Rust file (you'll compile a half-written file).
-
-### Install / launch / screenshot / drive on device
-```
-S=58040DLCH005YV      # the Pixel 10 Pro's serial (USB). `adb devices` to reconfirm.
-adb -s $S install -r -d <apk>
-adb -s $S shell svc power stayon true          # stop it auto-locking mid-test
-adb -s $S shell am force-stop com.atvoptimizer.mobile   # cold start avoids the resume-blank bug
-adb -s $S shell am start -n com.atvoptimizer.mobile/.MainActivity
-adb -s $S exec-out screencap -p > shot.png     # then Read the png
-```
-Driving the UI blind via `adb shell input tap X Y`: the WebView is OPAQUE to `uiautomator`
-(one node), so you can't get element bounds — you tap by pixel coordinates read off a
-screenshot. Coordinates are the device's native 1080×2410; the Read tool shows the image at
-896×2000 with a "×1.21" note, so multiply displayed coords by 1.21. The layout SCROLLS, so
-re-screenshot before each tap; taps drift otherwise. **The secure lock screen blocks all of
-this** — if `dumpsys window | grep isKeyguardShowing` is true you can't get past the PIN; ask
-the user to unlock. Prefer having the user drive flows that need the TV's "Allow" prompt (it
-appears on the TV, not the phone) or the lock screen.
-
-### Logs
-The Rust side logs to logcat as `RustStdoutStderr`; the Kotlin transport logs as tag `AtvAdb`
-(connect/shell start+done, errors). Dump (non-blocking): `adb -s $S logcat -d | grep -aE
-"AtvAdb|RustStdoutStderr"`. Note: `timeout` is NOT on macOS (use a background+kill loop). In
-zsh, QUOTE logcat tag filters (`'AtvAdb:V' '*:S'`) or the `*` globs and the command aborts.
-
-### Gates (must pass; CI runs equivalents)
-```
-cd v2 && cargo fmt --check && cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 \
-  -p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings && \
-  cargo test -p shield-optimizer-core
-cd v2/mobile && npm run check   # 0 errors 0 warnings
-```
-Kotlin CANNOT be compiled standalone — it only compiles in the gradle android build, so
-review Kotlin by eye and rely on the device build to validate it.
-
-### The test network (this user's LAN)
-Shields / TVs on legacy network debugging `:5555`: `192.168.42.71`, `192.168.42.196`
-(model SHIELD_Android_TV, "Bedroom Shield" — **already authorizes this phone's key, so it
-reconnects with no TV prompt**), `192.168.42.143`, `192.168.42.25`. The Pixel itself advertises
-its own TLS service at `192.168.42.211:<random>` — filtered out by discovery. First connect to
-a NOT-yet-authorized TV pops an "Allow debugging?" dialog ON THE TV (accept with the remote);
-after that the key is remembered.
-
-## 10. How to work here (learned preferences)
-
-- The user wants **aggressive parallelism**: spin up multiple **Opus** implementers at once for
-  independent files (e.g., one on Kotlin transport, one on the Svelte UI) — they're the fastest
-  path. Keep agents on non-overlapping files to avoid conflicts. Reserve the on-device
-  screenshot/verify loop for the main thread (agents can't drive the phone).
-- Bias hard to **action over asking**; move fast, verify on device, iterate.
-- Commit checkpoints as you go (no `Co-Authored-By` per repo convention; new commit each time).
-- Follow the design spec's own copy/direction; don't regress to a generic look. The client
-  chose the lime accent + Geist deliberately.
-- Legacy Shields = network debugging, **no pairing code** — the user just taps Allow/OK on the
-  TV; only newer Google TV shows a 6-digit code.
-
-## 11. Commit history on `feat/atv-optimizer-mobile` (newest first)
-```
-ac9c3cd  Mobile UI: implement the ATV Optimizer onboarding design
-bb472f3  Mobile: fix cert generation that blocked every connect/pair
-b90e6d5  Mobile UI: legacy network-debugging discovery + fix invisible device text
-c0d0668  Mobile UI: redesign pairing screen, fix notch cutoff, sharpen scan
-27f2e1a  Mobile: fix on-device transport bugs from code review
-948460b  Mobile: extract wireless-ADB transport into a regen-safe Tauri plugin
-2a9fcb6  ATV Optimizer mobile: wireless-ADB transport, Free/Pro gating, guided pairing
-16e5c42  Extract v2 shared core workspace
-```
-The libadb read-hang mitigation from §5 (fast aborting 8s timeout + categorized first-read
-logging) is committed but **not yet device-verified** — the next device build must confirm the
-Kotlin compiles and read the categorized `AtvAdb` log against `.196`.
-Other open branches (unrelated, from the desktop track): PR #84 (release tooling), PR #85
-(restart button), PR #70 (dead-code, conflicting/stale).
+Immediate next action: resume the **fast-remote spike** (§5.1).
