@@ -14,6 +14,9 @@ import type {
   AppEntry,
   AppUsage,
   ApplyResult,
+  BackupEntry,
+  FileEntry,
+  PulledFile,
   ConnectResult,
   CurrentDisplayScaling,
   CurrentLauncher,
@@ -193,6 +196,17 @@ export const api = {
   getEntitlement: () => call<Entitlement>("get_entitlement"),
   activateLicense: (key: string) =>
     call<Entitlement>("activate_license", { key }),
+
+  // ---- File transfer (7.2) ----
+  listRemoteDir: (serial: string, path: string) =>
+    call<FileEntry[]>("list_remote_dir", { serial, path }),
+  pullFile: (serial: string, remotePath: string) =>
+    call<PulledFile>("pull_file", { serial, remotePath }),
+
+  // ---- Backups (7.3) ----
+  backupApk: (serial: string, pkg: string) =>
+    call<BackupEntry>("backup_apk", { serial, package: pkg }),
+  listBackups: () => call<BackupEntry[]>("list_backups"),
 
   // ---- Debug ----
   readDebugLog: () => call<string>("read_debug_log"),

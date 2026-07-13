@@ -306,6 +306,34 @@ export interface DeviceReport {
   error: string | null;
 }
 
+// ---- File transfer & backups (mobile-only, §7.2 / §7.3) ----
+
+/// One entry from `ls -lA` on the device (crates/core parse::FileEntry).
+export interface FileEntry {
+  name: string;
+  is_dir: boolean;
+  is_symlink: boolean;
+  size_bytes: number;
+  /// `YYYY-MM-DD HH:MM`, as toybox prints it.
+  modified: string;
+}
+
+/// A device file pulled into the app's scoped `downloads/` dir.
+export interface PulledFile {
+  name: string;
+  path: string;
+  size_bytes: number;
+}
+
+/// One APK backup living in the app's scoped `backups/` dir.
+export interface BackupEntry {
+  package: string;
+  path: string;
+  size_bytes: number;
+  /// ISO-8601 (UTC) of the backup file's last-modified time.
+  saved_at: string;
+}
+
 // ---- Saved-TV persistence (mobile-only, localStorage) ----
 
 /// A previously-paired TV remembered on this phone so the app can offer a

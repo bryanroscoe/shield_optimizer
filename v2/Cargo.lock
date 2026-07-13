@@ -286,6 +286,7 @@ version = "0.1.0"
 dependencies = [
  "adb_client",
  "async-trait",
+ "chrono",
  "dirs 5.0.1",
  "rsa",
  "serde",

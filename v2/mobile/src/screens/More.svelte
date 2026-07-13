@@ -57,6 +57,8 @@
     { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
     { screen: "tweaks", icon: "tune", title: "Tweaks", desc: "CEC, frame rate, DNS, animations", pro: true },
     { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Save, restore & clone a setup", pro: true },
+    { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and pull files to your phone", pro: false },
+    { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up an app's APK to your phone", pro: false },
     { screen: "riskguide", icon: "help", title: "Risk & actions guide", desc: "What each tier and action means", pro: false },
   ];
 

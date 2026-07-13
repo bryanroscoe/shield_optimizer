@@ -16,7 +16,9 @@ export type Screen =
   | "tweaks"
   | "snapshots"
   | "devices"
-  | "riskguide";
+  | "riskguide"
+  | "files"
+  | "backups";
 
 /// Screens that live behind the bottom tab bar (top-level). Everything else
 /// (e.g. diagnostics) is a detail screen reached from the dashboard.

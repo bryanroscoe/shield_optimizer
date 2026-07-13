@@ -14,6 +14,8 @@
   import Snapshots from "./screens/Snapshots.svelte";
   import Devices from "./screens/Devices.svelte";
   import RiskGuide from "./screens/RiskGuide.svelte";
+  import Files from "./screens/Files.svelte";
+  import Backups from "./screens/Backups.svelte";
 
   function navigate(screen: Screen) {
     router.navigate(screen);
@@ -73,4 +75,8 @@
   <Devices {navigate} onDisconnect={handleDisconnect} />
 {:else if router.current === "riskguide"}
   <RiskGuide {navigate} />
+{:else if router.current === "files"}
+  <Files {back} />
+{:else if router.current === "backups"}
+  <Backups {back} />
 {/if}

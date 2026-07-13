@@ -215,6 +215,19 @@
       </div>
     {/if}
 
+    {#if session.connectedDevice}
+      <div class="quick-actions">
+        <button class="quick-btn" onclick={() => navigate("files")}>
+          <span class="msr">sync_alt</span>
+          <span class="quick-label">Transfer files</span>
+        </button>
+        <button class="quick-btn" onclick={() => navigate("backups")}>
+          <span class="msr">cloud_sync</span>
+          <span class="quick-label">Backups</span>
+        </button>
+      </div>
+    {/if}
+
     <div class="callout teal">
       <span class="msr">verified_user</span>
       <span class="callout-text">Your phone remembers each paired TV, so reconnecting is one tap — no code needed.</span>
@@ -467,5 +480,37 @@
     flex: 1;
     font-size: 12px;
     line-height: 1.45;
+  }
+
+  .quick-actions {
+    display: flex;
+    gap: 11px;
+  }
+  .quick-btn {
+    flex: 1;
+    min-height: 74px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 15px;
+    cursor: pointer;
+    color: var(--text);
+    font-family: var(--sans);
+  }
+  .quick-btn:active {
+    background: var(--surface-2);
+  }
+  .quick-btn .msr {
+    font-size: 24px;
+    color: var(--accent);
+  }
+  .quick-label {
+    font-size: 13px;
+    font-weight: 600;
   }
 </style>

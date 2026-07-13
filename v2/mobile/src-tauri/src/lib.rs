@@ -4,6 +4,7 @@
 //! builds compile the same code with a stub transport so CI can validate the
 //! Rust command surface before Android hardware is available.
 
+mod file_commands;
 mod wireless_adb;
 mod wireless_commands;
 
@@ -230,6 +231,10 @@ pub fn run() {
             snapshot::save_snapshot,
             snapshot::apply_snapshot,
             snapshot::preview_apply,
+            file_commands::list_remote_dir,
+            file_commands::pull_file,
+            file_commands::backup_apk,
+            file_commands::list_backups,
         ])
         .run(tauri::generate_context!())
         .expect("error while running ATV Optimizer mobile application");

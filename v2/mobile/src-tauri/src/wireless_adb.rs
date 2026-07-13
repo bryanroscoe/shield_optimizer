@@ -34,9 +34,10 @@ struct Connection {
 /// The connection lifecycle (`connect`/`disconnect`) has no adb server on a
 /// phone, so those are explicit methods the mobile-only `wireless_*` commands
 /// call; the trait surface synthesizes `raw(["devices"])`, routes
-/// `shell`/screencap through the owned device, and maps `reboot`. `pair` is not
-/// yet supported (Android-11 SPAKE2 is a documented follow-up); forward/push/
-/// pull are structurally impossible on a phone and report `Unsupported`.
+/// `shell`/screencap through the owned device, maps `reboot`, and streams
+/// `push`/`pull` through the sync service via `raw_transfer`. `pair` is not yet
+/// supported (Android-11 SPAKE2 is a documented follow-up); `forward` is
+/// structurally impossible on a phone and reports `Unsupported`.
 pub struct WirelessAdb {
     app: tauri::AppHandle,
     /// PKCS#8 PEM ADB private key. Persisted so re-auth is silent across launches.
@@ -271,10 +272,48 @@ impl AdbDriver for WirelessAdb {
         }
     }
 
-    async fn raw_transfer(&self, _args: &[&str]) -> AdbResult<AdbOutput> {
-        Err(AdbError::Unsupported {
-            operation: "raw_transfer",
-        })
+    /// File transfer over the sync service. Only the two forms the mobile file
+    /// commands emit are supported: `pull` (device → this phone) and `push`
+    /// (this phone → device). Both open the local file inside the blocking
+    /// closure so nothing non-`Send` crosses the task boundary.
+    async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+        match args {
+            ["-s", _serial, "pull", remote, local] => {
+                let remote = remote.to_string();
+                let local = PathBuf::from(local);
+                self.on_device(move |dev| {
+                    let mut file = std::fs::File::create(&local)?;
+                    dev.pull(&remote, &mut file)?;
+                    Ok(())
+                })
+                .await
+                .map_err(AdbError::Transport)?;
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            ["-s", _serial, "push", local, remote] => {
+                let remote = remote.to_string();
+                let local = PathBuf::from(local);
+                self.on_device(move |dev| {
+                    let mut file = std::fs::File::open(&local)?;
+                    dev.push(&mut file, &remote)?;
+                    Ok(())
+                })
+                .await
+                .map_err(AdbError::Transport)?;
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            _ => Err(AdbError::Unsupported {
+                operation: "raw_transfer",
+            }),
+        }
     }
 
     async fn shell(&self, _serial: &str, command: &str) -> AdbResult<AdbOutput> {
