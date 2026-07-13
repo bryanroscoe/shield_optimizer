@@ -4,6 +4,26 @@ You are a scheduled cloud Claude Code agent. You have **NO physical device** —
 `adb`, device installs, or on-device verification. Everything you do must be verifiable by
 **build + tests only**. You start with zero context; this file is your brief.
 
+## STATUS (updated 2026-07-12) — read this before picking work
+DONE already (do NOT redo): the pure-Rust `adb_client` transport swap (libadb removed); all the
+Phase 6 design screens — Launcher, Tweaks, Snapshots, Devices, App-detail sheet, Risk guide,
+Reconnect/saved-TV, **and File transfer + Backups** (`file_commands.rs` + Files.svelte/Backups.svelte).
+Tasks A and B below are essentially COMPLETE.
+
+REMAINING QUEUE (work these, in order; each gate-verified + committed + pushed):
+1. **Fast remote** — mobile low-latency input. The desktop scrcpy control channel is desktop-only;
+   design/scope a mobile equivalent (persistent control stream via adb_client / scrcpy-server over
+   a localabstract stream). This likely needs a spike — if you can't validate without a device,
+   write `v2/mobile/FAST-REMOTE-PLAN.md` instead of building blind.
+2. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in
+   Rust so brand-new Google-TV devices can pair (legacy `:5555` needs no pairing). Reference the
+   Apache-2.0 AOSP pairing sources. Plan first in `v2/mobile/PAIRING-PLAN.md` if risky.
+3. **SAF push picker + Google Drive sync** for File transfer/Backups (currently app-scoped only).
+4. **Polish:** subset the 5.3 MB Material Symbols font to only the icons used (grep `class="msr"`);
+   disable autocorrect/autocapitalize on the license-key input (More screen).
+Follow the same rules (never fake data, LOCKED→paywall, safety via core `safety_info`, Svelte 5
+runes, lime/Geist look). Verify with the gates in Task C, commit, push.
+
 ## Setup
 1. `git checkout feat/atv-optimizer-mobile` (the work is on this branch, **not** `main`). Confirm
    `v2/mobile/` exists.
