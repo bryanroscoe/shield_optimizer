@@ -1,0 +1,66 @@
+[package]
+authors.workspace = true
+description = "Rust ADB (Android Debug Bridge) client library"
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+name = "adb_client"
+readme = "README.md"
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["framebuffer"]
+mdns = ["dep:mdns-sd"]
+usb = ["dep:rusb"]
+framebuffer = ["dep:image"]
+
+[dependencies]
+base64 = { version = "0.22.1" }
+byteorder = { version = "1.5.0" }
+chrono = { version = "0.4.44", default-features = false, features = ["std"] }
+image = { version = "0.25.10", default-features = false, features = ["png"], optional = true }
+log = { version = "0.4.30" }
+num-bigint = { version = "0.8.6", package = "num-bigint-dig" }
+num-traits = { version = "0.2.19" }
+quick-protobuf = { version = "0.8.1" }
+rand = { version = "0.10.1" }
+rcgen = { version = "0.14.8", default-features = false, features = [
+    "ring",
+    "pem",
+] }
+regex = { version = "1.12.3", features = ["perf", "std", "unicode"] }
+rsa = { version = "0.9.10" }
+rustls = { version = "0.23.40", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-pki-types = { version = "1.14.1" }
+sha1 = { version = "0.10.6", features = ["oid"] }
+thiserror = { version = "2.0.18" }
+
+#########
+# `mdns` feature-specific dependencies
+mdns-sd = { version = "0.19.2", default-features = false, features = [
+    "logging",
+], optional = true }
+#########
+#########
+# USB-only dependencies
+rusb = { version = "0.9.4", features = ["vendored"], optional = true }
+num_enum = { version = "0.7.6" }
+#########
+
+[dev-dependencies]
+anyhow = { version = "1.0.102" }
+criterion = { version = "0.8.2" } # Used for benchmarks
+
+[[bench]]
+harness = false
+name = "benchmark_adb_push"
+path = "../benches/benchmark_adb_push.rs"

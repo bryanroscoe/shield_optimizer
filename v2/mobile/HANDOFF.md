@@ -6,8 +6,7 @@ Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (findings audit
 what it is), `CLOUD-TASK.md` (brief for the nightly cloud agent). Cross-session memory also lives
 in `~/.claude/projects/-Users-bryanroscoe-Developer-shield-optimizer/memory/`.
 
-Branch: **`feat/atv-optimizer-mobile`** (pushed to origin, in sync). Working tree clean.
-Last commit: `bd6cbd8`. Not merged to `main` and no PR yet.
+Branch: **`feat/atv-optimizer-mobile`**. Not merged to `main` and no PR yet.
 
 ---
 
@@ -79,13 +78,12 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 ## 5. What REMAINS (in priority order; also in CLOUD-TASK.md)
 1. **Fast remote** — the remote works but in slow "compat" mode (`adb shell input`, ~690ms/press).
-   The desktop's fast path (scrcpy control channel) is `#[cfg(not(android))]` and can't port.
-   Needs a mobile equivalent (scrcpy-server over an `adb_client` stream). **Spike first** — I was
-   mid-check on whether `adb_client` can open the `localabstract:` stream a scrcpy control channel
-   needs; `adb_client` has `Forward/Reverse` local commands (server-mode) but the direct
-   `ADBTcpDevice` (no-server) generic-stream support is unconfirmed. If it can't, options: a
-   persistent-shell input pipe (won't fix the JVM-cold-start latency), `sendevent`, or bundle
-   scrcpy differently. Write `FAST-REMOTE-PLAN.md` if you can't validate without a device.
+   Phase 1 is complete: the workspace pins an MIT-licensed `adb_client` 3.2.2 patch with a generic
+   `ADBTcpService` raw stream on a **separate authenticated connection**. Protocol tests cover
+   `OPEN`/`WRTE`/`OKAY`/`CLSE`, buffering, IDs, timeouts, and chunking; the patch is clippy-clean and
+   cross-compiles for aarch64 Android with the mobile framebuffer feature. The remaining mobile
+   session wiring, lifecycle, fallback, and device-benchmark gates are in
+   **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
 2. **SPAKE2 pairing** — for new Google-TV devices (legacy Shields don't need it). Clean-room from
    Apache-2.0 AOSP pairing sources; plan first if risky.
 3. **SAF push picker + Google Drive sync** — Files/Backups are app-scoped-storage only for now.
@@ -157,4 +155,6 @@ b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
 ac9c3cd onboarding design
 16e5c42 (earlier) extract shared core workspace
 ```
-Immediate next action: resume the **fast-remote spike** (§5.1).
+Immediate next action: implement **Phase 2 of `FAST-REMOTE-PLAN.md`**: embed/materialize the pinned
+scrcpy jar, add the Android session transport behind `WirelessAdb`, and keep normal commands on the
+existing connection while the control stream owns its dedicated connection.

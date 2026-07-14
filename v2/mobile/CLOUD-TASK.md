@@ -11,10 +11,10 @@ Reconnect/saved-TV, **and File transfer + Backups** (`file_commands.rs` + Files.
 Tasks A and B below are essentially COMPLETE.
 
 REMAINING QUEUE (work these, in order; each gate-verified + committed + pushed):
-1. **Fast remote** — mobile low-latency input. The desktop scrcpy control channel is desktop-only;
-   design/scope a mobile equivalent (persistent control stream via adb_client / scrcpy-server over
-   a localabstract stream). This likely needs a spike — if you can't validate without a device,
-   write `v2/mobile/FAST-REMOTE-PLAN.md` instead of building blind.
+1. **Fast remote** — mobile low-latency input. Phase 1 is complete: `vendor/adb_client` provides the
+   tested, cross-compiled `ADBTcpService` raw stream. Continue with Phase 2 in
+   `FAST-REMOTE-PLAN.md`: embed/materialize the existing scrcpy jar, implement the Android session
+   transport behind `WirelessAdb`, and preserve the separate control connection and shell fallback.
 2. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in
    Rust so brand-new Google-TV devices can pair (legacy `:5555` needs no pairing). Reference the
    Apache-2.0 AOSP pairing sources. Plan first in `v2/mobile/PAIRING-PLAN.md` if risky.

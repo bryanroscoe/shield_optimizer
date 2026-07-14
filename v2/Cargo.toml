@@ -6,3 +6,9 @@ members = [
     "mobile/src-tauri",
     "mobile/tauri-plugin-atv-adb",
 ]
+exclude = ["vendor/adb_client"]
+
+[patch.crates-io]
+# Exact 3.2.2 source plus the generic raw-service stream required by mobile's
+# direct-to-adbd scrcpy control channel. See mobile/FAST-REMOTE-PLAN.md.
+adb_client = { path = "vendor/adb_client" }
