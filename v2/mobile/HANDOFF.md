@@ -61,6 +61,9 @@ aligned, never fork it*.
 - **APK backup correctness**: new backups contain every `pm path` APK in a versioned bundle and can
   be restored together; restore paths are confined to app storage, remote staging is always cleaned,
   and legacy base-only files remain visible but are explicitly not restorable.
+- **APK size polish**: `scripts/subset-material-symbols.py` derives the bundled icon font from Svelte
+  references and validates retained ligatures (5.34 MB to about 111 KB). The license-key field also
+  disables mobile autocorrect, spellcheck, and capitalization.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.

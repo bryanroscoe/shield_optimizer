@@ -124,6 +124,9 @@
             bind:value={licenseKey}
             placeholder="Enter license key…"
             class="license-input mono"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
             onkeydown={(e) => e.key === "Enter" && activate()}
           />
           <button class="primary small-btn" disabled={!licenseKey || activating} onclick={activate}>

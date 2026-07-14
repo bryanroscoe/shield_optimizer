@@ -26,8 +26,8 @@ REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
    Rust so brand-new Google-TV devices can pair (legacy `:5555` needs no pairing). Reference the
    Apache-2.0 AOSP pairing sources. Plan first in `v2/mobile/PAIRING-PLAN.md` if risky.
 4. **SAF import/export**, then Google Drive sync for the complete manifest-backed APK bundles.
-5. **Polish:** subset the 5.3 MB Material Symbols font to only the icons used (grep `class="msr"`);
-   disable autocorrect/autocapitalize on the license-key input (More screen).
+5. **Polish:** icon-font subsetting and license-key keyboard attributes are complete. Continue with
+   consolidated third-party notices and the accessibility/navigation review.
 Follow the same rules (never fake data, LOCKED→paywall, safety via core `safety_info`, Svelte 5
 runes, lime/Geist look). Verify with the gates in Task C, commit, push.
 

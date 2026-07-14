@@ -45,6 +45,8 @@ Implemented in the current checkpoint:
 - Store every APK part in a versioned, manifest-backed backup bundle; restore complete bundles with
   `pm install-multiple`, path-confine every restore read, clean remote staging on every result, and
   label older base-only backups as incomplete instead of offering an unsafe restore.
+- Subset the bundled Material Symbols font reproducibly from Svelte references (5.34 MB to about
+  111 KB) and disable autocorrect, spellcheck, and automatic capitalization for license keys.
 
 ## P0 — next correctness work
 
@@ -69,8 +71,8 @@ Implemented in the current checkpoint:
 - Android signing, release variants, versionCode/versionName automation, per-ABI output, and CI.
 - Third-party notices and a legal/privacy/security review, including `adb_client` and its crypto
   dependency chain.
-- Subset Material Symbols, review font licenses, fix license-input keyboard attributes, complete
-  accessibility/navigation review, and measure release APK size.
+- Consolidate and surface third-party font notices, complete the accessibility/navigation review,
+  and measure the signed release APK size.
 - Reconcile the mobile feature matrix with actual command behavior and remove overpromising copy
   such as “exact rollback,” “automatic snapshots,” or “fully reversible” where the implementation
   cannot guarantee it.
