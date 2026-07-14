@@ -14,11 +14,16 @@
 //! keeping `crates/core/engine` pure. The transfer itself is implemented by
 //! `WirelessAdb::raw_transfer` via `adb_client`'s sync service.
 
+use std::path::{Path, PathBuf};
+
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use shield_optimizer_core::adb::{parse_ls_output, FileEntry};
-use shield_optimizer_core::commands::AppState;
+use shield_optimizer_core::commands::{apps::ActionResult, AppState};
 use tauri::State;
+
+const BACKUP_SCHEMA_VERSION: u32 = 1;
+const BACKUP_MANIFEST: &str = "backup.json";
 
 /// A file pulled off the device into the app's scoped `downloads/` dir.
 #[derive(Serialize)]
@@ -34,8 +39,20 @@ pub struct BackupEntry {
     pub package: String,
     pub path: String,
     pub size_bytes: u64,
+    pub apk_count: usize,
+    /// False for base-only backups created by older app versions. Those files
+    /// may be missing required split APKs, so the UI must not promise restore.
+    pub complete: bool,
     /// ISO-8601 (UTC) of the backup file's last-modified time.
     pub saved_at: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct BackupManifest {
+    schema_version: u32,
+    package: String,
+    saved_at: String,
+    apk_files: Vec<String>,
 }
 
 /// Validate a device path for browsing/pull: absolute, no `..` traversal, no
@@ -77,6 +94,112 @@ fn validate_package(pkg: &str) -> Result<String, String> {
 
 fn basename(path: &str) -> Option<&str> {
     path.rsplit('/').next().filter(|s| !s.is_empty())
+}
+
+fn safe_apk_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && name.ends_with(".apk")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+fn parse_pm_paths(stdout: &str) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    for raw in stdout
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("package:"))
+        .filter(|path| !path.is_empty())
+    {
+        let path = validate_device_path(raw)?;
+        let name = basename(&path).ok_or_else(|| format!("Invalid APK path: {path}"))?;
+        if !safe_apk_name(name) {
+            return Err(format!("Unsafe APK filename reported by the TV: {name:?}"));
+        }
+        paths.push(path);
+    }
+    Ok(paths)
+}
+
+fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
+    let manifest_path = dir.join(BACKUP_MANIFEST);
+    let bytes = std::fs::read(&manifest_path)
+        .map_err(|e| format!("read {}: {e}", manifest_path.display()))?;
+    let manifest: BackupManifest = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("parse {}: {e}", manifest_path.display()))?;
+    if manifest.schema_version != BACKUP_SCHEMA_VERSION {
+        return Err(format!(
+            "Unsupported APK backup schema {}.",
+            manifest.schema_version
+        ));
+    }
+    validate_package(&manifest.package)?;
+    if manifest.apk_files.is_empty() || manifest.apk_files.iter().any(|f| !safe_apk_name(f)) {
+        return Err("APK backup manifest contains invalid files.".to_string());
+    }
+    Ok(manifest)
+}
+
+fn bundle_files(dir: &Path, manifest: &BackupManifest) -> Result<Vec<PathBuf>, String> {
+    let root = dir
+        .canonicalize()
+        .map_err(|e| format!("open backup bundle: {e}"))?;
+    manifest
+        .apk_files
+        .iter()
+        .map(|name| {
+            let path = dir.join(name);
+            let link_meta = std::fs::symlink_metadata(&path)
+                .map_err(|e| format!("open backup APK {name}: {e}"))?;
+            if link_meta.file_type().is_symlink() || !link_meta.is_file() {
+                return Err(format!("APK backup is missing {name}."));
+            }
+            let canonical = path
+                .canonicalize()
+                .map_err(|e| format!("open backup APK {name}: {e}"))?;
+            if !canonical.starts_with(&root) {
+                return Err(format!("APK backup path escapes its bundle: {name}."));
+            }
+            Ok(canonical)
+        })
+        .collect()
+}
+
+fn shell_failed(out: &shield_optimizer_core::adb::AdbOutput) -> bool {
+    out.exit_code.is_some_and(|code| code != 0) || out.shell_reported_failure()
+}
+
+fn bundle_entry(dir: &Path) -> Result<BackupEntry, String> {
+    let manifest = read_manifest(dir)?;
+    let files = bundle_files(dir, &manifest)?;
+    let size_bytes = files.iter().try_fold(0_u64, |total, path| {
+        std::fs::metadata(path)
+            .map(|meta| total.saturating_add(meta.len()))
+            .map_err(|e| format!("stat {}: {e}", path.display()))
+    })?;
+    Ok(BackupEntry {
+        package: manifest.package,
+        path: dir.to_string_lossy().into_owned(),
+        size_bytes,
+        apk_count: files.len(),
+        complete: true,
+        saved_at: manifest.saved_at,
+    })
+}
+
+fn confined_backup_path(root: &Path, requested: &str) -> Result<PathBuf, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("open backups directory: {e}"))?;
+    let requested = PathBuf::from(requested)
+        .canonicalize()
+        .map_err(|e| format!("open backup: {e}"))?;
+    if requested == root || !requested.starts_with(&root) {
+        return Err("Backup path is outside this app's backup directory.".to_string());
+    }
+    Ok(requested)
 }
 
 /// `list_remote_dir` — browse a directory on the connected TV. Returns the
@@ -142,8 +265,8 @@ pub async fn pull_file(
     })
 }
 
-/// `backup_apk` — resolve a package's base APK with `pm path`, then pull it into
-/// the app's scoped `backups/` dir as `<package>.apk`.
+/// `backup_apk` — resolve every APK reported by `pm path` and pull the complete
+/// set into one versioned bundle. Split APKs are only restorable as a set.
 #[tauri::command]
 pub async fn backup_apk(
     state: State<'_, AppState>,
@@ -157,40 +280,148 @@ pub async fn backup_apk(
         .await
         .map_err(|e| format!("pm path: {e}"))?;
 
-    // `pm path` emits `package:/path/to/base.apk` (one line per split APK).
-    // Prefer the base split; fall back to the first path.
-    let paths: Vec<&str> = out
-        .stdout
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("package:"))
-        .filter(|p| !p.is_empty())
-        .collect();
-    let apk_path = paths
-        .iter()
-        .find(|p| p.ends_with("base.apk"))
-        .or_else(|| paths.first())
-        .ok_or_else(|| format!("No APK found for {pkg} — is it installed?"))?
-        .to_string();
+    if shell_failed(&out) {
+        return Err(format!(
+            "Could not resolve {pkg}: {}",
+            out.combined().trim()
+        ));
+    }
+    let paths = parse_pm_paths(&out.stdout)?;
+    if paths.is_empty() {
+        return Err(format!("No APK found for {pkg} — is it installed?"));
+    }
 
-    let dir = state.data_dir.join("backups");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create backups dir: {e}"))?;
-    let local = dir.join(format!("{pkg}.apk"));
-    let local_str = local.to_string_lossy().into_owned();
+    let root = state.data_dir.join("backups");
+    std::fs::create_dir_all(&root).map_err(|e| format!("create backups dir: {e}"))?;
+    let saved_at = Utc::now();
+    let dir = root.join(format!("{pkg}-{}", saved_at.format("%Y%m%dT%H%M%S%9fZ")));
+    std::fs::create_dir(&dir).map_err(|e| format!("create backup bundle: {e}"))?;
 
-    adb.raw_transfer(&["-s", &serial, "pull", &apk_path, &local_str])
-        .await
-        .map_err(|e| format!("pull apk: {e}"))?;
+    let result = async {
+        let mut apk_files = Vec::with_capacity(paths.len());
+        for (index, remote) in paths.iter().enumerate() {
+            let remote_name = basename(remote).expect("validated APK path has a basename");
+            let local_name = format!("{index:03}-{remote_name}");
+            let local = dir.join(&local_name);
+            let local_str = local.to_string_lossy().into_owned();
+            adb.raw_transfer(&["-s", &serial, "pull", remote, &local_str])
+                .await
+                .map_err(|e| format!("pull {remote_name}: {e}"))?;
+            let size = std::fs::metadata(&local)
+                .map_err(|e| format!("stat {local_name}: {e}"))?
+                .len();
+            if size == 0 {
+                return Err(format!("The TV returned an empty APK: {remote_name}"));
+            }
+            apk_files.push(local_name);
+        }
+        let manifest = BackupManifest {
+            schema_version: BACKUP_SCHEMA_VERSION,
+            package: pkg.clone(),
+            saved_at: saved_at.to_rfc3339(),
+            apk_files,
+        };
+        let json = serde_json::to_vec_pretty(&manifest)
+            .map_err(|e| format!("encode backup manifest: {e}"))?;
+        std::fs::write(dir.join(BACKUP_MANIFEST), json)
+            .map_err(|e| format!("write backup manifest: {e}"))?;
+        bundle_entry(&dir)
+    }
+    .await;
 
-    let meta = std::fs::metadata(&local).map_err(|e| format!("stat backup: {e}"))?;
-    Ok(BackupEntry {
-        package: pkg,
-        path: local_str,
-        size_bytes: meta.len(),
-        saved_at: file_modified_iso(&meta),
-    })
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    result
 }
 
-/// `list_backups` — every `<package>.apk` in the app's scoped `backups/` dir,
+/// `restore_apk_backup` — push a path-confined complete bundle to a temporary
+/// TV directory and install every APK together. Cleanup runs on every result.
+#[tauri::command]
+pub async fn restore_apk_backup(
+    state: State<'_, AppState>,
+    serial: String,
+    backup_path: String,
+) -> Result<ActionResult, String> {
+    let root = state.data_dir.join("backups");
+    let dir = confined_backup_path(&root, &backup_path)?;
+    if !dir.is_dir() {
+        return Err(
+            "This legacy backup may contain only base.apk and cannot be restored safely. Create a new complete backup first."
+                .to_string(),
+        );
+    }
+    let manifest = read_manifest(&dir)?;
+    let files = bundle_files(&dir, &manifest)?;
+    let stamp = Utc::now().format("%Y%m%d%H%M%S%9f");
+    let remote_dir = format!("/data/local/tmp/atv-optimizer-restore-{stamp}");
+    let adb = state.adb_snapshot().await;
+    let mkdir = adb
+        .shell(&serial, &format!("mkdir -p {}", quote_path(&remote_dir)))
+        .await
+        .map_err(|e| format!("prepare restore: {e}"))?;
+    if shell_failed(&mkdir) {
+        return Err(format!(
+            "Could not prepare restore: {}",
+            mkdir.combined().trim()
+        ));
+    }
+
+    let result = async {
+        let mut remote_files = Vec::with_capacity(files.len());
+        for file in &files {
+            let name = file
+                .file_name()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| "Backup contains an invalid APK filename.".to_string())?;
+            let local = file.to_string_lossy().into_owned();
+            let remote = format!("{remote_dir}/{name}");
+            adb.raw_transfer(&["-s", &serial, "push", &local, &remote])
+                .await
+                .map_err(|e| format!("push {name}: {e}"))?;
+            remote_files.push(remote);
+        }
+
+        let verb = if remote_files.len() > 1 {
+            "install-multiple"
+        } else {
+            "install"
+        };
+        let paths = remote_files
+            .iter()
+            .map(|path| quote_path(path))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let out = adb
+            .shell(&serial, &format!("pm {verb} -r {paths}"))
+            .await
+            .map_err(|e| format!("install backup: {e}"))?;
+        let message = out.combined().trim().to_string();
+        let ok = !shell_failed(&out) && message.to_ascii_lowercase().contains("success");
+        Ok(ActionResult {
+            ok,
+            message: if ok {
+                format!(
+                    "Restored {} from {} APK file(s).",
+                    manifest.package,
+                    files.len()
+                )
+            } else if message.is_empty() {
+                "The TV did not confirm that the backup was installed.".to_string()
+            } else {
+                message
+            },
+        })
+    }
+    .await;
+
+    let _ = adb
+        .shell(&serial, &format!("rm -rf {}", quote_path(&remote_dir)))
+        .await;
+    result
+}
+
+/// `list_backups` — complete bundle directories plus base-only legacy APKs,
 /// newest first. An absent dir is not an error — returns an empty list.
 #[tauri::command]
 pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>, String> {
@@ -203,6 +434,12 @@ pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>
     let mut out = Vec::new();
     for entry in read.flatten() {
         let path = entry.path();
+        if path.is_dir() {
+            if let Ok(bundle) = bundle_entry(&path) {
+                out.push(bundle);
+            }
+            continue;
+        }
         if path.extension().and_then(|e| e.to_str()) != Some("apk") {
             continue;
         }
@@ -214,6 +451,8 @@ pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>
             package: package.to_string(),
             path: path.to_string_lossy().into_owned(),
             size_bytes: meta.len(),
+            apk_count: 1,
+            complete: false,
             saved_at: file_modified_iso(&meta),
         });
     }
@@ -228,4 +467,69 @@ fn file_modified_iso(meta: &std::fs::Metadata) -> String {
         .ok()
         .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_every_split_apk_path() {
+        let paths = parse_pm_paths(
+            "package:/data/app/x/base.apk\npackage:/data/app/x/split_config.en.apk\nnoise\n",
+        )
+        .expect("valid paths");
+        assert_eq!(paths.len(), 2);
+        assert!(paths[1].ends_with("split_config.en.apk"));
+    }
+
+    #[test]
+    fn rejects_unsafe_reported_apk_path() {
+        assert!(parse_pm_paths("package:/data/app/x/../../escape.apk\n").is_err());
+        assert!(parse_pm_paths("package:/data/app/x/not-an-apk\n").is_err());
+    }
+
+    #[test]
+    fn restore_path_must_stay_inside_backup_root() {
+        let root = tempfile::tempdir().expect("root");
+        let inside = root.path().join("com.example-1");
+        std::fs::create_dir(&inside).expect("inside");
+        let outside = tempfile::tempdir().expect("outside");
+        assert_eq!(
+            confined_backup_path(root.path(), inside.to_str().expect("utf8")).expect("confined"),
+            inside.canonicalize().expect("canonical")
+        );
+        assert!(
+            confined_backup_path(root.path(), outside.path().to_str().expect("outside utf8"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn complete_bundle_round_trips() {
+        let root = tempfile::tempdir().expect("root");
+        let dir = root.path().join("com.example-1");
+        std::fs::create_dir(&dir).expect("bundle dir");
+        std::fs::write(dir.join("000-base.apk"), b"base").expect("base");
+        std::fs::write(dir.join("001-split_config.en.apk"), b"split").expect("split");
+        let manifest = BackupManifest {
+            schema_version: BACKUP_SCHEMA_VERSION,
+            package: "com.example".to_string(),
+            saved_at: "2026-07-13T23:30:00Z".to_string(),
+            apk_files: vec![
+                "000-base.apk".to_string(),
+                "001-split_config.en.apk".to_string(),
+            ],
+        };
+        std::fs::write(
+            dir.join(BACKUP_MANIFEST),
+            serde_json::to_vec(&manifest).expect("json"),
+        )
+        .expect("manifest");
+
+        let entry = bundle_entry(&dir).expect("entry");
+        assert!(entry.complete);
+        assert_eq!(entry.apk_count, 2);
+        assert_eq!(entry.size_bytes, 9);
+    }
 }

@@ -42,22 +42,23 @@ Implemented in the current checkpoint:
   dates), show an explicit stale-data warning after Diagnostics refresh failure, isolate safety and
   Tweaks loads by device/request, capture the mutation target serial, and reload Tweaks after any
   possibly-partial write failure.
+- Store every APK part in a versioned, manifest-backed backup bundle; restore complete bundles with
+  `pm install-multiple`, path-confine every restore read, clean remote staging on every result, and
+  label older base-only backups as incomplete instead of offering an unsafe restore.
 
 ## P0 — next correctness work
 
 1. **Fast-remote concurrency device gates.** Exercise diagnostics and file operations while the
    channel is live, plus hold, background/reconnect, and reboot cleanup. The known start/reset and
    failure-cleanup code paths are now serialized and bounded.
-2. **File and backup honesty/correctness.** Implement restore or remove restore promises; handle
-   split APKs instead of presenting a base-APK copy as a complete backup.
 
 ## P1 — required product features
 
 1. Finish the fast-remote Phase 4 device matrix in `FAST-REMOTE-PLAN.md`: second Shield, holds,
    sleep/wake, reboot, phone background/foreground, reconnect, and concurrent operations.
 2. Implement Android 11 wireless-debugging SPAKE2 pairing for new Google TV devices.
-3. Add Android SAF import/export and push destinations; then add an explicit restore flow and only
-   then consider Google Drive sync.
+3. Add Android SAF import/export and user-selected push destinations, then consider Google Drive
+   sync for complete APK bundles.
 4. Add panic recovery, advanced reboot, permission/app-op controls, reinstall-existing, and a
    deliberate performance/correctness pass across Launcher, Tweaks, Files, and Backups.
 5. Replace the hard-coded development Pro key with signed commercial license validation and a

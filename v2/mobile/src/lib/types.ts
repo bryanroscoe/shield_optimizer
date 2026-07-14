@@ -338,6 +338,9 @@ export interface BackupEntry {
   package: string;
   path: string;
   size_bytes: number;
+  apk_count: number;
+  /// False for base-only backups created before split-APK bundles existed.
+  complete: boolean;
   /// ISO-8601 (UTC) of the backup file's last-modified time.
   saved_at: string;
 }

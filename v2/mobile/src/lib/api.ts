@@ -216,6 +216,8 @@ export const api = {
   // ---- Backups (7.3) ----
   backupApk: (serial: string, pkg: string) =>
     call<BackupEntry>("backup_apk", { serial, package: pkg }),
+  restoreApkBackup: (serial: string, backupPath: string) =>
+    call<ActionResult>("restore_apk_backup", { serial, backupPath }),
   listBackups: () => call<BackupEntry[]>("list_backups"),
 
   // ---- Debug ----

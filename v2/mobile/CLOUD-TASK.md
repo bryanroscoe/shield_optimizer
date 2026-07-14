@@ -17,16 +17,15 @@ the Optimize apply path, and truthful shell-v2 stderr/exit status. Read `BACKLOG
 the old queue below.
 
 REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
-1. **P0 correctness from `BACKLOG.md`** — start with file/backup correctness. Shell-v2 results,
+1. **P0 correctness from `BACKLOG.md`** — split-APK backup/restore correctness, shell-v2 results,
    known remote cleanup/backpressure paths, saved-device normalization, and diagnostics/tweaks state
-   isolation are complete; preserve them and finish the physical-device concurrency matrix separately.
+   isolation are complete; preserve them and finish the physical-device concurrency matrix.
 2. **Fast remote Phase 4** — code-only lifecycle/concurrency coverage is allowed in cloud work; do
    not claim physical device gates. See `FAST-REMOTE-PLAN.md`.
 3. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in
    Rust so brand-new Google-TV devices can pair (legacy `:5555` needs no pairing). Reference the
    Apache-2.0 AOSP pairing sources. Plan first in `v2/mobile/PAIRING-PLAN.md` if risky.
-4. **SAF import/export + restore correctness**, then Google Drive sync. Backups currently copy only
-   the base APK and must not be described as a complete split-APK backup.
+4. **SAF import/export**, then Google Drive sync for the complete manifest-backed APK bundles.
 5. **Polish:** subset the 5.3 MB Material Symbols font to only the icons used (grep `class="msr"`);
    disable autocorrect/autocapitalize on the license-key input (More screen).
 Follow the same rules (never fake data, LOCKED→paywall, safety via core `safety_info`, Svelte 5

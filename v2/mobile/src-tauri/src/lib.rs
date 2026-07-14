@@ -243,6 +243,7 @@ pub fn run() {
             file_commands::list_remote_dir,
             file_commands::pull_file,
             file_commands::backup_apk,
+            file_commands::restore_apk_backup,
             file_commands::list_backups,
         ])
         .run(tauri::generate_context!())

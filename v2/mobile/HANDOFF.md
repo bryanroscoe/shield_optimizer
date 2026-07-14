@@ -58,6 +58,9 @@ aligned, never fork it*.
 - **State-isolation checkpoint**: malformed saved TVs are normalized safely; Diagnostics labels
   stale metrics after a failed refresh and isolates safety lookups; Tweaks requests cannot overwrite
   another device, mutations capture their target serial, and partial failures force a real reload.
+- **APK backup correctness**: new backups contain every `pm path` APK in a versioned bundle and can
+  be restored together; restore paths are confined to app storage, remote staging is always cleaned,
+  and legacy base-only files remain visible but are explicitly not restorable.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -101,10 +104,10 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate sequence is:
 
-1. Finish the open P0 correctness items, starting with the fast-remote lifecycle races.
+1. Finish the remaining P0 fast-remote physical-device concurrency gates.
 2. Finish the remaining Phase 4 device matrix in
    **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
-3. Implement SPAKE2 pairing, then SAF import/export/restore correctness, then Drive sync.
+3. Implement SPAKE2 pairing, then SAF import/export, then Drive sync for complete bundles.
 4. Replace the development license key and build the Android release/signing pipeline before
    calling the app commercially releasable.
 

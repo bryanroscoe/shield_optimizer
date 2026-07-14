@@ -3,6 +3,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { BackupEntry, OtherPackage } from "../lib/types";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -19,6 +20,10 @@
   let packages = $state<OtherPackage[]>([]);
   let search = $state("");
   let busyPkg = $state("");
+  let packagesSerial = $state("");
+  let pickerGeneration = 0;
+  let restoreTarget = $state<BackupEntry | null>(null);
+  let busyRestore = $state("");
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -46,15 +51,23 @@
 
   async function openPicker() {
     picking = true;
-    if (packages.length > 0 || !session.serial) return;
+    const serial = session.serial;
+    if (!serial) return;
+    if (packages.length > 0 && packagesSerial === serial) return;
+    const generation = ++pickerGeneration;
+    packages = [];
     pkgLoading = true;
     pkgError = "";
     try {
-      packages = await api.listOtherPackages(session.serial);
+      const rows = await api.listOtherPackages(serial);
+      if (generation !== pickerGeneration || serial !== session.serial) return;
+      packages = rows;
+      packagesSerial = serial;
     } catch (e) {
+      if (generation !== pickerGeneration || serial !== session.serial) return;
       pkgError = String(e);
     } finally {
-      pkgLoading = false;
+      if (generation === pickerGeneration && serial === session.serial) pkgLoading = false;
     }
   }
 
@@ -73,11 +86,15 @@
   });
 
   async function backup(p: OtherPackage) {
-    if (busyPkg || !session.serial) return;
+    const targetSerial = session.serial;
+    if (busyPkg || !targetSerial) return;
     busyPkg = p.package;
     try {
-      const entry = await api.backupApk(session.serial, p.package);
-      showToast(`Backed up ${p.name ?? p.package}.`, "success");
+      const entry = await api.backupApk(targetSerial, p.package);
+      showToast(
+        `Backed up ${p.name ?? p.package} (${entry.apk_count} APK${entry.apk_count === 1 ? "" : "s"}).`,
+        "success",
+      );
       backups = [entry, ...backups.filter((b) => b.path !== entry.path)];
       picking = false;
       search = "";
@@ -85,6 +102,22 @@
       showToast(String(e), "error");
     } finally {
       busyPkg = "";
+    }
+  }
+
+  async function confirmRestore() {
+    const backup = restoreTarget;
+    const targetSerial = session.serial;
+    restoreTarget = null;
+    if (!backup || !targetSerial || busyRestore) return;
+    busyRestore = backup.path;
+    try {
+      const result = await api.restoreApkBackup(targetSerial, backup.path);
+      showToast(result.message, result.ok ? "success" : "error");
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      busyRestore = "";
     }
   }
 
@@ -144,8 +177,8 @@
   <div class="create-card">
     <span class="card-label">Back up an app's APK</span>
     <p class="card-desc">
-      Saves the installed APK to this phone so you can reinstall it later — handy before removing a
-      sideloaded app.
+      Saves every installed APK part to this phone so the app can be restored later. App data and
+      sign-in details are not included.
     </p>
     {#if !picking}
       <button class="primary small-inline" disabled={!session.serial} onclick={openPicker}>
@@ -206,9 +239,25 @@
           <div class="b-icon"><span class="msr">android</span></div>
           <div class="b-body">
             <span class="b-name">{b.package}</span>
-            <span class="b-sub mono">This phone · {fmtDate(b.saved_at)} · {fmtSize(b.size_bytes)}</span>
+            <span class="b-sub mono">
+              This phone · {fmtDate(b.saved_at)} · {fmtSize(b.size_bytes)} · {b.apk_count} APK{b.apk_count === 1 ? "" : "s"}
+            </span>
           </div>
-          <span class="msr b-done fill">check_circle</span>
+          {#if b.complete}
+            <button
+              class="restore-btn"
+              disabled={!session.serial || busyRestore !== ""}
+              onclick={() => (restoreTarget = b)}
+            >
+              {#if busyRestore === b.path}
+                <span class="pdot blink"></span>
+              {:else}
+                <span class="msr">restore</span>Restore
+              {/if}
+            </button>
+          {:else}
+            <span class="legacy-badge" title="This older backup may be missing split APKs">Base only</span>
+          {/if}
         </div>
       {/each}
     </div>
@@ -218,13 +267,24 @@
     <span class="msr">cloud_sync</span>
     <span class="callout-text">
       Google Drive sync — back up and restore across phones — is coming in a future update. For now
-      backups live in this app's storage on this phone.
+      complete APK bundles live in this app's storage on this phone.
     </span>
   </div>
 
   <div class="spacer"></div>
   <Toast message={toast} type={toastType} />
 </div>
+
+<ConfirmDialog
+  open={restoreTarget !== null}
+  title={`Restore ${restoreTarget?.package ?? "app"}?`}
+  message="Installs the saved APK bundle on the connected TV. This does not restore app data or sign-in details."
+  warning="Android will reject the restore if the saved app signature is incompatible with the installed version."
+  confirmLabel="Restore"
+  icon="settings_backup_restore"
+  onConfirm={confirmRestore}
+  onCancel={() => (restoreTarget = null)}
+/>
 
 <style>
   .header-left {
@@ -465,10 +525,39 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .b-done {
-    font-size: 22px;
-    color: var(--teal);
+  .restore-btn {
+    min-width: 74px;
+    min-height: 34px;
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--accent);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 650;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     flex: none;
+  }
+  .restore-btn:disabled {
+    opacity: 0.5;
+  }
+  .restore-btn .msr {
+    font-size: 16px;
+  }
+  .legacy-badge {
+    flex: none;
+    padding: 5px 7px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--amber) 10%, transparent);
+    color: var(--amber);
+    font-size: 9px;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 
   .callout.accent {
