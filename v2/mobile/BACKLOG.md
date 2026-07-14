@@ -34,12 +34,16 @@ Implemented in the current checkpoint:
 - Fix GitHub #86 by searching SmartTube's current `/sdcard/Documents/SmartTubeBackup` export
   location while retaining its legacy app-data location, and discard stale desktop file-browser
   directory responses.
+- Complete fast-remote failure cleanup on Android: control/server streams are dropped on blocking
+  workers on every handshake branch, failed starts kill the resident server, hold-repeat ticks are
+  bounded instead of accumulating behind a slow fallback, and `find_remote` now respects real
+  shell failure/exit status.
 
 ## P0 — next correctness work
 
-1. **Fast-remote lifecycle races.** Serialize remote start/reset, make every failed start branch
-   clean up its server/control resources, and ensure blocking stream drops never run on the async
-   executor. Exercise concurrent diagnostics and file operations while the channel is live.
+1. **Fast-remote concurrency device gates.** Exercise diagnostics and file operations while the
+   channel is live, plus hold, background/reconnect, and reboot cleanup. The known start/reset and
+   failure-cleanup code paths are now serialized and bounded.
 2. **File and backup honesty/correctness.** Implement restore or remove restore promises; handle
    split APKs instead of presenting a base-APK copy as a complete backup.
 3. **Diagnostics/tweaks refresh correctness.** Mark stale metrics visibly after refresh failure,
@@ -47,8 +51,6 @@ Implemented in the current checkpoint:
    overwriting a new device's values.
 4. **Saved-device storage hardening.** Validate/migrate malformed localStorage records so an invalid
    `lastUsed` value cannot crash onboarding.
-5. **Remote result truthfulness.** Make `find_remote` inspect command failure, bound hold-repeat
-   work, and verify fallback behavior after channel loss.
 
 ## P1 — required product features
 

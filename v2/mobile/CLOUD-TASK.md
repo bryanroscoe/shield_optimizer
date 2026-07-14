@@ -17,8 +17,9 @@ the Optimize apply path, and truthful shell-v2 stderr/exit status. Read `BACKLOG
 the old queue below.
 
 REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
-1. **P0 correctness from `BACKLOG.md`** — start with remote lifecycle cleanup/races, then file and
-   backup correctness. Shell-v2 status/stderr is complete; preserve its shell-v1 fallback.
+1. **P0 correctness from `BACKLOG.md`** — start with file/backup and diagnostics/tweaks
+   correctness. Shell-v2 results and known remote cleanup/backpressure paths are complete; preserve
+   their fallbacks and finish the remaining physical-device concurrency matrix separately.
 2. **Fast remote Phase 4** — code-only lifecycle/concurrency coverage is allowed in cloud work; do
    not claim physical device gates. See `FAST-REMOTE-PLAN.md`.
 3. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in

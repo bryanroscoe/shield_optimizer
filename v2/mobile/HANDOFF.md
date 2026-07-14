@@ -51,6 +51,10 @@ aligned, never fork it*.
   snapshot cross-device warnings, secret/remote-text log redaction, transactional live entitlement,
   and a working Optimize apply/progress path. Exact scope and remaining findings are in
   `BACKLOG.md`.
+- **Follow-up correctness checkpoint**: direct ADB uses tested shell-v2 stderr/exit framing;
+  SmartTube backup discovery covers its current Documents export path (GitHub #86); desktop file
+  browsing discards stale responses; and Android fast-remote failure cleanup plus hold-repeat
+  backpressure are hardened.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.

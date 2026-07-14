@@ -1,4 +1,5 @@
 use serde::Serialize;
+use shield_optimizer_core::adb::AdbOutput;
 use shield_optimizer_core::commands::{devices::ConnectResult, AppState};
 use tauri::State;
 
@@ -89,10 +90,7 @@ pub async fn find_remote(
     let adb = state.adb_snapshot().await;
     let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";
     match adb.shell(&serial, cmd).await {
-        Ok(out) => Ok(ConnectResult {
-            ok: true,
-            message: out.stdout,
-        }),
+        Ok(out) => Ok(classify_find_remote(out)),
         Err(e) => {
             tracing::warn!(serial = %serial, error = %e, "find_remote shell failed");
             Ok(ConnectResult {
@@ -100,5 +98,44 @@ pub async fn find_remote(
                 message: e.to_string(),
             })
         }
+    }
+}
+
+fn classify_find_remote(out: AdbOutput) -> ConnectResult {
+    let message = out.combined().trim().to_string();
+    let ok = out.success() && !out.shell_reported_failure();
+    ConnectResult {
+        ok,
+        message: if ok && message.is_empty() {
+            "Remote locator opened.".to_string()
+        } else if !ok && message.is_empty() {
+            format!("Remote locator failed with exit code {:?}.", out.exit_code)
+        } else {
+            message
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::classify_find_remote;
+    use shield_optimizer_core::adb::AdbOutput;
+
+    #[test]
+    fn find_remote_requires_a_successful_shell_result() {
+        let failed = classify_find_remote(AdbOutput {
+            stdout: String::new(),
+            stderr: "Error: Activity class does not exist".to_string(),
+            exit_code: Some(1),
+        });
+        assert!(!failed.ok);
+        assert!(failed.message.contains("does not exist"));
+
+        let succeeded = classify_find_remote(AdbOutput {
+            stdout: "Starting: Intent".to_string(),
+            stderr: String::new(),
+            exit_code: Some(0),
+        });
+        assert!(succeeded.ok);
     }
 }

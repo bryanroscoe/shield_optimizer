@@ -30,10 +30,20 @@
 
   // Presses are serialized through one promise chain so ordering is preserved.
   let queue: Promise<void> = Promise.resolve();
+  let queuedWork = 0;
   function enqueue(work: () => Promise<void>) {
-    queue = queue.then(work).catch((e) => {
-      remoteMessage = String(e);
-    });
+    queuedWork += 1;
+    queue = queue
+      .then(async () => {
+        try {
+          await work();
+        } finally {
+          queuedWork -= 1;
+        }
+      })
+      .catch((e) => {
+        remoteMessage = String(e);
+      });
   }
 
   function noteResult(t: "channel" | "shell" | "none", ms: number) {
@@ -43,12 +53,16 @@
     }
   }
 
-  function sendKey(key: string) {
+  function sendKey(key: string, repeat = false) {
+    // A repeat tick is disposable. Never let interval ticks accumulate behind
+    // a slow/falling-back request after the user's finger has moved on.
+    if (repeat && queuedWork > 0) return;
     enqueue(async () => {
       const start = performance.now();
       const r = await api.sendKey(session.serial, key, forceShell);
       noteResult(r.transport, Math.round(performance.now() - start));
       remoteMessage = r.ok ? "" : r.message;
+      if (r.transport !== "channel") stopRepeat();
     });
   }
 
@@ -65,11 +79,12 @@
     if (transport !== "channel") return;
     stopRepeat();
     repeatTimer = setTimeout(() => {
-      repeatInterval = setInterval(() => sendKey(key), 140);
+      repeatInterval = setInterval(() => sendKey(key, true), 140);
     }, 400);
   }
 
   function toggleForceShell() {
+    stopRepeat();
     forceShell = !forceShell;
     try {
       localStorage.setItem(FORCE_SHELL_KEY, forceShell ? "1" : "0");

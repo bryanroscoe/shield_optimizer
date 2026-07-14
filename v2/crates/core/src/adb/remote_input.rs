@@ -225,8 +225,14 @@ impl RemoteInputSession {
                         let result = std::io::Read::read_exact(stream.as_mut(), &mut dummy);
                         (stream, dummy[0], result)
                     })
-                    .await
-                    .map_err(|e| format!("scrcpy: handshake task failed: {e}"))?;
+                    .await;
+                    let checked = match checked {
+                        Ok(checked) => checked,
+                        Err(error) => {
+                            cleanup_android_start(adb.as_ref(), serial, None, server_stream).await;
+                            return Err(format!("scrcpy: handshake task failed: {error}"));
+                        }
+                    };
                     match checked {
                         (stream, 0x00, Ok(())) => {
                             let session = Self {
@@ -243,14 +249,22 @@ impl RemoteInputSession {
                             );
                             return Ok(session);
                         }
-                        (_, byte, Ok(())) => {
-                            drop_blocking_stream(server_stream).await;
-                            let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
+                        (stream, byte, Ok(())) => {
+                            cleanup_android_start(
+                                adb.as_ref(),
+                                serial,
+                                Some(stream),
+                                server_stream,
+                            )
+                            .await;
                             return Err(format!(
                                 "scrcpy: unexpected handshake byte {byte:#04x} (expected 0x00)"
                             ));
                         }
-                        (_, _, Err(e)) => last_err = format!("handshake read: {e}"),
+                        (stream, _, Err(e)) => {
+                            drop_blocking_stream(stream).await;
+                            last_err = format!("handshake read: {e}");
+                        }
                     }
                 }
                 Err(e) => last_err = e.to_string(),
@@ -260,8 +274,7 @@ impl RemoteInputSession {
             }
         }
 
-        drop_blocking_stream(server_stream).await;
-        let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
+        cleanup_android_start(adb.as_ref(), serial, None, server_stream).await;
         Err(format!(
             "scrcpy: control channel never came up after {CONNECT_ATTEMPTS} attempts: {last_err}"
         ))
@@ -315,7 +328,23 @@ impl RemoteInputSession {
 
 #[cfg(target_os = "android")]
 async fn drop_blocking_stream(stream: Box<dyn AdbByteStream>) {
-    let _ = tokio::task::spawn_blocking(move || drop(stream)).await;
+    if let Err(error) = tokio::task::spawn_blocking(move || drop(stream)).await {
+        tracing::warn!(%error, "scrcpy blocking stream drop task failed");
+    }
+}
+
+#[cfg(target_os = "android")]
+async fn cleanup_android_start(
+    adb: &dyn AdbDriver,
+    serial: &str,
+    control_stream: Option<Box<dyn AdbByteStream>>,
+    server_stream: Box<dyn AdbByteStream>,
+) {
+    if let Some(stream) = control_stream {
+        drop_blocking_stream(stream).await;
+    }
+    drop_blocking_stream(server_stream).await;
+    let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
 }
 
 /// Reserve a free local TCP port by binding to `:0` and reading back the
