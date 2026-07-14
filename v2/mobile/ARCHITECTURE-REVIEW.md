@@ -1,5 +1,9 @@
 # ATV Optimizer Mobile — Architecture Review (2026-07-04)
 
+> Historical review. Most original P0 frontend findings were subsequently fixed. Current open
+> correctness work is tracked in [`BACKLOG.md`](BACKLOG.md); do not treat unchecked prose in this
+> document as current state without verifying the code.
+
 Full review of the mobile app across three dimensions (transport/core, frontend, build/
 distribution/security), each done by a dedicated pass. Findings are consolidated and
 prioritized here. Companion to `HANDOFF.md` (state + playbook). Items marked **[device]**

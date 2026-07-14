@@ -35,6 +35,13 @@ fn license_path(data_dir: &Path) -> PathBuf {
     data_dir.join("license.json")
 }
 
+fn persist_license(data_dir: &Path, file: &LicenseFile) -> Result<(), String> {
+    std::fs::create_dir_all(data_dir).map_err(|e| format!("create license dir: {e}"))?;
+    let json = serde_json::to_string(file).map_err(|e| format!("serialize license: {e}"))?;
+    let path = license_path(data_dir);
+    std::fs::write(&path, json).map_err(|e| format!("persist license: {e}"))
+}
+
 /// Read the persisted entitlement at startup. Returns `Free` when there is no
 /// license file, it can't be read/parsed, or the stored key no longer
 /// validates — so a tampered or stale file safely degrades to Free.
@@ -64,17 +71,14 @@ async fn activate_license(state: State<'_, AppState>, key: String) -> Result<Ent
     if !validate_license_key(&key) {
         return Err("That license key isn't valid.".to_string());
     }
-    state.set_entitlement(Entitlement::Pro);
     let file = LicenseFile {
         key,
         entitlement: Entitlement::Pro,
     };
-    let path = license_path(&state.data_dir);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let json = serde_json::to_string(&file).map_err(|e| format!("serialize license: {e}"))?;
-    std::fs::write(&path, json).map_err(|e| format!("persist license: {e}"))?;
+    // Persist before changing live state. A storage failure must not leave the
+    // current process in Pro while the next launch silently falls back to Free.
+    persist_license(&state.data_dir, &file)?;
+    state.set_entitlement(Entitlement::Pro);
     tracing::info!("license activated; entitlement set to Pro");
     Ok(state.entitlement())
 }
@@ -243,4 +247,33 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running ATV Optimizer mobile application");
+}
+
+#[cfg(test)]
+mod license_tests {
+    use super::{persist_license, read_persisted_entitlement, LicenseFile};
+    use shield_optimizer_core::license::{Entitlement, TEST_LICENSE_KEY};
+
+    #[test]
+    fn persisted_valid_license_round_trips() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = LicenseFile {
+            key: TEST_LICENSE_KEY.to_string(),
+            entitlement: Entitlement::Pro,
+        };
+        persist_license(dir.path(), &file).expect("persist license");
+        assert_eq!(read_persisted_entitlement(dir.path()), Entitlement::Pro);
+    }
+
+    #[test]
+    fn persistence_failure_is_reported() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let not_a_dir = dir.path().join("file");
+        std::fs::write(&not_a_dir, "occupied").expect("write blocker");
+        let file = LicenseFile {
+            key: TEST_LICENSE_KEY.to_string(),
+            entitlement: Entitlement::Pro,
+        };
+        assert!(persist_license(&not_a_dir, &file).is_err());
+    }
 }

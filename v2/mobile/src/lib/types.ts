@@ -150,6 +150,13 @@ export interface OptimizePlan {
   items: OptimizePlanItem[];
 }
 
+export type PerformanceProfile = "optimized" | "default";
+
+export interface PerformanceResult {
+  ok: boolean;
+  message: string;
+}
+
 // ---- Mobile-only shapes (wireless transport + licensing) ----
 
 /// One mDNS-discovered ADB service (pairing or connect, TLS or legacy).
@@ -271,6 +278,7 @@ export interface SnapshotFile {
 }
 
 export interface SnapshotApplyPlan {
+  cross_device_warning: string | null;
   packages_to_disable: string[];
   packages_already_disabled: string[];
   packages_not_installed: string[];

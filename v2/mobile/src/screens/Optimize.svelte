@@ -5,7 +5,9 @@
   import type { Screen } from "../lib/router.svelte";
   import type { OptimizePlan, OptimizePlanItem, RiskTier } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import Toast from "../components/Toast.svelte";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
@@ -18,9 +20,14 @@
   let showPaywall = $state(false);
 
   let activeTab = $state<"recommended" | "everything">("recommended");
-  // Local selection (which rows are ticked). Applying is Pro; there's no
-  // apply endpoint on mobile yet, so this drives the count/paywall only.
+  // Local selection (which rows are ticked). The backend safety gate remains
+  // authoritative for every individual mutation during apply.
   let selected = $state<Set<string>>(new Set());
+  let confirmApply = $state(false);
+  let applying = $state(false);
+  let applyProgress = $state("");
+  let toast = $state("");
+  let toastType = $state<"success" | "error" | "info">("info");
 
   async function loadPlan() {
     loading = true;
@@ -66,13 +73,16 @@
       : actionable,
   );
 
-  const selectedCount = $derived(
-    visibleItems.filter((it) => selected.has(it.entry.package)).length,
+  const selectedItems = $derived(
+    actionable.filter((it) => selected.has(it.entry.package)),
   );
+
+  const selectedCount = $derived(selectedItems.length);
   const totalSavings = $derived(
-    visibleItems
-      .filter((it) => selected.has(it.entry.package))
-      .reduce((acc, it) => acc + (it.memory_mb ?? 0), 0),
+    selectedItems.reduce((acc, it) => acc + (it.memory_mb ?? 0), 0),
+  );
+  const selectedUninstalls = $derived(
+    selectedItems.filter((it) => it.action.kind === "uninstall").length,
   );
 
   function toggle(pkg: string) {
@@ -97,9 +107,75 @@
   }
 
   function handleApply() {
-    // Applying the debloat is a Pro feature — route the locked action to the
-    // paywall rather than performing anything.
-    showPaywall = true;
+    if (!session.isPro) {
+      showPaywall = true;
+      return;
+    }
+    if (selectedItems.length > 0) confirmApply = true;
+  }
+
+  async function runApply() {
+    confirmApply = false;
+    if (applying || !session.serial) return;
+    const items = [...selectedItems];
+    if (items.length === 0) return;
+    applying = true;
+    toast = "";
+    const failures: string[] = [];
+    let completed = 0;
+    let entitlementLost = false;
+    try {
+      for (const [index, item] of items.entries()) {
+        applyProgress = `${index + 1} of ${items.length}: ${item.entry.name}`;
+        try {
+          const result =
+            item.action.kind === "disable"
+              ? await api.disablePackage(session.serial, item.entry.package)
+              : item.action.kind === "uninstall"
+                ? await api.uninstallPackage(session.serial, item.entry.package)
+                : item.action.kind === "enable"
+                  ? await api.enablePackage(session.serial, item.entry.package)
+                  : null;
+          if (!result?.ok) failures.push(item.entry.name);
+          else completed += 1;
+        } catch (e) {
+          if (String(e).includes("LOCKED:")) {
+            showPaywall = true;
+            entitlementLost = true;
+            failures.push(...items.slice(index).map((it) => it.entry.name));
+            break;
+          }
+          failures.push(item.entry.name);
+        }
+      }
+
+      if (!entitlementLost) {
+        applyProgress = "Applying performance settings…";
+        try {
+          const performance = await api.applyPerformanceSettings(
+            session.serial,
+            "optimized",
+          );
+          if (!performance.ok) failures.push("performance settings");
+        } catch {
+          failures.push("performance settings");
+        }
+      }
+
+      session.invalidateAll();
+      if (failures.length === 0) {
+        toast = `Optimization complete — ${completed} app${completed === 1 ? "" : "s"} updated.`;
+        toastType = "success";
+      } else {
+        toast = `${completed} updated; ${failures.length} failed. Reopen the plan to retry.`;
+        toastType = "info";
+      }
+      setTimeout(() => (toast = ""), 4200);
+      await loadPlan();
+    } finally {
+      applying = false;
+      applyProgress = "";
+    }
   }
 </script>
 
@@ -129,8 +205,8 @@
       <span class="locked-icon msr">lock</span>
       <h2>Debloat is a Pro feature</h2>
       <p class="locked-desc">
-        Pro unlocks the curated debloat plan for this TV — safely disable or
-        uninstall bloat with one-tap rollback via snapshots.
+        Pro unlocks the curated debloat plan for this TV, with every disable
+        and uninstall checked by the shared safety engine.
       </p>
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">star</span>Unlock Pro
@@ -185,8 +261,8 @@
         {/each}
       </div>
       <div class="spacer"></div>
-      <button class="primary" onclick={handleApply}>
-        <span class="msr">auto_fix_high</span>Apply optimization{session.isPro ? "" : " (Pro)"}
+      <button class="primary" disabled={applying || selectedCount === 0} onclick={handleApply}>
+        {#if applying}<span class="pdot blink"></span>{:else}<span class="msr">auto_fix_high</span>{/if}{applying ? applyProgress : `Apply optimization${session.isPro ? "" : " (Pro)"}`}
       </button>
     {/if}
   {/if}
@@ -214,8 +290,8 @@
           <div class="feature-row">
             <span class="msr teal-color">done</span>
             <div class="feature-info">
-              <span class="feature-title">Automatic Snapshots</span>
-              <span class="feature-desc">Roll back any change instantly or clone to other TVs.</span>
+              <span class="feature-title">Saved Snapshots</span>
+              <span class="feature-desc">Reapply recorded disabled apps, launcher, and tracked settings.</span>
             </div>
           </div>
           <div class="feature-row">
@@ -235,6 +311,19 @@
       </div>
     </div>
   {/if}
+
+  <ConfirmDialog
+    open={confirmApply}
+    icon="auto_fix_high"
+    title={`Apply ${selectedCount} selected change${selectedCount === 1 ? "" : "s"}?`}
+    warning={selectedUninstalls > 0 ? `${selectedUninstalls} selected app${selectedUninstalls === 1 ? " will" : "s will"} be uninstalled. Reinstalling may require the Play Store or a TV reset.` : ""}
+    message="ATV Optimizer will process each selected app, then apply the optimized animation settings. Protected system packages remain blocked by the safety engine."
+    confirmLabel="Apply"
+    onConfirm={runApply}
+    onCancel={() => (confirmApply = false)}
+  />
+
+  <Toast message={toast} type={toastType} />
 
   <BottomTabs active="optimize" {navigate} />
 </div>

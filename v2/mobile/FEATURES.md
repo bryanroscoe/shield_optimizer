@@ -1,5 +1,9 @@
 # ATV Optimizer mobile — features inventory
 
+> Historical snapshot from the initial architecture review. Many row statuses below are stale.
+> Use [`BACKLOG.md`](BACKLOG.md) and [`HANDOFF.md`](HANDOFF.md) for the current implementation and
+> ordered queue; update this matrix only as a dedicated reconciliation pass.
+
 This is the buildout checklist for the mobile re-architecture: every desktop feature mapped to
 the mobile design's 20 screens, with a Built/Partial/Todo status and the Free/Pro split. It's a
 snapshot, not a contract — desktop's `v2/src/lib/api.ts` keeps evolving, so re-check this doc

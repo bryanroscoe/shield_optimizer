@@ -31,6 +31,8 @@ import type {
   LauncherStatus,
   OptimizeMode,
   OptimizePlan,
+  PerformanceProfile,
+  PerformanceResult,
   OtherPackage,
   PrivateDnsResult,
   PrivateDnsState,
@@ -124,6 +126,14 @@ export const api = {
   // ---- Optimize ----
   prepareOptimize: (serial: string, deviceType: DeviceType, mode: OptimizeMode) =>
     call<OptimizePlan>("prepare_optimize", { serial, deviceType, mode }),
+  applyPerformanceSettings: (
+    serial: string,
+    profile: PerformanceProfile,
+  ) =>
+    call<PerformanceResult>("apply_performance_settings", {
+      serial,
+      profile,
+    }),
 
   // ---- App detail / catalog extras ----
   appMemoryMap: (serial: string) =>

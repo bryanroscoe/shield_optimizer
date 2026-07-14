@@ -28,8 +28,8 @@
     // Onboarding has already populated the session via session.connect().
     router.reset("dashboard");
   }
-  function handleDisconnect() {
-    session.disconnect();
+  async function handleDisconnect() {
+    await session.disconnect();
     router.reset("onboarding");
   }
 

@@ -20,6 +20,11 @@ import type {
 export type Liveness = "idle" | "connecting" | "live" | "lost";
 
 class Session {
+  private connectionGeneration = 0;
+  private healthGeneration = 0;
+  private bloatGeneration = 0;
+  private suppressNextAutoReconnect = false;
+
   connectedDevice = $state<Device | null>(null);
   host = $state("");
   connectPort = $state(5555);
@@ -71,19 +76,30 @@ class Session {
   /// Connect and, on success, resolve the real device via list_devices and go
   /// live. Returns the raw ConnectResult so the caller can surface errors.
   async connect(host: string, port: number): Promise<ConnectResult> {
+    const generation = ++this.connectionGeneration;
     this.liveness = "connecting";
-    const result = await api.wirelessConnect(host, port);
-    if (result.ok) {
-      this.host = host;
-      this.connectPort = port;
-      await this.refreshDevices();
-      this.liveness = "live";
-      // Remember this TV so §1.0 can offer a one-tap reconnect next launch.
-      rememberDevice(host, port, this.connectedDevice);
-    } else {
-      this.liveness = "idle";
+    try {
+      const result = await api.wirelessConnect(host, port);
+      if (generation !== this.connectionGeneration) return result;
+      if (result.ok) {
+        this.host = host;
+        this.connectPort = port;
+        this.clearDeviceData();
+        await this.refreshDevices();
+        if (generation !== this.connectionGeneration) return result;
+        this.liveness = this.connectedDevice ? "live" : "idle";
+        // Remember this TV so §1.0 can offer a one-tap reconnect next launch.
+        rememberDevice(host, port, this.connectedDevice);
+      } else {
+        await this.restoreCurrentLiveness();
+      }
+      return result;
+    } catch (error) {
+      if (generation === this.connectionGeneration) {
+        await this.restoreCurrentLiveness();
+      }
+      throw error;
     }
-    return result;
   }
 
   async refreshDevices(): Promise<void> {
@@ -95,6 +111,8 @@ class Session {
   }
 
   async disconnect(): Promise<void> {
+    this.suppressNextAutoReconnect = true;
+    ++this.connectionGeneration;
     try {
       await api.wirelessDisconnect();
     } catch {
@@ -110,9 +128,35 @@ class Session {
   reset(): void {
     this.connectedDevice = null;
     this.liveness = "idle";
+    this.clearDeviceData();
+  }
+
+  consumeAutoReconnectPermission(): boolean {
+    if (!this.suppressNextAutoReconnect) return true;
+    this.suppressNextAutoReconnect = false;
+    return false;
+  }
+
+  private clearDeviceData(): void {
+    ++this.healthGeneration;
+    ++this.bloatGeneration;
     this.health = null;
     this.healthLoaded = false;
+    this.healthLoading = false;
     this.healthError = "";
+    this.bloatCount = 0;
+    this.bloatLoaded = false;
+    this.bloatLoading = false;
+    this.bloatError = "";
+  }
+
+  private async restoreCurrentLiveness(): Promise<void> {
+    try {
+      await this.refreshDevices();
+      this.liveness = this.connectedDevice ? "live" : "idle";
+    } catch {
+      this.liveness = this.connectedDevice ? "lost" : "idle";
+    }
   }
 
   // ---- Liveness ----
@@ -150,15 +194,22 @@ class Session {
     if (this.healthLoading) return;
     if (this.healthLoaded && !force && this.healthError === "") return;
     if (!this.serial) return;
+    const serial = this.serial;
+    const generation = ++this.healthGeneration;
     this.healthLoading = true;
     this.healthError = "";
     try {
-      this.health = await api.healthReport(this.serial);
+      const health = await api.healthReport(serial);
+      if (generation !== this.healthGeneration || serial !== this.serial) return;
+      this.health = health;
     } catch (e) {
+      if (generation !== this.healthGeneration || serial !== this.serial) return;
       this.healthError = String(e);
     } finally {
-      this.healthLoaded = true;
-      this.healthLoading = false;
+      if (generation === this.healthGeneration && serial === this.serial) {
+        this.healthLoaded = true;
+        this.healthLoading = false;
+      }
     }
   }
 
@@ -175,29 +226,36 @@ class Session {
     if (this.bloatLoading) return;
     if (this.bloatLoaded && !force && this.bloatError === "") return;
     if (!this.connectedDevice) return;
+    const serial = this.serial;
+    const deviceType = this.connectedDevice.device_type;
+    const generation = ++this.bloatGeneration;
     this.bloatLoading = true;
     this.bloatError = "";
     try {
-      const catalog = await api.appListForDevice(
-        this.connectedDevice.device_type,
-      );
+      const catalog = await api.appListForDevice(deviceType);
       const defaults = catalog.filter((a) => a.default_optimize);
+      let count = 0;
       if (defaults.length === 0) {
-        this.bloatCount = 0;
+        count = 0;
       } else {
         const states = await api.packageStates(
-          this.serial,
+          serial,
           defaults.map((a) => a.package),
         );
-        this.bloatCount = Object.values(states).filter(
+        count = Object.values(states).filter(
           (s) => s === "enabled",
         ).length;
       }
+      if (generation !== this.bloatGeneration || serial !== this.serial) return;
+      this.bloatCount = count;
     } catch (e) {
+      if (generation !== this.bloatGeneration || serial !== this.serial) return;
       this.bloatError = String(e);
     } finally {
-      this.bloatLoaded = true;
-      this.bloatLoading = false;
+      if (generation === this.bloatGeneration && serial === this.serial) {
+        this.bloatLoaded = true;
+        this.bloatLoading = false;
+      }
     }
   }
 

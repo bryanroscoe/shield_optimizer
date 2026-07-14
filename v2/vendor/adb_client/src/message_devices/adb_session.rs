@@ -49,13 +49,27 @@ impl<T: ADBMessageTransport> ADBSession<T> {
     /// Receive a message and acknowledge it by replying with an `OKAY` command
     pub(crate) fn recv_and_reply_okay(&mut self) -> Result<ADBTransportMessage> {
         let message = self.transport.read_message()?;
+        self.reply_okay()?;
+        Ok(message)
+    }
+
+    pub(crate) fn recv_and_reply_okay_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<ADBTransportMessage> {
+        let message = self.transport.read_message_with_timeout(timeout)?;
+        self.reply_okay()?;
+        Ok(message)
+    }
+
+    fn reply_okay(&mut self) -> Result<()> {
         self.transport.write_message(ADBTransportMessage::try_new(
             MessageCommand::Okay,
             self.local_id,
             self.remote_id,
             &[],
         )?)?;
-        Ok(message)
+        Ok(())
     }
 
     /// Expect a message with an `OKAY` command after sending a message.

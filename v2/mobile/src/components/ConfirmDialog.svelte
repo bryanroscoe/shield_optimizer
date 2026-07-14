@@ -5,6 +5,7 @@
     open,
     title,
     message,
+    warning = "",
     confirmLabel = "Confirm",
     cancelLabel = "Cancel",
     danger = false,
@@ -15,6 +16,7 @@
     open: boolean;
     title: string;
     message: string;
+    warning?: string;
     confirmLabel?: string;
     cancelLabel?: string;
     danger?: boolean;
@@ -33,6 +35,9 @@
         <span class="dialog-icon msr" class:danger>{icon}</span>
       {/if}
       <h3>{title}</h3>
+      {#if warning}
+        <p class="dialog-warning" role="alert"><span class="msr">warning</span>{warning}</p>
+      {/if}
       <p class="dialog-message">{message}</p>
       <div class="dialog-actions">
         <button class="ghost small" onclick={onCancel}>{cancelLabel}</button>
@@ -88,6 +93,24 @@
     font-size: 13px;
     color: var(--muted);
     line-height: 1.45;
+  }
+  .dialog-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 4px 0;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--amber) 42%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--amber) 10%, transparent);
+    color: var(--amber);
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: left;
+  }
+  .dialog-warning .msr {
+    flex: none;
+    font-size: 17px;
   }
   .dialog-actions {
     display: flex;

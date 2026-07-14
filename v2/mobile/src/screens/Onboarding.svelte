@@ -26,9 +26,10 @@
 
   onMount(() => {
     savedDevices = listSavedDevices();
-    if (lastSavedDevice()) {
+    const saved = lastSavedDevice();
+    if (saved && session.consumeAutoReconnectPermission()) {
       step = "reconnect";
-      attemptReconnect(savedDevices[0]);
+      attemptReconnect(saved);
     }
   });
 

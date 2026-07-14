@@ -4,22 +4,28 @@ You are a scheduled cloud Claude Code agent. You have **NO physical device** —
 `adb`, device installs, or on-device verification. Everything you do must be verifiable by
 **build + tests only**. You start with zero context; this file is your brief.
 
-## STATUS (updated 2026-07-12) — read this before picking work
+## STATUS (updated 2026-07-13) — read this before picking work
 DONE already (do NOT redo): the pure-Rust `adb_client` transport swap (libadb removed); all the
 Phase 6 design screens — Launcher, Tweaks, Snapshots, Devices, App-detail sheet, Risk guide,
 Reconnect/saved-TV, **and File transfer + Backups** (`file_commands.rs` + Files.svelte/Backups.svelte).
 Tasks A and B below are essentially COMPLETE.
 
-REMAINING QUEUE (work these, in order; each gate-verified + committed + pushed):
-1. **Fast remote** — mobile low-latency input. Phase 1 is complete: `vendor/adb_client` provides the
-   tested, cross-compiled `ADBTcpService` raw stream. Continue with Phase 2 in
-   `FAST-REMOTE-PLAN.md`: embed/materialize the existing scrcpy jar, implement the Android session
-   transport behind `WirelessAdb`, and preserve the separate control connection and shell fallback.
-2. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in
+Fast-remote Phases 1–3 and the first Shield latency gate are complete. The 2026-07-13 correctness
+checkpoint also fixed serial targeting, connection/cache races, liveness timeouts, reboot
+acknowledgement, safety lookup races, snapshot warnings, log redaction, license persistence order,
+and the Optimize apply path. Read `BACKLOG.md`; it supersedes the old queue below.
+
+REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
+1. **P0 correctness from `BACKLOG.md`** — start with truthful shell stderr/exit status, then remote
+   lifecycle cleanup/races. Do not claim `adb_client` shell-v1 returns values it discards.
+2. **Fast remote Phase 4** — code-only lifecycle/concurrency coverage is allowed in cloud work; do
+   not claim physical device gates. See `FAST-REMOTE-PLAN.md`.
+3. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in
    Rust so brand-new Google-TV devices can pair (legacy `:5555` needs no pairing). Reference the
    Apache-2.0 AOSP pairing sources. Plan first in `v2/mobile/PAIRING-PLAN.md` if risky.
-3. **SAF push picker + Google Drive sync** for File transfer/Backups (currently app-scoped only).
-4. **Polish:** subset the 5.3 MB Material Symbols font to only the icons used (grep `class="msr"`);
+4. **SAF import/export + restore correctness**, then Google Drive sync. Backups currently copy only
+   the base APK and must not be described as a complete split-APK backup.
+5. **Polish:** subset the 5.3 MB Material Symbols font to only the icons used (grep `class="msr"`);
    disable autocorrect/autocapitalize on the license-key input (More screen).
 Follow the same rules (never fake data, LOCKED→paywall, safety via core `safety_info`, Svelte 5
 runes, lime/Geist look). Verify with the gates in Task C, commit, push.

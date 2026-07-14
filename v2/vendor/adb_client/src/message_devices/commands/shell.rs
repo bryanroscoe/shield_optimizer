@@ -1,4 +1,7 @@
-use std::io::{ErrorKind, Read, Write};
+use std::{
+    io::{ErrorKind, Read, Write},
+    time::Duration,
+};
 
 use crate::models::ADBLocalCommand;
 use crate::{
@@ -15,16 +18,26 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     pub(crate) fn shell_command(
         &mut self,
         command: &dyn AsRef<str>,
+        stdout: Option<&mut dyn Write>,
+        stderr: Option<&mut dyn Write>,
+    ) -> Result<Option<u8>> {
+        self.shell_command_with_timeout(command, stdout, stderr, Duration::from_secs(u64::MAX))
+    }
+
+    pub(crate) fn shell_command_with_timeout(
+        &mut self,
+        command: &dyn AsRef<str>,
         mut stdout: Option<&mut dyn Write>,
         _stderr: Option<&mut dyn Write>,
+        timeout: Duration,
     ) -> Result<Option<u8>> {
-        let mut session = self.open_session(&ADBLocalCommand::ShellCommand(
+        let mut session = self.open_session_with_timeout(&ADBLocalCommand::ShellCommand(
             command.as_ref().to_string(),
             Vec::new(),
-        ))?;
+        ), timeout)?;
 
         loop {
-            let message = session.recv_and_reply_okay()?;
+            let message = session.recv_and_reply_okay_with_timeout(timeout)?;
             if message.header().command() == MessageCommand::Clse {
                 break;
             }

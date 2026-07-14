@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::Path;
+use std::time::Duration;
 use std::{io::Read, net::SocketAddr};
 
 use crate::message_devices::adb_message_device::ADBMessageDevice;
@@ -31,6 +32,20 @@ impl ADBTcpDevice {
                 private_key_path,
             )?,
         })
+    }
+
+    /// Run a shell command with a finite timeout for each transport response.
+    /// This is useful for liveness probes, where an unbounded read would keep
+    /// the owning connection mutex locked forever after a network loss.
+    pub fn shell_command_with_timeout(
+        &mut self,
+        command: &dyn AsRef<str>,
+        stdout: Option<&mut dyn Write>,
+        stderr: Option<&mut dyn Write>,
+        timeout: Duration,
+    ) -> Result<Option<u8>> {
+        self.inner
+            .shell_command_with_timeout(command, stdout, stderr, timeout)
     }
 }
 

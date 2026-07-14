@@ -1,9 +1,10 @@
 # ATV Optimizer (mobile) — HANDOFF
 
 Read this top-to-bottom before doing any mobile work. It is the authoritative, current handoff.
-Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (findings audit),
-`FEATURES.md` (screen ↔ command map), `TRANSPORT-LICENSING-RESEARCH.md` (why the transport is
-what it is), `CLOUD-TASK.md` (brief for the nightly cloud agent). Cross-session memory also lives
+Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (historical findings audit),
+`FEATURES.md` (historical screen ↔ command map), **`BACKLOG.md` (current ordered queue)**,
+`TRANSPORT-LICENSING-RESEARCH.md` (why the transport is what it is), `CLOUD-TASK.md` (brief for the
+nightly cloud agent). Cross-session memory also lives
 in `~/.claude/projects/-Users-bryanroscoe-Developer-shield-optimizer/memory/`.
 
 Branch: **`feat/atv-optimizer-mobile`**. Not merged to `main` and no PR yet.
@@ -33,8 +34,9 @@ aligned, never fork it*.
   Optimize, Apps (+AppDetailSheet), Remote, More, Launcher, Tweaks, Snapshots, Devices, RiskGuide,
   Files, Backups. Components: BottomTabs, Toast, ConfirmDialog, FindRemoteButton (one consistent
   "ring the remote?" affordance, Shield-gated), BrandMark, PaywallSheet, AppDetailSheet.
-- **Real Pro unlock**: `activate_license` flips + persists backend entitlement; **test key
-  `ATVOPT-PRO-2025`** (case-insensitive). `LOCKED:<feature>` errors route to PaywallSheet.
+- **Development Pro unlock**: `activate_license` persists then flips backend entitlement; **test
+  key `ATVOPT-PRO-2025`** (case-insensitive). `LOCKED:<feature>` errors route to PaywallSheet. This
+  is not commercial licensing; signed validation remains backlog work.
 - **Icon + branding**: launcher icon and in-app BrandMark are the designer's exact glyph — a
   TV/monitor on a stand with three **vertical faders** (exact SVG in `src-tauri/icons/icon.svg`).
 - **On-device validated**: connected to a real Shield over the new transport; the app is fully
@@ -43,6 +45,12 @@ aligned, never fork it*.
   Android session registry/lifecycle, and transparent same-request shell fallback are implemented.
   The Bedroom Shield gate measured 30 warm channel presses at 75.2 ms p95 and app force-stop left
   no resident server/socket. Full results and remaining gates are in `FAST-REMOTE-PLAN.md`.
+- **Correctness checkpoint (2026-07-13)**: serial-bound ADB operations, serialized connection
+  lifecycle, finite liveness-probe reads, acknowledged reboot semantics, non-evicting local file
+  failures, disconnect/auto-reconnect and stale-cache race fixes, fail-closed app safety UI,
+  snapshot cross-device warnings, secret/remote-text log redaction, transactional live entitlement,
+  and a working Optimize apply/progress path. Exact scope and remaining findings are in
+  `BACKLOG.md`.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -54,8 +62,9 @@ protocol (connect, RSA auth, stream multiplexing, shell/exec/push/pull) in pure 
 a spike ran every previously-hanging command cleanly on the real Shield; it cross-compiles to
 aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_optimizer_mobile_lib.so`).
 - `WirelessAdb` (`src-tauri/src/wireless_adb.rs`) now owns an `adb_client::tcp::ADBTcpDevice`
-  (blocking calls via `spawn_blocking`), implementing the core `AdbDriver` trait. Real exit codes
-  + stderr now flow through. A persistent **RSA key is generated/persisted in `app_data_dir`**
+  (blocking calls via `spawn_blocking`), implementing the core `AdbDriver` trait. The current
+  upstream shell-v1 path does **not** expose real stderr or exit codes; fixing that contract is the
+  next transport correctness item. A persistent **RSA key is generated/persisted in `app_data_dir`**
   (`ensure_adb_key`, PKCS#8 PEM) — first connect prompts "Allow debugging" on the TV, then silent.
 - The **Kotlin plugin (`tauri-plugin-atv-adb`) is now mDNS-discovery ONLY** (NsdManager, a pure
   Android framework, no GPL). libadb/Conscrypt/BouncyCastle Gradle deps + the jitpack repo are gone.
@@ -80,22 +89,19 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
   (20 screen sections; lime `#C9F24E`, Geist/Geist Mono). The `claude_design` MCP is NOT available
   in this environment — work from the downloaded folder.
 
-## 5. What REMAINS (in priority order; also in CLOUD-TASK.md)
-1. **Finish fast-remote device gates** — Phases 1–3 are complete and the Bedroom Shield passes the
-   latency/force-stop gates. Repeat on the second Shield when available and cover UTF-8 text,
-   hold-to-repeat, reboot/background/reconnect, plus concurrent diagnostics/files. Details are in
+## 5. What REMAINS
+
+Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate sequence is:
+
+1. Finish the open P0 correctness items, starting with truthful shell status/stderr and the
+   fast-remote lifecycle races.
+2. Finish the remaining Phase 4 device matrix in
    **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
-2. **SPAKE2 pairing** — for new Google-TV devices (legacy Shields don't need it). Clean-room from
-   Apache-2.0 AOSP pairing sources; plan first if risky.
-3. **SAF push picker + Google Drive sync** — Files/Backups are app-scoped-storage only for now.
-4. **Polish** — subset the **5.3 MB Material Symbols font** to the ~40 icons actually used
-   (`grep 'class="msr"'` → pyftsubset); the debug APK is ~386 MB (release strips + should minify +
-   per-ABI split). Disable autocorrect/autocapitalize on the **license-key input** (More screen) —
-   autocorrect fights the key entry.
-5. **Release prep** — signing keystore, versionCode process, own-site APK distribution (M6), the
-   third-party-licenses screen. `ARCHITECTURE-REVIEW.md` §B4 has details.
-6. **Desktop rebrand** to ATV Optimizer is a separate, later migration (MSI UpgradeCode risk) —
-   out of scope for mobile.
+3. Implement SPAKE2 pairing, then SAF import/export/restore correctness, then Drive sync.
+4. Replace the development license key and build the Android release/signing pipeline before
+   calling the app commercially releasable.
+
+Desktop rebranding remains a separate migration because of the MSI UpgradeCode risk.
 
 ## 6. OPERATIONS PLAYBOOK (how to build / deploy / test)
 Env: `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli 2.11.x, the 4 android Rust
@@ -107,6 +113,8 @@ targets installed. Test device: **Pixel 10 Pro**.
   (Bryan reads the code+port off the phone's Wireless-debugging screen), then `adb connect
   192.168.42.211:<connectport>`. The phone auto-locks/sleeps off USB power and drops the
   connection — this is a recurring friction; when it's offline just wait/ask Bryan to nudge it.
+  The connect endpoint used on 2026-07-13 was `192.168.42.211:38661`; always confirm with
+  `adb devices` because Android rotates it.
 - **Build APK** (~2-4 min, run backgrounded): `cd v2/mobile && PATH="$ANDROID_HOME/platform-tools:$PATH"
   NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" npx tauri android build --apk --debug --target aarch64`.
   Do a `gradlew clean` first if stale native libs linger. Kotlin only compiles in this build.
@@ -143,6 +151,9 @@ tool has a low body-size limit, so its prompt is a short pointer; set it up via 
 
 ## 9. Commit history (this effort, newest first)
 ```
+48b3574 Mobile: add fast scrcpy remote channel
+988facc Mobile: add raw ADB service stream for fast remote
+a9d2c8b HANDOFF: comprehensive current-state handoff for the next agent
 bd6cbd8 CLOUD-TASK: mark transport swap + Phase 6 done; queue remaining
 44579c1 File transfer + Backups screens (adb_client push/pull)
 fdeb62d Phase 6 screens (Launcher, Tweaks, Snapshots, Devices, App detail, Risk guide, Reconnect)
@@ -156,5 +167,5 @@ b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
 ac9c3cd onboarding design
 16e5c42 (earlier) extract shared core workspace
 ```
-Immediate next action: finish **Phase 4 of `FAST-REMOTE-PLAN.md`** on the second Shield when it is
-available, then start the SPAKE2 pairing plan.
+Immediate next action: continue the P0 section of `BACKLOG.md`, then finish **Phase 4 of
+`FAST-REMOTE-PLAN.md`** on the second Shield when it is available.

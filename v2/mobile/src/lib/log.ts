@@ -15,19 +15,34 @@ export interface FrontendLogEntry {
 const CAP = 300;
 const buffer: FrontendLogEntry[] = [];
 
-/// Compact, non-sensitive one-line summary of an invoke's args. License keys
-/// and long text are truncated so the log stays readable and safe to copy.
+/// Compact, non-sensitive one-line summary of an invoke's args. Secret-bearing
+/// fields and remote text are fully redacted; truncation is not protection.
 export function summarizeArgs(args: Record<string, unknown> | undefined): string {
   if (!args) return "";
   try {
     const parts: string[] = [];
     for (const [k, v] of Object.entries(args)) {
+      const normalizedKey = k.toLowerCase();
+      const sensitive = [
+        "key",
+        "code",
+        "text",
+        "token",
+        "password",
+        "secret",
+        "license",
+      ].some(
+        (name) =>
+          normalizedKey === name ||
+          normalizedKey.startsWith(name) ||
+          normalizedKey.endsWith(name),
+      );
       let s: string;
-      if (v == null) s = "null";
+      if (sensitive) s = "***";
+      else if (v == null) s = "null";
       else if (Array.isArray(v)) s = `[${v.length}]`;
       else if (typeof v === "object") s = "{…}";
       else s = String(v);
-      if (k === "key" || k === "code") s = "***";
       if (s.length > 40) s = s.slice(0, 37) + "…";
       parts.push(`${k}=${s}`);
     }

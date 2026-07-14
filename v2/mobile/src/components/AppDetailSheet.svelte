@@ -31,22 +31,28 @@
 
   let safety = $state<Safety | null>(null);
   let safetyLoading = $state(false);
+  let safetyError = $state(false);
+  let safetyRequest = 0;
 
   // Reload safety whenever the selected package changes.
-  let lastPkg = "";
   $effect(() => {
     const pkg = app?.package ?? "";
-    if (pkg && pkg !== lastPkg) {
-      lastPkg = pkg;
-      safety = null;
-      safetyLoading = true;
-      api
-        .safetyInfo(pkg)
-        .then((s) => (safety = s))
-        .catch(() => (safety = null))
-        .finally(() => (safetyLoading = false));
-    }
-    if (!pkg) lastPkg = "";
+    const request = ++safetyRequest;
+    safety = null;
+    safetyError = false;
+    safetyLoading = pkg !== "";
+    if (!pkg) return;
+    api
+      .safetyInfo(pkg)
+      .then((result) => {
+        if (request === safetyRequest && app?.package === pkg) safety = result;
+      })
+      .catch(() => {
+        if (request === safetyRequest && app?.package === pkg) safetyError = true;
+      })
+      .finally(() => {
+        if (request === safetyRequest && app?.package === pkg) safetyLoading = false;
+      });
   });
 
   const tier = $derived.by((): { label: string; cls: string; reason: string } | null => {
@@ -59,6 +65,9 @@
   });
 
   const blocked = $derived(safety?.kind === "never_disable");
+  const safetyUnavailable = $derived(safetyLoading || safety === null);
+  const disableBlocked = $derived(app?.enabled && (safetyUnavailable || blocked));
+  const uninstallBlocked = $derived(safetyUnavailable || blocked);
 
   function fmtLabel(a: OtherPackage): string {
     return a.name || a.package.split(".").pop() || a.package;
@@ -90,6 +99,8 @@
         <span class="state-tag" class:off={!app.enabled}>{app.enabled ? "Enabled" : "Disabled"}</span>
         {#if safetyLoading}
           <span class="tier-tag loading">Checking safety…</span>
+        {:else if safetyError}
+          <span class="tier-tag blocked">Safety unavailable</span>
         {:else if tier}
           <span class="tier-tag {tier.cls}">{tier.label}</span>
         {/if}
@@ -117,7 +128,7 @@
 
       <div class="reversible">
         <span class="msr">restore</span>
-        <span>Fully reversible — reappears after Enable, Restore, or a snapshot rollback.</span>
+        <span>Disable is reversible with Enable. Uninstall may require reinstalling the app or resetting the TV.</span>
       </div>
 
       <div class="sheet-actions">
@@ -129,15 +140,17 @@
         </button>
       </div>
       <div class="sheet-actions">
-        <button class="act-btn wide" class:danger={app.enabled && !blocked} disabled={busy || blocked} onclick={() => onToggle(app)}>
+        <button class="act-btn wide" class:danger={app.enabled && !disableBlocked} disabled={busy || disableBlocked} onclick={() => onToggle(app)}>
           {app.enabled ? "Disable" : "Enable"}
         </button>
-        <button class="act-btn wide danger" disabled={busy || blocked} onclick={() => onUninstall(app)}>
+        <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => onUninstall(app)}>
           Uninstall<span class="pro-badge">PRO</span>
         </button>
       </div>
       {#if blocked}
         <p class="blocked-note">This package is protected — it can't be disabled or uninstalled from here.</p>
+      {:else if safetyError}
+        <p class="blocked-note">Safety could not be verified. Disable and uninstall stay locked until you reopen this app.</p>
       {/if}
     </div>
   </div>

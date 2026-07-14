@@ -163,8 +163,8 @@
       <span class="locked-icon msr">photo_camera_back</span>
       <h2>Snapshots are a Pro feature</h2>
       <p class="locked-desc">
-        Capture this TV's disabled apps, launcher and tweaks to a file — then roll back or clone
-        the exact setup onto another TV.
+        Capture this TV's disabled apps, launcher and tweaks to a file, then reapply those recorded
+        changes later or to another compatible TV.
       </p>
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro
@@ -226,6 +226,7 @@
     open={pending !== null}
     icon="settings_backup_restore"
     title={`Apply "${pending?.snap.label ?? pending?.snap.device_name ?? "snapshot"}"?`}
+    warning={pending?.plan.cross_device_warning ?? ""}
     message={planSummary}
     confirmLabel="Apply"
     onConfirm={confirmApply}

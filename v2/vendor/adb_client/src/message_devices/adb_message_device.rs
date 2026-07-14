@@ -172,6 +172,14 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     }
 
     pub(crate) fn open_session(&mut self, cmd: &ADBLocalCommand) -> Result<ADBSession<T>> {
+        self.open_session_with_timeout(cmd, Duration::from_secs(u64::MAX))
+    }
+
+    pub(crate) fn open_session_with_timeout(
+        &mut self,
+        cmd: &ADBLocalCommand,
+        timeout: Duration,
+    ) -> Result<ADBSession<T>> {
         let mut rng = rand::rng();
         let local_id: u32 = rng.random();
 
@@ -183,7 +191,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         )?;
         self.transport.write_message(message)?;
 
-        let response = self.transport.read_message()?;
+        let response = self.transport.read_message_with_timeout(timeout)?;
 
         if response.header().command() != MessageCommand::Okay {
             return Err(RustADBError::ADBRequestFailed(format!(

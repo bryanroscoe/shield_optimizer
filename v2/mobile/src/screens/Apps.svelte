@@ -128,7 +128,8 @@
       }
     } catch (e) {
       patch(pkg, !enabling);
-      showToast(String(e), "error");
+      if (isLocked(e)) showPaywall = true;
+      else showToast(String(e), "error");
     } finally {
       busyAction = "";
     }
