@@ -15,17 +15,21 @@
   // classifier. No inline package→risk table (that violated the "one detection
   // function" invariant and could disagree with the engine).
   let safetyMap = $state<Record<string, Safety>>({});
+  let safetyRequest = 0;
 
   async function loadSafety() {
+    const request = ++safetyRequest;
+    const serial = session.serial;
     const pkgs = (session.health?.top_memory ?? []).slice(0, 8).map((m) => m.package);
+    safetyMap = {};
     if (pkgs.length === 0) {
-      safetyMap = {};
       return;
     }
     try {
       const pairs = await Promise.all(
         pkgs.map(async (p) => [p, await api.safetyInfo(p)] as const),
       );
+      if (request !== safetyRequest || serial !== session.serial) return;
       const map: Record<string, Safety> = {};
       for (const [p, s] of pairs) map[p] = s;
       safetyMap = map;
@@ -117,6 +121,12 @@
     <p class="error">{session.healthError}</p>
     <button class="primary" onclick={refresh}>Retry</button>
   {:else if health}
+    {#if session.healthError}
+      <div class="stale-warning" role="alert">
+        <span class="msr">cloud_off</span>
+        <span>Refresh failed. Showing the last successful metrics for this TV.</span>
+      </div>
+    {/if}
     <div class="diagnostics-content">
       <!-- Memory -->
       <div class="diagnostic-card">
@@ -245,6 +255,22 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+  }
+  .stale-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--amber) 9%, transparent);
+    color: var(--amber);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .stale-warning .msr {
+    font-size: 18px;
   }
 
   .diagnostic-card {

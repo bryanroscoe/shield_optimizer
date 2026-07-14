@@ -55,6 +55,9 @@ aligned, never fork it*.
   SmartTube backup discovery covers its current Documents export path (GitHub #86); desktop file
   browsing discards stale responses; and Android fast-remote failure cleanup plus hold-repeat
   backpressure are hardened.
+- **State-isolation checkpoint**: malformed saved TVs are normalized safely; Diagnostics labels
+  stale metrics after a failed refresh and isolates safety lookups; Tweaks requests cannot overwrite
+  another device, mutations capture their target serial, and partial failures force a real reload.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.

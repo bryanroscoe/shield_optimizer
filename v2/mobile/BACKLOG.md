@@ -38,6 +38,10 @@ Implemented in the current checkpoint:
   workers on every handshake branch, failed starts kill the resident server, hold-repeat ticks are
   bounded instead of accumulating behind a slow fallback, and `find_remote` now respects real
   shell failure/exit status.
+- Normalize malformed saved-TV records (including the legacy `googletv` spelling and invalid
+  dates), show an explicit stale-data warning after Diagnostics refresh failure, isolate safety and
+  Tweaks loads by device/request, capture the mutation target serial, and reload Tweaks after any
+  possibly-partial write failure.
 
 ## P0 — next correctness work
 
@@ -46,11 +50,6 @@ Implemented in the current checkpoint:
    failure-cleanup code paths are now serialized and bounded.
 2. **File and backup honesty/correctness.** Implement restore or remove restore promises; handle
    split APKs instead of presenting a base-APK copy as a complete backup.
-3. **Diagnostics/tweaks refresh correctness.** Mark stale metrics visibly after refresh failure,
-   reload state after partial animation-setting writes, and prevent old screen requests from
-   overwriting a new device's values.
-4. **Saved-device storage hardening.** Validate/migrate malformed localStorage records so an invalid
-   `lastUsed` value cannot crash onboarding.
 
 ## P1 — required product features
 

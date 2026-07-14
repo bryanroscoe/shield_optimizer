@@ -24,6 +24,7 @@
   let showPaywall = $state(false);
   let dnsHost = $state("");
   let dnsEditing = $state(false);
+  let loadGeneration = 0;
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -40,7 +41,9 @@
   }
 
   async function load() {
-    if (!session.serial) {
+    const serial = session.serial;
+    const generation = ++loadGeneration;
+    if (!serial) {
       error = "No TV connected.";
       loading = false;
       return;
@@ -49,18 +52,20 @@
     error = "";
     try {
       const [t, d, s] = await Promise.all([
-        api.getTweaks(session.serial),
-        api.getPrivateDns(session.serial),
-        api.getDisplayScaling(session.serial),
+        api.getTweaks(serial),
+        api.getPrivateDns(serial),
+        api.getDisplayScaling(serial),
       ]);
+      if (generation !== loadGeneration || serial !== session.serial) return;
       tweaks = t;
       dns = d;
       scaling = s;
       if (d.hostname) dnsHost = d.hostname;
     } catch (e) {
+      if (generation !== loadGeneration || serial !== session.serial) return;
       error = String(e);
     } finally {
-      loading = false;
+      if (generation === loadGeneration && serial === session.serial) loading = false;
     }
   }
 
@@ -70,29 +75,34 @@
   // never fabricate the new value (we re-read the device instead).
   async function apply(
     key: string,
-    fn: () => Promise<{ ok: boolean; message: string; reverted?: boolean }>,
+    fn: (targetSerial: string) => Promise<{ ok: boolean; message: string; reverted?: boolean }>,
     successMsg: string,
   ) {
     if (busy) return;
+    const targetSerial = session.serial;
+    if (!targetSerial) return;
     busy = key;
     try {
-      const r = await fn();
+      const r = await fn(targetSerial);
       if (r.ok) {
         showToast(successMsg, "success");
         await load();
       } else {
         showToast(r.message || "Change failed.", "error");
-        if (r.reverted) await load();
+        // A multi-write operation may have changed earlier values before a
+        // later write failed. Re-read instead of leaving optimistic/stale UI.
+        await load();
       }
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
-      else showToast(String(e), "error");
+      else {
+        showToast(String(e), "error");
+        await load();
+      }
     } finally {
       busy = "";
     }
   }
-
-  const serial = $derived(session.serial);
 
   // ---- Derived current states (null = unknown; we render honestly) ----
   const hdmiOn = $derived(tweaks?.hdmi_control_enabled === "1");
@@ -131,35 +141,35 @@
   ];
 
   function toggleHdmi() {
-    apply("hdmi", () => api.writeSetting(serial, "global", "hdmi_control_enabled", hdmiOn ? "0" : "1"),
+    apply("hdmi", (target) => api.writeSetting(target, "global", "hdmi_control_enabled", hdmiOn ? "0" : "1"),
       hdmiOn ? "HDMI-CEC turned off." : "HDMI-CEC turned on.");
   }
   function toggleFrameRate() {
-    apply("framerate", () => api.writeSetting(serial, "secure", "match_content_frame_rate", frameRateOn ? "0" : "2"),
+    apply("framerate", (target) => api.writeSetting(target, "secure", "match_content_frame_rate", frameRateOn ? "0" : "2"),
       frameRateOn ? "Frame-rate matching off." : "Frame-rate matching on.");
   }
   function setAnim(value: string) {
     // Animation speed is three scales in lockstep — write all so the UI is
     // consistent (window / transition / animator).
-    apply(`anim-${value}`, async () => {
+    apply(`anim-${value}`, async (target) => {
       let last = { ok: true, message: "ok" };
       for (const k of ["window_animation_scale", "transition_animation_scale", "animator_duration_scale"]) {
-        last = await api.writeSetting(serial, "global", k, value);
+        last = await api.writeSetting(target, "global", k, value);
         if (!last.ok) break;
       }
       return last;
     }, "Animation speed updated.");
   }
   function setLongPress(ms: number) {
-    apply(`lp-${ms}`, () => api.writeSetting(serial, "secure", "long_press_timeout", String(ms)),
+    apply(`lp-${ms}`, (target) => api.writeSetting(target, "secure", "long_press_timeout", String(ms)),
       `Long-press timeout set to ${ms}ms.`);
   }
   function setBgLimit(value: string) {
-    apply(`bg-${value}`, () => api.writeSetting(serial, "global", "background_process_limit", value),
+    apply(`bg-${value}`, (target) => api.writeSetting(target, "global", "background_process_limit", value),
       "Background limit updated. Note: Android resets this on reboot.");
   }
   function setScaling(preset: DisplayScalePreset) {
-    apply(`scale-${preset}`, () => api.setDisplayScaling(serial, preset),
+    apply(`scale-${preset}`, (target) => api.setDisplayScaling(target, preset),
       "Display scaling applied.");
   }
   function setDns(mode: string) {
@@ -168,13 +178,13 @@
       return;
     }
     dnsEditing = false;
-    apply(`dns-${mode}`, () => api.setPrivateDns(serial, mode),
+    apply(`dns-${mode}`, (target) => api.setPrivateDns(target, mode),
       mode === "off" ? "Private DNS off." : "Private DNS set to automatic.");
   }
   function applyDnsHost() {
     const h = dnsHost.trim();
     if (!h) return;
-    apply("dns-host", () => api.setPrivateDns(serial, "hostname", h),
+    apply("dns-host", (target) => api.setPrivateDns(target, "hostname", h),
       "Private DNS hostname applied.");
   }
 

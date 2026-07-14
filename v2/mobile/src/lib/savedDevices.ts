@@ -12,6 +12,44 @@ import { deviceLabelOf } from "./types";
 
 const KEY = "atv.savedDevices.v1";
 const MAX = 8;
+const EPOCH = new Date(0).toISOString();
+
+function normalizeSavedDevice(value: unknown): SavedDevice | null {
+  if (!value || typeof value !== "object") return null;
+  const d = value as Record<string, unknown>;
+  if (
+    typeof d.host !== "string" ||
+    d.host.trim() === "" ||
+    typeof d.connectPort !== "number" ||
+    !Number.isInteger(d.connectPort) ||
+    d.connectPort < 1 ||
+    d.connectPort > 65535
+  ) {
+    return null;
+  }
+  const deviceType =
+    d.deviceType === "shield" ||
+    d.deviceType === "google_tv" ||
+    d.deviceType === "unknown"
+      ? d.deviceType
+      : d.deviceType === "googletv"
+        ? "google_tv"
+        : "unknown";
+  const parsedLastUsed =
+    typeof d.lastUsed === "string" ? new Date(d.lastUsed) : new Date(NaN);
+  return {
+    host: d.host.trim(),
+    connectPort: d.connectPort,
+    name:
+      typeof d.name === "string" && d.name.trim() !== ""
+        ? d.name.trim()
+        : d.host.trim(),
+    deviceType,
+    lastUsed: Number.isNaN(parsedLastUsed.getTime())
+      ? EPOCH
+      : parsedLastUsed.toISOString(),
+  };
+}
 
 function read(): SavedDevice[] {
   try {
@@ -19,11 +57,11 @@ function read(): SavedDevice[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // Defensive: keep only entries with the shape we expect.
-    return parsed.filter(
-      (d): d is SavedDevice =>
-        d && typeof d.host === "string" && typeof d.connectPort === "number",
-    );
+    // Normalize older or partially-corrupt records in memory. Invalid dates
+    // sort to the end instead of throwing during reconnect-screen startup.
+    return parsed
+      .map(normalizeSavedDevice)
+      .filter((d): d is SavedDevice => d !== null);
   } catch {
     return [];
   }
