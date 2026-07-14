@@ -1,20 +1,17 @@
 //! Shared application state held across Tauri command invocations.
 
 use std::collections::HashMap;
-#[cfg(not(target_os = "android"))]
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
-#[cfg(not(target_os = "android"))]
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 #[cfg(not(target_os = "android"))]
 use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
 use crate::adb::AdbDriver;
-#[cfg(not(target_os = "android"))]
 use crate::adb::RemoteInputSession;
 use crate::engine::AppListBundle;
 use crate::license::{Entitlement, Feature};
@@ -44,7 +41,6 @@ pub struct AppState {
     entitlement: AtomicU8,
     /// Live scrcpy control sessions, keyed by device serial. Lazily started on
     /// the first remote key and held open for the Remote tab's lifetime.
-    #[cfg(not(target_os = "android"))]
     pub remote_sessions: Mutex<HashMap<String, RemoteInputSession>>,
 }
 
@@ -57,7 +53,6 @@ impl AppState {
             data_dir,
             known_names: HashMap::new(),
             entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Pro)),
-            #[cfg(not(target_os = "android"))]
             remote_sessions: Mutex::new(HashMap::new()),
         }
     }
@@ -103,35 +98,27 @@ impl AppState {
     }
 
     /// Get-or-start the scrcpy control session for `serial`. The slow `start()`
-    /// (push + forward + spawn + connect) runs OUTSIDE the registry lock so a
-    /// cold start can't block other commands; the lock is only taken for the
-    /// fast presence check and the final insert. If two callers race, the loser
-    /// tears its extra session down.
-    #[cfg(not(target_os = "android"))]
+    /// (push + launch + connect) holds the remote-only registry lock. This
+    /// serializes cold starts so a losing duplicate session cannot tear down
+    /// the server belonging to the winning session on Android.
     pub async fn ensure_remote_session(
         &self,
         adb: Arc<dyn AdbDriver>,
         jar_path: &Path,
         serial: &str,
     ) -> Result<(), String> {
-        if self.remote_sessions.lock().await.contains_key(serial) {
+        let mut guard = self.remote_sessions.lock().await;
+        if guard.contains_key(serial) {
             return Ok(());
         }
         let session = RemoteInputSession::start(adb, jar_path, serial).await?;
-        let mut guard = self.remote_sessions.lock().await;
-        if guard.contains_key(serial) {
-            drop(guard);
-            session.close().await;
-        } else {
-            guard.insert(serial.to_string(), session);
-        }
+        guard.insert(serial.to_string(), session);
         Ok(())
     }
 
     /// Inject a single key-down / key-up via the live session. Errors if no
     /// session exists — Phase 3 calls `ensure_remote_session` first, and on a
     /// write error should `drop_remote_session` and fall back to `input`.
-    #[cfg(not(target_os = "android"))]
     pub async fn remote_send_key(
         &self,
         serial: &str,
@@ -146,7 +133,6 @@ impl AppState {
     }
 
     /// Inject a full key press (down + up) via the live session.
-    #[cfg(not(target_os = "android"))]
     pub async fn remote_send_key_press(&self, serial: &str, keycode: u32) -> Result<(), String> {
         let mut guard = self.remote_sessions.lock().await;
         let session = guard
@@ -156,7 +142,6 @@ impl AppState {
     }
 
     /// Inject UTF-8 text via the live session.
-    #[cfg(not(target_os = "android"))]
     pub async fn remote_send_text(&self, serial: &str, text: &str) -> Result<(), String> {
         let mut guard = self.remote_sessions.lock().await;
         let session = guard
@@ -167,10 +152,21 @@ impl AppState {
 
     /// Tear down and forget the session for `serial`, if any. Removes it from
     /// the registry first, then closes outside the lock.
-    #[cfg(not(target_os = "android"))]
     pub async fn drop_remote_session(&self, serial: &str) {
         let session = self.remote_sessions.lock().await.remove(serial);
         if let Some(session) = session {
+            session.close().await;
+        }
+    }
+
+    /// Drain all live control sessions, then close them outside the registry
+    /// lock so reconnect/disconnect lifecycle cleanup cannot deadlock.
+    pub async fn drop_all_remote_sessions(&self) {
+        let sessions: Vec<_> = {
+            let mut guard = self.remote_sessions.lock().await;
+            guard.drain().map(|(_, session)| session).collect()
+        };
+        for session in sessions {
             session.close().await;
         }
     }
@@ -199,25 +195,39 @@ fn entitlement_from_u8(value: u8) -> Entitlement {
 ///
 /// Phase 3: the remote-input command calls this with its `AppHandle` to get the
 /// jar path, then hands it to `AppState::ensure_remote_session`.
-#[cfg(not(target_os = "android"))]
 pub fn resolve_scrcpy_server_jar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
-    if let Ok(p) = app.path().resolve(
-        SERVER_JAR_RESOURCE_PATH,
-        tauri::path::BaseDirectory::Resource,
-    ) {
-        if p.is_file() {
-            return Ok(p);
+    #[cfg(target_os = "android")]
+    {
+        let path = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("resolve app data directory: {e}"))?
+            .join("scrcpy-server-v3.1");
+        if path.is_file() {
+            return Ok(path);
         }
+        Err(format!("scrcpy server jar not found at {}", path.display()))
     }
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../src-tauri")
-        .join(SERVER_JAR_RESOURCE_PATH);
-    if dev.is_file() {
-        return Ok(dev);
+    #[cfg(not(target_os = "android"))]
+    {
+        if let Ok(p) = app.path().resolve(
+            SERVER_JAR_RESOURCE_PATH,
+            tauri::path::BaseDirectory::Resource,
+        ) {
+            if p.is_file() {
+                return Ok(p);
+            }
+        }
+        let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../src-tauri")
+            .join(SERVER_JAR_RESOURCE_PATH);
+        if dev.is_file() {
+            return Ok(dev);
+        }
+        Err(format!(
+            "scrcpy server jar not found (looked in the Tauri resource dir and {})",
+            dev.display()
+        ))
     }
-    Err(format!(
-        "scrcpy server jar not found (looked in the Tauri resource dir and {})",
-        dev.display()
-    ))
 }

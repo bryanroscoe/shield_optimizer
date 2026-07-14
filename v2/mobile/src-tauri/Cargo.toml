@@ -37,3 +37,7 @@ tracing-appender = "0.2"
 # ISO-8601 timestamps for pulled backups. Already compiled transitively via
 # shield-optimizer-core, so this adds no new build cost.
 chrono = { version = "0.4", features = ["clock"] }
+
+[dev-dependencies]
+sha2 = "0.10"
+tempfile = "3"

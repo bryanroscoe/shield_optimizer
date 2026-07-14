@@ -1,5 +1,5 @@
 use serde::Serialize;
-use shield_optimizer_core::commands::devices::ConnectResult;
+use shield_optimizer_core::commands::{devices::ConnectResult, AppState};
 use tauri::State;
 
 use crate::wireless_adb::{DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus};
@@ -43,9 +43,11 @@ pub async fn wireless_pair(
 #[tauri::command]
 pub async fn wireless_connect(
     state: State<'_, MobileState>,
+    app_state: State<'_, AppState>,
     host: String,
     port: u16,
 ) -> Result<ConnectResult, String> {
+    app_state.drop_all_remote_sessions().await;
     match state.wireless.connect(host.trim(), port).await {
         Ok(message) => Ok(ConnectResult { ok: true, message }),
         Err(message) => Ok(ConnectResult { ok: false, message }),
@@ -53,7 +55,11 @@ pub async fn wireless_connect(
 }
 
 #[tauri::command]
-pub async fn wireless_disconnect(state: State<'_, MobileState>) -> Result<ConnectResult, String> {
+pub async fn wireless_disconnect(
+    state: State<'_, MobileState>,
+    app_state: State<'_, AppState>,
+) -> Result<ConnectResult, String> {
+    app_state.drop_all_remote_sessions().await;
     match state.wireless.disconnect().await {
         Ok(message) => Ok(ConnectResult { ok: true, message }),
         Err(message) => Ok(ConnectResult { ok: false, message }),
@@ -64,8 +70,15 @@ pub async fn wireless_disconnect(state: State<'_, MobileState>) -> Result<Connec
 /// broken connection. Runs a fast `echo` over the cached connection; if it
 /// fails the cached connection is cleared and `connected: false` is returned.
 #[tauri::command]
-pub async fn wireless_status(state: State<'_, MobileState>) -> Result<WirelessStatus, String> {
-    Ok(state.wireless.status().await)
+pub async fn wireless_status(
+    state: State<'_, MobileState>,
+    app_state: State<'_, AppState>,
+) -> Result<WirelessStatus, String> {
+    let status = state.wireless.status().await;
+    if !status.connected {
+        app_state.drop_all_remote_sessions().await;
+    }
+    Ok(status)
 }
 
 #[tauri::command]

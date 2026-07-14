@@ -39,6 +39,10 @@ aligned, never fork it*.
   TV/monitor on a stand with three **vertical faders** (exact SVG in `src-tauri/icons/icon.svg`).
 - **On-device validated**: connected to a real Shield over the new transport; the app is fully
   usable; the connection-lost banner + real device name resolve. (Pixel 10 Pro test device.)
+- **Fast remote Phases 1–3**: a pinned generic raw ADB service stream, embedded scrcpy v3.1 server,
+  Android session registry/lifecycle, and transparent same-request shell fallback are implemented.
+  The Bedroom Shield gate measured 30 warm channel presses at 75.2 ms p95 and app force-stop left
+  no resident server/socket. Full results and remaining gates are in `FAST-REMOTE-PLAN.md`.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -77,12 +81,9 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
   in this environment — work from the downloaded folder.
 
 ## 5. What REMAINS (in priority order; also in CLOUD-TASK.md)
-1. **Fast remote** — the remote works but in slow "compat" mode (`adb shell input`, ~690ms/press).
-   Phase 1 is complete: the workspace pins an MIT-licensed `adb_client` 3.2.2 patch with a generic
-   `ADBTcpService` raw stream on a **separate authenticated connection**. Protocol tests cover
-   `OPEN`/`WRTE`/`OKAY`/`CLSE`, buffering, IDs, timeouts, and chunking; the patch is clippy-clean and
-   cross-compiles for aarch64 Android with the mobile framebuffer feature. The remaining mobile
-   session wiring, lifecycle, fallback, and device-benchmark gates are in
+1. **Finish fast-remote device gates** — Phases 1–3 are complete and the Bedroom Shield passes the
+   latency/force-stop gates. Repeat on the second Shield when available and cover UTF-8 text,
+   hold-to-repeat, reboot/background/reconnect, plus concurrent diagnostics/files. Details are in
    **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
 2. **SPAKE2 pairing** — for new Google-TV devices (legacy Shields don't need it). Clean-room from
    Apache-2.0 AOSP pairing sources; plan first if risky.
@@ -155,6 +156,5 @@ b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
 ac9c3cd onboarding design
 16e5c42 (earlier) extract shared core workspace
 ```
-Immediate next action: implement **Phase 2 of `FAST-REMOTE-PLAN.md`**: embed/materialize the pinned
-scrcpy jar, add the Android session transport behind `WirelessAdb`, and keep normal commands on the
-existing connection while the control stream owns its dedicated connection.
+Immediate next action: finish **Phase 4 of `FAST-REMOTE-PLAN.md`** on the second Shield when it is
+available, then start the SPAKE2 pairing plan.

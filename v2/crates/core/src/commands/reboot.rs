@@ -33,6 +33,7 @@ pub async fn reboot_device(
     if !matches!(mode, RebootMode::Normal) {
         state.require_pro(Feature::AdvancedReboot)?;
     }
+    state.drop_remote_session(&serial).await;
     let adb = state.adb_snapshot().await;
     let args: Vec<&str> = match mode {
         RebootMode::Normal => vec!["-s", &serial, "reboot"],

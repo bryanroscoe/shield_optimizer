@@ -156,7 +156,6 @@ pub async fn disconnect_device(
 ) -> Result<ConnectResult, String> {
     // A live remote-input session holds an open socket + forward to this
     // device — tear it down before dropping the connection.
-    #[cfg(not(target_os = "android"))]
     state.drop_remote_session(&serial).await;
     let adb = state.adb_snapshot().await;
     let out = adb

@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use adb_client::tcp::ADBTcpDevice;
+use adb_client::tcp::{ADBTcpDevice, ADBTcpService};
 use adb_client::{ADBDeviceExt, RebootType, RustADBError};
 use async_trait::async_trait;
 use serde::Serialize;
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use shield_optimizer_core::adb::{AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::devices::normalize_connect_address;
 
 use tauri_plugin_atv_adb::AdbExt;
@@ -360,6 +360,42 @@ impl AdbDriver for WirelessAdb {
         })
         .await
         .map_err(AdbError::Transport)
+    }
+
+    async fn open_device_service(
+        &self,
+        serial: &str,
+        service: &str,
+    ) -> AdbResult<Box<dyn AdbByteStream>> {
+        let Some((active_serial, host, port)) = self.info() else {
+            return Err(AdbError::Transport(
+                "Not connected to a device.".to_string(),
+            ));
+        };
+        if active_serial != serial {
+            return Err(AdbError::Transport(format!(
+                "Connected device is {active_serial}, not {serial}."
+            )));
+        }
+        let addr: SocketAddr = format!("{host}:{port}")
+            .parse()
+            .map_err(|e| AdbError::Transport(format!("invalid device address: {e}")))?;
+        let key_path = self.key_path.clone();
+        let service = service.to_string();
+        tokio::task::spawn_blocking(move || {
+            ensure_adb_key(&key_path).map_err(AdbError::Transport)?;
+            ADBTcpService::new_with_timeouts(
+                addr,
+                &service,
+                key_path,
+                Duration::from_secs(2),
+                Duration::from_secs(2),
+            )
+            .map(|stream| Box::new(stream) as Box<dyn AdbByteStream>)
+            .map_err(|e| AdbError::Transport(e.to_string()))
+        })
+        .await
+        .map_err(|e| AdbError::Transport(format!("wireless-adb task failed: {e}")))?
     }
 }
 

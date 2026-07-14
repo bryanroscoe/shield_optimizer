@@ -4,20 +4,16 @@
 //! cold-starts a JVM on the TV (~690 ms per press). This module replaces the
 //! transport with scrcpy's control-only server: push the jar once, run it
 //! resident via `app_process`, and stream fixed binary control messages over a
-//! forwarded TCP socket — dropping per-press cost to network RTT.
+//! persistent socket — dropping per-press cost to network RTT. Desktop reaches
+//! that socket through `adb forward`; Android opens the device service directly.
 //!
-//! Layering note: every adb invocation (push / forward / the `app_process`
-//! spawn) goes through the `AdbDriver` trait, per the one-wrapper rule. The raw
-//! `TcpStream` to the forwarded local port is a DOCUMENTED exception to that
-//! rule — the same kind of exception `scan.rs` makes for its route/ip probes.
-//! There is no way to carry scrcpy's binary control protocol over the driver's
-//! line-oriented `shell`; the socket is the protocol.
+//! Layering note: every adb invocation goes through the `AdbDriver` trait, per
+//! the one-wrapper rule. Desktop's raw `TcpStream` to its adb-forwarded local
+//! port is a documented exception; Android uses `open_device_service` on the
+//! driver and keeps both dedicated ADB connections behind that seam.
 
-#[cfg(not(target_os = "android"))]
 use std::path::Path;
-#[cfg(not(target_os = "android"))]
 use std::sync::atomic::{AtomicU32, Ordering};
-#[cfg(not(target_os = "android"))]
 use std::sync::Arc;
 
 #[cfg(not(target_os = "android"))]
@@ -26,19 +22,19 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 #[cfg(not(target_os = "android"))]
 use tokio::process::Child;
+use tracing::debug;
 #[cfg(not(target_os = "android"))]
-use tracing::{debug, warn};
+use tracing::warn;
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "android")]
+use crate::adb::AdbByteStream;
 use crate::adb::AdbDriver;
 
 /// The scrcpy protocol version this jar implements. MUST equal the version
 /// baked into `resources/scrcpy-server-v3.1` or the server aborts on launch.
-#[cfg(not(target_os = "android"))]
 const SCRCPY_VERSION: &str = "3.1";
 
 /// Where the server jar is pushed on the device.
-#[cfg(not(target_os = "android"))]
 const DEVICE_JAR_PATH: &str = "/data/local/tmp/shieldopt-scrcpy-server.jar";
 
 /// Bundled jar location, relative to both the Tauri resource root (for
@@ -51,9 +47,7 @@ const TYPE_INJECT_KEYCODE: u8 = 0;
 const TYPE_INJECT_TEXT: u8 = 1;
 
 /// Android `KeyEvent` actions.
-#[cfg(not(target_os = "android"))]
 const ACTION_DOWN: u8 = 0;
-#[cfg(not(target_os = "android"))]
 const ACTION_UP: u8 = 1;
 
 /// scrcpy caps a single INJECT_TEXT at 300 chars; longer strings are clamped.
@@ -62,9 +56,7 @@ const MAX_TEXT_CHARS: usize = 300;
 /// How many times to retry the TCP connect before giving up. With
 /// `tunnel_forward=true` the server LISTENS on the localabstract socket and we
 /// connect after `adb forward`, so there is a brief startup race.
-#[cfg(not(target_os = "android"))]
 const CONNECT_ATTEMPTS: usize = 10;
-#[cfg(not(target_os = "android"))]
 const CONNECT_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// Encode an INJECT_KEYCODE control message (always 14 bytes, big-endian):
@@ -95,17 +87,14 @@ pub fn encode_inject_text(text: &str) -> Vec<u8> {
 /// Format a scid as scrcpy expects: 8 lowercase hex digits, masked to 31 bits
 /// (the high bit must be clear — the server parses scid as a positive int and
 /// treats a negative value as "no scid").
-#[cfg(not(target_os = "android"))]
 fn format_scid(value: u32) -> String {
     format!("{:08x}", value & 0x7fff_ffff)
 }
 
 /// Process-wide counter mixed into the time seed so two sessions started within
 /// the same millisecond still get distinct scids.
-#[cfg(not(target_os = "android"))]
 static SCID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-#[cfg(not(target_os = "android"))]
 fn next_scid() -> String {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -142,7 +131,6 @@ fn forward_remove_args(serial: &str, port: u16) -> Vec<String> {
 }
 
 /// `adb -s <serial> push <jar> <device-path>` argument vector.
-#[cfg(not(target_os = "android"))]
 fn push_args(serial: &str, local_jar: &str) -> Vec<String> {
     vec![
         "-s".to_string(),
@@ -176,6 +164,158 @@ fn server_spawn_args(serial: &str, scid: &str) -> Vec<String> {
         "send_device_meta=false".to_string(),
         "send_dummy_byte=true".to_string(),
     ]
+}
+
+/// Android cannot use `adb forward`, so run the control-only server on its own
+/// retained ADB shell service and connect directly to its localabstract socket
+/// over another dedicated transport. Output is discarded to prevent the
+/// server connection's receive buffer from filling while the session is live.
+#[cfg(any(target_os = "android", test))]
+fn resident_server_command(scid: &str) -> String {
+    format!(
+        "CLASSPATH={DEVICE_JAR_PATH} app_process / com.genymobile.scrcpy.Server \
+         {SCRCPY_VERSION} scid={scid} log_level=info video=false audio=false \
+         control=true tunnel_forward=true send_device_meta=false \
+         send_dummy_byte=true </dev/null >/dev/null 2>&1"
+    )
+}
+
+#[cfg(target_os = "android")]
+pub struct RemoteInputSession {
+    stream: Option<Box<dyn AdbByteStream>>,
+    server_stream: Option<Box<dyn AdbByteStream>>,
+    scid: String,
+    serial: String,
+    adb: Arc<dyn AdbDriver>,
+}
+
+#[cfg(target_os = "android")]
+impl RemoteInputSession {
+    pub async fn start(
+        adb: Arc<dyn AdbDriver>,
+        jar_path: &Path,
+        serial: &str,
+    ) -> Result<Self, String> {
+        let local_jar = jar_path
+            .to_str()
+            .ok_or_else(|| "scrcpy: server jar path is not valid UTF-8".to_string())?;
+        let push = push_args(serial, local_jar);
+        let pushed = adb
+            .raw_transfer(&as_str_args(&push))
+            .await
+            .map_err(|e| format!("scrcpy: push server jar: {e}"))?;
+        if !pushed.success() {
+            return Err(format!("scrcpy: push server jar: {}", pushed.combined()));
+        }
+
+        let scid = next_scid();
+        let server_service = format!("shell:{}", resident_server_command(&scid));
+        let server_stream = adb
+            .open_device_service(serial, &server_service)
+            .await
+            .map_err(|e| format!("scrcpy: open resident server service: {e}"))?;
+
+        let service = format!("localabstract:scrcpy_{scid}");
+        let mut last_err = String::new();
+        for attempt in 0..CONNECT_ATTEMPTS {
+            match adb.open_device_service(serial, &service).await {
+                Ok(mut stream) => {
+                    let checked = tokio::task::spawn_blocking(move || {
+                        let mut dummy = [0u8; 1];
+                        let result = std::io::Read::read_exact(stream.as_mut(), &mut dummy);
+                        (stream, dummy[0], result)
+                    })
+                    .await
+                    .map_err(|e| format!("scrcpy: handshake task failed: {e}"))?;
+                    match checked {
+                        (stream, 0x00, Ok(())) => {
+                            let session = Self {
+                                stream: Some(stream),
+                                server_stream: Some(server_stream),
+                                scid,
+                                serial: serial.to_string(),
+                                adb,
+                            };
+                            debug!(
+                                serial = %session.serial,
+                                scid = %session.scid,
+                                "scrcpy Android control session established"
+                            );
+                            return Ok(session);
+                        }
+                        (_, byte, Ok(())) => {
+                            drop_blocking_stream(server_stream).await;
+                            let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
+                            return Err(format!(
+                                "scrcpy: unexpected handshake byte {byte:#04x} (expected 0x00)"
+                            ));
+                        }
+                        (_, _, Err(e)) => last_err = format!("handshake read: {e}"),
+                    }
+                }
+                Err(e) => last_err = e.to_string(),
+            }
+            if attempt + 1 < CONNECT_ATTEMPTS {
+                tokio::time::sleep(CONNECT_RETRY_DELAY).await;
+            }
+        }
+
+        drop_blocking_stream(server_stream).await;
+        let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
+        Err(format!(
+            "scrcpy: control channel never came up after {CONNECT_ATTEMPTS} attempts: {last_err}"
+        ))
+    }
+
+    pub async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String> {
+        let action = if down { ACTION_DOWN } else { ACTION_UP };
+        self.write_all(encode_inject_keycode(action, keycode, 0, 0))
+            .await
+    }
+
+    pub async fn send_key_press(&mut self, keycode: u32) -> Result<(), String> {
+        let mut message = encode_inject_keycode(ACTION_DOWN, keycode, 0, 0);
+        message.extend_from_slice(&encode_inject_keycode(ACTION_UP, keycode, 0, 0));
+        self.write_all(message).await
+    }
+
+    pub async fn send_text(&mut self, text: &str) -> Result<(), String> {
+        self.write_all(encode_inject_text(text)).await
+    }
+
+    async fn write_all(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        let mut stream = self
+            .stream
+            .take()
+            .ok_or_else(|| "scrcpy: control socket is closed".to_string())?;
+        let (returned, result) = tokio::task::spawn_blocking(move || {
+            let result = std::io::Write::write_all(stream.as_mut(), &bytes)
+                .and_then(|()| std::io::Write::flush(stream.as_mut()));
+            (stream, result)
+        })
+        .await
+        .map_err(|e| format!("scrcpy: control socket task failed: {e}"))?;
+        self.stream = Some(returned);
+        result.map_err(|e| format!("scrcpy: control socket write failed: {e}"))
+    }
+
+    pub async fn close(mut self) {
+        if let Some(stream) = self.stream.take() {
+            drop_blocking_stream(stream).await;
+        }
+        if let Some(server_stream) = self.server_stream.take() {
+            drop_blocking_stream(server_stream).await;
+        }
+        let _ = self
+            .adb
+            .shell(&self.serial, "pkill -f shieldopt-scrcpy-server")
+            .await;
+    }
+}
+
+#[cfg(target_os = "android")]
+async fn drop_blocking_stream(stream: Box<dyn AdbByteStream>) {
+    let _ = tokio::task::spawn_blocking(move || drop(stream)).await;
 }
 
 /// Reserve a free local TCP port by binding to `:0` and reading back the
@@ -396,7 +536,6 @@ impl Drop for RemoteInputSession {
 }
 
 /// Borrow a `Vec<String>` as the `&[&str]` the driver wants.
-#[cfg(not(target_os = "android"))]
 fn as_str_args(args: &[String]) -> Vec<&str> {
     args.iter().map(String::as_str).collect()
 }
@@ -490,6 +629,17 @@ mod tests {
                 "send_device_meta=false",
                 "send_dummy_byte=true",
             ]
+        );
+    }
+
+    #[test]
+    fn android_resident_server_command_is_exact() {
+        assert_eq!(
+            resident_server_command("0a1b2c3d"),
+            "CLASSPATH=/data/local/tmp/shieldopt-scrcpy-server.jar app_process / \
+             com.genymobile.scrcpy.Server 3.1 scid=0a1b2c3d log_level=info video=false \
+             audio=false control=true tunnel_forward=true send_device_meta=false \
+             send_dummy_byte=true </dev/null >/dev/null 2>&1"
         );
     }
 

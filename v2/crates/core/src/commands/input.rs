@@ -11,7 +11,6 @@
 use serde::Serialize;
 use tauri::State;
 
-#[cfg(not(target_os = "android"))]
 use super::state::resolve_scrcpy_server_jar;
 use super::AppState;
 
@@ -25,7 +24,6 @@ pub struct SendTextResult {
 }
 
 /// Make sure the scrcpy session for `serial` is up (starting it if needed).
-#[cfg(not(target_os = "android"))]
 async fn channel_ready(
     state: &AppState,
     app: &tauri::AppHandle,
@@ -86,7 +84,6 @@ pub async fn send_text(
         });
     }
 
-    #[cfg(not(target_os = "android"))]
     let channel = if force_shell {
         Err("compatibility mode forced".to_string())
     } else {
@@ -101,10 +98,6 @@ pub async fn send_text(
             Err(e) => Err(e),
         }
     };
-    #[cfg(target_os = "android")]
-    let channel: Result<(), String> = Err("scrcpy channel unavailable on Android".to_string());
-    #[cfg(target_os = "android")]
-    let _ = app;
     if channel.is_ok() {
         return Ok(SendTextResult {
             ok: true,
@@ -196,7 +189,6 @@ pub async fn send_key(
         return Err(format!("Unknown remote key: {key:?}"));
     };
 
-    #[cfg(not(target_os = "android"))]
     let channel = if force_shell {
         Err("compatibility mode forced".to_string())
     } else {
@@ -211,10 +203,6 @@ pub async fn send_key(
             Err(e) => Err(e),
         }
     };
-    #[cfg(target_os = "android")]
-    let channel: Result<(), String> = Err("scrcpy channel unavailable on Android".to_string());
-    #[cfg(target_os = "android")]
-    let _ = app;
     if channel.is_ok() {
         return Ok(SendTextResult {
             ok: true,

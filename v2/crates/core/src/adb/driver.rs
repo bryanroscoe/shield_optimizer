@@ -4,6 +4,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// Blocking byte stream returned by a device service such as a localabstract
+/// socket. Mobile implements this with a dedicated pure-Rust ADB connection;
+/// desktop does not need it because its adb process owns port forwarding.
+pub trait AdbByteStream: std::io::Read + std::io::Write + Send + 'static {}
+
+impl<T> AdbByteStream for T where T: std::io::Read + std::io::Write + Send + 'static {}
+
 /// Errors a driver can return.
 #[derive(Debug, Error)]
 pub enum AdbError {
@@ -90,6 +97,19 @@ pub trait AdbDriver: Send + Sync {
     async fn raw_bytes(&self, _args: &[&str]) -> AdbResult<Vec<u8>> {
         Err(AdbError::Unsupported {
             operation: "raw_bytes",
+        })
+    }
+
+    /// Open an arbitrary device-side ADB service as a blocking byte stream.
+    /// Default reports unsupported so desktop and test drivers need no extra
+    /// implementation.
+    async fn open_device_service(
+        &self,
+        _serial: &str,
+        _service: &str,
+    ) -> AdbResult<Box<dyn AdbByteStream>> {
+        Err(AdbError::Unsupported {
+            operation: "open_device_service",
         })
     }
 

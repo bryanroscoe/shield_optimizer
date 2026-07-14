@@ -5,6 +5,7 @@
 //! Rust command surface before Android hardware is available.
 
 mod file_commands;
+mod scrcpy_resource;
 mod wireless_adb;
 mod wireless_commands;
 
@@ -147,6 +148,10 @@ pub fn run() {
                 .unwrap_or_else(|_| default_data_dir());
             init_logging(&data_dir);
             tracing::info!(data_dir = %data_dir.display(), "resolved data dir");
+            match scrcpy_resource::materialize(&data_dir) {
+                Ok(path) => tracing::info!(path = %path.display(), "scrcpy server materialized"),
+                Err(e) => tracing::warn!(error = %e, "scrcpy server materialization failed; remote input will use shell fallback"),
+            }
 
             let app_lists = match loader::load_embedded_app_lists() {
                 Ok(lists) => {
