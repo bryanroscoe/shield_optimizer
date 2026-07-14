@@ -45,7 +45,7 @@ impl ADBTcpDevice {
         timeout: Duration,
     ) -> Result<Option<u8>> {
         self.inner
-            .shell_command_with_timeout(command, stdout, stderr, timeout)
+            .shell_command_prefer_v2_with_timeout(command, stdout, stderr, timeout)
     }
 }
 
@@ -57,7 +57,7 @@ impl ADBDeviceExt for ADBTcpDevice {
         stdout: Option<&mut dyn Write>,
         stderr: Option<&mut dyn Write>,
     ) -> Result<Option<u8>> {
-        self.inner.shell_command(command, stdout, stderr)
+        self.shell_command_with_timeout(command, stdout, stderr, Duration::from_secs(u64::MAX))
     }
 
     #[inline]
@@ -134,5 +134,35 @@ impl ADBDeviceExt for ADBTcpDevice {
         writer: Box<dyn Write + Send>,
     ) -> Result<()> {
         self.inner.exec(command, reader, writer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ADBTcpDevice;
+    use crate::ADBDeviceExt;
+
+    #[test]
+    #[ignore = "requires ADB_CLIENT_TEST_ADDR and ADB_CLIENT_TEST_KEY"]
+    fn shell_v2_live_separates_stderr_and_exit_status() {
+        let address = std::env::var("ADB_CLIENT_TEST_ADDR")
+            .expect("ADB_CLIENT_TEST_ADDR")
+            .parse::<std::net::SocketAddr>()
+            .expect("socket address");
+        let key = std::env::var("ADB_CLIENT_TEST_KEY").expect("ADB_CLIENT_TEST_KEY");
+        let mut device = ADBTcpDevice::new_with_custom_private_key(address, key).expect("connect");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let status = device
+            .shell_command(
+                &"sh -c 'printf out; printf err >&2; exit 7'",
+                Some(&mut stdout),
+                Some(&mut stderr),
+            )
+            .expect("shell command");
+
+        assert_eq!(stdout, b"out");
+        assert_eq!(stderr, b"err");
+        assert_eq!(status, Some(7));
     }
 }

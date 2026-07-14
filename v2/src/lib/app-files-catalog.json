@@ -7,10 +7,13 @@
     "pattern": "*.plbackup"
   },
   {
-    "package": "com.teamsmart.videomanager.tv",
+    "package": "org.smarttube.stable",
     "name": "SmartTube",
-    "hint": "In SmartTube: Settings → Backup & restore → Backup. The backup lands in SmartTube's app folder on /sdcard.",
-    "search_dirs": ["/sdcard/Android/data/com.teamsmart.videomanager.tv"],
+    "hint": "In SmartTube: Settings → Backup/Restore → Local backup. Current releases save the ZIP in Documents/SmartTubeBackup.",
+    "search_dirs": [
+      "/sdcard/Documents/SmartTubeBackup",
+      "/sdcard/Android/data/com.teamsmart.videomanager.tv"
+    ],
     "pattern": "*.zip"
   }
 ]

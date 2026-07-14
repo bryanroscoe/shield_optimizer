@@ -20,6 +20,7 @@
   /// package → found backup-file paths (null until that app was searched).
   let appFilesResults = $state<Record<string, string[] | null>>({});
   let appFilesBusy = $state<string | null>(null);
+  let filesRequest = 0;
   /// File name the "copy to another device" picker is open for, plus targets.
   let fileCopyName = $state<string | null>(null);
   let fileCopyTargets = $state<Device[]>([]);
@@ -31,16 +32,21 @@
   );
 
   async function loadFiles(path: string) {
+    const request = ++filesRequest;
+    const allowSystemPaths = powerUserPaths;
     filesLoading = true;
     filesErr = null;
     filesMessage = "";
     try {
-      filesEntries = await api.listDir(serial, path, powerUserPaths);
+      const entries = await api.listDir(serial, path, allowSystemPaths);
+      if (request !== filesRequest) return;
+      filesEntries = entries;
       filesPath = path;
     } catch (e) {
+      if (request !== filesRequest) return;
       filesErr = String(e);
     } finally {
-      filesLoading = false;
+      if (request === filesRequest) filesLoading = false;
     }
   }
 

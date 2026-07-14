@@ -13,11 +13,12 @@ Tasks A and B below are essentially COMPLETE.
 Fast-remote Phases 1–3 and the first Shield latency gate are complete. The 2026-07-13 correctness
 checkpoint also fixed serial targeting, connection/cache races, liveness timeouts, reboot
 acknowledgement, safety lookup races, snapshot warnings, log redaction, license persistence order,
-and the Optimize apply path. Read `BACKLOG.md`; it supersedes the old queue below.
+the Optimize apply path, and truthful shell-v2 stderr/exit status. Read `BACKLOG.md`; it supersedes
+the old queue below.
 
 REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
-1. **P0 correctness from `BACKLOG.md`** — start with truthful shell stderr/exit status, then remote
-   lifecycle cleanup/races. Do not claim `adb_client` shell-v1 returns values it discards.
+1. **P0 correctness from `BACKLOG.md`** — start with remote lifecycle cleanup/races, then file and
+   backup correctness. Shell-v2 status/stderr is complete; preserve its shell-v1 fallback.
 2. **Fast remote Phase 4** — code-only lifecycle/concurrency coverage is allowed in cloud work; do
    not claim physical device gates. See `FAST-REMOTE-PLAN.md`.
 3. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in

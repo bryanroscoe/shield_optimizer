@@ -62,9 +62,10 @@ protocol (connect, RSA auth, stream multiplexing, shell/exec/push/pull) in pure 
 a spike ran every previously-hanging command cleanly on the real Shield; it cross-compiles to
 aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_optimizer_mobile_lib.so`).
 - `WirelessAdb` (`src-tauri/src/wireless_adb.rs`) now owns an `adb_client::tcp::ADBTcpDevice`
-  (blocking calls via `spawn_blocking`), implementing the core `AdbDriver` trait. The current
-  upstream shell-v1 path does **not** expose real stderr or exit codes; fixing that contract is the
-  next transport correctness item. A persistent **RSA key is generated/persisted in `app_data_dir`**
+  (blocking calls via `spawn_blocking`), implementing the core `AdbDriver` trait. The pinned direct
+  TCP path now uses shell-v2 framing for real stdout/stderr/exit status, with shell-v1 fallback for
+  older devices; the Bedroom Shield live test returned separate output streams and exit code 7.
+  A persistent **RSA key is generated/persisted in `app_data_dir`**
   (`ensure_adb_key`, PKCS#8 PEM) — first connect prompts "Allow debugging" on the TV, then silent.
 - The **Kotlin plugin (`tauri-plugin-atv-adb`) is now mDNS-discovery ONLY** (NsdManager, a pure
   Android framework, no GPL). libadb/Conscrypt/BouncyCastle Gradle deps + the jitpack repo are gone.
@@ -93,8 +94,7 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate sequence is:
 
-1. Finish the open P0 correctness items, starting with truthful shell status/stderr and the
-   fast-remote lifecycle races.
+1. Finish the open P0 correctness items, starting with the fast-remote lifecycle races.
 2. Finish the remaining Phase 4 device matrix in
    **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
 3. Implement SPAKE2 pairing, then SAF import/export/restore correctness, then Drive sync.
