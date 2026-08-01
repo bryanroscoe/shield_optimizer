@@ -2,7 +2,9 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
+  import { listSavedDevices } from "../lib/savedDevices";
   import type { Screen } from "../lib/router.svelte";
+  import type { SavedDevice } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
@@ -17,6 +19,8 @@
   let busyAction = $state("");
   let rebootConfirm = $state(false);
   let reconnecting = $state(false);
+  let switchingHost = $state("");
+  let savedTvs = $state<SavedDevice[]>([]);
 
   let toastMessage = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -29,10 +33,17 @@
   }
 
   onMount(() => {
+    savedTvs = listSavedDevices();
     session.loadHealth();
     session.loadBloat();
     session.checkLiveness();
   });
+
+  const previousTvs = $derived(
+    savedTvs.filter(
+      (d) => !(d.host === session.host && d.connectPort === session.connectPort),
+    ),
+  );
 
   // Score comes from a REAL signal (count of enabled recommended-debloat
   // packages). null when that signal failed to load — we render "—", never a
@@ -81,6 +92,27 @@
       showToast(String(e), "error");
     } finally {
       reconnecting = false;
+    }
+  }
+
+  async function switchDevice(device: SavedDevice) {
+    if (switchingHost) return;
+    showDeviceMenu = false;
+    switchingHost = device.host;
+    try {
+      const result = await session.connect(device.host, device.connectPort);
+      if (result.ok) {
+        savedTvs = listSavedDevices();
+        showToast(`Connected to ${session.deviceLabel}.`, "success");
+        session.loadHealth(true);
+        session.loadBloat(true);
+      } else {
+        showToast(result.message || `Couldn't connect to ${device.name}.`, "error");
+      }
+    } catch (error) {
+      showToast(String(error), "error");
+    } finally {
+      switchingHost = "";
     }
   }
 
@@ -151,6 +183,23 @@
 
       {#if showDeviceMenu}
         <div class="device-dropdown">
+          {#if previousTvs.length > 0}
+            <span class="dropdown-label">Previous TVs</span>
+            {#each previousTvs as device (device.host)}
+              <button
+                class="dropdown-item saved-tv"
+                disabled={switchingHost !== ""}
+                onclick={() => switchDevice(device)}
+              >
+                <span class="msr">tv</span>
+                <span class="dropdown-device-copy">
+                  <span>{device.name}</span>
+                  <span class="mono">{device.host}</span>
+                </span>
+              </button>
+            {/each}
+            <span class="dropdown-divider"></span>
+          {/if}
           <button class="dropdown-item" onclick={() => { showDeviceMenu = false; navigate("devices"); }}>
             <span class="msr">devices_other</span>Manage devices
           </button>
@@ -378,7 +427,9 @@
     position: absolute;
     top: 54px;
     left: 0;
-    width: 180px;
+    width: min(260px, 78vw);
+    max-height: min(65vh, 520px);
+    overflow-y: auto;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -403,6 +454,40 @@
   }
   .dropdown-item:active {
     background: rgba(255, 255, 255, 0.05);
+  }
+  .dropdown-item:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .dropdown-label {
+    display: block;
+    padding: 10px 16px 5px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .dropdown-device-copy {
+    min-width: 0;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .dropdown-device-copy > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dropdown-device-copy .mono {
+    color: var(--muted);
+    font-size: 9px;
+  }
+  .dropdown-divider {
+    display: block;
+    height: 1px;
+    background: var(--line);
   }
   .dropdown-item.danger,
   .dropdown-item.danger .msr {

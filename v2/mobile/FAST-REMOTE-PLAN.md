@@ -137,7 +137,7 @@ passes its native tests and clippy with warnings denied, and cross-compiles for
 
 ### Phase 4 — device and regression gates
 
-**In progress.** Validated on the Bedroom Shield (`192.168.42.196`) from the Pixel 10 Pro:
+**In progress.** Validated from the Pixel 10 Pro on the Bedroom Shield (`192.168.42.196`):
 
 - the first press cold-started the channel and landed (1,097 ms including push/server startup);
 - 30 consecutive warm D-pad presses all reported `transport: "channel"`, with 75.2 ms p95
@@ -148,9 +148,16 @@ passes its native tests and clippy with warnings denied, and cross-compiles for
 - the exact embedded jar was materialized on the Pixel and verified against the pinned SHA-256;
 - the Android build and Android-target clippy pass with warnings denied.
 
-Still required: repeat the gates on the second Shield (`192.168.42.71` when available), exercise
-hold-to-repeat/reboot/background-reconnect (including both sides of the 30-second grace), and verify
-diagnostics plus file operations while the channel is live.
+The Living Room Shield (`192.168.42.71`) also delivered every warm press over the channel. Three
+30-press samples measured 108, 98, and 87 ms p95 respectively as the channel/device warmed. UTF-8
+channel text and ASCII compatible-shell text succeeded, Unicode compatible-shell text reported its
+limitation honestly, and diagnostics plus file listing/pull remained usable while the channel was
+live. The pulled sentinel matched by SHA-256, force-stop left no resident scrcpy process/socket, and
+the 30-second background expiry plus resume cancellation were observed in lifecycle logs.
+
+Still required: exercise hold-to-repeat, TV reboot, sleep/wake, and full background-reconnect flows
+with a live session on both Shields. The Bedroom Shield was unauthorized during the latest host-side
+attempt, so its remaining gates were not repeated.
 
 On each known Shield (`192.168.42.196` and `192.168.42.71` when available):
 

@@ -68,6 +68,11 @@ aligned, never fork it*.
   a 30-second background grace, cancels stale cleanup on resume, and serializes session startup with
   teardown. Host/frontend gates, the aarch64 APK build, and Android-target clippy are green; the
   physical two-Shield grace/concurrency matrix is still required.
+- **Connection and device-history polish (2026-08-01)**: first-time authorization now waits up to
+  30 seconds and turns transport failures into guidance to approve the TV's "Allow debugging?"
+  prompt. Saved TVs retain their last real friendly name when ADB ports rotate, keep 16 recent
+  hosts, and can be selected directly from the Dashboard device menu. Diagnostics now charts used
+  RAM so the bar fills as memory usage increases.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -168,6 +173,8 @@ tool has a low body-size limit, so its prompt is a short pointer; set it up via 
 
 ## 9. Commit history (this effort, newest first)
 ```
+5070840 Mobile: log remote lifecycle transitions
+00aa8e6 Mobile: hand off background lifecycle checkpoint
 53c975e Mobile: expire remote sessions after background grace
 48b3574 Mobile: add fast scrcpy remote channel
 988facc Mobile: add raw ADB service stream for fast remote

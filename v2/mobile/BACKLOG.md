@@ -50,6 +50,10 @@ Implemented in the current checkpoint:
 - Retain fast-remote sessions for a 30-second Android background grace period, cancel stale cleanup
   timers on resume, and serialize remote startup with teardown so an expired timer cannot kill a
   newly started session.
+- Allow 30 seconds for the TV authorization prompt and replace raw transport errors with actionable
+  retry/"Allow debugging?" guidance. Preserve the last real friendly name across rotating ADB ports,
+  retain 16 recent TVs, expose previous TVs in the Dashboard switcher, and chart used rather than
+  free RAM in Diagnostics.
 
 ## P0 — next correctness work
 

@@ -118,6 +118,7 @@
       showToast(r.message || (r.ok ? "Renamed." : "Rename failed."), r.ok ? "success" : "error");
       if (r.ok) {
         await session.refreshDevices();
+        session.rememberCurrentDevice();
         refreshSaved();
       }
     } catch (e) {

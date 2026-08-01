@@ -17,6 +17,8 @@ use crate::{
     models::ADBLocalCommand,
 };
 
+const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Generic structure representing an ADB device reachable over an [`ADBMessageTransport`].
 /// Structure is totally agnostic over which transport is truly used.
 #[derive(Debug)]
@@ -27,6 +29,24 @@ pub struct ADBMessageDevice<T: ADBMessageTransport> {
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     /// Instantiate a new [`ADBMessageTransport`]
     pub fn new<P: AsRef<Path>>(transport: T, adb_private_key_path: P) -> Result<Self> {
+        Self::new_inner(transport, adb_private_key_path, None)
+    }
+
+    /// Instantiate a new [`ADBMessageTransport`] with a finite timeout for each
+    /// connection and RSA-authorization response.
+    pub fn new_with_auth_timeout<P: AsRef<Path>>(
+        transport: T,
+        adb_private_key_path: P,
+        auth_timeout: Duration,
+    ) -> Result<Self> {
+        Self::new_inner(transport, adb_private_key_path, Some(auth_timeout))
+    }
+
+    fn new_inner<P: AsRef<Path>>(
+        transport: T,
+        adb_private_key_path: P,
+        auth_timeout: Option<Duration>,
+    ) -> Result<Self> {
         let private_key = if let Some(private_key) = read_adb_private_key(&adb_private_key_path)? {
             private_key
         } else {
@@ -38,7 +58,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         };
 
         let mut message_device = Self { transport };
-        message_device.connect(&private_key)?;
+        message_device.connect(&private_key, auth_timeout)?;
 
         Ok(message_device)
     }
@@ -48,7 +68,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     }
 
     /// Send initial connect
-    fn connect(&mut self, private_key: &ADBRsaKey) -> Result<()> {
+    fn connect(&mut self, private_key: &ADBRsaKey, auth_timeout: Option<Duration>) -> Result<()> {
         self.get_transport_mut().connect()?;
 
         let message = ADBTransportMessage::try_new(
@@ -60,7 +80,12 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
 
         self.get_transport_mut().write_message(message)?;
 
-        let message = self.get_transport_mut().read_message()?;
+        let message = match auth_timeout {
+            Some(timeout) => self
+                .get_transport_mut()
+                .read_message_with_timeout(timeout)?,
+            None => self.get_transport_mut().read_message()?,
+        };
 
         // Check if a client is requesting a secure connection and upgrade it if necessary
         match message.header().command() {
@@ -82,7 +107,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             }
             MessageCommand::Auth => {
                 log::debug!("Authentication required");
-                self.auth_handshake(message, private_key)
+                self.auth_handshake(message, private_key, auth_timeout)
             }
             _ => Err(crate::RustADBError::WrongResponseReceived(
                 "Expected CNXN, STLS or AUTH command".to_string(),
@@ -95,6 +120,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         &mut self,
         message: ADBTransportMessage,
         private_key: &ADBRsaKey,
+        auth_timeout: Option<Duration>,
     ) -> Result<()> {
         match message.header().command() {
             MessageCommand::Auth => {
@@ -119,7 +145,10 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
 
         self.transport.write_message(message)?;
 
-        let received_response = self.transport.read_message()?;
+        let received_response = match auth_timeout {
+            Some(timeout) => self.transport.read_message_with_timeout(timeout)?,
+            None => self.transport.read_message()?,
+        };
 
         if received_response.header().command() == MessageCommand::Cnxn {
             log::info!(
@@ -139,7 +168,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
 
         let response = self
             .transport
-            .read_message_with_timeout(Duration::from_secs(10))
+            .read_message_with_timeout(auth_timeout.unwrap_or(DEFAULT_AUTH_TIMEOUT))
             .and_then(|message| {
                 message.assert_command(MessageCommand::Cnxn)?;
                 Ok(message)

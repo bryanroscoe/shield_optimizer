@@ -11,7 +11,7 @@ import type { Device, SavedDevice } from "./types";
 import { deviceLabelOf } from "./types";
 
 const KEY = "atv.savedDevices.v1";
-const MAX = 8;
+const MAX = 16;
 const EPOCH = new Date(0).toISOString();
 
 function normalizeSavedDevice(value: unknown): SavedDevice | null {
@@ -92,14 +92,19 @@ export function rememberDevice(
   connectPort: number,
   device: Device | null,
 ): void {
-  const list = read().filter(
-    (d) => !(d.host === host && d.connectPort === connectPort),
-  );
+  const current = read();
+  const existing = current.find((d) => d.host === host);
+  const reportedFriendlyName = device?.properties?.friendly_name?.trim();
+  const name = reportedFriendlyName || existing?.name || deviceLabelOf(device);
+  // ADB's connect port can rotate. Treat the host as the durable TV identity
+  // for this local cache so a new port refreshes the existing row and keeps
+  // its last good friendly name instead of creating a generic duplicate.
+  const list = current.filter((d) => d.host !== host);
   list.unshift({
     host,
     connectPort,
-    name: deviceLabelOf(device),
-    deviceType: device?.device_type ?? "unknown",
+    name,
+    deviceType: device?.device_type ?? existing?.deviceType ?? "unknown",
     lastUsed: new Date().toISOString(),
   });
   write(list);

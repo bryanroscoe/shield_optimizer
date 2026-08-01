@@ -89,7 +89,7 @@ class Session {
         if (generation !== this.connectionGeneration) return result;
         this.liveness = this.connectedDevice ? "live" : "idle";
         // Remember this TV so §1.0 can offer a one-tap reconnect next launch.
-        rememberDevice(host, port, this.connectedDevice);
+        this.rememberCurrentDevice();
       } else {
         await this.restoreCurrentLiveness();
       }
@@ -123,6 +123,11 @@ class Session {
 
   async reconnect(): Promise<ConnectResult> {
     return this.connect(this.host, this.connectPort);
+  }
+
+  rememberCurrentDevice(): void {
+    if (!this.host) return;
+    rememberDevice(this.host, this.connectPort, this.connectedDevice);
   }
 
   reset(): void {

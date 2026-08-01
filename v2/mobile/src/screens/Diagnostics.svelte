@@ -53,11 +53,17 @@
   // --- Memory (real values or "—"; no fabricated 2966/1512 fallbacks) ---
   const totalRam = $derived(health?.ram?.total_mb ?? null);
   const freeRam = $derived(health?.ram?.free_mb ?? null);
-  const ramText = $derived(
-    freeRam != null && totalRam != null ? `${freeRam} / ${totalRam} MB free` : "—",
+  const usedRam = $derived(
+    health?.ram?.used_mb ??
+      (totalRam != null && freeRam != null ? Math.max(0, totalRam - freeRam) : null),
   );
-  const ramFreePercent = $derived(
-    freeRam != null && totalRam ? Math.round((freeRam / totalRam) * 100) : 0,
+  const ramText = $derived(
+    usedRam != null && totalRam != null ? `${usedRam} / ${totalRam} MB used` : "—",
+  );
+  const ramUsedPercent = $derived(
+    usedRam != null && totalRam
+      ? Math.min(100, Math.max(0, Math.round((usedRam / totalRam) * 100)))
+      : 0,
   );
 
   // --- Storage ---
@@ -135,7 +141,7 @@
           <span class="mono card-value">{ramText}</span>
         </div>
         <div class="progress-track">
-          <div class="progress-fill ram-gradient" style="width: {ramFreePercent}%"></div>
+          <div class="progress-fill ram-gradient" style="width: {ramUsedPercent}%"></div>
         </div>
       </div>
 

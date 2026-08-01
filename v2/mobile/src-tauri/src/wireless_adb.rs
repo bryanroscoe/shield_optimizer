@@ -14,6 +14,8 @@ use tauri_plugin_atv_adb::AdbExt;
 // Re-exported so wireless_commands.rs and the mobile handler keep one import path.
 pub use tauri_plugin_atv_adb::DiscoveredAdbDevice;
 
+const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// A live wireless-ADB connection: the owned `adb_client` device plus the
 /// identity used to synthesize `adb devices`. One connection at a time.
 struct Connection {
@@ -157,8 +159,15 @@ impl WirelessAdb {
             ensure_adb_key(&key_path)?;
             // First connect to a not-yet-authorized device triggers the TV's
             // "Allow debugging?" prompt; the persisted key is remembered after.
-            let device = ADBTcpDevice::new_with_custom_private_key(addr, &key_path)
-                .map_err(|e| e.to_string())?;
+            let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+                addr,
+                &key_path,
+                AUTHORIZATION_TIMEOUT,
+            )
+            .map_err(|e| {
+                tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
+                connect_error_message(&e)
+            })?;
             let mut guard = conn
                 .lock()
                 .map_err(|_| "wireless connection lock poisoned".to_string())?;
@@ -432,6 +441,35 @@ impl AdbDriver for WirelessAdb {
 
 pub type SharedWirelessAdb = Arc<WirelessAdb>;
 
+fn connect_error_message(error: &RustADBError) -> String {
+    match error {
+        RustADBError::IOError(io)
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ) =>
+        {
+            "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).".to_string()
+        }
+        RustADBError::IOError(io)
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::UnexpectedEof
+            ) =>
+        {
+            "The TV closed the connection before authorization finished. Try again and choose Allow on the TV prompt within 30 seconds.".to_string()
+        }
+        RustADBError::IOError(io)
+            if matches!(io.kind(), std::io::ErrorKind::ConnectionRefused) =>
+        {
+            "Couldn't reach the TV. Confirm Network debugging is enabled and the phone and TV are on the same network, then try again.".to_string()
+        }
+        _ => "Couldn't finish the secure ADB connection. Look for an Allow debugging prompt on the TV, approve it, and try again.".to_string(),
+    }
+}
+
 /// Generate a persistent 2048-bit RSA ADB identity (PKCS#8 PEM) at `path` if it
 /// does not already exist. adb_client reads this key for both the RSA AUTH
 /// handshake (legacy `:5555`) and the TLS client cert (Android-11), and its TLS
@@ -475,7 +513,9 @@ impl WirelessStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_requested_serial;
+    use super::{connect_error_message, validate_requested_serial};
+    use adb_client::RustADBError;
+    use std::io::{Error, ErrorKind};
 
     #[test]
     fn requested_serial_must_match_active_connection() {
@@ -484,5 +524,26 @@ mod tests {
             validate_requested_serial("tv-b:5555", "tv-a:5555").unwrap_err(),
             "Connected device is tv-b:5555, not tv-a:5555."
         );
+    }
+
+    #[test]
+    fn connect_timeout_explains_the_tv_approval_prompt() {
+        let message = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::TimedOut,
+            "raw OS timeout",
+        )));
+        assert!(message.contains("Allow"));
+        assert!(message.contains("30 seconds"));
+        assert!(!message.contains("raw OS timeout"));
+    }
+
+    #[test]
+    fn refused_connect_explains_network_debugging() {
+        let message = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::ConnectionRefused,
+            "raw OS refusal",
+        )));
+        assert!(message.contains("Network debugging"));
+        assert!(!message.contains("raw OS refusal"));
     }
 }

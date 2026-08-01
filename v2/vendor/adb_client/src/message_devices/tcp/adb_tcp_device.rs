@@ -34,6 +34,25 @@ impl ADBTcpDevice {
         })
     }
 
+    /// Instantiate an [`ADBTcpDevice`] using a custom private key path and a
+    /// finite timeout for each connection and RSA-authorization response.
+    pub fn new_with_custom_private_key_and_auth_timeout<
+        P: AsRef<Path>,
+        A: Into<SocketAddr>,
+    >(
+        address: A,
+        private_key_path: P,
+        auth_timeout: Duration,
+    ) -> Result<Self> {
+        Ok(Self {
+            inner: ADBMessageDevice::new_with_auth_timeout(
+                TcpTransport::new(address, &private_key_path),
+                private_key_path,
+                auth_timeout,
+            )?,
+        })
+    }
+
     /// Run a shell command with a finite timeout for each transport response.
     /// This is useful for liveness probes, where an unbounded read would keep
     /// the owning connection mutex locked forever after a network loss.
