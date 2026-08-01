@@ -64,6 +64,10 @@ aligned, never fork it*.
 - **APK size polish**: `scripts/subset-material-symbols.py` derives the bundled icon font from Svelte
   references and validates retained ligatures (5.34 MB to about 111 KB). The license-key field also
   disables mobile autocorrect, spellcheck, and capitalization.
+- **Background remote lifecycle checkpoint (2026-08-01)**: Android keeps the fast-remote channel for
+  a 30-second background grace, cancels stale cleanup on resume, and serializes session startup with
+  teardown. Host/frontend gates, the aarch64 APK build, and Android-target clippy are green; the
+  physical two-Shield grace/concurrency matrix is still required.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -164,6 +168,7 @@ tool has a low body-size limit, so its prompt is a short pointer; set it up via 
 
 ## 9. Commit history (this effort, newest first)
 ```
+53c975e Mobile: expire remote sessions after background grace
 48b3574 Mobile: add fast scrcpy remote channel
 988facc Mobile: add raw ADB service stream for fast remote
 a9d2c8b HANDOFF: comprehensive current-state handoff for the next agent

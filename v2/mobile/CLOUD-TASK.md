@@ -13,8 +13,9 @@ Tasks A and B below are essentially COMPLETE.
 Fast-remote Phases 1–3 and the first Shield latency gate are complete. The 2026-07-13 correctness
 checkpoint also fixed serial targeting, connection/cache races, liveness timeouts, reboot
 acknowledgement, safety lookup races, snapshot warnings, log redaction, license persistence order,
-the Optimize apply path, and truthful shell-v2 stderr/exit status. Read `BACKLOG.md`; it supersedes
-the old queue below.
+the Optimize apply path, and truthful shell-v2 stderr/exit status. A 2026-08-01 checkpoint added the
+30-second Android background grace and serialized remote startup/teardown; its two-Shield physical
+matrix is still open. Read `BACKLOG.md`; it supersedes the old queue below.
 
 REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
 1. **P0 correctness from `BACKLOG.md`** — split-APK backup/restore correctness, shell-v2 results,

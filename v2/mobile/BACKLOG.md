@@ -1,6 +1,6 @@
 # ATV Optimizer mobile backlog
 
-Updated 2026-07-13. This is the current ordered queue. `FEATURES.md` and
+Updated 2026-08-01. This is the current ordered queue. `FEATURES.md` and
 `ARCHITECTURE-REVIEW.md` are historical audits and contain many findings that have already been
 fixed; use this file plus `HANDOFF.md` for current work.
 
@@ -47,12 +47,15 @@ Implemented in the current checkpoint:
   label older base-only backups as incomplete instead of offering an unsafe restore.
 - Subset the bundled Material Symbols font reproducibly from Svelte references (5.34 MB to about
   111 KB) and disable autocorrect, spellcheck, and automatic capitalization for license keys.
+- Retain fast-remote sessions for a 30-second Android background grace period, cancel stale cleanup
+  timers on resume, and serialize remote startup with teardown so an expired timer cannot kill a
+  newly started session.
 
 ## P0 — next correctness work
 
 1. **Fast-remote concurrency device gates.** Exercise diagnostics and file operations while the
-   channel is live, plus hold, background/reconnect, and reboot cleanup. The known start/reset and
-   failure-cleanup code paths are now serialized and bounded.
+   channel is live, plus hold, 30-second background-grace/reconnect, and reboot cleanup on both
+   Shields. The known start/reset and failure-cleanup code paths are now serialized and bounded.
 
 ## P1 — required product features
 

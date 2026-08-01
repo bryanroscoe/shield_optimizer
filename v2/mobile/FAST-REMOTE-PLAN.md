@@ -96,6 +96,11 @@ Teardown order:
 3. close any long-lived server-command connection, if that fallback was required;
 4. remove the session from the registry before doing slow cleanup.
 
+Android backgrounding has a 30-second grace period. Returning before it expires keeps the owned
+channel warm; expiry closes all remote sessions. Suspend/resume epochs cancel stale timers, and a
+separate transition guard serializes startup with slow teardown so a resumed cold start cannot be
+killed by an older cleanup task.
+
 ## Integration phases
 
 ### Phase 1 — dependency API and protocol tests
@@ -144,8 +149,8 @@ passes its native tests and clippy with warnings denied, and cross-compiles for
 - the Android build and Android-target clippy pass with warnings denied.
 
 Still required: repeat the gates on the second Shield (`192.168.42.71` when available), exercise
-hold-to-repeat/reboot/background-reconnect, and verify diagnostics plus file operations while the
-channel is live.
+hold-to-repeat/reboot/background-reconnect (including both sides of the 30-second grace), and verify
+diagnostics plus file operations while the channel is live.
 
 On each known Shield (`192.168.42.196` and `192.168.42.71` when available):
 
@@ -153,8 +158,9 @@ On each known Shield (`192.168.42.196` and `192.168.42.71` when available):
 - measured warm press latency is below 100 ms at p95 (target: network RTT);
 - press-and-hold repeats without queuing slow shell calls;
 - UTF-8 text works; compatible mode remains ASCII-only and honest about errors;
-- sleep/wake, disconnect/reconnect, TV reboot, phone background/foreground, and app force-stop leave
-  no resident `shieldopt-scrcpy-server` process;
+- sleep/wake, disconnect/reconnect, TV reboot, and app force-stop leave no orphaned
+  `shieldopt-scrcpy-server` process; phone resume before 30 seconds reuses the owned session, while
+  a longer background interval cleans it up before the next cold start;
 - an unsupported or failed scrcpy launch falls back to shell on the same press;
 - normal diagnostics and file operations still work while the control channel is open.
 
