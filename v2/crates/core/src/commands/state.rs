@@ -40,8 +40,12 @@ pub struct AppState {
     /// replaces it after license validation. Encoded via [`entitlement_to_u8`].
     entitlement: AtomicU8,
     /// Live scrcpy control sessions, keyed by device serial. Lazily started on
-    /// the first remote key and held open for the Remote tab's lifetime.
+    /// the first remote key and held until lifecycle or connection cleanup.
     pub remote_sessions: Mutex<HashMap<String, RemoteInputSession>>,
+    /// Serializes session startup with teardown. Teardown removes sessions from
+    /// the registry before slow cleanup, so this separate guard prevents a new
+    /// server from starting while the old session's broad process cleanup runs.
+    remote_transition: Mutex<()>,
 }
 
 impl AppState {
@@ -54,6 +58,7 @@ impl AppState {
             known_names: HashMap::new(),
             entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Pro)),
             remote_sessions: Mutex::new(HashMap::new()),
+            remote_transition: Mutex::new(()),
         }
     }
 
@@ -107,6 +112,7 @@ impl AppState {
         jar_path: &Path,
         serial: &str,
     ) -> Result<(), String> {
+        let _transition = self.remote_transition.lock().await;
         let mut guard = self.remote_sessions.lock().await;
         if guard.contains_key(serial) {
             return Ok(());
@@ -153,6 +159,7 @@ impl AppState {
     /// Tear down and forget the session for `serial`, if any. Removes it from
     /// the registry first, then closes outside the lock.
     pub async fn drop_remote_session(&self, serial: &str) {
+        let _transition = self.remote_transition.lock().await;
         let session = self.remote_sessions.lock().await.remove(serial);
         if let Some(session) = session {
             session.close().await;
@@ -162,6 +169,7 @@ impl AppState {
     /// Drain all live control sessions, then close them outside the registry
     /// lock so reconnect/disconnect lifecycle cleanup cannot deadlock.
     pub async fn drop_all_remote_sessions(&self) {
+        let _transition = self.remote_transition.lock().await;
         let sessions: Vec<_> = {
             let mut guard = self.remote_sessions.lock().await;
             guard.drain().map(|(_, session)| session).collect()

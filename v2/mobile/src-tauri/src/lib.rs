@@ -5,6 +5,7 @@
 //! Rust command surface before Android hardware is available.
 
 mod file_commands;
+mod remote_lifecycle;
 mod scrcpy_resource;
 mod wireless_adb;
 mod wireless_commands;
@@ -181,6 +182,7 @@ pub fn run() {
                 .with_entitlement(entitlement);
             app.manage(state);
             app.manage(MobileState { wireless });
+            app.manage(remote_lifecycle::RemoteLifecycle::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -246,8 +248,16 @@ pub fn run() {
             file_commands::restore_apk_backup,
             file_commands::list_backups,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running ATV Optimizer mobile application");
+        .build(tauri::generate_context!())
+        .expect("error while building ATV Optimizer mobile application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "android")]
+            if let tauri::RunEvent::WindowEvent { event, .. } = event {
+                remote_lifecycle::handle_window_event(app_handle, &event);
+            }
+            #[cfg(not(target_os = "android"))]
+            let _ = (app_handle, event);
+        });
 }
 
 #[cfg(test)]
