@@ -17,9 +17,10 @@ impl RemoteLifecycle {
         self.epoch.fetch_add(1, Ordering::AcqRel) + 1
     }
 
-    pub fn resume(&self) {
-        self.epoch.fetch_add(1, Ordering::AcqRel);
+    pub fn resume(&self) -> u64 {
+        let epoch = self.epoch.fetch_add(1, Ordering::AcqRel) + 1;
         self.backgrounded.store(false, Ordering::Release);
+        epoch
     }
 
     pub fn claim_cleanup(&self, epoch: u64) -> bool {
@@ -40,6 +41,11 @@ pub fn handle_window_event(app: &tauri::AppHandle, event: &tauri::WindowEvent) {
     match event {
         tauri::WindowEvent::Suspended => {
             let epoch = app.state::<RemoteLifecycle>().suspend();
+            tracing::info!(
+                epoch,
+                grace_seconds = REMOTE_BACKGROUND_GRACE.as_secs(),
+                "app suspended; remote cleanup scheduled"
+            );
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(REMOTE_BACKGROUND_GRACE).await;
@@ -50,7 +56,8 @@ pub fn handle_window_event(app: &tauri::AppHandle, event: &tauri::WindowEvent) {
             });
         }
         tauri::WindowEvent::Resumed => {
-            app.state::<RemoteLifecycle>().resume();
+            let epoch = app.state::<RemoteLifecycle>().resume();
+            tracing::info!(epoch, "app resumed; pending remote cleanup cancelled");
         }
         _ => {}
     }
