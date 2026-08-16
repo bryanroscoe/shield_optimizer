@@ -85,8 +85,8 @@ export function lastSavedDevice(): SavedDevice | null {
   return listSavedDevices()[0] ?? null;
 }
 
-/// Record (or refresh) a successful connection. Keyed by host:port so a TV that
-/// moves ports gets a fresh row rather than a stale duplicate.
+/// Record (or refresh) a successful connection. The host is the durable identity
+/// because Android's wireless-debugging connect port can rotate.
 export function rememberDevice(
   host: string,
   connectPort: number,
@@ -112,6 +112,11 @@ export function rememberDevice(
 
 export function forgetDevice(host: string, connectPort: number): void {
   write(read().filter((d) => !(d.host === host && d.connectPort === connectPort)));
+}
+
+export function cachedDeviceName(host: string): string | null {
+  if (!host) return null;
+  return read().find((d) => d.host === host)?.name ?? null;
 }
 
 /// Compact "last used" phrasing for the reconnect card (e.g. "2h ago").

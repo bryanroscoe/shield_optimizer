@@ -7,7 +7,7 @@
 // old divergent derivations in Onboarding/Dashboard/Remote are gone.
 
 import { api } from "./api";
-import { rememberDevice } from "./savedDevices";
+import { cachedDeviceName, rememberDevice } from "./savedDevices";
 import { deviceLabelOf } from "./types";
 import type {
   ConnectResult,
@@ -56,6 +56,10 @@ class Session {
   }
 
   get deviceLabel(): string {
+    const reported = this.connectedDevice?.properties?.friendly_name?.trim();
+    if (reported) return reported;
+    const cached = cachedDeviceName(this.host);
+    if (cached) return cached;
     return deviceLabelOf(this.connectedDevice);
   }
 
