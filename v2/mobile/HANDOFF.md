@@ -73,6 +73,13 @@ aligned, never fork it*.
   prompt. Saved TVs retain their last real friendly name when ADB ports rotate, keep 16 recent
   hosts, and can be selected directly from the Dashboard device menu. Diagnostics now charts used
   RAM so the bar fills as memory usage increases.
+- **Focused UI validation and cached-label follow-up** (`b293b66`, `3eccc34`): a 384×812
+  Playwright/WebView pass exercised the real Svelte screens with Tauri invokes stubbed. It verified
+  the previous-TV menu, a successful TV switch, the authorization-prompt guidance, and a
+  `3072 / 4096 MB used` RAM bar at 75%. That pass caught one real gap: after switching, the header
+  could fall back to the generic model name. `3eccc34` makes the session label prefer a reported
+  friendly name, then the durable cached name. `npm run check` remained 0/0 and `npm run build`
+  passed after the fix.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -116,14 +123,33 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate sequence is:
 
-1. Finish the remaining P0 fast-remote physical-device concurrency gates.
-2. Finish the remaining Phase 4 device matrix in
+1. Build and install **current HEAD** on the Pixel, then physically spot-check the cached TV label,
+   previous-TV switcher, authorization guidance, and used-RAM chart. The APK last installed during
+   this effort predates `3eccc34`; the follow-up was browser-validated but has not been installed.
+2. Finish the remaining P0 fast-remote physical-device gates without redoing the Living Room
+   diagnostics/file/SHA checks that already passed.
+3. Finish the remaining Phase 4 device matrix in
    **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
-3. Implement SPAKE2 pairing, then SAF import/export, then Drive sync for complete bundles.
-4. Replace the development license key and build the Android release/signing pipeline before
+4. Implement SPAKE2 pairing, then SAF import/export, then Drive sync for complete bundles.
+5. Replace the development license key and build the Android release/signing pipeline before
    calling the app commercially releasable.
 
 Desktop rebranding remains a separate migration because of the MSI UpgradeCode risk.
+
+### Next-agent start checklist (updated 2026-09-01)
+
+- Confirm branch `feat/atv-optimizer-mobile` at `3eccc34` or later and read `BACKLOG.md` plus the
+  Phase 4 section of `FAST-REMOTE-PLAN.md` before changing code.
+- Preserve the unrelated untracked root files (`atv-optimizer-android-strategy.html`, root
+  `node_modules/`, `package.json`, and `package-lock.json`); they are user-owned and not part of the
+  mobile commits.
+- Rebuild/install HEAD over **wireless ADB only** before claiming physical UI verification. Do not
+  reuse an old Pixel port or pairing code: run `adb mdns services`, pair only if needed, then use
+  the current `_adb-tls-connect._tcp` endpoint.
+- Bryan has re-authorized focused phone interaction. Avoid blind coordinate tapping and large
+  remote-button batches; announce intentional TV-input tests so they do not disrupt viewing.
+- Do not mark Phase 4 complete from lifecycle logs alone. The before/after-30-second checks still
+  need a live fast-remote session, and hold, sleep/wake, and reboot cleanup remain open.
 
 ## 6. OPERATIONS PLAYBOOK (how to build / deploy / test)
 Env: `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli 2.11.x, the 4 android Rust
@@ -135,8 +161,8 @@ targets installed. Test device: **Pixel 10 Pro**.
   (Bryan reads the code+port off the phone's Wireless-debugging screen), then `adb connect
   192.168.42.211:<connectport>`. The phone auto-locks/sleeps off USB power and drops the
   connection — this is a recurring friction; when it's offline just wait/ask Bryan to nudge it.
-  The connect endpoint used on 2026-07-13 was `192.168.42.211:38661`; always confirm with
-  `adb devices` because Android rotates it.
+  The Pixel was successfully re-paired on 2026-08-16 and was reachable then, but both pairing and
+  connect ports rotate; always rediscover rather than reusing a recorded endpoint.
 - **Build APK** (~2-4 min, run backgrounded): `cd v2/mobile && PATH="$ANDROID_HOME/platform-tools:$PATH"
   NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358" npx tauri android build --apk --debug --target aarch64`.
   Do a `gradlew clean` first if stale native libs linger. Kotlin only compiles in this build.
@@ -173,6 +199,8 @@ tool has a low body-size limit, so its prompt is a short pointer; set it up via 
 
 ## 9. Commit history (this effort, newest first)
 ```
+3eccc34 Mobile: retain cached TV labels after switching
+b293b66 Mobile: clarify TV connections and device switching
 5070840 Mobile: log remote lifecycle transitions
 00aa8e6 Mobile: hand off background lifecycle checkpoint
 53c975e Mobile: expire remote sessions after background grace
@@ -192,5 +220,5 @@ b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
 ac9c3cd onboarding design
 16e5c42 (earlier) extract shared core workspace
 ```
-Immediate next action: continue the P0 section of `BACKLOG.md`, then finish **Phase 4 of
-`FAST-REMOTE-PLAN.md`** on the second Shield when it is available.
+Immediate next action: build/install HEAD on the Pixel for the focused UI spot-check, then continue
+the exact remaining physical gates listed in `BACKLOG.md` and `FAST-REMOTE-PLAN.md`.

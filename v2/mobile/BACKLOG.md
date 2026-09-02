@@ -1,6 +1,6 @@
 # ATV Optimizer mobile backlog
 
-Updated 2026-08-01. This is the current ordered queue. `FEATURES.md` and
+Updated 2026-09-01. This is the current ordered queue. `FEATURES.md` and
 `ARCHITECTURE-REVIEW.md` are historical audits and contain many findings that have already been
 fixed; use this file plus `HANDOFF.md` for current work.
 
@@ -54,17 +54,27 @@ Implemented in the current checkpoint:
   retry/"Allow debugging?" guidance. Preserve the last real friendly name across rotating ADB ports,
   retain 16 recent TVs, expose previous TVs in the Dashboard switcher, and chart used rather than
   free RAM in Diagnostics.
+- Prefer the durable cached friendly name in the live session label when a newly connected TV only
+  reports a generic model. A device-less 384×812 interaction pass verified switching, connection
+  guidance, and the used-RAM bar; the resulting `3eccc34` follow-up still needs installation and a
+  focused physical UI spot-check.
 
 ## P0 — next correctness work
 
-1. **Fast-remote concurrency device gates.** Exercise diagnostics and file operations while the
-   channel is live, plus hold, 30-second background-grace/reconnect, and reboot cleanup on both
-   Shields. The known start/reset and failure-cleanup code paths are now serialized and bounded.
+1. **Install current HEAD and spot-check the feedback fixes.** The Pixel's last installed APK
+   predates `3eccc34`. Verify cached names survive an actual TV switch, Diagnostics fills the RAM
+   bar from used memory, and a missed authorization prompt produces the actionable 30-second error.
+2. **Finish the exact fast-remote device gates.** Living Room already passed concurrent diagnostics,
+   file list/pull, and SHA verification while the channel was live. Repeat concurrency on Bedroom;
+   on both Shields test hold, live-session background/resume before and after 30 seconds, sleep/wake,
+   and reboot cleanup. Take a fresh controlled Living Room latency sample because one earlier p95
+   was 108 ms even though later samples were 98 and 87 ms.
 
 ## P1 — required product features
 
-1. Finish the fast-remote Phase 4 device matrix in `FAST-REMOTE-PLAN.md`: second Shield, holds,
-   sleep/wake, reboot, phone background/foreground, reconnect, and concurrent operations.
+1. Finish the remaining fast-remote Phase 4 matrix in `FAST-REMOTE-PLAN.md`: Bedroom concurrency,
+   holds, sleep/wake, reboot, live-session background/foreground, reconnect, and the fresh Living
+   Room latency sample.
 2. Implement Android 11 wireless-debugging SPAKE2 pairing for new Google TV devices.
 3. Add Android SAF import/export and user-selected push destinations, then consider Google Drive
    sync for complete APK bundles.

@@ -1,6 +1,6 @@
 # Mobile fast-remote plan
 
-Status: **Phases 1–3 complete; Phase 4 device gates in progress.** Mobile now uses a persistent
+Status (reviewed 2026-09-01): **Phases 1–3 complete; Phase 4 device gates in progress.** Mobile now uses a persistent
 scrcpy control-only channel with transparent `adb shell input` fallback. The phone cannot reuse the
 desktop's localhost `adb forward` path because it talks directly to `adbd`, so the server and
 control socket each own a dedicated authenticated ADB connection while normal commands continue on
@@ -156,8 +156,25 @@ live. The pulled sentinel matched by SHA-256, force-stop left no resident scrcpy
 the 30-second background expiry plus resume cancellation were observed in lifecycle logs.
 
 Still required: exercise hold-to-repeat, TV reboot, sleep/wake, and full background-reconnect flows
-with a live session on both Shields. The Bedroom Shield was unauthorized during the latest host-side
-attempt, so its remaining gates were not repeated.
+with a **live fast-remote session** on both Shields. The observed lifecycle logs proved timer expiry
+and stale-timer cancellation, but do not by themselves prove warm-session reuse before 30 seconds or
+cleanup after 30 seconds. Repeat concurrent diagnostics/file work on Bedroom; Living Room already
+passed that portion. Take one fresh controlled Living Room warm-latency sample because the first of
+its three runs exceeded the strict 100 ms stop condition. The Bedroom Shield was unauthorized during
+the latest host-side attempt, so its remaining gates were not repeated.
+
+### Next physical session order
+
+1. Build and install current branch HEAD on the Pixel over wireless ADB; the last installed APK
+   predates the cached-label fix in `3eccc34`. Spot-check the previous-TV menu, resulting header
+   label, used-RAM bar, and missed-prompt error before returning to remote testing.
+2. Authorize Bedroom if necessary, open one live channel, and run its outstanding concurrent
+   diagnostics and file list/pull check.
+3. On each Shield, test hold, sleep/wake, reboot cleanup, resume under 30 seconds, and expiry over
+   30 seconds while the channel is actually live. Inspect process/socket cleanup after each terminal
+   path.
+4. Run one deliberate 30-press Living Room latency sample and record p95. Coordinate any repeated
+   TV input with Bryan; do not generate blind button traffic during normal viewing.
 
 On each known Shield (`192.168.42.196` and `192.168.42.71` when available):
 

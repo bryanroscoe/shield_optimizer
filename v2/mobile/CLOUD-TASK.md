@@ -1,93 +1,79 @@
 # Cloud agent task — continue the ATV Optimizer mobile app
 
-You are a scheduled cloud Claude Code agent. You have **NO physical device** — never run
-`adb`, device installs, or on-device verification. Everything you do must be verifiable by
-**build + tests only**. You start with zero context; this file is your brief.
+You are a scheduled cloud coding agent with **no physical device**. Never run `adb`, install an APK,
+or claim on-device verification. Work only on tasks that can be proven by builds and automated tests.
 
-## STATUS (updated 2026-07-13) — read this before picking work
-DONE already (do NOT redo): the pure-Rust `adb_client` transport swap (libadb removed); all the
-Phase 6 design screens — Launcher, Tweaks, Snapshots, Devices, App-detail sheet, Risk guide,
-Reconnect/saved-TV, **and File transfer + Backups** (`file_commands.rs` + Files.svelte/Backups.svelte).
-Tasks A and B below are essentially COMPLETE.
+## Current status (updated 2026-09-01)
 
-Fast-remote Phases 1–3 and the first Shield latency gate are complete. The 2026-07-13 correctness
-checkpoint also fixed serial targeting, connection/cache races, liveness timeouts, reboot
-acknowledgement, safety lookup races, snapshot warnings, log redaction, license persistence order,
-the Optimize apply path, and truthful shell-v2 stderr/exit status. A 2026-08-01 checkpoint added the
-30-second Android background grace and serialized remote startup/teardown; its two-Shield physical
-matrix is still open. Read `BACKLOG.md`; it supersedes the old queue below.
+Work on branch **`feat/atv-optimizer-mobile`**. The expected handoff head is `3eccc34` or later.
+Read these files before choosing work:
 
-REMAINING QUEUE (work these in order; each gate-verified + committed + pushed):
-1. **P0 correctness from `BACKLOG.md`** — split-APK backup/restore correctness, shell-v2 results,
-   known remote cleanup/backpressure paths, saved-device normalization, and diagnostics/tweaks state
-   isolation are complete; preserve them and finish the physical-device concurrency matrix.
-2. **Fast remote Phase 4** — code-only lifecycle/concurrency coverage is allowed in cloud work; do
-   not claim physical device gates. See `FAST-REMOTE-PLAN.md`.
-3. **SPAKE2 pairing** — clean-room the Android-11 wireless-debugging pairing (SPAKE2 over TLS) in
-   Rust so brand-new Google-TV devices can pair (legacy `:5555` needs no pairing). Reference the
-   Apache-2.0 AOSP pairing sources. Plan first in `v2/mobile/PAIRING-PLAN.md` if risky.
-4. **SAF import/export**, then Google Drive sync for the complete manifest-backed APK bundles.
-5. **Polish:** icon-font subsetting and license-key keyboard attributes are complete. Continue with
-   consolidated third-party notices and the accessibility/navigation review.
-Follow the same rules (never fake data, LOCKED→paywall, safety via core `safety_info`, Svelte 5
-runes, lime/Geist look). Verify with the gates in Task C, commit, push.
+1. `v2/mobile/HANDOFF.md` — authoritative architecture and operations handoff.
+2. `v2/mobile/BACKLOG.md` — current ordered queue.
+3. `v2/mobile/FAST-REMOTE-PLAN.md` — exact physical evidence and remaining Phase 4 gates.
 
-## Setup
-1. `git checkout feat/atv-optimizer-mobile` (the work is on this branch, **not** `main`). Confirm
-   `v2/mobile/` exists.
-2. Read fully, in this order: `v2/mobile/HANDOFF.md`, `v2/mobile/ARCHITECTURE-REVIEW.md`,
-   `v2/mobile/FEATURES.md`, `v2/mobile/TRANSPORT-LICENSING-RESEARCH.md`. Then skim
-   `v2/mobile/src/lib/{api.ts,types.ts,session.svelte.ts,router.svelte.ts}` and
-   `v2/mobile/src/screens/Dashboard.svelte` to learn the established patterns.
+Do not redo completed work: the pure-Rust `adb_client` transport, all 14 screens, Optimize apply,
+shell-v2 results, complete split-APK backup/restore, saved-device/state isolation, fast-remote Phases
+1–3, Android background lifecycle code, connection-prompt guidance, previous-TV switcher, durable
+cached TV names, and used-RAM visualization are implemented and pushed.
 
-## Context
-A Tauri 2 + Rust + Svelte 5 phone app that drives an Android TV over wireless ADB. A large
-re-architecture already landed: shared typed `api`/`types`, a runes `session` store, a real
-router, never-fake-data, connection liveness, real Pro (test key `ATVOPT-PRO-2025`). The design
-system is fully in-repo — lime accent `#C9F24E`, Geist / Geist Mono fonts, tokens + patterns in
-`v2/mobile/src/app.css`, reusable components in `v2/mobile/src/components/` (BottomTabs, Toast,
-ConfirmDialog, FindRemoteButton, BrandMark). You do **not** have the original mockup file — infer
-the look from the existing 7 screens + `app.css` and stay visually consistent.
+The latest UI checkpoint (`b293b66`, `3eccc34`) was exercised at 384×812 with Playwright and Tauri
+invoke stubs. It verified the previous-TV menu and switch, authorization guidance, and a used-RAM
+bar. The physical APK at handoff predates `3eccc34`; only a local/on-device agent can close that
+spot-check. Likewise, the remaining fast-remote matrix is physical work and must not be marked done
+by a cloud agent.
 
-## Task A — Transport plan (plan only, do NOT implement)
-From `TRANSPORT-LICENSING-RESEARCH.md`'s recommendation, write `v2/mobile/TRANSPORT-PLAN.md`: a
-concrete, step-by-step plan to replace the GPLv3 `libadb-android` transport with the recommended
-Apache-2.0 approach (likely: bundle Google's real `adb` binary and drive it like the desktop's
-`SubprocessAdb`, unifying transports). Include file-level changes, risks, and how to
-device-verify it later. Do not rip out libadb — you can't device-verify a transport swap.
+## Work queue
 
-## Task B — Build the remaining design screens (the main work; all frontend, gate-verifiable)
-Per `FEATURES.md`, add new screens as files in `v2/mobile/src/screens/`, each reusing the shared
-`api`, the `session` store, the router, and the existing components. Build:
-- **Launcher** — `list_launchers` / `current_launcher` / `set_default_launcher` / `disable_launcher`
-- **Tweaks** — `get_tweaks` / `write_setting` / `set_display_scaling` / `set_private_dns`
-- **Snapshots** (Pro) — `list_snapshots` / `save_snapshot` / `preview_apply` / `apply_snapshot` / `delete_snapshot`
-- **Devices hub** — `list_devices` + reconnect
-- **App detail sheet** — `safety_info` + `enable_package` / `disable_package` / `force_stop` per package
-- **Risk & actions guide** — a static explainer of the safety tiers
+Take the first task that is both still open in `BACKLOG.md` and device-less:
 
-Add typed `api.ts` wrappers for any core command not yet wrapped. Wire the new screens into the
-router + BottomTabs / More navigation.
+1. Add code-only lifecycle/concurrency regression coverage that materially reduces risk in the
+   remaining fast-remote Phase 4 paths. Do not substitute it for the physical matrix.
+2. Plan and implement clean-room Android 11 wireless-debugging SPAKE2 pairing in Rust. Reference
+   only license-compatible sources (AOSP is Apache-2.0); document the design first in
+   `v2/mobile/PAIRING-PLAN.md` if it remains risky.
+3. Add Android SAF import/export and user-selected push destinations for the complete,
+   manifest-backed APK bundles; Drive sync comes afterward.
+4. Continue release-readiness work that is device-less: consolidated third-party notices,
+   accessibility/navigation review, signed-license design, or Android CI/release plumbing.
 
-**Rules (non-negotiable):** never fabricate data (a null value renders `—` / skeleton / an error,
-never a plausible fake); Pro-gated screens must catch a `LOCKED:<feature>` error and route to the
-paywall; route all safety classification through the core `safety_info` command (never an inline
-classifier); Svelte 5 runes only; keep the lime / Geist look.
+Do not touch desktop branding or release identity. Desktop rebranding is separate because changing
+the Windows product identity can orphan installed MSI packages.
 
-## Task C — Verify green (before any commit)
-From `v2/`: `cargo fmt --check`; `cargo clippy -p shield-optimizer-core -p shield-optimizer-v2
--p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings`; `cargo test -p
-shield-optimizer-core`. From `v2/mobile/`: `npm ci` then `npm run check` (must be 0 errors / 0
-warnings) and `npm run build` (must succeed). Fix until all green. Do **not** run
-`tauri android build` (no Android SDK/device needed for your work).
+## Architecture rules
 
-## Task D — Commit, push, hand off
-Commit to `feat/atv-optimizer-mobile` in logical commits (NO `Co-Authored-By` trailers) and
-`git push origin feat/atv-optimizer-mobile`. Then append a dated section to
-`v2/mobile/HANDOFF.md` summarizing what you built, what's verified green, and what still needs
-on-device testing; commit and push that too.
+- Keep `v2/crates/core/src/engine/` pure.
+- Keep all mobile ADB behavior behind the existing `WirelessAdb`/`AdbDriver` seam.
+- Use the canonical safety classifier for every destructive path; never invent safety in the UI.
+- App package lists belong in JSON, not Rust.
+- Tauri commands return `Result<T, String>`.
+- Frontend code uses Svelte 5 runes and never fabricates device data.
+- Preserve unrelated untracked root files; they are user-owned.
 
-## Scope discipline
-Do NOT touch the desktop app (`v2/src`, `v2/src-tauri`) or `crates/core` except tiny,
-desktop-safe helpers if truly required. Prefer breadth of working, green screens over risky
-rewrites. Leave the app buildable and green.
+## Validation
+
+Before committing, run from `v2/`:
+
+```sh
+cargo fmt --check
+cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings
+cargo test -p shield-optimizer-core
+```
+
+From `v2/mobile/`:
+
+```sh
+npm run check
+npm run build
+```
+
+Run focused tests for every crate or module changed. Do not run `tauri android build` unless the
+cloud environment is explicitly provisioned for it, and never interpret a cross-compile as a
+physical device result.
+
+## Commit and handoff
+
+Create logical commits with no `Co-Authored-By` trailers and push
+`feat/atv-optimizer-mobile`. Append a dated summary to `HANDOFF.md` stating what changed, exact
+validation results, and what still requires a phone/TV. Never mark a physical gate complete from
+reasoning, mocks, or host-only tests.
