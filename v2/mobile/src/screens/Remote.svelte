@@ -57,6 +57,36 @@
     }
   }
 
+  // The control channel starts lazily on the first press, so that press pays a
+  // multi-second cold start. Warm it as soon as the screen has a live
+  // connection: best-effort, never awaited by the input path, and the badge
+  // reports the transport the next press will really use.
+  let warmedSerial = "";
+  async function warmChannel(serial: string) {
+    warmedSerial = serial;
+    try {
+      const r = await api.remoteWarm(serial);
+      // A real press that landed while we were warming owns the badge.
+      if (serial !== session.serial || latency !== null) return;
+      transport = r.transport;
+      if (r.transport !== "channel") remoteMessage = r.message;
+    } catch (e) {
+      warmedSerial = "";
+      remoteMessage = String(e);
+    }
+  }
+
+  $effect(() => {
+    const serial = session.serial;
+    const live = session.liveness === "live";
+    // Compat mode never opens a channel; re-arm so unticking it warms again.
+    if (forceShell || !live || !serial) {
+      warmedSerial = "";
+      return;
+    }
+    if (warmedSerial !== serial) void warmChannel(serial);
+  });
+
   function sendKey(key: string, repeat = false) {
     // A repeat tick is disposable. Never let interval ticks accumulate behind
     // a slow/falling-back request after the user's finger has moved on.
@@ -155,7 +185,11 @@
       {/if}
       {#if transport}
         <span class="mono latency-badge" class:compat={transport === "shell"}>
-          <span class="l-dot"></span>{transport === "channel" ? `${latency ?? "—"} ms` : "compat"}
+          <span class="l-dot"></span>{transport !== "channel"
+            ? "compat"
+            : latency === null
+              ? "ready"
+              : `${latency} ms`}
         </span>
       {/if}
     </div>

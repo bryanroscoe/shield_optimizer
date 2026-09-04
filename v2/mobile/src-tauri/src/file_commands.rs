@@ -235,8 +235,46 @@ pub async fn list_remote_dir(
     Ok(entries)
 }
 
+/// Hard cap on one pulled file — 2 GiB. `AdbDriver` exposes no stat, so the
+/// remote size isn't knowable up front; the limit is enforced after the
+/// transfer by deleting the oversized file rather than leaving it to fill the
+/// phone's app storage.
+const MAX_PULL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const BYTES_PER_GIB: f64 = (1024 * 1024 * 1024) as f64;
+
+/// Highest ` (n)` suffix tried before giving up — far past any real use, and
+/// it keeps the probe loop bounded.
+const MAX_DUPLICATE_SUFFIX: u32 = 1000;
+
+/// Pick a destination in `dir` that doesn't clobber an existing download:
+/// `report.txt`, then `report (2).txt`, `report (3).txt`, … with the counter
+/// inserted before the extension the way a browser's download dir does it.
+fn unique_download_path(dir: &Path, name: &str) -> Result<PathBuf, String> {
+    let first = dir.join(name);
+    if !first.exists() {
+        return Ok(first);
+    }
+    // A leading dot belongs to the name (`.bashrc`), not to an extension.
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    for n in 2..=MAX_DUPLICATE_SUFFIX {
+        let candidate = dir.join(format!("{stem} ({n}){ext}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "There are already {MAX_DUPLICATE_SUFFIX} copies of {name} in this app's downloads. \
+         Delete some before pulling another."
+    ))
+}
+
 /// `pull_file` — download one device file into the app's scoped `downloads/`
 /// dir and return where it landed. App-private write, so no SAF is required.
+/// Existing downloads are kept (` (2)`, ` (3)`, … suffix) and anything over
+/// [`MAX_PULL_BYTES`] is discarded instead of stored.
 #[tauri::command]
 pub async fn pull_file(
     state: State<'_, AppState>,
@@ -244,12 +282,12 @@ pub async fn pull_file(
     remote_path: String,
 ) -> Result<PulledFile, String> {
     let remote = validate_device_path(&remote_path)?;
-    let name = basename(&remote)
+    let remote_name = basename(&remote)
         .ok_or_else(|| format!("Not a file path: {remote}"))?
         .to_string();
     let dir = state.data_dir.join("downloads");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
-    let local = dir.join(&name);
+    let local = unique_download_path(&dir, &remote_name)?;
     let local_str = local.to_string_lossy().into_owned();
 
     let adb = state.adb_snapshot().await;
@@ -258,8 +296,23 @@ pub async fn pull_file(
         .map_err(|e| format!("pull: {e}"))?;
 
     let size_bytes = std::fs::metadata(&local).map(|m| m.len()).unwrap_or(0);
+    if size_bytes > MAX_PULL_BYTES {
+        let _ = std::fs::remove_file(&local);
+        return Err(format!(
+            "{remote_name} is {:.1} GiB — over the {:.0} GiB limit for a single download. \
+             Nothing was kept on this phone.",
+            size_bytes as f64 / BYTES_PER_GIB,
+            MAX_PULL_BYTES as f64 / BYTES_PER_GIB,
+        ));
+    }
     Ok(PulledFile {
-        name,
+        // The saved name, which may carry a ` (2)` suffix — the UI points at
+        // the file that actually exists.
+        name: local
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&remote_name)
+            .to_string(),
         path: local_str,
         size_bytes,
     })
@@ -572,6 +625,56 @@ mod tests {
         assert!(confined_delete_target(root.path(), root.path().to_str().expect("utf8")).is_err());
         assert!(
             confined_delete_target(root.path(), outside.path().to_str().expect("utf8")).is_err()
+        );
+    }
+
+    #[test]
+    fn download_names_dedupe_instead_of_clobbering() {
+        let dir = tempfile::tempdir().expect("dir");
+        let root = dir.path();
+
+        // Nothing there yet: the plain name.
+        assert_eq!(
+            unique_download_path(root, "report.txt").expect("first"),
+            root.join("report.txt")
+        );
+
+        // Each existing copy pushes the counter, inserted before the extension.
+        std::fs::write(root.join("report.txt"), b"one").expect("first file");
+        assert_eq!(
+            unique_download_path(root, "report.txt").expect("second"),
+            root.join("report (2).txt")
+        );
+        std::fs::write(root.join("report (2).txt"), b"two").expect("second file");
+        assert_eq!(
+            unique_download_path(root, "report.txt").expect("third"),
+            root.join("report (3).txt")
+        );
+
+        // A multi-dot name keeps every dot but the last in the stem.
+        std::fs::write(root.join("clip.tar.gz"), b"gz").expect("gz");
+        assert_eq!(
+            unique_download_path(root, "clip.tar.gz").expect("gz dedupe"),
+            root.join("clip.tar (2).gz")
+        );
+
+        // No extension, and a dotfile whose leading dot is part of the name.
+        std::fs::write(root.join("logcat"), b"log").expect("logcat");
+        assert_eq!(
+            unique_download_path(root, "logcat").expect("no ext"),
+            root.join("logcat (2)")
+        );
+        std::fs::write(root.join(".bashrc"), b"rc").expect("dotfile");
+        assert_eq!(
+            unique_download_path(root, ".bashrc").expect("dotfile dedupe"),
+            root.join(".bashrc (2)")
+        );
+
+        // A directory in the way counts as taken, too.
+        std::fs::create_dir(root.join("shots")).expect("dir in the way");
+        assert_eq!(
+            unique_download_path(root, "shots").expect("dir dedupe"),
+            root.join("shots (2)")
         );
     }
 

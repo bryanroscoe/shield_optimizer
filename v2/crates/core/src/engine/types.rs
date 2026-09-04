@@ -60,6 +60,10 @@ pub struct DeviceProperties {
     /// TV from a phone or tablet sharing the same brand (e.g. Google Pixel).
     #[serde(default)]
     pub characteristics: String,
+    /// `getprop ro.serialno` — the stable hardware identity used to recognize
+    /// the same TV when its IP or ADB port changes. Empty when unreadable.
+    #[serde(default)]
+    pub serial_number: String,
 }
 
 /// A connected device — what the device list shows and what every action targets.

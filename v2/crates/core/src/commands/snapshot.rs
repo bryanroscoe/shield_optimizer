@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use serde::Serialize;
 use tauri::State;
 
-use crate::adb::{parse_disabled_packages_output, parse_installed_packages_output};
+use crate::adb::{
+    batch_command, parse_disabled_packages_output, parse_installed_packages_output, split_batch,
+};
 use crate::engine::snapshot::{
     compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan,
     SCHEMA_VERSION,
@@ -39,6 +41,32 @@ async fn current_settings_map(
         }
     }
     map
+}
+
+/// Read the installed and disabled package lists in one round-trip. Both
+/// apply paths need the same pair, so they share one batched shell call
+/// instead of two concurrent ones (which cost 2× RTT on mobile, where every
+/// call is serialized behind a single TCP connection).
+async fn installed_and_disabled(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let cmd = batch_command(&["pm list packages", "pm list packages -d"]);
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("pm list packages: {e}"))?;
+    let sections = split_batch(&out.stdout, 2);
+    let installed = parse_installed_packages_output(&sections[0]);
+    // A `;`-chained batch exits with the *last* sub-command's status, so a
+    // broken `pm list packages` now reads as success with an empty section.
+    // An empty installed list would silently reduce the apply plan to nothing
+    // — surface it as the failure the fan-out version returned.
+    if installed.is_empty() {
+        return Err("pm list packages: no packages reported".to_string());
+    }
+    let disabled = parse_disabled_packages_output(&sections[1]);
+    Ok((installed, disabled))
 }
 
 #[derive(Serialize)]
@@ -301,15 +329,7 @@ pub async fn preview_apply(
     let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;
 
     let adb = state.adb_snapshot().await;
-    let (installed_res, disabled_res) = tokio::join!(
-        adb.shell(&serial, "pm list packages"),
-        adb.shell(&serial, "pm list packages -d"),
-    );
-    let installed = installed_res.map_err(|e| format!("pm list packages: {e}"))?;
-    let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
-
-    let installed_pkgs = parse_installed_packages_output(&installed.stdout);
-    let disabled_pkgs = parse_disabled_packages_output(&disabled.stdout);
+    let (installed_pkgs, disabled_pkgs) = installed_and_disabled(adb.as_ref(), &serial).await?;
 
     let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
     let current_settings = current_settings_map(adb.as_ref(), &serial).await;
@@ -396,14 +416,7 @@ pub async fn apply_snapshot(
     let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;
 
     let adb = state.adb_snapshot().await;
-    let (installed_res, disabled_res) = tokio::join!(
-        adb.shell(&serial, "pm list packages"),
-        adb.shell(&serial, "pm list packages -d"),
-    );
-    let installed = installed_res.map_err(|e| format!("pm list packages: {e}"))?;
-    let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
-    let installed_pkgs = parse_installed_packages_output(&installed.stdout);
-    let disabled_pkgs = parse_disabled_packages_output(&disabled.stdout);
+    let (installed_pkgs, disabled_pkgs) = installed_and_disabled(adb.as_ref(), &serial).await?;
 
     let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
     let current_settings = current_settings_map(adb.as_ref(), &serial).await;
@@ -505,8 +518,60 @@ pub async fn apply_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::{current_settings_map, disable_from_plan};
+    use super::{current_settings_map, disable_from_plan, installed_and_disabled};
+    use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::MockAdb;
+
+    /// Device output for a batched shell: sections joined by the sentinel the
+    /// device would echo between sub-commands.
+    fn batched(sections: &[&str]) -> String {
+        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
+
+    #[tokio::test]
+    async fn installed_and_disabled_reads_both_lists_in_one_round_trip() {
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[
+                "package:com.example.on\npackage:com.example.off",
+                "package:com.example.off",
+            ]),
+        );
+        let log = mock.shell_log();
+
+        let (installed, disabled) = installed_and_disabled(&mock, "serial").await.unwrap();
+        assert_eq!(installed, ["com.example.on", "com.example.off"]);
+        assert_eq!(disabled, ["com.example.off"]);
+
+        let calls = log.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "installed + disabled must cost one round-trip: {calls:?}"
+        );
+        assert!(calls[0].contains("pm list packages -d"));
+    }
+
+    #[tokio::test]
+    async fn installed_and_disabled_errors_when_the_installed_section_is_empty() {
+        // The batch exits with the last sub-command's status, so a failed
+        // `pm list packages` reads as success with an empty section — that
+        // must surface instead of reducing the apply plan to a no-op.
+        let state = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", ""]));
+        let err = installed_and_disabled(&state, "serial")
+            .await
+            .expect_err("empty package listing must be an error");
+        assert!(err.contains("pm list packages"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn installed_and_disabled_surfaces_a_transport_failure() {
+        let mock = MockAdb::default().on_shell_err(BATCH_SEPARATOR, "device offline");
+        let err = installed_and_disabled(&mock, "serial")
+            .await
+            .expect_err("a transport error must not be swallowed");
+        assert!(err.contains("pm list packages"), "unhelpful error: {err}");
+    }
 
     #[tokio::test]
     async fn current_settings_map_pairs_keys_to_values_in_order() {

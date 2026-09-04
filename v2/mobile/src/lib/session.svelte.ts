@@ -64,7 +64,10 @@ class Session {
   get deviceLabel(): string {
     const reported = this.connectedDevice?.properties?.friendly_name?.trim();
     if (reported) return reported;
-    const cached = cachedDeviceName(this.host);
+    const cached = cachedDeviceName(
+      this.host,
+      this.connectedDevice?.properties?.serial_number?.trim() || undefined,
+    );
     if (cached) return cached;
     return deviceLabelOf(this.connectedDevice);
   }

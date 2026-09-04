@@ -276,7 +276,8 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
                getprop ro.product.model; getprop ro.product.device; \
                getprop ro.product.manufacturer; getprop ro.build.version.release; \
                getprop ro.build.version.sdk; getprop ro.build.id; \
-               getprop ro.board.platform; getprop ro.build.characteristics";
+               getprop ro.board.platform; getprop ro.build.characteristics; \
+               getprop ro.serialno";
 
     let out = match adb.shell(serial, cmd).await {
         Ok(out) => out,
@@ -324,6 +325,7 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
         build_id: get(7),
         board_platform: get(8),
         characteristics: get(9),
+        serial_number: get(10),
     }
 }
 

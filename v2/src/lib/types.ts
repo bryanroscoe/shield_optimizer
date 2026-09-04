@@ -18,6 +18,7 @@ export interface DeviceProperties {
   build_id: string;
   board_platform: string;
   characteristics?: string;
+  serial_number?: string;
 }
 
 export interface Device {

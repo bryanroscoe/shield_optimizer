@@ -34,6 +34,45 @@ async fn channel_ready(
     state.ensure_remote_session(adb, &jar, serial).await
 }
 
+#[derive(Serialize)]
+pub struct RemoteWarmResult {
+    /// "channel" once the scrcpy control session is live, "shell" when it
+    /// could not start and presses will use the `input` fallback.
+    pub transport: &'static str,
+    pub message: String,
+}
+
+/// `remote_warm` — bring the scrcpy control channel up *before* the first
+/// press. The channel is otherwise started lazily by `send_key`/`send_text`,
+/// so the first button push pays the whole multi-second cold start (push jar,
+/// launch server, connect). Calling this on entering the Remote screen moves
+/// that cost off the user's first press.
+///
+/// Never fails the caller: a missing jar or a device that refuses the server
+/// comes back as `transport: "shell"` with the reason, which is exactly what
+/// the next press would fall back to anyway. Idempotent — an already-running
+/// session returns immediately.
+#[tauri::command]
+pub async fn remote_warm(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<RemoteWarmResult, String> {
+    match channel_ready(&state, &app, &serial).await {
+        Ok(()) => Ok(RemoteWarmResult {
+            transport: "channel",
+            message: "Fast remote ready.".to_string(),
+        }),
+        Err(e) => {
+            tracing::warn!(error = %e, %serial, "remote warm-up unavailable; presses will use input");
+            Ok(RemoteWarmResult {
+                transport: "shell",
+                message: e,
+            })
+        }
+    }
+}
+
 const MAX_TEXT_LEN: usize = 500;
 
 /// Build the safely-quoted `input text` argument.

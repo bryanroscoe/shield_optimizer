@@ -38,9 +38,14 @@ function normalizeSavedDevice(value: unknown): SavedDevice | null {
         : "unknown";
   const parsedLastUsed =
     typeof d.lastUsed === "string" ? new Date(d.lastUsed) : new Date(NaN);
+  const hardwareId =
+    typeof d.hardwareId === "string" && d.hardwareId.trim() !== ""
+      ? d.hardwareId.trim()
+      : undefined;
   return {
     host: d.host.trim(),
     connectPort: d.connectPort,
+    ...(hardwareId ? { hardwareId } : {}),
     name:
       typeof d.name === "string" && d.name.trim() !== ""
         ? d.name.trim()
@@ -86,26 +91,45 @@ export function lastSavedDevice(): SavedDevice | null {
   return listSavedDevices()[0] ?? null;
 }
 
-/// Record (or refresh) a successful connection. The host is the durable identity
-/// because Android's wireless-debugging connect port can rotate.
+function hardwareIdOf(device: Device | null): string | undefined {
+  const id = device?.properties?.serial_number?.trim();
+  return id && id !== "unknown" ? id : undefined;
+}
+
+/// Does a saved row describe the TV we just connected to? Same hardware id
+/// wins outright; otherwise the host matches and neither side contradicts it
+/// with a different known hardware id.
+function sameTv(row: SavedDevice, host: string, hardwareId: string | undefined): boolean {
+  if (hardwareId && row.hardwareId) return row.hardwareId === hardwareId;
+  return row.host === host;
+}
+
+/// Record (or refresh) a successful connection. The hardware serial is the
+/// durable identity when the TV reports one (ports rotate and DHCP can hand a
+/// TV's old IP to another device); the host is the fallback.
 export function rememberDevice(
   host: string,
   connectPort: number,
   device: Device | null,
 ): void {
   const current = read();
-  const existing = current.find((d) => d.host === host);
+  const hardwareId = hardwareIdOf(device);
+  const existing = current.find((d) => sameTv(d, host, hardwareId));
   const reportedFriendlyName = device?.properties?.friendly_name?.trim();
   const name = reportedFriendlyName || existing?.name || deviceLabelOf(device);
-  // ADB's connect port can rotate. Treat the host as the durable TV identity
-  // for this local cache so a new port refreshes the existing row and keeps
-  // its last good friendly name instead of creating a generic duplicate.
-  const list = current.filter((d) => d.host !== host);
+  // Drop the matched row and any other row that still claims this host (a
+  // different TV that used to have this IP keeps only its hardware id, not
+  // the address).
+  const list = current
+    .filter((d) => d !== existing)
+    .map((d) => (d.host === host && d.hardwareId && d.hardwareId !== hardwareId ? { ...d, host: "" } : d))
+    .filter((d) => d.host !== "");
   list.unshift({
     host,
     connectPort,
     name,
     deviceType: device?.device_type ?? existing?.deviceType ?? "unknown",
+    ...(hardwareId || existing?.hardwareId ? { hardwareId: hardwareId ?? existing?.hardwareId } : {}),
     lastUsed: new Date().toISOString(),
   });
   write(list);
@@ -135,9 +159,15 @@ export function setAutoConnect(enabled: boolean): void {
   }
 }
 
-export function cachedDeviceName(host: string): string | null {
+/// Cached friendly name for the TV at `host`. When the live TV reports a
+/// hardware id, a cached row for that host is only trusted if it agrees, so a
+/// reused IP can never show another TV's name.
+export function cachedDeviceName(host: string, hardwareId?: string): string | null {
   if (!host) return null;
-  return read().find((d) => d.host === host)?.name ?? null;
+  const row = read().find((d) => d.host === host);
+  if (!row) return null;
+  if (hardwareId && row.hardwareId && row.hardwareId !== hardwareId) return null;
+  return row.name;
 }
 
 /// Compact "last used" phrasing for the reconnect card (e.g. "2h ago").
