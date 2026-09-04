@@ -7,7 +7,10 @@ use crate::message_devices::adb_message_device::ADBMessageDevice;
 use crate::models::RemountInfo;
 use crate::tcp::tcp_transport::TcpTransport;
 use crate::utils::get_default_adb_key_path;
-use crate::{ADBDeviceExt, ADBListItemType, Result};
+use crate::{
+    ADBDeviceExt, ADBListItemType, Result,
+    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
+};
 
 /// Represent a device reached and available over TCP.
 #[derive(Debug)]
@@ -36,10 +39,7 @@ impl ADBTcpDevice {
 
     /// Instantiate an [`ADBTcpDevice`] using a custom private key path and a
     /// finite timeout for each connection and RSA-authorization response.
-    pub fn new_with_custom_private_key_and_auth_timeout<
-        P: AsRef<Path>,
-        A: Into<SocketAddr>,
-    >(
+    pub fn new_with_custom_private_key_and_auth_timeout<P: AsRef<Path>, A: Into<SocketAddr>>(
         address: A,
         private_key_path: P,
         auth_timeout: Duration,
@@ -76,7 +76,7 @@ impl ADBDeviceExt for ADBTcpDevice {
         stdout: Option<&mut dyn Write>,
         stderr: Option<&mut dyn Write>,
     ) -> Result<Option<u8>> {
-        self.shell_command_with_timeout(command, stdout, stderr, Duration::from_secs(u64::MAX))
+        self.shell_command_with_timeout(command, stdout, stderr, DEFAULT_READ_TIMEOUT)
     }
 
     #[inline]

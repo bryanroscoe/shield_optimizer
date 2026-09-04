@@ -13,6 +13,16 @@ use crate::{Result, RustADBError};
 // without expanding adb_client's connection handshake state.
 const MAX_MESSAGE_PAYLOAD: usize = 4 * 1024;
 
+// One physical connection carries many sequential streams. A late CLSE or
+// WRTE from a stream that already finished (or timed out) must not be
+// mistaken for the current stream's traffic, so readers skip a bounded
+// number of foreign messages instead of failing the connection.
+const MAX_FOREIGN_MESSAGES: usize = 64;
+
+fn is_for_stream(message: &ADBTransportMessage, local_id: u32) -> bool {
+    message.header().arg1() == local_id
+}
+
 pub(crate) fn open_service_session<T: ADBMessageTransport>(
     transport: &mut T,
     service: &str,
@@ -40,17 +50,28 @@ pub(crate) fn open_service_session<T: ADBMessageTransport>(
         ADBTransportMessage::try_new(MessageCommand::Open, local_id, 0, &destination)?,
         timeout,
     )?;
-    let response = transport.read_message_with_timeout(timeout)?;
+    let mut skipped = 0usize;
+    let response = loop {
+        let candidate = transport.read_message_with_timeout(timeout)?;
+        if is_for_stream(&candidate, local_id) {
+            break candidate;
+        }
+        skipped += 1;
+        if skipped > MAX_FOREIGN_MESSAGES {
+            return Err(RustADBError::ADBRequestFailed(format!(
+                "Open service {service:?}: too many messages for other streams"
+            )));
+        }
+        log::debug!(
+            "skipping message for stream {}:{} while opening {service:?}",
+            candidate.header().arg0(),
+            candidate.header().arg1()
+        );
+    };
     if response.header().command() != MessageCommand::Okay {
         return Err(RustADBError::ADBRequestFailed(format!(
             "Open service {service:?} failed: got {} instead of OKAY",
             response.header().command()
-        )));
-    }
-    if response.header().arg1() != local_id {
-        return Err(RustADBError::ADBRequestFailed(format!(
-            "Open service {service:?} used local id {} instead of {local_id}",
-            response.header().arg1()
         )));
     }
     if response.header().arg0() == 0 {
@@ -135,13 +156,32 @@ impl<T: ADBMessageTransport> ADBService<T> {
     }
 
     fn receive(&mut self) -> std::io::Result<ADBTransportMessage> {
-        let message = self
-            .session
-            .get_transport_mut()
-            .read_message_with_timeout(self.read_timeout)
-            .map_err(Self::io_error)?;
-        self.validate_incoming(&message)?;
-        Ok(message)
+        let mut skipped = 0usize;
+        loop {
+            let timeout = self.read_timeout;
+            let message = self
+                .session
+                .get_transport_mut()
+                .read_message_with_timeout(timeout)
+                .map_err(Self::io_error)?;
+            if is_for_stream(&message, self.session.local_id()) {
+                self.validate_incoming(&message)?;
+                return Ok(message);
+            }
+            skipped += 1;
+            if skipped > MAX_FOREIGN_MESSAGES {
+                return Err(Self::protocol_error(
+                    "too many ADB messages for other streams on this connection",
+                ));
+            }
+            log::debug!(
+                "skipping message for stream {}:{} (current {}:{})",
+                message.header().arg0(),
+                message.header().arg1(),
+                self.session.remote_id(),
+                self.session.local_id()
+            );
+        }
     }
 
     fn acknowledge_payload(&mut self, message: ADBTransportMessage) -> std::io::Result<()> {
@@ -479,6 +519,40 @@ mod tests {
 
         assert_eq!(service.read(&mut byte).unwrap(), 0);
         assert!(transport.state.lock().unwrap().outgoing.is_empty());
+    }
+
+    #[test]
+    fn late_messages_from_a_finished_stream_are_skipped() {
+        let transport = FakeTransport::default();
+        // A CLSE and a WRTE left over from the previous stream (local id 7)
+        // arrive before the current stream's data.
+        transport.queue(MessageCommand::Clse, 99, 7, &[]);
+        transport.queue(MessageCommand::Write, 99, 7, b"stale");
+        transport.queue(MessageCommand::Write, 2, 1, b"fresh");
+        let mut service = ADBService::new(
+            ADBSession::new(transport.clone(), 1, 2),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        );
+        let mut buf = [0u8; 16];
+        let n = service.read(&mut buf).unwrap();
+        assert_eq!(&buf[..n], b"fresh");
+        // Only the fresh payload is acknowledged.
+        let okay = transport.take_outgoing();
+        assert_eq!(okay.header().command(), MessageCommand::Okay);
+        assert!(transport.state.lock().unwrap().outgoing.is_empty());
+    }
+
+    #[test]
+    fn open_service_skips_messages_for_other_streams() {
+        let transport = FakeTransport::default();
+        transport.queue(MessageCommand::Clse, 99, 7, &[]);
+        transport.queue(MessageCommand::Okay, 5, 42, &[]);
+        let mut t = transport.clone();
+        let session =
+            open_service_session(&mut t, "shell:echo", 42, Duration::from_secs(1)).unwrap();
+        assert_eq!(session.local_id(), 42);
+        assert_eq!(session.remote_id(), 5);
     }
 
     #[test]

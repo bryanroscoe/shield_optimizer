@@ -5,7 +5,12 @@ use crate::{
     message_devices::adb_transport_message::ADBTransportMessage,
 };
 
-const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(u64::MAX);
+/// Safety net for every read that does not pass an explicit timeout. A silently
+/// dropped peer (phone roams to another AP, TV loses Wi-Fi) never delivers a
+/// TCP RST, so an unbounded read would block the owning connection forever.
+/// Two minutes is long enough for a slow `pm install`, and every read in a
+/// transfer resets it because it is an inactivity bound, not a total one.
+pub const DEFAULT_READ_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Trait representing a transport able to read and write messages.

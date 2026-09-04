@@ -3,6 +3,7 @@ use std::{path::Path, time::Duration};
 
 use crate::{
     Result, RustADBError,
+    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
     message_devices::{
         adb_message_transport::ADBMessageTransport,
         adb_service::open_service_session,
@@ -201,7 +202,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     }
 
     pub(crate) fn open_session(&mut self, cmd: &ADBLocalCommand) -> Result<ADBSession<T>> {
-        self.open_session_with_timeout(cmd, Duration::from_secs(u64::MAX))
+        self.open_session_with_timeout(cmd, DEFAULT_READ_TIMEOUT)
     }
 
     pub(crate) fn open_session_with_timeout(
@@ -210,7 +211,13 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         timeout: Duration,
     ) -> Result<ADBSession<T>> {
         let mut rng = rand::rng();
-        let local_id: u32 = rng.random();
+        // Zero is reserved for a failed OPEN and must never be a real local id.
+        let local_id: u32 = loop {
+            let candidate = rng.random();
+            if candidate != 0 {
+                break candidate;
+            }
+        };
 
         let message = ADBTransportMessage::try_new(
             MessageCommand::Open,
@@ -220,7 +227,21 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         )?;
         self.transport.write_message(message)?;
 
-        let response = self.transport.read_message_with_timeout(timeout)?;
+        // A late CLSE/WRTE from the previous stream may still be in flight;
+        // skip a bounded number of messages that are not addressed to us.
+        let mut skipped = 0usize;
+        let response = loop {
+            let candidate = self.transport.read_message_with_timeout(timeout)?;
+            if candidate.header().arg1() == local_id {
+                break candidate;
+            }
+            skipped += 1;
+            if skipped > 64 {
+                return Err(RustADBError::ADBRequestFailed(
+                    "Open session failed: too many messages for other streams".to_string(),
+                ));
+            }
+        };
 
         if response.header().command() != MessageCommand::Okay {
             return Err(RustADBError::ADBRequestFailed(format!(

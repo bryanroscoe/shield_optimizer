@@ -35,7 +35,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
                 payload_cursor.read_to_end(&mut framebuffer_data)?;
 
                 loop {
-                    if u32::try_from(framebuffer_data.len())? == framebuffer_info.size {
+                    if u32::try_from(framebuffer_data.len())? >= framebuffer_info.size {
                         break;
                     }
 
@@ -68,7 +68,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
                 payload_cursor.read_to_end(&mut framebuffer_data)?;
 
                 loop {
-                    if u32::try_from(framebuffer_data.len())? == framebuffer_info.size {
+                    if u32::try_from(framebuffer_data.len())? >= framebuffer_info.size {
                         break;
                     }
 

@@ -1,6 +1,6 @@
 use rcgen::{CertificateParams, KeyPair, PKCS_RSA_SHA256};
 use rustls::{
-    ClientConfig, ClientConnection, KeyLogFile, SignatureScheme, StreamOwned,
+    ClientConfig, ClientConnection, SignatureScheme, StreamOwned,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     pki_types::{CertificateDer, PrivatePkcs8KeyDer, pem::PemObject},
 };
@@ -111,7 +111,9 @@ impl TcpTransport {
 
 impl ADBTransport for TcpTransport {
     fn connect(&mut self) -> Result<()> {
-        let stream = TcpStream::connect(self.address)?;
+        // A powered-off TV blackholes SYNs; without this the OS SYN timeout
+        // (over a minute) is the user's wait.
+        let stream = TcpStream::connect_timeout(&self.address, Duration::from_secs(5))?;
         self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(stream))));
         Ok(())
     }
@@ -227,12 +229,10 @@ impl ADBMessageTransport for TcpTransport {
                     let certificate = certificate_from_pk(&key_pair)?;
                     let private_key = PrivatePkcs8KeyDer::from_pem_file(&self.private_key_path)?;
 
-                    let mut client_config = ClientConfig::builder()
+                    let client_config = ClientConfig::builder()
                         .dangerous()
                         .with_custom_certificate_verifier(Arc::new(NoCertificateVerification {}))
                         .with_client_auth_cert(certificate, private_key.into())?;
-
-                    client_config.key_log = Arc::new(KeyLogFile::new());
 
                     let rc_config = Arc::new(client_config);
                     let server_name = self.address.ip().into();

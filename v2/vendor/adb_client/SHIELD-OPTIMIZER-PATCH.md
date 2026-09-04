@@ -21,3 +21,14 @@ Changed source files:
 The workspace pins this directory through `[patch.crates-io]` in `v2/Cargo.toml`. Before replacing
 it with a newer upstream release, verify that the release exposes an equivalent owned raw-service
 stream, then rerun the tests and Android cross-compile documented in `mobile/FAST-REMOTE-PLAN.md`.
+
+## Finite default read timeout (2026-09-04)
+
+Upstream's `DEFAULT_READ_TIMEOUT` is effectively infinite, so `read_message()` and every caller
+that passed `Duration::from_secs(u64::MAX)` (default `shell_command`, `open_session`, the sync
+service's `recv_file`/push acknowledgements, `end_transaction`) would block forever after a silent
+peer loss. On a phone that roams between access points this pinned the single connection mutex and
+made the app look connected while nothing responded. The default is now a 120-second inactivity
+bound, the crate-internal `adb_message_transport::DEFAULT_READ_TIMEOUT`; callers that need something
+tighter still pass an explicit timeout. Changed files: `adb_message_transport.rs`,
+`adb_message_device.rs`, `commands/shell.rs`, `tcp/adb_tcp_device.rs`.

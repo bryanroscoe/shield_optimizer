@@ -6,6 +6,7 @@ use std::{
 use crate::models::ADBLocalCommand;
 use crate::{
     Result, RustADBError,
+    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
     message_devices::{
         adb_message_device::ADBMessageDevice, adb_message_transport::ADBMessageTransport,
         adb_service::ADBService, adb_transport_message::ADBTransportMessage,
@@ -91,7 +92,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         stdout: Option<&mut dyn Write>,
         stderr: Option<&mut dyn Write>,
     ) -> Result<Option<u8>> {
-        self.shell_command_v1_with_timeout(command, stdout, stderr, Duration::from_secs(u64::MAX))
+        self.shell_command_v1_with_timeout(command, stdout, stderr, DEFAULT_READ_TIMEOUT)
     }
 
     fn shell_command_v1_with_timeout(

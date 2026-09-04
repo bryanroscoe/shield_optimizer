@@ -112,6 +112,12 @@ impl<T: ADBMessageTransport> ADBSession<T> {
                     }
                 }
             }
+            if payload.len() < 8 {
+                return Err(RustADBError::UnknownResponseType(format!(
+                    "sync payload too short ({} bytes) for a trailer",
+                    payload.len()
+                )));
+            }
             if Cursor::new(&payload[(payload.len() - 8)..(payload.len() - 4)])
                 .read_u32::<byteorder::LittleEndian>()?
                 == MessageSubcommand::Done as u32
@@ -208,8 +214,15 @@ impl<T: ADBMessageTransport> ADBSession<T> {
         let response = self.transport.read_message()?;
         // Skip first 4 bytes as this is the literal "STAT".
         // Interesting part starts right after
+        let payload = response.into_payload();
+        if payload.len() < 4 {
+            return Err(RustADBError::UnknownResponseType(format!(
+                "STAT response too short ({} bytes)",
+                payload.len()
+            )));
+        }
 
-        AdbStatResponse::decode(&response.into_payload()[4..])
+        AdbStatResponse::decode(&payload[4..])
     }
 }
 
