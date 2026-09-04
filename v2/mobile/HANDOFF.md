@@ -118,6 +118,29 @@ aligned, never fork it*.
   - Entitlement default is now Free (fail-closed); desktop opts into Pro explicitly.
   Screen-level fixes from the same sweep are listed in `BACKLOG.md` under "Stability reset".
 
+- **Backlog pass (2026-09-04, same day)** — device-less P1/P2 items:
+  - **Signed licensing.** `ATVOPT-<payload>-<signature>` Ed25519 keys (Crockford base32,
+    case-insensitive), verified offline against embedded public keys; the dev key
+    `ATVOPT-PRO-2025` works in **debug builds only**. `tools/atvopt-license` (`keygen` / `issue` /
+    `verify`); private keys live in `~/.atvopt/` outside the repo. Settings shows licensee + term
+    via `license_info`. See `LICENSING.md`.
+  - **Release plumbing.** Gradle release signing from `keystore.properties` or `ATVOPT_KEYSTORE_*`
+    env, `scripts/bump-version.sh`, `cargo about` notices (no GPL family in 293 crates) shown under
+    Settings › About. See `RELEASE.md`.
+  - **Follow-ups.** `remote_warm` starts the fast-remote channel when the Remote tab opens;
+    snapshot reads batched; `pull_file` capped at 2 GiB with de-duplicated names; device profile
+    harvests `ro.serialno` and saved TVs are keyed by it (host is the fallback).
+  - **Code pairing (SPAKE2) — implemented, unverified on a device.** Clean-room Rust in the
+    vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`), wired through
+    `WirelessAdb::pair` and the Onboarding pair step. Key finding: BoringSSL's SPAKE2 is a bespoke
+    variant (32-byte messages, SHA-512 transcript, its own M/N seeds, cofactor tricks) that is
+    wire-incompatible with the RustCrypto `spake2` crate, so the variant is implemented directly on
+    `curve25519-dalek` and checked against an independent Python model plus a full loopback.
+    Every protocol constant is cited to an AOSP file in `PAIRING-PLAN.md`, which also lists the
+    exact manual test (the Pixel's own pairing service first, then a Google TV). Also fixed a
+    pre-existing encoder bug: `android_pubkey_encode` dropped a zero top byte (~1 key in 256
+    rejected by adbd for AUTH and pairing).
+
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
 Two fatal problems: (a) **GPLv3 blocks selling** a closed-source product; (b) **unreliable** — its

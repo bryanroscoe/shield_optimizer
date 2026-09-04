@@ -31,13 +31,12 @@ Take the first task that is both still open in `BACKLOG.md` and device-less:
 
 1. Add code-only lifecycle/concurrency regression coverage that materially reduces risk in the
    remaining fast-remote Phase 4 paths. Do not substitute it for the physical matrix.
-2. Plan and implement clean-room Android 11 wireless-debugging SPAKE2 pairing in Rust. Reference
-   only license-compatible sources (AOSP is Apache-2.0); document the design first in
-   `v2/mobile/PAIRING-PLAN.md` if it remains risky.
+2. Code pairing (SPAKE2) is implemented but unverified on a device; do not rewrite it. Only add
+   host-only tests or fix defects you can prove against `PAIRING-PLAN.md`'s cited AOSP sources.
 3. Add Android SAF import/export and user-selected push destinations for the complete,
    manifest-backed APK bundles; Drive sync comes afterward.
-4. Continue release-readiness work that is device-less: consolidated third-party notices,
-   accessibility/navigation review, signed-license design, or Android CI/release plumbing.
+4. Continue release-readiness work that is device-less: accessibility/navigation review, a signed
+   AAB CI job (see `RELEASE.md`), or the product decisions listed in `BACKLOG.md`.
 
 Do not touch desktop branding or release identity. Desktop rebranding is separate because changing
 the Windows product identity can orphan installed MSI packages.

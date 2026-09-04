@@ -127,36 +127,37 @@ in this sweep has been installed on the Pixel yet.
 1. Finish the remaining fast-remote Phase 4 matrix in `FAST-REMOTE-PLAN.md`: Bedroom concurrency,
    holds, sleep/wake, reboot, live-session background/foreground, reconnect, and the fresh Living
    Room latency sample.
-2. Implement Android 11 wireless-debugging SPAKE2 pairing for new Google TV devices.
+2. **Verify** the new Android 11 wireless-debugging code pairing on a real device (implemented
+   2026-09-04, unverified end-to-end; follow the manual test in `PAIRING-PLAN.md`: Pixel pairing
+   service from the host first, then a Google TV, including the wrong-code and silent-reconnect
+   checks).
 3. Add Android SAF import/export and user-selected push destinations, then consider Google Drive
    sync for complete APK bundles.
 4. Add panic recovery, advanced reboot, permission/app-op controls, reinstall-existing, and a
    deliberate performance/correctness pass across Launcher, Tweaks, Files, and Backups.
-5. Replace the hard-coded development Pro key with signed commercial license validation and a
-   recovery/transfer policy.
-6. Follow-ups surfaced by the 2026-09-04 audit, in rough order of value:
-   - Batch the two remaining `pm list packages` joins in `snapshot.rs` (same `adb/batch.rs`
-     pattern; 2 → 1 each).
-   - Expose a `remote_warm` command so the Remote tab can start the scrcpy channel on mount
-     instead of paying the cold start on the first press.
+5. ~~Signed commercial licensing~~ — done 2026-09-04 (`crates/core/src/license.rs`,
+   `tools/atvopt-license`, `mobile/LICENSING.md`). Remaining: decide the store/checkout that
+   issues keys, and back up `~/.atvopt/license-signing-key.prod`.
+6. Follow-ups surfaced by the 2026-09-04 audit:
+   - ~~snapshot.rs batching~~, ~~`remote_warm`~~, ~~`pull_file` cap + de-dupe~~, ~~saved TVs
+     keyed by `ro.serialno`~~ — done 2026-09-04.
    - Product decision: let free users see the Optimize plan read-only (core `prepare_optimize`
      is Pro-gated today, so the flagship tab is a lock card for free users while the Dashboard
      already shows the count for free).
    - Product decision: `Feature::FileManager` / `Feature::BackupClone` exist in core but gate
      nothing; either wire them or delete them.
-   - Cap `pull_file` size and stop clobbering same-named files in app storage.
    - Screenshots and pulled files land in app-private storage with no export; SAF (P1.3) is
      what makes them useful.
-   - Key saved TVs by a device fingerprint rather than host so a DHCP lease reuse cannot inherit
-     another TV's name.
 
 ## P2 — release readiness
 
-- Android signing, release variants, versionCode/versionName automation, per-ABI output, and CI.
-- Third-party notices and a legal/privacy/security review, including `adb_client` and its crypto
-  dependency chain.
-- Consolidate and surface third-party font notices, complete the accessibility/navigation review,
-  and measure the signed release APK size.
+- ~~Android signing config, versionCode tooling, per-ABI docs~~ — done 2026-09-04
+  (`mobile/RELEASE.md`). Still open: create the real keystore (or enroll Play App Signing), a CI
+  job that builds a signed AAB, and a first signed release APK size measurement.
+- ~~Third-party notices~~ — generated (`mobile/THIRD-PARTY-NOTICES.md`, in-app under Settings ›
+  About; regenerate with `scripts/gen-notices.sh`). Still open: a legal/privacy review pass; note
+  five MPL-2.0 crates (unmodified, fine) and the Unicode-3.0 family were accepted.
+- Complete the accessibility/navigation review.
 - Reconcile the mobile feature matrix with actual command behavior and remove overpromising copy
   such as “exact rollback,” “automatic snapshots,” or “fully reversible” where the implementation
   cannot guarantee it.
