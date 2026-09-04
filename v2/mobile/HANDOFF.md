@@ -1,6 +1,7 @@
 # ATV Optimizer (mobile) — HANDOFF
 
-Read this top-to-bottom before doing any mobile work. It is the authoritative, current handoff.
+Read this top-to-bottom before doing any mobile work. It is the authoritative, current handoff
+(last refreshed 2026-09-04).
 Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (historical findings audit),
 `FEATURES.md` (historical screen ↔ command map), **`BACKLOG.md` (current ordered queue)**,
 `TRANSPORT-LICENSING-RESEARCH.md` (why the transport is what it is), `CLOUD-TASK.md` (brief for the
@@ -81,6 +82,42 @@ aligned, never fork it*.
   friendly name, then the durable cached name. `npm run check` remained 0/0 and `npm run build`
   passed after the fix.
 
+- **Stability reset (2026-09-04)** — a four-track code audit (feature parity vs v1/desktop,
+  connection lifecycle, screen-by-screen UX, Rust backend) followed by a fix sweep. Root causes of
+  the reported "looks connected but isn't / laggy / reconnects too often" symptoms were in the
+  transport, not the UI:
+  - **Infinite reads.** The vendored `adb_client` default read timeout was `u64::MAX`, and every
+    normal shell call used it while holding the single connection mutex. A silently dropped
+    socket (AP roam, TV asleep) froze every later command and the liveness probe behind it. Now:
+    30 s inactivity per shell response (180 s for installs/clears), a 120 s safety net inside the
+    vendored crate, a 5 s TCP connect timeout, and only socket-level errors evict the connection
+    (a missing remote file used to disconnect the TV).
+  - **Identity behind the device mutex.** `wireless_status`/`list_devices` blocked a tokio worker
+    while any command ran. The identity is now mirrored outside the mutex.
+  - **Poisoned mutex = brick.** A short sync packet could panic under the lock; connect then failed
+    forever with "lock poisoned". Locks recover, and the two slices are bounds-checked.
+  - **Stray packets killed the connection.** A late CLSE/WRTE from a finished stream failed the
+    next command; readers now skip a bounded number of foreign-stream messages.
+  - **Probe race.** The status probe issued a second disconnect after eviction, which could drop a
+    reconnect to the same host that had just succeeded. Removed.
+  - **Serialized fan-out.** health/apps/optimize/launcher/display reads are one sentinel-batched
+    shell each (`crates/core/src/adb/batch.rs`), 19 → 6 round-trips on the hot paths.
+  - **Frontend liveness.** Any command error carrying the backend's "Connection to the TV was
+    lost" prefix flips the session (`lib/connectionEvents.ts`), which silently redials the same TV
+    once and only then shows the global `ConnectionBanner` (Retry / Switch TV). A 45 s heartbeat
+    probes while the app is visible.
+  - **No surprise auto-connect.** Launch shows a saved-TV picker; it auto-dials only when exactly
+    one TV is saved and the last session wasn't ended by an explicit Disconnect (persisted in
+    `atv.autoConnect.v1`), always naming the target with a Cancel button. "Add a TV" from Devices is
+    a separate `addtv` route that never dials. The Android back button keeps exactly one spare
+    history entry, so it no longer eats dead presses at the root.
+  - **Honest state.** Dashboard shows the real "N of M recommended-bloat apps active" instead of a
+    floored invented score; screenshots preview inline; Settings (was "More Options") gained
+    Emergency recovery (`panic_recovery`, previously registered but unreachable), reboot to
+    recovery/bootloader, and confirmations on Disconnect.
+  - Entitlement default is now Free (fail-closed); desktop opts into Pro explicitly.
+  Screen-level fixes from the same sweep are listed in `BACKLOG.md` under "Stability reset".
+
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
 Two fatal problems: (a) **GPLv3 blocks selling** a closed-source product; (b) **unreliable** — its
@@ -123,9 +160,11 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate sequence is:
 
-1. Build and install **current HEAD** on the Pixel, then physically spot-check the cached TV label,
-   previous-TV switcher, authorization guidance, and used-RAM chart. The APK last installed during
-   this effort predates `3eccc34`; the follow-up was browser-validated but has not been installed.
+1. Build and install **current HEAD** on the Pixel and run the physical stability check listed
+   under P0 in `BACKLOG.md` (connection loss → reconnecting → banner, picker/auto-dial rules,
+   no redial after Disconnect, cancelable Optimize apply, Emergency recovery, back-button stack).
+   The installed APK predates the entire 2026-09-04 sweep; everything since was browser- and
+   gate-verified only.
 2. Finish the remaining P0 fast-remote physical-device gates without redoing the Living Room
    diagnostics/file/SHA checks that already passed.
 3. Finish the remaining Phase 4 device matrix in
@@ -136,10 +175,16 @@ Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate
 
 Desktop rebranding remains a separate migration because of the MSI UpgradeCode risk.
 
-### Next-agent start checklist (updated 2026-09-01)
+### Next-agent start checklist (updated 2026-09-04)
 
-- Confirm branch `feat/atv-optimizer-mobile` at `3eccc34` or later and read `BACKLOG.md` plus the
-  Phase 4 section of `FAST-REMOTE-PLAN.md` before changing code.
+- Confirm branch `feat/atv-optimizer-mobile` includes the 2026-09-04 "stability reset" commits and
+  read `BACKLOG.md` plus the Phase 4 section of `FAST-REMOTE-PLAN.md` before changing code.
+- Device-less UI loop: `npm run build`, then a Playwright script at 384×812 that serves `build/`
+  and stubs `window.__TAURI_INTERNALS__.invoke` (the desktop `v2/node_modules` has Playwright and
+  Chromium). The 2026-09-04 smoke script covered scan, picker, auto-dial rules, connect failure,
+  lost-connection recovery, Emergency recovery and the back stack; recreate it from that list.
+- If you add a Material Symbols icon name, rerun `scripts/subset-material-symbols.py` (needs
+  `fonttools` + `brotli` in a venv) or the icon renders as literal text.
 - Preserve the unrelated untracked root files (`atv-optimizer-android-strategy.html`, root
   `node_modules/`, `package.json`, and `package-lock.json`); they are user-owned and not part of the
   mobile commits.

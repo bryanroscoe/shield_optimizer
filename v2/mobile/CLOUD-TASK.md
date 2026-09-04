@@ -3,9 +3,11 @@
 You are a scheduled cloud coding agent with **no physical device**. Never run `adb`, install an APK,
 or claim on-device verification. Work only on tasks that can be proven by builds and automated tests.
 
-## Current status (updated 2026-09-01)
+## Current status (updated 2026-09-04)
 
-Work on branch **`feat/atv-optimizer-mobile`**. The expected handoff head is `3eccc34` or later.
+Work on branch **`feat/atv-optimizer-mobile`**. The expected handoff head includes the 2026-09-04
+"stability reset" commits (bounded transport reads, batched core reads, saved-TV picker, global
+connection banner, Emergency recovery, one safety vocabulary).
 Read these files before choosing work:
 
 1. `v2/mobile/HANDOFF.md` — authoritative architecture and operations handoff.
@@ -17,11 +19,11 @@ shell-v2 results, complete split-APK backup/restore, saved-device/state isolatio
 1–3, Android background lifecycle code, connection-prompt guidance, previous-TV switcher, durable
 cached TV names, and used-RAM visualization are implemented and pushed.
 
-The latest UI checkpoint (`b293b66`, `3eccc34`) was exercised at 384×812 with Playwright and Tauri
-invoke stubs. It verified the previous-TV menu and switch, authorization guidance, and a used-RAM
-bar. The physical APK at handoff predates `3eccc34`; only a local/on-device agent can close that
-spot-check. Likewise, the remaining fast-remote matrix is physical work and must not be marked done
-by a cloud agent.
+The 2026-09-04 sweep was exercised at 384×812 with Playwright and Tauri invoke stubs (scan, saved-TV
+picker and auto-dial rules, connect failure guidance, lost-connection recovery, Emergency recovery,
+back stack). The physical APK predates it; only a local/on-device agent can close that spot-check.
+Likewise, the remaining fast-remote matrix is physical work and must not be marked done by a cloud
+agent.
 
 ## Work queue
 
