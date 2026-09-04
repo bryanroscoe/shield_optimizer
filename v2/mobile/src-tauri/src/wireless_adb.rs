@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use adb_client::tcp::{ADBTcpDevice, ADBTcpService};
+use adb_client::tcp::{ADBTcpDevice, ADBTcpService, PairingError};
 use adb_client::{ADBDeviceExt, RebootType, RustADBError};
 use async_trait::async_trait;
 use serde::Serialize;
@@ -73,9 +73,9 @@ fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String
 /// phone, so those are explicit methods the mobile-only `wireless_*` commands
 /// call; the trait surface synthesizes `raw(["devices"])`, routes
 /// `shell`/screencap through the owned device, maps `reboot`, and streams
-/// `push`/`pull` through the sync service via `raw_transfer`. `pair` is not yet
-/// supported (Android-11 SPAKE2 is a documented follow-up); `forward` is
-/// structurally impossible on a phone and reports `Unsupported`.
+/// `push`/`pull` through the sync service via `raw_transfer`. `pair` runs the
+/// Android-11 SPAKE2 code-pairing exchange in-crate; `forward` is structurally
+/// impossible on a phone and reports `Unsupported`.
 pub struct WirelessAdb {
     app: tauri::AppHandle,
     /// PKCS#8 PEM ADB private key. Persisted so re-auth is silent across launches.
@@ -169,16 +169,45 @@ impl WirelessAdb {
             .map_err(|e| e.to_string())
     }
 
-    /// Android-11 wireless-debugging pairing (SPAKE2) is not implemented by
-    /// `adb_client` and is a documented follow-up. Legacy TVs (Nvidia Shield,
-    /// older Google TV) use Network debugging on `:5555` and need no pairing —
-    /// they connect directly.
-    pub async fn pair(&self, _host: &str, _port: u16, _code: &str) -> Result<String, String> {
-        Err(
-            "Pairing new Google TV devices isn't supported yet — use Network debugging \
-             (no code needed) on the TV and connect by IP for now."
-                .to_string(),
-        )
+    /// Android-11 wireless-debugging pairing: the six-digit-code flow against
+    /// the TV's `_adb-tls-pairing` port.
+    ///
+    /// Runs in the vendored `adb_client` crate (SPAKE2 over TLS 1.3, see
+    /// `mobile/PAIRING-PLAN.md`) and registers the same persisted RSA identity
+    /// `connect` later presents as its TLS client certificate, so a successful
+    /// pairing is what lets the follow-up connect skip the *Allow debugging*
+    /// prompt. This only trusts the key; the caller still calls `connect`.
+    ///
+    /// Legacy TVs (Nvidia Shield, older Google TV) use Network debugging on
+    /// `:5555` and need no pairing — they connect directly.
+    pub async fn pair(&self, host: &str, port: u16, code: &str) -> Result<String, String> {
+        let addr: SocketAddr = format!("{host}:{port}")
+            .parse()
+            .map_err(|e| format!("invalid pairing address {host}:{port}: {e}"))?;
+        let code = normalize_pairing_code(code)?;
+        let key_path = self.key_path.clone();
+
+        // `adb_client::tcp::pair` is blocking and applies its own 30-second
+        // deadline through socket timeouts, so it cannot pin this thread.
+        tokio::task::spawn_blocking(move || -> Result<String, String> {
+            ensure_adb_key(&key_path)?;
+            match adb_client::tcp::pair(addr, &code, &key_path) {
+                Ok(outcome) => {
+                    tracing::info!(
+                        peer_kind = outcome.peer_info.kind,
+                        peer = %outcome.peer_info.data_lossy(),
+                        "wireless pairing succeeded"
+                    );
+                    Ok("Paired with the TV.".to_string())
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "wireless pairing failed");
+                    Err(pair_error_message(&e))
+                }
+            }
+        })
+        .await
+        .map_err(|e| format!("wireless-adb task failed: {e}"))?
     }
 
     pub async fn connect(&self, host: &str, port: u16) -> Result<String, String> {
@@ -568,6 +597,42 @@ fn connect_error_message(error: &RustADBError) -> String {
     }
 }
 
+/// Strip separators the TV's on-screen code is sometimes read back with and
+/// require exactly six digits, so a malformed code fails here rather than
+/// burning the one guess the pairing service allows per displayed code.
+fn normalize_pairing_code(code: &str) -> Result<String, String> {
+    let digits: String = code
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect();
+    if digits.len() == 6 && digits.chars().all(|c| c.is_ascii_digit()) {
+        Ok(digits)
+    } else {
+        Err("Enter the 6-digit code shown on the TV.".to_string())
+    }
+}
+
+/// Map a pairing failure to something the user can act on. Every arm is a
+/// different next step, so they stay distinct rather than collapsing into one
+/// "pairing failed".
+fn pair_error_message(error: &PairingError) -> String {
+    match error {
+        PairingError::CodeMismatch => {
+            "The code didn't match. Check the 6 digits on the TV and try again.".to_string()
+        }
+        PairingError::Connect(_) => {
+            "Pairing isn't open on the TV. Open Wireless debugging › Pair device with pairing code and try again.".to_string()
+        }
+        PairingError::Timeout => {
+            "The TV stopped responding while pairing. Reopen Pair device with pairing code on the TV and try again.".to_string()
+        }
+        PairingError::Key(e) => format!("Couldn't use this phone's ADB key: {e}"),
+        PairingError::Tls(_) | PairingError::Protocol(_) | PairingError::Io(_) => {
+            "Couldn't finish pairing with the TV. Reopen Pair device with pairing code on the TV — the code changes every time — and try again.".to_string()
+        }
+    }
+}
+
 /// Generate a persistent 2048-bit RSA ADB identity (PKCS#8 PEM) at `path` if it
 /// does not already exist. adb_client reads this key for both the RSA AUTH
 /// handshake (legacy `:5555`) and the TLS client cert (Android-11), and its TLS
@@ -612,9 +677,11 @@ impl WirelessStatus {
 #[cfg(test)]
 mod tests {
     use super::{
-        connect_error_message, is_fatal_transport_error, shell_timeout_for,
-        validate_requested_serial, SHELL_INACTIVITY_TIMEOUT, SLOW_SHELL_INACTIVITY_TIMEOUT,
+        connect_error_message, is_fatal_transport_error, normalize_pairing_code,
+        pair_error_message, shell_timeout_for, validate_requested_serial, SHELL_INACTIVITY_TIMEOUT,
+        SLOW_SHELL_INACTIVITY_TIMEOUT,
     };
+    use adb_client::tcp::PairingError;
     use adb_client::RustADBError;
     use std::io::{Error, ErrorKind};
 
@@ -675,5 +742,37 @@ mod tests {
         )));
         assert!(message.contains("Network debugging"));
         assert!(!message.contains("raw OS refusal"));
+    }
+
+    #[test]
+    fn pairing_codes_are_normalized_before_the_one_allowed_guess() {
+        assert_eq!(normalize_pairing_code("642091").unwrap(), "642091");
+        assert_eq!(normalize_pairing_code(" 642 091 ").unwrap(), "642091");
+        assert_eq!(normalize_pairing_code("642-091").unwrap(), "642091");
+        for bad in ["64209", "6420911", "", "abcdef", "64209a"] {
+            assert_eq!(
+                normalize_pairing_code(bad).unwrap_err(),
+                "Enter the 6-digit code shown on the TV."
+            );
+        }
+    }
+
+    #[test]
+    fn pairing_errors_name_the_next_step() {
+        let message = pair_error_message(&PairingError::CodeMismatch);
+        assert!(message.contains("6 digits"));
+
+        let message = pair_error_message(&PairingError::Connect(Error::new(
+            ErrorKind::ConnectionRefused,
+            "raw OS refusal",
+        )));
+        assert!(message.contains("Pair device with pairing code"));
+        assert!(!message.contains("raw OS refusal"));
+
+        let message = pair_error_message(&PairingError::Timeout);
+        assert!(message.contains("stopped responding"));
+
+        let message = pair_error_message(&PairingError::Protocol("raw detail".into()));
+        assert!(!message.contains("raw detail"));
     }
 }

@@ -35,10 +35,19 @@ impl ADBRsaInternalPublicKey {
     }
 
     pub fn into_bytes(mut self) -> Vec<u8> {
+        // adbd expects fixed-width little-endian words. `to_bytes_le` drops
+        // high-order zero bytes, so a modulus or rr whose top byte happens to
+        // be zero (about 1 key in 256) would otherwise serialize one byte
+        // short and be rejected for both AUTH and pairing.
+        let width = (self.modulus_size_words as usize) * 4;
+        let mut modulus = self.modulus.to_bytes_le();
+        modulus.resize(width, 0);
+        self.rr.resize(width, 0);
+
         let mut bytes: Vec<u8> = Vec::new();
         bytes.append(&mut self.modulus_size_words.to_le_bytes().to_vec());
         bytes.append(&mut self.n0inv.to_le_bytes().to_vec());
-        bytes.append(&mut self.modulus.to_bytes_le());
+        bytes.append(&mut modulus);
         bytes.append(&mut self.rr);
         bytes.append(&mut self.exponent.to_le_bytes().to_vec());
 
@@ -141,6 +150,16 @@ fn set_bit(n: usize) -> Result<BigUint> {
         2,
     )
     .ok_or(RustADBError::ConversionError)
+}
+
+#[test]
+fn fixed_width_words_survive_leading_zero_bytes() {
+    // A modulus with a zero top byte and a short rr must still serialize to
+    // the fixed 524-byte layout adbd requires.
+    let modulus = BigUint::from_bytes_le(&[0xffu8; 255]);
+    let mut key = ADBRsaInternalPublicKey::new(&BigUint::from(65537u32), &modulus).unwrap();
+    key.rr = vec![1u8; 10];
+    assert_eq!(key.into_bytes().len(), 4 + 4 + 256 + 256 + 4);
 }
 
 #[test]

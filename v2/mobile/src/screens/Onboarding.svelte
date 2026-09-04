@@ -378,8 +378,8 @@
     <div class="callout accent" role="status">
       <span class="msr">info</span>
       <span>
-        Code pairing isn't supported in this version yet. On the TV, turn on
-        <span class="soft">Network debugging</span> (Developer options) and use
+        <span class="soft">New: code pairing.</span> If it fails, turn on
+        <span class="soft">Network debugging</span> (Developer options) on the TV and use
         <span class="soft">Connect (no code)</span> instead. Shield TVs never need a code.
       </span>
     </div>

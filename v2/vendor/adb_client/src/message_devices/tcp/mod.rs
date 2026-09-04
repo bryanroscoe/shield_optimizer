@@ -2,7 +2,9 @@
 
 mod adb_tcp_device;
 mod adb_tcp_service;
+mod pairing;
 mod tcp_transport;
 
 pub use adb_tcp_device::ADBTcpDevice;
 pub use adb_tcp_service::ADBTcpService;
+pub use pairing::{PairingError, PairingOutcome, PeerInfo, pair};
