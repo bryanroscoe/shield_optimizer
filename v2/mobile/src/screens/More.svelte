@@ -160,6 +160,25 @@
 
   let disconnectConfirm = $state(false);
 
+  // Third-party notices are a few hundred KB, so the module is imported only
+  // when the user opens the card.
+  let showNotices = $state(false);
+  let notices = $state("");
+  let noticesLoading = $state(false);
+  async function toggleNotices() {
+    showNotices = !showNotices;
+    if (!showNotices || notices) return;
+    noticesLoading = true;
+    try {
+      const mod = await import("../lib/notices.generated");
+      notices = mod.THIRD_PARTY_NOTICES;
+    } catch (e) {
+      notices = `Couldn't load notices: ${String(e)}`;
+    } finally {
+      noticesLoading = false;
+    }
+  }
+
   // Debug log — the native tail plus the frontend call ring buffer, both
   // copyable for support.
   let showLog = $state(false);
@@ -334,6 +353,23 @@
       {/if}
     </div>
 
+    <!-- About -->
+    <div class="more-card">
+      <span class="card-label">About</span>
+      <p class="card-desc">ATV Optimizer uses open-source components. Their licenses and notices are included here.</p>
+      <button class="ghost-btn" onclick={toggleNotices}>
+        <span class="msr">{showNotices ? "expand_less" : "expand_more"}</span>
+        {showNotices ? "Hide third-party notices" : "Third-party notices"}
+      </button>
+      {#if showNotices}
+        {#if noticesLoading}
+          <p class="card-desc">Loading…</p>
+        {:else}
+          <pre class="log-view mono notices">{notices}</pre>
+        {/if}
+      {/if}
+    </div>
+
     <!-- Disconnect -->
     <button class="ghost danger-btn" onclick={() => (disconnectConfirm = true)}>
       <span class="msr">power_settings_new</span>Disconnect from TV
@@ -423,6 +459,11 @@
     margin: 0;
   }
 
+  .notices {
+    max-height: 50vh;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
   .recovery-result {
     display: flex;
     flex-direction: column;

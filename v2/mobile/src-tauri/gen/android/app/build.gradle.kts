@@ -13,6 +13,53 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Release signing material is resolved from `gen/android/keystore.properties`
+// first, then from the environment, so a workstation can keep the keystore out
+// of the tree and CI can inject it as secrets. Both are gitignored/absent by
+// default; when neither is present the release build stays unsigned rather than
+// failing, which keeps `tauri android build --debug` and CI checks working.
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(propertyKeys: List<String>, envKey: String): String? =
+    propertyKeys.firstNotNullOfOrNull { keystoreProperties.getProperty(it) }
+        ?.takeIf { it.isNotBlank() }
+        ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
+
+val releaseStorePath = signingValue(listOf("storeFile", "path"), "ATVOPT_KEYSTORE_PATH")
+val releaseStorePassword = signingValue(listOf("storePassword"), "ATVOPT_KEYSTORE_PASSWORD")
+val releaseKeyAlias = signingValue(listOf("keyAlias"), "ATVOPT_KEYSTORE_ALIAS")
+val releaseKeyPassword = signingValue(listOf("keyPassword"), "ATVOPT_KEYSTORE_KEY_PASSWORD")
+
+val releaseKeystore = releaseStorePath?.let { path ->
+    val resolved = file(path).takeIf { it.isAbsolute } ?: rootProject.file(path)
+    if (resolved.exists()) {
+        resolved
+    } else {
+        logger.warn("ATV Optimizer: keystore path '$path' does not exist; release build will be UNSIGNED.")
+        null
+    }
+}
+
+val releaseSigningReady = releaseKeystore != null &&
+    releaseStorePassword != null &&
+    releaseKeyAlias != null &&
+    releaseKeyPassword != null
+
+if (!releaseSigningReady) {
+    logger.warn(
+        "ATV Optimizer: release signing is not configured — the release APK/AAB will be UNSIGNED " +
+            "and Play will reject it. Create gen/android/keystore.properties " +
+            "(storeFile/storePassword/keyAlias/keyPassword) or set ATVOPT_KEYSTORE_PATH, " +
+            "ATVOPT_KEYSTORE_PASSWORD, ATVOPT_KEYSTORE_ALIAS and ATVOPT_KEYSTORE_KEY_PASSWORD. " +
+            "See mobile/RELEASE.md."
+    )
+}
+
 android {
     compileSdk = 36
     namespace = "com.atvoptimizer.mobile"
@@ -23,6 +70,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -38,6 +95,7 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))

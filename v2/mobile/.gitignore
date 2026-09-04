@@ -4,3 +4,10 @@
 
 # Dependencies
 /node_modules
+
+# Release signing material — never commit these
+keystore.properties
+key.properties
+*.jks
+*.keystore
+*.p12

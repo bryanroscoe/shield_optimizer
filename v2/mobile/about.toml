@@ -1,0 +1,42 @@
+# cargo-about configuration for the ATV Optimizer Android app.
+#
+# Run through mobile/scripts/gen-notices.sh — it points cargo-about at
+# mobile/src-tauri/Cargo.toml (the `atv-optimizer-mobile` package inside the v2
+# workspace) so only crates that actually ship in the APK are inventoried.
+#
+# `accepted` is the allowlist of licenses we are willing to distribute under.
+# Every entry below is permissive or weak-copyleft-with-no-source-obligation for
+# unmodified dynamic/static use. A GPL / LGPL / AGPL crate appearing here would
+# block a paid release; cargo-about fails the run rather than silently accepting
+# one, which is the point of keeping this list tight.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "Zlib",
+    "OpenSSL",
+    "CC0-1.0",
+    "Unlicense",
+]
+
+# The shipping artifact is an Android APK/AAB. x86/x86_64 stay in the list
+# because the universal flavor still bundles them for emulators.
+targets = [
+    "aarch64-linux-android",
+    "armv7-linux-androideabi",
+    "i686-linux-android",
+    "x86_64-linux-android",
+]
+
+# Build- and dev-only crates never reach a user's device.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# First-party crates in this workspace are ours, not third-party notices.
+private = { ignore = true, registries = [] }
