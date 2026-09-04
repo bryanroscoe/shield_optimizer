@@ -9,19 +9,20 @@
   } from "../lib/savedDevices";
   import { deviceTypeLabel } from "../lib/types";
   import type { Screen } from "../lib/router.svelte";
-  import type { DeviceReport, SavedDevice } from "../lib/types";
+  import type { SavedDevice } from "../lib/types";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Toast from "../components/Toast.svelte";
 
-  let { navigate, onDisconnect }: {
+  let { navigate, back, onDisconnect }: {
     navigate: (screen: Screen) => void;
+    back: () => void;
     onDisconnect: () => void;
   } = $props();
 
   let saved = $state<SavedDevice[]>([]);
-  let reports = $state<DeviceReport[]>([]);
   let connectingHost = $state("");
+  let disconnectConfirm = $state(false);
   let renaming = $state(false);
   let renameValue = $state("");
   let forgetTarget = $state<SavedDevice | null>(null);
@@ -40,21 +41,15 @@
     saved = listSavedDevices();
   }
 
-  onMount(async () => {
+  onMount(() => {
     refreshSaved();
     session.loadHealth();
     session.checkLiveness();
-    try {
-      reports = await api.reportAll();
-    } catch {
-      // Roll-up is best-effort; the connected-card stats fall back to session.health.
-    }
   });
 
-  const activeSerial = $derived(session.serial);
-  const activeReport = $derived(reports.find((r) => r.serial === activeSerial));
-  // Prefer the roll-up's per-device health; fall back to the shared cache.
-  const health = $derived(activeReport?.report ?? session.health);
+  // The shared health cache is the one source; a second per-device sweep here
+  // used to profile the connected TV twice before the card painted.
+  const health = $derived(session.health);
 
   const ramFree = $derived(
     health?.ram?.free_mb != null ? `${(health.ram.free_mb / 1024).toFixed(1)} GB free` : "—",
@@ -69,12 +64,9 @@
     session.connectedDevice?.properties?.android_release || "",
   );
 
-  // Saved TVs that aren't the currently-connected one.
-  const otherTvs = $derived(
-    saved.filter(
-      (d) => !(d.host === session.host && d.connectPort === session.connectPort),
-    ),
-  );
+  // Saved TVs that aren't the currently-connected one. The host is the
+  // durable identity (the port rotates), so filter on host only.
+  const otherTvs = $derived(saved.filter((d) => d.host !== session.host));
 
   async function reconnect(d: SavedDevice) {
     if (connectingHost) return;
@@ -90,6 +82,20 @@
       } else {
         showToast(r.message || "Couldn't connect.", "error");
       }
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      connectingHost = "";
+    }
+  }
+
+  /// Redial the current TV after the connection was lost.
+  async function reconnectCurrent() {
+    if (connectingHost) return;
+    connectingHost = session.host;
+    try {
+      const r = await session.reconnect();
+      showToast(r.ok ? "Reconnected." : r.message || "Couldn't reconnect.", r.ok ? "success" : "error");
     } catch (e) {
       showToast(String(e), "error");
     } finally {
@@ -134,13 +140,13 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("more")} aria-label="Back">
+      <button class="iconbtn" onclick={back} aria-label="Back">
         <span class="msr">arrow_back</span>
       </button>
       <FindRemoteButton />
     </div>
     <h3 class="header-title">Devices</h3>
-    <button class="iconbtn" onclick={() => navigate("onboarding")} aria-label="Pair a new TV">
+    <button class="iconbtn" onclick={() => navigate("addtv")} aria-label="Add a TV">
       <span class="msr">add</span>
     </button>
   </div>
@@ -162,7 +168,11 @@
             </span>
           </div>
           <span class="active-tag" class:lost={session.liveness === "lost"}>
-            {session.liveness === "lost" ? "Offline" : "Active"}
+            {session.liveness === "lost"
+              ? "Offline"
+              : session.liveness === "reconnecting"
+                ? "Reconnecting"
+                : "Active"}
           </span>
         </div>
 
@@ -178,12 +188,12 @@
             <button class="mini-btn" onclick={() => (renaming = false)}>Cancel</button>
           {:else}
             {#if session.liveness === "lost"}
-              <button class="mini-btn accent" disabled={connectingHost !== ""} onclick={() => session.reconnect().then((r) => showToast(r.ok ? "Reconnected." : r.message, r.ok ? "success" : "error"))}>
-                <span class="msr">refresh</span>Reconnect
+              <button class="mini-btn accent" disabled={connectingHost !== ""} onclick={reconnectCurrent}>
+                {#if connectingHost === session.host}<span class="pdot blink"></span>{:else}<span class="msr">refresh</span>Reconnect{/if}
               </button>
             {/if}
             <button class="mini-btn" onclick={startRename}><span class="msr">edit</span>Rename</button>
-            <button class="mini-btn danger" onclick={onDisconnect}><span class="msr">power_settings_new</span>Disconnect</button>
+            <button class="mini-btn danger" onclick={() => (disconnectConfirm = true)}><span class="msr">power_settings_new</span>Disconnect</button>
           {/if}
         </div>
       </div>
@@ -245,6 +255,16 @@
     confirmLabel="Forget"
     onConfirm={() => forgetTarget && doForget(forgetTarget)}
     onCancel={() => (forgetTarget = null)}
+  />
+
+  <ConfirmDialog
+    open={disconnectConfirm}
+    icon="power_settings_new"
+    title="Disconnect from {session.deviceLabel}?"
+    message="The app stops talking to this TV until you connect again. Nothing on the TV changes."
+    confirmLabel="Disconnect"
+    onConfirm={() => { disconnectConfirm = false; onDisconnect(); }}
+    onCancel={() => (disconnectConfirm = false)}
   />
 
   <Toast message={toast} type={toastType} />

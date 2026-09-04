@@ -11,6 +11,7 @@ import type { Device, SavedDevice } from "./types";
 import { deviceLabelOf } from "./types";
 
 const KEY = "atv.savedDevices.v1";
+const AUTO_KEY = "atv.autoConnect.v1";
 const MAX = 16;
 const EPOCH = new Date(0).toISOString();
 
@@ -112,6 +113,26 @@ export function rememberDevice(
 
 export function forgetDevice(host: string, connectPort: number): void {
   write(read().filter((d) => !(d.host === host && d.connectPort === connectPort)));
+}
+
+/// Whether the app may dial the single saved TV on launch without being
+/// asked. Set by an explicit successful connect, cleared by an explicit
+/// disconnect, and persisted so a process kill can't revive a connection the
+/// user deliberately ended.
+export function autoConnectEnabled(): boolean {
+  try {
+    return localStorage.getItem(AUTO_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setAutoConnect(enabled: boolean): void {
+  try {
+    localStorage.setItem(AUTO_KEY, enabled ? "1" : "0");
+  } catch {
+    // Storage unavailable — worst case we ask instead of auto-dialing.
+  }
 }
 
 export function cachedDeviceName(host: string): string | null {

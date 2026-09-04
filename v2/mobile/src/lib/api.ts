@@ -9,6 +9,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { logCall, summarizeArgs } from "./log";
+import { emitConnectionLost, isConnectionLostError } from "./connectionEvents";
 import type {
   ActionResult,
   AppEntry,
@@ -38,6 +39,7 @@ import type {
   PrivateDnsState,
   RebootMode,
   RebootResult,
+  RecoveryResult,
   Safety,
   ScreenshotResult,
   SendTextResult,
@@ -61,7 +63,11 @@ async function call<T>(
     logCall(command, summary, true);
     return result;
   } catch (e) {
-    logCall(command, summary, false, String(e));
+    const message = String(e);
+    logCall(command, summary, false, message);
+    // The backend already evicted the dead socket; let the session flip to
+    // "lost" (and try one recovery) instead of leaving a green header up.
+    if (isConnectionLostError(message)) emitConnectionLost();
     throw e;
   }
 }
@@ -109,6 +115,9 @@ export const api = {
     call<ActionResult>("trim_caches", { serial }),
   takeScreenshot: (serial: string) =>
     call<ScreenshotResult>("take_screenshot", { serial }),
+  /// Emergency recovery: re-enable every disabled package on the TV.
+  panicRecovery: (serial: string) =>
+    call<RecoveryResult>("panic_recovery", { serial }),
   rebootDevice: (serial: string, mode: RebootMode) =>
     call<RebootResult>("reboot_device", { serial, mode }),
 
@@ -222,4 +231,9 @@ export const api = {
 
   // ---- Debug ----
   readDebugLog: () => call<string>("read_debug_log"),
+
+  /// Delete one APK backup from the app's scoped storage (path-confined to the
+  /// backups dir backend-side). The TV is not touched.
+  deleteBackup: (backupPath: string) =>
+    call<ActionResult>("delete_backup", { backupPath }),
 };

@@ -3,7 +3,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import {
-    lastSavedDevice,
+    autoConnectEnabled,
     lastUsedLabel,
     listSavedDevices,
   } from "../lib/savedDevices";
@@ -11,44 +11,66 @@
   import type { Discovery, SavedDevice } from "../lib/types";
   import BrandMark from "../components/BrandMark.svelte";
 
-  let { onConnected }: { onConnected: () => void } = $props();
+  let {
+    intent = "launch",
+    onConnected,
+    onCancel,
+  }: {
+    /// "launch": app start — may auto-dial the single saved TV. "add": pushed
+    /// from Devices to add another TV — never dials anything unasked.
+    intent?: "launch" | "add";
+    onConnected: () => void;
+    onCancel?: () => void;
+  } = $props();
 
   type Step = "reconnect" | "scan" | "pair" | "connecting" | "connected";
   let step = $state<Step>("scan");
 
-  // §1.0 Reconnect: if this phone has paired a TV before, offer a one-tap
-  // reconnect on launch (the RSA key is persisted Kotlin-side, so it's silent)
-  // and fall back to scanning otherwise.
+  // Saved TVs. On launch the user picks one; with exactly one saved TV (and no
+  // deliberate disconnect last time) we dial it for them, but always name it
+  // on screen and offer Cancel. With several we never guess.
   let savedDevices = $state<SavedDevice[]>([]);
   let reconnectError = $state("");
-  let reconnectingSaved = $state(false);
+  let connectingHost = $state("");
+  let connectingName = $state("");
   const primarySaved = $derived(savedDevices[0] ?? null);
 
   onMount(() => {
     savedDevices = listSavedDevices();
-    const saved = lastSavedDevice();
-    if (saved && session.consumeAutoReconnectPermission()) {
-      step = "reconnect";
-      attemptReconnect(saved);
+    if (intent !== "launch" || savedDevices.length === 0) return;
+    step = "reconnect";
+    if (savedDevices.length === 1 && autoConnectEnabled()) {
+      attemptReconnect(savedDevices[0]);
     }
   });
 
   async function attemptReconnect(d: SavedDevice) {
-    if (reconnectingSaved) return;
+    if (connectingHost) return;
     reconnectError = "";
-    reconnectingSaved = true;
+    connectingHost = d.host;
+    connectingName = d.name;
     try {
       const r = await session.connect(d.host, d.connectPort);
+      // Cancelled attempts resolve later; ignore them.
+      if (connectingHost !== d.host) return;
       if (r.ok) {
+        savedDevices = listSavedDevices();
         step = "connected";
       } else {
         reconnectError = r.message || "Couldn't reach that TV.";
       }
     } catch (e) {
+      if (connectingHost !== d.host) return;
       reconnectError = String(e);
     } finally {
-      reconnectingSaved = false;
+      if (connectingHost === d.host) connectingHost = "";
     }
+  }
+
+  function cancelReconnect() {
+    session.cancelConnect();
+    connectingHost = "";
+    reconnectError = "";
   }
 
   function goScan() {
@@ -73,6 +95,7 @@
 
   type Found = {
     host: string;
+    name: string;
     pairingPort?: number;
     connectPort?: number;
     legacy?: boolean;
@@ -80,7 +103,9 @@
   const found = $derived.by(() => {
     const byHost = new Map<string, Found>();
     for (const d of discoveries) {
-      const entry = byHost.get(d.host) ?? { host: d.host };
+      const entry = byHost.get(d.host) ?? { host: d.host, name: "" };
+      const name = d.name?.trim();
+      if (name && !name.startsWith("adb-")) entry.name = name;
       if (d.service.includes("pairing")) {
         entry.pairingPort = d.port;
       } else {
@@ -185,34 +210,53 @@
         <BrandMark size={30} />
         <span class="wordmark">ATV&nbsp;Optimizer</span>
       </div>
-      <span class="statuspill" class:live={reconnectingSaved}>
-        <span class="pdot" class:blink={reconnectingSaved}></span>{reconnectingSaved ? "Reconnecting" : "Ready"}
+      <span class="statuspill" class:live={connectingHost !== ""}>
+        <span class="pdot" class:blink={connectingHost !== ""}></span>{connectingHost ? "Connecting" : "Ready"}
       </span>
     </div>
 
     <p class="eyebrow">Welcome back</p>
-    <h1>{reconnectError ? "Couldn't reconnect" : "Reconnecting…"}</h1>
+    <h1>
+      {#if reconnectError}
+        Couldn't reconnect
+      {:else if connectingHost}
+        Connecting to {connectingName}…
+      {:else}
+        Which TV?
+      {/if}
+    </h1>
     <p class="lede">
       {#if reconnectError}
-        Your last TV isn't reachable right now.
+        <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
+      {:else if connectingHost}
+        Your only saved TV — no code needed. Cancel to pick a different one.
       {:else}
-        Your last TV reconnects automatically — no code needed.
+        Pick a saved TV to connect. Nothing connects until you choose.
       {/if}
     </p>
 
-    {#if primarySaved}
-      <button class="device" onclick={() => attemptReconnect(primarySaved)} disabled={reconnectingSaved}>
-        <span class="device-icon"><span class="msr">cast</span></span>
-        <span class="device-body">
-          <span class="device-name">{primarySaved.name}</span>
-          <span class="mono device-addr">{primarySaved.host} · last used {lastUsedLabel(primarySaved.lastUsed)}</span>
-          {#if reconnectingSaved}
-            <span class="device-tag">Handshaking…</span>
-          {/if}
-        </span>
-        {#if !reconnectingSaved}<span class="msr device-go">refresh</span>{/if}
-      </button>
-    {/if}
+    <div class="devices">
+      {#each savedDevices as d, i (d.host)}
+        <button
+          class="device"
+          class:dialing={connectingHost === d.host}
+          onclick={() => attemptReconnect(d)}
+          disabled={connectingHost !== ""}
+        >
+          <span class="device-icon"><span class="msr">{d.deviceType === "shield" ? "cast" : "tv"}</span></span>
+          <span class="device-body">
+            <span class="device-name">{d.name}</span>
+            <span class="mono device-addr">{d.host} · {deviceTypeLabel(d.deviceType)} · {lastUsedLabel(d.lastUsed)}</span>
+            {#if connectingHost === d.host}
+              <span class="device-tag">Handshaking…</span>
+            {:else if i === 0 && savedDevices.length > 1}
+              <span class="device-tag">Last used</span>
+            {/if}
+          </span>
+          {#if connectingHost !== d.host}<span class="msr device-go">arrow_forward</span>{/if}
+        </button>
+      {/each}
+    </div>
 
     {#if reconnectError}
       <div class="callout accent" role="status">
@@ -225,30 +269,23 @@
       <p class="error" role="alert">{reconnectError}</p>
     {/if}
 
-    {#if savedDevices.length > 1}
-      <p class="section-label">Saved TVs</p>
-      <div class="devices">
-        {#each savedDevices.slice(1) as d (d.host + ":" + d.connectPort)}
-          <button class="device" onclick={() => attemptReconnect(d)} disabled={reconnectingSaved}>
-            <span class="device-icon"><span class="msr">tv</span></span>
-            <span class="device-body">
-              <span class="device-name">{d.name}</span>
-              <span class="mono device-addr">{d.host} · {deviceTypeLabel(d.deviceType)}</span>
-            </span>
-            <span class="msr device-go">arrow_forward</span>
-          </button>
-        {/each}
-      </div>
-    {/if}
-
     <div class="spacer"></div>
 
+    {#if connectingHost}
+      <button class="ghost" onclick={cancelReconnect}>Cancel</button>
+    {/if}
     <button class="ghost-link" onclick={goScan}>Scan for a different TV</button>
   {:else if step === "scan"}
     <div class="topline">
       <div class="brand">
-        <BrandMark size={30} />
-        <span class="wordmark">ATV&nbsp;Optimizer</span>
+        {#if intent === "add" && onCancel}
+          <button class="iconbtn" aria-label="Back" onclick={onCancel}>
+            <span class="msr">arrow_back</span>
+          </button>
+        {:else}
+          <BrandMark size={30} />
+        {/if}
+        <span class="wordmark">{intent === "add" ? "Add a TV" : "ATV\u00a0Optimizer"}</span>
       </div>
       <span class="statuspill" class:live={busy}>
         <span class="pdot" class:blink={busy}></span>{busy ? "Scanning" : "Ready"}
@@ -275,7 +312,7 @@
           <button class="device" onclick={() => selectFound(f)}>
             <span class="device-icon"><span class="msr">cast</span></span>
             <span class="device-body">
-              <span class="device-name">Android&nbsp;TV</span>
+              <span class="device-name">{f.name || "Android TV"}</span>
               <span class="mono device-addr">{f.host}</span>
               {#if f.legacy && !f.pairingPort}
                 <span class="device-tag">No code needed</span>
@@ -294,6 +331,11 @@
 
     <div class="spacer"></div>
 
+    {#if intent === "launch" && savedDevices.length > 0}
+      <button class="ghost-link" onclick={() => { error = ""; step = "reconnect"; }}>
+        Back to saved TVs
+      </button>
+    {/if}
     <button class="primary" disabled={busy} onclick={scan}>
       <span class="msr">wifi_tethering</span>{scanned ? "Scan again" : "Scan network"}
     </button>
@@ -333,10 +375,14 @@
 
     <p class="eyebrow">Step 2 of 2</p>
     <h1>Enter pairing code</h1>
-    <p class="lede">
-      Newer Google&nbsp;TV devices show a <span class="soft">6-digit code</span> the first time.
-      Older ones (like Shield) connect directly — no code.
-    </p>
+    <div class="callout accent" role="status">
+      <span class="msr">info</span>
+      <span>
+        Code pairing isn't supported in this version yet. On the TV, turn on
+        <span class="soft">Network debugging</span> (Developer options) and use
+        <span class="soft">Connect (no code)</span> instead. Shield TVs never need a code.
+      </span>
+    </div>
 
     <div class="code-row">
       <input
@@ -385,7 +431,7 @@
           {#if error}
             The connection didn't complete.
           {:else}
-            Reaching <span class="soft">{host}</span>
+            Reaching <span class="soft">{host || session.host}</span>
           {/if}
         </p>
         {#if !error}
@@ -436,7 +482,7 @@
         {#if session.connectedDevice?.device_type}
           <span class="infopill"><span class="msr">memory</span>{session.connectedDevice.device_type}</span>
         {/if}
-        <span class="infopill"><span class="msr">lan</span><span class="mono">{host}</span></span>
+        <span class="infopill"><span class="msr">lan</span><span class="mono">{session.host}</span></span>
       </div>
     </div>
 

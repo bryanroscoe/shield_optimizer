@@ -4,7 +4,9 @@
   import { frontendLogText } from "../lib/log";
   import { api } from "../lib/api";
   import type { Screen } from "../lib/router.svelte";
+  import type { RebootMode, RecoveryResult } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -50,17 +52,84 @@
     }
   }
 
-  // Detail screens reachable from More. Pro tools show a lock for free users;
-  // the screen itself still handles the LOCKED paywall on any write.
-  const tools: { screen: Screen; icon: string; title: string; desc: string; pro: boolean }[] = [
-    { screen: "devices", icon: "devices_other", title: "Devices", desc: "Manage and reconnect your TVs", pro: false },
-    { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
-    { screen: "tweaks", icon: "tune", title: "Tweaks", desc: "CEC, frame rate, DNS, animations", pro: true },
-    { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Save, restore & clone a setup", pro: true },
-    { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and pull files to your phone", pro: false },
-    { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up an app's APK to your phone", pro: false },
-    { screen: "riskguide", icon: "help", title: "Risk & actions guide", desc: "What each tier and action means", pro: false },
+  // Detail screens reachable from here, grouped by what they touch. Pro tools
+  // show a lock for free users; the screen itself still handles the LOCKED
+  // paywall on any write.
+  type Tool = { screen: Screen; icon: string; title: string; desc: string; pro: boolean };
+  const toolGroups: { label: string; tools: Tool[] }[] = [
+    {
+      label: "Your TV",
+      tools: [
+        { screen: "devices", icon: "devices_other", title: "Devices", desc: "Switch, rename, or add a TV", pro: false },
+        { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and copy files to this phone", pro: false },
+        { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up and restore an app's APK", pro: false },
+      ],
+    },
+    {
+      label: "Tuning",
+      tools: [
+        { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
+        { screen: "tweaks", icon: "tune", title: "Tweaks", desc: "CEC, frame rate, DNS, animations", pro: true },
+        { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Record a setup and re-apply it later", pro: true },
+      ],
+    },
+    {
+      label: "Help",
+      tools: [
+        { screen: "riskguide", icon: "help", title: "Safety tiers & actions", desc: "What each tier and action means", pro: false },
+      ],
+    },
   ];
+
+  // Emergency recovery: `pm enable` every disabled package. This is the undo
+  // for a debloat that went too far; it never uninstalls or installs anything.
+  let recoveryConfirm = $state(false);
+  let recovering = $state(false);
+  let recovery = $state<RecoveryResult | null>(null);
+
+  async function runRecovery() {
+    recoveryConfirm = false;
+    if (recovering || !session.serial) return;
+    recovering = true;
+    recovery = null;
+    try {
+      recovery = await api.panicRecovery(session.serial);
+      session.invalidateAll();
+      showToast(recovery.message || `Re-enabled ${recovery.restored.length} apps.`, recovery.failed.length ? "info" : "success");
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      recovering = false;
+    }
+  }
+
+  // Advanced reboot targets. Recovery and bootloader are for troubleshooting;
+  // both drop the ADB connection.
+  let rebootTarget = $state<RebootMode | null>(null);
+  let rebooting = $state(false);
+  const rebootLabels: Record<RebootMode, string> = {
+    normal: "Restart",
+    recovery: "Recovery mode",
+    bootloader: "Bootloader",
+  };
+
+  async function runReboot() {
+    const mode = rebootTarget;
+    rebootTarget = null;
+    if (!mode || rebooting || !session.serial) return;
+    rebooting = true;
+    try {
+      const r = await api.rebootDevice(session.serial, mode);
+      showToast(r.ok ? `${rebootLabels[mode]} command sent.` : r.message || "Reboot failed.", r.ok ? "success" : "error");
+      if (r.ok) setTimeout(() => onDisconnect(), 1500);
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      rebooting = false;
+    }
+  }
+
+  let disconnectConfirm = $state(false);
 
   // Debug log — the native tail plus the frontend call ring buffer, both
   // copyable for support.
@@ -104,7 +173,7 @@
       </button>
       <FindRemoteButton />
     </div>
-    <h3 class="header-title">More Options</h3>
+    <h3 class="header-title">Settings</h3>
   </div>
 
   <div class="more-content">
@@ -138,23 +207,66 @@
       {/if}
     </div>
 
-    <!-- Tools -->
+    {#each toolGroups as group (group.label)}
+      <div class="more-card">
+        <span class="card-label">{group.label}</span>
+        {#each group.tools as t (t.screen)}
+          <button class="setting-row" onclick={() => navigate(t.screen)}>
+            <span class="msr tool-icon">{t.icon}</span>
+            <div class="setting-info">
+              <span class="setting-title">{t.title}</span>
+              <span class="setting-desc">{t.desc}</span>
+            </div>
+            {#if t.pro && !session.isPro}
+              <span class="msr lock-icon">lock</span>
+            {:else}
+              <span class="msr chevron">chevron_right</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    {/each}
+
+    <!-- Recovery -->
     <div class="more-card">
-      <span class="card-label">Tools</span>
-      {#each tools as t (t.screen)}
-        <button class="setting-row" onclick={() => navigate(t.screen)}>
-          <span class="msr tool-icon">{t.icon}</span>
-          <div class="setting-info">
-            <span class="setting-title">{t.title}</span>
-            <span class="setting-desc">{t.desc}</span>
-          </div>
-          {#if t.pro && !session.isPro}
-            <span class="msr lock-icon">lock</span>
-          {:else}
-            <span class="msr chevron">chevron_right</span>
+      <span class="card-label">Recovery</span>
+      <p class="card-desc">
+        Re-enables every app that is currently disabled on the TV, including ones this app
+        didn't touch. Use it if something stopped working after a debloat. It never uninstalls
+        or installs anything.
+      </p>
+      <button class="ghost-btn" disabled={recovering || !session.connectedDevice} onclick={() => (recoveryConfirm = true)}>
+        {#if recovering}
+          <span class="pdot blink"></span>Re-enabling apps…
+        {:else}
+          <span class="msr">medical_services</span>Emergency recovery
+        {/if}
+      </button>
+      {#if recovery}
+        <div class="recovery-result">
+          <span class="mono">{recovery.restored.length} re-enabled · {recovery.failed.length} failed</span>
+          {#if recovery.failed.length}
+            <ul class="recovery-failed mono">
+              {#each recovery.failed as f (f.package)}
+                <li>{f.package}: {f.error}</li>
+              {/each}
+            </ul>
           {/if}
-        </button>
-      {/each}
+        </div>
+      {/if}
+    </div>
+
+    <!-- Reboot -->
+    <div class="more-card">
+      <span class="card-label">Reboot</span>
+      <p class="card-desc">Every option restarts the TV and drops this connection.</p>
+      <div class="reboot-row">
+        {#each ["normal", "recovery", "bootloader"] as mode (mode)}
+          <button class="ghost-btn compact" disabled={rebooting || !session.connectedDevice} onclick={() => (rebootTarget = mode as RebootMode)}>
+            <span class="msr">{mode === "normal" ? "restart_alt" : mode === "recovery" ? "build" : "developer_board"}</span>{rebootLabels[mode as RebootMode]}
+          </button>
+        {/each}
+      </div>
     </div>
 
     <!-- Debug log -->
@@ -182,10 +294,45 @@
     </div>
 
     <!-- Disconnect -->
-    <button class="ghost danger-btn" onclick={onDisconnect}>
+    <button class="ghost danger-btn" onclick={() => (disconnectConfirm = true)}>
       <span class="msr">power_settings_new</span>Disconnect from TV
     </button>
   </div>
+
+  <ConfirmDialog
+    open={recoveryConfirm}
+    icon="medical_services"
+    title="Re-enable every disabled app?"
+    message="This turns back on all apps currently disabled on {session.deviceLabel}, including bloat you disabled on purpose. You can run Optimize again afterwards."
+    confirmLabel="Re-enable all"
+    onConfirm={runRecovery}
+    onCancel={() => (recoveryConfirm = false)}
+  />
+
+  <ConfirmDialog
+    open={rebootTarget !== null}
+    icon="restart_alt"
+    danger
+    title={rebootTarget ? `${rebootLabels[rebootTarget]}?` : ""}
+    message={rebootTarget === "normal"
+      ? "The TV restarts normally. Reconnect once it's back."
+      : rebootTarget === "recovery"
+        ? "The TV boots into its recovery menu. You'll need the TV remote to leave it."
+        : "The TV boots into the bootloader. Only do this if you know how to get back out."}
+    confirmLabel="Reboot"
+    onConfirm={runReboot}
+    onCancel={() => (rebootTarget = null)}
+  />
+
+  <ConfirmDialog
+    open={disconnectConfirm}
+    icon="power_settings_new"
+    title="Disconnect from {session.deviceLabel}?"
+    message="The app stops talking to this TV until you connect again. Nothing on the TV changes."
+    confirmLabel="Disconnect"
+    onConfirm={() => { disconnectConfirm = false; onDisconnect(); }}
+    onCancel={() => (disconnectConfirm = false)}
+  />
 
   <Toast message={toast} type={toastType} />
 
@@ -233,6 +380,26 @@
     color: var(--muted);
     line-height: 1.45;
     margin: 0;
+  }
+
+  .recovery-result {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .recovery-failed {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 11px;
+    color: var(--danger);
+    word-break: break-all;
+  }
+  .reboot-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   .license-status-row {

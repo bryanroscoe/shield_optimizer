@@ -262,6 +262,9 @@ h1 {
   font: inherit;
   min-height: 44px;
 }
+.device.dialing {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
 .device:active {
   transform: translateY(1px);
 }

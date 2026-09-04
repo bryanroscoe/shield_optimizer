@@ -16,6 +16,7 @@
   import RiskGuide from "./screens/RiskGuide.svelte";
   import Files from "./screens/Files.svelte";
   import Backups from "./screens/Backups.svelte";
+  import ConnectionBanner from "./components/ConnectionBanner.svelte";
 
   function navigate(screen: Screen) {
     router.navigate(screen);
@@ -33,26 +34,39 @@
     router.reset("onboarding");
   }
 
+  // A dropped TV socket is only visible when something talks to it. Probe on
+  // foreground resume and on a slow heartbeat so a dead connection turns into
+  // a silent reconnect (or the banner) within a minute instead of never.
+  const LIVENESS_HEARTBEAT_MS = 45_000;
+
   onMount(() => {
     session.loadEntitlement();
     const cleanupBack = initBackHandler();
-    // Re-probe liveness when the app returns to the foreground (webview resume)
-    // so a connection dropped while backgrounded shows the reconnect banner.
-    const onVisibility = () => {
+    const detachWatch = session.attachConnectionWatch();
+    const probe = () => {
       if (document.visibilityState === "visible" && session.connectedDevice) {
         session.checkLiveness();
       }
     };
-    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("visibilitychange", probe);
+    const heartbeat = setInterval(probe, LIVENESS_HEARTBEAT_MS);
     return () => {
       cleanupBack();
-      document.removeEventListener("visibilitychange", onVisibility);
+      detachWatch();
+      clearInterval(heartbeat);
+      document.removeEventListener("visibilitychange", probe);
     };
   });
 </script>
 
+{#if router.current !== "onboarding" && router.current !== "addtv"}
+  <ConnectionBanner onSwitch={() => navigate("devices")} />
+{/if}
+
 {#if router.current === "onboarding"}
-  <Onboarding onConnected={handleConnected} />
+  <Onboarding intent="launch" onConnected={handleConnected} />
+{:else if router.current === "addtv"}
+  <Onboarding intent="add" onConnected={handleConnected} onCancel={back} />
 {:else if router.current === "dashboard"}
   <Dashboard {navigate} onDisconnect={handleDisconnect} />
 {:else if router.current === "diagnostics"}
@@ -66,15 +80,15 @@
 {:else if router.current === "more"}
   <More {navigate} onDisconnect={handleDisconnect} />
 {:else if router.current === "launcher"}
-  <Launcher {navigate} />
+  <Launcher {navigate} {back} />
 {:else if router.current === "tweaks"}
-  <Tweaks {navigate} />
+  <Tweaks {navigate} {back} />
 {:else if router.current === "snapshots"}
-  <Snapshots {navigate} />
+  <Snapshots {navigate} {back} />
 {:else if router.current === "devices"}
-  <Devices {navigate} onDisconnect={handleDisconnect} />
+  <Devices {navigate} {back} onDisconnect={handleDisconnect} />
 {:else if router.current === "riskguide"}
-  <RiskGuide {navigate} />
+  <RiskGuide {navigate} {back} />
 {:else if router.current === "files"}
   <Files {back} />
 {:else if router.current === "backups"}

@@ -120,6 +120,13 @@ export type Safety =
 
 export type RebootMode = "normal" | "recovery" | "bootloader";
 
+/// Result of `panic_recovery` — `pm enable` for every disabled package.
+export interface RecoveryResult {
+  restored: string[];
+  failed: { package: string; error: string }[];
+  message: string;
+}
+
 export interface RebootResult {
   ok: boolean;
   message: string;

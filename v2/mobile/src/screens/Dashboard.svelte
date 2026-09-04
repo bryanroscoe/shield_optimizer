@@ -4,7 +4,7 @@
   import { session } from "../lib/session.svelte";
   import { listSavedDevices } from "../lib/savedDevices";
   import type { Screen } from "../lib/router.svelte";
-  import type { SavedDevice } from "../lib/types";
+  import type { SavedDevice, ScreenshotResult } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
@@ -18,9 +18,9 @@
   let showDeviceMenu = $state(false);
   let busyAction = $state("");
   let rebootConfirm = $state(false);
-  let reconnecting = $state(false);
   let switchingHost = $state("");
   let savedTvs = $state<SavedDevice[]>([]);
+  let screenshot = $state<ScreenshotResult | null>(null);
 
   let toastMessage = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -45,15 +45,16 @@
     ),
   );
 
-  // Score comes from a REAL signal (count of enabled recommended-debloat
-  // packages). null when that signal failed to load — we render "—", never a
-  // fabricated 100/healthy device.
-  const score = $derived(
-    session.bloatLoaded && !session.bloatError
-      ? Math.max(60, 100 - session.bloatCount * 3)
+  // The ring is a real fraction: recommended-bloat apps already inactive over
+  // the whole recommended set. null when that signal failed to load — render
+  // "—", never a fabricated score.
+  const bloatKnown = $derived(session.bloatLoaded && !session.bloatError);
+  const cleanedFraction = $derived(
+    bloatKnown && session.bloatTotal > 0
+      ? (session.bloatTotal - session.bloatCount) / session.bloatTotal
       : null,
   );
-  const strokeDashoffset = $derived(289 * (1 - (score ?? 0) / 100));
+  const strokeDashoffset = $derived(289 * (1 - (cleanedFraction ?? 0)));
 
   const ramFreeText = $derived(
     session.health?.ram?.free_mb != null
@@ -74,25 +75,6 @@
   async function handleDisconnect() {
     showDeviceMenu = false;
     onDisconnect();
-  }
-
-  async function handleReconnect() {
-    if (reconnecting) return;
-    reconnecting = true;
-    try {
-      const r = await session.reconnect();
-      if (r.ok) {
-        showToast("Reconnected.", "success");
-        session.loadHealth(true);
-        session.loadBloat(true);
-      } else {
-        showToast(r.message || "Couldn't reconnect.", "error");
-      }
-    } catch (e) {
-      showToast(String(e), "error");
-    } finally {
-      reconnecting = false;
-    }
   }
 
   async function switchDevice(device: SavedDevice) {
@@ -141,8 +123,7 @@
     if (busyAction) return;
     busyAction = "screenshot";
     try {
-      await api.takeScreenshot(session.serial);
-      showToast("Screenshot captured.", "success");
+      screenshot = await api.takeScreenshot(session.serial);
     } catch (e) {
       showToast(String(e), "error");
     } finally {
@@ -173,7 +154,7 @@
   <div class="topline">
     <div class="device-menu-wrap">
       <button class="device-selector" onclick={() => (showDeviceMenu = !showDeviceMenu)}>
-        <span class="d-dot" class:lost={session.liveness === "lost"}></span>
+        <span class="d-dot" class:lost={session.liveness === "lost"} class:pending={session.liveness === "reconnecting"}></span>
         <div class="device-details">
           <span class="device-name">{session.deviceLabel}</span>
           <span class="mono device-ip">{session.host}</span>
@@ -182,6 +163,7 @@
       </button>
 
       {#if showDeviceMenu}
+        <button class="dropdown-backdrop" aria-label="Close menu" onclick={() => (showDeviceMenu = false)}></button>
         <div class="device-dropdown">
           {#if previousTvs.length > 0}
             <span class="dropdown-label">Previous TVs</span>
@@ -212,21 +194,11 @@
 
     <div class="header-actions">
       <FindRemoteButton />
-      <button class="iconbtn" onclick={() => navigate("more")} aria-label="Settings">
+      <button class="iconbtn" onclick={() => navigate("more")} aria-label="More">
         <span class="msr">settings</span>
       </button>
     </div>
   </div>
-
-  {#if session.liveness === "lost"}
-    <div class="reconnect-banner">
-      <span class="msr">wifi_off</span>
-      <span class="rb-text">Connection lost. The TV is no longer reachable.</span>
-      <button class="rb-btn" disabled={reconnecting} onclick={handleReconnect}>
-        {reconnecting ? "Reconnecting…" : "Reconnect"}
-      </button>
-    </div>
-  {/if}
 
   {#if session.healthLoading && !session.health && !session.healthError}
     <div class="center">
@@ -248,7 +220,7 @@
         <div class="ring-container">
           <svg width="104" height="104" viewBox="0 0 104 104" class="svg-ring">
             <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="9"></circle>
-            {#if score !== null}
+            {#if cleanedFraction !== null}
               <circle
                 cx="52" cy="52" r="46" fill="none" stroke="var(--accent)"
                 stroke-width="9" stroke-linecap="round" stroke-dasharray="289"
@@ -257,13 +229,13 @@
             {/if}
           </svg>
           <div class="ring-text">
-            <span class="mono score-value">{score ?? "—"}</span>
-            <span class="score-label">score</span>
+            <span class="mono score-value">{bloatKnown ? session.bloatCount : "—"}</span>
+            <span class="score-label">active</span>
           </div>
         </div>
 
         <div class="health-details">
-          {#if score === null}
+          {#if !bloatKnown}
             <span class="health-title">Couldn't assess</span>
             <span class="health-desc">{session.bloatError || "App status unavailable."}</span>
             <button class="optimize-link" onclick={retryHealth}>
@@ -272,15 +244,15 @@
           {:else if session.bloatCount > 0}
             <span class="health-title">Room to optimize</span>
             <span class="health-desc">
-              <span class="accent-text">{session.bloatCount}</span>
-              {session.bloatCount === 1 ? "bloat app is" : "bloat apps are"} still active.
+              <span class="accent-text">{session.bloatCount}</span> of {session.bloatTotal}
+              recommended-bloat apps still active.
             </span>
             <button class="optimize-link" onclick={() => navigate("optimize")}>
               Run optimize<span class="msr">arrow_forward</span>
             </button>
           {:else}
             <span class="health-title">System optimized</span>
-            <span class="health-desc">Running clean — 0 active recommended-bloat apps.</span>
+            <span class="health-desc">All {session.bloatTotal} recommended-bloat apps are inactive.</span>
             <button class="optimize-link" onclick={() => navigate("optimize")}>
               Review apps<span class="msr">arrow_forward</span>
             </button>
@@ -345,7 +317,7 @@
 
     <div class="callout teal bottom-callout">
       <span class="msr">verified_user</span>
-      <span class="callout-text">Tuned for maximum performance — every change is reversible.</span>
+      <span class="callout-text">Every disable is checked against the audited safety list. Disabled apps can be re-enabled from Apps, or all at once with Emergency recovery in More.</span>
     </div>
   {/if}
 
@@ -359,6 +331,20 @@
     onConfirm={doReboot}
     onCancel={() => (rebootConfirm = false)}
   />
+
+  {#if screenshot}
+    <div class="shot-sheet" role="dialog" aria-label="Screenshot">
+      <div class="shot-head">
+        <span class="shot-title">TV screenshot</span>
+        <button class="iconbtn" aria-label="Close" onclick={() => (screenshot = null)}>
+          <span class="msr">close</span>
+        </button>
+      </div>
+      <img class="shot-img" src={`data:image/png;base64,${screenshot.base64}`} alt="Current TV screen" />
+      <p class="shot-note mono">{screenshot.path}</p>
+      <p class="shot-note">Saved in the app's private storage on this phone. Sharing and export are not available yet.</p>
+    </div>
+  {/if}
 
   <Toast message={toastMessage} type={toastType} />
 
@@ -404,6 +390,16 @@
     background: var(--danger);
     box-shadow: 0 0 8px var(--danger);
   }
+  .d-dot.pending {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: dot-pulse 1s ease-in-out infinite;
+  }
+  @keyframes dot-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
   .device-details {
     display: flex;
     flex-direction: column;
@@ -435,7 +431,45 @@
     border-radius: 12px;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
     z-index: 20;
-    overflow: hidden;
+  }
+  .dropdown-backdrop {
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    border: none;
+    z-index: 15;
+  }
+  .shot-sheet {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: var(--bg, #0b0d10);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px);
+    overflow-y: auto;
+  }
+  .shot-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .shot-title {
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .shot-img {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: #000;
+  }
+  .shot-note {
+    margin: 0;
+    font-size: 11px;
+    color: var(--muted);
+    word-break: break-all;
   }
   .dropdown-item {
     width: 100%;
@@ -494,28 +528,8 @@
     color: var(--danger);
   }
 
-  /* Reconnect banner */
-  .reconnect-banner {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 14px;
-    background: color-mix(in srgb, var(--danger) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
-    margin-bottom: 12px;
-  }
-  .reconnect-banner .msr {
-    color: var(--danger);
-    font-size: 20px;
-    flex: none;
-  }
-  .rb-text {
-    flex: 1;
-    font-size: 12px;
-    line-height: 1.4;
-    color: var(--text-soft);
-  }
+
+  /* Error card (health load failed) */
   .rb-btn {
     flex: none;
     background: var(--accent);
@@ -526,14 +540,8 @@
     font-family: var(--sans);
     font-size: 12px;
     font-weight: 700;
-    cursor: pointer;
+    min-height: 36px;
   }
-  .rb-btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  /* Error card (health load failed) */
   .error-card {
     display: flex;
     align-items: center;

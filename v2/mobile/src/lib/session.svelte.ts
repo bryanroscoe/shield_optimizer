@@ -7,7 +7,8 @@
 // old divergent derivations in Onboarding/Dashboard/Remote are gone.
 
 import { api } from "./api";
-import { cachedDeviceName, rememberDevice } from "./savedDevices";
+import { onConnectionLost } from "./connectionEvents";
+import { cachedDeviceName, rememberDevice, setAutoConnect } from "./savedDevices";
 import { deviceLabelOf } from "./types";
 import type {
   ConnectResult,
@@ -17,19 +18,22 @@ import type {
   HealthReport,
 } from "./types";
 
-export type Liveness = "idle" | "connecting" | "live" | "lost";
+export type Liveness = "idle" | "connecting" | "live" | "reconnecting" | "lost";
 
 class Session {
   private connectionGeneration = 0;
   private healthGeneration = 0;
   private bloatGeneration = 0;
-  private suppressNextAutoReconnect = false;
+  private recovering: Promise<boolean> | null = null;
 
   connectedDevice = $state<Device | null>(null);
   host = $state("");
   connectPort = $state(5555);
   entitlement = $state<Entitlement>("free");
   liveness = $state<Liveness>("idle");
+  /// True while Optimize is applying a plan; tabs lock so the loop can't be
+  /// orphaned by navigating away.
+  applyInProgress = $state(false);
 
   // Shared health cache. `healthLoaded` tracks a load *attempt* (an errored
   // load still counts as loaded so we render the error, not a spinner forever).
@@ -43,6 +47,8 @@ class Session {
   // Count of still-active recommended-debloat packages (real signal from
   // package_states), cached like health. Powers the dashboard score/summary.
   bloatCount = $state(0);
+  /// Size of the recommended-debloat set the count is measured against.
+  bloatTotal = $state(0);
   bloatLoaded = $state(false);
   bloatLoading = $state(false);
   bloatError = $state("");
@@ -64,7 +70,14 @@ class Session {
   }
 
   get isConnected(): boolean {
-    return this.connectedDevice != null && this.liveness !== "lost";
+    return this.connectedDevice != null && this.liveness === "live";
+  }
+
+  /// Wire the api-level "connection lost" signal. Called once from App.
+  attachConnectionWatch(): () => void {
+    return onConnectionLost(() => {
+      void this.recoverOrMarkLost();
+    });
   }
 
   // ---- Discovery / connect flow (called by Onboarding) ----
@@ -85,44 +98,69 @@ class Session {
     try {
       const result = await api.wirelessConnect(host, port);
       if (generation !== this.connectionGeneration) return result;
-      if (result.ok) {
-        this.host = host;
-        this.connectPort = port;
-        this.clearDeviceData();
-        await this.refreshDevices();
-        if (generation !== this.connectionGeneration) return result;
-        this.liveness = this.connectedDevice ? "live" : "idle";
-        // Remember this TV so §1.0 can offer a one-tap reconnect next launch.
+      if (!result.ok) {
+        await this.restoreCurrentLiveness(generation);
+        return result;
+      }
+      // The backend has replaced its connection, so whatever device object we
+      // held describes a socket that no longer exists. Drop it before the new
+      // host is published so no render can pair the old name with the new IP.
+      this.connectedDevice = null;
+      this.clearDeviceData();
+      this.host = host;
+      this.connectPort = port;
+      try {
+        await this.refreshDevices(generation);
+      } catch (error) {
+        if (generation === this.connectionGeneration) this.liveness = "lost";
+        throw error;
+      }
+      if (generation !== this.connectionGeneration) return result;
+      this.liveness = this.connectedDevice ? "live" : "lost";
+      if (this.connectedDevice) {
+        // Remember this TV so the next launch can offer it, and allow a
+        // silent redial of it because the user chose it explicitly.
         this.rememberCurrentDevice();
-      } else {
-        await this.restoreCurrentLiveness();
+        setAutoConnect(true);
       }
       return result;
     } catch (error) {
       if (generation === this.connectionGeneration) {
-        await this.restoreCurrentLiveness();
+        await this.restoreCurrentLiveness(generation);
       }
       throw error;
     }
   }
 
-  async refreshDevices(): Promise<void> {
+  /// Re-read the device list. Results are discarded when a newer connection
+  /// attempt started in the meantime.
+  async refreshDevices(generation = this.connectionGeneration): Promise<void> {
     const list = await api.listDevices();
+    if (generation !== this.connectionGeneration) return;
     // Prefer an authorized device; keep the current serial if it's still there.
     const current = list.find((d) => d.serial === this.serial);
     this.connectedDevice =
       current ?? list.find((d) => d.status === "device") ?? list[0] ?? null;
   }
 
+  /// Explicit user disconnect. Also turns off launch auto-dial so a process
+  /// kill can't resurrect the connection the user just ended.
   async disconnect(): Promise<void> {
-    this.suppressNextAutoReconnect = true;
     ++this.connectionGeneration;
+    setAutoConnect(false);
     try {
       await api.wirelessDisconnect();
     } catch {
       // best-effort; we're tearing down regardless
     }
     this.reset();
+  }
+
+  /// Abandon an in-flight connect from the UI's point of view. The backend
+  /// may still finish it; the next explicit connect replaces it either way.
+  cancelConnect(): void {
+    ++this.connectionGeneration;
+    this.liveness = this.connectedDevice ? "live" : "idle";
   }
 
   async reconnect(): Promise<ConnectResult> {
@@ -136,14 +174,10 @@ class Session {
 
   reset(): void {
     this.connectedDevice = null;
+    this.host = "";
+    this.connectPort = 5555;
     this.liveness = "idle";
     this.clearDeviceData();
-  }
-
-  consumeAutoReconnectPermission(): boolean {
-    if (!this.suppressNextAutoReconnect) return true;
-    this.suppressNextAutoReconnect = false;
-    return false;
   }
 
   private clearDeviceData(): void {
@@ -154,31 +188,76 @@ class Session {
     this.healthLoading = false;
     this.healthError = "";
     this.bloatCount = 0;
+    this.bloatTotal = 0;
     this.bloatLoaded = false;
     this.bloatLoading = false;
     this.bloatError = "";
   }
 
-  private async restoreCurrentLiveness(): Promise<void> {
+  private async restoreCurrentLiveness(generation: number): Promise<void> {
     try {
-      await this.refreshDevices();
+      await this.refreshDevices(generation);
+      if (generation !== this.connectionGeneration) return;
       this.liveness = this.connectedDevice ? "live" : "idle";
     } catch {
+      if (generation !== this.connectionGeneration) return;
       this.liveness = this.connectedDevice ? "lost" : "idle";
     }
   }
 
   // ---- Liveness ----
 
-  /// Cheap probe. On connected:false we flip to 'lost' so the UI can show a
-  /// reconnect banner instead of pretending we're still connected.
+  /// Cheap probe. When the TV stops answering we try one silent reconnect to
+  /// the same TV the user chose; only if that fails do we flip to 'lost' and
+  /// show the reconnect banner.
   async checkLiveness(): Promise<void> {
     if (!this.connectedDevice) return;
+    if (this.liveness === "connecting" || this.liveness === "reconnecting") return;
+    const generation = this.connectionGeneration;
+    let alive = false;
     try {
-      const status = await api.wirelessStatus();
-      this.liveness = status.connected ? "live" : "lost";
+      alive = (await api.wirelessStatus()).connected;
     } catch {
-      this.liveness = "lost";
+      alive = false;
+    }
+    // A newer connect/disconnect owns the state now; this probe is history.
+    if (generation !== this.connectionGeneration || !this.connectedDevice) return;
+    if (alive) {
+      this.liveness = "live";
+      return;
+    }
+    await this.recoverOrMarkLost();
+  }
+
+  /// One automatic reconnect to the current host. Concurrent callers share the
+  /// same attempt. Resolves true when the connection is live again.
+  async recoverOrMarkLost(): Promise<boolean> {
+    if (!this.connectedDevice || !this.host) return false;
+    if (this.recovering) return this.recovering;
+    if (this.liveness === "connecting") return false;
+    this.recovering = (async () => {
+      const generation = this.connectionGeneration;
+      this.liveness = "reconnecting";
+      try {
+        const result = await api.wirelessConnect(this.host, this.connectPort);
+        if (generation !== this.connectionGeneration) return false;
+        if (result.ok) {
+          await this.refreshDevices();
+          if (generation !== this.connectionGeneration) return false;
+          const live = this.connectedDevice != null;
+          this.liveness = live ? "live" : "lost";
+          return live;
+        }
+      } catch {
+        // fall through to lost
+      }
+      if (generation === this.connectionGeneration) this.liveness = "lost";
+      return false;
+    })();
+    try {
+      return await this.recovering;
+    } finally {
+      this.recovering = null;
     }
   }
 
@@ -244,9 +323,7 @@ class Session {
       const catalog = await api.appListForDevice(deviceType);
       const defaults = catalog.filter((a) => a.default_optimize);
       let count = 0;
-      if (defaults.length === 0) {
-        count = 0;
-      } else {
+      if (defaults.length > 0) {
         const states = await api.packageStates(
           serial,
           defaults.map((a) => a.package),
@@ -257,6 +334,7 @@ class Session {
       }
       if (generation !== this.bloatGeneration || serial !== this.serial) return;
       this.bloatCount = count;
+      this.bloatTotal = defaults.length;
     } catch (e) {
       if (generation !== this.bloatGeneration || serial !== this.serial) return;
       this.bloatError = String(e);
