@@ -1,9 +1,11 @@
 //! Shared ADB abstractions and output parsers.
 
+pub mod batch;
 pub mod driver;
 pub mod parse;
 pub mod remote_input;
 
+pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use driver::{AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult};
 pub use parse::{
     parse_active_audio_device, parse_device_list, parse_disabled_packages_output,

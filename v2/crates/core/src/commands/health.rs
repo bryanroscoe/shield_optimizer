@@ -4,9 +4,9 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    parse_active_audio_device, parse_display_mode, parse_hardware_properties_temp,
+    batch_command, parse_active_audio_device, parse_display_mode, parse_hardware_properties_temp,
     parse_meminfo_summary, parse_storage_info, parse_thermal_max_celsius,
-    parse_total_pss_by_process, DisplayMode, RamInfo, StorageInfo,
+    parse_total_pss_by_process, split_batch, DisplayMode, RamInfo, StorageInfo,
 };
 
 use super::AppState;
@@ -32,8 +32,8 @@ pub struct HealthReport {
     pub top_memory: Vec<MemoryEntry>,
 }
 
-/// `health_report` — fetch display + meminfo + thermal + storage in parallel
-/// and decode into a single payload.
+/// `health_report` — fetch display + meminfo + thermal + storage + audio in
+/// one batched shell call and decode into a single payload.
 #[tauri::command]
 pub async fn health_report(
     state: State<'_, AppState>,
@@ -105,103 +105,86 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
     use tokio::time::timeout;
 
     let adb = state.adb_snapshot().await;
-    // These run concurrently here, but the mobile transport serializes them
-    // behind one connection mutex, so a per-command timeout counts wall-clock
-    // that includes waiting for earlier commands. Keep it generous (the
-    // transport layer caps each individual read) so a slow neighbour can't
-    // starve `df` and blank out storage — that was a real regression.
-    let cmd_timeout = Duration::from_secs(10);
-    let (display_res, mem_res, thermal_res, df_res, audio_res, hwprops_res) = tokio::join!(
-        timeout(cmd_timeout, adb.shell(serial, "dumpsys display")),
-        timeout(cmd_timeout, adb.shell(serial, "dumpsys meminfo")),
-        timeout(cmd_timeout, adb.shell(serial, "dumpsys thermalservice")),
-        timeout(cmd_timeout, adb.shell(serial, "df -h /data")),
-        timeout(cmd_timeout, adb.shell(serial, "dumpsys audio")),
-        timeout(
-            cmd_timeout,
-            adb.shell(serial, "dumpsys hardware_properties")
-        ),
-    );
 
-    // `dumpsys display` must not be able to fail the whole report — a missing
-    // display should still leave RAM / storage / temp intact. Swallow to a
-    // default (parse what we can) exactly like the other calls below.
-    let display_text = display_res
-        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
-        .unwrap_or_default();
+    // One round-trip for the whole report. This was six concurrent shells
+    // plus a seventh `/proc/meminfo` call on the RAM fallback path; the mobile
+    // transport serializes everything behind one connection, so the fan-out
+    // bought no concurrency and cost 6-7 × Wi-Fi RTT. `/proc/meminfo` is tiny,
+    // so it rides along unconditionally and serves as the fallback without an
+    // extra round-trip.
+    let cmd = batch_command(&[
+        "dumpsys display",
+        "dumpsys meminfo",
+        "dumpsys thermalservice",
+        "df -h /data",
+        "dumpsys audio",
+        "dumpsys hardware_properties",
+        "cat /proc/meminfo",
+    ]);
 
-    let mem_out = mem_res
-        .unwrap_or_else(|_| {
-            tracing::warn!("dumpsys meminfo timed out");
-            Ok(crate::adb::AdbOutput {
-                stdout: String::new(),
-                stderr: String::new(),
-                exit_code: Some(1),
-            })
-        })
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = %e, "dumpsys meminfo failed");
-            crate::adb::AdbOutput {
-                stdout: String::new(),
-                stderr: String::new(),
-                exit_code: Some(1),
-            }
-        });
+    // Generous: one timeout now covers what used to be seven calls, and the
+    // transport caps each individual read on its own. A failure or timeout
+    // still has to produce a report — every section degrades to its parser's
+    // default, exactly as a single failing call did before, and a truncated
+    // read only blanks the sections that never arrived.
+    let batched = match timeout(Duration::from_secs(30), adb.shell(serial, &cmd)).await {
+        Ok(Ok(out)) => out.stdout,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "health batch shell failed; reporting defaults");
+            String::new()
+        }
+        Err(_) => {
+            tracing::warn!("health batch shell timed out; reporting defaults");
+            String::new()
+        }
+    };
 
-    let thermal_text = thermal_res
-        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
-        .unwrap_or_default();
+    let sections = split_batch(&batched, 7);
+    let display_text = &sections[0];
+    let mem_text = &sections[1];
+    let thermal_text = &sections[2];
+    let df_text = &sections[3];
+    let audio_text = &sections[4];
+    let hwprops_text = &sections[5];
+    let procmem_text = &sections[6];
 
-    let df_text = df_res
-        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
-        .unwrap_or_default();
+    let display = parse_display_mode(display_text);
+    let mut ram = parse_meminfo_summary(mem_text);
 
-    let audio_text = audio_res
-        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
-        .unwrap_or_default();
-
-    let hwprops_text = hwprops_res
-        .map(|r| r.map(|o| o.stdout).unwrap_or_default())
-        .unwrap_or_default();
-
-    let display = parse_display_mode(&display_text);
-    let mut ram = parse_meminfo_summary(&mem_out.stdout);
-
-    // Fast, local fallback for RAM info when dumpsys meminfo times out or fails
+    // Fast, local fallback for RAM info when the dumpsys meminfo section is
+    // missing or unparseable.
     if ram.total_mb.is_none() || ram.free_mb.is_none() {
-        if let Ok(proc_mem) = adb.shell(serial, "cat /proc/meminfo").await {
-            let mut total: Option<u64> = None;
-            let mut free: Option<u64> = None;
-            let mut avail: Option<u64> = None;
-            for line in proc_mem.stdout.lines() {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    if parts[0] == "MemTotal:" {
-                        total = parts[1].parse().ok().map(|kb: u64| kb / 1024);
-                    } else if parts[0] == "MemFree:" {
-                        free = parts[1].parse().ok().map(|kb: u64| kb / 1024);
-                    } else if parts[0] == "MemAvailable:" {
-                        avail = parts[1].parse().ok().map(|kb: u64| kb / 1024);
-                    }
+        let mut total: Option<u64> = None;
+        let mut free: Option<u64> = None;
+        let mut avail: Option<u64> = None;
+        for line in procmem_text.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                if parts[0] == "MemTotal:" {
+                    total = parts[1].parse().ok().map(|kb: u64| kb / 1024);
+                } else if parts[0] == "MemFree:" {
+                    free = parts[1].parse().ok().map(|kb: u64| kb / 1024);
+                } else if parts[0] == "MemAvailable:" {
+                    avail = parts[1].parse().ok().map(|kb: u64| kb / 1024);
                 }
             }
-            if total.is_some() {
-                ram.total_mb = total;
-                // Use MemAvailable as free RAM if reported, else MemFree
-                ram.free_mb = avail.or(free);
-                if let (Some(t), Some(f)) = (total, ram.free_mb) {
-                    ram.used_mb = Some(t - f);
-                }
+        }
+        if total.is_some() {
+            ram.total_mb = total;
+            // Use MemAvailable as free RAM if reported, else MemFree
+            ram.free_mb = avail.or(free);
+            if let (Some(t), Some(f)) = (total, ram.free_mb) {
+                ram.used_mb = Some(t - f);
             }
         }
     }
 
-    let storage = parse_storage_info(&df_text);
-    let temperature_c = parse_thermal_max_celsius(&thermal_text)
-        .or_else(|| parse_hardware_properties_temp(&hwprops_text));
-    let audio_device = parse_active_audio_device(&audio_text);
+    let storage = parse_storage_info(df_text);
+    let temperature_c = parse_thermal_max_celsius(thermal_text)
+        .or_else(|| parse_hardware_properties_temp(hwprops_text));
+    let audio_device = parse_active_audio_device(audio_text);
 
-    let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(&mem_out.stdout)
+    let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(mem_text)
         .into_iter()
         .map(|(package, mb)| MemoryEntry { package, mb })
         .collect();
@@ -216,4 +199,143 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
         audio_device,
         top_memory,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adb::BATCH_SEPARATOR;
+    use crate::commands::test_support::{state_with, MockAdb};
+
+    /// Device output for a batched shell: sections joined by the sentinel the
+    /// device would echo between sub-commands.
+    fn batched(sections: &[&str]) -> String {
+        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
+
+    const MEMINFO: &str = "Total RAM: 3,072,000K\n\
+                           Free RAM: 1,024,000K\n\
+                           Used RAM: 2,048,000K\n\
+                           Total PSS by process:\n\
+                           243,712K: com.netflix.ninja (pid 2201)\n";
+    const DF: &str = "Filesystem      Size  Used Avail Use% Mounted on\n\
+                      /dev/block/dm-5  11G  8.4G  2.4G  78% /data\n";
+    const THERMAL: &str = "Temperature{mValue=42.0, mType=0, mName=CPU}";
+    const AUDIO: &str = "  Devices: hdmi\n";
+    const PROC_MEMINFO: &str = "MemTotal:        3145728 kB\n\
+                                MemFree:          524288 kB\n\
+                                MemAvailable:    1048576 kB\n";
+
+    #[tokio::test]
+    async fn health_report_reads_every_section_from_one_batched_call() {
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", MEMINFO, THERMAL, DF, AUDIO, "", PROC_MEMINFO]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let report = health_report_for(&state, "serial")
+            .await
+            .unwrap_or_else(|e| panic!("report: {e}"));
+
+        assert_eq!(report.ram.total_mb, Some(3000));
+        assert_eq!(report.ram.free_mb, Some(1000));
+        assert_eq!(report.storage.used_percent, Some(78));
+        assert_eq!(report.storage.available.as_deref(), Some("2.4G"));
+        assert_eq!(report.temperature_c, Some(42.0));
+        assert_eq!(report.audio_device.as_deref(), Some("HDMI"));
+        assert_eq!(report.top_memory.len(), 1);
+        assert_eq!(report.top_memory[0].package, "com.netflix.ninja");
+
+        let calls = log.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "the whole report must cost one round-trip: {calls:?}"
+        );
+        assert!(
+            calls[0].contains("cat /proc/meminfo"),
+            "the RAM fallback rides along in the same batch: {}",
+            calls[0]
+        );
+        assert!(
+            !calls[0].contains("&&"),
+            "sub-commands must run even if an earlier one fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn proc_meminfo_fallback_needs_no_extra_round_trip() {
+        // `dumpsys meminfo` came back empty (restricted / failed); the
+        // `/proc/meminfo` section already in the batch has to cover for it.
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", "", THERMAL, DF, AUDIO, "", PROC_MEMINFO]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let report = health_report_for(&state, "serial")
+            .await
+            .unwrap_or_else(|e| panic!("report: {e}"));
+
+        assert_eq!(report.ram.total_mb, Some(3072));
+        assert_eq!(
+            report.ram.free_mb,
+            Some(1024),
+            "MemAvailable wins over MemFree"
+        );
+        assert_eq!(report.ram.used_mb, Some(2048));
+        // The rest of the report is untouched by the missing section.
+        assert_eq!(report.storage.used_percent, Some(78));
+        assert_eq!(log.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn one_empty_section_does_not_blank_the_rest_of_the_report() {
+        // No thermal, no hardware_properties, no audio, no /proc/meminfo —
+        // each degrades to its parser's default and everything else survives.
+        let state = state_with(MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", MEMINFO, "", DF, "", "", ""]),
+        ));
+
+        let report = health_report_for(&state, "serial")
+            .await
+            .unwrap_or_else(|e| panic!("report: {e}"));
+        assert_eq!(report.temperature_c, None);
+        assert_eq!(report.audio_device, None);
+        assert_eq!(report.display.resolution, None);
+        assert_eq!(report.ram.total_mb, Some(3000));
+        assert_eq!(report.storage.used_percent, Some(78));
+    }
+
+    #[tokio::test]
+    async fn truncated_batch_only_blanks_the_sections_that_never_arrived() {
+        // The shell died after `dumpsys meminfo`: storage / thermal / audio
+        // pad to empty instead of shifting into the wrong slots.
+        let state =
+            state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", MEMINFO])));
+
+        let report = health_report_for(&state, "serial")
+            .await
+            .unwrap_or_else(|e| panic!("report: {e}"));
+        assert_eq!(report.ram.total_mb, Some(3000));
+        assert_eq!(report.storage.used_percent, None);
+        assert_eq!(report.temperature_c, None);
+        assert_eq!(report.audio_device, None);
+    }
+
+    #[tokio::test]
+    async fn a_failed_batch_still_returns_a_default_report() {
+        let state = state_with(MockAdb::default().on_shell_err(BATCH_SEPARATOR, "device offline"));
+
+        let report = health_report_for(&state, "serial")
+            .await
+            .unwrap_or_else(|e| panic!("a failed shell must degrade, not error: {e}"));
+        assert_eq!(report.ram.total_mb, None);
+        assert_eq!(report.storage.used_percent, None);
+        assert!(report.top_memory.is_empty());
+    }
 }

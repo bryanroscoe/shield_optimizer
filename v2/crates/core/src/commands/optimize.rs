@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::adb::{
-    parse_disabled_packages_output, parse_installed_packages_output, parse_total_pss_by_process,
+    batch_command, parse_disabled_packages_output, parse_installed_packages_output,
+    parse_total_pss_by_process, split_batch,
 };
 use crate::engine::{compute_plan, OptimizeInputs, OptimizeMode, OptimizePlan};
 use crate::license::Feature;
@@ -50,22 +51,30 @@ pub async fn prepare_optimize_impl(
     let apps = state.app_lists.for_device(device_type);
 
     let adb = state.adb_snapshot().await;
-    let (installed_res, disabled_res, meminfo_res) = tokio::join!(
-        adb.shell(serial, "pm list packages"),
-        adb.shell(serial, "pm list packages -d"),
-        adb.shell(serial, "dumpsys meminfo"),
-    );
-    let installed = installed_res.map_err(|e| format!("pm list packages: {e}"))?;
-    let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
-    let meminfo = meminfo_res.map_err(|e| format!("dumpsys meminfo: {e}"))?;
+    // One round-trip: the mobile transport serializes concurrent shells behind
+    // a single connection, so the old `tokio::join!` cost three Wi-Fi RTTs for
+    // no concurrency.
+    let cmd = batch_command(&["pm list packages", "pm list packages -d", "dumpsys meminfo"]);
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("pm list packages: {e}"))?;
+    let sections = split_batch(&out.stdout, 3);
 
-    let installed_set: HashSet<String> = parse_installed_packages_output(&installed.stdout)
+    let installed_set: HashSet<String> = parse_installed_packages_output(&sections[0])
         .into_iter()
         .collect();
-    let disabled_set: HashSet<String> = parse_disabled_packages_output(&disabled.stdout)
+    // The batch exits with the last sub-command's status, so a failed
+    // `pm list packages` reads as success with an empty section. Planning
+    // against an empty installed set would skip every app and look like a
+    // clean device — surface the failure instead.
+    if installed_set.is_empty() {
+        return Err("pm list packages: no packages reported".to_string());
+    }
+    let disabled_set: HashSet<String> = parse_disabled_packages_output(&sections[1])
         .into_iter()
         .collect();
-    let memory = parse_total_pss_by_process(&meminfo.stdout);
+    let memory = parse_total_pss_by_process(&sections[2]);
 
     let plan = compute_plan(
         &apps,
@@ -135,11 +144,18 @@ pub async fn apply_performance_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::MockAdb;
     use crate::engine::{
         ActionMethod, AppEntry, AppListBundle, DeviceType, OptimizeAction, RiskTier,
     };
     use std::sync::Arc;
+
+    /// Device output for a batched shell: sections joined by the sentinel the
+    /// device would echo between sub-commands.
+    fn batched(sections: &[&str]) -> String {
+        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
 
     fn bloat(pkg: &str) -> AppEntry {
         AppEntry {
@@ -164,16 +180,21 @@ mod tests {
             shield: vec![],
             googletv: vec![],
         };
-        // "packages -d" rule must precede "pm list packages" — the disabled
-        // command contains both needles and MockAdb takes the first match.
-        let mock = MockAdb::default()
-            .on_shell("packages -d", "")
-            .on_shell(
-                "pm list packages",
+        // All three reads ride one batched shell now, so the mock answers the
+        // sentinel with the concatenated sections (installed / disabled /
+        // meminfo) instead of one rule per sub-command — a per-command needle
+        // would match the whole compound command.
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[
                 "package:com.example.bloat\npackage:com.android.systemui",
-            )
-            .on_shell("meminfo", "");
-        let state = AppState::new(Arc::new(mock), bundle, std::env::temp_dir());
+                "",
+                "",
+            ]),
+        );
+        let log = mock.shell_log();
+        let state = AppState::new(Arc::new(mock), bundle, std::env::temp_dir())
+            .with_entitlement(crate::license::Entitlement::Pro);
 
         let plan =
             prepare_optimize_impl(&state, "serial", DeviceType::Shield, OptimizeMode::Optimize)
@@ -198,5 +219,38 @@ mod tests {
             matches!(absent.action, OptimizeAction::Skip { .. }),
             "not-installed app should be skipped"
         );
+
+        let calls = log.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "installed + disabled + meminfo must cost one round-trip: {calls:?}"
+        );
+        assert!(calls[0].contains(BATCH_SEPARATOR));
+        assert!(
+            !calls[0].contains("&&"),
+            "sub-commands must run even if an earlier one fails"
+        );
+    }
+
+    #[tokio::test]
+    async fn prepare_optimize_errors_when_the_installed_section_is_empty() {
+        // A `;`-chained batch exits with the last command's status, so a broken
+        // `pm list packages` looks like success with an empty section. Planning
+        // against that would silently skip every app.
+        let bundle = AppListBundle {
+            common: vec![bloat("com.example.bloat")],
+            shield: vec![],
+            googletv: vec![],
+        };
+        let mock = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""]));
+        let state = AppState::new(Arc::new(mock), bundle, std::env::temp_dir())
+            .with_entitlement(crate::license::Entitlement::Pro);
+
+        let err =
+            prepare_optimize_impl(&state, "serial", DeviceType::Shield, OptimizeMode::Optimize)
+                .await
+                .expect_err("empty package list must be an error, not an empty plan");
+        assert!(err.contains("pm list packages"), "unhelpful error: {err}");
     }
 }

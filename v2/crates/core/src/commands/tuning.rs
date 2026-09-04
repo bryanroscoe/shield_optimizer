@@ -149,26 +149,28 @@ pub struct CurrentDisplayScaling {
     pub density: String,
 }
 
-/// `get_display_scaling` — fetch current `wm size` + `wm density` so the UI
-/// can show what the user is about to change. Mirrors v1's read at the top
-/// of `Set-DisplayScaling` (§8).
+/// `get_display_scaling` — fetch current `wm size` + `wm density` in one
+/// batched shell call so the UI can show what the user is about to change.
+/// Mirrors v1's read at the top of `Set-DisplayScaling` (§8).
 #[tauri::command]
 pub async fn get_display_scaling(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<CurrentDisplayScaling, String> {
     let adb = state.adb_snapshot().await;
-    let (size_res, density_res) = tokio::join!(
-        adb.shell(&serial, "wm size"),
-        adb.shell(&serial, "wm density"),
-    );
-    let size = size_res
-        .map(|o| o.stdout.trim().to_string())
+    // One round-trip; both sections still degrade to an empty string, which is
+    // what the individual failures produced.
+    let cmd = crate::adb::batch_command(&["wm size", "wm density"]);
+    let out = adb
+        .shell(&serial, &cmd)
+        .await
+        .map(|o| o.stdout)
         .unwrap_or_default();
-    let density = density_res
-        .map(|o| o.stdout.trim().to_string())
-        .unwrap_or_default();
-    Ok(CurrentDisplayScaling { size, density })
+    let sections = crate::adb::split_batch(&out, 2);
+    Ok(CurrentDisplayScaling {
+        size: sections[0].trim().to_string(),
+        density: sections[1].trim().to_string(),
+    })
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]

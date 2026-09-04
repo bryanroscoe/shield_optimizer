@@ -15,14 +15,42 @@ use tauri_plugin_atv_adb::AdbExt;
 pub use tauri_plugin_atv_adb::DiscoveredAdbDevice;
 
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(30);
+/// Inactivity bound for one shell response, matching the desktop driver's
+/// 30-second command timeout. A silently dropped socket surfaces as an error
+/// here instead of pinning the connection mutex forever.
+const SHELL_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(30);
+/// Package installs and clears can legitimately produce nothing for a while.
+const SLOW_SHELL_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(180);
+const LIVENESS_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const POST_ERROR_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// Every error that evicts the live connection starts with this so the
+/// frontend can flip its liveness state without parsing transport details.
+pub const CONNECTION_LOST_PREFIX: &str = "Connection to the TV was lost";
 
 /// A live wireless-ADB connection: the owned `adb_client` device plus the
 /// identity used to synthesize `adb devices`. One connection at a time.
 struct Connection {
     device: ADBTcpDevice,
     serial: String,
+}
+
+/// Who we are connected to. Mirrored outside the device mutex so async code
+/// can read it without queueing behind a blocking network call.
+#[derive(Clone)]
+struct Identity {
+    serial: String,
     host: String,
     port: u16,
+}
+
+/// Lock a std mutex even if a panic poisoned it. The guarded value is either
+/// a plain identity or a device handle we are about to drop or replace, so
+/// recovering is always safe, and it keeps one bad packet from making the
+/// app unable to reconnect until it is force-killed.
+fn lock_recovering<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String> {
@@ -56,6 +84,8 @@ pub struct WirelessAdb {
     /// threads, so the owned device lives behind a std mutex and every call
     /// runs on `spawn_blocking`. `None` == disconnected.
     conn: Arc<Mutex<Option<Connection>>>,
+    /// Identity of `conn`, readable without waiting on the device mutex.
+    identity: Arc<Mutex<Option<Identity>>>,
     /// Serializes connect/disconnect transitions so a slow connect cannot
     /// resurrect a connection after the user has explicitly disconnected.
     lifecycle: tokio::sync::Mutex<()>,
@@ -67,6 +97,7 @@ impl WirelessAdb {
             app,
             key_path,
             conn: Arc::new(Mutex::new(None)),
+            identity: Arc::new(Mutex::new(None)),
             lifecycle: tokio::sync::Mutex::new(()),
         }
     }
@@ -93,35 +124,41 @@ impl WirelessAdb {
         F: FnOnce(&mut ADBTcpDevice) -> Result<T, RustADBError> + Send + 'static,
     {
         let conn = self.conn.clone();
+        let identity = self.identity.clone();
         let requested_serial = serial.to_string();
         tokio::task::spawn_blocking(move || {
-            let mut guard = conn
-                .lock()
-                .map_err(|_| "wireless connection lock poisoned".to_string())?;
+            let mut guard = lock_recovering(&conn);
             let Some(active) = guard.as_mut() else {
                 return Err("Not connected to a device.".to_string());
             };
             validate_requested_serial(&active.serial, &requested_serial)?;
-            match f(&mut active.device) {
-                Ok(value) => Ok(value),
-                Err(e) => {
-                    // A transport error means the socket is dead; forget it so a
-                    // follow-up `list_devices` shows nothing and status reports
-                    // disconnected.
-                    *guard = None;
-                    tracing::warn!(error = %e, "wireless transport error — cleared connection");
-                    Err(e.to_string())
-                }
+            let error = match f(&mut active.device) {
+                Ok(value) => return Ok(value),
+                Err(e) => e,
+            };
+            // Only a dead socket should evict the connection. A logical failure
+            // for one request (missing remote file, rejected service) keeps the
+            // TV connected, but is double-checked with a cheap probe because a
+            // confused stream can also present as a protocol error.
+            let fatal = is_fatal_transport_error(&error) || !probe_alive(&mut active.device);
+            if fatal {
+                *guard = None;
+                *lock_recovering(&identity) = None;
+                tracing::warn!(error = %error, "wireless transport error — cleared connection");
+                Err(format!("{CONNECTION_LOST_PREFIX}: {error}"))
+            } else {
+                Err(error.to_string())
             }
         })
         .await
         .map_err(|e| format!("wireless-adb task failed: {e}"))?
     }
 
-    /// Snapshot of the connected device's identity, taken under a short lock.
+    /// Snapshot of the connected device's identity. Reads the mirror, never
+    /// the device mutex, so it returns immediately even while a command is
+    /// mid-flight on the socket.
     fn info(&self) -> Option<(String, String, u16)> {
-        let guard = self.conn.lock().ok()?;
-        guard
+        lock_recovering(&self.identity)
             .as_ref()
             .map(|c| (c.serial.clone(), c.host.clone(), c.port))
     }
@@ -152,6 +189,7 @@ impl WirelessAdb {
             .map_err(|e| format!("invalid device address {host}:{port}: {e}"))?;
         let key_path = self.key_path.clone();
         let conn = self.conn.clone();
+        let identity = self.identity.clone();
         let host_owned = host.to_string();
         let serial = format!("{host}:{port}");
 
@@ -168,11 +206,14 @@ impl WirelessAdb {
                 tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
                 connect_error_message(&e)
             })?;
-            let mut guard = conn
-                .lock()
-                .map_err(|_| "wireless connection lock poisoned".to_string())?;
+            let mut guard = lock_recovering(&conn);
+            // Replacing the handle drops the previous device, which closes
+            // its socket. Publish the identity only once the swap is done.
             *guard = Some(Connection {
                 device,
+                serial: serial.clone(),
+            });
+            *lock_recovering(&identity) = Some(Identity {
                 serial: serial.clone(),
                 host: host_owned,
                 port,
@@ -191,15 +232,15 @@ impl WirelessAdb {
         let _lifecycle = self.lifecycle.lock().await;
         // Dropping the device closes its socket; do it on a blocking thread.
         let conn = self.conn.clone();
+        let identity = self.identity.clone();
         let requested_serial = requested_serial.map(str::to_string);
         tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let mut guard = conn
-                .lock()
-                .map_err(|_| "wireless connection lock poisoned".to_string())?;
+            let mut guard = lock_recovering(&conn);
             if let (Some(expected), Some(active)) = (requested_serial.as_deref(), guard.as_ref()) {
                 validate_requested_serial(&active.serial, expected)?;
             }
             *guard = None;
+            *lock_recovering(&identity) = None;
             Ok(())
         })
         .await
@@ -224,7 +265,7 @@ impl WirelessAdb {
                     &"echo ok",
                     Some(&mut stdout),
                     None,
-                    Duration::from_secs(1),
+                    LIVENESS_PROBE_TIMEOUT,
                 )?;
                 Ok(String::from_utf8_lossy(&stdout).into_owned())
             })
@@ -236,8 +277,10 @@ impl WirelessAdb {
                 false
             }
         };
+        // A dead socket was already evicted inside `on_device`. Do not issue a
+        // second disconnect here: it would race a reconnect to the same
+        // host:port and drop the fresh connection the frontend just got.
         if !alive {
-            let _ = self.disconnect_serial(Some(&serial)).await;
             return WirelessStatus::disconnected();
         }
         WirelessStatus {
@@ -355,11 +398,17 @@ impl AdbDriver for WirelessAdb {
 
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
         let command = command.to_string();
+        let timeout = shell_timeout_for(&command);
         let (stdout, stderr, code) = self
             .on_device(serial, move |dev| {
                 let mut out: Vec<u8> = Vec::new();
                 let mut err: Vec<u8> = Vec::new();
-                let code = dev.shell_command(&command, Some(&mut out), Some(&mut err))?;
+                let code = dev.shell_command_with_timeout(
+                    &command,
+                    Some(&mut out),
+                    Some(&mut err),
+                    timeout,
+                )?;
                 Ok((
                     String::from_utf8_lossy(&out).into_owned(),
                     String::from_utf8_lossy(&err).into_owned(),
@@ -371,9 +420,11 @@ impl AdbDriver for WirelessAdb {
         Ok(AdbOutput {
             stdout,
             stderr,
-            // adb_client reports the on-device exit status (`exec:`), so command
-            // failures surface here instead of always reading as success.
-            exit_code: code.map(|c| c as i32),
+            // shell-v2 reports the real exit status. The shell-v1 fallback on
+            // very old devices has none; report 0 there so `success()` is not
+            // permanently false, and let `shell_reported_failure()` judge the
+            // text as it does for every other path.
+            exit_code: Some(code.map(|c| c as i32).unwrap_or(0)),
         })
     }
 
@@ -387,15 +438,20 @@ impl AdbDriver for WirelessAdb {
             }
         };
         self.on_device(serial, |dev| {
-            // Purpose-built framebuffer capture (returns PNG bytes). Falls back
-            // to `screencap -p` over the shell if the framebuffer path errors.
-            match dev.framebuffer_bytes() {
-                Ok(bytes) => Ok(bytes),
-                Err(_) => {
-                    let mut out: Vec<u8> = Vec::new();
-                    dev.shell_command(&"screencap -p", Some(&mut out), None)?;
-                    Ok(out)
-                }
+            // `screencap -p` encodes on the TV (~1 MB). The framebuffer service
+            // ships raw RGBA (~33 MB at 4K) and is only a fallback. stderr gets
+            // its own sink so a warning can never be spliced into the PNG.
+            let mut out: Vec<u8> = Vec::new();
+            let mut err: Vec<u8> = Vec::new();
+            let shot = dev.shell_command_with_timeout(
+                &"screencap -p",
+                Some(&mut out),
+                Some(&mut err),
+                SHELL_INACTIVITY_TIMEOUT,
+            );
+            match shot {
+                Ok(_) if out.starts_with(b"\x89PNG") => Ok(out),
+                _ => dev.framebuffer_bytes(),
             }
         })
         .await
@@ -440,6 +496,48 @@ impl AdbDriver for WirelessAdb {
 }
 
 pub type SharedWirelessAdb = Arc<WirelessAdb>;
+
+/// Errors that mean the socket or its framing is unusable, as opposed to a
+/// request adbd answered with a failure.
+fn is_fatal_transport_error(error: &RustADBError) -> bool {
+    matches!(
+        error,
+        RustADBError::IOError(_)
+            | RustADBError::PoisonError
+            | RustADBError::TLSError(_)
+            | RustADBError::UpgradeError(_)
+            | RustADBError::WrongResponseReceived(..)
+            | RustADBError::ADBShellNotSupported
+    )
+}
+
+fn probe_alive(dev: &mut ADBTcpDevice) -> bool {
+    let mut stdout = Vec::new();
+    dev.shell_command_with_timeout(
+        &"echo ok",
+        Some(&mut stdout),
+        None,
+        POST_ERROR_PROBE_TIMEOUT,
+    )
+    .is_ok()
+        && String::from_utf8_lossy(&stdout).contains("ok")
+}
+
+fn shell_timeout_for(command: &str) -> Duration {
+    let trimmed = command.trim_start();
+    let slow = [
+        "pm install",
+        "pm uninstall",
+        "pm clear",
+        "cmd package install",
+        "bmgr ",
+    ];
+    if slow.iter().any(|prefix| trimmed.starts_with(prefix)) {
+        SLOW_SHELL_INACTIVITY_TIMEOUT
+    } else {
+        SHELL_INACTIVITY_TIMEOUT
+    }
+}
 
 fn connect_error_message(error: &RustADBError) -> String {
     match error {
@@ -513,9 +611,41 @@ impl WirelessStatus {
 
 #[cfg(test)]
 mod tests {
-    use super::{connect_error_message, validate_requested_serial};
+    use super::{
+        connect_error_message, is_fatal_transport_error, shell_timeout_for,
+        validate_requested_serial, SHELL_INACTIVITY_TIMEOUT, SLOW_SHELL_INACTIVITY_TIMEOUT,
+    };
     use adb_client::RustADBError;
     use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn only_socket_level_errors_are_fatal() {
+        assert!(is_fatal_transport_error(&RustADBError::IOError(
+            Error::new(ErrorKind::TimedOut, "read timed out",)
+        )));
+        assert!(!is_fatal_transport_error(
+            &RustADBError::UnknownResponseType("mode is 0: source file does not exist".to_string(),)
+        ));
+        assert!(!is_fatal_transport_error(&RustADBError::ADBRequestFailed(
+            "unknown service".to_string(),
+        )));
+    }
+
+    #[test]
+    fn installs_get_the_slow_shell_timeout() {
+        assert_eq!(
+            shell_timeout_for("pm install-multiple -r /data/local/tmp/a.apk"),
+            SLOW_SHELL_INACTIVITY_TIMEOUT
+        );
+        assert_eq!(
+            shell_timeout_for("pm list packages -e"),
+            SHELL_INACTIVITY_TIMEOUT
+        );
+        assert_eq!(
+            shell_timeout_for("  pm clear com.example"),
+            SLOW_SHELL_INACTIVITY_TIMEOUT
+        );
+    }
 
     #[test]
     fn requested_serial_must_match_active_connection() {

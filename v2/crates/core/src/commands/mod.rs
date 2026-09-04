@@ -186,5 +186,6 @@ pub mod test_support {
             AppListBundle::default(),
             std::env::temp_dir(),
         )
+        .with_entitlement(crate::license::Entitlement::Pro)
     }
 }

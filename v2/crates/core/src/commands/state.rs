@@ -56,7 +56,9 @@ impl AppState {
             snapshot_dir: data_dir.join("snapshots"),
             data_dir,
             known_names: HashMap::new(),
-            entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Pro)),
+            // Fail closed: a construction path that forgets `with_entitlement`
+            // must not silently grant Pro.
+            entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Free)),
             remote_sessions: Mutex::new(HashMap::new()),
             remote_transition: Mutex::new(()),
         }

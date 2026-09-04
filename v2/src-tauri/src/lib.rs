@@ -18,6 +18,7 @@ use shield_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot,
     snapshot, tuning,
 };
+use shield_optimizer_core::license::Entitlement;
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
 /// subdirectory).
@@ -58,7 +59,8 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
             Arc::new(NoAdbDriver)
         }
     };
-    AppState::new(adb, app_lists, data_dir)
+    // The desktop app has no paywall; every feature is unlocked.
+    AppState::new(adb, app_lists, data_dir).with_entitlement(Entitlement::Pro)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -11,8 +11,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    parse_disabled_packages_output, parse_installed_packages_output, parse_permission_granted,
-    parse_total_pss_by_process, parse_usage_stats, AppUsage,
+    batch_command, parse_disabled_packages_output, parse_installed_packages_output,
+    parse_permission_granted, parse_total_pss_by_process, parse_usage_stats, split_batch, AppUsage,
 };
 use crate::engine::{classify_safety, is_valid_package_name, Safety};
 use crate::license::Feature;
@@ -51,7 +51,7 @@ pub enum PackageState {
 }
 
 /// `package_states` — query the device for the current state of each package
-/// in `packages`. Two shell calls in parallel (`pm list packages` and
+/// in `packages`. One batched shell call (`pm list packages` +
 /// `pm list packages -d`), then categorize.
 #[tauri::command]
 pub async fn package_states(
@@ -59,18 +59,34 @@ pub async fn package_states(
     serial: String,
     packages: Vec<String>,
 ) -> Result<HashMap<String, PackageState>, String> {
-    let adb = state.adb_snapshot().await;
-    let (installed_res, disabled_res) = tokio::join!(
-        adb.shell(&serial, "pm list packages"),
-        adb.shell(&serial, "pm list packages -d"),
-    );
-    let installed = installed_res.map_err(|e| format!("pm list packages: {e}"))?;
-    let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
+    package_states_impl(state.inner(), &serial, packages).await
+}
 
-    let installed_set: HashSet<String> = parse_installed_packages_output(&installed.stdout)
+/// Device-free core of `package_states` so it can run against a mock driver.
+pub async fn package_states_impl(
+    state: &AppState,
+    serial: &str,
+    packages: Vec<String>,
+) -> Result<HashMap<String, PackageState>, String> {
+    let adb = state.adb_snapshot().await;
+    let cmd = batch_command(&["pm list packages", "pm list packages -d"]);
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("pm list packages: {e}"))?;
+    let sections = split_batch(&out.stdout, 2);
+
+    let installed_set: HashSet<String> = parse_installed_packages_output(&sections[0])
         .into_iter()
         .collect();
-    let disabled_set: HashSet<String> = parse_disabled_packages_output(&disabled.stdout)
+    // A `;`-chained batch exits with the *last* command's status, so a broken
+    // `pm list packages` no longer shows up as a transport error. An empty
+    // installed list would silently report every package as Missing, so treat
+    // it as the failure it is — the same error the fan-out version returned.
+    if installed_set.is_empty() {
+        return Err("pm list packages: no packages reported".to_string());
+    }
+    let disabled_set: HashSet<String> = parse_disabled_packages_output(&sections[1])
         .into_iter()
         .collect();
 
@@ -137,46 +153,35 @@ pub async fn list_other_packages_impl(
 
     let adb = state.adb_snapshot().await;
 
-    // Run sequentially to avoid Mutex queuing races
-    let all_res = timeout(
-        Duration::from_secs(6),
-        adb.shell(serial, "pm list packages"),
-    )
-    .await;
-    let all = all_res
+    // One round-trip instead of three sequential ones. The `-3` and `-d`
+    // sections still degrade to empty (system/enabled fallback) rather than
+    // failing the list, exactly as their individual timeouts did.
+    let cmd = batch_command(&[
+        "pm list packages",
+        "pm list packages -3",
+        "pm list packages -d",
+    ]);
+    let batched = timeout(Duration::from_secs(15), adb.shell(serial, &cmd))
+        .await
         .map_err(|_| "pm list packages timed out".to_string())?
         .map_err(|e| format!("pm list packages: {e}"))?;
+    let sections = split_batch(&batched.stdout, 3);
 
-    let third_res = timeout(
-        Duration::from_secs(4),
-        adb.shell(serial, "pm list packages -3"),
-    )
-    .await;
-    let third_out = match third_res {
-        Ok(Ok(o)) => o.stdout,
-        _ => {
-            tracing::warn!("pm list packages -3 failed or timed out; falling back");
-            String::new()
-        }
-    };
+    let all_pkgs = parse_installed_packages_output(&sections[0]);
+    // The batch exits with the last sub-command's status, so a failed
+    // `pm list packages` reads as success with an empty section. Surface it
+    // instead of rendering an empty "Everything else" list.
+    if all_pkgs.is_empty() {
+        return Err("pm list packages: no packages reported".to_string());
+    }
+    if sections[1].is_empty() {
+        tracing::debug!("pm list packages -3 returned nothing; treating all as system");
+    }
 
-    let disabled_res = timeout(
-        Duration::from_secs(4),
-        adb.shell(serial, "pm list packages -d"),
-    )
-    .await;
-    let disabled_out = match disabled_res {
-        Ok(Ok(o)) => o.stdout,
-        _ => {
-            tracing::warn!("pm list packages -d failed or timed out; falling back");
-            String::new()
-        }
-    };
-
-    let third: HashSet<String> = parse_installed_packages_output(&third_out)
+    let third: HashSet<String> = parse_installed_packages_output(&sections[1])
         .into_iter()
         .collect();
-    let disabled: HashSet<String> = parse_disabled_packages_output(&disabled_out)
+    let disabled: HashSet<String> = parse_disabled_packages_output(&sections[2])
         .into_iter()
         .collect();
     let catalog: HashSet<&str> = state
@@ -188,7 +193,7 @@ pub async fn list_other_packages_impl(
         .map(|e| e.package.as_str())
         .collect();
 
-    let mut out: Vec<OtherPackage> = parse_installed_packages_output(&all.stdout)
+    let mut out: Vec<OtherPackage> = all_pkgs
         .into_iter()
         .filter(|p| !catalog.contains(p.as_str()))
         .map(|package| OtherPackage {
@@ -628,6 +633,13 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adb::BATCH_SEPARATOR;
+
+    /// Device output for a batched shell: sections joined by the sentinel the
+    /// device would echo between sub-commands.
+    fn batched(sections: &[&str]) -> String {
+        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
 
     #[test]
     fn first_party_packages_classified_as_system() {
@@ -670,15 +682,12 @@ mod tests {
         use std::collections::HashMap;
 
         // Two sideloads not in the (empty) catalog: one known, one not.
-        let mock = MockAdb::default()
-            .on_shell(
-                "pm list packages -3",
-                "package:com.limelight.noir\npackage:com.unknown.app",
-            )
-            .on_shell(
-                "pm list packages",
-                "package:com.limelight.noir\npackage:com.unknown.app",
-            );
+        // All three `pm list` variants ride one batched shell, so the mock
+        // answers the sentinel with the concatenated sections (all / -3 / -d);
+        // a per-command needle would match the whole compound command.
+        let listing = "package:com.limelight.noir\npackage:com.unknown.app";
+        let mock = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&[listing, listing, ""]));
+        let log = mock.shell_log();
         let mut names = HashMap::new();
         names.insert(
             "com.limelight.noir".to_string(),
@@ -700,6 +709,85 @@ mod tests {
             unknown.name, None,
             "unrecognized package has no friendly name"
         );
+        assert!(!unknown.system, "a sideload in `-3` stays third-party");
+        assert!(
+            unknown.enabled,
+            "an empty `-d` section means nothing disabled"
+        );
+
+        let calls = log.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "all / -3 / -d must cost one round-trip: {calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_other_packages_errors_when_the_primary_listing_is_empty() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        // The batch exits with the last sub-command's status, so a failed
+        // `pm list packages` reads as success with an empty section — that must
+        // surface, not render an empty "Everything else" list.
+        let state =
+            state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""])));
+        let err = match list_other_packages_impl(&state, "serial").await {
+            Ok(rows) => panic!(
+                "empty package listing must be an error, got {} rows",
+                rows.len()
+            ),
+            Err(e) => e,
+        };
+        assert!(err.contains("pm list packages"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn package_states_categorizes_from_one_batched_call() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[
+                "package:com.example.on\npackage:com.example.off",
+                "package:com.example.off",
+            ]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let states = package_states_impl(
+            &state,
+            "serial",
+            vec![
+                "com.example.on".to_string(),
+                "com.example.off".to_string(),
+                "com.example.absent".to_string(),
+            ],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(states["com.example.on"], PackageState::Enabled);
+        assert_eq!(states["com.example.off"], PackageState::Disabled);
+        assert_eq!(states["com.example.absent"], PackageState::Missing);
+        assert_eq!(
+            log.lock().unwrap().len(),
+            1,
+            "installed + disabled must cost one round-trip"
+        );
+    }
+
+    #[tokio::test]
+    async fn package_states_errors_when_the_installed_section_is_empty() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        // Otherwise every package would silently read as Missing.
+        let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", ""])));
+        let err = package_states_impl(&state, "serial", vec!["com.example.on".to_string()])
+            .await
+            .expect_err("empty package listing must be an error");
+        assert!(err.contains("pm list packages"), "unhelpful error: {err}");
     }
 
     #[tokio::test]

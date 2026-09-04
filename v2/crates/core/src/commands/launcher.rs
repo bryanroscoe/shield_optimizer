@@ -36,32 +36,50 @@ pub async fn list_launchers(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<Vec<LauncherStatus>, String> {
-    // Pull installed + disabled package lists and HOME handlers concurrently.
-    let adb = state.adb_snapshot().await;
-    let (installed_res, disabled_res, handlers_res) = tokio::join!(
-        adb.shell(&serial, "pm list packages"),
-        adb.shell(&serial, "pm list packages -d"),
-        adb.shell(&serial, HOME_HANDLER_QUERY),
-    );
-    let installed = installed_res.map_err(|e| format!("pm list packages: {e}"))?;
-    let disabled = disabled_res.map_err(|e| format!("pm list packages -d: {e}"))?;
-    // The HOME query only adds "other handler" rows — degrade to none rather
-    // than blanking the whole list on builds where `cmd package` is limited.
-    let handler_pkgs = match handlers_res {
-        Ok(out) => parse_home_handler_packages(&out.stdout),
-        Err(e) => {
-            tracing::warn!(error = %e, "query-activities failed; listing catalog launchers only");
-            Vec::new()
-        }
-    };
+    list_launchers_impl(state.inner(), &serial).await
+}
 
-    let installed_pkgs = crate::adb::parse_installed_packages_output(&installed.stdout);
-    let disabled_pkgs = crate::adb::parse_disabled_packages_output(&disabled.stdout);
+/// Device-free core of `list_launchers` so it can run against a mock driver.
+pub async fn list_launchers_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Vec<LauncherStatus>, String> {
+    // Installed + disabled package lists and HOME handlers in one round-trip.
+    // The old `tokio::join!` bought no concurrency on the mobile transport,
+    // which serializes every shell behind one connection.
+    let adb = state.adb_snapshot().await;
+    let cmd = crate::adb::batch_command(&[
+        "pm list packages",
+        "pm list packages -d",
+        HOME_HANDLER_QUERY,
+    ]);
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("pm list packages: {e}"))?;
+    let sections = crate::adb::split_batch(&out.stdout, 3);
+
+    let installed_pkgs = crate::adb::parse_installed_packages_output(&sections[0]);
+    // The batch exits with the last sub-command's status, so a failed
+    // `pm list packages` reads as success with an empty section. Every launcher
+    // would then render as not-installed, hiding the Enable path — surface the
+    // failure the fan-out version reported instead.
+    if installed_pkgs.is_empty() {
+        return Err("pm list packages: no packages reported".to_string());
+    }
+    let disabled_pkgs = crate::adb::parse_disabled_packages_output(&sections[1]);
+    // The HOME query only adds "other handler" rows — an empty section (builds
+    // where `cmd package` is limited) degrades to none rather than blanking
+    // the whole list.
+    if sections[2].is_empty() {
+        tracing::warn!("query-activities returned nothing; listing catalog launchers only");
+    }
+    let handler_pkgs = parse_home_handler_packages(&sections[2]);
 
     // Disabled handlers don't answer the HOME query — the tracker is what
     // keeps their rows (and the Enable path back) alive. Prune entries that
     // were re-enabled or uninstalled out-of-band.
-    let tracked = home_tracking::prune(&state.data_dir, &serial, &disabled_pkgs).await;
+    let tracked = home_tracking::prune(&state.data_dir, serial, &disabled_pkgs).await;
 
     Ok(launcher_rows(
         &installed_pkgs,
@@ -636,7 +654,100 @@ pub async fn channel_provider_disabled(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    /// Device output for a batched shell: sections joined by the sentinel the
+    /// device would echo between sub-commands.
+    fn batched(sections: &[&str]) -> String {
+        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
+
+    #[tokio::test]
+    async fn list_launchers_reads_every_section_from_one_batched_call() {
+        // installed / disabled / HOME handlers in one round-trip. A rule per
+        // sub-command would match the whole compound command, so the mock
+        // answers the sentinel with the concatenated sections.
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[
+                "package:com.google.android.tvlauncher\n\
+                 package:com.spocky.projengmenu\n\
+                 package:com.example.otherhome",
+                "package:com.spocky.projengmenu",
+                "    packageName=com.example.otherhome",
+            ]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let rows = list_launchers_impl(&state, "list-launchers-serial")
+            .await
+            .unwrap_or_else(|e| panic!("launcher rows: {e}"));
+
+        let stock = rows
+            .iter()
+            .find(|r| r.entry.package == "com.google.android.tvlauncher")
+            .expect("stock launcher row");
+        assert!(stock.installed && stock.enabled && stock.stock);
+
+        let projectivy = rows
+            .iter()
+            .find(|r| r.entry.package == "com.spocky.projengmenu")
+            .expect("catalog launcher row");
+        assert!(
+            projectivy.installed && !projectivy.enabled,
+            "the disabled section must reach the rows"
+        );
+
+        let other = rows
+            .iter()
+            .find(|r| r.entry.package == "com.example.otherhome")
+            .expect("non-catalog HOME handler row");
+        assert!(other.other && other.enabled);
+
+        let calls = log.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "installed + disabled + HOME query must cost one round-trip: {calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_launchers_degrades_when_the_home_query_section_is_missing() {
+        // Truncated batch (only two sections came back): catalog rows survive,
+        // the "other handler" rows just don't appear.
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["package:com.google.android.tvlauncher", ""]),
+        );
+        let state = state_with(mock);
+
+        let rows = list_launchers_impl(&state, "list-launchers-degraded")
+            .await
+            .unwrap_or_else(|e| panic!("rows despite a missing HOME section: {e}"));
+        assert!(rows
+            .iter()
+            .any(|r| r.entry.package == "com.google.android.tvlauncher"));
+        assert!(!rows.iter().any(|r| r.other));
+    }
+
+    #[tokio::test]
+    async fn list_launchers_errors_when_the_installed_section_is_empty() {
+        // Otherwise every launcher renders as not-installed and the Enable
+        // path back disappears.
+        let state =
+            state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""])));
+        let err = match list_launchers_impl(&state, "list-launchers-empty").await {
+            Ok(rows) => panic!(
+                "empty package listing must be an error, got {} rows",
+                rows.len()
+            ),
+            Err(e) => e,
+        };
+        assert!(err.contains("pm list packages"), "unhelpful error: {err}");
+    }
 
     #[tokio::test]
     async fn set_launcher_first_strategy_wins_and_skips_the_rest() {
