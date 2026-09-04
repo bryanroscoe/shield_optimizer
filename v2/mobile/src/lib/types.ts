@@ -21,6 +21,8 @@ export interface DeviceProperties {
   build_id: string;
   board_platform: string;
   characteristics?: string;
+  /// `ro.serialno` — stable hardware identity; empty/missing when unreadable.
+  serial_number?: string;
 }
 
 export interface Device {
@@ -362,6 +364,9 @@ export interface SavedDevice {
   connectPort: number;
   name: string;
   deviceType: DeviceType;
+  /// Hardware serial when the TV reported one. Lets a TV keep its row and
+  /// name across an IP change, and stops a reused IP from inheriting a name.
+  hardwareId?: string;
   /// ISO timestamp of the last successful connect, for "last used" copy.
   lastUsed: string;
 }
@@ -388,4 +393,20 @@ export function deviceTypeLabel(t: DeviceType | undefined): string {
     default:
       return "Android TV";
   }
+}
+
+/// Result of `remote_warm` — the transport the *next* press will use, learned
+/// without sending one. "shell" carries the reason the fast channel is out.
+export interface RemoteWarmResult {
+  transport: "channel" | "shell";
+  message: string;
+}
+
+/// Decoded, verified license as reported by `license_info`.
+export interface LicenseInfo {
+  plan: Entitlement;
+  licensee: string;
+  issued: string;
+  expires: string | null;
+  key_id: number;
 }

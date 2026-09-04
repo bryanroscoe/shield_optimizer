@@ -30,6 +30,7 @@ import type {
   Entitlement,
   HealthReport,
   LauncherStatus,
+  LicenseInfo,
   OptimizeMode,
   OptimizePlan,
   PerformanceProfile,
@@ -40,6 +41,7 @@ import type {
   RebootMode,
   RebootResult,
   RecoveryResult,
+  RemoteWarmResult,
   Safety,
   ScreenshotResult,
   SendTextResult,
@@ -215,6 +217,7 @@ export const api = {
   getEntitlement: () => call<Entitlement>("get_entitlement"),
   activateLicense: (key: string) =>
     call<Entitlement>("activate_license", { key }),
+  licenseInfo: () => call<LicenseInfo | null>("license_info"),
 
   // ---- File transfer (7.2) ----
   listRemoteDir: (serial: string, path: string) =>
@@ -236,4 +239,10 @@ export const api = {
   /// backups dir backend-side). The TV is not touched.
   deleteBackup: (backupPath: string) =>
     call<ActionResult>("delete_backup", { backupPath }),
+
+  /// Start the scrcpy control channel ahead of the first press so the cold
+  /// start isn't charged to the user's first button. Idempotent; resolves with
+  /// the transport the next press will actually use.
+  remoteWarm: (serial: string) =>
+    call<RemoteWarmResult>("remote_warm", { serial }),
 };

@@ -9,6 +9,7 @@ pub mod health;
 pub mod home_tracking;
 pub mod input;
 pub mod launcher;
+pub mod license;
 pub mod loader;
 pub mod optimize;
 pub mod reboot;
@@ -18,6 +19,7 @@ pub mod snapshot;
 pub mod state;
 pub mod tuning;
 
+pub use license::license_info;
 pub use state::AppState;
 
 /// Setting keys must match `[A-Za-z0-9._-]+` — all real Android setting keys

@@ -15,11 +15,13 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use shield_optimizer_core::commands::{
-    apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot,
-    snapshot, tuning, AppState,
+    apps, devices, health, input, launcher, license, loader, optimize, reboot, recovery,
+    screenshot, snapshot, tuning, AppState,
 };
 use shield_optimizer_core::engine;
-use shield_optimizer_core::license::{validate_license_key, Entitlement};
+use shield_optimizer_core::license::{
+    parse_license, validate_license_key, Entitlement, LicenseInfo,
+};
 use tauri::{Manager, State};
 use wireless_adb::WirelessAdb;
 use wireless_commands::MobileState;
@@ -46,20 +48,23 @@ fn persist_license(data_dir: &Path, file: &LicenseFile) -> Result<(), String> {
 /// Read the persisted entitlement at startup. Returns `Free` when there is no
 /// license file, it can't be read/parsed, or the stored key no longer
 /// validates — so a tampered or stale file safely degrades to Free.
-fn read_persisted_entitlement(data_dir: &Path) -> Entitlement {
+fn read_persisted_entitlement(data_dir: &Path) -> (Entitlement, Option<LicenseInfo>) {
     let path = license_path(data_dir);
     let Ok(contents) = std::fs::read_to_string(&path) else {
-        return Entitlement::Free;
+        return (Entitlement::Free, None);
     };
     match serde_json::from_str::<LicenseFile>(&contents) {
-        Ok(file) if validate_license_key(&file.key) => Entitlement::Pro,
+        // The dev key validates in debug builds but carries no decodable info.
+        Ok(file) if validate_license_key(&file.key) => {
+            (Entitlement::Pro, parse_license(&file.key).ok())
+        }
         Ok(_) => {
             tracing::warn!("license.json present but key no longer validates; treating as Free");
-            Entitlement::Free
+            (Entitlement::Free, None)
         }
         Err(e) => {
             tracing::warn!(error = %e, "failed to parse license.json; treating as Free");
-            Entitlement::Free
+            (Entitlement::Free, None)
         }
     }
 }
@@ -69,9 +74,14 @@ fn read_persisted_entitlement(data_dir: &Path) -> Entitlement {
 #[tauri::command]
 async fn activate_license(state: State<'_, AppState>, key: String) -> Result<Entitlement, String> {
     let key = key.trim().to_string();
-    if !validate_license_key(&key) {
-        return Err("That license key isn't valid.".to_string());
-    }
+    // The verifier's error carries the user-facing reason (expired, bad
+    // signature, malformed). The dev key is accepted by validate_license_key
+    // in debug builds without decoding to a LicenseInfo.
+    let info = match parse_license(&key) {
+        Ok(info) => Some(info),
+        Err(_) if validate_license_key(&key) => None,
+        Err(e) => return Err(e.to_string()),
+    };
     let file = LicenseFile {
         key,
         entitlement: Entitlement::Pro,
@@ -79,6 +89,7 @@ async fn activate_license(state: State<'_, AppState>, key: String) -> Result<Ent
     // Persist before changing live state. A storage failure must not leave the
     // current process in Pro while the next launch silently falls back to Free.
     persist_license(&state.data_dir, &file)?;
+    state.set_license_info(info);
     state.set_entitlement(Entitlement::Pro);
     tracing::info!("license activated; entitlement set to Pro");
     Ok(state.entitlement())
@@ -170,7 +181,7 @@ pub fn run() {
             };
 
             // Restore Pro if a valid license was persisted; default Free.
-            let entitlement = read_persisted_entitlement(&data_dir);
+            let (entitlement, license_info) = read_persisted_entitlement(&data_dir);
             tracing::info!(?entitlement, "startup entitlement");
 
             let wireless = Arc::new(WirelessAdb::new(
@@ -180,6 +191,7 @@ pub fn run() {
             let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
                 .with_entitlement(entitlement);
+            state.set_license_info(license_info);
             app.manage(state);
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());
@@ -194,6 +206,7 @@ pub fn run() {
             wireless_commands::find_remote,
             activate_license,
             get_entitlement,
+            license::license_info,
             read_debug_log,
             devices::list_devices,
             devices::device_profile,
@@ -226,6 +239,7 @@ pub fn run() {
             input::send_text,
             input::send_key,
             input::open_settings,
+            input::remote_warm,
             recovery::panic_recovery,
             reboot::reboot_device,
             optimize::prepare_optimize,
@@ -274,7 +288,10 @@ mod license_tests {
             entitlement: Entitlement::Pro,
         };
         persist_license(dir.path(), &file).expect("persist license");
-        assert_eq!(read_persisted_entitlement(dir.path()), Entitlement::Pro);
+        let (entitlement, info) = read_persisted_entitlement(dir.path());
+        assert_eq!(entitlement, Entitlement::Pro);
+        // Debug builds synthesize a LicenseInfo for the dev key (key_id 0).
+        assert_eq!(info.map(|i| i.key_id), Some(0));
     }
 
     #[test]

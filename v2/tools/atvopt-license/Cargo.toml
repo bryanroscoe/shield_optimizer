@@ -1,0 +1,21 @@
+[package]
+name = "atvopt-license"
+version = "0.1.0"
+description = "Issue and verify signed ATV Optimizer Pro licenses"
+authors = ["Bryan Roscoe"]
+edition = "2021"
+rust-version = "1.81"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "atvopt-license"
+path = "src/main.rs"
+
+[dependencies]
+shield-optimizer-core = { path = "../../crates/core" }
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }

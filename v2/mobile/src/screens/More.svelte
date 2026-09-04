@@ -4,7 +4,7 @@
   import { frontendLogText } from "../lib/log";
   import { api } from "../lib/api";
   import type { Screen } from "../lib/router.svelte";
-  import type { RebootMode, RecoveryResult } from "../lib/types";
+  import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
@@ -17,6 +17,8 @@
 
   let licenseKey = $state("");
   let activating = $state(false);
+  let licenseError = $state("");
+  let license = $state<LicenseInfo | null>(null);
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -28,7 +30,21 @@
     toastTimer = setTimeout(() => (toast = ""), 3500);
   }
 
-  onMount(() => session.loadEntitlement());
+  onMount(async () => {
+    await session.loadEntitlement();
+    await loadLicense();
+  });
+
+  // Details of the signed license behind Pro. Null on Free, and null on Pro if
+  // the backend has no record (an older persisted activation, for instance) —
+  // the card falls back to the plain thank-you line in that case.
+  async function loadLicense() {
+    try {
+      license = await api.licenseInfo();
+    } catch {
+      license = null;
+    }
+  }
 
   // Real Pro activation — calls the backend activate_license and updates the
   // shared entitlement. No more cosmetic `=== "pro"` string match.
@@ -36,20 +52,33 @@
     const key = licenseKey.trim();
     if (!key || activating) return;
     activating = true;
+    licenseError = "";
     try {
       const ent = await session.activatePro(key);
       if (ent === "pro") {
         showToast("Pro unlocked — thank you!", "success");
         licenseKey = "";
+        await loadLicense();
       } else {
-        showToast("That key wasn't accepted. Check and try again.", "error");
+        licenseError = "That key wasn't accepted. Check and try again.";
+        showToast(licenseError, "error");
       }
     } catch (e) {
-      // Backend rejects invalid keys with an error string.
-      showToast(String(e).replace(/^.*Error:\s*/, ""), "error");
+      // The backend rejects a key with the verifier's user-facing reason
+      // (malformed / bad signature / expired / unknown key) — show it verbatim
+      // rather than a generic failure.
+      licenseError = String(e).replace(/^.*Error:\s*/, "");
+      showToast(licenseError, "error");
     } finally {
       activating = false;
     }
+  }
+
+  function formatDate(iso: string): string {
+    const d = new Date(`${iso}T00:00:00`);
+    return Number.isNaN(d.getTime())
+      ? iso
+      : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
   }
 
   // Detail screens reachable from here, grouped by what they touch. Pro tools
@@ -191,9 +220,9 @@
           <input
             type="text"
             bind:value={licenseKey}
-            placeholder="Enter license key…"
+            placeholder="ATVOPT-…"
             class="license-input mono"
-            autocapitalize="none"
+            autocapitalize="characters"
             autocorrect="off"
             spellcheck="false"
             onkeydown={(e) => e.key === "Enter" && activate()}
@@ -202,8 +231,20 @@
             {activating ? "…" : "Activate"}
           </button>
         </div>
+        <p class="license-hint">Upper/lower case doesn't matter. Paste it if you can.</p>
+        {#if licenseError}
+          <p class="license-error">{licenseError}</p>
+        {/if}
       {:else}
         <p class="license-desc success-color">Thank you for supporting ATV Optimizer Pro!</p>
+        {#if license}
+          <dl class="license-details">
+            <dt>Licensed to</dt>
+            <dd class="mono">{license.licensee}</dd>
+            <dt>Term</dt>
+            <dd>{license.expires ? `Expires ${formatDate(license.expires)}` : "Perpetual"}</dd>
+          </dl>
+        {/if}
       {/if}
     </div>
 
@@ -432,6 +473,32 @@
   }
   .success-color {
     color: var(--teal);
+  }
+  .license-hint {
+    font-size: 11px;
+    color: var(--dim);
+    margin: 0;
+  }
+  .license-error {
+    font-size: 12px;
+    color: var(--danger);
+    line-height: 1.4;
+    margin: 0;
+  }
+  .license-details {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+    margin: 0;
+    font-size: 12px;
+  }
+  .license-details dt {
+    color: var(--dim);
+  }
+  .license-details dd {
+    margin: 0;
+    color: var(--text-soft);
+    word-break: break-all;
   }
   .license-input-row {
     display: flex;

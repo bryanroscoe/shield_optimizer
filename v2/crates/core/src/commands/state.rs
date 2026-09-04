@@ -14,7 +14,7 @@ use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
 use crate::adb::AdbDriver;
 use crate::adb::RemoteInputSession;
 use crate::engine::AppListBundle;
-use crate::license::{Entitlement, Feature};
+use crate::license::{Entitlement, Feature, LicenseInfo};
 
 /// State managed by Tauri's state store. Held by `tauri::Builder::manage`.
 pub struct AppState {
@@ -39,6 +39,10 @@ pub struct AppState {
     /// synchronous read. Desktop constructs this as Pro; mobile starts Free and
     /// replaces it after license validation. Encoded via [`entitlement_to_u8`].
     entitlement: AtomicU8,
+    /// Details of the license behind a Pro entitlement, recorded by the
+    /// activation path so `license_info` can show the licensee and term
+    /// without keeping the key itself around. `None` on Free.
+    license_info: std::sync::Mutex<Option<LicenseInfo>>,
     /// Live scrcpy control sessions, keyed by device serial. Lazily started on
     /// the first remote key and held until lifecycle or connection cleanup.
     pub remote_sessions: Mutex<HashMap<String, RemoteInputSession>>,
@@ -59,6 +63,7 @@ impl AppState {
             // Fail closed: a construction path that forgets `with_entitlement`
             // must not silently grant Pro.
             entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Free)),
+            license_info: std::sync::Mutex::new(None),
             remote_sessions: Mutex::new(HashMap::new()),
             remote_transition: Mutex::new(()),
         }
@@ -85,6 +90,19 @@ impl AppState {
     pub fn set_entitlement(&self, entitlement: Entitlement) {
         self.entitlement
             .store(entitlement_to_u8(entitlement), Ordering::Relaxed);
+    }
+
+    /// Record (or clear, with `None`) the verified license behind the current
+    /// entitlement. Called from the activation path and from startup restore.
+    pub fn set_license_info(&self, info: Option<LicenseInfo>) {
+        if let Ok(mut guard) = self.license_info.lock() {
+            *guard = info;
+        }
+    }
+
+    /// Read back the recorded license, if any.
+    pub fn license_info(&self) -> Option<LicenseInfo> {
+        self.license_info.lock().ok().and_then(|g| g.clone())
     }
 
     pub fn require_pro(&self, feature: Feature) -> Result<(), String> {
