@@ -1,12 +1,19 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import type { OptimizePlan, OptimizePlanItem, RiskTier } from "../lib/types";
+  import { isBlocked, reasonOf, tierOf } from "../lib/safety";
+  import type {
+    OptimizeMode,
+    OptimizePlan,
+    OptimizePlanItem,
+    Safety,
+  } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
@@ -17,22 +24,51 @@
   // clearly-labeled locked state — never a fabricated debloat list.
   let locked = $state(false);
   let plan = $state<OptimizePlan | null>(null);
+  let mode = $state<OptimizeMode>("optimize");
   let showPaywall = $state(false);
 
-  let activeTab = $state<"recommended" | "everything">("recommended");
+  let activeTab = $state<"recommended" | "all">("recommended");
   // Local selection (which rows are ticked). The backend safety gate remains
   // authoritative for every individual mutation during apply.
   let selected = $state<Set<string>>(new Set());
   let confirmApply = $state(false);
   let applying = $state(false);
-  let applyProgress = $state("");
+  let cancelRequested = $state(false);
+  let applyDone = $state(0);
+  let applyTotal = $state(0);
+  let applyCurrent = $state("");
+
+  // Core tiers for the plan's actionable packages. The catalog's own `risk`
+  // tag is editorial metadata and disagrees with the classifier (e.g.
+  // com.google.android.feedback is catalog "safe" but core "caution"), so the
+  // chip a row renders always comes from here.
+  let safetyMap = $state<Record<string, Safety>>({});
+  let safetyLoading = $state(false);
+  let safetyFailed = $state(false);
+  let safetyRequest = 0;
+
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  async function loadPlan() {
+  function showToast(message: string, type: "success" | "error" | "info" = "info") {
+    toast = message;
+    toastType = type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ""), 4200);
+  }
+
+  onDestroy(() => clearTimeout(toastTimer));
+
+  async function loadPlan(nextMode: OptimizeMode = mode) {
+    mode = nextMode;
     loading = true;
     error = "";
     locked = false;
+    plan = null;
+    safetyMap = {};
+    safetyFailed = false;
+    ++safetyRequest;
     if (!session.connectedDevice) {
       error = "No TV connected.";
       loading = false;
@@ -42,17 +78,18 @@
       const p = await api.prepareOptimize(
         session.serial,
         session.connectedDevice.device_type,
-        "optimize",
+        nextMode,
       );
       plan = p;
-      // Default-select the actionable recommended items.
       const sel = new Set<string>();
       for (const it of p.items) {
-        if (it.entry.default_optimize && it.action.kind !== "skip") {
-          sel.add(it.entry.package);
-        }
+        if (it.action.kind === "skip") continue;
+        const on =
+          nextMode === "optimize" ? it.entry.default_optimize : it.entry.default_restore;
+        if (on) sel.add(it.entry.package);
       }
       selected = sel;
+      void loadSafety(p);
     } catch (e) {
       const s = String(e);
       if (s.includes("LOCKED:")) locked = true;
@@ -62,48 +99,119 @@
     }
   }
 
-  onMount(loadPlan);
+  // `safety_info` is a pure in-process lookup, so one batch for the whole plan
+  // is cheap. Anything unresolved renders as "unverified" and blocks apply.
+  async function loadSafety(p: OptimizePlan) {
+    const pkgs = p.items
+      .filter((it) => it.action.kind !== "skip")
+      .map((it) => it.entry.package);
+    const request = ++safetyRequest;
+    safetyFailed = false;
+    if (pkgs.length === 0) {
+      safetyLoading = false;
+      return;
+    }
+    safetyLoading = true;
+    try {
+      const pairs = await Promise.all(
+        pkgs.map(async (pkg) => [pkg, await api.safetyInfo(pkg)] as const),
+      );
+      if (request !== safetyRequest) return;
+      const map: Record<string, Safety> = {};
+      for (const [pkg, s] of pairs) map[pkg] = s;
+      safetyMap = map;
+    } catch {
+      if (request !== safetyRequest) return;
+      safetyFailed = true;
+    } finally {
+      if (request === safetyRequest) safetyLoading = false;
+    }
+  }
+
+  onMount(() => void loadPlan("optimize"));
 
   const actionable = $derived(
     (plan?.items ?? []).filter((it) => it.action.kind !== "skip"),
   );
+  const recommendedFlag = (it: OptimizePlanItem) =>
+    mode === "optimize" ? it.entry.default_optimize : it.entry.default_restore;
   const visibleItems = $derived(
-    activeTab === "recommended"
-      ? actionable.filter((it) => it.entry.default_optimize)
-      : actionable,
+    activeTab === "recommended" ? actionable.filter(recommendedFlag) : actionable,
   );
+
+  // Enabling is never destructive, so the never-disable guard only applies to
+  // the disable / uninstall directions.
+  function isHardBlocked(it: OptimizePlanItem): boolean {
+    return it.action.kind !== "enable" && isBlocked(safetyMap[it.entry.package]);
+  }
 
   const selectedItems = $derived(
-    actionable.filter((it) => selected.has(it.entry.package)),
+    actionable.filter((it) => selected.has(it.entry.package) && !isHardBlocked(it)),
   );
-
   const selectedCount = $derived(selectedItems.length);
-  const totalSavings = $derived(
+  const runningMb = $derived(
     selectedItems.reduce((acc, it) => acc + (it.memory_mb ?? 0), 0),
   );
   const selectedUninstalls = $derived(
     selectedItems.filter((it) => it.action.kind === "uninstall").length,
   );
+  const cautionSelected = $derived(
+    selectedItems.filter(
+      (it) => it.action.kind !== "enable" && safetyMap[it.entry.package]?.kind === "caution",
+    ),
+  );
+  // Fail closed: a disable/uninstall run waits for the classifier.
+  const safetyReady = $derived(
+    mode === "restore" || (!safetyLoading && !safetyFailed),
+  );
 
-  function toggle(pkg: string) {
+  const warningText = $derived.by(() => {
+    const parts: string[] = [];
+    if (selectedUninstalls > 0) {
+      parts.push(
+        `${selectedUninstalls} app${selectedUninstalls === 1 ? "" : "s"} will be uninstalled for this TV's user. Reinstall brings back an APK still on the TV; anything else needs the Play Store.`,
+      );
+    }
+    if (cautionSelected.length > 0) {
+      const shown = cautionSelected
+        .slice(0, 2)
+        .map((it) => `${it.entry.name} — ${reasonOf(safetyMap[it.entry.package])}`);
+      const rest = cautionSelected.length - shown.length;
+      parts.push(
+        `Caution tier: ${shown.join(" ")}${rest > 0 ? ` Plus ${rest} more caution app${rest === 1 ? "" : "s"} selected.` : ""}`,
+      );
+    }
+    return parts.join(" ");
+  });
+
+  function toggle(it: OptimizePlanItem) {
+    if (isHardBlocked(it)) {
+      showToast(`Protected: ${reasonOf(safetyMap[it.entry.package])}`, "error");
+      return;
+    }
     const next = new Set(selected);
-    if (next.has(pkg)) next.delete(pkg);
-    else next.add(pkg);
+    if (next.has(it.entry.package)) next.delete(it.entry.package);
+    else next.add(it.entry.package);
     selected = next;
   }
 
   function selectAll() {
     const next = new Set(selected);
-    for (const it of visibleItems) next.add(it.entry.package);
+    for (const it of visibleItems) {
+      if (!isHardBlocked(it)) next.add(it.entry.package);
+    }
     selected = next;
   }
 
-  function methodLabel(it: OptimizePlanItem): string {
-    return it.action.kind === "uninstall" ? "uninstall" : "disable";
-  }
-
-  function riskClass(r: RiskTier): string {
-    return `risk-${r}`;
+  function actionLabel(it: OptimizePlanItem): string {
+    switch (it.action.kind) {
+      case "uninstall":
+        return "uninstall";
+      case "enable":
+        return "re-enable";
+      default:
+        return "disable";
+    }
   }
 
   function handleApply() {
@@ -111,30 +219,51 @@
       showPaywall = true;
       return;
     }
-    if (selectedItems.length > 0) confirmApply = true;
+    if (selectedCount > 0) confirmApply = true;
   }
 
   async function runApply() {
     confirmApply = false;
-    if (applying || !session.serial) return;
+    if (applying) return;
+    // One serial for the whole run: if the TV changes underneath us we must
+    // not fire the rest of the plan at a different device.
+    const serial = session.serial;
+    if (!serial) {
+      showToast("No TV connected.", "error");
+      return;
+    }
     const items = [...selectedItems];
     if (items.length === 0) return;
+    const runMode = mode;
+
     applying = true;
+    session.applyInProgress = true;
+    cancelRequested = false;
+    applyTotal = items.length;
+    applyDone = 0;
+    applyCurrent = items[0].entry.name;
     toast = "";
+
     const failures: string[] = [];
     let completed = 0;
     let entitlementLost = false;
+    let canceled = false;
     try {
       for (const [index, item] of items.entries()) {
-        applyProgress = `${index + 1} of ${items.length}: ${item.entry.name}`;
+        if (cancelRequested) {
+          canceled = true;
+          break;
+        }
+        applyDone = index;
+        applyCurrent = item.entry.name;
         try {
           const result =
             item.action.kind === "disable"
-              ? await api.disablePackage(session.serial, item.entry.package)
+              ? await api.disablePackage(serial, item.entry.package)
               : item.action.kind === "uninstall"
-                ? await api.uninstallPackage(session.serial, item.entry.package)
+                ? await api.uninstallPackage(serial, item.entry.package)
                 : item.action.kind === "enable"
-                  ? await api.enablePackage(session.serial, item.entry.package)
+                  ? await api.enablePackage(serial, item.entry.package)
                   : null;
           if (!result?.ok) failures.push(item.entry.name);
           else completed += 1;
@@ -142,39 +271,51 @@
           if (String(e).includes("LOCKED:")) {
             showPaywall = true;
             entitlementLost = true;
-            failures.push(...items.slice(index).map((it) => it.entry.name));
             break;
           }
           failures.push(item.entry.name);
         }
       }
+      applyDone = items.length;
 
-      if (!entitlementLost) {
-        applyProgress = "Applying performance settings…";
+      if (!entitlementLost && !canceled) {
+        applyCurrent = "animation settings";
         try {
           const performance = await api.applyPerformanceSettings(
-            session.serial,
-            "optimized",
+            serial,
+            runMode === "optimize" ? "optimized" : "default",
           );
-          if (!performance.ok) failures.push("performance settings");
+          if (!performance.ok) failures.push("animation settings");
         } catch {
-          failures.push("performance settings");
+          failures.push("animation settings");
         }
       }
 
       session.invalidateAll();
-      if (failures.length === 0) {
-        toast = `Optimization complete — ${completed} app${completed === 1 ? "" : "s"} updated.`;
-        toastType = "success";
+      const verb = runMode === "optimize" ? "Optimization" : "Restore";
+      if (canceled) {
+        showToast(
+          `Stopped after ${completed} of ${items.length}. ${items.length - completed - failures.length} left untouched.`,
+          "info",
+        );
+      } else if (entitlementLost) {
+        showToast(`Stopped — Pro is required. ${completed} app${completed === 1 ? "" : "s"} updated.`, "info");
+      } else if (failures.length === 0) {
+        showToast(`${verb} complete — ${completed} app${completed === 1 ? "" : "s"} updated.`, "success");
       } else {
-        toast = `${completed} updated; ${failures.length} failed. Reopen the plan to retry.`;
-        toastType = "info";
+        showToast(
+          `${completed} updated; ${failures.length} failed (${failures.slice(0, 3).join(", ")}${failures.length > 3 ? ", …" : ""}).`,
+          "info",
+        );
       }
-      setTimeout(() => (toast = ""), 4200);
-      await loadPlan();
+      await loadPlan(runMode);
     } finally {
       applying = false;
-      applyProgress = "";
+      session.applyInProgress = false;
+      cancelRequested = false;
+      applyCurrent = "";
+      applyDone = 0;
+      applyTotal = 0;
     }
   }
 </script>
@@ -182,7 +323,12 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("dashboard")} aria-label="Back">
+      <button
+        class="iconbtn"
+        onclick={() => navigate("dashboard")}
+        disabled={applying}
+        aria-label="Back"
+      >
         <span class="msr">arrow_back</span>
       </button>
       <FindRemoteButton />
@@ -191,13 +337,34 @@
     <span style="width:44px"></span>
   </div>
 
+  {#if !locked && !loading}
+    <div class="mode-box" role="group" aria-label="Plan mode">
+      <button
+        class="mode-btn"
+        class:active={mode === "optimize"}
+        disabled={applying}
+        onclick={() => mode !== "optimize" && loadPlan("optimize")}
+      >
+        Optimize
+      </button>
+      <button
+        class="mode-btn"
+        class:active={mode === "restore"}
+        disabled={applying}
+        onclick={() => mode !== "restore" && loadPlan("restore")}
+      >
+        Restore
+      </button>
+    </div>
+  {/if}
+
   {#if loading}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Building plan…</span>
     </div>
   {:else if error}
     <p class="error">{error}</p>
-    <button class="primary" onclick={loadPlan}>Retry</button>
+    <button class="primary" onclick={() => loadPlan(mode)}>Retry</button>
     <div class="spacer"></div>
   {:else if locked}
     <!-- Locked (Free tier): no fabricated list, an honest upsell. -->
@@ -217,42 +384,86 @@
     </div>
     <div class="spacer"></div>
   {:else if plan}
+    <p class="mode-hint">
+      {mode === "optimize"
+        ? "Disables or uninstalls curated bloat for this TV. Run Restore to put any of it back."
+        : "Re-enables curated apps that are currently disabled on this TV."}
+    </p>
+
     <div class="tab-pill-box">
       <button class="tab-pill" class:active={activeTab === "recommended"} onclick={() => (activeTab = "recommended")}>
         Recommended
       </button>
-      <button class="tab-pill" class:active={activeTab === "everything"} onclick={() => (activeTab = "everything")}>
-        Everything
+      <button class="tab-pill" class:active={activeTab === "all"} onclick={() => (activeTab = "all")}>
+        All curated
       </button>
     </div>
+    <p class="tab-hint">
+      Both tabs are the curated catalog for this TV. Everything else installed on the device lives
+      in the Apps tab.
+    </p>
 
     <div class="optimize-summary-card">
       <span class="summary-text">
-        <span class="summary-count">{selectedCount}</span> selected{totalSavings > 0 ? ` · frees ~${totalSavings} MB` : ""}
+        <span class="summary-count">{selectedCount}</span> selected{runningMb > 0
+          ? ` · ≈ ${Math.round(runningMb)} MB of RAM in play`
+          : ""}
       </span>
-      <button class="select-all-btn" onclick={selectAll}>Select all</button>
+      <button class="select-all-btn" onclick={selectAll} disabled={applying}>Select all</button>
     </div>
+    {#if runningMb > 0}
+      <p class="mb-note">
+        That's what these processes are using right now, not a guaranteed saving — Android reclaims
+        and re-spawns memory on its own.
+      </p>
+    {/if}
+
+    {#if safetyFailed}
+      <div class="stale-warning" role="alert">
+        <span class="msr">warning</span>
+        <span>Safety tiers couldn't be loaded, so nothing will be applied.</span>
+        <button class="retry-link" onclick={() => plan && loadSafety(plan)}>Retry</button>
+      </div>
+    {/if}
 
     {#if visibleItems.length === 0}
-      <p class="lede empty">Nothing to optimize here — this TV is already clean.</p>
+      <p class="lede empty">
+        {mode === "optimize"
+          ? "Nothing to optimize here — this TV is already clean."
+          : "Nothing to restore — none of the curated apps are disabled."}
+      </p>
       <div class="spacer"></div>
     {:else}
       <div class="optimize-list">
         {#each visibleItems as item (item.entry.package)}
-          <div class="optimize-item">
+          {@const tier = tierOf(safetyMap[item.entry.package])}
+          {@const hardBlocked = isHardBlocked(item)}
+          <div class="optimize-item" class:blocked-row={hardBlocked}>
             <div class="item-details">
               <span class="item-name">{item.entry.name}</span>
               <div class="item-meta">
-                <span class="risk-tag {riskClass(item.entry.risk)}">{item.entry.risk}</span>
+                {#if safetyLoading}
+                  <span class="tier-chip pending">checking…</span>
+                {:else if tier}
+                  <span class="tier-chip {tier.cls}">{tier.label}</span>
+                {:else}
+                  <span class="tier-chip pending">unverified</span>
+                {/if}
                 <span class="mono meta-text">
-                  {methodLabel(item)}{item.memory_mb != null ? ` · ${item.memory_mb} MB` : ""}
+                  {actionLabel(item)}{item.memory_mb != null
+                    ? ` · ${Math.round(item.memory_mb)} MB`
+                    : ""} · catalog: {item.entry.risk}
                 </span>
               </div>
+              {#if hardBlocked}
+                <span class="row-reason">{reasonOf(safetyMap[item.entry.package])}</span>
+              {/if}
             </div>
             <button
               class="toggle-switch"
-              class:checked={selected.has(item.entry.package)}
-              onclick={() => toggle(item.entry.package)}
+              class:checked={selected.has(item.entry.package) && !hardBlocked}
+              disabled={applying || hardBlocked}
+              onclick={() => toggle(item)}
               aria-label="Toggle {item.entry.name}"
             >
               <span class="toggle-knob"></span>
@@ -261,64 +472,53 @@
         {/each}
       </div>
       <div class="spacer"></div>
-      <button class="primary" disabled={applying || selectedCount === 0} onclick={handleApply}>
-        {#if applying}<span class="pdot blink"></span>{:else}<span class="msr">auto_fix_high</span>{/if}{applying ? applyProgress : `Apply optimization${session.isPro ? "" : " (Pro)"}`}
-      </button>
+
+      {#if applying}
+        <div class="progress-card" role="status">
+          <span class="progress-line">
+            {Math.min(applyDone + 1, applyTotal)} of {applyTotal}
+            {applyCurrent ? `· ${applyCurrent}` : ""}
+          </span>
+          <div class="progress-track">
+            <div
+              class="progress-fill"
+              style="width: {applyTotal ? Math.round((applyDone / applyTotal) * 100) : 0}%"
+            ></div>
+          </div>
+          <button
+            class="ghost small"
+            disabled={cancelRequested}
+            onclick={() => (cancelRequested = true)}
+          >
+            {cancelRequested ? "Stopping after this app…" : "Cancel"}
+          </button>
+        </div>
+      {:else}
+        <button
+          class="primary"
+          disabled={selectedCount === 0 || !safetyReady}
+          onclick={handleApply}
+        >
+          <span class="msr">{mode === "optimize" ? "auto_fix_high" : "restore"}</span>
+          {mode === "optimize" ? "Apply optimization" : "Apply restore"}{session.isPro ? "" : " (Pro)"}
+        </button>
+      {/if}
     {/if}
   {/if}
 
-  {#if showPaywall}
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="paywall-overlay" onclick={() => (showPaywall = false)}>
-      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="paywall-card" onclick={(e) => e.stopPropagation()}>
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <span class="paywall-close msr" onclick={() => (showPaywall = false)}>close</span>
-        <div class="paywall-header">
-          <span class="logo"><span class="msr">star</span></span>
-          <h2>Unlock Pro Features</h2>
-          <p class="paywall-lede">One-time purchase. Lifetime safety &amp; control.</p>
-        </div>
-        <div class="paywall-features">
-          <div class="feature-row">
-            <span class="msr teal-color">done</span>
-            <div class="feature-info">
-              <span class="feature-title">Curated Debloat</span>
-              <span class="feature-desc">Safely disable/uninstall known TV bloat packages.</span>
-            </div>
-          </div>
-          <div class="feature-row">
-            <span class="msr teal-color">done</span>
-            <div class="feature-info">
-              <span class="feature-title">Saved Snapshots</span>
-              <span class="feature-desc">Reapply recorded disabled apps, launcher, and tracked settings.</span>
-            </div>
-          </div>
-          <div class="feature-row">
-            <span class="msr teal-color">done</span>
-            <div class="feature-info">
-              <span class="feature-title">Launcher &amp; Tweaks</span>
-              <span class="feature-desc">Set a custom launcher and tune system settings.</span>
-            </div>
-          </div>
-        </div>
-        <button class="primary" onclick={() => { showPaywall = false; navigate("more"); }}>
-          Enter license key
-        </button>
-        <button class="ghost paywall-close-btn" onclick={() => (showPaywall = false)}>
-          Maybe later
-        </button>
-      </div>
-    </div>
-  {/if}
+  <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
 
   <ConfirmDialog
     open={confirmApply}
-    icon="auto_fix_high"
-    title={`Apply ${selectedCount} selected change${selectedCount === 1 ? "" : "s"}?`}
-    warning={selectedUninstalls > 0 ? `${selectedUninstalls} selected app${selectedUninstalls === 1 ? " will" : "s will"} be uninstalled. Reinstalling may require the Play Store or a TV reset.` : ""}
-    message="ATV Optimizer will process each selected app, then apply the optimized animation settings. Protected system packages remain blocked by the safety engine."
-    confirmLabel="Apply"
+    icon={mode === "optimize" ? "auto_fix_high" : "restore"}
+    title={mode === "optimize"
+      ? `Apply ${selectedCount} selected change${selectedCount === 1 ? "" : "s"}?`
+      : `Re-enable ${selectedCount} app${selectedCount === 1 ? "" : "s"}?`}
+    warning={warningText}
+    message={mode === "optimize"
+      ? "Each selected app is processed in turn, then the optimized animation scales are written. Protected system packages stay blocked by the safety engine."
+      : "Each selected app is re-enabled in turn, then animation scales are reset to 1×."}
+    confirmLabel={mode === "optimize" ? "Apply" : "Restore"}
     onConfirm={runApply}
     onCancel={() => (confirmApply = false)}
   />
@@ -373,7 +573,39 @@
     max-width: 260px;
   }
 
-  /* Tabs */
+  /* Mode + tabs */
+  .mode-box {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .mode-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .mode-btn.active {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+  }
+  .mode-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .mode-hint {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
   .tab-pill-box {
     display: flex;
     padding: 4px;
@@ -381,7 +613,7 @@
     background: #131519;
     border: 1px solid var(--line);
     gap: 4px;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
   }
   .tab-pill {
     flex: 1;
@@ -401,6 +633,12 @@
     color: var(--accent-ink);
     font-weight: 600;
   }
+  .tab-hint {
+    margin: 0 0 12px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
 
   /* Summary */
   .optimize-summary-card {
@@ -411,7 +649,7 @@
     border-radius: 14px;
     background: color-mix(in srgb, var(--accent) 9%, transparent);
     border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-    margin-bottom: 14px;
+    margin-bottom: 8px;
   }
   .summary-text {
     font-size: 13px;
@@ -431,6 +669,44 @@
     cursor: pointer;
     padding: 0;
   }
+  .select-all-btn:disabled {
+    opacity: 0.5;
+  }
+  .mb-note {
+    margin: 0 0 12px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .stale-warning {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--amber) 9%, transparent);
+    color: var(--amber);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .stale-warning .msr {
+    font-size: 18px;
+    flex: none;
+  }
+  .retry-link {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--amber);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+  }
 
   /* List */
   .optimize-list {
@@ -440,6 +716,8 @@
     overflow-y: auto;
   }
   .optimize-item {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 66px;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -447,6 +725,9 @@
     border-radius: 15px;
     background: var(--surface);
     border: 1px solid var(--line);
+  }
+  .optimize-item.blocked-row {
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
   }
   .item-details {
     flex: 1;
@@ -463,32 +744,42 @@
     display: flex;
     align-items: center;
     gap: 7px;
+    flex-wrap: wrap;
   }
-  .risk-tag {
+  .tier-chip {
     font-size: 10px;
     font-weight: 700;
-    color: var(--teal);
-    background: color-mix(in srgb, var(--teal) 14%, transparent);
     padding: 2px 7px;
     border-radius: 5px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    flex: none;
   }
-  .risk-tag.risk-medium {
+  .tier-chip.safe {
+    color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 14%, transparent);
+  }
+  .tier-chip.caution {
     color: var(--amber);
     background: color-mix(in srgb, var(--amber) 14%, transparent);
   }
-  .risk-tag.risk-high {
+  .tier-chip.blocked {
     color: var(--danger);
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
-  .risk-tag.risk-advanced {
-    color: var(--advanced);
-    background: color-mix(in srgb, var(--advanced) 14%, transparent);
+  .tier-chip.pending {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+    text-transform: none;
   }
   .meta-text {
     font-size: 10px;
     color: var(--muted);
+  }
+  .row-reason {
+    font-size: 11px;
+    color: var(--danger);
+    line-height: 1.35;
   }
 
   /* Toggle */
@@ -503,6 +794,10 @@
     cursor: pointer;
     padding: 0;
     transition: background-color 0.2s;
+  }
+  .toggle-switch:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .toggle-switch.checked {
     background: var(--accent);
@@ -523,94 +818,30 @@
     background: var(--accent-ink);
   }
 
-  /* Paywall */
-  .paywall-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.85);
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    z-index: 200;
-  }
-  .paywall-card {
+  /* Apply progress */
+  .progress-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 15px;
+    border-radius: 15px;
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 26px;
-    width: 100%;
-    max-width: 340px;
-    padding: 24px;
-    position: relative;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    box-sizing: border-box;
-    gap: 4px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   }
-  .paywall-close {
-    position: absolute;
-    top: 18px;
-    right: 18px;
-    font-size: 22px;
-    color: var(--muted);
-    cursor: pointer;
-  }
-  .paywall-header {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 8px;
-    margin-bottom: 20px;
-  }
-  .paywall-header h2 {
-    margin: 0;
-    font-size: 24px;
-    font-weight: 700;
-  }
-  .paywall-lede {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-  }
-  .paywall-features {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    width: 100%;
-    margin-bottom: 20px;
-  }
-  .feature-row {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-  }
-  .feature-row .msr {
-    font-size: 20px;
-    flex-shrink: 0;
-  }
-  .teal-color {
-    color: var(--teal);
-  }
-  .feature-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .feature-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .feature-desc {
+  .progress-line {
+    font-family: var(--mono);
     font-size: 12px;
-    color: var(--muted);
-    line-height: 1.4;
+    color: var(--text-soft);
   }
-  .paywall-close-btn {
-    width: 100%;
-    min-height: 50px;
-    margin-top: 10px;
+  .progress-track {
+    height: 7px;
+    border-radius: 4px;
+    background: var(--canvas);
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s ease;
   }
 </style>

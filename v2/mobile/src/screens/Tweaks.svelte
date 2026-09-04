@@ -8,22 +8,32 @@
     DisplayScalePreset,
     PrivateDnsState,
     TweaksState,
+    WriteResult,
   } from "../lib/types";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
 
-  let { navigate }: { navigate: (screen: Screen) => void } = $props();
+  let {
+    navigate,
+    back,
+  }: { navigate: (screen: Screen) => void; back: () => void } = $props();
 
   let loading = $state(true);
-  let error = $state("");
+  let noDevice = $state("");
   let tweaks = $state<TweaksState | null>(null);
   let dns = $state<PrivateDnsState | null>(null);
   let scaling = $state<CurrentDisplayScaling | null>(null);
+  // Per-card read errors — one failed read must not blank the whole screen.
+  let tweaksError = $state("");
+  let dnsError = $state("");
+  let scalingError = $state("");
   let busy = $state("");
   let showPaywall = $state(false);
   let dnsHost = $state("");
   let dnsEditing = $state(false);
+  let scaleConfirm = $state<DisplayScalePreset | null>(null);
   let loadGeneration = 0;
 
   let toast = $state("");
@@ -44,29 +54,38 @@
     const serial = session.serial;
     const generation = ++loadGeneration;
     if (!serial) {
-      error = "No TV connected.";
+      noDevice = "No TV connected.";
       loading = false;
       return;
     }
-    loading = tweaks === null;
-    error = "";
-    try {
-      const [t, d, s] = await Promise.all([
-        api.getTweaks(serial),
-        api.getPrivateDns(serial),
-        api.getDisplayScaling(serial),
-      ]);
-      if (generation !== loadGeneration || serial !== session.serial) return;
-      tweaks = t;
-      dns = d;
-      scaling = s;
-      if (d.hostname) dnsHost = d.hostname;
-    } catch (e) {
-      if (generation !== loadGeneration || serial !== session.serial) return;
-      error = String(e);
-    } finally {
-      if (generation === loadGeneration && serial === session.serial) loading = false;
+    loading = tweaks === null && dns === null && scaling === null;
+    noDevice = "";
+    const [t, d, s] = await Promise.allSettled([
+      api.getTweaks(serial),
+      api.getPrivateDns(serial),
+      api.getDisplayScaling(serial),
+    ]);
+    if (generation !== loadGeneration || serial !== session.serial) return;
+    if (t.status === "fulfilled") {
+      tweaks = t.value;
+      tweaksError = "";
+    } else {
+      tweaksError = String(t.reason);
     }
+    if (d.status === "fulfilled") {
+      dns = d.value;
+      dnsError = "";
+      if (d.value.hostname) dnsHost = d.value.hostname;
+    } else {
+      dnsError = String(d.reason);
+    }
+    if (s.status === "fulfilled") {
+      scaling = s.value;
+      scalingError = "";
+    } else {
+      scalingError = String(s.reason);
+    }
+    loading = false;
   }
 
   onMount(load);
@@ -104,13 +123,67 @@
     }
   }
 
-  // ---- Derived current states (null = unknown; we render honestly) ----
-  const hdmiOn = $derived(tweaks?.hdmi_control_enabled === "1");
-  const frameRateOn = $derived(
-    tweaks?.match_content_frame_rate != null && tweaks.match_content_frame_rate !== "0",
-  );
+  /// Write several keys in one action, stopping at the first failure so the
+  /// toast reports the real error rather than the last successful write.
+  function writeAll(
+    namespace: "global" | "secure",
+    keys: string[],
+    value: string,
+  ): (targetSerial: string) => Promise<WriteResult> {
+    return async (targetSerial: string) => {
+      let last: WriteResult = { ok: true, message: "ok" };
+      for (const key of keys) {
+        last = await api.writeSetting(targetSerial, namespace, key, value);
+        if (!last.ok) break;
+      }
+      return last;
+    };
+  }
+
+  // ---- Derived current states (null = unset on the device; rendered as such) ----
+  const CEC_KEYS = [
+    "hdmi_control_enabled",
+    "hdmi_control_auto_wakeup_enabled",
+    "hdmi_control_auto_device_off_enabled",
+    "hdmi_system_audio_control_enabled",
+  ];
+  const cecRows = $derived([
+    {
+      key: "hdmi_control_enabled",
+      title: "HDMI-CEC control",
+      desc: "One remote for TV + soundbar",
+      value: tweaks?.hdmi_control_enabled ?? null,
+    },
+    {
+      key: "hdmi_control_auto_wakeup_enabled",
+      title: "Auto-wake the TV",
+      desc: "TV switches on with this device",
+      value: tweaks?.hdmi_control_auto_wakeup_enabled ?? null,
+    },
+    {
+      key: "hdmi_control_auto_device_off_enabled",
+      title: "Auto-off with the TV",
+      desc: "This device sleeps when the TV does",
+      value: tweaks?.hdmi_control_auto_device_off_enabled ?? null,
+    },
+    {
+      key: "hdmi_system_audio_control_enabled",
+      title: "System audio control",
+      desc: "Volume goes to the receiver",
+      value: tweaks?.hdmi_system_audio_control_enabled ?? null,
+    },
+  ]);
+
+  const frameRate = $derived(tweaks?.match_content_frame_rate ?? null);
   const animScale = $derived(
     tweaks?.window_animation_scale != null ? parseFloat(tweaks.window_animation_scale) : null,
+  );
+  const animMixed = $derived(
+    tweaks != null &&
+      !(
+        tweaks.window_animation_scale === tweaks.transition_animation_scale &&
+        tweaks.window_animation_scale === tweaks.animator_duration_scale
+      ),
   );
   const longPress = $derived(
     tweaks?.long_press_timeout != null ? parseInt(tweaks.long_press_timeout, 10) : null,
@@ -118,10 +191,36 @@
   const bgLimit = $derived(tweaks?.background_process_limit ?? null);
   const dnsMode = $derived(dns?.mode ?? null);
 
-  const scaleSize = $derived(
-    scaling?.size ? scaling.size.replace(/Physical size:\s*/i, "").split("\n")[0].trim() : "—",
-  );
+  function wmValue(block: string | undefined, kind: "Physical" | "Override"): string | null {
+    if (!block) return null;
+    for (const line of block.split("\n")) {
+      const m = line.trim().match(/^(Physical|Override)\s+\w+:\s*(.+)$/i);
+      if (m && m[1].toLowerCase() === kind.toLowerCase()) return m[2].trim();
+    }
+    return null;
+  }
+  const physicalSize = $derived(wmValue(scaling?.size, "Physical"));
+  const overrideSize = $derived(wmValue(scaling?.size, "Override"));
+  const physicalDensity = $derived(wmValue(scaling?.density, "Physical"));
+  const overrideDensity = $derived(wmValue(scaling?.density, "Override"));
+  // The override is what the TV is actually rendering at; show it first and
+  // never present the physical panel size as the current setting.
+  const scaleLine = $derived.by(() => {
+    if (overrideSize) {
+      const density = overrideDensity ?? physicalDensity;
+      return `${overrideSize}${density ? ` @ ${density}` : ""} · panel ${physicalSize ?? "—"}`;
+    }
+    if (physicalSize) {
+      return `${physicalSize}${physicalDensity ? ` @ ${physicalDensity}` : ""} · device default`;
+    }
+    return "—";
+  });
 
+  const framePresets: { label: string; value: string }[] = [
+    { label: "Never", value: "0" },
+    { label: "Seamless", value: "1" },
+    { label: "Always", value: "2" },
+  ];
   const animPresets: { label: string; value: string }[] = [
     { label: "Off", value: "0" },
     { label: "1×", value: "1" },
@@ -140,37 +239,103 @@
     { label: "Reset", value: "reset" },
   ];
 
-  function toggleHdmi() {
-    apply("hdmi", (target) => api.writeSetting(target, "global", "hdmi_control_enabled", hdmiOn ? "0" : "1"),
-      hdmiOn ? "HDMI-CEC turned off." : "HDMI-CEC turned on.");
+  function triLabel(v: string | null): string {
+    return v === "1" ? "On" : v === "0" ? "Off" : "Unset";
   }
-  function toggleFrameRate() {
-    apply("framerate", (target) => api.writeSetting(target, "secure", "match_content_frame_rate", frameRateOn ? "0" : "2"),
-      frameRateOn ? "Frame-rate matching off." : "Frame-rate matching on.");
+  function frameLabel(v: string | null): string {
+    return v === "0"
+      ? "Never"
+      : v === "1"
+        ? "Seamless only"
+        : v === "2"
+          ? "Always"
+          : "Unset (device default)";
   }
+  function animLabel(): string {
+    if (tweaks == null) return "—";
+    if (animMixed) {
+      return `Mixed: ${tweaks.window_animation_scale ?? "unset"} / ${
+        tweaks.transition_animation_scale ?? "unset"
+      } / ${tweaks.animator_duration_scale ?? "unset"}`;
+    }
+    const w = tweaks.window_animation_scale;
+    return w == null ? "Unset (device default)" : w === "0" ? "Off" : `${w}×`;
+  }
+
+  function toggleCec(row: { key: string; title: string; value: string | null }) {
+    const next = row.value === "1" ? "0" : "1";
+    apply(
+      `cec-${row.key}`,
+      (target) => api.writeSetting(target, "global", row.key, next),
+      `${row.title} turned ${next === "1" ? "on" : "off"}.`,
+    );
+  }
+  function resetCec() {
+    apply("cec-reset", writeAll("global", CEC_KEYS, ""), "HDMI-CEC reset to device defaults.");
+  }
+  function setFrameRate(value: string) {
+    apply(
+      `fr-${value}`,
+      (target) => api.writeSetting(target, "secure", "match_content_frame_rate", value),
+      `Frame-rate matching set to ${frameLabel(value).toLowerCase()}.`,
+    );
+  }
+  function resetFrameRate() {
+    apply(
+      "fr-reset",
+      writeAll("secure", ["match_content_frame_rate"], ""),
+      "Frame-rate matching reset to the device default.",
+    );
+  }
+  const ANIM_KEYS = [
+    "window_animation_scale",
+    "transition_animation_scale",
+    "animator_duration_scale",
+  ];
   function setAnim(value: string) {
     // Animation speed is three scales in lockstep — write all so the UI is
     // consistent (window / transition / animator).
-    apply(`anim-${value}`, async (target) => {
-      let last = { ok: true, message: "ok" };
-      for (const k of ["window_animation_scale", "transition_animation_scale", "animator_duration_scale"]) {
-        last = await api.writeSetting(target, "global", k, value);
-        if (!last.ok) break;
-      }
-      return last;
-    }, "Animation speed updated.");
+    apply(`anim-${value}`, writeAll("global", ANIM_KEYS, value), "Animation speed updated.");
+  }
+  function resetAnim() {
+    apply(
+      "anim-reset",
+      writeAll("global", ANIM_KEYS, ""),
+      "Animation speed reset to the device default.",
+    );
   }
   function setLongPress(ms: number) {
-    apply(`lp-${ms}`, (target) => api.writeSetting(target, "secure", "long_press_timeout", String(ms)),
-      `Long-press timeout set to ${ms}ms.`);
+    apply(
+      `lp-${ms}`,
+      (target) => api.writeSetting(target, "secure", "long_press_timeout", String(ms)),
+      `Long-press timeout set to ${ms}ms.`,
+    );
+  }
+  function resetLongPress() {
+    apply(
+      "lp-reset",
+      writeAll("secure", ["long_press_timeout"], ""),
+      "Long-press timeout reset to the device default.",
+    );
   }
   function setBgLimit(value: string) {
-    apply(`bg-${value}`, (target) => api.writeSetting(target, "global", "background_process_limit", value),
-      "Background limit updated. Note: Android resets this on reboot.");
+    apply(
+      `bg-${value}`,
+      (target) => api.writeSetting(target, "global", "background_process_limit", value),
+      "Background limit updated. Android resets it on the next reboot.",
+    );
   }
   function setScaling(preset: DisplayScalePreset) {
-    apply(`scale-${preset}`, (target) => api.setDisplayScaling(target, preset),
-      "Display scaling applied.");
+    apply(
+      `scale-${preset}`,
+      (target) => api.setDisplayScaling(target, preset),
+      "Display scaling applied.",
+    );
+  }
+  function confirmScaling() {
+    const preset = scaleConfirm;
+    scaleConfirm = null;
+    if (preset) setScaling(preset);
   }
   function setDns(mode: string) {
     if (mode === "hostname") {
@@ -189,15 +354,23 @@
   }
 
   function animActive(value: string): boolean {
-    if (animScale == null) return false;
+    if (animScale == null || animMixed) return false;
     return Math.abs(animScale - parseFloat(value)) < 0.001;
   }
+
+  const scaleConfirmMessage = $derived(
+    scaleConfirm === "reset"
+      ? "Clears the size and density override so the TV goes back to its own defaults. The screen will flicker while it re-lays out."
+      : scaleConfirm === "uhd_4k"
+        ? "Sets the UI to 3839x2160 at density 640. The screen will flicker and some apps re-layout; use Reset if anything looks wrong."
+        : "Sets the UI to 1920x1080 at density 320. The screen will flicker and some apps re-layout; use Reset if anything looks wrong.",
+  );
 </script>
 
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("more")} aria-label="Back">
+      <button class="iconbtn" onclick={back} aria-label="Back">
         <span class="msr">arrow_back</span>
       </button>
       <FindRemoteButton />
@@ -218,8 +391,8 @@
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Reading settings…</span>
     </div>
-  {:else if error}
-    <p class="error">{error}</p>
+  {:else if noDevice}
+    <p class="error">{noDevice}</p>
     <button class="primary" onclick={load}>Retry</button>
     <div class="spacer"></div>
   {:else}
@@ -227,37 +400,97 @@
       <!-- Display & sound -->
       <span class="section-label nomargin">Display &amp; sound</span>
       <div class="tweak-group">
-        <div class="tweak-row">
-          <span class="msr t-icon">settings_input_hdmi</span>
-          <div class="t-info">
-            <span class="t-title">HDMI-CEC control</span>
-            <span class="t-desc">One remote for TV + soundbar</span>
+        {#if tweaksError}
+          <div class="card-error">
+            <p class="error small">{tweaksError}</p>
+            <button class="l-btn" onclick={load}>Retry</button>
           </div>
-          <button class="switch" class:on={hdmiOn} class:busy={busy === "hdmi"} disabled={busy !== ""} onclick={toggleHdmi} aria-label="Toggle HDMI-CEC">
-            <span class="knob"></span>
-          </button>
-        </div>
-        <div class="tweak-row">
-          <span class="msr t-icon">30fps_select</span>
-          <div class="t-info">
-            <span class="t-title">Match content frame rate</span>
-            <span class="t-desc">Auto-switch 24/50/60 Hz</span>
+        {:else}
+          <div class="tweak-row column">
+            <div class="t-row-head">
+              <span class="msr t-icon">settings_input_hdmi</span>
+              <div class="t-info">
+                <span class="t-title">HDMI-CEC</span>
+                <span class="t-desc">Four device settings, read straight from the TV</span>
+              </div>
+              <button
+                class="reset-btn"
+                class:busy={busy === "cec-reset"}
+                disabled={busy !== ""}
+                onclick={resetCec}
+              >
+                <span class="msr">restart_alt</span>Reset
+              </button>
+            </div>
+            <div class="subrows">
+              {#each cecRows as row (row.key)}
+                <div class="subrow">
+                  <div class="t-info">
+                    <span class="t-subtitle">{row.title}</span>
+                    <span class="t-desc">{row.desc} · <span class="state">{triLabel(row.value)}</span></span>
+                  </div>
+                  <button
+                    class="switch"
+                    class:on={row.value === "1"}
+                    class:unset={row.value == null}
+                    class:busy={busy === `cec-${row.key}`}
+                    disabled={busy !== ""}
+                    onclick={() => toggleCec(row)}
+                    aria-label={`${row.title}: ${triLabel(row.value)}`}
+                  >
+                    <span class="knob"></span>
+                  </button>
+                </div>
+              {/each}
+            </div>
           </div>
-          <button class="switch" class:on={frameRateOn} disabled={busy !== ""} onclick={toggleFrameRate} aria-label="Toggle frame-rate matching">
-            <span class="knob"></span>
-          </button>
-        </div>
+
+          <div class="tweak-row column">
+            <div class="t-row-head">
+              <span class="msr t-icon">30fps_select</span>
+              <div class="t-info">
+                <span class="t-title">Match content frame rate</span>
+                <span class="t-desc">{frameLabel(frameRate)}</span>
+              </div>
+              <button
+                class="reset-btn"
+                class:busy={busy === "fr-reset"}
+                disabled={busy !== ""}
+                onclick={resetFrameRate}
+              >
+                <span class="msr">restart_alt</span>Reset
+              </button>
+            </div>
+            <div class="segmented">
+              {#each framePresets as p (p.value)}
+                <button
+                  class="seg"
+                  class:active={frameRate === p.value}
+                  class:busy={busy === `fr-${p.value}`}
+                  disabled={busy !== ""}
+                  onclick={() => setFrameRate(p.value)}>{p.label}</button
+                >
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <div class="tweak-row column">
           <div class="t-row-head">
             <span class="msr t-icon">aspect_ratio</span>
             <div class="t-info">
               <span class="t-title">Display scaling</span>
-              <span class="t-desc mono">{scaleSize}</span>
+              <span class="t-desc mono">{scalingError ? "Couldn't read the current size" : scaleLine}</span>
             </div>
           </div>
           <div class="segmented">
             {#each scalePresets as p (p.value)}
-              <button class="seg" class:busy={busy === `scale-${p.value}`} disabled={busy !== ""} onclick={() => setScaling(p.value)}>{p.label}</button>
+              <button
+                class="seg"
+                class:busy={busy === `scale-${p.value}`}
+                disabled={busy !== ""}
+                onclick={() => (scaleConfirm = p.value)}>{p.label}</button
+              >
             {/each}
           </div>
         </div>
@@ -266,48 +499,92 @@
       <!-- Speed & input -->
       <span class="section-label">Speed &amp; input</span>
       <div class="tweak-group">
-        <div class="tweak-row column">
-          <div class="t-row-head">
-            <span class="msr t-icon">animation</span>
-            <div class="t-info">
-              <span class="t-title">Animation speed</span>
-              <span class="t-desc">Snappier UI transitions</span>
+        {#if tweaksError}
+          <div class="card-error">
+            <p class="error small">{tweaksError}</p>
+            <button class="l-btn" onclick={load}>Retry</button>
+          </div>
+        {:else}
+          <div class="tweak-row column">
+            <div class="t-row-head">
+              <span class="msr t-icon">animation</span>
+              <div class="t-info">
+                <span class="t-title">Animation speed</span>
+                <span class="t-desc">{animLabel()}</span>
+              </div>
+              <button
+                class="reset-btn"
+                class:busy={busy === "anim-reset"}
+                disabled={busy !== ""}
+                onclick={resetAnim}
+              >
+                <span class="msr">restart_alt</span>Reset
+              </button>
+            </div>
+            <div class="segmented">
+              {#each animPresets as p (p.value)}
+                <button
+                  class="seg"
+                  class:active={animActive(p.value)}
+                  class:busy={busy === `anim-${p.value}`}
+                  disabled={busy !== ""}
+                  onclick={() => setAnim(p.value)}>{p.label}</button
+                >
+              {/each}
             </div>
           </div>
-          <div class="segmented">
-            {#each animPresets as p (p.value)}
-              <button class="seg" class:active={animActive(p.value)} disabled={busy !== ""} onclick={() => setAnim(p.value)}>{p.label}</button>
-            {/each}
-          </div>
-        </div>
-        <div class="tweak-row column">
-          <div class="t-row-head">
-            <span class="msr t-icon">touch_app</span>
-            <div class="t-info">
-              <span class="t-title">Long-press timeout</span>
-              <span class="t-desc">{longPress != null ? `${longPress}ms` : "Remote hold delay"}</span>
+          <div class="tweak-row column">
+            <div class="t-row-head">
+              <span class="msr t-icon">touch_app</span>
+              <div class="t-info">
+                <span class="t-title">Long-press timeout</span>
+                <span class="t-desc">{longPress != null ? `${longPress}ms` : "Unset (device default)"}</span>
+              </div>
+              <button
+                class="reset-btn"
+                class:busy={busy === "lp-reset"}
+                disabled={busy !== ""}
+                onclick={resetLongPress}
+              >
+                <span class="msr">restart_alt</span>Reset
+              </button>
+            </div>
+            <div class="segmented">
+              {#each longPressPresets as ms (ms)}
+                <button
+                  class="seg"
+                  class:active={longPress === ms}
+                  class:busy={busy === `lp-${ms}`}
+                  disabled={busy !== ""}
+                  onclick={() => setLongPress(ms)}>{ms}</button
+                >
+              {/each}
             </div>
           </div>
-          <div class="segmented">
-            {#each longPressPresets as ms (ms)}
-              <button class="seg" class:active={longPress === ms} disabled={busy !== ""} onclick={() => setLongPress(ms)}>{ms}</button>
-            {/each}
-          </div>
-        </div>
-        <div class="tweak-row column">
-          <div class="t-row-head">
-            <span class="msr t-icon">memory</span>
-            <div class="t-info">
-              <span class="t-title">Background process limit</span>
-              <span class="t-desc">Frees RAM · resets on reboot</span>
+          <div class="tweak-row column">
+            <div class="t-row-head">
+              <span class="msr t-icon">memory</span>
+              <div class="t-info">
+                <span class="t-title">Background process limit</span>
+                <span class="t-desc">
+                  {bgLimit == null ? "Standard" : bgLimit === "0" ? "None" : `At most ${bgLimit}`} ·
+                  Android clears this on every reboot
+                </span>
+              </div>
+            </div>
+            <div class="segmented">
+              {#each bgPresets as p (p.label)}
+                <button
+                  class="seg"
+                  class:active={(p.value === "" && bgLimit == null) || bgLimit === p.value}
+                  class:busy={busy === `bg-${p.value}`}
+                  disabled={busy !== ""}
+                  onclick={() => setBgLimit(p.value)}>{p.label}</button
+                >
+              {/each}
             </div>
           </div>
-          <div class="segmented">
-            {#each bgPresets as p (p.label)}
-              <button class="seg" class:active={(p.value === "" && bgLimit == null) || bgLimit === p.value} disabled={busy !== ""} onclick={() => setBgLimit(p.value)}>{p.label}</button>
-            {/each}
-          </div>
-        </div>
+        {/if}
       </div>
 
       <!-- Network -->
@@ -318,12 +595,26 @@
             <span class="msr t-icon">dns</span>
             <div class="t-info">
               <span class="t-title">Private DNS</span>
-              <span class="t-desc">DNS-over-TLS{dnsMode === "hostname" && dns?.hostname ? ` · ${dns.hostname}` : ""}</span>
+              <span class="t-desc">
+                {#if dnsError}
+                  Couldn't read the current mode
+                {:else}
+                  DNS-over-TLS · {dnsMode === "off"
+                    ? "Off"
+                    : dnsMode === "opportunistic"
+                      ? "Automatic"
+                      : dnsMode === "hostname"
+                        ? dns?.hostname
+                          ? `Custom (${dns.hostname})`
+                          : "Custom"
+                        : "Unset"}
+                {/if}
+              </span>
             </div>
           </div>
           <div class="segmented">
-            <button class="seg" class:active={dnsMode === "off"} disabled={busy !== ""} onclick={() => setDns("off")}>Off</button>
-            <button class="seg" class:active={dnsMode === "opportunistic"} disabled={busy !== ""} onclick={() => setDns("opportunistic")}>Auto</button>
+            <button class="seg" class:active={dnsMode === "off"} class:busy={busy === "dns-off"} disabled={busy !== ""} onclick={() => setDns("off")}>Off</button>
+            <button class="seg" class:active={dnsMode === "opportunistic"} class:busy={busy === "dns-opportunistic"} disabled={busy !== ""} onclick={() => setDns("opportunistic")}>Auto</button>
             <button class="seg" class:active={dnsMode === "hostname" || dnsEditing} disabled={busy !== ""} onclick={() => setDns("hostname")}>Custom</button>
           </div>
           {#if dnsEditing}
@@ -334,9 +625,26 @@
           {/if}
         </div>
       </div>
+
+      {#if scalingError}
+        <p class="error small">{scalingError}</p>
+      {/if}
+      {#if dnsError}
+        <p class="error small">{dnsError}</p>
+      {/if}
     </div>
     <div class="spacer"></div>
   {/if}
+
+  <ConfirmDialog
+    open={scaleConfirm !== null}
+    icon="aspect_ratio"
+    title={scaleConfirm === "reset" ? "Reset display scaling?" : "Change display scaling?"}
+    message={scaleConfirmMessage}
+    confirmLabel={scaleConfirm === "reset" ? "Reset" : "Apply"}
+    onConfirm={confirmScaling}
+    onCancel={() => (scaleConfirm = null)}
+  />
 
   <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
   <Toast message={toast} type={toastType} />
@@ -444,9 +752,86 @@
     font-size: 14px;
     font-weight: 600;
   }
+  .t-subtitle {
+    font-size: 13px;
+    font-weight: 600;
+  }
   .t-desc {
     font-size: 11px;
     color: var(--muted);
+    line-height: 1.4;
+  }
+  .t-desc .state {
+    color: var(--text-soft);
+    font-weight: 600;
+  }
+
+  .subrows {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 34px;
+  }
+  .subrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--line);
+  }
+  .subrow:first-child {
+    border-top: none;
+  }
+
+  .card-error {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 15px;
+  }
+  .error.small {
+    font-size: 12px;
+    margin: 0;
+    flex: 1;
+  }
+  .l-btn {
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 11px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: none;
+  }
+
+  .reset-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--canvas);
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    flex: none;
+  }
+  .reset-btn .msr {
+    font-size: 15px;
+  }
+  .reset-btn:disabled {
+    cursor: default;
+  }
+  .reset-btn.busy {
+    opacity: 0.6;
   }
 
   .switch {
@@ -463,6 +848,9 @@
   }
   .switch.on {
     background: var(--accent);
+  }
+  .switch.unset {
+    background: color-mix(in srgb, var(--amber) 20%, #2a2e36);
   }
   .switch.busy {
     opacity: 0.6;
@@ -483,6 +871,10 @@
   .switch.on .knob {
     transform: translateX(18px);
     background: var(--accent-ink);
+  }
+  .switch.unset .knob {
+    transform: translateX(9px);
+    background: var(--amber);
   }
 
   .segmented {

@@ -1,38 +1,48 @@
 <script lang="ts">
   // Bottom-sheet detail for one package (design §8.1). Safety tier + reason come
-  // ONLY from the core `safety_info` command — never an inline classifier.
-  // Memory / last-used are passed in from the parent's lazily-loaded maps.
-  // Destructive actions are emitted as callbacks so the parent owns the
-  // optimistic-update + Pro-gating logic.
+  // ONLY from the core `safety_info` command via src/lib/safety.ts — never an
+  // inline classifier. Memory / last-used are passed in from the parent's
+  // lazily-loaded maps. Destructive actions are emitted as callbacks so the
+  // parent owns the optimistic-update + Pro-gating logic.
   import { api } from "../lib/api";
+  import { reasonOf, tierOf } from "../lib/safety";
   import type { AppUsage, OtherPackage, Safety } from "../lib/types";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
 
   let {
     app,
     memoryMb,
     usage,
     busy,
+    uninstalled = false,
     onClose,
     onToggle,
     onForceStop,
     onUninstall,
     onPlayStore,
+    onReinstall,
   }: {
     app: OtherPackage | null;
     memoryMb: number | null;
     usage: AppUsage | null;
     busy: boolean;
+    /// True once the package has been removed for the TV's current user, so
+    /// the only meaningful actions left are Reinstall / Play Store.
+    uninstalled?: boolean;
     onClose: () => void;
     onToggle: (app: OtherPackage) => void;
     onForceStop: (app: OtherPackage) => void;
     onUninstall: (app: OtherPackage) => void;
     onPlayStore: (app: OtherPackage) => void;
+    onReinstall?: (app: OtherPackage) => void;
   } = $props();
 
   let safety = $state<Safety | null>(null);
   let safetyLoading = $state(false);
   let safetyError = $state(false);
   let safetyRequest = 0;
+  let tierOpen = $state(false);
+  let confirmDisable = $state(false);
 
   // Reload safety whenever the selected package changes.
   $effect(() => {
@@ -40,6 +50,8 @@
     const request = ++safetyRequest;
     safety = null;
     safetyError = false;
+    tierOpen = false;
+    confirmDisable = false;
     safetyLoading = pkg !== "";
     if (!pkg) return;
     api
@@ -55,28 +67,35 @@
       });
   });
 
-  const tier = $derived.by((): { label: string; cls: string; reason: string } | null => {
-    if (!safety) return null;
-    if (safety.kind === "never_disable")
-      return { label: "Blocked tier", cls: "blocked", reason: safety.reason };
-    if (safety.kind === "caution")
-      return { label: "Review tier", cls: "review", reason: safety.reason };
-    return { label: "Safe tier", cls: "safe", reason: "No system role — safe to remove." };
-  });
-
+  const tier = $derived(tierOf(safety));
+  const reason = $derived(reasonOf(safety));
   const blocked = $derived(safety?.kind === "never_disable");
+  const caution = $derived(safety?.kind === "caution");
+  // Fail closed: no verdict yet means no destructive action.
   const safetyUnavailable = $derived(safetyLoading || safety === null);
-  const disableBlocked = $derived(app?.enabled && (safetyUnavailable || blocked));
+  const disableBlocked = $derived(
+    app?.enabled && !uninstalled && (safetyUnavailable || blocked),
+  );
   const uninstallBlocked = $derived(safetyUnavailable || blocked);
 
   function fmtLabel(a: OtherPackage): string {
-    return a.name || a.package.split(".").pop() || a.package;
+    return a.name || a.package;
   }
 
   function iconFor(a: OtherPackage): string {
     if (a.system) return "system_update";
     const n = (a.name ?? "").toLowerCase();
     return n.includes("video") || n.includes("tv") ? "smart_display" : "apps";
+  }
+
+  // Disabling a caution-tier package needs the loud confirm carrying core's
+  // reason — same gate the desktop memory table uses.
+  function requestToggle(a: OtherPackage) {
+    if (a.enabled && caution) {
+      confirmDisable = true;
+      return;
+    }
+    onToggle(a);
   }
 </script>
 
@@ -96,7 +115,11 @@
       </div>
 
       <div class="tags">
-        <span class="state-tag" class:off={!app.enabled}>{app.enabled ? "Enabled" : "Disabled"}</span>
+        {#if uninstalled}
+          <span class="state-tag off">Uninstalled</span>
+        {:else}
+          <span class="state-tag" class:off={!app.enabled}>{app.enabled ? "Enabled" : "Disabled"}</span>
+        {/if}
         {#if safetyLoading}
           <span class="tier-tag loading">Checking safety…</span>
         {:else if safetyError}
@@ -112,7 +135,14 @@
       {#if tier}
         <div class="reason-block">
           <span class="reason-label">If you remove it</span>
-          <span class="reason-text">{tier.reason}</span>
+          <span class="reason-text">{reason}</span>
+          <button class="tier-toggle" onclick={() => (tierOpen = !tierOpen)} aria-expanded={tierOpen}>
+            What does “{tier.label}” mean?
+            <span class="msr" class:open={tierOpen}>expand_more</span>
+          </button>
+          {#if tierOpen}
+            <span class="tier-explainer">{tier.description}</span>
+          {/if}
         </div>
       {/if}
 
@@ -128,25 +158,45 @@
 
       <div class="reversible">
         <span class="msr">restore</span>
-        <span>Disable is reversible with Enable. Uninstall may require reinstalling the app or resetting the TV.</span>
+        <span>
+          Disable is reversible with Enable. Uninstall removes the app for this user — Reinstall
+          brings back an APK still on the TV; anything else needs the Play Store.
+        </span>
       </div>
 
-      <div class="sheet-actions">
-        <button class="act-btn" disabled={busy} onclick={() => onForceStop(app)}>
-          <span class="msr">stop_circle</span>Force stop
-        </button>
-        <button class="act-btn" disabled={busy} onclick={() => onPlayStore(app)}>
-          <span class="msr">shop</span>Play Store
-        </button>
-      </div>
-      <div class="sheet-actions">
-        <button class="act-btn wide" class:danger={app.enabled && !disableBlocked} disabled={busy || disableBlocked} onclick={() => onToggle(app)}>
-          {app.enabled ? "Disable" : "Enable"}
-        </button>
-        <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => onUninstall(app)}>
-          Uninstall<span class="pro-badge">PRO</span>
-        </button>
-      </div>
+      {#if uninstalled}
+        <div class="sheet-actions">
+          <button class="act-btn wide" disabled={busy || !onReinstall} onclick={() => onReinstall?.(app)}>
+            <span class="msr">download</span>Reinstall
+          </button>
+          <button class="act-btn wide" disabled={busy} onclick={() => onPlayStore(app)}>
+            <span class="msr">shop</span>Play Store
+          </button>
+        </div>
+      {:else}
+        <div class="sheet-actions">
+          <button class="act-btn" disabled={busy} onclick={() => onForceStop(app)}>
+            <span class="msr">stop_circle</span>Force stop
+          </button>
+          <button class="act-btn" disabled={busy} onclick={() => onPlayStore(app)}>
+            <span class="msr">shop</span>Play Store
+          </button>
+        </div>
+        <div class="sheet-actions">
+          <button
+            class="act-btn wide"
+            class:danger={app.enabled && !disableBlocked}
+            disabled={busy || disableBlocked}
+            onclick={() => requestToggle(app)}
+          >
+            {app.enabled ? "Disable" : "Enable"}
+          </button>
+          <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => onUninstall(app)}>
+            Uninstall<span class="pro-badge">PRO</span>
+          </button>
+        </div>
+      {/if}
+
       {#if blocked}
         <p class="blocked-note">This package is protected — it can't be disabled or uninstalled from here.</p>
       {:else if safetyError}
@@ -154,6 +204,21 @@
       {/if}
     </div>
   </div>
+
+  <ConfirmDialog
+    open={confirmDisable}
+    danger
+    icon="block"
+    title={`Disable ${fmtLabel(app)}?`}
+    warning={reason}
+    message="The safety engine flagged this package as Caution. Disabling is reversible — tap Enable here to put it back."
+    confirmLabel="Disable"
+    onConfirm={() => {
+      confirmDisable = false;
+      if (app) onToggle(app);
+    }}
+    onCancel={() => (confirmDisable = false)}
+  />
 {/if}
 
 <style>
@@ -207,6 +272,9 @@
   .app-name {
     font-size: 16px;
     font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .app-pkg {
     font-size: 11px;
@@ -259,7 +327,7 @@
     color: var(--teal);
     background: color-mix(in srgb, var(--teal) 14%, transparent);
   }
-  .tier-tag.review {
+  .tier-tag.caution {
     color: var(--amber);
     background: color-mix(in srgb, var(--amber) 14%, transparent);
   }
@@ -298,6 +366,33 @@
   .reason-text {
     font-size: 13px;
     color: var(--text-soft);
+    line-height: 1.45;
+  }
+  .tier-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: flex-start;
+    margin-top: 4px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tier-toggle .msr {
+    font-size: 16px;
+    transition: transform 0.15s ease;
+  }
+  .tier-toggle .msr.open {
+    transform: rotate(180deg);
+  }
+  .tier-explainer {
+    font-size: 12px;
+    color: var(--muted);
     line-height: 1.45;
   }
 

@@ -421,6 +421,46 @@ pub async fn restore_apk_backup(
     result
 }
 
+/// Resolve a delete target: path-confined to the backups root *and* a
+/// top-level entry inside it, so a crafted path can never remove a nested
+/// directory or a file the backups list never showed.
+fn confined_delete_target(root: &Path, requested: &str) -> Result<PathBuf, String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|e| format!("open backups directory: {e}"))?;
+    let path = confined_backup_path(root, requested)?;
+    if path.parent() != Some(canonical_root.as_path()) {
+        return Err(
+            "Backup path is not a top-level entry in this app's backup directory.".to_string(),
+        );
+    }
+    if !path.is_dir() && path.extension().and_then(|e| e.to_str()) != Some("apk") {
+        return Err("Not an APK backup.".to_string());
+    }
+    Ok(path)
+}
+
+/// `delete_backup` — remove one backup from the app's scoped storage: a
+/// complete bundle directory (its APKs plus the manifest) or a legacy
+/// base-only `.apk` file. The TV is not touched.
+#[tauri::command]
+pub async fn delete_backup(
+    state: State<'_, AppState>,
+    backup_path: String,
+) -> Result<ActionResult, String> {
+    let root = state.data_dir.join("backups");
+    let path = confined_delete_target(&root, &backup_path)?;
+    if path.is_dir() {
+        std::fs::remove_dir_all(&path).map_err(|e| format!("delete backup bundle: {e}"))?;
+    } else {
+        std::fs::remove_file(&path).map_err(|e| format!("delete backup: {e}"))?;
+    }
+    Ok(ActionResult {
+        ok: true,
+        message: "Backup deleted from this phone.".to_string(),
+    })
+}
+
 /// `list_backups` — complete bundle directories plus base-only legacy APKs,
 /// newest first. An absent dir is not an error — returns an empty list.
 #[tauri::command]
@@ -502,6 +542,36 @@ mod tests {
         assert!(
             confined_backup_path(root.path(), outside.path().to_str().expect("outside utf8"))
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn delete_target_must_be_a_top_level_backup() {
+        let root = tempfile::tempdir().expect("root");
+        let bundle = root.path().join("com.example-1");
+        std::fs::create_dir(&bundle).expect("bundle");
+        let nested = bundle.join("nested");
+        std::fs::create_dir(&nested).expect("nested");
+        let legacy = root.path().join("com.legacy.apk");
+        std::fs::write(&legacy, b"apk").expect("legacy");
+        let stray = root.path().join("notes.txt");
+        std::fs::write(&stray, b"nope").expect("stray");
+        let outside = tempfile::tempdir().expect("outside");
+
+        assert_eq!(
+            confined_delete_target(root.path(), bundle.to_str().expect("utf8")).expect("bundle"),
+            bundle.canonicalize().expect("canonical")
+        );
+        assert_eq!(
+            confined_delete_target(root.path(), legacy.to_str().expect("utf8")).expect("legacy"),
+            legacy.canonicalize().expect("canonical")
+        );
+        // Nested dir, non-APK file, the root itself and anything outside it.
+        assert!(confined_delete_target(root.path(), nested.to_str().expect("utf8")).is_err());
+        assert!(confined_delete_target(root.path(), stray.to_str().expect("utf8")).is_err());
+        assert!(confined_delete_target(root.path(), root.path().to_str().expect("utf8")).is_err());
+        assert!(
+            confined_delete_target(root.path(), outside.path().to_str().expect("utf8")).is_err()
         );
     }
 

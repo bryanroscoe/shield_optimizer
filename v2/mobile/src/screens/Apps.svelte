@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
@@ -17,8 +17,14 @@
   let loaded = $state(false);
   let error = $state("");
   let searchQuery = $state("");
+  // Debounced copy of the query — filtering 300+ rows on every keystroke drops
+  // frames on a phone webview.
+  let debouncedQuery = $state("");
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let activeFilter = $state<"all" | "enabled" | "disabled" | "system">("all");
   let selectedApp = $state<OtherPackage | null>(null);
+  // The sheet stays open after a successful uninstall so Reinstall is offered.
+  let sheetUninstalled = $state(false);
   let showPaywall = $state(false);
   let uninstallTarget = $state<OtherPackage | null>(null);
 
@@ -85,13 +91,31 @@
 
   onMount(() => loadApps());
 
+  $effect(() => {
+    const q = searchQuery;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => (debouncedQuery = q.trim().toLowerCase()), 120);
+    return () => clearTimeout(searchTimer);
+  });
+
+  onDestroy(() => {
+    clearTimeout(searchTimer);
+    clearTimeout(toastTimer);
+  });
+
+  // One lowercase haystack per app, rebuilt only when the list itself changes.
+  const haystacks = $derived.by(() => {
+    const map = new Map<string, string>();
+    for (const app of apps) {
+      map.set(app.package, `${app.name ?? ""} ${app.package}`.toLowerCase());
+    }
+    return map;
+  });
+
   const filteredApps = $derived.by(() => {
-    const q = searchQuery.toLowerCase();
+    const q = debouncedQuery;
     return apps.filter((app) => {
-      const matchesSearch =
-        (app.name && app.name.toLowerCase().includes(q)) ||
-        app.package.toLowerCase().includes(q);
-      if (!matchesSearch) return false;
+      if (q && !(haystacks.get(app.package) ?? "").includes(q)) return false;
       if (activeFilter === "enabled") return app.enabled;
       if (activeFilter === "disabled") return !app.enabled;
       if (activeFilter === "system") return app.system;
@@ -99,8 +123,10 @@
     });
   });
 
+  /// Friendly name when the backend actually has one, otherwise the package.
+  /// Never the package's last segment — that invents names like "Tv".
   function label(app: OtherPackage): string {
-    return app.name || app.package.split(".").pop() || app.package;
+    return app.name || app.package;
   }
 
   function patch(pkg: string, enabled: boolean) {
@@ -180,8 +206,36 @@
         apps = apps.filter((a) => a.package !== app.package);
         showToast(`Uninstalled ${label(app)}.`, "success");
         session.invalidateAll();
+        // Reopen the sheet so Reinstall (install-existing) is one tap away.
+        selectedApp = app;
+        sheetUninstalled = true;
       } else {
         showToast(r.message || "Uninstall failed.", "error");
+      }
+    } catch (e) {
+      if (isLocked(e)) showPaywall = true;
+      else showToast(String(e), "error");
+    } finally {
+      busyAction = "";
+    }
+  }
+
+  // `install-existing` restores an APK that is still on the TV (the usual case
+  // for a system app removed with `pm uninstall --user 0`). It cannot conjure
+  // an app that was never installed — that's what the Play Store button is for.
+  async function handleReinstall(app: OtherPackage) {
+    if (busyAction || !session.serial) return;
+    busyAction = app.package;
+    try {
+      const r = await api.reinstallExisting(session.serial, app.package);
+      if (r.ok) {
+        showToast(`Reinstalled ${label(app)}.`, "success");
+        selectedApp = null;
+        sheetUninstalled = false;
+        session.invalidateAll();
+        await loadApps(true);
+      } else {
+        showToast(r.message || "Reinstall failed. Try the Play Store.", "error");
       }
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
@@ -220,6 +274,11 @@
     />
   </div>
 
+  <p class="search-hint">
+    Every package on the TV outside the curated catalog. Curated bloat (Live Channels Provider,
+    Google feedback, …) is handled in Optimize — searching for it here comes up empty.
+  </p>
+
   <div class="filters-row">
     <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>
     <button class="filter-chip" class:active={activeFilter === "enabled"} onclick={() => (activeFilter = "enabled")}>Enabled</button>
@@ -240,12 +299,17 @@
         <button
           class="app-row"
           class:selected={selectedApp?.package === app.package}
-          onclick={() => (selectedApp = app)}
+          onclick={() => {
+            sheetUninstalled = false;
+            selectedApp = app;
+          }}
         >
           <div class="app-avatar"><span class="msr">{iconFor(app)}</span></div>
           <div class="app-details">
-            <span class="app-name-text">{label(app)}</span>
-            <span class="mono app-pkg-text">{app.package}</span>
+            <span class="app-name-text" class:mono={!app.name}>{label(app)}</span>
+            {#if app.name}
+              <span class="mono app-pkg-text">{app.package}</span>
+            {/if}
           </div>
           <span class="status-badge" class:off={!app.enabled}>{app.enabled ? "ON" : "OFF"}</span>
           <span class="msr more-icon">more_vert</span>
@@ -261,11 +325,16 @@
     memoryMb={selectedApp ? (memoryMap[selectedApp.package] ?? null) : null}
     usage={selectedApp ? (usageMap[selectedApp.package] ?? null) : null}
     busy={busyAction !== ""}
-    onClose={() => (selectedApp = null)}
+    uninstalled={sheetUninstalled}
+    onClose={() => {
+      selectedApp = null;
+      sheetUninstalled = false;
+    }}
     onToggle={handleToggle}
     onForceStop={handleForceStop}
     onUninstall={requestUninstall}
     onPlayStore={handlePlayStore}
+    onReinstall={handleReinstall}
   />
 
   <ConfirmDialog
@@ -273,7 +342,7 @@
     danger
     icon="delete"
     title={`Uninstall ${uninstallTarget ? label(uninstallTarget) : "app"}?`}
-    message="Removes it for the current user and frees storage. You can reinstall from the Play Store or a snapshot restore."
+    message="Removes the app for this TV's current user. To get it back, use the Reinstall button here (it runs install-existing on the APK still on the TV) or install it from the Play Store. Snapshots don't reinstall apps."
     confirmLabel="Uninstall"
     onConfirm={confirmUninstall}
     onCancel={() => (uninstallTarget = null)}
@@ -331,6 +400,13 @@
     outline: none;
   }
 
+  .search-hint {
+    margin: -4px 0 12px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
   .filters-row {
     display: flex;
     gap: 8px;
@@ -367,6 +443,9 @@
     padding-bottom: 12px;
   }
   .app-row {
+    /* Long package lists: let the browser skip offscreen row layout. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 62px;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -405,6 +484,13 @@
   .app-name-text {
     font-size: 14px;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .app-name-text.mono {
+    font-size: 12px;
+    font-weight: 500;
   }
   .app-pkg-text {
     font-size: 10px;

@@ -4,6 +4,7 @@
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
   import BottomTabs from "../components/BottomTabs.svelte";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
@@ -27,10 +28,13 @@
   let textToSend = $state("");
   let showKeyboardModal = $state(false);
   let sending = $state(false);
+  // Send-text failures belong inside the modal — remoteMessage renders behind it.
+  let modalError = $state("");
+  let powerConfirm = $state(false);
 
   // Presses are serialized through one promise chain so ordering is preserved.
   let queue: Promise<void> = Promise.resolve();
-  let queuedWork = 0;
+  let queuedWork = $state(0);
   function enqueue(work: () => Promise<void>) {
     queuedWork += 1;
     queue = queue
@@ -98,6 +102,7 @@
   async function handleSendText() {
     if (!textToSend || sending) return;
     sending = true;
+    modalError = "";
     try {
       const start = performance.now();
       const r = await api.sendText(session.serial, textToSend, forceShell);
@@ -106,13 +111,23 @@
         textToSend = "";
         showKeyboardModal = false;
       } else {
-        remoteMessage = r.message;
+        modalError = r.message;
       }
     } catch (e) {
-      remoteMessage = String(e);
+      modalError = String(e);
     } finally {
       sending = false;
     }
+  }
+
+  function openKeyboard() {
+    modalError = "";
+    showKeyboardModal = true;
+  }
+
+  function confirmPower() {
+    powerConfirm = false;
+    sendKey("power");
   }
 
   function openSettings() {
@@ -133,6 +148,11 @@
     </div>
     <div class="header-actions">
       <FindRemoteButton />
+      {#if queuedWork > 0}
+        <span class="queued-badge" aria-live="polite">
+          <span class="pdot blink"></span>queued: {queuedWork}
+        </span>
+      {/if}
       {#if transport}
         <span class="mono latency-badge" class:compat={transport === "shell"}>
           <span class="l-dot"></span>{transport === "channel" ? `${latency ?? "—"} ms` : "compat"}
@@ -186,19 +206,28 @@
     </div>
 
     <div class="secondary-controls">
-      <button class="control-btn" onclick={() => sendKey("volume_up")} aria-label="Volume Up">
+      <button class="control-btn" onclick={() => sendKey("volume_up")} aria-label="Volume up">
         <span class="msr">volume_up</span>
+      </button>
+      <button class="control-btn" onclick={() => sendKey("volume_down")} aria-label="Volume down">
+        <span class="msr">volume_down</span>
       </button>
       <button class="control-btn" onclick={() => sendKey("mute")} aria-label="Mute">
         <span class="msr">volume_off</span>
       </button>
-      <button class="control-btn" onclick={() => (showKeyboardModal = true)} aria-label="Keyboard Input">
+    </div>
+
+    <div class="secondary-controls">
+      <button class="control-btn" onclick={openKeyboard} aria-label="Keyboard input">
         <span class="msr">keyboard</span>
       </button>
       <button class="control-btn" onclick={openSettings} aria-label="Settings">
         <span class="msr">settings</span>
       </button>
-      <button class="control-btn danger" onclick={() => sendKey("power")} aria-label="Power">
+      <button class="control-btn" onclick={() => sendKey("wakeup")} aria-label="Wake the TV">
+        <span class="msr">light_mode</span>
+      </button>
+      <button class="control-btn danger" onclick={() => (powerConfirm = true)} aria-label="Power">
         <span class="msr">power_settings_new</span>
       </button>
     </div>
@@ -229,6 +258,9 @@
           class="modal-input"
           onkeydown={(e) => e.key === "Enter" && handleSendText()}
         />
+        {#if modalError}
+          <p class="modal-error" role="alert">{modalError}</p>
+        {/if}
         <div class="modal-actions">
           <button class="primary small" disabled={!textToSend || sending} onclick={handleSendText}>
             {sending ? "Sending..." : "Send Text"}
@@ -238,6 +270,17 @@
       </div>
     </div>
   {/if}
+
+  <ConfirmDialog
+    open={powerConfirm}
+    danger
+    icon="power_settings_new"
+    title="Send the power button?"
+    message="POWER toggles the TV: it wakes a sleeping TV and puts an awake one to sleep. Use Wake if you only want to turn the screen on."
+    confirmLabel="Send power"
+    onConfirm={confirmPower}
+    onCancel={() => (powerConfirm = false)}
+  />
 
   <div class="spacer"></div>
   <BottomTabs active="remote" {navigate} />
@@ -276,6 +319,19 @@
     background: color-mix(in srgb, var(--teal) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--teal) 22%, transparent);
     padding: 6px 11px;
+    border-radius: 999px;
+  }
+  .queued-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--text) 6%, transparent);
+    border: 1px solid var(--line);
+    padding: 5px 10px;
     border-radius: 999px;
   }
   .latency-badge.compat {
@@ -427,6 +483,12 @@
     gap: 10px;
     margin-top: 10px;
     width: 100%;
+  }
+  .modal-error {
+    margin: -8px 0 14px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--danger);
   }
   .control-btn {
     flex: 1;

@@ -1,48 +1,32 @@
 <script lang="ts">
   import type { Screen } from "../lib/router.svelte";
+  import { SAFETY_TIER_LIST } from "../lib/safety";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
 
-  let { navigate }: { navigate: (screen: Screen) => void } = $props();
+  let {
+    navigate,
+    back,
+  }: {
+    navigate: (screen: Screen) => void;
+    // Optional so this screen keeps working from a plain `navigate`-only host.
+    back?: () => void;
+  } = $props();
 
-  // Static explainer only — it describes the tiers the core `safety_info`
-  // classifier assigns. It never classifies packages itself.
-  const tiers: { key: string; label: string; icon: string; desc: string }[] = [
-    {
-      key: "safe",
-      label: "Safe",
-      icon: "check_circle",
-      desc: "Bloat with no system role — telemetry, defunct apps, unused services. Remove freely.",
-    },
-    {
-      key: "review",
-      label: "Review",
-      icon: "visibility",
-      desc: "Something you might actually use — a streaming app or store. Kept unless you opt in.",
-    },
-    {
-      key: "advanced",
-      label: "Advanced",
-      icon: "tune",
-      desc: "Affects behavior — launchers, input hooks. Fine for power users who know the trade-off.",
-    },
-    {
-      key: "blocked",
-      label: "Blocked",
-      icon: "shield",
-      desc: "Brick-tier system packages. Guarded from every path — you can't disable these.",
-    },
-  ];
+  const goBack = () => (back ? back() : navigate("more"));
+
+  // The three tiers are core's, not ours — see src/lib/safety.ts.
+  const tiers = SAFETY_TIER_LIST;
 
   const actions: { label: string; icon: string; desc: string }[] = [
     {
       label: "Disable",
       icon: "block",
-      desc: "Hides & stops the app but keeps it on disk. Instant re-enable.",
+      desc: "Stops the app and hides it, but leaves it on disk. Enable puts it back instantly.",
     },
     {
       label: "Uninstall",
       icon: "delete",
-      desc: "Removes it for the current user & frees storage. Reinstall from Play Store or Restore.",
+      desc: "Removes the app for the TV's current user. A preinstalled system app still sits in the read-only system image, so this frees little or no storage — it just takes the app away.",
     },
   ];
 </script>
@@ -50,7 +34,7 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("more")} aria-label="Back">
+      <button class="iconbtn" onclick={goBack} aria-label="Back">
         <span class="msr">arrow_back</span>
       </button>
       <FindRemoteButton />
@@ -61,17 +45,17 @@
 
   <div class="guide-content">
     <p class="lede">
-      Every app is scored by the same audited classifier the optimizer uses. The tier tells you how
-      safe an action is.
+      Every package is checked by the same audited classifier the optimizer uses — three tiers, no
+      others. The tier tells you how safe an action is.
     </p>
 
     <div class="tiers">
-      {#each tiers as t (t.key)}
-        <div class="tier-card tier-{t.key}">
+      {#each tiers as t (t.kind)}
+        <div class="tier-card tier-{t.cls}">
           <span class="tier-icon msr">{t.icon}</span>
           <div class="tier-body">
             <span class="tier-label">{t.label}</span>
-            <span class="tier-desc">{t.desc}</span>
+            <span class="tier-desc">{t.description}</span>
           </div>
         </div>
       {/each}
@@ -93,6 +77,16 @@
       <span class="callout-text">
         Blocked packages can never be disabled from this app — the guard runs before anything is
         sent to the TV, so a mistap can't brick your device.
+      </span>
+    </div>
+
+    <div class="callout">
+      <span class="msr">restore</span>
+      <span class="callout-text">
+        Uninstalled an app you wanted? Open it in Apps and tap <strong>Reinstall</strong> — it runs
+        <span class="mono">install-existing</span>, which restores the APK already on the TV. If the
+        app was never preinstalled, get it from the Play Store instead. Snapshots don't reinstall
+        anything: they record which packages are disabled, plus the launcher and tracked settings.
       </span>
     </div>
   </div>
@@ -158,17 +152,11 @@
   .tier-safe .tier-icon {
     color: var(--teal);
   }
-  .tier-review {
+  .tier-caution {
     border-color: color-mix(in srgb, var(--amber) 30%, transparent);
   }
-  .tier-review .tier-icon {
+  .tier-caution .tier-icon {
     color: var(--amber);
-  }
-  .tier-advanced {
-    border-color: color-mix(in srgb, var(--advanced) 30%, transparent);
-  }
-  .tier-advanced .tier-icon {
-    color: var(--advanced);
   }
   .tier-blocked {
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);

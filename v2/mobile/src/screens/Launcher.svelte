@@ -9,15 +9,22 @@
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
 
-  let { navigate }: { navigate: (screen: Screen) => void } = $props();
+  let {
+    navigate,
+    back,
+  }: { navigate: (screen: Screen) => void; back: () => void } = $props();
 
   let loading = $state(true);
   let error = $state("");
   let launchers = $state<LauncherStatus[]>([]);
   let current = $state<CurrentLauncher | null>(null);
+  // null until the check answers; the warning only renders on a real `true`.
+  let channelDisabled = $state<boolean | null>(null);
+  let currentReadFailed = $state(false);
   let busyPkg = $state("");
   let progress = $state("");
   let showPaywall = $state(false);
+  let loadGeneration = 0;
 
   // Stock-takeover confirm: set_default_launcher reports when the only way to
   // switch is disabling the active stock launcher — we ask before retrying.
@@ -40,25 +47,36 @@
   }
 
   async function load() {
-    if (!session.serial) {
+    const serial = session.serial;
+    const generation = ++loadGeneration;
+    if (!serial) {
       error = "No TV connected.";
       loading = false;
       return;
     }
     loading = launchers.length === 0;
     error = "";
-    try {
-      const [rows, cur] = await Promise.all([
-        api.listLaunchers(session.serial),
-        api.currentLauncher(session.serial),
-      ]);
-      launchers = rows;
-      current = cur;
-    } catch (e) {
-      error = String(e);
-    } finally {
-      loading = false;
+    const [rows, cur, chan] = await Promise.allSettled([
+      api.listLaunchers(serial),
+      api.currentLauncher(serial),
+      api.channelProviderDisabled(serial),
+    ]);
+    if (generation !== loadGeneration || serial !== session.serial) return;
+    if (rows.status === "fulfilled") {
+      launchers = rows.value;
+      error = "";
+    } else {
+      error = String(rows.reason);
     }
+    if (cur.status === "fulfilled") {
+      current = cur.value;
+      currentReadFailed = false;
+    } else {
+      current = null;
+      currentReadFailed = true;
+    }
+    channelDisabled = chan.status === "fulfilled" ? chan.value : null;
+    loading = false;
   }
 
   onMount(load);
@@ -67,9 +85,7 @@
   const activeRow = $derived(
     currentPkg ? launchers.find((l) => l.entry.package === currentPkg) : undefined,
   );
-  const activeLabel = $derived(
-    activeRow?.entry.name ?? currentPkg ?? "Unknown",
-  );
+  const activeLabel = $derived(activeRow?.entry.name ?? currentPkg ?? "");
 
   function iconFor(l: LauncherStatus): string {
     if (l.stock) return "tv";
@@ -97,6 +113,7 @@
       );
       if (res.ok) {
         showToast(`${l.entry.name} is now the default launcher.`, "success");
+        session.invalidateAll();
         await load();
       } else if (res.stock_takeover_available) {
         takeover = { pkg: l.entry.package, name: l.entry.name };
@@ -127,7 +144,10 @@
     try {
       const res = await api.disableLauncher(session.serial, l.entry.package);
       showToast(res.message || (res.ok ? "Disabled." : "Couldn't disable."), res.ok ? "success" : "error");
-      if (res.ok) await load();
+      if (res.ok) {
+        session.invalidateAll();
+        await load();
+      }
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
       else showToast(String(e), "error");
@@ -156,7 +176,7 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("more")} aria-label="Back">
+      <button class="iconbtn" onclick={back} aria-label="Back">
         <span class="msr">arrow_back</span>
       </button>
       <FindRemoteButton />
@@ -176,14 +196,38 @@
   {:else}
     <div class="launcher-content">
       <!-- Active home screen -->
-      <div class="active-card">
-        <div class="active-icon"><span class="msr">home</span></div>
+      <div class="active-card" class:unknown={activeLabel === ""}>
+        <div class="active-icon"><span class="msr">{activeLabel === "" ? "error" : "home"}</span></div>
         <div class="active-body">
           <span class="active-eyebrow">Active home screen</span>
-          <span class="active-name">{activeLabel}</span>
+          {#if activeLabel === ""}
+            <span class="active-name">Couldn't read the current launcher</span>
+            <span class="active-hint">
+              {currentReadFailed
+                ? "The TV didn't answer the resolver query."
+                : "The TV reported no HOME activity."} Switching still works.
+            </span>
+          {:else}
+            <span class="active-name">{activeLabel}</span>
+          {/if}
         </div>
-        <span class="default-badge">DEFAULT</span>
+        {#if activeLabel !== ""}
+          <span class="default-badge">DEFAULT</span>
+        {:else}
+          <button class="l-btn" disabled={busyPkg !== ""} onclick={load}>Retry</button>
+        {/if}
       </div>
+
+      {#if channelDisabled}
+        <div class="callout amber">
+          <span class="msr">warning</span>
+          <span class="callout-text">
+            <span class="mono">com.android.providers.tv</span> is disabled on this TV. Watch Next /
+            Continue Watching rows from Netflix, Disney+, Apple TV etc. stay empty until you
+            re-enable it from the Apps list.
+          </span>
+        </div>
+      {/if}
 
       <span class="section-label nomargin">Available launchers</span>
 
@@ -227,8 +271,9 @@
       <div class="callout amber launcher-note">
         <span class="msr">info</span>
         <span class="callout-text">
-          Changing the launcher is reversible — set stock back as default any time. Save a snapshot
-          first if you want a one-tap rollback.
+          Changing the launcher is reversible — set stock back as default any time. A snapshot
+          records which launcher was active so you can re-apply it later; it never re-enables or
+          reinstalls anything on its own.
         </span>
       </div>
     </div>
@@ -277,6 +322,22 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
+  }
+
+  .active-card.unknown {
+    background: var(--surface);
+    border-color: var(--line);
+  }
+  .active-card.unknown .active-icon {
+    background: var(--surface-2);
+  }
+  .active-card.unknown .active-icon .msr {
+    color: var(--muted);
+  }
+  .active-hint {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
   }
 
   .active-card {
@@ -438,6 +499,10 @@
     flex: 1;
     font-size: 12px;
     line-height: 1.45;
+  }
+  .callout-text .mono {
+    font-family: var(--mono);
+    font-size: 11px;
   }
   .callout.amber {
     background: color-mix(in srgb, var(--amber) 8%, transparent);

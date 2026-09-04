@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Screen } from "../lib/router.svelte";
+  import { session } from "../lib/session.svelte";
 
   // Tabs map directly to router screens. The Home tab routes to "dashboard"
   // (the old id was "home", which the router had no screen for — a blank
@@ -21,6 +22,9 @@
     <button
       class="tab-btn"
       class:active={active === tab.id}
+      class:locked={session.applyInProgress}
+      disabled={session.applyInProgress}
+      aria-disabled={session.applyInProgress}
       onclick={() => navigate(tab.id)}
     >
       <span class="msr" class:fill={active === tab.id}>{tab.icon}</span>
@@ -70,5 +74,11 @@
 
   .tab-btn .msr {
     font-size: 24px;
+  }
+
+  /* Locked while an apply loop is running so the loop can't be orphaned. */
+  .tab-btn.locked {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 </style>

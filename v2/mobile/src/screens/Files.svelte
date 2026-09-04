@@ -13,9 +13,15 @@
   const ROOT = "/sdcard";
 
   let path = $state(ROOT);
+  // The directory `entries` actually came from. Pull targets are built from
+  // this, never from `path` — a slow listing must not hand a newer directory's
+  // name to an older row.
+  let loadedPath = $state(ROOT);
   let loading = $state(true);
   let error = $state("");
   let entries = $state<FileEntry[]>([]);
+  let loadGeneration = 0;
+  let watchedSerial = session.serial;
 
   // Files pulled this session, newest first, plus the set of remote paths we've
   // pulled so rows can show a check.
@@ -33,32 +39,54 @@
     toastTimer = setTimeout(() => (toast = ""), 3600);
   }
 
-  async function load() {
-    if (!session.serial) {
+  async function load(target: string) {
+    const serial = session.serial;
+    const generation = ++loadGeneration;
+    path = target;
+    if (!serial) {
       error = "No TV connected. Go back and connect first.";
+      entries = [];
       loading = false;
       return;
     }
     loading = true;
     error = "";
     try {
-      entries = await api.listRemoteDir(session.serial, path);
+      const rows = await api.listRemoteDir(serial, target);
+      if (generation !== loadGeneration || serial !== session.serial) return;
+      entries = rows;
+      loadedPath = target;
     } catch (e) {
+      if (generation !== loadGeneration || serial !== session.serial) return;
       error = String(e);
+      entries = [];
     } finally {
-      loading = false;
+      if (generation === loadGeneration && serial === session.serial) loading = false;
     }
   }
 
-  onMount(load);
+  onMount(() => load(ROOT));
 
-  function joinPath(name: string): string {
-    return path === "/" ? `/${name}` : `${path}/${name}`;
+  // A TV switch invalidates everything on this screen: the listing, the
+  // breadcrumb and the pulled-this-session markers all belonged to the old TV.
+  $effect(() => {
+    const serial = session.serial;
+    if (serial === watchedSerial) return;
+    watchedSerial = serial;
+    loadedPath = ROOT;
+    entries = [];
+    pulled = [];
+    pulledRemotes = new Set();
+    busyName = "";
+    void load(ROOT);
+  });
+
+  function joinPath(dir: string, name: string): string {
+    return dir === "/" ? `/${name}` : `${dir}/${name}`;
   }
 
   function openDir(name: string) {
-    path = joinPath(name);
-    load();
+    void load(joinPath(loadedPath, name));
   }
 
   const segments = $derived(
@@ -70,13 +98,13 @@
   }
 
   function goTo(p: string) {
-    if (p === path) return;
-    path = p || "/";
-    load();
+    const target = p || "/";
+    if (target === path) return;
+    void load(target);
   }
 
   function remotePathOf(e: FileEntry): string {
-    return joinPath(e.name);
+    return joinPath(loadedPath, e.name);
   }
 
   async function pull(e: FileEntry) {
@@ -87,7 +115,7 @@
       const file = await api.pullFile(session.serial, remote);
       pulled = [file, ...pulled.filter((f) => f.path !== file.path)];
       pulledRemotes = new Set([...pulledRemotes, remote]);
-      showToast(`Saved ${file.name} to this phone.`, "success");
+      showToast(`Copied ${file.name} into this app's storage.`, "success");
     } catch (err) {
       showToast(String(err), "error");
     } finally {
@@ -141,7 +169,7 @@
     <span class="msr ft-arrow">arrow_forward</span>
     <div class="ft-box to">
       <span class="ft-label">To</span>
-      <span class="ft-value">This phone</span>
+      <span class="ft-value">App storage</span>
     </div>
   </div>
 
@@ -164,7 +192,7 @@
     </div>
   {:else if error}
     <p class="error">{error}</p>
-    <button class="primary" onclick={load}>Retry</button>
+    <button class="primary" onclick={() => load(path)}>Retry</button>
     <div class="spacer"></div>
   {:else}
     {#if entries.length === 0}
@@ -207,12 +235,13 @@
     <div class="callout accent">
       <span class="msr">bolt</span>
       <span class="callout-text">
-        Files download to this phone over your LAN — no cloud round-trip. Tap a file to save it.
+        Files transfer over your LAN — no cloud round-trip. Tap a file to copy it into ATV
+        Optimizer's private storage on this phone (not yet exportable to Downloads or other apps).
       </span>
     </div>
 
     {#if pulled.length > 0}
-      <span class="section-label">Downloaded to this phone</span>
+      <span class="section-label">Copied this session</span>
       <div class="dl-list">
         {#each pulled as f (f.path)}
           <div class="dl-row">
@@ -294,14 +323,22 @@
     font-size: 12px;
   }
   .crumb {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    min-width: 44px;
+    justify-content: center;
     background: transparent;
     border: none;
     color: var(--muted);
     font-family: var(--mono);
     font-size: 12px;
-    padding: 3px 5px;
-    border-radius: 6px;
+    padding: 0 8px;
+    border-radius: 10px;
     cursor: pointer;
+  }
+  .crumb:active {
+    background: var(--surface-2);
   }
   .crumb.active {
     color: var(--accent);

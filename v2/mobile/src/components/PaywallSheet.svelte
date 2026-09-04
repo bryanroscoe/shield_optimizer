@@ -22,8 +22,8 @@
     },
     {
       icon: "photo_camera_back",
-      title: "Snapshots — save, restore & clone",
-      desc: "Roll back any change instantly or clone to another TV.",
+      title: "Snapshots",
+      desc: "Record which packages are disabled, plus the launcher and tracked settings — then re-apply that set to this TV later.",
     },
     {
       icon: "home",
@@ -65,6 +65,7 @@
         Enter license key
       </button>
       <button class="ghost paywall-later" onclick={onClose}>Maybe later</button>
+      <p class="paywall-hint">Already have a key? Enter it in More.</p>
     </div>
   </div>
 {/if}
@@ -171,6 +172,12 @@
     width: 100%;
     min-height: 50px;
     margin-top: 10px;
+  }
+  .paywall-hint {
+    margin: 10px 0 0;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
   }
   @keyframes paywallIn {
     from {

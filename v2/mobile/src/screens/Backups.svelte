@@ -24,6 +24,8 @@
   let pickerGeneration = 0;
   let restoreTarget = $state<BackupEntry | null>(null);
   let busyRestore = $state("");
+  let deleteTarget = $state<BackupEntry | null>(null);
+  let busyDelete = $state("");
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -121,6 +123,26 @@
     }
   }
 
+  async function confirmDelete() {
+    const target = deleteTarget;
+    deleteTarget = null;
+    if (!target || busyDelete) return;
+    busyDelete = target.path;
+    try {
+      const result = await api.deleteBackup(target.path);
+      if (result.ok) {
+        backups = backups.filter((b) => b.path !== target.path);
+        showToast(result.message || "Backup deleted.", "success");
+      } else {
+        showToast(result.message || "Couldn't delete that backup.", "error");
+      }
+    } catch (e) {
+      showToast(String(e), "error");
+    } finally {
+      busyDelete = "";
+    }
+  }
+
   function fmtSize(bytes: number): string {
     if (!bytes || bytes < 0) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -163,13 +185,7 @@
     <div class="dest active">
       <span class="msr">smartphone</span>
       <span class="dest-title">This phone</span>
-      <span class="dest-sub">Saved to app storage</span>
-    </div>
-    <div class="dest soon" aria-disabled="true">
-      <span class="dest-badge">Soon</span>
-      <span class="msr">add_to_drive</span>
-      <span class="dest-title">Google Drive</span>
-      <span class="dest-sub">Off-device sync</span>
+      <span class="dest-sub">ATV Optimizer's private storage</span>
     </div>
   </div>
 
@@ -200,8 +216,11 @@
       {:else if filtered.length === 0}
         <p class="lede empty">No matching apps.</p>
       {:else}
+        <span class="pkg-count">
+          {filtered.length} of {packages.length} installed app{packages.length === 1 ? "" : "s"}
+        </span>
         <div class="pkg-list">
-          {#each filtered.slice(0, 60) as p (p.package)}
+          {#each filtered as p (p.package)}
             {@const busy = busyPkg === p.package}
             <button class="pkg-row" disabled={busyPkg !== ""} onclick={() => backup(p)}>
               <span class="msr pkg-icon">android</span>
@@ -243,37 +262,59 @@
               This phone · {fmtDate(b.saved_at)} · {fmtSize(b.size_bytes)} · {b.apk_count} APK{b.apk_count === 1 ? "" : "s"}
             </span>
           </div>
-          {#if b.complete}
+          <div class="b-actions">
+            {#if b.complete}
+              <button
+                class="restore-btn"
+                disabled={!session.serial || busyRestore !== "" || busyDelete !== ""}
+                onclick={() => (restoreTarget = b)}
+              >
+                {#if busyRestore === b.path}
+                  <span class="pdot blink"></span>
+                {:else}
+                  <span class="msr">restore</span>Restore
+                {/if}
+              </button>
+            {:else}
+              <span class="legacy-badge" title="This older backup may be missing split APKs">Base only</span>
+            {/if}
             <button
-              class="restore-btn"
-              disabled={!session.serial || busyRestore !== ""}
-              onclick={() => (restoreTarget = b)}
+              class="del-btn"
+              disabled={busyDelete !== "" || busyRestore !== ""}
+              onclick={() => (deleteTarget = b)}
+              aria-label={`Delete the ${b.package} backup`}
             >
-              {#if busyRestore === b.path}
+              {#if busyDelete === b.path}
                 <span class="pdot blink"></span>
               {:else}
-                <span class="msr">restore</span>Restore
+                <span class="msr">delete</span>
               {/if}
             </button>
-          {:else}
-            <span class="legacy-badge" title="This older backup may be missing split APKs">Base only</span>
-          {/if}
+          </div>
         </div>
       {/each}
     </div>
   {/if}
 
-  <div class="callout accent drive-note">
-    <span class="msr">cloud_sync</span>
-    <span class="callout-text">
-      Google Drive sync — back up and restore across phones — is coming in a future update. For now
-      complete APK bundles live in this app's storage on this phone.
-    </span>
-  </div>
+  <p class="drive-note">
+    Backups stay in this app's private storage — exporting them or syncing to Drive isn't available
+    yet.
+  </p>
 
   <div class="spacer"></div>
   <Toast message={toast} type={toastType} />
 </div>
+
+<ConfirmDialog
+  open={deleteTarget !== null}
+  danger
+  icon="delete"
+  title={`Delete the ${deleteTarget?.package ?? "app"} backup?`}
+  message="Removes the saved APK files from this phone. The app on your TV is not touched, and this can't be undone."
+  confirmLabel="Delete"
+  onConfirm={confirmDelete}
+  onCancel={() => (deleteTarget = null)}
+/>
 
 <ConfirmDialog
   open={restoreTarget !== null}
@@ -323,9 +364,6 @@
     background: color-mix(in srgb, var(--accent) 8%, var(--surface));
     border: 1.5px solid var(--accent);
   }
-  .dest.soon {
-    opacity: 0.62;
-  }
   .dest .msr {
     font-size: 22px;
     color: var(--text-soft);
@@ -340,19 +378,6 @@
   .dest-sub {
     font-size: 10px;
     color: var(--muted);
-  }
-  .dest-badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--amber);
-    background: color-mix(in srgb, var(--amber) 14%, transparent);
-    padding: 3px 7px;
-    border-radius: 6px;
   }
 
   .create-card {
@@ -417,6 +442,10 @@
     padding: 4px 0;
   }
 
+  .pkg-count {
+    font-size: 11px;
+    color: var(--dim);
+  }
   .pkg-list {
     display: flex;
     flex-direction: column;
@@ -545,6 +574,34 @@
   .restore-btn:disabled {
     opacity: 0.5;
   }
+  .b-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+  .del-btn {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--surface-2);
+    color: var(--muted);
+    cursor: pointer;
+    flex: none;
+  }
+  .del-btn:active {
+    color: var(--danger);
+  }
+  .del-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .del-btn .msr {
+    font-size: 19px;
+  }
   .restore-btn .msr {
     font-size: 16px;
   }
@@ -560,25 +617,10 @@
     letter-spacing: 0.04em;
   }
 
-  .callout.accent {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    background: color-mix(in srgb, var(--accent) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  }
-  .callout.accent .msr {
-    color: var(--accent);
-    font-size: 20px;
-    flex: none;
-  }
   .drive-note {
-    margin-top: 14px;
-  }
-  .callout-text {
-    flex: 1;
-    font-size: 12px;
+    margin: 16px 0 0;
+    font-size: 11px;
     line-height: 1.45;
-    color: var(--text-soft);
+    color: var(--dim);
   }
 </style>
