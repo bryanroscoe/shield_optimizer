@@ -1,7 +1,7 @@
 # ATV Optimizer (mobile) — HANDOFF
 
 Read this top-to-bottom before doing any mobile work. It is the authoritative, current handoff
-(last refreshed 2026-09-04).
+(last refreshed 2026-09-05, after the stability reset and the device-less backlog pass).
 Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (historical findings audit),
 `FEATURES.md` (historical screen ↔ command map), **`BACKLOG.md` (current ordered queue)**,
 `TRANSPORT-LICENSING-RESEARCH.md` (why the transport is what it is), `CLOUD-TASK.md` (brief for the
@@ -172,6 +172,13 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
   `wireless_adb.rs` (adb_client transport = `AdbDriver`), `wireless_commands.rs` (wireless_*),
   `file_commands.rs` (list_remote_dir/pull_file/backup_apk/list_backups).
 - `v2/mobile/tauri-plugin-atv-adb/` — mDNS discovery plugin (Kotlin NsdManager + thin Rust).
+- `v2/vendor/adb_client/` — vendored MIT transport; `SHIELD-OPTIMIZER-PATCH.md` lists every local
+  change (raw service stream, finite timeouts, stray-stream tolerance, `tcp/pairing/`).
+- `v2/tools/atvopt-license/` — license key generator/issuer/verifier CLI.
+- `v2/crates/core/src/adb/batch.rs` — sentinel-batched shell helper; `crates/core/src/license.rs`
+  — signed license verification.
+- Mobile docs: `HANDOFF.md` (this), `BACKLOG.md`, `FAST-REMOTE-PLAN.md`, `PAIRING-PLAN.md`,
+  `LICENSING.md`, `RELEASE.md`, `THIRD-PARTY-NOTICES.md` (generated), `CLOUD-TASK.md`.
 - `v2/crates/core/` — SHARED engine+commands (pure `engine/`, `commands/*`, `adb/{driver,parse}`,
   `license.rs`). Desktop and mobile both register from here. **Keep `engine/` pure; keep aligned
   with desktop.**
@@ -181,33 +188,54 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 ## 5. What REMAINS
 
-Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. The immediate sequence is:
+Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. State at handoff (2026-09-05):
+every workspace gate is green, HEAD builds an arm64 debug APK, and **nothing since `bb33ecc` has
+run on a phone or TV**. The immediate sequence is:
 
-1. Build and install **current HEAD** on the Pixel and run the physical stability check listed
-   under P0 in `BACKLOG.md` (connection loss → reconnecting → banner, picker/auto-dial rules,
-   no redial after Disconnect, cancelable Optimize apply, Emergency recovery, back-button stack).
-   The installed APK predates the entire 2026-09-04 sweep; everything since was browser- and
-   gate-verified only.
-2. Finish the remaining P0 fast-remote physical-device gates without redoing the Living Room
-   diagnostics/file/SHA checks that already passed.
-3. Finish the remaining Phase 4 device matrix in
-   **[`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md)**.
-4. Implement SPAKE2 pairing, then SAF import/export, then Drive sync for complete bundles.
-5. Replace the development license key and build the Android release/signing pipeline before
-   calling the app commercially releasable.
+1. **Install HEAD on the Pixel and run the physical stability check** (BACKLOG P0 #1, eight
+   points). This is the single most valuable thing the next agent can do. The Pixel refused
+   wireless ADB at handoff (its pairing rotated / Wireless debugging was off), so Bryan must read
+   the pairing code + port off the phone first.
+2. **Verify code pairing on a real device** (BACKLOG P1 #2). Follow `PAIRING-PLAN.md` exactly:
+   the Pixel's own `_adb-tls-pairing` service from a host binary first, then a Google TV, including
+   the wrong-code and silent-reconnect checks. Until this passes, treat pairing as unverified and
+   keep the Onboarding copy pointing users at Network debugging as the fallback.
+3. Finish the fast-remote Phase 4 device gates (`FAST-REMOTE-PLAN.md`).
+4. SAF import/export for screenshots, pulled files and APK bundles (they land in app-private
+   storage today), then Drive.
+5. Product decisions for Bryan, listed under BACKLOG P1 #6: free read-only Optimize plan; the
+   unused `Feature::FileManager` / `Feature::BackupClone` gates.
+6. Release: create the real keystore (or enroll Play App Signing), a signed-AAB CI job, and a
+   checkout/store that issues license keys with `tools/atvopt-license` (`RELEASE.md`,
+   `LICENSING.md`). Back up `~/.atvopt/license-signing-key.prod`.
 
 Desktop rebranding remains a separate migration because of the MSI UpgradeCode risk.
 
-### Next-agent start checklist (updated 2026-09-04)
+### Next-agent start checklist (updated 2026-09-05)
 
-- Confirm branch `feat/atv-optimizer-mobile` includes the 2026-09-04 "stability reset" commits and
-  read `BACKLOG.md` plus the Phase 4 section of `FAST-REMOTE-PLAN.md` before changing code.
+- Confirm branch `feat/atv-optimizer-mobile` is at `fae340c` or later and read `BACKLOG.md`
+  (P0 first), `PAIRING-PLAN.md` if touching pairing, and the Phase 4 section of
+  `FAST-REMOTE-PLAN.md` before changing code.
+- Gates (all must pass; run from `v2/`): `cargo fmt --check`; `cargo clippy -p shield-optimizer-core
+  -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p atvopt-license
+  --all-targets -- -D warnings`; `cargo test -p shield-optimizer-core -p atv-optimizer-mobile
+  -p atvopt-license` (179 / 21 / 2 at handoff); `cd vendor/adb_client && cargo test --lib` (54;
+  the vendored crate is outside the workspace). From `v2/mobile`: `npm run check` (0/0) and
+  `npm run build`. Android-target clippy works with the NDK clang exported as
+  `CC_aarch64_linux_android` / `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`.
 - Device-less UI loop: `npm run build`, then a Playwright script at 384×812 that serves `build/`
   and stubs `window.__TAURI_INTERNALS__.invoke` (the desktop `v2/node_modules` has Playwright and
   Chromium). The 2026-09-04 smoke script covered scan, picker, auto-dial rules, connect failure,
   lost-connection recovery, Emergency recovery and the back stack; recreate it from that list.
 - If you add a Material Symbols icon name, rerun `scripts/subset-material-symbols.py` (needs
-  `fonttools` + `brotli` in a venv) or the icon renders as literal text.
+  `fonttools` + `brotli` in a venv) or the icon renders as literal text. If you add a crate,
+  rerun `scripts/gen-notices.sh`.
+- The dev license key `ATVOPT-PRO-2025` unlocks Pro in **debug builds only**. For a release build
+  issue a real key: `cargo run -p atvopt-license -- issue --key ~/.atvopt/license-signing-key.prod
+  --licensee "you"`.
+- Hot files that must not be edited by parallel agents at the same time: `wireless_adb.rs`,
+  `session.svelte.ts`, `App.svelte`, `router.svelte.ts`, `api.ts`, `types.ts`, mobile `lib.rs`.
+  The 2026-09-04 pattern that worked: one lead owns those, parallel agents own disjoint screens.
 - Preserve the unrelated untracked root files (`atv-optimizer-android-strategy.html`, root
   `node_modules/`, `package.json`, and `package-lock.json`); they are user-owned and not part of the
   mobile commits.
@@ -216,8 +244,7 @@ Desktop rebranding remains a separate migration because of the MSI UpgradeCode r
   the current `_adb-tls-connect._tcp` endpoint.
 - Bryan has re-authorized focused phone interaction. Avoid blind coordinate tapping and large
   remote-button batches; announce intentional TV-input tests so they do not disrupt viewing.
-- Do not mark Phase 4 complete from lifecycle logs alone. The before/after-30-second checks still
-  need a live fast-remote session, and hold, sleep/wake, and reboot cleanup remain open.
+- Do not mark Phase 4 or pairing complete from host tests or logs alone.
 
 ## 6. OPERATIONS PLAYBOOK (how to build / deploy / test)
 Env: `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli 2.11.x, the 4 android Rust
@@ -267,6 +294,17 @@ tool has a low body-size limit, so its prompt is a short pointer; set it up via 
 
 ## 9. Commit history (this effort, newest first)
 ```
+fae340c Mobile: document the licensing, release, and pairing backlog pass
+5e76b24 Mobile: Android 11 wireless-debugging code pairing (SPAKE2)   ← unverified on device
+aa4e589 Mobile: release signing config, version tooling, third-party notices
+5d52e51 Mobile: warm the remote channel, batch snapshot reads, key saved TVs by serial
+78bb09d Licensing: Ed25519-signed offline license keys
+0c24761 Mobile: document the stability reset and next physical checks
+f3031c6 Mobile: screen correctness and honesty sweep
+3e7cb3b Mobile: explicit reconnect, live connection state, honest dashboard
+e51fc3f Mobile: make the ADB transport fail fast and honestly
+334fda3 Vendor adb_client: bound every read and tolerate stray stream packets
+bb33ecc Mobile: refresh agent handoff and device plan                   ← last APK on the Pixel
 3eccc34 Mobile: retain cached TV labels after switching
 b293b66 Mobile: clarify TV connections and device switching
 5070840 Mobile: log remote lifecycle transitions
@@ -275,18 +313,9 @@ b293b66 Mobile: clarify TV connections and device switching
 48b3574 Mobile: add fast scrcpy remote channel
 988facc Mobile: add raw ADB service stream for fast remote
 a9d2c8b HANDOFF: comprehensive current-state handoff for the next agent
-bd6cbd8 CLOUD-TASK: mark transport swap + Phase 6 done; queue remaining
-44579c1 File transfer + Backups screens (adb_client push/pull)
-fdeb62d Phase 6 screens (Launcher, Tweaks, Snapshots, Devices, App detail, Risk guide, Reconnect)
 3e8bcfc Transport: replace GPL libadb-android with pure-Rust adb_client (MIT)
-e6dd7f5 in-app BrandMark, soft-EOF workaround, transport/licensing research
 b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
-8bb6b17 architecture review + reboot/stream-close fixes
-3ef29de storage regression fix (%-anchored df parse)
-88f7123 / 7c17c41 / 9efde3d icon iterations
-41d1dc7 Apps cutoff fix
-ac9c3cd onboarding design
 16e5c42 (earlier) extract shared core workspace
 ```
-Immediate next action: build/install HEAD on the Pixel for the focused UI spot-check, then continue
-the exact remaining physical gates listed in `BACKLOG.md` and `FAST-REMOTE-PLAN.md`.
+Immediate next action: re-pair the Pixel, install HEAD, run BACKLOG P0 #1, then the pairing manual
+test in `PAIRING-PLAN.md`.

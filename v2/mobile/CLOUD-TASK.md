@@ -3,7 +3,7 @@
 You are a scheduled cloud coding agent with **no physical device**. Never run `adb`, install an APK,
 or claim on-device verification. Work only on tasks that can be proven by builds and automated tests.
 
-## Current status (updated 2026-09-04)
+## Current status (updated 2026-09-05)
 
 Work on branch **`feat/atv-optimizer-mobile`**. The expected handoff head includes the 2026-09-04
 "stability reset" commits (bounded transport reads, batched core reads, saved-TV picker, global
@@ -14,10 +14,11 @@ Read these files before choosing work:
 2. `v2/mobile/BACKLOG.md` — current ordered queue.
 3. `v2/mobile/FAST-REMOTE-PLAN.md` — exact physical evidence and remaining Phase 4 gates.
 
-Do not redo completed work: the pure-Rust `adb_client` transport, all 14 screens, Optimize apply,
-shell-v2 results, complete split-APK backup/restore, saved-device/state isolation, fast-remote Phases
-1–3, Android background lifecycle code, connection-prompt guidance, previous-TV switcher, durable
-cached TV names, and used-RAM visualization are implemented and pushed.
+Do not redo completed work: the pure-Rust `adb_client` transport, all 14 screens, Optimize apply
+and Restore mode, shell-v2 results, complete split-APK backup/restore/delete, saved-device/state
+isolation, fast-remote Phases 1–3 plus `remote_warm`, Android background lifecycle code, the
+saved-TV picker and global connection banner, Emergency recovery, signed Ed25519 licensing, release
+signing config and third-party notices, and the SPAKE2 pairing implementation are all pushed.
 
 The 2026-09-04 sweep was exercised at 384×812 with Playwright and Tauri invoke stubs (scan, saved-TV
 picker and auto-dial rules, connect failure guidance, lost-connection recovery, Emergency recovery,
@@ -57,8 +58,9 @@ Before committing, run from `v2/`:
 
 ```sh
 cargo fmt --check
-cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings
-cargo test -p shield-optimizer-core
+cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p atvopt-license --all-targets -- -D warnings
+cargo test -p shield-optimizer-core -p atv-optimizer-mobile -p atvopt-license
+(cd vendor/adb_client && cargo test --lib)
 ```
 
 From `v2/mobile/`:

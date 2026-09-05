@@ -1,6 +1,6 @@
 # ATV Optimizer mobile backlog
 
-Updated 2026-09-04. This is the current ordered queue. `FEATURES.md` and
+Updated 2026-09-05 (handoff). Nothing after `bb33ecc` has run on a phone or TV yet. This is the current ordered queue. `FEATURES.md` and
 `ARCHITECTURE-REVIEW.md` are historical audits and contain many findings that have already been
 fixed; use this file plus `HANDOFF.md` for current work.
 
@@ -108,15 +108,22 @@ in this sweep has been installed on the Pixel yet.
 ## P0 — next correctness work
 
 1. **Install current HEAD on the Pixel and run the physical stability check.** The installed APK
-   predates the whole 2026-09-04 sweep. On a real Shield: (a) put the TV to sleep or turn off Wi-Fi
+   predates the whole 2026-09-04 sweep. First re-pair the Pixel (Bryan reads the code + port off
+   Settings › Developer options › Wireless debugging), then `adb connect`, build with the §6
+   command in `HANDOFF.md`, `adb install -r -d`. On a real Shield: (a) put the TV to sleep or turn off Wi-Fi
    mid-session and confirm the app flips to "Reconnecting…" then the banner within ~45 s instead of
    staying green; (b) confirm a one-TV launch names the TV and can be cancelled, and a two-TV launch
    waits for a choice; (c) Disconnect, kill the app, relaunch — it must not redial; (d) run Optimize
    apply and confirm tabs lock and Cancel stops after the current item; (e) Emergency recovery on a
    TV with a few disabled apps; (f) back button from Settings → Devices → back → back reaches the
    dashboard, and one more press leaves the app; (g) Screenshot preview renders; (h) Tweaks shows
-   "Unset" rather than OFF for a never-written setting.
-2. **Finish the exact fast-remote device gates.** Living Room already passed concurrent diagnostics,
+   "Unset" rather than OFF for a never-written setting; (i) Settings › Licensing shows "Debug build
+   test key" after activating the dev key, and Settings › About opens the third-party notices.
+2. **Verify code pairing end-to-end** per `PAIRING-PLAN.md` (host binary against the Pixel's
+   pairing service first, then a Google TV; wrong code must fail cleanly; a paired TV must connect
+   afterwards without an "Allow debugging" prompt). Pairing is implemented but has never talked to
+   a real adbd.
+3. **Finish the exact fast-remote device gates.** Living Room already passed concurrent diagnostics,
    file list/pull, and SHA verification while the channel was live. Repeat concurrency on Bedroom;
    on both Shields test hold, live-session background/resume before and after 30 seconds, sleep/wake,
    and reboot cleanup. Take a fresh controlled Living Room latency sample because one earlier p95
