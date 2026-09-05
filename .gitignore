@@ -1,6 +1,8 @@
 # APK files (user-provided for sideloading)
 *.apk
 
+/node_modules/
+
 # ADB binaries (all platforms) — anchored to the repo root so v2/src-tauri/src/adb/ source isn't swept up
 /adb
 /adb.exe

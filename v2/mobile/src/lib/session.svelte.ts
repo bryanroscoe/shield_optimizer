@@ -7,7 +7,7 @@
 // old divergent derivations in Onboarding/Dashboard/Remote are gone.
 
 import { api } from "./api";
-import { onConnectionLost } from "./connectionEvents";
+import { onConnectionLost, setConnectionGeneration } from "./connectionEvents";
 import { cachedDeviceName, rememberDevice, setAutoConnect } from "./savedDevices";
 import { deviceLabelOf } from "./types";
 import type {
@@ -21,10 +21,21 @@ import type {
 export type Liveness = "idle" | "connecting" | "live" | "reconnecting" | "lost";
 
 class Session {
-  private connectionGeneration = 0;
+  private connectionGeneration = Date.now() * 1000;
   private healthGeneration = 0;
   private bloatGeneration = 0;
-  private recovering: Promise<boolean> | null = null;
+  private recovering: { generation: number; promise: Promise<boolean> } | null = null;
+  private recoveryAttempted = false;
+
+  get generation(): number {
+    return this.connectionGeneration;
+  }
+
+  private nextGeneration(): number {
+    this.connectionGeneration = Math.max(this.connectionGeneration + 1, Date.now() * 1000);
+    setConnectionGeneration(this.connectionGeneration);
+    return this.connectionGeneration;
+  }
 
   connectedDevice = $state<Device | null>(null);
   host = $state("");
@@ -78,8 +89,8 @@ class Session {
 
   /// Wire the api-level "connection lost" signal. Called once from App.
   attachConnectionWatch(): () => void {
-    return onConnectionLost(() => {
-      void this.recoverOrMarkLost();
+    return onConnectionLost((generation) => {
+      if (generation === this.connectionGeneration) void this.recoverOrMarkLost();
     });
   }
 
@@ -96,11 +107,13 @@ class Session {
   /// Connect and, on success, resolve the real device via list_devices and go
   /// live. Returns the raw ConnectResult so the caller can surface errors.
   async connect(host: string, port: number): Promise<ConnectResult> {
-    const generation = ++this.connectionGeneration;
+    if (this.applyInProgress) return { ok: false, message: "Stop the current operation before switching TVs." };
+    const generation = this.nextGeneration();
+    this.recoveryAttempted = false;
     this.liveness = "connecting";
     try {
-      const result = await api.wirelessConnect(host, port);
-      if (generation !== this.connectionGeneration) return result;
+      const result = await api.wirelessConnect(host, port, generation);
+      if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
       if (!result.ok) {
         await this.restoreCurrentLiveness(generation);
         return result;
@@ -118,7 +131,7 @@ class Session {
         if (generation === this.connectionGeneration) this.liveness = "lost";
         throw error;
       }
-      if (generation !== this.connectionGeneration) return result;
+      if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
       this.liveness = this.connectedDevice ? "live" : "lost";
       if (this.connectedDevice) {
         // Remember this TV so the next launch can offer it, and allow a
@@ -126,7 +139,7 @@ class Session {
         this.rememberCurrentDevice();
         setAutoConnect(true);
       }
-      return result;
+      return this.connectedDevice ? result : { ok: false, message: "The TV disconnected before its profile could be loaded." };
     } catch (error) {
       if (generation === this.connectionGeneration) {
         await this.restoreCurrentLiveness(generation);
@@ -140,30 +153,36 @@ class Session {
   async refreshDevices(generation = this.connectionGeneration): Promise<void> {
     const list = await api.listDevices();
     if (generation !== this.connectionGeneration) return;
-    // Prefer an authorized device; keep the current serial if it's still there.
-    const current = list.find((d) => d.serial === this.serial);
-    this.connectedDevice =
-      current ?? list.find((d) => d.status === "device") ?? list[0] ?? null;
+    const expected = `${this.host}:${this.connectPort}`;
+    this.connectedDevice = list.find((d) => d.serial === expected && d.status === "device") ?? null;
   }
 
   /// Explicit user disconnect. Also turns off launch auto-dial so a process
   /// kill can't resurrect the connection the user just ended.
-  async disconnect(): Promise<void> {
-    ++this.connectionGeneration;
+  async disconnect(): Promise<boolean> {
+    if (this.applyInProgress) return false;
+    const generation = this.nextGeneration();
     setAutoConnect(false);
     try {
-      await api.wirelessDisconnect();
+      await api.wirelessDisconnect(generation);
     } catch {
       // best-effort; we're tearing down regardless
     }
+    if (generation !== this.connectionGeneration) return false;
     this.reset();
+    return true;
   }
 
-  /// Abandon an in-flight connect from the UI's point of view. The backend
-  /// may still finish it; the next explicit connect replaces it either way.
-  cancelConnect(): void {
-    ++this.connectionGeneration;
-    this.liveness = this.connectedDevice ? "live" : "idle";
+  async cancelConnect(): Promise<void> {
+    const canceledRequestId = this.connectionGeneration;
+    const generation = this.nextGeneration();
+    this.liveness = this.connectedDevice ? "lost" : "idle";
+    try {
+      await api.wirelessCancelConnect(generation, canceledRequestId);
+    } catch (e) {
+      if (generation === this.connectionGeneration) throw e;
+    }
+    if (generation === this.connectionGeneration) await this.restoreCurrentLiveness(generation);
   }
 
   async reconnect(): Promise<ConnectResult> {
@@ -215,7 +234,7 @@ class Session {
   /// show the reconnect banner.
   async checkLiveness(): Promise<void> {
     if (!this.connectedDevice) return;
-    if (this.liveness === "connecting" || this.liveness === "reconnecting") return;
+    if (this.liveness !== "live") return;
     const generation = this.connectionGeneration;
     let alive = false;
     try {
@@ -236,19 +255,21 @@ class Session {
   /// same attempt. Resolves true when the connection is live again.
   async recoverOrMarkLost(): Promise<boolean> {
     if (!this.connectedDevice || !this.host) return false;
-    if (this.recovering) return this.recovering;
-    if (this.liveness === "connecting") return false;
-    this.recovering = (async () => {
-      const generation = this.connectionGeneration;
+    if (this.recovering?.generation === this.connectionGeneration) return this.recovering.promise;
+    if (this.liveness === "connecting" || this.recoveryAttempted) return false;
+    this.recoveryAttempted = true;
+    const generation = this.nextGeneration();
+    const promise = (async () => {
       this.liveness = "reconnecting";
       try {
-        const result = await api.wirelessConnect(this.host, this.connectPort);
+        const result = await api.wirelessConnect(this.host, this.connectPort, generation);
         if (generation !== this.connectionGeneration) return false;
         if (result.ok) {
-          await this.refreshDevices();
+          await this.refreshDevices(generation);
           if (generation !== this.connectionGeneration) return false;
           const live = this.connectedDevice != null;
           this.liveness = live ? "live" : "lost";
+          if (live) this.recoveryAttempted = false;
           return live;
         }
       } catch {
@@ -257,11 +278,18 @@ class Session {
       if (generation === this.connectionGeneration) this.liveness = "lost";
       return false;
     })();
+    const recovery = { generation, promise };
+    this.recovering = recovery;
     try {
-      return await this.recovering;
+      return await promise;
     } finally {
-      this.recovering = null;
+      if (this.recovering === recovery) this.recovering = null;
     }
+  }
+
+  async finishReboot(generation: number): Promise<boolean> {
+    if (generation !== this.connectionGeneration) return false;
+    return this.disconnect();
   }
 
   // ---- Entitlement ----

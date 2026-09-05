@@ -9,7 +9,7 @@
 
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { logCall, summarizeArgs } from "./log";
-import { emitConnectionLost, isConnectionLostError } from "./connectionEvents";
+import { connectionGeneration, emitConnectionLost, isConnectionLostError } from "./connectionEvents";
 import type {
   ActionResult,
   AppEntry,
@@ -60,6 +60,7 @@ async function call<T>(
   args?: Record<string, unknown>,
 ): Promise<T> {
   const summary = summarizeArgs(args);
+  const generation = connectionGeneration();
   try {
     const result = await invoke<T>(command, args);
     logCall(command, summary, true);
@@ -69,7 +70,7 @@ async function call<T>(
     logCall(command, summary, false, message);
     // The backend already evicted the dead socket; let the session flip to
     // "lost" (and try one recovery) instead of leaving a green header up.
-    if (isConnectionLostError(message)) emitConnectionLost();
+    if (isConnectionLostError(message)) emitConnectionLost(generation);
     throw e;
   }
 }
@@ -79,9 +80,11 @@ export const api = {
   wirelessDiscover: () => call<DiscoveryResult>("wireless_discover"),
   wirelessPair: (host: string, port: number, code: string) =>
     call<ConnectResult>("wireless_pair", { host, port, code }),
-  wirelessConnect: (host: string, port: number) =>
-    call<ConnectResult>("wireless_connect", { host, port }),
-  wirelessDisconnect: () => call<ConnectResult>("wireless_disconnect"),
+  wirelessConnect: (host: string, port: number, requestId: number) =>
+    call<ConnectResult>("wireless_connect", { host, port, requestId }),
+  wirelessDisconnect: (requestId: number) => call<ConnectResult>("wireless_disconnect", { requestId }),
+  wirelessCancelConnect: (requestId: number, canceledRequestId: number) =>
+    call<void>("wireless_cancel_connect", { requestId, canceledRequestId }),
   wirelessStatus: () => call<WirelessStatus>("wireless_status"),
 
   // ---- Devices ----

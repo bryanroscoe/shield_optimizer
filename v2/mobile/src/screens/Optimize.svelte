@@ -58,7 +58,10 @@
     toastTimer = setTimeout(() => (toast = ""), 4200);
   }
 
-  onDestroy(() => clearTimeout(toastTimer));
+  onDestroy(() => {
+    cancelRequested = true;
+    clearTimeout(toastTimer);
+  });
 
   async function loadPlan(nextMode: OptimizeMode = mode) {
     mode = nextMode;
@@ -228,6 +231,7 @@
     // One serial for the whole run: if the TV changes underneath us we must
     // not fire the rest of the plan at a different device.
     const serial = session.serial;
+    const generation = session.generation;
     if (!serial) {
       showToast("No TV connected.", "error");
       return;
@@ -250,7 +254,7 @@
     let canceled = false;
     try {
       for (const [index, item] of items.entries()) {
-        if (cancelRequested) {
+        if (cancelRequested || generation !== session.generation || !session.isConnected) {
           canceled = true;
           break;
         }
@@ -278,6 +282,7 @@
       }
       applyDone = items.length;
 
+      canceled ||= cancelRequested || generation !== session.generation || !session.isConnected;
       if (!entitlementLost && !canceled) {
         applyCurrent = "animation settings";
         try {

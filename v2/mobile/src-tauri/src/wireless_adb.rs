@@ -32,6 +32,29 @@ pub const CONNECTION_LOST_PREFIX: &str = "Connection to the TV was lost";
 struct Connection {
     device: ADBTcpDevice,
     serial: String,
+    request_id: u64,
+}
+
+#[derive(Default)]
+struct ConnectionRequests {
+    latest: u64,
+}
+
+impl ConnectionRequests {
+    fn begin(&mut self, request_id: u64) -> Result<(), String> {
+        if request_id <= self.latest {
+            return Err("Connection attempt superseded.".into());
+        }
+        self.latest = request_id;
+        Ok(())
+    }
+
+    fn check(&self, request_id: u64) -> Result<(), String> {
+        if request_id != self.latest {
+            return Err("Connection attempt canceled.".into());
+        }
+        Ok(())
+    }
 }
 
 /// Who we are connected to. Mirrored outside the device mutex so async code
@@ -89,6 +112,7 @@ pub struct WirelessAdb {
     /// Serializes connect/disconnect transitions so a slow connect cannot
     /// resurrect a connection after the user has explicitly disconnected.
     lifecycle: tokio::sync::Mutex<()>,
+    requests: Arc<Mutex<ConnectionRequests>>,
 }
 
 impl WirelessAdb {
@@ -99,6 +123,7 @@ impl WirelessAdb {
             conn: Arc::new(Mutex::new(None)),
             identity: Arc::new(Mutex::new(None)),
             lifecycle: tokio::sync::Mutex::new(()),
+            requests: Arc::new(Mutex::new(ConnectionRequests::default())),
         }
     }
 
@@ -210,8 +235,38 @@ impl WirelessAdb {
         .map_err(|e| format!("wireless-adb task failed: {e}"))?
     }
 
-    pub async fn connect(&self, host: &str, port: u16) -> Result<String, String> {
+    pub fn begin_request(&self, request_id: u64) -> Result<(), String> {
+        lock_recovering(&self.requests).begin(request_id)
+    }
+
+    pub async fn cancel_connect(
+        &self,
+        request_id: u64,
+        canceled_request_id: u64,
+    ) -> Result<(), String> {
+        self.begin_request(request_id)?;
+        let conn = self.conn.clone();
+        let identity = self.identity.clone();
+        let requests = self.requests.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = lock_recovering(&conn);
+            let requests = lock_recovering(&requests);
+            if requests.check(request_id).is_ok()
+                && guard
+                    .as_ref()
+                    .is_some_and(|c| c.request_id == canceled_request_id)
+            {
+                *guard = None;
+                *lock_recovering(&identity) = None;
+            }
+        })
+        .await
+        .map_err(|e| format!("cancel connection: {e}"))
+    }
+
+    pub async fn connect(&self, host: &str, port: u16, request_id: u64) -> Result<String, String> {
         let _lifecycle = self.lifecycle.lock().await;
+        lock_recovering(&self.requests).check(request_id)?;
         normalize_connect_address(&format!("{host}:{port}"))?;
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
@@ -219,6 +274,7 @@ impl WirelessAdb {
         let key_path = self.key_path.clone();
         let conn = self.conn.clone();
         let identity = self.identity.clone();
+        let requests = self.requests.clone();
         let host_owned = host.to_string();
         let serial = format!("{host}:{port}");
 
@@ -236,11 +292,16 @@ impl WirelessAdb {
                 connect_error_message(&e)
             })?;
             let mut guard = lock_recovering(&conn);
+            // Cancellation and publication share this short lock. No socket
+            // I/O holds it, so a pending handshake can be invalidated promptly.
+            let requests = lock_recovering(&requests);
+            requests.check(request_id)?;
             // Replacing the handle drops the previous device, which closes
             // its socket. Publish the identity only once the swap is done.
             *guard = Some(Connection {
                 device,
                 serial: serial.clone(),
+                request_id,
             });
             *lock_recovering(&identity) = Some(Identity {
                 serial: serial.clone(),
@@ -253,18 +314,33 @@ impl WirelessAdb {
         .map_err(|e| format!("wireless-adb task failed: {e}"))?
     }
 
-    pub async fn disconnect(&self) -> Result<String, String> {
-        self.disconnect_serial(None).await
+    pub async fn disconnect(&self, request_id: u64) -> Result<String, String> {
+        self.disconnect_serial_for_request(None, Some(request_id))
+            .await
     }
 
     async fn disconnect_serial(&self, requested_serial: Option<&str>) -> Result<String, String> {
+        self.disconnect_serial_for_request(requested_serial, None)
+            .await
+    }
+
+    async fn disconnect_serial_for_request(
+        &self,
+        requested_serial: Option<&str>,
+        request_id: Option<u64>,
+    ) -> Result<String, String> {
         let _lifecycle = self.lifecycle.lock().await;
         // Dropping the device closes its socket; do it on a blocking thread.
         let conn = self.conn.clone();
         let identity = self.identity.clone();
+        let requests = self.requests.clone();
         let requested_serial = requested_serial.map(str::to_string);
         tokio::task::spawn_blocking(move || -> Result<(), String> {
             let mut guard = lock_recovering(&conn);
+            let requests = lock_recovering(&requests);
+            if let Some(request_id) = request_id {
+                requests.check(request_id)?;
+            }
             if let (Some(expected), Some(active)) = (requested_serial.as_deref(), guard.as_ref()) {
                 validate_requested_serial(&active.serial, expected)?;
             }
@@ -334,6 +410,53 @@ impl WirelessAdb {
 
 #[async_trait]
 impl AdbDriver for WirelessAdb {
+    async fn pull_limited(
+        &self,
+        serial: &str,
+        remote: &str,
+        local: &Path,
+        max_bytes: u64,
+    ) -> AdbResult<()> {
+        let Some((active, host, port)) = self.info() else {
+            return Err(AdbError::Transport("Not connected to a device.".into()));
+        };
+        validate_requested_serial(&active, serial).map_err(AdbError::Transport)?;
+        let addr: SocketAddr = format!("{host}:{port}")
+            .parse()
+            .map_err(|e| AdbError::Transport(format!("invalid download address: {e}")))?;
+        let remote = remote.to_string();
+        let local = local.to_path_buf();
+        let key = self.key_path.clone();
+        // A bounded download owns its socket. Aborting on a full disk or a
+        // growing file closes that stream without poisoning the control socket
+        // or blocking the session's heartbeat behind a multi-minute transfer.
+        tokio::task::spawn_blocking(move || -> AdbResult<()> {
+            let file = std::fs::File::create(local)?;
+            let mut device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+                addr,
+                &key,
+                AUTHORIZATION_TIMEOUT,
+            )
+            .map_err(|e| AdbError::Transport(e.to_string()))?;
+            let stat = device
+                .stat(&remote)
+                .map_err(|e| AdbError::Transport(e.to_string()))?;
+            if u64::from(stat.file_size) > max_bytes {
+                return Err(AdbError::Transport(
+                    "Download exceeds the file size limit.".into(),
+                ));
+            }
+            let mut writer = crate::limited_writer::LimitedWriter::new(file, max_bytes);
+            device
+                .pull(&remote, &mut writer)
+                .map_err(|e| AdbError::Transport(e.to_string()))?;
+            std::io::Write::flush(&mut writer)?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| AdbError::Transport(format!("download task: {e}")))?
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
             ["devices"] => Ok(self.devices_output()),
@@ -676,6 +799,18 @@ impl WirelessStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn canceled_handshakes_cannot_publish_or_supersede_a_retry() {
+        let mut requests = super::ConnectionRequests::default();
+        requests.begin(100).unwrap();
+        requests.begin(101).unwrap();
+        assert!(requests.check(100).is_err());
+        requests.begin(102).unwrap();
+        assert!(requests.begin(101).is_err());
+        assert!(requests.check(100).is_err());
+        assert!(requests.check(102).is_ok());
+    }
+
     use super::{
         connect_error_message, is_fatal_transport_error, normalize_pairing_code,
         pair_error_message, shell_timeout_for, validate_requested_serial, SHELL_INACTIVITY_TIMEOUT,

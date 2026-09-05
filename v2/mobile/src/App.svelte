@@ -30,8 +30,7 @@
     router.reset("dashboard");
   }
   async function handleDisconnect() {
-    await session.disconnect();
-    router.reset("onboarding");
+    if (await session.disconnect()) router.reset("onboarding");
   }
 
   // A dropped TV socket is only visible when something talks to it. Probe on

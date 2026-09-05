@@ -5,6 +5,7 @@
 //! Rust command surface before Android hardware is available.
 
 mod file_commands;
+mod limited_writer;
 mod remote_lifecycle;
 mod scrcpy_resource;
 mod wireless_adb;
@@ -201,6 +202,7 @@ pub fn run() {
             wireless_commands::wireless_discover,
             wireless_commands::wireless_pair,
             wireless_commands::wireless_connect,
+            wireless_commands::wireless_cancel_connect,
             wireless_commands::wireless_disconnect,
             wireless_commands::wireless_status,
             wireless_commands::find_remote,

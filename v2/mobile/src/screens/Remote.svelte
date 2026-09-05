@@ -35,6 +35,7 @@
   // Presses are serialized through one promise chain so ordering is preserved.
   let queue: Promise<void> = Promise.resolve();
   let queuedWork = $state(0);
+  let destroyed = false;
   function enqueue(work: () => Promise<void>) {
     queuedWork += 1;
     queue = queue
@@ -90,10 +91,15 @@
   function sendKey(key: string, repeat = false) {
     // A repeat tick is disposable. Never let interval ticks accumulate behind
     // a slow/falling-back request after the user's finger has moved on.
-    if (repeat && queuedWork > 0) return;
+    if (!session.isConnected || destroyed || queuedWork >= 8 || (repeat && queuedWork > 0)) return;
+    const serial = session.serial;
+    const generation = session.generation;
+    const shell = forceShell;
     enqueue(async () => {
+      if (destroyed || generation !== session.generation || !session.isConnected) return;
       const start = performance.now();
-      const r = await api.sendKey(session.serial, key, forceShell);
+      const r = await api.sendKey(serial, key, shell);
+      if (destroyed || generation !== session.generation) return;
       noteResult(r.transport, Math.round(performance.now() - start));
       remoteMessage = r.ok ? "" : r.message;
       if (r.transport !== "channel") stopRepeat();
@@ -167,7 +173,10 @@
     });
   }
 
-  onDestroy(stopRepeat);
+  onDestroy(() => {
+    destroyed = true;
+    stopRepeat();
+  });
 </script>
 
 <div class="screen">

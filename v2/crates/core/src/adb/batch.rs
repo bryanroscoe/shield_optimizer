@@ -10,6 +10,62 @@
 /// Marker echoed between sub-commands. Deliberately long and prefixed so it
 /// cannot collide with real `dumpsys` / `pm` / `df` output.
 pub const BATCH_SEPARATOR: &str = "__SHIELDOPT_SEP__";
+pub const BATCH_STATUS: &str = "__SHIELDOPT_STATUS__";
+
+pub fn checked_batch_command(cmds: &[&str]) -> String {
+    cmds.iter()
+        .map(|cmd| format!("({cmd}) 2>/dev/null; printf '\\n{BATCH_STATUS}%s\\n' $?"))
+        .collect::<Vec<_>>()
+        .join(&format!("; echo {BATCH_SEPARATOR}; "))
+}
+
+/// Required reads must distinguish an empty successful list from a failed
+/// command. Optional reads still need a completion marker to detect truncation.
+pub fn parse_checked_batch(
+    output: &str,
+    n: usize,
+    required: &[usize],
+) -> Result<Vec<String>, String> {
+    let raw: Vec<_> = output.split(BATCH_SEPARATOR).collect();
+    if raw.len() != n {
+        return Err("Incomplete device response. Retry the read.".into());
+    }
+    raw.iter()
+        .enumerate()
+        .map(|(i, section)| {
+            let (body, status) = section.rsplit_once(BATCH_STATUS).ok_or_else(|| {
+                format!("Device read {} did not complete. Retry the read.", i + 1)
+            })?;
+            let status: i32 = status
+                .trim()
+                .parse()
+                .map_err(|_| format!("Invalid status for device read {}.", i + 1))?;
+            if status != 0 && required.contains(&i) {
+                return Err(format!(
+                    "Device read {} failed (exit {status}). Retry the read.",
+                    i + 1
+                ));
+            }
+            if required.contains(&i)
+                && body.lines().any(|line| {
+                    let line = line.trim();
+                    line.starts_with("Error")
+                        || line.starts_with("Failure")
+                        || line.contains("Exception")
+                })
+            {
+                return Err(format!(
+                    "Device read {} reported an error. Retry the read.",
+                    i + 1
+                ));
+            }
+            if status != 0 {
+                return Ok(String::new());
+            }
+            Ok(body.trim_matches(['\n', '\r']).to_string())
+        })
+        .collect()
+}
 
 /// Join `cmds` into one command string for `AdbDriver::shell`.
 ///
@@ -57,6 +113,44 @@ pub fn split_batch(output: &str, n: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn checked_reads_reject_failed_or_missing_required_sections() {
+        let output =
+            format!("package:com.example\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n{BATCH_STATUS}1\n");
+        assert!(parse_checked_batch(&output, 2, &[0, 1]).is_err());
+        let empty_success =
+            output.replace(&format!("{BATCH_STATUS}1"), &format!("{BATCH_STATUS}0"));
+        assert_eq!(
+            parse_checked_batch(&empty_success, 2, &[0, 1]).unwrap()[1],
+            ""
+        );
+        assert!(parse_checked_batch("package:com.example", 2, &[0, 1]).is_err());
+        assert!(
+            parse_checked_batch(&format!("{BATCH_STATUS}0\n{BATCH_SEPARATOR}"), 2, &[0, 1])
+                .is_err()
+        );
+        assert_eq!(parse_checked_batch(&output, 2, &[0]).unwrap()[1], "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn checked_batch_records_each_real_shell_exit_even_if_the_last_succeeds() {
+        let cmd = checked_batch_command(&["printf packages", "exit 7", "printf memory"]);
+        let output = std::process::Command::new("sh")
+            .args(["-c", &cmd])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(parse_checked_batch(&stdout, 3, &[0, 1])
+            .unwrap_err()
+            .contains("exit 7"));
+        assert_eq!(
+            parse_checked_batch(&stdout, 3, &[0, 2]).unwrap(),
+            ["packages", "", "memory"]
+        );
+    }
 
     #[test]
     fn joins_with_semicolons_and_discards_stderr() {

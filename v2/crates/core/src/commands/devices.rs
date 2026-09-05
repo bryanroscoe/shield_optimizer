@@ -48,7 +48,7 @@ pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> 
             continue;
         }
 
-        let props = harvest_properties(&*adb, &e.serial).await;
+        let props = harvest_properties(&*adb, &e.serial).await?;
         let device_type = detect_device_type(&props);
 
         // Friendly name: custom device_name if set, else brand-based.
@@ -269,7 +269,7 @@ pub fn normalize_connect_address(address: &str) -> Result<String, String> {
 /// Batch-query device properties in a single shell call (matches v1's
 /// optimization). The exact prop set is the union of what v1 used in
 /// `Get-Devices` and `Show-DeviceProfile`.
-async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperties {
+async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> Result<DeviceProperties, String> {
     // Use a sentinel string to delimit each prop output line — robust against
     // empty values that would otherwise collapse adjacent lines.
     let cmd = "settings get global device_name; getprop ro.product.brand; \
@@ -279,20 +279,16 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
                getprop ro.board.platform; getprop ro.build.characteristics; \
                getprop ro.serialno";
 
-    let out = match adb.shell(serial, cmd).await {
-        Ok(out) => out,
-        Err(e) => {
-            // A transport error here degrades the device to generic
-            // "Android TV" / "Unknown Device" names. Log it so a degraded
-            // label is diagnosable instead of silently swallowed.
-            tracing::warn!(
-                serial = %serial,
-                error = %e,
-                "harvest_properties: getprop shell failed; using default device properties"
-            );
-            return DeviceProperties::default();
-        }
-    };
+    let out = adb
+        .shell(serial, cmd)
+        .await
+        .map_err(|e| format!("device profile: {e}"))?;
+    if out.stdout.trim().is_empty() || out.exit_code.is_some_and(|code| code != 0) {
+        return Err(format!(
+            "device profile unavailable: {}",
+            out.combined().trim()
+        ));
+    }
 
     let lines: Vec<&str> = out.stdout.lines().collect();
     let get = |i: usize| -> String {
@@ -314,7 +310,7 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
         Some(raw_friendly)
     };
 
-    DeviceProperties {
+    Ok(DeviceProperties {
         friendly_name,
         brand: get(1),
         model: get(2),
@@ -326,7 +322,7 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> DeviceProperti
         board_platform: get(8),
         characteristics: get(9),
         serial_number: get(10),
-    }
+    })
 }
 
 const MAX_DEVICE_NAME_LEN: usize = 64;
@@ -436,6 +432,22 @@ fn friendly_model_for(device_type: DeviceType, props: &DeviceProperties) -> Stri
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn lost_socket_during_profiling_is_not_an_authorized_device() {
+        let state = state_with(
+            MockAdb::default()
+                .on_raw(
+                    "devices",
+                    "List of devices attached\n192.168.1.2:5555\tdevice\n",
+                )
+                .on_shell_err("getprop", "Connection to the TV was lost"),
+        );
+        let error = list_devices_impl(&state)
+            .await
+            .expect_err("profile must fail");
+        assert!(error.contains("Connection to the TV was lost"));
+    }
 
     #[tokio::test]
     async fn list_devices_impl_parses_authorized_and_unauthorized() {

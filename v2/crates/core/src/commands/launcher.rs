@@ -48,7 +48,7 @@ pub async fn list_launchers_impl(
     // The old `tokio::join!` bought no concurrency on the mobile transport,
     // which serializes every shell behind one connection.
     let adb = state.adb_snapshot().await;
-    let cmd = crate::adb::batch_command(&[
+    let cmd = crate::adb::checked_batch_command(&[
         "pm list packages",
         "pm list packages -d",
         HOME_HANDLER_QUERY,
@@ -57,13 +57,10 @@ pub async fn list_launchers_impl(
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = crate::adb::split_batch(&out.stdout, 3);
+    let sections = crate::adb::parse_checked_batch(&out.stdout, 3, &[0, 1])?;
 
     let installed_pkgs = crate::adb::parse_installed_packages_output(&sections[0]);
-    // The batch exits with the last sub-command's status, so a failed
-    // `pm list packages` reads as success with an empty section. Every launcher
-    // would then render as not-installed, hiding the Enable path — surface the
-    // failure the fan-out version reported instead.
+    // An empty installed list must not hide every launcher's Enable path.
     if installed_pkgs.is_empty() {
         return Err("pm list packages: no packages reported".to_string());
     }
@@ -660,7 +657,11 @@ mod tests {
     /// Device output for a batched shell: sections joined by the sentinel the
     /// device would echo between sub-commands.
     fn batched(sections: &[&str]) -> String {
-        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+        sections
+            .iter()
+            .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
+            .collect::<Vec<_>>()
+            .join(&format!("\n{BATCH_SEPARATOR}\n"))
     }
 
     #[tokio::test]
@@ -715,22 +716,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_launchers_degrades_when_the_home_query_section_is_missing() {
-        // Truncated batch (only two sections came back): catalog rows survive,
-        // the "other handler" rows just don't appear.
+    async fn list_launchers_degrades_when_the_home_query_is_empty() {
         let mock = MockAdb::default().on_shell(
             BATCH_SEPARATOR,
-            &batched(&["package:com.google.android.tvlauncher", ""]),
+            &batched(&["package:com.google.android.tvlauncher", "", ""]),
         );
         let state = state_with(mock);
 
         let rows = list_launchers_impl(&state, "list-launchers-degraded")
             .await
-            .unwrap_or_else(|e| panic!("rows despite a missing HOME section: {e}"));
+            .unwrap_or_else(|e| panic!("rows despite an empty HOME query: {e}"));
         assert!(rows
             .iter()
             .any(|r| r.entry.package == "com.google.android.tvlauncher"));
         assert!(!rows.iter().any(|r| r.other));
+    }
+
+    #[tokio::test]
+    async fn list_launchers_rejects_failed_disabled_reads_before_pruning_tracking() {
+        let status = crate::adb::batch::BATCH_STATUS;
+        let output = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n{BATCH_SEPARATOR}\n{status}0\n");
+        let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &output));
+        assert!(list_launchers_impl(&state, "serial").await.is_err());
     }
 
     #[tokio::test]

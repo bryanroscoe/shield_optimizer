@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
+  import { router } from "../lib/router.svelte";
   import { listSavedDevices } from "../lib/savedDevices";
   import type { Screen } from "../lib/router.svelte";
   import type { SavedDevice, ScreenshotResult } from "../lib/types";
@@ -135,12 +136,12 @@
     rebootConfirm = false;
     if (busyAction) return;
     busyAction = "reboot";
+    const generation = session.generation;
     try {
       const r = await api.rebootDevice(session.serial, "normal");
       showToast(r.ok ? "Reboot command sent." : r.message || "Reboot failed.", r.ok ? "success" : "error");
       if (r.ok) {
-        // Device drops the ADB socket on reboot; tear down and return to scan.
-        setTimeout(() => onDisconnect(), 1500);
+        if (await session.finishReboot(generation)) router.reset("onboarding");
       }
     } catch (e) {
       showToast(String(e), "error");

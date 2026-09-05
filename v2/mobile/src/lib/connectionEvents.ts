@@ -7,8 +7,17 @@ const LOST_PATTERNS = [
   /Not connected to a device\./i,
 ];
 
-type Listener = () => void;
+type Listener = (generation: number) => void;
 const listeners = new Set<Listener>();
+let generation = 0;
+
+export function setConnectionGeneration(value: number): void {
+  generation = value;
+}
+
+export function connectionGeneration(): number {
+  return generation;
+}
 
 export function isConnectionLostError(message: string): boolean {
   return LOST_PATTERNS.some((p) => p.test(message));
@@ -19,6 +28,6 @@ export function onConnectionLost(listener: Listener): () => void {
   return () => listeners.delete(listener);
 }
 
-export function emitConnectionLost(): void {
-  for (const listener of listeners) listener();
+export function emitConnectionLost(requestGeneration: number): void {
+  for (const listener of listeners) listener(requestGeneration);
 }

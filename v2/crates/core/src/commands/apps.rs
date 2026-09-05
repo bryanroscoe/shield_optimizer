@@ -11,8 +11,9 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    batch_command, parse_disabled_packages_output, parse_installed_packages_output,
-    parse_permission_granted, parse_total_pss_by_process, parse_usage_stats, split_batch, AppUsage,
+    checked_batch_command, parse_checked_batch, parse_disabled_packages_output,
+    parse_installed_packages_output, parse_permission_granted, parse_total_pss_by_process,
+    parse_usage_stats, AppUsage,
 };
 use crate::engine::{classify_safety, is_valid_package_name, Safety};
 use crate::license::Feature;
@@ -69,20 +70,18 @@ pub async fn package_states_impl(
     packages: Vec<String>,
 ) -> Result<HashMap<String, PackageState>, String> {
     let adb = state.adb_snapshot().await;
-    let cmd = batch_command(&["pm list packages", "pm list packages -d"]);
+    let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = split_batch(&out.stdout, 2);
+    let sections = parse_checked_batch(&out.stdout, 2, &[0, 1])?;
 
     let installed_set: HashSet<String> = parse_installed_packages_output(&sections[0])
         .into_iter()
         .collect();
-    // A `;`-chained batch exits with the *last* command's status, so a broken
-    // `pm list packages` no longer shows up as a transport error. An empty
-    // installed list would silently report every package as Missing, so treat
-    // it as the failure it is — the same error the fan-out version returned.
+    // An Android device always has installed packages. An empty result must
+    // not make every requested package appear missing, even with exit zero.
     if installed_set.is_empty() {
         return Err("pm list packages: no packages reported".to_string());
     }
@@ -153,10 +152,9 @@ pub async fn list_other_packages_impl(
 
     let adb = state.adb_snapshot().await;
 
-    // One round-trip instead of three sequential ones. The `-3` and `-d`
-    // sections still degrade to empty (system/enabled fallback) rather than
-    // failing the list, exactly as their individual timeouts did.
-    let cmd = batch_command(&[
+    // Third-party classification is optional; installed and disabled state
+    // must both be known before exposing app actions.
+    let cmd = checked_batch_command(&[
         "pm list packages",
         "pm list packages -3",
         "pm list packages -d",
@@ -165,12 +163,10 @@ pub async fn list_other_packages_impl(
         .await
         .map_err(|_| "pm list packages timed out".to_string())?
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = split_batch(&batched.stdout, 3);
+    let sections = parse_checked_batch(&batched.stdout, 3, &[0, 2])?;
 
     let all_pkgs = parse_installed_packages_output(&sections[0]);
-    // The batch exits with the last sub-command's status, so a failed
-    // `pm list packages` reads as success with an empty section. Surface it
-    // instead of rendering an empty "Everything else" list.
+    // Exit zero with no installed packages is still an unusable device read.
     if all_pkgs.is_empty() {
         return Err("pm list packages: no packages reported".to_string());
     }
@@ -633,12 +629,32 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn disabled_read_failure_never_becomes_enabled_state() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let status = crate::adb::batch::BATCH_STATUS;
+        let two = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n");
+        let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &two));
+        assert!(
+            package_states_impl(&state, "serial", vec!["com.example".into()])
+                .await
+                .is_err()
+        );
+        let three = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n");
+        let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &three));
+        assert!(list_other_packages_impl(&state, "serial").await.is_err());
+    }
     use crate::adb::BATCH_SEPARATOR;
 
     /// Device output for a batched shell: sections joined by the sentinel the
     /// device would echo between sub-commands.
     fn batched(sections: &[&str]) -> String {
-        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+        sections
+            .iter()
+            .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
+            .collect::<Vec<_>>()
+            .join(&format!("\n{BATCH_SEPARATOR}\n"))
     }
 
     #[test]

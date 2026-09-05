@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
+  import { router } from "../lib/router.svelte";
   import { frontendLogText } from "../lib/log";
   import { api } from "../lib/api";
   import type { Screen } from "../lib/router.svelte";
@@ -147,10 +148,11 @@
     rebootTarget = null;
     if (!mode || rebooting || !session.serial) return;
     rebooting = true;
+    const generation = session.generation;
     try {
       const r = await api.rebootDevice(session.serial, mode);
       showToast(r.ok ? `${rebootLabels[mode]} command sent.` : r.message || "Reboot failed.", r.ok ? "success" : "error");
-      if (r.ok) setTimeout(() => onDisconnect(), 1500);
+      if (r.ok && await session.finishReboot(generation)) router.reset("onboarding");
     } catch (e) {
       showToast(String(e), "error");
     } finally {

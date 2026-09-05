@@ -70,11 +70,15 @@ jobs:
 
       - name: cargo clippy
         working-directory: v2
-        run: cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo test
         working-directory: v2
-        run: cargo test -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb
+        run: cargo test --workspace
+
+      - name: Vendored transport tests
+        working-directory: v2/vendor/adb_client
+        run: cargo test --lib
 
   frontend:
     name: Frontend type check
@@ -125,3 +129,11 @@ jobs:
       - name: Frontend build
         working-directory: v2/mobile
         run: npm run build
+
+      - name: Install test browser
+        working-directory: v2/mobile
+        run: npx playwright install --with-deps chromium
+
+      - name: Mobile behavior regressions
+        working-directory: v2/mobile
+        run: npm test

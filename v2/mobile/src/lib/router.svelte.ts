@@ -3,6 +3,8 @@
 // button is intercepted via the webview history (popstate) so it pops the
 // stack instead of exiting the app on the first press.
 
+import { session } from "./session.svelte";
+
 export type Screen =
   | "onboarding"
   // Onboarding pushed from Devices to add a TV; never auto-dials.
@@ -60,6 +62,7 @@ class Router {
   /// Replace the whole stack — used when entering/leaving the connected
   /// session (onboarding <-> dashboard).
   reset(screen: Screen): void {
+    if (session.applyInProgress) return;
     this.stack = [screen];
     syncHistory(this.stack.length);
   }
@@ -68,6 +71,7 @@ class Router {
   /// Home tab always lands on the dashboard and back from any tab returns
   /// there; detail screens push onto the stack.
   navigate(screen: Screen): void {
+    if (session.applyInProgress) return;
     if (screen === this.current) return;
     if (TABS.has(screen)) {
       this.stack =
@@ -79,16 +83,22 @@ class Router {
   }
 
   push(screen: Screen): void {
+    if (session.applyInProgress) return;
     this.stack = [...this.stack, screen];
     syncHistory(this.stack.length);
   }
 
   replace(screen: Screen): void {
+    if (session.applyInProgress) return;
     this.stack = [...this.stack.slice(0, -1), screen];
   }
 
   /// Pop one level. Returns false when already at the root (nothing to pop).
   back(): boolean {
+    if (session.applyInProgress) {
+      syncHistory(this.stack.length);
+      return true;
+    }
     if (this.stack.length > 1) {
       this.stack = this.stack.slice(0, -1);
       syncHistory(this.stack.length);

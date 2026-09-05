@@ -281,23 +281,33 @@ pub async fn pull_file(
     serial: String,
     remote_path: String,
 ) -> Result<PulledFile, String> {
-    let remote = validate_device_path(&remote_path)?;
+    pull_file_impl(state.inner(), &serial, &remote_path).await
+}
+
+async fn pull_file_impl(
+    state: &AppState,
+    serial: &str,
+    remote_path: &str,
+) -> Result<PulledFile, String> {
+    let remote = validate_device_path(remote_path)?;
     let remote_name = basename(&remote)
         .ok_or_else(|| format!("Not a file path: {remote}"))?
         .to_string();
     let dir = state.data_dir.join("downloads");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
-    let local = unique_download_path(&dir, &remote_name)?;
-    let local_str = local.to_string_lossy().into_owned();
+    let temporary = tempfile::NamedTempFile::new_in(&dir)
+        .map_err(|e| format!("stage download: {e}"))?
+        .into_temp_path();
 
     let adb = state.adb_snapshot().await;
-    adb.raw_transfer(&["-s", &serial, "pull", &remote, &local_str])
+    adb.pull_limited(serial, &remote, &temporary, MAX_PULL_BYTES)
         .await
         .map_err(|e| format!("pull: {e}"))?;
 
-    let size_bytes = std::fs::metadata(&local).map(|m| m.len()).unwrap_or(0);
+    let size_bytes = std::fs::metadata(&temporary)
+        .map_err(|e| format!("download metadata: {e}"))?
+        .len();
     if size_bytes > MAX_PULL_BYTES {
-        let _ = std::fs::remove_file(&local);
         return Err(format!(
             "{remote_name} is {:.1} GiB — over the {:.0} GiB limit for a single download. \
              Nothing was kept on this phone.",
@@ -305,6 +315,8 @@ pub async fn pull_file(
             MAX_PULL_BYTES as f64 / BYTES_PER_GIB,
         ));
     }
+    let local = publish_download(temporary, &dir, &remote_name)?;
+    let local_str = local.to_string_lossy().into_owned();
     Ok(PulledFile {
         // The saved name, which may carry a ` (2)` suffix — the UI points at
         // the file that actually exists.
@@ -316,6 +328,22 @@ pub async fn pull_file(
         path: local_str,
         size_bytes,
     })
+}
+
+fn publish_download(
+    mut temporary: tempfile::TempPath,
+    dir: &Path,
+    name: &str,
+) -> Result<PathBuf, String> {
+    for _ in 0..MAX_DUPLICATE_SUFFIX {
+        let local = unique_download_path(dir, name)?;
+        match temporary.persist_noclobber(&local) {
+            Ok(()) => return Ok(local),
+            Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => temporary = e.path,
+            Err(e) => return Err(format!("publish download: {e}")),
+        }
+    }
+    Err("Could not reserve a download name. Retry the download.".into())
 }
 
 /// `backup_apk` — resolve every APK reported by `pm path` and pull the complete
@@ -565,6 +593,88 @@ fn file_modified_iso(meta: &std::fs::Metadata) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct DownloadDriver {
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl shield_optimizer_core::adb::AdbDriver for DownloadDriver {
+        async fn raw(
+            &self,
+            _: &[&str],
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            unreachable!()
+        }
+        async fn shell(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            unreachable!()
+        }
+        async fn pull_limited(
+            &self,
+            serial: &str,
+            remote: &str,
+            local: &Path,
+            limit: u64,
+        ) -> shield_optimizer_core::adb::AdbResult<()> {
+            assert_eq!(serial, "TV");
+            assert_eq!(remote, "/sdcard/report.txt");
+            assert_eq!(limit, MAX_PULL_BYTES);
+            std::fs::write(local, b"data")?;
+            if self.fail {
+                return Err(std::io::Error::other("disk full").into());
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_download_removes_partial_output_and_preserves_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = dir.path().join("downloads");
+        std::fs::create_dir(&downloads).unwrap();
+        std::fs::write(downloads.join("report.txt"), b"original").unwrap();
+        let state = AppState::new(
+            std::sync::Arc::new(DownloadDriver { fail: true }),
+            Default::default(),
+            dir.path().to_path_buf(),
+        );
+        assert!(pull_file_impl(&state, "TV", "/sdcard/report.txt")
+            .await
+            .is_err());
+        assert_eq!(std::fs::read_dir(&downloads).unwrap().count(), 1);
+        assert_eq!(
+            std::fs::read(downloads.join("report.txt")).unwrap(),
+            b"original"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_downloads_publish_distinct_complete_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(
+            std::sync::Arc::new(DownloadDriver { fail: false }),
+            Default::default(),
+            dir.path().to_path_buf(),
+        );
+        let (a, b) = tokio::join!(
+            pull_file_impl(&state, "TV", "/sdcard/report.txt"),
+            pull_file_impl(&state, "TV", "/sdcard/report.txt")
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert_ne!(a.path, b.path);
+        assert_eq!(std::fs::read(a.path).unwrap(), b"data");
+        assert_eq!(std::fs::read(b.path).unwrap(), b"data");
+        assert_eq!(
+            std::fs::read_dir(dir.path().join("downloads"))
+                .unwrap()
+                .count(),
+            2
+        );
+    }
 
     #[test]
     fn parses_every_split_apk_path() {

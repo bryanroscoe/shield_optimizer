@@ -87,6 +87,19 @@ pub trait AdbDriver: Send + Sync {
         self.raw(args).await
     }
 
+    /// Download with a limit enforced while streaming, not after allocation.
+    async fn pull_limited(
+        &self,
+        _serial: &str,
+        _remote: &str,
+        _local: &std::path::Path,
+        _max_bytes: u64,
+    ) -> AdbResult<()> {
+        Err(AdbError::Unsupported {
+            operation: "pull_limited",
+        })
+    }
+
     /// Run `adb -s <serial> shell <command>`.
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput>;
 

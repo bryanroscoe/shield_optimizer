@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ATV Optimizer — Android App Feasibility & Go-to-Market</title>
+<style>
+  :root{
+    --bg:#0e1116; --surface:#161b22; --surface2:#1c2128; --border:#2a313c;
+    --fg:#e6edf3; --fg2:#aeb9c4; --muted:#7d8590; --accent:#58a6ff; --accent2:#1f6feb;
+    --ok:#3fb950; --ok-bg:#16291d; --warn:#d29922; --warn-bg:#2e2510; --bad:#f85149; --bad-bg:#2d1618;
+    --purple:#a371f7;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Ubuntu,sans-serif;line-height:1.55}
+  .wrap{max-width:920px;margin:0 auto;padding:2rem 1.25rem 4rem}
+  h1{font-size:1.7rem;margin:0 0 .3rem;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:.95rem;margin-bottom:1.6rem}
+  h2{font-size:1.18rem;margin:2.2rem 0 .7rem;padding-top:1.1rem;border-top:1px solid var(--border);letter-spacing:-.01em}
+  h2 .n{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:.5rem}
+  h3{font-size:1rem;margin:1.1rem 0 .3rem;color:var(--fg)}
+  p{margin:.5rem 0}
+  ul{margin:.5rem 0;padding-left:1.2rem}
+  li{margin:.3rem 0}
+  code{background:var(--surface2);padding:.1rem .35rem;border-radius:4px;font-size:.86em;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .verdict{background:linear-gradient(135deg,#10243a,#13182160);border:1px solid var(--accent2);
+    border-radius:12px;padding:1.2rem 1.3rem;margin-bottom:.5rem}
+  .verdict .big{font-size:1.15rem;font-weight:650}
+  .verdict .big .go{color:var(--ok)}
+  .tag{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+    padding:.12rem .5rem;border-radius:999px;vertical-align:middle;margin-left:.4rem}
+  .t-high{background:var(--ok-bg);color:var(--ok)}
+  .t-med{background:var(--warn-bg);color:var(--warn)}
+  .t-risk{background:var(--bad-bg);color:var(--bad)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem 1.1rem;margin:.8rem 0}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
+  @media(max-width:620px){.grid{grid-template-columns:1fr}}
+  .pill{font-size:.78rem;color:var(--muted)}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;margin:.6rem 0}
+  .scroll{overflow-x:auto}
+  th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--fg2);font-weight:600;font-size:.82rem;text-transform:uppercase;letter-spacing:.03em}
+  .free{color:var(--ok)} .pro{color:var(--purple)}
+  .callout{border-left:3px solid var(--warn);background:var(--warn-bg);padding:.7rem .9rem;border-radius:0 8px 8px 0;margin:.8rem 0}
+  .callout.bad{border-color:var(--bad);background:var(--bad-bg)}
+  .callout.ok{border-color:var(--ok);background:var(--ok-bg)}
+  .callout b{color:var(--fg)}
+  .step{display:flex;gap:.8rem;margin:.6rem 0}
+  .step .dot{flex:none;width:1.7rem;height:1.7rem;border-radius:50%;background:var(--surface2);border:1px solid var(--border);
+    display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent);font-size:.85rem}
+  .src{font-size:.82rem;color:var(--muted);word-break:break-word}
+  .src li{margin:.15rem 0}
+  .lede{color:var(--fg2)}
+  hr{border:none;border-top:1px solid var(--border);margin:1.4rem 0}
+  .kicker{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Strategy memo · researched</div>
+  <h1>ATV Optimizer — Android app feasibility &amp; go-to-market</h1>
+  <div class="sub">A phone/tablet app that debloats an Android TV over Wi-Fi ADB · freemium with a one-time Pro unlock · synthesized from 24 sources, 23 verified claims</div>
+
+  <div class="verdict">
+    <div class="big"><span class="go">Build it.</span> It's technically feasible today, demand is real, and your architecture is unusually well-positioned for the port.</div>
+    <p style="margin:.6rem 0 0;color:var(--fg2)">The whole thing hinges on <b>one crux decision</b> — how you implement the Android-11+ ADB pairing transport — because the obvious off-the-shelf library (<code>libadb-android</code>) is <b>GPLv3</b>, which fights a closed-source paid app. Resolve that and the rest is a known quantity. Two landmines to route around: <b>Google Play removal risk</b> and the <b>"Android" naming rule</b>.</p>
+  </div>
+
+  <h2><span class="n">1</span>Can it even work?<span class="tag t-high">High confidence</span></h2>
+  <p class="lede">Yes. A non-rooted Android phone can act as an ADB <em>client</em> to another device over Wi-Fi, including the modern Android-11+ wireless-debugging pairing flow. The hard part is already solved in shipping code.</p>
+  <ul>
+    <li><b>The pairing flow is solved.</b> <code>libadb-android</code> (powers the well-known <em>App Manager</em>) exposes the whole Android-9+ TLS pairing as a single call — <code>AdbConnectionManager.pair(host, port, pairingCode)</code> — plus mDNS auto-discovery of the target (<code>_adb-tls-connect._tcp</code>). It connects to a remote <code>adbd</code> and runs arbitrary <code>shell:</code> commands. That's exactly your <code>pm disable-user</code> / <code>settings put</code> / <code>cmd package</code> surface.</li>
+    <li><b>Pure-Rust ADB exists but is missing the one piece you need.</b> <code>adb_client</code> (MIT, mature) talks to devices directly over USB/TCP with no adb-server — but it does <b>not</b> implement the Android-11+ TLS <em>pairing-code</em> flow. <code>dadb</code> (JVM) is the same story (pairing is an open request). So pairing is the part you build or borrow.</li>
+    <li><b>Android-TV wrinkle.</b> The pairing-code UI needs <b>Android 13+</b> on the <em>TV</em> (phones are 11+). Your Shield-on-Android-11 fleet uses the older path — so the app needs <b>both</b>: pairing-code for TV-13+, and legacy <code>adb connect ip:5555</code> / tcpip for older TVs that expose it.</li>
+  </ul>
+
+  <h2><span class="n">2</span>Why your codebase is the right starting point<span class="tag t-high">High confidence</span></h2>
+  <p class="lede">This is a <b>port, not a rewrite</b> — because you already split pure logic from I/O.</p>
+  <div class="grid">
+    <div class="card"><h3 style="margin-top:0">Reuse as-is</h3>
+      <ul>
+        <li>The <b>pure Rust engine</b> (safety classification, debloat plans, do-not-disable gate) ships on Android via Tauri 2's mobile plugin path + JNI. No logic rewrite.</li>
+        <li>The <b>Svelte 5 UI</b> is already responsive SPA — Tauri 2 runs it on Android.</li>
+        <li>Your <code>AdbDriver</code> trait is the seam: the phone just gets a <b>new driver</b> backed by the wireless transport instead of <code>SubprocessAdb</code>.</li>
+      </ul>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Build new</h3>
+      <ul>
+        <li>The <b>transport</b>: there's no <code>adb</code> binary on a phone — the app <em>is</em> the client. New pairing + connection layer (the crux below).</li>
+        <li><b>Pairing UX</b> for non-technical users (enable wireless debugging on the TV, enter code).</li>
+        <li>Touch-first nav + the on-TV enablement walkthrough.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout ok"><b>The payoff of the pure-engine discipline:</b> the audited safety layer and the curated app lists move over untouched. You're swapping the bottom 20% (transport), keeping the valuable 80% (what's safe to disable, plans, snapshots).</div>
+
+  <h2><span class="n">3</span>The crux: the pairing transport &amp; a license trap<span class="tag t-risk">Decide this first</span></h2>
+  <p class="lede">The fastest library is <code>libadb-android</code> — but it's <b>GPLv3 (copyleft)</b>. Link it into a paid, closed-source app and you're obligated to release the whole app's source, which guts a paid model (anyone can rebuild and redistribute free). This is the single most important call.</p>
+  <table class="scroll-table">
+    <div class="scroll"><table>
+      <tr><th>Option</th><th>Effort</th><th>License fit for paid app</th><th>Verdict</th></tr>
+      <tr><td><b>A. Kotlin + libadb-android</b></td><td class="free">Lowest — it's done</td><td class="pro">✗ GPLv3 forces source release</td><td>Great for a <em>free/OSS</em> build; bad for a closed Pro tier</td></tr>
+      <tr><td><b>B. Clean-room ADB-TLS pairing</b> (Rust, contributed to <code>adb_client</code>, or own Kotlin)</td><td class="pro">Highest — implement SPAKE2 + TLS pairing</td><td class="free">✓ Permissive / yours</td><td><b>Recommended</b> — keeps it all-Rust, permissive, and reusable on desktop too</td></tr>
+      <tr><td><b>C. Legacy-only</b> (<code>adb connect 5555</code>, no pairing)</td><td class="free">Low</td><td class="free">✓ <code>adb_client</code> is MIT</td><td>Ships fast but only works on TVs exposing port 5555 — weaker UX, narrower device support</td></tr>
+    </table></div>
+  </table>
+  <p>My lean: ship a <b>v1 on Option C</b> (legacy connect via the MIT Rust crate — covers Shield-on-11 and any TV with network debugging, fully permissive) to validate the market, while building <b>Option B</b> (pairing-code support, ideally upstreamed to <code>adb_client</code>) for the broad TV-13+ audience. Avoid A for anything you want to charge for.</p>
+
+  <h2><span class="n">4</span>Distribution: sideload-first, Play cautiously<span class="tag t-med">Medium confidence</span></h2>
+  <p class="lede">Google Play is a real removal risk for this category — don't bet the product on it.</p>
+  <ul>
+    <li>Play's <b>Device &amp; Network Abuse</b> policy broadly bans apps that "interfere with, disrupt… or access in an unauthorized manner… <em>other devices</em>… networks or services." An app that disables/uninstalls apps on another device over ADB sits squarely in the blast radius. Comparable tools (App Manager, ADB AppControl) live <b>off Play</b> (F-Droid, own site, XDA).</li>
+    <li><span class="tag t-risk" style="margin:0">Note</span> "We get consent, so we're fine" is <b>not</b> a safe harbor — that specific compliance angle was refuted in verification. Don't rely on it.</li>
+  </ul>
+  <div class="callout"><b>Recommendation:</b> <b>sideload-first</b> — own-site APK download, exactly like your desktop app already distributes unsigned. Add Amazon Appstore / F-Droid (if you OSS a free build). Treat Play as an <em>optional, conservatively-worded</em> secondary listing you can afford to lose — never the only channel and never the payment chokepoint.</div>
+
+  <h2><span class="n">5</span>Naming: you're right, with a caveat<span class="tag t-high">High confidence</span></h2>
+  <p>Google's brand guidelines: <b>"Android" cannot appear in an app name</b> (only "<em>for</em> Android"), and <b>"Android TV" is prior-approval-only</b>. Their own example bans "Android TV Streaming Stick."</p>
+  <ul>
+    <li><b>❌ "Android TV Optimizer"</b> — not allowed.</li>
+    <li><b>✅ "ATV Optimizer"</b> — your instinct is the safe one. A coined brand (e.g. a unique name) is even safer for trademark + ASO, with "<em>for Android TV</em>" only in the description/subtitle, not the title.</li>
+    <li>Bonus: dropping "Shield" also frees you from Nvidia's mark and matches a tool that already spans Google TV + generic Android TV.</li>
+  </ul>
+
+  <h2><span class="n">6</span>Monetization: one-time Pro unlock<span class="tag t-med">Medium confidence</span></h2>
+  <ul>
+    <li><b>On Play:</b> a one-time "managed product" via Play Billing. Fee is <b>15% on the first $1M/yr</b> — <em>but</em> only if you <b>enroll</b> (default is 30% from dollar one), and the US/EEA/UK fee structure is <b>changing 30 Jun 2026</b>, so re-check before relying on numbers.</li>
+    <li><b>Off Play (where you'll mostly live):</b> sell a license key via <b>Lemon Squeezy / Gumroad / Polar / Stripe</b> (they act as merchant of record, handle VAT). Validate the key in-app (online check + offline grace). No Play cut, no Play removal risk. Trade-off: a sideloaded paid APK <b>will</b> be cracked by some — accept it; price for the honest majority.</li>
+    <li><b>Price band:</b> the research did <em>not</em> pin hard benchmarks (flagged as an open question). Category norm for a one-time utility Pro unlock is roughly <b>$5–10</b>; I'd start ~$6–8 and test. Validate this before launch.</li>
+  </ul>
+
+  <h2><span class="n">7</span>Recommended Free vs Pro split</h2>
+  <div class="scroll"><table>
+    <tr><th>Capability</th><th>Free</th><th>Pro (one-time)</th></tr>
+    <tr><td>Pair + connect to a TV over Wi-Fi</td><td class="free">✓</td><td class="pro">✓</td></tr>
+    <tr><td>Curated <b>safe</b> debloat on <b>one</b> device</td><td class="free">✓</td><td class="pro">✓</td></tr>
+    <tr><td>Full app catalog + advanced/aggressive tiers</td><td>—</td><td class="pro">✓</td></tr>
+    <tr><td>Snapshots (save/restore full state)</td><td>—</td><td class="pro">✓</td></tr>
+    <tr><td>Custom launcher takeover</td><td>—</td><td class="pro">✓</td></tr>
+    <tr><td>Tweaks (HDMI-CEC, scaling, frame-rate, etc.)</td><td>—</td><td class="pro">✓</td></tr>
+    <tr><td>Remote control (scrcpy)</td><td>—</td><td class="pro">✓</td></tr>
+    <tr><td>Multiple devices</td><td>—</td><td class="pro">✓</td></tr>
+  </table></div>
+  <p class="pill">Principle: Free proves the magic (it connected, it cleaned up my TV, no PC) on one device with the safe list — enough to earn trust. Pro is "power + safety net + scale," which is exactly what the people already asking will pay to unlock.</p>
+
+  <h2><span class="n">8</span>Competitor: atvtools<span class="tag t-risk">Unverified — re-check</span></h2>
+  <p class="lede">This is the weakest part of the research and worth a focused follow-up before you size the gap.</p>
+  <ul>
+    <li>Verification <b>refuted</b> (0–3) the claim that atvtools is the phone-drives-TV-over-network model, with one source saying it's <b>iOS</b>. But there's also a Play listing <code>dev.vodik7.atvtools</code> — which suggests an <b>Android app does exist</b>. Net: its exact platform, pricing, distribution, and reviews are <b>unconfirmed</b>.</li>
+    <li>What <em>is</em> clear: the feature space is demand-validated. atvTools' described features (app disable/hide, cache clear, shell, sideload, file push, button remap, remote) heavily overlap yours; ADB AppControl ships a dedicated "ADB TV" variant with a <b>paid</b> debloat-recommendations tier. People pay for this.</li>
+  </ul>
+  <div class="callout">Your differentiation regardless of where atvtools lands: <b>the safety story</b> (audited do-not-disable gate, snapshots/undo, curated per-device lists) + a <b>genuinely no-PC, clean pairing UX</b>. "Debloat your TV from your phone without bricking it, and undo anything" is a sharper promise than the grab-bag tools.</div>
+
+  <h2><span class="n">9</span>Roadmap &amp; rough effort</h2>
+  <div class="step"><div class="dot">1</div><div><b>Spike the transport (1–2 wks).</b> Prove a phone can <code>adb connect</code> a Shield over the network via the MIT Rust <code>adb_client</code> and run <code>pm disable-user</code>. De-risks everything.</div></div>
+  <div class="step"><div class="dot">2</div><div><b>Engine + UI on Tauri-mobile (2–4 wks).</b> Wire the pure Rust engine via JNI, get the Svelte UI touch-usable, implement a new <code>AdbDriver</code> over the spike transport.</div></div>
+  <div class="step"><div class="dot">3</div><div><b>Pairing-code support (the long pole, 3–6 wks).</b> Option B — implement Android-13+ TLS pairing (SPAKE2 handshake), ideally upstreamed to <code>adb_client</code> so desktop benefits too. Or defer to v1.1 and ship legacy-only first.</div></div>
+  <div class="step"><div class="dot">4</div><div><b>Monetization + distribution (1–2 wks).</b> Free/Pro gate, license-key check (Lemon Squeezy), own-site APK, conservative store listings.</div></div>
+  <p class="pill">Solo, part-time: a credible legacy-connect v1 in <b>~6–8 weeks</b>; full pairing-code + polish a month or two beyond. The pairing transport is the only genuinely uncertain estimate.</p>
+
+  <h2><span class="n">10</span>Before you commit — verify these</h2>
+  <ul>
+    <li><b>atvtools, for real:</b> platform (Android <code>dev.vodik7.atvtools</code> vs iOS vs on-TV), price, reviews, channel. (I can do a focused dig.)</li>
+    <li><b>License path:</b> can libadb-android be isolated behind a boundary, or is Option B (clean-room pairing) the only way to keep Pro proprietary? Get this answered before writing transport code.</li>
+    <li><b>Pairing UX on TV-13+:</b> the wireless-debugging screen is buried and the code expires — can a non-technical user do it without a PC? Build a guided flow (you already have on-TV walkthrough patterns).</li>
+    <li><b>Price benchmarks &amp; demand signal:</b> concrete comps for one-time debloat/TV-utility unlocks, and search/forum volume for "no-PC Shield debloat."</li>
+  </ul>
+
+  <hr/>
+  <h3>Sources <span class="pill">(primary unless noted)</span></h3>
+  <ul class="src">
+    <li>libadb-android — github.com/MuntashirAkon/libadb-android · Android ADB docs — developer.android.com/tools/adb</li>
+    <li>adb_client (Rust, MIT) — crates.io/crates/adb_client · github.com/cocool97/adb_client · dadb pairing request — github.com/mobile-dev-inc/dadb/issues/25</li>
+    <li>Tauri 2 mobile plugins / JNI — v2.tauri.app/develop/plugins/develop-mobile</li>
+    <li>Play Device &amp; Network Abuse + IP/trademark policy — support.google.com/googleplay/android-developer (answers 16559646, 9888072)</li>
+    <li>Android brand guidelines (naming) — developer.android.com/distribute/marketing-tools/brand-guidelines</li>
+    <li>Play service fee 15%/30% — support.google.com/googleplay/android-developer/answer/112622 · RevenueCat 15% reduced-fee notes</li>
+    <li>Merchant-of-record comparison (Polar/Lemon Squeezy/Gumroad) — veloxthemes.com/blog/polar-vs-lemonsqueezy-vs-gumroad</li>
+    <li>Competitors — adbappcontrol.com · tvdevinfo.com/atvtools <span class="pill">(platform unconfirmed)</span> · Level1Techs Shield debloat thread</li>
+  </ul>
+  <p class="pill" style="margin-top:1.2rem">Confidence: technical feasibility, engine reuse, naming, and Play policy = high. Monetization specifics (fees in flux 30 Jun 2026; price band) and the atvtools competitor profile = medium/unverified — flagged above.</p>
+</div>
+</body>
+</html>

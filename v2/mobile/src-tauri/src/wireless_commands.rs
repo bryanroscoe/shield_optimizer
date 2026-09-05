@@ -47,9 +47,11 @@ pub async fn wireless_connect(
     app_state: State<'_, AppState>,
     host: String,
     port: u16,
+    request_id: u64,
 ) -> Result<ConnectResult, String> {
+    state.wireless.begin_request(request_id)?;
     app_state.drop_all_remote_sessions().await;
-    match state.wireless.connect(host.trim(), port).await {
+    match state.wireless.connect(host.trim(), port, request_id).await {
         Ok(message) => Ok(ConnectResult { ok: true, message }),
         Err(message) => Ok(ConnectResult { ok: false, message }),
     }
@@ -59,12 +61,26 @@ pub async fn wireless_connect(
 pub async fn wireless_disconnect(
     state: State<'_, MobileState>,
     app_state: State<'_, AppState>,
+    request_id: u64,
 ) -> Result<ConnectResult, String> {
+    state.wireless.begin_request(request_id)?;
     app_state.drop_all_remote_sessions().await;
-    match state.wireless.disconnect().await {
+    match state.wireless.disconnect(request_id).await {
         Ok(message) => Ok(ConnectResult { ok: true, message }),
         Err(message) => Ok(ConnectResult { ok: false, message }),
     }
+}
+
+#[tauri::command]
+pub async fn wireless_cancel_connect(
+    state: State<'_, MobileState>,
+    request_id: u64,
+    canceled_request_id: u64,
+) -> Result<(), String> {
+    state
+        .wireless
+        .cancel_connect(request_id, canceled_request_id)
+        .await
 }
 
 /// `wireless_status` — cheap liveness probe the frontend polls to detect a

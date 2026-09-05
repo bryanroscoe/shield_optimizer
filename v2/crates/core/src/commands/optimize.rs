@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::adb::{
-    batch_command, parse_disabled_packages_output, parse_installed_packages_output,
-    parse_total_pss_by_process, split_batch,
+    checked_batch_command, parse_checked_batch, parse_disabled_packages_output,
+    parse_installed_packages_output, parse_total_pss_by_process,
 };
 use crate::engine::{compute_plan, OptimizeInputs, OptimizeMode, OptimizePlan};
 use crate::license::Feature;
@@ -54,20 +54,18 @@ pub async fn prepare_optimize_impl(
     // One round-trip: the mobile transport serializes concurrent shells behind
     // a single connection, so the old `tokio::join!` cost three Wi-Fi RTTs for
     // no concurrency.
-    let cmd = batch_command(&["pm list packages", "pm list packages -d", "dumpsys meminfo"]);
+    let cmd =
+        checked_batch_command(&["pm list packages", "pm list packages -d", "dumpsys meminfo"]);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = split_batch(&out.stdout, 3);
+    let sections = parse_checked_batch(&out.stdout, 3, &[0, 1])?;
 
     let installed_set: HashSet<String> = parse_installed_packages_output(&sections[0])
         .into_iter()
         .collect();
-    // The batch exits with the last sub-command's status, so a failed
-    // `pm list packages` reads as success with an empty section. Planning
-    // against an empty installed set would skip every app and look like a
-    // clean device — surface the failure instead.
+    // Never turn an unusable empty device read into an already-clean plan.
     if installed_set.is_empty() {
         return Err("pm list packages: no packages reported".to_string());
     }
@@ -144,6 +142,20 @@ pub async fn apply_performance_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn restore_refuses_a_failed_disabled_read_even_when_memory_succeeds() {
+        let status = crate::adb::batch::BATCH_STATUS;
+        let output = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n{BATCH_SEPARATOR}\nmemory\n{status}0\n");
+        let state = crate::commands::test_support::state_with(
+            MockAdb::default().on_shell(BATCH_SEPARATOR, &output),
+        );
+        assert!(
+            prepare_optimize_impl(&state, "serial", DeviceType::Shield, OptimizeMode::Restore)
+                .await
+                .is_err()
+        );
+    }
     use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::MockAdb;
     use crate::engine::{
@@ -154,7 +166,11 @@ mod tests {
     /// Device output for a batched shell: sections joined by the sentinel the
     /// device would echo between sub-commands.
     fn batched(sections: &[&str]) -> String {
-        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+        sections
+            .iter()
+            .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
+            .collect::<Vec<_>>()
+            .join(&format!("\n{BATCH_SEPARATOR}\n"))
     }
 
     fn bloat(pkg: &str) -> AppEntry {

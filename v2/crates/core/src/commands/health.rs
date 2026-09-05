@@ -122,24 +122,16 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
         "cat /proc/meminfo",
     ]);
 
-    // Generous: one timeout now covers what used to be seven calls, and the
-    // transport caps each individual read on its own. A failure or timeout
-    // still has to produce a report — every section degrades to its parser's
-    // default, exactly as a single failing call did before, and a truncated
-    // read only blanks the sections that never arrived.
-    let batched = match timeout(Duration::from_secs(30), adb.shell(serial, &cmd)).await {
-        Ok(Ok(out)) => out.stdout,
-        Ok(Err(e)) => {
-            tracing::warn!(error = %e, "health batch shell failed; reporting defaults");
-            String::new()
-        }
-        Err(_) => {
-            tracing::warn!("health batch shell timed out; reporting defaults");
-            String::new()
-        }
-    };
+    let batched = timeout(Duration::from_secs(30), adb.shell(serial, &cmd))
+        .await
+        .map_err(|_| "Health report timed out after 30 seconds.".to_string())?
+        .map_err(|e| format!("health report: {e}"))?
+        .stdout;
 
     let sections = split_batch(&batched, 7);
+    if sections.iter().all(|section| section.trim().is_empty()) {
+        return Err("The TV returned no health data. Retry the report.".into());
+    }
     let display_text = &sections[0];
     let mem_text = &sections[1];
     let thermal_text = &sections[2];
@@ -328,14 +320,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_batch_still_returns_a_default_report() {
+    async fn a_failed_batch_preserves_the_transport_error() {
         let state = state_with(MockAdb::default().on_shell_err(BATCH_SEPARATOR, "device offline"));
 
-        let report = health_report_for(&state, "serial")
+        let error = health_report_for(&state, "serial")
             .await
-            .unwrap_or_else(|e| panic!("a failed shell must degrade, not error: {e}"));
-        assert_eq!(report.ram.total_mb, None);
-        assert_eq!(report.storage.used_percent, None);
-        assert!(report.top_memory.is_empty());
+            .err()
+            .expect("must fail");
+        assert!(error.contains("device offline"));
     }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import {
@@ -33,6 +33,7 @@
   let reconnectError = $state("");
   let connectingHost = $state("");
   let connectingName = $state("");
+  let connectionAttempt = 0;
   const primarySaved = $derived(savedDevices[0] ?? null);
 
   onMount(() => {
@@ -46,13 +47,14 @@
 
   async function attemptReconnect(d: SavedDevice) {
     if (connectingHost) return;
+    const attempt = ++connectionAttempt;
     reconnectError = "";
     connectingHost = d.host;
     connectingName = d.name;
     try {
       const r = await session.connect(d.host, d.connectPort);
       // Cancelled attempts resolve later; ignore them.
-      if (connectingHost !== d.host) return;
+      if (attempt !== connectionAttempt) return;
       if (r.ok) {
         savedDevices = listSavedDevices();
         step = "connected";
@@ -60,20 +62,22 @@
         reconnectError = r.message || "Couldn't reach that TV.";
       }
     } catch (e) {
-      if (connectingHost !== d.host) return;
+      if (attempt !== connectionAttempt) return;
       reconnectError = String(e);
     } finally {
-      if (connectingHost === d.host) connectingHost = "";
+      if (attempt === connectionAttempt) connectingHost = "";
     }
   }
 
   function cancelReconnect() {
-    session.cancelConnect();
+    ++connectionAttempt;
+    void session.cancelConnect().catch((e) => { reconnectError = String(e); });
     connectingHost = "";
     reconnectError = "";
   }
 
   function goScan() {
+    if (connectingHost) cancelReconnect();
     reconnectError = "";
     step = "scan";
   }
@@ -170,29 +174,39 @@
   }
 
   async function startConnect() {
+    const attempt = ++connectionAttempt;
     error = "";
     step = "connecting";
     busy = true;
     try {
       if (needsPairing) {
         const paired = await session.pair(host, Number(pairPort), code);
+        if (attempt !== connectionAttempt) return;
         if (!paired.ok) {
           error = paired.message;
           return;
         }
       }
       const result = await session.connect(host, Number(connectPort));
+      if (attempt !== connectionAttempt) return;
       if (!result.ok) {
         error = result.message;
         return;
       }
       step = "connected";
     } catch (e) {
-      error = String(e);
+      if (attempt === connectionAttempt) error = String(e);
     } finally {
-      busy = false;
+      if (attempt === connectionAttempt) busy = false;
     }
   }
+
+  onDestroy(() => {
+    ++connectionAttempt;
+    if (connectingHost || (busy && step === "connecting")) {
+      void session.cancelConnect().catch(() => {});
+    }
+  });
 
   function backToScan() {
     error = "";

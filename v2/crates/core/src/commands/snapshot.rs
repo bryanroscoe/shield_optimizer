@@ -6,7 +6,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    batch_command, parse_disabled_packages_output, parse_installed_packages_output, split_batch,
+    checked_batch_command, parse_checked_batch, parse_disabled_packages_output,
+    parse_installed_packages_output,
 };
 use crate::engine::snapshot::{
     compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan,
@@ -51,17 +52,14 @@ async fn installed_and_disabled(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
 ) -> Result<(Vec<String>, Vec<String>), String> {
-    let cmd = batch_command(&["pm list packages", "pm list packages -d"]);
+    let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = split_batch(&out.stdout, 2);
+    let sections = parse_checked_batch(&out.stdout, 2, &[0, 1])?;
     let installed = parse_installed_packages_output(&sections[0]);
-    // A `;`-chained batch exits with the *last* sub-command's status, so a
-    // broken `pm list packages` now reads as success with an empty section.
-    // An empty installed list would silently reduce the apply plan to nothing
-    // — surface it as the failure the fan-out version returned.
+    // An empty installed list is not a usable input for an apply plan.
     if installed.is_empty() {
         return Err("pm list packages: no packages reported".to_string());
     }
@@ -522,10 +520,22 @@ mod tests {
     use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::MockAdb;
 
+    #[tokio::test]
+    async fn snapshot_plan_requires_a_successful_disabled_read() {
+        let status = crate::adb::batch::BATCH_STATUS;
+        let output = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n");
+        let driver = MockAdb::default().on_shell(BATCH_SEPARATOR, &output);
+        assert!(installed_and_disabled(&driver, "serial").await.is_err());
+    }
+
     /// Device output for a batched shell: sections joined by the sentinel the
     /// device would echo between sub-commands.
     fn batched(sections: &[&str]) -> String {
-        sections.join(&format!("\n{BATCH_SEPARATOR}\n"))
+        sections
+            .iter()
+            .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
+            .collect::<Vec<_>>()
+            .join(&format!("\n{BATCH_SEPARATOR}\n"))
     }
 
     #[tokio::test]
