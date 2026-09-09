@@ -3,9 +3,12 @@
   import { session } from "../lib/session.svelte";
   import { api } from "../lib/api";
   import {
-    forgetDevice,
+    forgetSavedDevice,
     lastUsedLabel,
     listSavedDevices,
+    savedDeviceKey,
+    savedDeviceMatchesConnection,
+    savedHostHasMultipleIdentities,
   } from "../lib/savedDevices";
   import { deviceTypeLabel } from "../lib/types";
   import type { Screen } from "../lib/router.svelte";
@@ -21,7 +24,8 @@
   } = $props();
 
   let saved = $state<SavedDevice[]>([]);
-  let connectingHost = $state("");
+  let connectingToken = $state("");
+  let connectErrorKey = $state("");
   let disconnectConfirm = $state(false);
   let renaming = $state(false);
   let renameValue = $state("");
@@ -64,13 +68,27 @@
     session.connectedDevice?.properties?.android_release || "",
   );
 
-  // Saved TVs that aren't the currently-connected one. The host is the
-  // durable identity (the port rotates), so filter on host only.
-  const otherTvs = $derived(saved.filter((d) => d.host !== session.host));
+  const currentHardwareId = $derived(
+    session.connectedDevice?.properties?.serial_number?.trim() || undefined,
+  );
+  const otherTvs = $derived(
+    saved.filter(
+      (device) =>
+        !session.connectedDevice ||
+        !savedDeviceMatchesConnection(
+          device,
+          session.host,
+          session.connectPort,
+          currentHardwareId,
+        ),
+    ),
+  );
 
   async function reconnect(d: SavedDevice) {
-    if (connectingHost) return;
-    connectingHost = d.host;
+    if (connectingToken) return;
+    const token = savedDeviceKey(d);
+    connectingToken = token;
+    connectErrorKey = "";
     try {
       const r = await session.connect(d.host, d.connectPort);
       if (r.ok) {
@@ -80,32 +98,34 @@
         refreshSaved();
         navigate("dashboard");
       } else {
+        connectErrorKey = token;
         showToast(r.message || "Couldn't connect.", "error");
       }
     } catch (e) {
+      connectErrorKey = token;
       showToast(String(e), "error");
     } finally {
-      connectingHost = "";
+      connectingToken = "";
     }
   }
 
   /// Redial the current TV after the connection was lost.
   async function reconnectCurrent() {
-    if (connectingHost) return;
-    connectingHost = session.host;
+    if (connectingToken) return;
+    connectingToken = "current";
     try {
       const r = await session.reconnect();
       showToast(r.ok ? "Reconnected." : r.message || "Couldn't reconnect.", r.ok ? "success" : "error");
     } catch (e) {
       showToast(String(e), "error");
     } finally {
-      connectingHost = "";
+      connectingToken = "";
     }
   }
 
   function doForget(d: SavedDevice) {
     forgetTarget = null;
-    forgetDevice(d.host, d.connectPort);
+    forgetSavedDevice(d);
     refreshSaved();
     showToast(`Removed ${d.name}.`, "info");
   }
@@ -164,7 +184,7 @@
               <span class="active-name">{session.deviceLabel}</span>
             {/if}
             <span class="active-sub mono">
-              {session.host}{androidRelease ? ` · Android ${androidRelease}` : ""}
+              {session.host}:{session.connectPort}{androidRelease ? ` · Android ${androidRelease}` : ""}
             </span>
           </div>
           <span class="active-tag" class:lost={session.liveness === "lost"}>
@@ -188,8 +208,8 @@
             <button class="mini-btn" onclick={() => (renaming = false)}>Cancel</button>
           {:else}
             {#if session.liveness === "lost"}
-              <button class="mini-btn accent" disabled={connectingHost !== ""} onclick={reconnectCurrent}>
-                {#if connectingHost === session.host}<span class="pdot blink"></span>{:else}<span class="msr">refresh</span>Reconnect{/if}
+              <button class="mini-btn accent" disabled={connectingToken !== ""} onclick={reconnectCurrent}>
+                {#if connectingToken === "current"}<span class="pdot blink"></span>{:else}<span class="msr">refresh</span>Reconnect{/if}
               </button>
             {/if}
             <button class="mini-btn" onclick={startRename}><span class="msr">edit</span>Rename</button>
@@ -208,18 +228,23 @@
     {#if otherTvs.length > 0}
       <span class="section-label">Other TVs</span>
       <div class="other-list">
-        {#each otherTvs as d (d.host + ":" + d.connectPort)}
+        {#each otherTvs as d (savedDeviceKey(d))}
           <div class="other-row">
             <div class="o-icon"><span class="msr">{iconFor(d.deviceType)}</span></div>
             <div class="o-body">
               <span class="o-name">{d.name}</span>
-              <span class="o-sub mono">{d.host} · {deviceTypeLabel(d.deviceType)} · {lastUsedLabel(d.lastUsed)}</span>
+              <span class="o-sub mono">{d.host}:{d.connectPort} · {deviceTypeLabel(d.deviceType)} · {lastUsedLabel(d.lastUsed)}</span>
+              {#if connectErrorKey === savedDeviceKey(d)}
+                <span class="o-note error">Couldn't connect to this saved entry</span>
+              {:else if savedHostHasMultipleIdentities(saved, d.host)}
+                <span class="o-note">Shared saved address · identities kept separate</span>
+              {/if}
             </div>
             <button class="o-forget" onclick={() => (forgetTarget = d)} aria-label="Forget {d.name}">
               <span class="msr">close</span>
             </button>
-            <button class="o-connect" disabled={connectingHost !== ""} onclick={() => reconnect(d)}>
-              {#if connectingHost === d.host}<span class="pdot blink"></span>{:else}Connect{/if}
+            <button class="o-connect" disabled={connectingToken !== ""} onclick={() => reconnect(d)}>
+              {#if connectingToken === savedDeviceKey(d)}<span class="pdot blink"></span>{:else}Connect{/if}
             </button>
           </div>
         {/each}
@@ -463,6 +488,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .o-note {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .o-note.error {
+    color: var(--danger);
   }
   .o-forget {
     background: transparent;

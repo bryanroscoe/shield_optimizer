@@ -369,3 +369,146 @@ test("ignores corrupt records and normalizes recoverable stored values", () => {
     },
   ]);
 });
+
+test("builds stable identity keys for host collisions and identical endpoints", () => {
+  const identifiedA = saved({ hardwareId: "shield-a" });
+  const identifiedB = saved({ hardwareId: "google-b", connectPort: 42137 });
+  const idless = saved({ hardwareId: undefined });
+
+  assert.equal(savedDevices.savedDeviceKey(identifiedA), "hardware:shield-a");
+  assert.equal(savedDevices.savedDeviceKey(identifiedB), "hardware:google-b");
+  assert.equal(
+    savedDevices.savedDeviceKey(idless),
+    "idless:192.168.1.10:5555",
+  );
+  assert.equal(
+    new Set([identifiedA, identifiedB, idless].map(savedDevices.savedDeviceKey)).size,
+    3,
+  );
+  assert.equal(
+    savedDevices.savedHostHasMultipleIdentities(
+      [identifiedA, identifiedB],
+      "192.168.1.10",
+    ),
+    true,
+  );
+  assert.equal(
+    savedDevices.savedHostHasMultipleIdentities(
+      [identifiedA, saved({ hardwareId: "shield-a", connectPort: 42137 })],
+      "192.168.1.10",
+    ),
+    false,
+  );
+});
+
+test("a selected reconnect token activates only its saved row", () => {
+  const rows = [
+    saved({ hardwareId: "shield-a" }),
+    saved({ hardwareId: "google-b", name: "Google TV" }),
+    saved({ hardwareId: undefined, name: "No id" }),
+  ];
+  const selectedToken = savedDevices.savedDeviceKey(rows[1]);
+
+  assert.deepEqual(
+    rows.map((row) => savedDevices.savedDeviceKey(row) === selectedToken),
+    [false, true, false],
+  );
+});
+
+test("matches the current TV by verified id or an exact id-less endpoint", () => {
+  const identified = saved({ hardwareId: "shield-a" });
+  const otherIdentity = saved({ hardwareId: "google-b" });
+  const idless = saved({ hardwareId: undefined });
+
+  assert.equal(
+    savedDevices.savedDeviceMatchesConnection(
+      identified,
+      "192.168.1.99",
+      42137,
+      "shield-a",
+    ),
+    true,
+  );
+  assert.equal(
+    savedDevices.savedDeviceMatchesConnection(
+      otherIdentity,
+      "192.168.1.10",
+      5555,
+      "shield-a",
+    ),
+    false,
+  );
+  assert.equal(
+    savedDevices.savedDeviceMatchesConnection(
+      idless,
+      "192.168.1.10",
+      5555,
+      "shield-a",
+    ),
+    false,
+  );
+  assert.equal(
+    savedDevices.savedDeviceMatchesConnection(
+      idless,
+      "192.168.1.10",
+      5555,
+    ),
+    true,
+  );
+  assert.equal(
+    savedDevices.savedDeviceMatchesConnection(
+      idless,
+      "192.168.1.10",
+      42137,
+    ),
+    false,
+  );
+  assert.equal(
+    savedDevices.savedDeviceMatchesConnection(
+      identified,
+      "192.168.1.10",
+      5555,
+    ),
+    false,
+  );
+});
+
+test("forgets the exact selected identity at an identical endpoint", () => {
+  seed([
+    saved({ hardwareId: "shield-a", lastUsed: "2026-09-03T00:00:00.000Z" }),
+    saved({ hardwareId: "google-b", name: "Google TV", lastUsed: "2026-09-02T00:00:00.000Z" }),
+    saved({ hardwareId: undefined, name: "No id", lastUsed: "2026-09-01T00:00:00.000Z" }),
+  ]);
+
+  const google = savedDevices.listSavedDevices().find(
+    (row) => row.hardwareId === "google-b",
+  );
+  savedDevices.forgetSavedDevice(google);
+  assert.deepEqual(
+    savedDevices.listSavedDevices().map((row) => row.hardwareId),
+    ["shield-a", undefined],
+  );
+
+  const idless = savedDevices.listSavedDevices().find((row) => !row.hardwareId);
+  savedDevices.forgetSavedDevice(idless);
+  assert.deepEqual(
+    savedDevices.listSavedDevices().map((row) => row.hardwareId),
+    ["shield-a"],
+  );
+});
+
+test("auto-dials only when the saved list truly has one entry", () => {
+  const one = [saved()];
+  const twoAtOneEndpoint = [
+    saved({ hardwareId: "shield-a" }),
+    saved({ hardwareId: "google-b" }),
+  ];
+
+  assert.equal(savedDevices.shouldAutoDialSavedDevices([], true), false);
+  assert.equal(savedDevices.shouldAutoDialSavedDevices(one, false), false);
+  assert.equal(savedDevices.shouldAutoDialSavedDevices(one, true), true);
+  assert.equal(
+    savedDevices.shouldAutoDialSavedDevices(twoAtOneEndpoint, true),
+    false,
+  );
+});

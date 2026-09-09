@@ -94,9 +94,54 @@ export function lastSavedDevice(): SavedDevice | null {
   return listSavedDevices()[0] ?? null;
 }
 
-function hardwareIdOf(device: Device | null): string | undefined {
-  const id = device?.properties?.serial_number?.trim();
+function normalizedHardwareId(value: string | undefined): string | undefined {
+  const id = value?.trim();
   return id && id !== "unknown" ? id : undefined;
+}
+
+function hardwareIdOf(device: Device | null): string | undefined {
+  return normalizedHardwareId(device?.properties?.serial_number);
+}
+
+export function savedDeviceKey(device: SavedDevice): string {
+  const hardwareId = normalizedHardwareId(device.hardwareId);
+  return hardwareId
+    ? `hardware:${hardwareId}`
+    : `idless:${device.host}:${device.connectPort}`;
+}
+
+export function savedHostHasMultipleIdentities(
+  devices: SavedDevice[],
+  host: string,
+): boolean {
+  return new Set(
+    devices
+      .filter((device) => device.host === host)
+      .map(savedDeviceKey),
+  ).size > 1;
+}
+
+export function savedDeviceMatchesConnection(
+  device: SavedDevice,
+  host: string,
+  connectPort: number,
+  hardwareId?: string,
+): boolean {
+  const connectedHardwareId = normalizedHardwareId(hardwareId);
+  const savedHardwareId = normalizedHardwareId(device.hardwareId);
+  if (connectedHardwareId) return savedHardwareId === connectedHardwareId;
+  return (
+    savedHardwareId === undefined &&
+    device.host === host &&
+    device.connectPort === connectPort
+  );
+}
+
+export function shouldAutoDialSavedDevices(
+  devices: SavedDevice[],
+  enabled: boolean,
+): boolean {
+  return enabled && devices.length === 1;
 }
 
 /// Does a saved row describe the TV we just connected to? Hardware ids are
@@ -148,18 +193,12 @@ export function forgetDevice(host: string, connectPort: number): void {
     (d) => d.host === host && d.connectPort === connectPort,
   );
   if (!target) return;
-  if (target.hardwareId) {
-    write(current.filter((d) => d.hardwareId !== target.hardwareId));
-    return;
-  }
-  write(
-    current.filter(
-      (d) =>
-        d.hardwareId !== undefined ||
-        d.host !== target.host ||
-        d.connectPort !== target.connectPort,
-    ),
-  );
+  forgetSavedDevice(target);
+}
+
+export function forgetSavedDevice(device: SavedDevice): void {
+  const identity = savedDeviceKey(device);
+  write(listSavedDevices().filter((saved) => savedDeviceKey(saved) !== identity));
 }
 
 /// Whether the app may dial the single saved TV on launch without being
