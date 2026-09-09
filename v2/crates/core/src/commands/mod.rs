@@ -15,6 +15,7 @@ pub mod optimize;
 pub mod reboot;
 pub mod recovery;
 pub mod screenshot;
+pub mod shell;
 pub mod snapshot;
 pub mod state;
 pub mod tuning;

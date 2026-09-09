@@ -23,13 +23,15 @@ Research notes: aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 
 | Screen recording | ✅ (Pro, no DRM content) | ❌ |
 | Remote control / D-pad / mouse | ✅ (Pro) | partial (D-pad + typing, no mouse) |
 | **Send text to TV (type from keyboard)** | ✅ | ✅ |
-| Permissions grant/revoke | ✅ | ❌ |
+| Permissions grant/revoke | ✅ | ✅ |
 | Bulk cache clear | ✅ | ✅ |
 | Running apps + force-stop | ✅ | ✅ |
-| Resource monitor | CPU/RAM/net/storage | RAM/temp/storage/display (no CPU/net) |
-| Shell runner with bookmarks | ✅ | ❌ |
+| Resource monitor | CPU/RAM/net/storage | ✅ CPU/RAM/net/temp/storage/display |
+| Shell runner with bookmarks | ✅ | ✅ |
 | Screen mirroring / gamepad / media remote | ✅ (phone-centric) | — (out of scope for desktop) |
 | Open source / free | ❌ | ✅ |
+
+**Playback capability report** (Media tab) has no aTV Tools counterpart — codec/HDR/display-mode/passthrough facts read off the device, plus a verdict that names what is costing quality.
 
 **Bottom line:** we beat aTV Tools on the *debloat/optimize/safety* core, they beat us on *general device utilities*. The gaps worth closing are the utilities that complement debloating; the phone-centric features aren't our product.
 
@@ -57,9 +59,9 @@ Shape: `adb -s X exec-out screencap -p > local.png`, save to a user folder, show
 
 **5. Force-stop** on memory-table rows (`am force-stop <pkg>`) — trivial, pairs with the existing Disable button.
 **6. Send text to TV** — `input text '<escaped>'` for typing Wi-Fi passwords/searches from the desktop keyboard. Small input box on the device header. (Escape carefully; relates to the package-validation work.)
-**7. Shell runner with bookmarks** — an "Advanced" tab: command input → runs via the driver, shows combined output; bookmark list persisted locally. The catch-all that made aTV Tools sticky.
+**7. Shell runner with bookmarks** — ✅ shipped as the Shell tab. Command input → driver → stdout/stderr, read-only presets, bookmarks in `localStorage`. `engine::safety::shell_command_blocked` refuses any command that would disable/uninstall a never-disable package *before* it reaches the device, so the free-form box cannot route around the safety list.
 **8. Bulk cache clear** — `pm trim-caches 999999999999` (one call, no per-app loop).
-**9. CPU + network monitor** — add `top -n1` / `/proc/stat` parse and `/proc/net/dev` deltas to the Health report.
+**9. CPU + network monitor** — ✅ shipped as the `resource_sample` command: two `/proc/stat` + `/proc/net/dev` reads either side of a device-side `sleep 1`, in one round trip. Kept out of `health_report` so a refresh never pays the sampling second.
 
 ### P3 — Evaluate later
 **10. Screen recording** — `screenrecord` (3-min cap, no DRM), pull + save. Nice demo material.

@@ -425,6 +425,149 @@ pub fn parse_display_mode(dumpsys_display: &str) -> DisplayMode {
     }
 }
 
+/// Parse *every* mode from `dumpsys display`'s `supportedModes`, flagging the
+/// active one.
+///
+/// `parse_display_mode` above answers "what is the panel doing right now" and
+/// throws the rest away. The playback report needs the whole list instead —
+/// whether a 23.976 Hz mode exists at all is what decides if 24p film can be
+/// shown at its native cadence, and that mode is by definition not the active
+/// one while the UI is on screen.
+///
+/// Duplicate (width, height, fps) triples are collapsed: a display commonly
+/// advertises the same mode under several ids, and the caller cares about
+/// distinct capabilities, not id count.
+pub fn parse_display_modes(dumpsys_display: &str) -> Vec<crate::engine::media::DisplayModeEntry> {
+    use crate::engine::media::DisplayModeEntry;
+
+    static MODE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"modeId\s+(\d+)").unwrap());
+    static MODE_ENTRY: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"id=(\d+),\s*width=(\d+),\s*height=(\d+),\s*fps=([\d.]+)").unwrap()
+    });
+
+    let active_id = MODE_ID
+        .captures(dumpsys_display)
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse::<u32>().ok());
+
+    let mut out: Vec<DisplayModeEntry> = Vec::new();
+    for caps in MODE_ENTRY.captures_iter(dumpsys_display) {
+        let Ok(mode_id) = caps[1].parse::<u32>() else {
+            continue;
+        };
+        let (Ok(width), Ok(height), Ok(fps)) = (
+            caps[2].parse::<u32>(),
+            caps[3].parse::<u32>(),
+            caps[4].parse::<f64>(),
+        ) else {
+            continue;
+        };
+        let fps = (fps * 1000.0).round() / 1000.0;
+        let active = Some(mode_id) == active_id;
+        // Same capability under a second id: keep the entry, but let the
+        // active flag win so the UI can still mark the running mode.
+        if let Some(existing) = out
+            .iter_mut()
+            .find(|m| m.width == width && m.height == height && m.fps == fps)
+        {
+            existing.active |= active;
+            continue;
+        }
+        out.push(DisplayModeEntry {
+            width,
+            height,
+            fps,
+            active,
+        });
+    }
+    out.sort_by(|a, b| {
+        (b.width, b.height).cmp(&(a.width, a.height)).then(
+            b.fps
+                .partial_cmp(&a.fps)
+                .unwrap_or(std::cmp::Ordering::Equal),
+        )
+    });
+    out
+}
+
+/// Aggregate CPU counters from one `/proc/stat` sample.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuSample {
+    /// Jiffies spent doing anything other than idle/iowait.
+    pub busy: u64,
+    /// Jiffies across every state, idle included.
+    pub total: u64,
+}
+
+/// Parse the aggregate `cpu` line of `/proc/stat`.
+///
+/// Fields are: user nice system idle iowait irq softirq steal guest guest_nice.
+/// `idle` and `iowait` (indices 3 and 4) count as not-busy; everything else is
+/// busy. `guest` time is already included in `user`, so summing every field
+/// would double-count it — the total stops at `steal`.
+pub fn parse_proc_stat(proc_stat: &str) -> Option<CpuSample> {
+    let line = proc_stat
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("cpu ") || *l == "cpu")?;
+    let values: Vec<u64> = line
+        .split_whitespace()
+        .skip(1)
+        .take(8)
+        .map(|v| v.parse::<u64>().unwrap_or(0))
+        .collect();
+    if values.len() < 4 {
+        return None;
+    }
+    let total: u64 = values.iter().sum();
+    let idle = values[3] + values.get(4).copied().unwrap_or(0);
+    Some(CpuSample {
+        busy: total.saturating_sub(idle),
+        total,
+    })
+}
+
+/// Byte counters summed across every real network interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NetSample {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+/// Parse `/proc/net/dev`, summing all interfaces except loopback.
+///
+/// Loopback is excluded because on-device IPC (including ADB's own traffic on
+/// some transports) flows over it, which would swamp the number the user
+/// actually wants: how much is going over the wire.
+pub fn parse_net_dev(proc_net_dev: &str) -> Option<NetSample> {
+    let mut sample = NetSample {
+        rx_bytes: 0,
+        tx_bytes: 0,
+    };
+    let mut saw_interface = false;
+    for line in proc_net_dev.lines() {
+        let Some((iface, counters)) = line.split_once(':') else {
+            continue;
+        };
+        let iface = iface.trim();
+        if iface.is_empty() || iface == "lo" || iface.contains(char::is_whitespace) {
+            continue;
+        }
+        let fields: Vec<&str> = counters.split_whitespace().collect();
+        // rx_bytes is field 0; tx_bytes is field 8.
+        if fields.len() < 9 {
+            continue;
+        }
+        let (Ok(rx), Ok(tx)) = (fields[0].parse::<u64>(), fields[8].parse::<u64>()) else {
+            continue;
+        };
+        saw_interface = true;
+        sample.rx_bytes += rx;
+        sample.tx_bytes += tx;
+    }
+    saw_interface.then_some(sample)
+}
+
 /// Parse `dumpsys audio` for the first `Devices: <name>` row — the current
 /// active output device. Returns the uppercased label (HDMI / BUILTIN_SPEAKER
 /// / etc.) or `None` if the section isn't present.
@@ -616,6 +759,85 @@ DisplayDeviceInfo{"Built-in Screen": uniqueId="local:0", 3840 x 2160, modeId 20,
         let input = "modeId 1, supportedModes [{id=1, width=3840, height=2160, fps=60.0}], HdrCapabilities mSupportedHdrTypes=[1, 2, 4]";
         let mode = parse_display_mode(input);
         assert_eq!(mode.hdr_types, vec!["Dolby Vision", "HDR10", "HDR10+"]);
+    }
+
+    #[test]
+    fn parses_every_display_mode_and_flags_the_active_one() {
+        // Same shape as the real dumpsys, plus a 23.976 mode — the one the
+        // playback report exists to find, and never the active one in practice.
+        let input = r#"
+DisplayDeviceInfo{"Built-in Screen": 3840 x 2160, modeId 20, defaultModeId 20, supportedModes [{id=1, width=3840, height=2160, fps=23.976023}, {id=2, width=3840, height=2160, fps=29.97003}, {id=20, width=3840, height=2160, fps=59.94006}], ...}
+"#;
+        let modes = parse_display_modes(input);
+        assert_eq!(modes.len(), 3);
+        // Sorted by resolution then fps, descending.
+        assert_eq!(modes[0].fps, 59.94);
+        assert_eq!(modes[2].fps, 23.976);
+        assert!(modes[0].active);
+        assert!(!modes[1].active && !modes[2].active);
+        assert!(modes.iter().filter(|m| m.is_film_rate()).count() == 1);
+    }
+
+    #[test]
+    fn duplicate_modes_collapse_but_keep_the_active_flag() {
+        // The same capability advertised under two ids, the *second* of which
+        // is the active one — the flag has to survive the merge.
+        let input = "modeId 7, supportedModes [{id=3, width=1920, height=1080, fps=60.0}, \
+                     {id=7, width=1920, height=1080, fps=60.0}]";
+        let modes = parse_display_modes(input);
+        assert_eq!(modes.len(), 1);
+        assert!(modes[0].active);
+    }
+
+    #[test]
+    fn display_modes_degrade_to_empty_rather_than_guessing() {
+        assert!(parse_display_modes("").is_empty());
+        assert!(parse_display_modes("no modes here").is_empty());
+        // Modes present but no active id: every mode is reported, none active.
+        let modes =
+            parse_display_modes("supportedModes [{id=1, width=3840, height=2160, fps=24.0}]");
+        assert_eq!(modes.len(), 1);
+        assert!(!modes[0].active);
+    }
+
+    #[test]
+    fn proc_stat_counts_iowait_as_idle() {
+        // user nice system idle iowait irq softirq steal
+        let sample =
+            parse_proc_stat("cpu  100 20 30 700 50 5 5 0\ncpu0 1 2 3 4 5 6 7 8\n").unwrap();
+        assert_eq!(sample.total, 910);
+        // idle(700) + iowait(50) are not busy.
+        assert_eq!(sample.busy, 160);
+    }
+
+    #[test]
+    fn proc_stat_ignores_per_core_lines_and_missing_input() {
+        // `cpu0` must not be mistaken for the aggregate `cpu` line.
+        assert_eq!(parse_proc_stat("cpu0 1 2 3 4 5 6 7 8"), None);
+        assert_eq!(parse_proc_stat(""), None);
+        assert_eq!(parse_proc_stat("cpu 1 2"), None);
+    }
+
+    #[test]
+    fn net_dev_sums_real_interfaces_and_skips_loopback() {
+        let input = "\
+Inter-|   Receive                                                |  Transmit\n\
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed\n\
+    lo: 999999    100    0    0    0     0          0         0  999999     100    0    0    0     0       0          0\n\
+  eth0: 100000    500    0    0    0     0          0         0   20000     300    0    0    0     0       0          0\n\
+ wlan0:  50000    250    0    0    0     0          0         0   10000     150    0    0    0     0       0          0\n";
+        let sample = parse_net_dev(input).unwrap();
+        assert_eq!(sample.rx_bytes, 150_000);
+        assert_eq!(sample.tx_bytes, 30_000);
+    }
+
+    #[test]
+    fn net_dev_with_no_usable_interfaces_is_none() {
+        // Header only, loopback only, and garbage all mean "no reading" —
+        // distinct from a real zero, which would misreport as idle traffic.
+        assert_eq!(parse_net_dev(""), None);
+        assert_eq!(parse_net_dev("Inter-|   Receive  |  Transmit"), None);
+        assert!(parse_net_dev("    lo: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16").is_none());
     }
 
     #[test]

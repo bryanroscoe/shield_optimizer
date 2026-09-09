@@ -63,50 +63,60 @@ async function captureScreens(page, shot) {
     await page.getByText("3840x2160", { exact: false }).first().waitFor();
     await shot("health");
 
-    // 4. Launcher.
+    // 4. Playback capabilities.
+    await page.locator("#tab-media").click();
+    await page.getByText("Video decoding", { exact: false }).first().waitFor();
+    await shot("playback");
+
+    // 5. Launcher.
     await page.locator("#tab-launcher").click();
     await page.getByText("Projectivy Launcher", { exact: false }).first().waitFor();
     await shot("launcher");
 
-    // 5. App list.
+    // 6. App list.
     await page.locator("#tab-apps").click();
     await page.getByText("App List", { exact: false }).first().waitFor();
     await page.waitForTimeout(400);
     await shot("app-list");
 
-    // 6. Optimize wizard — needs a click to load the plan.
+    // 7. Optimize wizard — needs a click to load the plan.
     await page.locator("#tab-optimize").click();
     await page.getByRole("button", { name: "Optimize", exact: true }).click();
     await page.getByText("Run", { exact: false }).first().waitFor().catch(() => {});
     await page.waitForTimeout(600);
     await shot("optimize");
 
-    // 7. Tweaks.
+    // 8. Tweaks.
     await page.locator("#tab-tweaks").click();
     await page.getByText("HDMI", { exact: false }).first().waitFor();
     await shot("tweaks");
 
-    // 8. Remote.
+    // 9. Remote.
     await page.locator("#tab-remote").click();
     await page.getByText("Live typing", { exact: false }).first().waitFor();
     await shot("remote");
 
-    // 9. Files.
+    // 10. Files.
     await page.locator("#tab-files").click();
     await page.getByText("Download", { exact: true }).first().waitFor();
     await shot("files");
 
-    // 9. Install APK.
+    // 11. Install APK.
     await page.locator("#tab-sideload").click();
     await page.getByText("Install APK", { exact: false }).first().waitFor();
     await shot("install-apk");
 
-    // 10. Snapshot (per-device).
+    // 12. Snapshot (per-device).
     await page.locator("#tab-snapshot").click();
     await page.waitForTimeout(400);
     await shot("snapshot");
 
-    // 11. Global snapshots page.
+    // 13. Shell runner.
+    await page.locator("#tab-shell").click();
+    await page.getByText("Disabled packages", { exact: false }).first().waitFor();
+    await shot("shell");
+
+    // 14. Global snapshots page.
     await page.goto(`${BASE}/snapshots`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
     await shot("snapshots");

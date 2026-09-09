@@ -2,7 +2,7 @@
 
 v2 is a shipping desktop app. Current version: **2.1.0**.
 
-65 Tauri commands registered (`v2/src-tauri/src/lib.rs`). Full release pipeline live: installers built for macOS/Linux/Windows on every `v2-*` tag push via `.github/workflows/v2-release.yml`; macOS also distributed via Homebrew tap (`bryanroscoe/homebrew-shield-optimizer`).
+68 Tauri commands registered (`v2/src-tauri/src/lib.rs`). Full release pipeline live: installers built for macOS/Linux/Windows on every `v2-*` tag push via `.github/workflows/v2-release.yml`; macOS also distributed via Homebrew tap (`bryanroscoe/homebrew-shield-optimizer`).
 
 ## Roadmap
 

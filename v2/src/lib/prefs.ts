@@ -28,3 +28,36 @@ export function setRemoteForceShell(enabled: boolean): void {
     localStorage.setItem(REMOTE_COMPAT_KEY, String(enabled));
   }
 }
+
+const SHELL_BOOKMARKS_KEY = "shieldopt.shellBookmarks";
+
+export interface ShellBookmark {
+  label: string;
+  command: string;
+}
+
+/// Bookmarks are local-only and shared across devices on purpose: the useful
+/// ones ("list disabled packages", "dump the launcher") are about Android, not
+/// about one TV, so scoping them per-serial would just make the user retype
+/// them for every device they connect.
+export function getShellBookmarks(): ShellBookmark[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(SHELL_BOOKMARKS_KEY) ?? "[]");
+    if (!Array.isArray(raw)) return [];
+    // Hand-edited or older localStorage payloads reach this unchecked, so each
+    // row is validated rather than trusted into the UI.
+    return raw.filter(
+      (b): b is ShellBookmark =>
+        !!b && typeof b.label === "string" && typeof b.command === "string",
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function setShellBookmarks(bookmarks: ShellBookmark[]): void {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(SHELL_BOOKMARKS_KEY, JSON.stringify(bookmarks));
+  }
+}

@@ -29,6 +29,13 @@ pub struct TweaksState {
     /// `0` = none, `1`–`4` = at most N. Frees RAM, but Android resets it on
     /// reboot (see issue #11) — the UI says so.
     pub background_process_limit: Option<String>,
+    /// Encoded-audio passthrough: `0` Auto, `1` Never, `2` Always, `3` Manual.
+    /// Decides whether TrueHD / DTS-HD reach the receiver untouched or get
+    /// decoded to PCM on the device first.
+    pub encoded_surround_output: Option<String>,
+    /// Comma-separated `AudioFormat.ENCODING_*` values — the allow-list that
+    /// applies only when the mode is Manual.
+    pub encoded_surround_output_enabled_formats: Option<String>,
 }
 
 /// `get_tweaks` — batch-fetch all Tweaks-relevant settings in one shell call.
@@ -44,7 +51,9 @@ pub async fn get_tweaks(state: State<'_, AppState>, serial: String) -> Result<Tw
                settings get global window_animation_scale; \
                settings get global transition_animation_scale; \
                settings get global animator_duration_scale; \
-               settings get global background_process_limit";
+               settings get global background_process_limit; \
+               settings get global encoded_surround_output; \
+               settings get global encoded_surround_output_enabled_formats";
     let out = adb
         .shell(&serial, cmd)
         .await
@@ -68,6 +77,8 @@ pub async fn get_tweaks(state: State<'_, AppState>, serial: String) -> Result<Tw
         transition_animation_scale: lines.next().flatten(),
         animator_duration_scale: lines.next().flatten(),
         background_process_limit: lines.next().flatten(),
+        encoded_surround_output: lines.next().flatten(),
+        encoded_surround_output_enabled_formats: lines.next().flatten(),
     })
 }
 

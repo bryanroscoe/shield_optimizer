@@ -19,6 +19,7 @@
     RebootMode,
     OtherPackage,
     ScreenshotResult,
+    ResourceSample,
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
@@ -31,10 +32,12 @@
   import SideloadTab from "$lib/components/SideloadTab.svelte";
   import RemoteTab from "$lib/components/RemoteTab.svelte";
   import OptimizeTab from "$lib/components/OptimizeTab.svelte";
+  import MediaTab from "$lib/components/MediaTab.svelte";
+  import ShellTab from "$lib/components/ShellTab.svelte";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
-  type Tab = "overview" | "health" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload";
+  type Tab = "overview" | "health" | "media" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload" | "shell";
   let activeTab = $state<Tab>("overview");
 
   let device = $state<Device | null>(null);
@@ -181,9 +184,37 @@
     }
   }
 
+  // CPU + network rates, fetched separately from the health report: the
+  // sample needs a one-second device-side window, and making every refresh
+  // wait for it would make the whole tab feel slow.
+  let resource = $state<ResourceSample | null>(null);
+  let resourceLoading = $state(false);
+
+  async function loadResourceSample() {
+    resourceLoading = true;
+    try {
+      resource = await api.resourceSample(serial);
+    } catch {
+      // A failed sample must not blank the health report it sits next to.
+      resource = null;
+    } finally {
+      resourceLoading = false;
+    }
+  }
+
+  /// Bytes/s → the largest unit that keeps the number readable.
+  function formatRate(bytesPerSecond: number | null): string {
+    if (bytesPerSecond == null) return "—";
+    if (bytesPerSecond < 1024) return `${bytesPerSecond} B/s`;
+    if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+    return `${(bytesPerSecond / (1024 * 1024)).toFixed(2)} MB/s`;
+  }
+
   async function loadHealth() {
     reportLoading = true;
     reportErr = null;
+    // Kick the sample off in parallel and let it land on its own.
+    void loadResourceSample();
     try {
       report = await api.healthReport(serial);
       reportLastRefreshed = new Date();
@@ -1171,6 +1202,7 @@
     {#each [
       { id: "overview", label: "Overview" },
       { id: "health", label: "Health" },
+      { id: "media", label: "Playback" },
       { id: "launcher", label: "Launcher" },
       { id: "apps", label: "App List" },
       { id: "optimize", label: "Optimize" },
@@ -1179,6 +1211,7 @@
       { id: "files", label: "Files" },
       { id: "sideload", label: "Install APK" },
       { id: "snapshot", label: "Snapshot" },
+      { id: "shell", label: "Shell" },
     ] as t (t.id)}
       <button
         role="tab"
@@ -1278,6 +1311,23 @@
       {:else}
         <h3>Vitals</h3>
         <dl class="kv">
+          <dt>CPU</dt>
+          <dd>
+            {#if resource?.cpu_percent != null}
+              {resource.cpu_percent.toFixed(1)}%
+              <span class="muted small">over {resource.interval_ms / 1000}s</span>
+            {:else}
+              {resourceLoading ? "sampling…" : "—"}
+            {/if}
+          </dd>
+          <dt>Network</dt>
+          <dd>
+            {#if resource?.rx_bytes_per_s != null || resource?.tx_bytes_per_s != null}
+              ↓ {formatRate(resource.rx_bytes_per_s)} · ↑ {formatRate(resource.tx_bytes_per_s)}
+            {:else}
+              {resourceLoading ? "sampling…" : "—"}
+            {/if}
+          </dd>
           <dt>Temperature</dt>
           <dd>{report.temperature_c != null ? `${report.temperature_c.toFixed(1)}°C` : "—"}</dd>
           {#if report.ram.total_mb != null}
@@ -1858,6 +1908,16 @@
   {#if visited.remote}
     <div hidden={activeTab !== "remote"}>
       <RemoteTab {serial} />
+    </div>
+  {/if}
+  {#if visited.media}
+    <div hidden={activeTab !== "media"}>
+      <MediaTab {serial} deviceType={device.device_type} />
+    </div>
+  {/if}
+  {#if visited.shell}
+    <div hidden={activeTab !== "shell"}>
+      <ShellTab {serial} />
     </div>
   {/if}
   {#if visited.optimize}

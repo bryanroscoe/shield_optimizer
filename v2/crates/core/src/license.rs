@@ -415,6 +415,7 @@ pub enum Feature {
     Sideload,
     FileManager,
     BackupClone,
+    ShellRunner,
 }
 
 impl Feature {
@@ -432,6 +433,7 @@ impl Feature {
             Feature::Sideload => "sideload",
             Feature::FileManager => "file_manager",
             Feature::BackupClone => "backup_clone",
+            Feature::ShellRunner => "shell_runner",
         }
     }
 }
