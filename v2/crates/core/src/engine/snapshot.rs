@@ -29,6 +29,11 @@ pub fn tracked_setting_keys() -> &'static [(&'static str, &'static str)] {
         ("global", "hdmi_system_audio_control_enabled"),
         ("secure", "match_content_frame_rate"),
         ("secure", "long_press_timeout"),
+        // Appended, never inserted: `current_settings_map` pairs these keys
+        // with `settings get` output lines positionally, so reordering would
+        // silently mis-assign every value after the change.
+        ("global", "encoded_surround_output"),
+        ("global", "encoded_surround_output_enabled_formats"),
     ]
 }
 

@@ -8,6 +8,7 @@
 pub mod app_lists;
 pub mod detection;
 pub mod launcher;
+pub mod media;
 pub mod optimize;
 pub mod safety;
 pub mod snapshot;
@@ -19,8 +20,12 @@ pub use launcher::{
     is_last_enabled_home_handler, is_valid_package_name, launcher_catalog, launcher_rows,
     stock_launcher_catalog, LauncherEntry, LauncherStatus,
 };
+pub use media::{
+    build_capabilities, parse_media_codecs, surround_mode, video_formats, AudioPassthrough,
+    Decoder, DisplayModeEntry, MediaCapabilities, SurroundMode, Verdict, VerdictLevel, VideoFormat,
+};
 pub use optimize::{compute_plan, OptimizeInputs, OptimizePlan};
-pub use safety::{classify as classify_safety, is_never_disable, Safety};
+pub use safety::{classify as classify_safety, is_never_disable, shell_command_blocked, Safety};
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
 pub use types::{
     ActionMethod, AppEntry, Device, DeviceProperties, DeviceStatus, OptimizeAction, OptimizeMode,

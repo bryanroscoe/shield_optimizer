@@ -15,7 +15,7 @@ use adb::SubprocessAdb;
 use commands::{backup, files, install, scan, sideload, update, AppState};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
-    apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot,
+    apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot, shell,
     snapshot, tuning,
 };
 use shield_optimizer_core::license::Entitlement;
@@ -112,6 +112,8 @@ pub fn run() {
             devices::pair_device,
             devices::rename_device,
             health::health_report,
+            health::media_report,
+            health::resource_sample,
             health::app_list_for_device,
             health::report_all,
             install::adb_status,
@@ -161,6 +163,7 @@ pub fn run() {
             snapshot::snapshot_dir_path,
             recovery::panic_recovery,
             reboot::reboot_device,
+            shell::run_shell,
             tuning::get_tweaks,
             tuning::write_setting,
             tuning::set_display_scaling,

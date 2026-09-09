@@ -238,6 +238,11 @@ export interface TweaksState {
   transition_animation_scale: string | null;
   animator_duration_scale: string | null;
   background_process_limit: string | null;
+  /// Encoded audio passthrough: "0" Auto, "1" Never, "2" Always, "3" Manual.
+  /// Read by `get_tweaks`; no mobile control exposes it yet.
+  encoded_surround_output: string | null;
+  /// Comma-separated AudioFormat encodings; applies only in Manual mode.
+  encoded_surround_output_enabled_formats: string | null;
 }
 
 export interface WriteResult {

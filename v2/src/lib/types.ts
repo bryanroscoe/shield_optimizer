@@ -89,6 +89,66 @@ export interface DisplayMode {
   hdr_types: string[];
 }
 
+/// Counterparts of crates/core/src/engine/media.rs.
+export type SurroundMode = "auto" | "never" | "always" | "manual" | "unset";
+export type VerdictLevel = "good" | "warn" | "info";
+
+export interface VideoFormat {
+  label: string;
+  mime: string;
+  /// A vendor (silicon-backed) decoder advertises it.
+  hardware: boolean;
+  /// A platform software decoder advertises it.
+  software: boolean;
+}
+
+export interface DisplayModeEntry {
+  width: number;
+  height: number;
+  fps: number;
+  active: boolean;
+}
+
+export interface AudioPassthrough {
+  mode: SurroundMode;
+  enabled_formats: string[];
+  raw_formats: string | null;
+}
+
+export interface Verdict {
+  level: VerdictLevel;
+  title: string;
+  detail: string;
+  /// Curated per-device knowledge, rendered apart from the derived detail.
+  note: string | null;
+}
+
+export interface MediaCapabilities {
+  video: VideoFormat[];
+  hdr_types: string[];
+  modes: DisplayModeEntry[];
+  audio: AudioPassthrough;
+  match_content_frame_rate: string | null;
+  verdicts: Verdict[];
+}
+
+/// CPU + network rates over one device-side sampling window.
+export interface ResourceSample {
+  cpu_percent: number | null;
+  rx_bytes_per_s: number | null;
+  tx_bytes_per_s: number | null;
+  interval_ms: number;
+}
+
+export interface ShellRunResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  /// The safety gate refused it; nothing was sent to the device.
+  blocked: boolean;
+  blocked_reason: string | null;
+}
+
 export interface MemoryEntry {
   package: string;
   mb: number;
@@ -314,6 +374,10 @@ export interface TweaksState {
   animator_duration_scale: string | null;
   /// Background process limit: null = Standard, "0" = none, "1"–"4" = at most N.
   background_process_limit: string | null;
+  /// Encoded audio passthrough: "0" Auto, "1" Never, "2" Always, "3" Manual.
+  encoded_surround_output: string | null;
+  /// Comma-separated AudioFormat encodings; applies only in Manual mode.
+  encoded_surround_output_enabled_formats: string | null;
 }
 
 export type SettingNamespace = "global" | "secure" | "system";

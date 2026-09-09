@@ -4,9 +4,13 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    batch_command, parse_active_audio_device, parse_display_mode, parse_hardware_properties_temp,
-    parse_meminfo_summary, parse_storage_info, parse_thermal_max_celsius,
-    parse_total_pss_by_process, split_batch, DisplayMode, RamInfo, StorageInfo,
+    batch_command, parse_active_audio_device, parse_display_mode, parse_display_modes,
+    parse_hardware_properties_temp, parse_meminfo_summary, parse_net_dev, parse_proc_stat,
+    parse_storage_info, parse_thermal_max_celsius, parse_total_pss_by_process, split_batch,
+    DisplayMode, RamInfo, StorageInfo,
+};
+use crate::engine::media::{
+    build_capabilities, parse_media_codecs, surround_mode, MediaCapabilities,
 };
 
 use super::AppState;
@@ -40,6 +44,172 @@ pub async fn health_report(
     serial: String,
 ) -> Result<HealthReport, String> {
     health_report_for(state.inner(), &serial).await
+}
+
+/// Every `media_codecs*.xml` the platform might ship, in one `cat`.
+///
+/// The file is split across vendor / system / product partitions and its exact
+/// path differs per build, so globbing all the plausible locations at once is
+/// both cheaper and more portable than probing them in turn. Unmatched globs
+/// and missing files fail silently — `batch_command` already discards stderr,
+/// and `parse_media_codecs` tolerates the concatenation of several documents.
+///
+/// `/vendor/odm/etc` and `/odm/etc` are not optional extras: they are where a
+/// Shield TV Pro (mdarcy, Android 11) actually keeps the file — `/vendor/etc`
+/// holds only `media_profiles` there. Verified against hardware; dropping them
+/// makes the whole report read as "decoder list unavailable" on the device
+/// this app is named after.
+const MEDIA_CODECS_GLOB: &str = "cat /vendor/etc/media_codecs*.xml \
+                                 /vendor/odm/etc/media_codecs*.xml /odm/etc/media_codecs*.xml \
+                                 /system/etc/media_codecs*.xml /etc/media_codecs*.xml \
+                                 /product/etc/media_codecs*.xml";
+
+/// `media_report` — what this device can actually decode and output.
+///
+/// `device_type` comes from the caller rather than a fresh `getprop` round
+/// trip: the frontend already holds the profiled device, and re-deriving it
+/// here would fork the single canonical detection path.
+#[tauri::command]
+pub async fn media_report(
+    state: State<'_, AppState>,
+    serial: String,
+    device_type: crate::engine::DeviceType,
+) -> Result<MediaCapabilities, String> {
+    media_report_for(state.inner(), &serial, device_type).await
+}
+
+async fn media_report_for(
+    state: &AppState,
+    serial: &str,
+    device_type: crate::engine::DeviceType,
+) -> Result<MediaCapabilities, String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    let adb = state.adb_snapshot().await;
+    let cmd = batch_command(&[
+        "dumpsys display",
+        MEDIA_CODECS_GLOB,
+        "settings get global encoded_surround_output",
+        "settings get global encoded_surround_output_enabled_formats",
+        "settings get secure match_content_frame_rate",
+    ]);
+
+    let batched = timeout(Duration::from_secs(30), adb.shell(serial, &cmd))
+        .await
+        .map_err(|_| "Playback report timed out after 30 seconds.".to_string())?
+        .map_err(|e| format!("media report: {e}"))?
+        .stdout;
+
+    let sections = split_batch(&batched, 5);
+    if sections.iter().all(|section| section.trim().is_empty()) {
+        return Err("The TV returned no playback data. Retry the report.".into());
+    }
+
+    // A `settings get` on an unset key prints the literal "null"; treat that
+    // and an empty section as "not set" so the engine sees `None` either way.
+    let setting = |raw: &str| {
+        let v = raw.trim();
+        (!v.is_empty() && v != "null").then(|| v.to_string())
+    };
+
+    Ok(build_capabilities(
+        &parse_media_codecs(&sections[1]),
+        parse_display_mode(&sections[0]).hdr_types,
+        parse_display_modes(&sections[0]),
+        surround_mode(
+            setting(&sections[2]).as_deref(),
+            setting(&sections[3]).as_deref(),
+        ),
+        setting(&sections[4]),
+        device_type,
+    ))
+}
+
+/// CPU load and network throughput over a short sampling window.
+#[derive(Serialize)]
+pub struct ResourceSample {
+    /// Aggregate CPU busy time across the window, 0-100. `None` when
+    /// `/proc/stat` was unreadable or the counters did not advance.
+    pub cpu_percent: Option<f64>,
+    pub rx_bytes_per_s: Option<u64>,
+    pub tx_bytes_per_s: Option<u64>,
+    /// The nominal sampling window, so the UI can label the reading.
+    pub interval_ms: u64,
+}
+
+/// Device-side sampling window. Both samples and the sleep between them run
+/// inside one shell, so the delta is measured on the device and Wi-Fi latency
+/// never lands in the denominator.
+const SAMPLE_INTERVAL_MS: u64 = 1000;
+
+/// `resource_sample` — CPU % and network throughput.
+///
+/// Deliberately *not* folded into `health_report`: rate counters need two
+/// reads a second apart, and charging every health refresh an extra second of
+/// wall clock to carry two numbers would be a bad trade. The Health tab calls
+/// this separately and can poll it without re-running the whole report.
+#[tauri::command]
+pub async fn resource_sample(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ResourceSample, String> {
+    resource_sample_for(state.inner(), &serial).await
+}
+
+async fn resource_sample_for(state: &AppState, serial: &str) -> Result<ResourceSample, String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    let adb = state.adb_snapshot().await;
+    let cmd = batch_command(&[
+        "cat /proc/stat",
+        "cat /proc/net/dev",
+        &format!("sleep {}", SAMPLE_INTERVAL_MS as f64 / 1000.0),
+        "cat /proc/stat",
+        "cat /proc/net/dev",
+    ]);
+
+    let batched = timeout(Duration::from_secs(30), adb.shell(serial, &cmd))
+        .await
+        .map_err(|_| "Resource sample timed out after 30 seconds.".to_string())?
+        .map_err(|e| format!("resource sample: {e}"))?
+        .stdout;
+
+    let sections = split_batch(&batched, 5);
+
+    // Counter deltas use saturating subtraction throughout: an interface going
+    // down mid-window (or a 32-bit counter wrapping) would otherwise underflow
+    // into a nonsense spike rather than reading as zero.
+    let cpu_percent = match (parse_proc_stat(&sections[0]), parse_proc_stat(&sections[3])) {
+        (Some(a), Some(b)) => {
+            let total = b.total.saturating_sub(a.total);
+            let busy = b.busy.saturating_sub(a.busy);
+            (total > 0).then(|| ((busy as f64 / total as f64) * 1000.0).round() / 10.0)
+        }
+        _ => None,
+    };
+
+    let (rx_bytes_per_s, tx_bytes_per_s) =
+        match (parse_net_dev(&sections[1]), parse_net_dev(&sections[4])) {
+            (Some(a), Some(b)) => {
+                let per_s = |later: u64, earlier: u64| {
+                    later.saturating_sub(earlier) * 1000 / SAMPLE_INTERVAL_MS
+                };
+                (
+                    Some(per_s(b.rx_bytes, a.rx_bytes)),
+                    Some(per_s(b.tx_bytes, a.tx_bytes)),
+                )
+            }
+            _ => (None, None),
+        };
+
+    Ok(ResourceSample {
+        cpu_percent,
+        rx_bytes_per_s,
+        tx_bytes_per_s,
+        interval_ms: SAMPLE_INTERVAL_MS,
+    })
 }
 
 /// `app_list_for_device` — return the merged app list for a given device type.
@@ -317,6 +487,161 @@ mod tests {
         assert_eq!(report.storage.used_percent, None);
         assert_eq!(report.temperature_c, None);
         assert_eq!(report.audio_device, None);
+    }
+
+    const DISPLAY: &str = "DisplayDeviceInfo{\"Built-in Screen\": 3840 x 2160, modeId 20, \
+supportedModes [{id=1, width=3840, height=2160, fps=23.976023}, {id=20, width=3840, height=2160, \
+fps=59.94006}], HdrCapabilities{mSupportedHdrTypes=[1, 2, 3]}}";
+    const CODECS: &str = r#"<Decoders>
+<MediaCodec name="OMX.Nvidia.h265.decode" type="video/hevc" />
+<MediaCodec name="c2.android.av1.decoder" type="video/av01" />
+</Decoders>"#;
+
+    #[test]
+    fn the_codec_glob_covers_the_path_a_real_shield_uses() {
+        // Regression guard, found on hardware: a Shield TV Pro (mdarcy,
+        // Android 11) keeps media_codecs.xml under /vendor/odm/etc — its
+        // /vendor/etc has only media_profiles. Dropping this path makes the
+        // whole report degrade to "decoder list unavailable" on the exact
+        // device this app targets.
+        assert!(MEDIA_CODECS_GLOB.contains("/vendor/odm/etc/media_codecs"));
+        assert!(MEDIA_CODECS_GLOB.contains("/vendor/etc/media_codecs"));
+    }
+
+    #[tokio::test]
+    async fn media_report_decodes_every_section_from_one_round_trip() {
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[DISPLAY, CODECS, "3", "5,6,14", "2"]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let caps = media_report_for(&state, "serial", crate::engine::DeviceType::Shield)
+            .await
+            .unwrap_or_else(|e| panic!("media report: {e}"));
+
+        assert_eq!(caps.hdr_types, ["Dolby Vision", "HDR10", "HLG"]);
+        assert_eq!(caps.modes.len(), 2);
+        assert!(caps.modes.iter().any(|m| m.is_film_rate()));
+        assert_eq!(caps.match_content_frame_rate.as_deref(), Some("2"));
+        assert_eq!(caps.audio.mode, crate::engine::SurroundMode::Manual);
+        assert!(caps
+            .audio
+            .enabled_formats
+            .iter()
+            .any(|f| f.contains("TrueHD")));
+
+        let hevc = caps.video.iter().find(|v| v.mime == "video/hevc").unwrap();
+        assert!(hevc.hardware);
+        let av1 = caps.video.iter().find(|v| v.mime == "video/av01").unwrap();
+        assert!(!av1.hardware && av1.software);
+
+        let calls = log.lock().unwrap();
+        assert_eq!(
+            calls.len(),
+            1,
+            "the report must cost one round-trip: {calls:?}"
+        );
+        assert!(calls[0].contains("media_codecs"));
+    }
+
+    #[tokio::test]
+    async fn media_report_treats_a_null_setting_as_unset() {
+        // `settings get` prints the literal "null" for an absent key — it must
+        // not reach the engine as the string "null".
+        let state = state_with(MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[DISPLAY, CODECS, "null", "null", "null"]),
+        ));
+        let caps = media_report_for(&state, "serial", crate::engine::DeviceType::Shield)
+            .await
+            .unwrap();
+        assert_eq!(caps.match_content_frame_rate, None);
+        assert_eq!(caps.audio.mode, crate::engine::SurroundMode::Unset);
+        assert_eq!(caps.audio.raw_formats, None);
+    }
+
+    #[tokio::test]
+    async fn media_report_survives_an_unreadable_codec_file() {
+        // Everything else still renders, and nothing is claimed about codecs.
+        let state = state_with(
+            MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&[DISPLAY, "", "0", "", "2"])),
+        );
+        let caps = media_report_for(&state, "serial", crate::engine::DeviceType::Shield)
+            .await
+            .unwrap();
+        assert_eq!(caps.modes.len(), 2);
+        assert!(caps
+            .verdicts
+            .iter()
+            .any(|v| v.title == "Decoder list unavailable"));
+        assert!(!caps.verdicts.iter().any(|v| v.title.contains("AV1")));
+    }
+
+    #[tokio::test]
+    async fn media_report_errors_when_the_device_returns_nothing() {
+        let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, ""));
+        assert!(
+            media_report_for(&state, "serial", crate::engine::DeviceType::Shield)
+                .await
+                .is_err()
+        );
+    }
+
+    const STAT_A: &str = "cpu  100 0 100 800 0 0 0 0";
+    const STAT_B: &str = "cpu  200 0 200 1600 0 0 0 0";
+    const NET_A: &str = "  eth0: 1000 5 0 0 0 0 0 0 500 3 0 0 0 0 0 0";
+    const NET_B: &str = "  eth0: 3000 9 0 0 0 0 0 0 1500 7 0 0 0 0 0 0";
+
+    #[tokio::test]
+    async fn resource_sample_derives_rates_from_two_device_side_reads() {
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[STAT_A, NET_A, "", STAT_B, NET_B]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let sample = resource_sample_for(&state, "serial").await.unwrap();
+        // busy delta 200, total delta 1000 → 20%.
+        assert_eq!(sample.cpu_percent, Some(20.0));
+        assert_eq!(sample.rx_bytes_per_s, Some(2000));
+        assert_eq!(sample.tx_bytes_per_s, Some(1000));
+
+        let calls = log.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert!(
+            calls[0].contains("sleep 1"),
+            "the window must be device-side: {}",
+            calls[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn resource_sample_reports_none_rather_than_a_bogus_spike() {
+        // Counters that went backwards (interface reset / wrap) and identical
+        // CPU samples must not produce negative or infinite rates.
+        let state = state_with(MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&[STAT_A, NET_B, "", STAT_A, NET_A]),
+        ));
+        let sample = resource_sample_for(&state, "serial").await.unwrap();
+        assert_eq!(
+            sample.cpu_percent, None,
+            "no elapsed jiffies means no reading"
+        );
+        assert_eq!(sample.rx_bytes_per_s, Some(0));
+        assert_eq!(sample.tx_bytes_per_s, Some(0));
+    }
+
+    #[tokio::test]
+    async fn resource_sample_degrades_when_proc_is_unreadable() {
+        let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", ""])));
+        let sample = resource_sample_for(&state, "serial").await.unwrap();
+        assert_eq!(sample.cpu_percent, None);
+        assert_eq!(sample.rx_bytes_per_s, None);
+        assert_eq!(sample.interval_ms, SAMPLE_INTERVAL_MS);
     }
 
     #[tokio::test]

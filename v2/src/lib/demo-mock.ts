@@ -18,6 +18,7 @@ import type {
   Device,
   HealthReport,
   LauncherStatus,
+  MediaCapabilities,
   OptimizePlan,
   OptimizePlanItem,
   SnapshotFile,
@@ -75,6 +76,68 @@ const health: HealthReport = {
   ],
 };
 
+const media: MediaCapabilities = {
+  video: [
+    { label: "H.264 / AVC", mime: "video/avc", hardware: true, software: true },
+    { label: "HEVC / H.265", mime: "video/hevc", hardware: true, software: true },
+    { label: "VP9", mime: "video/x-vnd.on2.vp9", hardware: true, software: true },
+    { label: "AV1", mime: "video/av01", hardware: false, software: true },
+    { label: "Dolby Vision", mime: "video/dolby-vision", hardware: true, software: false },
+    { label: "MPEG-2", mime: "video/mpeg2", hardware: true, software: false },
+  ],
+  hdr_types: ["Dolby Vision", "HDR10", "HLG"],
+  modes: [
+    { width: 3840, height: 2160, fps: 59.94, active: true },
+    { width: 3840, height: 2160, fps: 29.97, active: false },
+    { width: 3840, height: 2160, fps: 23.976, active: false },
+    { width: 1920, height: 1080, fps: 60.0, active: false },
+    { width: 1920, height: 1080, fps: 23.976, active: false },
+  ],
+  audio: {
+    mode: "manual",
+    enabled_formats: [
+      "Dolby Digital (AC-3)",
+      "Dolby Digital Plus (E-AC-3)",
+      "Dolby Atmos over DD+ (E-AC-3 JOC)",
+      "Dolby TrueHD",
+      "DTS",
+      "DTS-HD",
+    ],
+    raw_formats: "5,6,18,14,7,8",
+  },
+  match_content_frame_rate: "2",
+  verdicts: [
+    {
+      level: "good",
+      title: "24p handled (23.976 Hz mode available)",
+      detail:
+        "Match Content Frame Rate is set to Always, so film switches to its native cadence instead of being pulled to the panel rate.",
+      note: null,
+    },
+    {
+      level: "info",
+      title: "Surround passthrough is on a manual allow-list",
+      detail:
+        "Only these pass through: Dolby Digital (AC-3), Dolby Digital Plus (E-AC-3), Dolby Atmos over DD+ (E-AC-3 JOC), Dolby TrueHD, DTS, DTS-HD. Anything else is decoded on the device.",
+      note: null,
+    },
+    {
+      level: "good",
+      title: "Dolby Vision available",
+      detail:
+        "The device advertises a Dolby Vision decoder and the display chain accepts Dolby Vision.",
+      note: "Profiles 5 and 8 play natively. Profile 7 — the dual-layer format UHD Blu-ray remuxes use — plays the base layer only: the enhancement layer is discarded, so FEL titles render from a base grade that was never meant to be shown alone. Converting Profile 7 to 8.1 before playback avoids that.",
+    },
+    {
+      level: "warn",
+      title: "AV1 in software only",
+      detail:
+        "No hardware AV1 decoder is advertised. AV1 falls back to CPU decoding, which stutters above 1080p on TV-class silicon.",
+      note: "The Shield's Tegra X1/X1+ has no AV1 decode block, and no firmware update can add one. AV1 streams fall back to software decoding — fine at 1080p, unreliable above it.",
+    },
+  ],
+};
+
 const launchers: LauncherStatus[] = [
   {
     entry: { name: "Android TV Launcher (Stock)", package: "com.google.android.tvlauncher" },
@@ -100,6 +163,8 @@ const tweaks: TweaksState = {
   transition_animation_scale: "0.5",
   animator_duration_scale: "0.5",
   background_process_limit: "2",
+  encoded_surround_output: "3",
+  encoded_surround_output_enabled_formats: "5,6,18,14,7,8",
 };
 
 const snapshots: SnapshotFile[] = [
@@ -201,6 +266,33 @@ function demoFiles(path: string) {
   ];
 }
 
+function demoShellOutput(command: string): string {
+  if (command.includes("packages -d")) {
+    return [...DISABLED].map((p) => `package:${p}`).join("\n");
+  }
+  if (command.includes("packages -3")) {
+    return [
+      "package:com.plexapp.android",
+      "package:com.spocky.projengmenu",
+      "package:com.liskovsoft.smarttubetv.beta",
+      "package:org.jellyfin.androidtv",
+    ].join("\n");
+  }
+  if (command.includes("getprop")) {
+    return [
+      "[ro.product.brand]: [NVIDIA]",
+      "[ro.product.device]: [mdarcy]",
+      "[ro.product.manufacturer]: [NVIDIA]",
+      "[ro.product.model]: [SHIELD Android TV]",
+      "[ro.product.name]: [darcy]",
+    ].join("\n");
+  }
+  if (command.includes("uptime")) {
+    return " 21:14:07 up 6 days,  3:22,  0 users,  load average: 0.84, 0.61, 0.55";
+  }
+  return "ok";
+}
+
 // Map of command name → handler. Unlisted commands fall through to a benign
 // success so a stray click during capture never throws.
 function handle(cmd: string, args: Record<string, unknown>): unknown {
@@ -258,6 +350,38 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return { package: "com.spocky.projengmenu", activity: "com.spocky.projengmenu/.MainActivity" };
     case "channel_provider_disabled":
       return false;
+    case "media_report":
+      return media;
+    case "resource_sample":
+      return {
+        cpu_percent: 18.4,
+        rx_bytes_per_s: 11_534_336,
+        tx_bytes_per_s: 204_800,
+        interval_ms: 1000,
+      };
+    case "run_shell": {
+      const command = String(args.command ?? "");
+      // Mirror the real safety gate so the demo/screenshot layer cannot show
+      // a refusal-free shell that the shipping app would never allow.
+      if (/\b(disable|disable-user|uninstall|hide|suspend)\b/.test(command) &&
+          /\b(android|com\.android\.systemui|com\.android\.shell|com\.google\.android\.gms)\b/.test(command)) {
+        return {
+          stdout: "",
+          stderr: "",
+          exit_code: null,
+          blocked: true,
+          blocked_reason:
+            "Refused: this command would disable or remove com.android.systemui, which is on the do-not-disable list. System UI — the launcher's host process. Disabling makes the device unusable.",
+        };
+      }
+      return {
+        stdout: demoShellOutput(command),
+        stderr: "",
+        exit_code: 0,
+        blocked: false,
+        blocked_reason: null,
+      };
+    }
     case "get_tweaks":
       return tweaks;
     case "list_dir":

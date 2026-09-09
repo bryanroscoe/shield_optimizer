@@ -44,6 +44,69 @@ pub fn is_never_disable(package: &str) -> bool {
     never_disable_reason(package).is_some()
 }
 
+/// Destructive package verbs. Each one takes a package away from the user in a
+/// way the never-disable list exists to prevent — `hide` and `suspend` are
+/// included because they reach the same end state as `disable` by another
+/// name.
+const DESTRUCTIVE_VERBS: &[&str] = &["disable", "disable-user", "uninstall", "hide", "suspend"];
+
+/// Guard for the free-form shell runner: does this command *obviously* try to
+/// take a never-disable package away?
+///
+/// **This is an anti-footgun, not a security boundary.** Read that literally
+/// before relying on it for anything.
+///
+/// What it catches is the paste-from-a-forum-post case: someone runs
+/// `pm disable-user com.android.systemui`, or the same thing chained behind a
+/// harmless statement, without knowing it bricks the device. It handles the
+/// spellings that show up in real posts — `;` / `&&` chaining, `cmd package`,
+/// simple quoting, `$(…)` — because it compares whole tokens rather than
+/// modelling shell grammar.
+///
+/// What it does **not** catch, verified rather than assumed:
+///
+/// ```text
+/// P=com.android.systemui; pm disable-user $P   // variable indirection
+/// pm disable-user com.android.system''ui       // split quoting
+/// pm disable-user com.android.sys*             // glob
+/// ```
+///
+/// Closing those would mean writing a shell parser, and a shell parser can
+/// always be out-argued. The trade is deliberate and it is fine here, because
+/// **there is no privilege boundary at this seam**: the user already has
+/// `adb shell` on their own machine, pointed at their own device. Someone
+/// determined to disable System UI does not need to defeat this function.
+///
+/// The never-disable list is genuinely *enforced* on the structured paths —
+/// `apps::disable_package`, the optimize wizard, apply-snapshot. This only
+/// stops the free-form box from becoming an easy way to do the same damage by
+/// accident. If you ever need a real boundary here, this is not it.
+///
+/// It requires *both* a destructive verb and a protected package, so read-only
+/// inspection (`dumpsys package com.android.systemui`) stays allowed.
+///
+/// Returns the reason to show the user, or `None` when the command is clear.
+pub fn shell_command_blocked(command: &str) -> Option<(String, &'static str)> {
+    // Split on everything that separates or delimits an argument, so quoting
+    // and chaining cannot smuggle a package past the token comparison.
+    let tokens: Vec<&str> = command
+        .split(|c: char| {
+            c.is_whitespace() || matches!(c, ';' | '&' | '|' | '(' | ')' | '\'' | '"' | '`')
+        })
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let has_verb = tokens
+        .iter()
+        .any(|t| DESTRUCTIVE_VERBS.contains(&t.to_ascii_lowercase().as_str()));
+    if !has_verb {
+        return None;
+    }
+    tokens
+        .iter()
+        .find_map(|t| never_disable_reason(t).map(|reason| ((*t).to_string(), reason)))
+}
+
 fn never_disable_reason(package: &str) -> Option<&'static str> {
     // Bricking-tier: framework, system UI, settings, ADB-adjacent, package +
     // permission infrastructure, base Google services. Order matches what
@@ -232,6 +295,102 @@ const CAUTION: &[(&str, &str)] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shell_runner_blocks_disabling_a_never_disable_package() {
+        let (pkg, reason) =
+            shell_command_blocked("pm disable-user --user 0 com.android.systemui").unwrap();
+        assert_eq!(pkg, "com.android.systemui");
+        assert!(reason.contains("System UI"));
+    }
+
+    #[test]
+    fn shell_runner_blocks_every_destructive_spelling() {
+        for cmd in [
+            "pm disable com.android.systemui",
+            "pm disable-user com.android.systemui",
+            "pm uninstall --user 0 com.android.systemui",
+            "pm hide com.android.systemui",
+            "pm suspend com.android.systemui",
+            "cmd package disable com.android.systemui",
+            "PM DISABLE com.android.systemui",
+        ] {
+            assert!(shell_command_blocked(cmd).is_some(), "must block: {cmd}");
+        }
+    }
+
+    #[test]
+    fn shell_runner_blocks_chained_and_quoted_attempts() {
+        // The hole a naive prefix check would leave: hide the destructive
+        // statement behind a harmless first one, or quote the package.
+        assert!(shell_command_blocked("echo hi; pm disable-user com.android.systemui").is_some());
+        assert!(shell_command_blocked("id && pm uninstall com.android.settings").is_some());
+        assert!(shell_command_blocked("pm disable-user 'com.android.systemui'").is_some());
+        assert!(shell_command_blocked("pm disable-user \"com.android.systemui\"").is_some());
+        assert!(shell_command_blocked("pm disable-user android").is_some());
+    }
+
+    #[test]
+    fn shell_runner_gate_does_not_pretend_to_stop_deliberate_evasion() {
+        // Pinned on purpose. These all reach the device, and that is the
+        // documented contract — `shell_command_blocked` is an anti-footgun,
+        // not a boundary. Catching them would require a shell parser, which
+        // can always be out-argued, and there is nothing to defend anyway:
+        // the user already has `adb shell` against their own device.
+        //
+        // If a future change makes one of these block, that is a behavior
+        // change to think about, not a bug fix — and this test failing is the
+        // prompt to re-read the docs on the function before "fixing" it.
+        for evasion in [
+            "P=com.android.systemui; pm disable-user $P", // variable indirection
+            "pm disable-user com.android.system''ui",     // split quoting
+            "pm disable-user com.android.sys*",           // glob
+        ] {
+            assert_eq!(
+                shell_command_blocked(evasion),
+                None,
+                "gate is documented as not catching this: {evasion}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_runner_allows_reading_a_protected_package() {
+        // Both halves of the rule matter: a protected package with no
+        // destructive verb is an inspection, and must go through.
+        assert_eq!(
+            shell_command_blocked("dumpsys package com.android.systemui"),
+            None
+        );
+        assert_eq!(shell_command_blocked("pm path com.android.systemui"), None);
+        assert_eq!(shell_command_blocked("pm list packages"), None);
+    }
+
+    #[test]
+    fn shell_runner_allows_disabling_an_unprotected_package() {
+        // The verb alone must not block — debloating from the shell is the
+        // whole point of the tab.
+        assert_eq!(
+            shell_command_blocked("pm disable-user --user 0 com.facebook.katana"),
+            None
+        );
+        assert_eq!(
+            shell_command_blocked("pm uninstall --user 0 com.netflix.ninja"),
+            None
+        );
+    }
+
+    #[test]
+    fn shell_runner_gate_agrees_with_the_never_disable_list() {
+        // The gate must not drift from the list it enforces.
+        for (pkg, _) in NEVER_DISABLE {
+            assert!(is_never_disable(pkg));
+            assert!(
+                shell_command_blocked(&format!("pm disable-user {pkg}")).is_some(),
+                "shell gate missed a never-disable package: {pkg}"
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

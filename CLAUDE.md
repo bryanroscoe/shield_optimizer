@@ -49,7 +49,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
 
 ```
-cd v2 && npm run screenshots   # captures all 12 screens (demo data, dark theme) + rebuilds the GIF
+cd v2 && npm run screenshots   # captures all 14 screens (demo data, dark theme) + rebuilds the GIF
 ```
 
 It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:

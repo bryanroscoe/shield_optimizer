@@ -24,6 +24,7 @@ import type {
   InstallApkResult,
   InstallResult,
   LauncherStatus,
+  MediaCapabilities,
   OptimizeMode,
   OptimizePlan,
   OtherPackage,
@@ -34,6 +35,7 @@ import type {
   RebootMode,
   RebootResult,
   RecoveryResult,
+  ResourceSample,
   RestartResult,
   Safety,
   ScanResult,
@@ -41,6 +43,7 @@ import type {
   SendTextResult,
   SetLauncherResult,
   SettingNamespace,
+  ShellRunResult,
   SnapshotApplyPlan,
   SnapshotFile,
   TweaksState,
@@ -186,6 +189,12 @@ export const api = {
     invoke<RecoveryResult>("panic_recovery", { serial }),
   rebootDevice: (serial: string, mode: RebootMode) =>
     invoke<RebootResult>("reboot_device", { serial, mode }),
+
+  mediaReport: (serial: string, deviceType: DeviceType) =>
+    invoke<MediaCapabilities>("media_report", { serial, deviceType }),
+  resourceSample: (serial: string) => invoke<ResourceSample>("resource_sample", { serial }),
+  runShell: (serial: string, command: string) =>
+    invoke<ShellRunResult>("run_shell", { serial, command }),
 
   getTweaks: (serial: string) => invoke<TweaksState>("get_tweaks", { serial }),
   writeSetting: (
