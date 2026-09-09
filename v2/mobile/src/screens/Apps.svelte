@@ -2,6 +2,8 @@
   import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
+  import { recordUnknownDiagnostics } from "../lib/unknownDiagnostics";
+  import packageMetadata from "../../package.json";
   import type { Screen } from "../lib/router.svelte";
   import type { AppUsage, OtherPackage } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
@@ -62,9 +64,26 @@
     }
     if (apps.length === 0) loading = true;
     error = "";
+    const serial = session.serial;
+    const generation = session.generation;
+    const device = session.connectedDevice;
     try {
-      apps = await api.listOtherPackages(session.serial);
+      const nextApps = await api.listOtherPackages(serial);
+      if (generation !== session.generation || serial !== session.serial) return;
+      apps = nextApps;
       loaded = true;
+      recordUnknownDiagnostics(
+        nextApps.map((app) => ({
+          kind: "installed_package",
+          token: app.package,
+          reason: "uncatalogued_package",
+          appVersion: packageMetadata.version,
+          registryVersion: null,
+          deviceFamily: device?.device_type ?? "unknown",
+          deviceOs: device?.properties?.android_release || null,
+        })),
+        () => generation === session.generation && serial === session.serial,
+      );
       loadEnrichment();
     } catch (e) {
       error = String(e);
