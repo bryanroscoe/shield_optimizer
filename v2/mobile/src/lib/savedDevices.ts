@@ -75,7 +75,10 @@ function read(): SavedDevice[] {
 
 function write(list: SavedDevice[]): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX)));
+    const newestFirst = [...list].sort((a, b) =>
+      b.lastUsed.localeCompare(a.lastUsed),
+    );
+    localStorage.setItem(KEY, JSON.stringify(newestFirst.slice(0, MAX)));
   } catch {
     // Storage unavailable/full — reconnect simply won't be offered next launch.
   }
@@ -96,12 +99,18 @@ function hardwareIdOf(device: Device | null): string | undefined {
   return id && id !== "unknown" ? id : undefined;
 }
 
-/// Does a saved row describe the TV we just connected to? Same hardware id
-/// wins outright; otherwise the host matches and neither side contradicts it
-/// with a different known hardware id.
-function sameTv(row: SavedDevice, host: string, hardwareId: string | undefined): boolean {
-  if (hardwareId && row.hardwareId) return row.hardwareId === hardwareId;
-  return row.host === host;
+/// Does a saved row describe the TV we just connected to? Hardware ids are
+/// strong identity. Without them, only an unchanged endpoint is trustworthy.
+function sameTv(
+  row: SavedDevice,
+  host: string,
+  connectPort: number,
+  hardwareId: string | undefined,
+): boolean {
+  if (hardwareId || row.hardwareId) {
+    return hardwareId !== undefined && row.hardwareId === hardwareId;
+  }
+  return row.host === host && row.connectPort === connectPort;
 }
 
 /// Record (or refresh) a successful connection. The hardware serial is the
@@ -114,29 +123,43 @@ export function rememberDevice(
 ): void {
   const current = read();
   const hardwareId = hardwareIdOf(device);
-  const existing = current.find((d) => sameTv(d, host, hardwareId));
+  const existing = current.find((d) =>
+    sameTv(d, host, connectPort, hardwareId),
+  );
   const reportedFriendlyName = device?.properties?.friendly_name?.trim();
   const name = reportedFriendlyName || existing?.name || deviceLabelOf(device);
-  // Drop the matched row and any other row that still claims this host (a
-  // different TV that used to have this IP keeps only its hardware id, not
-  // the address).
-  const list = current
-    .filter((d) => d !== existing)
-    .map((d) => (d.host === host && d.hardwareId && d.hardwareId !== hardwareId ? { ...d, host: "" } : d))
-    .filter((d) => d.host !== "");
+  const list = current.filter((d) => d !== existing);
   list.unshift({
     host,
     connectPort,
     name,
     deviceType: device?.device_type ?? existing?.deviceType ?? "unknown",
-    ...(hardwareId || existing?.hardwareId ? { hardwareId: hardwareId ?? existing?.hardwareId } : {}),
+    ...(hardwareId || existing?.hardwareId
+      ? { hardwareId: hardwareId ?? existing?.hardwareId }
+      : {}),
     lastUsed: new Date().toISOString(),
   });
   write(list);
 }
 
 export function forgetDevice(host: string, connectPort: number): void {
-  write(read().filter((d) => !(d.host === host && d.connectPort === connectPort)));
+  const current = listSavedDevices();
+  const target = current.find(
+    (d) => d.host === host && d.connectPort === connectPort,
+  );
+  if (!target) return;
+  if (target.hardwareId) {
+    write(current.filter((d) => d.hardwareId !== target.hardwareId));
+    return;
+  }
+  write(
+    current.filter(
+      (d) =>
+        d.hardwareId !== undefined ||
+        d.host !== target.host ||
+        d.connectPort !== target.connectPort,
+    ),
+  );
 }
 
 /// Whether the app may dial the single saved TV on launch without being
@@ -164,10 +187,14 @@ export function setAutoConnect(enabled: boolean): void {
 /// reused IP can never show another TV's name.
 export function cachedDeviceName(host: string, hardwareId?: string): string | null {
   if (!host) return null;
-  const row = read().find((d) => d.host === host);
-  if (!row) return null;
-  if (hardwareId && row.hardwareId && row.hardwareId !== hardwareId) return null;
-  return row.name;
+  const rows = listSavedDevices().filter((d) => d.host === host);
+  const normalizedId = hardwareId?.trim();
+  if (normalizedId && normalizedId !== "unknown") {
+    return rows.find((d) => d.hardwareId === normalizedId)?.name ?? null;
+  }
+  if (rows.length === 0) return null;
+  const identities = new Set(rows.map((d) => d.hardwareId ?? ""));
+  return identities.size === 1 ? rows[0].name : null;
 }
 
 /// Compact "last used" phrasing for the reconnect card (e.g. "2h ago").
