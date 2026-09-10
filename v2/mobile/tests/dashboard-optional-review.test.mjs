@@ -210,6 +210,35 @@ test("Caution defaults are recommended while Unknown defaults move to Optional",
   );
 });
 
+test("protected defaults stay visible and blocked in Optional", async (t) => {
+  const protectedDefault = item("Protected Default", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [protectedDefault] } },
+    safety: {
+      [protectedDefault.entry.package]: {
+        kind: "never_disable",
+        reason: "Required for the TV system interface.",
+      },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("Protected Default", { exact: true }).waitFor();
+  assert.match(
+    await page.getByRole("button", { name: "Optional apps", exact: true }).getAttribute("class"),
+    /active/,
+  );
+  await page.getByRole("button", { name: "Recommended", exact: true }).click();
+  assert.equal(await page.getByText("Protected Default", { exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click();
+  const choices = page.getByRole("group", { name: "Choice for Protected Default" });
+  assert.equal(
+    await choices.getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"),
+    "true",
+  );
+  assert.equal(await choices.getByRole("button", { name: "Disable", exact: true }).isDisabled(), true);
+  assert.match(await page.locator(".optimize-list").innerText(), /Required for the TV system interface/);
+});
+
 test("a plan containing only Unknown defaults opens Optional after safety resolves", async (t) => {
   const unknownDefault = item("Unknown Only", { defaultOptimize: true });
   const page = await createPage(t, {

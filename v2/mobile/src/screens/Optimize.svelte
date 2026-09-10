@@ -291,9 +291,7 @@
       (it) =>
         mode === "optimize" &&
         (!it.entry.default_optimize ||
-          (!safetyLoading &&
-            (safetyMap[it.entry.package]?.kind === "unknown" ||
-              (safetyFailed && !safetyMap[it.entry.package])))),
+          (!safetyLoading && !recommendedFlag(it))),
     ),
   );
   const visibleItems = $derived(
