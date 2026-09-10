@@ -51,6 +51,7 @@ async function createPage(t, options = {}) {
     window.calls = [];
     window.handlers = {};
     window.pendingStates = [];
+    window.pendingSafety = [];
     window.options = options;
     window.__TAURI_INTERNALS__ = {
       invoke: async (command, args) => {
@@ -76,9 +77,15 @@ async function createPage(t, options = {}) {
           case "app_list_for_device": return options.catalog ?? [];
           case "package_states": return options.states ?? {};
           case "prepare_optimize": return options.plans?.[args.mode] ?? { mode: args.mode, items: [] };
-          case "safety_info": return options.safety?.[args.package] ?? {
-            kind: "caution", reason: "Review whether you use this app.",
-          };
+          case "safety_info": {
+            const verdict = options.safety?.[args.package] ?? {
+              kind: "caution", reason: "Review whether you use this app.",
+            };
+            if (options.deferSafety) {
+              return new Promise((resolve) => window.pendingSafety.push({ resolve, verdict }));
+            }
+            return verdict;
+          }
           default: return { ok: true, message: "done", transport: "channel" };
         }
       },
@@ -177,6 +184,69 @@ test("zero recommended candidates opens Optional apps with Keep selected", async
   assert.equal(await page.getByRole("button", { name: "Select all", exact: true }).count(), 0);
   assert.equal(await page.getByRole("button", { name: /Apply optimization/ }).isDisabled(), true);
   assert.equal(await page.getByText(prime.entry.package, { exact: true }).count(), 1);
+});
+
+test("Caution defaults are recommended while Unknown defaults move to Optional", async (t) => {
+  const cautionDefault = item("Caution Default", { defaultOptimize: true });
+  const unknownDefault = item("Unknown Default", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [cautionDefault, unknownDefault] } },
+    safety: {
+      [cautionDefault.entry.package]: { kind: "caution", reason: "Safe to review as a recommendation." },
+      [unknownDefault.entry.package]: { kind: "unknown", reason: "No audited rule matched this package." },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("1 selected · 1 recommended · 0 optional", { exact: false }).waitFor();
+  assert.equal(await page.getByText("Caution Default", { exact: true }).count(), 1);
+  assert.equal(await page.getByText("Unknown Default", { exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click();
+  assert.equal(await page.getByText("Caution Default", { exact: true }).count(), 0);
+  assert.equal(await page.getByText("Unknown Default", { exact: true }).count(), 1);
+  assert.equal(
+    await page.getByRole("group", { name: "Choice for Unknown Default" })
+      .getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"),
+    "true",
+  );
+});
+
+test("a plan containing only Unknown defaults opens Optional after safety resolves", async (t) => {
+  const unknownDefault = item("Unknown Only", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [unknownDefault] } },
+    safety: {
+      [unknownDefault.entry.package]: { kind: "unknown", reason: "No audited rule matched this package." },
+    },
+  });
+  await openScreen(page, "optimize");
+  const optionalTab = page.getByRole("button", { name: "Optional apps", exact: true });
+  await page.getByText("Unknown Only", { exact: true }).waitFor();
+  assert.match(await optionalTab.getAttribute("class"), /active/);
+  assert.equal(
+    await page.getByRole("group", { name: "Choice for Unknown Only" })
+      .getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"),
+    "true",
+  );
+});
+
+test("a user's tab choice survives pending safety resolution", async (t) => {
+  const cautionDefault = item("Late Caution", { defaultOptimize: true });
+  const optional = item("Visible Optional");
+  const page = await createPage(t, {
+    deferSafety: true,
+    plans: { optimize: { mode: "optimize", items: [cautionDefault, optional] } },
+  });
+  await openScreen(page, "optimize");
+  await page.waitForFunction(() => window.pendingSafety.length === 2);
+  const optionalTab = page.getByRole("button", { name: "Optional apps", exact: true });
+  await optionalTab.click();
+  await page.getByText("Visible Optional", { exact: true }).waitFor();
+  await page.evaluate(() => {
+    for (const pending of window.pendingSafety) pending.resolve(pending.verdict);
+  });
+  await page.getByText("Review whether you use this app.", { exact: true }).waitFor();
+  assert.match(await optionalTab.getAttribute("class"), /active/);
+  assert.equal(await page.getByText("Late Caution", { exact: true }).count(), 0);
 });
 
 test("optional choices survive tabs and confirmation names every actual action", async (t) => {

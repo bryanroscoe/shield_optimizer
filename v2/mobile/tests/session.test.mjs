@@ -143,9 +143,11 @@ test("hardware Back and direct navigation keep Optimize cancellable", async (t) 
     window.backEvents = 0;
     window.addEventListener("popstate", () => window.backEvents++);
   });
-  await page.getByRole("button", { name: "Recommended", exact: true }).click();
-  await page.getByRole("button", { name: "Toggle one", exact: true }).click();
-  await page.getByRole("button", { name: "Toggle two", exact: true }).click();
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click();
+  await page.getByRole("group", { name: "Choice for one" })
+    .getByRole("button", { name: "Disable", exact: true }).click();
+  await page.getByRole("group", { name: "Choice for two" })
+    .getByRole("button", { name: "Disable", exact: true }).click();
   await page.getByRole("button", { name: "Apply optimization", exact: false }).click();
   await page.getByRole("button", { name: "Apply", exact: true }).click();
   await page.waitForFunction(() => !!window.release);

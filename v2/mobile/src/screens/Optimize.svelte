@@ -28,6 +28,7 @@
   let showPaywall = $state(false);
 
   let activeTab = $state<"recommended" | "optional" | "all">("recommended");
+  let tabTouched = $state(false);
   // Local selection (which rows are ticked). The backend safety gate remains
   // authoritative for every individual mutation during apply.
   let selected = $state<Set<string>>(new Set());
@@ -96,6 +97,8 @@
     const generation = session.generation;
     const request = ++planRequest;
     mode = nextMode;
+    activeTab = "recommended";
+    tabTouched = false;
     loading = true;
     error = "";
     locked = false;
@@ -131,14 +134,6 @@
         error = "The optimizer returned a plan for a different mode. Retry.";
         return;
       }
-      activeTab =
-        nextMode === "optimize"
-          ? p.items.some(
-              (item) => item.action.kind !== "skip" && item.entry.default_optimize,
-            )
-            ? "recommended"
-            : "optional"
-          : "recommended";
       plan = p;
       const identity = { serial, generation, mode: nextMode, token: request };
       planIdentity = identity;
@@ -184,6 +179,7 @@
     safetyFailed = false;
     if (pkgs.length === 0) {
       safetyLoading = false;
+      chooseInitialTab(p, identity);
       return;
     }
     safetyLoading = true;
@@ -208,13 +204,28 @@
         ) next.add(item.entry.package);
       }
       selected = next;
+      chooseInitialTab(p, identity);
     } catch {
       if (request !== safetyRequest || !planCurrent(identity)) return;
       safetyMap = {};
       safetyFailed = true;
+      chooseInitialTab(p, identity);
     } finally {
       if (request === safetyRequest && planCurrent(identity)) safetyLoading = false;
     }
+  }
+
+  function chooseInitialTab(p: OptimizePlan, identity: PlanIdentity) {
+    if (identity.mode !== "optimize" || tabTouched || !planCurrent(identity)) return;
+    const hasRecommendation = p.items.some(
+      (item) => item.action.kind !== "skip" && recommendedFlag(item),
+    );
+    activeTab = hasRecommendation ? "recommended" : "optional";
+  }
+
+  function chooseTab(tab: "recommended" | "optional" | "all") {
+    tabTouched = true;
+    activeTab = tab;
   }
 
   function sessionCurrent(serial: string, generation: number): boolean {
@@ -269,10 +280,21 @@
   );
   const recommendedFlag = (it: OptimizePlanItem) => {
     if (mode === "restore") return it.action.kind === "enable" && it.entry.default_restore;
-    return it.action.kind !== "enable" && it.entry.default_optimize;
+    return (
+      it.action.kind !== "enable" &&
+      it.entry.default_optimize &&
+      safetyMap[it.entry.package]?.kind === "caution"
+    );
   };
   const optionalItems = $derived(
-    actionable.filter((it) => mode === "optimize" && !it.entry.default_optimize),
+    actionable.filter(
+      (it) =>
+        mode === "optimize" &&
+        (!it.entry.default_optimize ||
+          (!safetyLoading &&
+            (safetyMap[it.entry.package]?.kind === "unknown" ||
+              (safetyFailed && !safetyMap[it.entry.package])))),
+    ),
   );
   const visibleItems = $derived(
     activeTab === "recommended"
@@ -662,13 +684,13 @@
     </p>
 
     <div class="tab-pill-box">
-      <button class="tab-pill" class:active={activeTab === "recommended"} onclick={() => (activeTab = "recommended")}>
+      <button class="tab-pill" class:active={activeTab === "recommended"} onclick={() => chooseTab("recommended")}>
         Recommended
       </button>
       <button
         class="tab-pill"
         class:active={activeTab === (mode === "optimize" ? "optional" : "all")}
-        onclick={() => (activeTab = mode === "optimize" ? "optional" : "all")}
+        onclick={() => chooseTab(mode === "optimize" ? "optional" : "all")}
       >
         {mode === "optimize" ? "Optional apps" : "All curated"}
       </button>
@@ -707,11 +729,13 @@
     {/if}
 
     {#if visibleItems.length === 0}
-      {#if mode === "optimize" && activeTab === "recommended"}
+      {#if mode === "optimize" && activeTab === "recommended" && safetyLoading}
+        <p class="lede empty">Checking safety before showing recommendations…</p>
+      {:else if mode === "optimize" && activeTab === "recommended"}
         <p class="lede empty">
           No recommended app changes are available. You can still review optional apps.
         </p>
-        <button class="ghost" onclick={() => (activeTab = "optional")}>Review optional apps</button>
+        <button class="ghost" onclick={() => chooseTab("optional")}>Review optional apps</button>
       {:else if mode === "optimize" && activeTab === "optional"}
         <p class="lede empty">No optional app changes are available for this TV.</p>
       {:else}
@@ -748,6 +772,8 @@
               </div>
               {#if item.action.kind !== "enable" && tier}
                 <span class="row-reason {tier.cls}">{reasonOf(safetyMap[item.entry.package])}</span>
+              {:else if item.action.kind !== "enable" && safetyFailed}
+                <span class="row-reason">Safety guidance could not be loaded. Retry before selecting this action.</span>
               {/if}
               <span class="row-purpose">
                 {mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description}
