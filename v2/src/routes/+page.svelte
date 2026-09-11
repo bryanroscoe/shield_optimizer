@@ -135,12 +135,12 @@
       pairMessage = r.message;
       if (r.ok) {
         pairAddress = "";
-        pairPin = "";
         await refresh();
       }
     } catch (e) {
       pairMessage = String(e);
     } finally {
+      pairPin = "";
       pairBusy = false;
     }
   }
@@ -230,7 +230,12 @@
     <h3>Pair a new device</h3>
     <p class="muted small">
       On the TV: Settings → Developer options → Wireless debugging → Pair device with pairing code.
-      The TV shows an IP[:port] and a 6-digit PIN.
+      Enter the IP:port and 6-digit PIN from that pairing dialog.
+    </p>
+    <p class="pair-note small">
+      <strong>Pairing and connecting use different ports.</strong>
+      After pairing, return to the main Wireless debugging screen and enter the IP address and port
+      shown there in <strong>Connect IP</strong> above. Do not reuse the pairing port.
     </p>
     <div class="pair-row">
       <input
@@ -490,6 +495,12 @@
   .pair-form h3 {
     margin: 0 0 0.4rem;
     font-size: 1rem;
+  }
+  .pair-note {
+    padding: 0.65rem 0.75rem;
+    border-radius: 6px;
+    background: var(--bg-inset);
+    color: var(--fg-secondary);
   }
   .pair-row {
     display: flex;

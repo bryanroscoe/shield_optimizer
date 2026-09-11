@@ -75,6 +75,8 @@ These builds aren't code-signed yet, so your OS may warn on first launch. One-ti
 2. Accept the debugging prompt on your TV if asked.
 3. Click your device to open it. Each tab is a feature:
 
+For Android 11+ Wireless debugging, **Pair PIN** establishes trust using the IP:port and code in **Pair device with pairing code**. Pairing does not connect the TV. Return to the main Wireless debugging screen and enter the separate IP:port shown there in **Connect IP**; do not reuse the pairing port. If ADB connects the paired device automatically through mDNS, it will appear after the device list refreshes.
+
 | Tab | What it does |
 |-----|--------------|
 | **Overview** | Device profile — model, Android version, build. |

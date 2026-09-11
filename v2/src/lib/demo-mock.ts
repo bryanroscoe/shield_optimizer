@@ -307,6 +307,13 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");
     case "report_all":
       return [{ serial: SERIAL, name: device.name, report: health, error: null }];
+    case "pair_device":
+      return {
+        ok: true,
+        message: "Paired successfully. Pairing established trust; to connect, enter the separate IP:port shown on the TV's main Wireless debugging screen in Connect IP.",
+      };
+    case "connect_device":
+      return { ok: true, message: `connected to ${String(args.address)}` };
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.
