@@ -21,7 +21,7 @@
     {
       label: "Disable",
       icon: "block",
-      desc: "Stops the app and hides it, but leaves it on disk. Enable puts it back instantly.",
+      desc: "Stops the app and hides it, but leaves it on disk. Enable normally puts it back without reinstalling it.",
     },
     {
       label: "Uninstall",
@@ -45,8 +45,8 @@
 
   <div class="guide-content">
     <p class="lede">
-      Every package is checked by the same audited classifier the optimizer uses — three tiers, no
-      others. The tier tells you how safe an action is.
+      Every package is checked by the same audited classifier the optimizer uses. Known protection
+      rules are mandatory, but no match does not prove every other package safe.
     </p>
 
     <div class="tiers">
@@ -72,21 +72,20 @@
       {/each}
     </div>
 
-    <div class="callout teal">
+    <div class="callout">
       <span class="msr">verified_user</span>
       <span class="callout-text">
-        Blocked packages can never be disabled from this app — the guard runs before anything is
-        sent to the TV, so a mistap can't brick your device.
+        Protected packages cannot be disabled or uninstalled from this app. Caution and Unknown
+        packages require you to review the classifier's reason and confirm the exact action.
       </span>
     </div>
 
     <div class="callout">
       <span class="msr">restore</span>
       <span class="callout-text">
-        Uninstalled an app you wanted? Open it in Apps and tap <strong>Reinstall</strong> — it runs
-        <span class="mono">install-existing</span>, which restores the APK already on the TV. If the
-        app was never preinstalled, get it from the Play Store instead. Snapshots don't reinstall
-        anything: they record which packages are disabled, plus the launcher and tracked settings.
+        Reinstall runs <span class="mono">install-existing</span> and works only when an APK still
+        exists on the TV. Otherwise, look for the app in the Play Store. Snapshots don't reinstall
+        apps: they record which packages are disabled, plus the launcher and tracked settings.
       </span>
     </div>
   </div>
@@ -146,11 +145,11 @@
     color: var(--muted);
     line-height: 1.45;
   }
-  .tier-safe {
-    border-color: color-mix(in srgb, var(--teal) 30%, transparent);
+  .tier-unknown {
+    border-color: var(--line);
   }
-  .tier-safe .tier-icon {
-    color: var(--teal);
+  .tier-unknown .tier-icon {
+    color: var(--muted);
   }
   .tier-caution {
     border-color: color-mix(in srgb, var(--amber) 30%, transparent);

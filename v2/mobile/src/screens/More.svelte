@@ -3,9 +3,19 @@
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
   import { frontendLogText } from "../lib/log";
+  import {
+    clearUnknownDiagnostics,
+    exportUnknownDiagnosticsSnapshot,
+    getUnknownDiagnosticsSnapshot,
+    unknownDiagnosticsError,
+  } from "../lib/unknownDiagnostics";
   import { api } from "../lib/api";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
+  import type {
+    UnknownDiagnosticReason,
+    UnknownDiagnosticReport,
+  } from "../lib/unknownDiagnostics";
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
@@ -32,6 +42,7 @@
   }
 
   onMount(async () => {
+    refreshDiagnosticsSummary();
     await session.loadEntitlement();
     await loadLicense();
   });
@@ -213,6 +224,73 @@
       showToast("Couldn't copy to clipboard.", "error");
     }
   }
+
+  let diagnosticsCount = $state(0);
+  let diagnosticsStorageError = $state("");
+  let diagnosticsPreview = $state<UnknownDiagnosticReport | null>(null);
+  let diagnosticsJson = $state("");
+  let diagnosticsCopyFailed = $state(false);
+  let diagnosticsClearConfirm = $state(false);
+
+  function refreshDiagnosticsSummary() {
+    const snapshot = getUnknownDiagnosticsSnapshot();
+    diagnosticsCount = snapshot.records.length;
+    diagnosticsStorageError = unknownDiagnosticsError();
+  }
+
+  function takeDiagnosticsSnapshot() {
+    diagnosticsPreview = getUnknownDiagnosticsSnapshot();
+    diagnosticsJson = exportUnknownDiagnosticsSnapshot(diagnosticsPreview);
+    diagnosticsCount = diagnosticsPreview.records.length;
+    diagnosticsStorageError = unknownDiagnosticsError();
+    diagnosticsCopyFailed = false;
+  }
+
+  function reasonLabel(reason: UnknownDiagnosticReason): string {
+    switch (reason) {
+      case "uncatalogued_package":
+        return "Not in the reviewed app catalog";
+      case "unknown_safety_classification":
+        return "Removal safety is unknown";
+      case "safety_lookup_unavailable":
+        return "Safety lookup was unavailable";
+      case "process_not_resolved":
+        return "Process couldn't be matched to an installed app";
+    }
+  }
+
+  function recordedAt(iso: string): string {
+    const date = new Date(iso);
+    return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+  }
+
+  async function copyDiagnostics() {
+    if (!diagnosticsPreview) return;
+    try {
+      await navigator.clipboard.writeText(diagnosticsJson);
+      diagnosticsCopyFailed = false;
+      showToast("Diagnostic JSON copied.", "success");
+    } catch {
+      diagnosticsCopyFailed = true;
+      showToast("Couldn't copy. Select the JSON below instead.", "error");
+    }
+  }
+
+  function clearDiagnostics() {
+    diagnosticsClearConfirm = false;
+    const result = clearUnknownDiagnostics();
+    if (!result.ok) {
+      diagnosticsStorageError = result.message ?? "Couldn't clear diagnostics stored on this device.";
+      showToast(diagnosticsStorageError, "error");
+      return;
+    }
+    diagnosticsCount = 0;
+    diagnosticsPreview = null;
+    diagnosticsJson = "";
+    diagnosticsStorageError = "";
+    diagnosticsCopyFailed = false;
+    showToast("Local diagnostics cleared.", "success");
+  }
 </script>
 
 <div class="screen">
@@ -331,6 +409,79 @@
       </div>
     </div>
 
+    <div class="more-card">
+      <span class="card-label">Unknown app diagnostics</span>
+      <p class="card-desc">
+        Keeps a small local record of apps we haven't reviewed and processes we couldn't match to
+        an app. Nothing is sent automatically.
+      </p>
+      {#if diagnosticsCount === 0}
+        <p class="diagnostics-empty">No unknown apps or unmatched processes have been recorded.</p>
+      {:else}
+        <p class="diagnostics-count">
+          <strong>{diagnosticsCount}</strong> distinct {diagnosticsCount === 1 ? "record" : "records"}.
+          Repeated refreshes are grouped as observations. Only the most recent records are kept.
+        </p>
+      {/if}
+      {#if diagnosticsStorageError}
+        <p class="log-error mono">{diagnosticsStorageError}</p>
+      {/if}
+      <div class="log-toolbar">
+        <button class="ghost-btn compact" disabled={diagnosticsCount === 0} onclick={takeDiagnosticsSnapshot}>
+          <span class="msr">description</span>Review records
+        </button>
+        <button class="ghost-btn compact" disabled={diagnosticsCount === 0 && !diagnosticsStorageError} onclick={() => (diagnosticsClearConfirm = true)}>
+          <span class="msr">delete</span>Clear records
+        </button>
+      </div>
+      {#if diagnosticsPreview}
+        <div class="diagnostics-review">
+          <p class="card-desc">
+            Includes app or process identifiers, observation times and version information. Review
+            the contents before sharing. No network addresses, device serials, license keys or full
+            debug logs are included.
+          </p>
+          <div class="log-toolbar">
+            <button class="ghost-btn compact" onclick={takeDiagnosticsSnapshot}>
+              <span class="msr">refresh</span>Refresh preview
+            </button>
+            <button class="ghost-btn compact" onclick={copyDiagnostics}>
+              <span class="msr">content_copy</span>Copy diagnostic JSON
+            </button>
+          </div>
+          {#each diagnosticsPreview.records as record (`${record.kind}:${record.token}:${record.first_seen}`)}
+            <div class="diagnostic-record">
+              <div class="diagnostic-record-title">
+                <strong>{record.kind === "installed_package" ? "App not reviewed" : "Unmatched process"}</strong>
+                <span class="mono">×{record.count}</span>
+              </div>
+              <span class="mono diagnostic-token">{record.token}</span>
+              <span class="diagnostic-reason">{reasonLabel(record.reason)}</span>
+              <dl class="diagnostic-meta">
+                <dt>First recorded</dt><dd>{recordedAt(record.first_seen)}</dd>
+                <dt>Last recorded</dt><dd>{recordedAt(record.last_seen)}</dd>
+                <dt>App version</dt><dd class="mono">{record.app_version}</dd>
+                <dt>Registry version</dt><dd class="mono">{record.registry_version ?? "Not available"}</dd>
+                {#if record.device_family}
+                  <dt>Device family</dt><dd>{record.device_family.replace("_", " ")}</dd>
+                {/if}
+                {#if record.device_os}
+                  <dt>Device OS</dt><dd>{record.device_os}</dd>
+                {/if}
+              </dl>
+            </div>
+          {/each}
+          {#if diagnosticsPreview.truncated}
+            <p class="diagnostics-empty">Older records were removed to keep this report small.</p>
+          {/if}
+          {#if diagnosticsCopyFailed}
+            <p class="log-error">Couldn't copy. You can select and copy the text below.</p>
+          {/if}
+          <pre class="log-view mono diagnostics-json">{diagnosticsJson}</pre>
+        </div>
+      {/if}
+    </div>
+
     <!-- Debug log -->
     <div class="more-card">
       <span class="card-label">Debug log</span>
@@ -401,6 +552,17 @@
     confirmLabel="Reboot"
     onConfirm={runReboot}
     onCancel={() => (rebootTarget = null)}
+  />
+
+  <ConfirmDialog
+    open={diagnosticsClearConfirm}
+    icon="delete"
+    danger
+    title="Clear local diagnostics?"
+    message="Delete the diagnostics stored in this app? Copies you saved or shared will remain. This doesn't change your TV, license, saved TVs or debug log."
+    confirmLabel="Clear records"
+    onConfirm={clearDiagnostics}
+    onCancel={() => (diagnosticsClearConfirm = false)}
   />
 
   <ConfirmDialog
@@ -666,6 +828,59 @@
     font-size: 11px;
     color: var(--danger);
     margin: 0;
+  }
+  .diagnostics-empty,
+  .diagnostics-count {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .diagnostics-review {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .diagnostic-record {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--canvas);
+  }
+  .diagnostic-record-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .diagnostic-token {
+    color: var(--text-soft);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+  .diagnostic-reason {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .diagnostic-meta {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 3px 10px;
+    margin: 4px 0 0;
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .diagnostic-meta dd {
+    margin: 0;
+    color: var(--text-soft);
+    text-align: right;
+  }
+  .diagnostics-json {
+    user-select: text;
   }
 
   .danger-btn {

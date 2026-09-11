@@ -6,7 +6,12 @@
     autoConnectEnabled,
     lastUsedLabel,
     listSavedDevices,
+    savedDeviceKey,
+    savedHostHasMultipleIdentities,
+    shouldAutoDialSavedDevices,
   } from "../lib/savedDevices";
+  import { buildDiscoveryRows } from "../lib/discoveryRows";
+  import type { DiscoveryRow } from "../lib/discoveryRows";
   import { deviceTypeLabel } from "../lib/types";
   import type { Discovery, SavedDevice } from "../lib/types";
   import BrandMark from "../components/BrandMark.svelte";
@@ -31,8 +36,10 @@
   // on screen and offer Cancel. With several we never guess.
   let savedDevices = $state<SavedDevice[]>([]);
   let reconnectError = $state("");
-  let connectingHost = $state("");
+  let reconnectErrorKey = $state("");
+  let connectingKey = $state("");
   let connectingName = $state("");
+  let reconnectPending = false;
   let connectionAttempt = 0;
   const primarySaved = $derived(savedDevices[0] ?? null);
 
@@ -40,45 +47,59 @@
     savedDevices = listSavedDevices();
     if (intent !== "launch" || savedDevices.length === 0) return;
     step = "reconnect";
-    if (savedDevices.length === 1 && autoConnectEnabled()) {
+    if (shouldAutoDialSavedDevices(savedDevices, autoConnectEnabled())) {
       attemptReconnect(savedDevices[0]);
     }
   });
 
   async function attemptReconnect(d: SavedDevice) {
-    if (connectingHost) return;
+    if (connectingKey) return;
     const attempt = ++connectionAttempt;
     reconnectError = "";
-    connectingHost = d.host;
+    reconnectErrorKey = "";
+    connectingKey = savedDeviceKey(d);
     connectingName = d.name;
+    reconnectPending = true;
     try {
       const r = await session.connect(d.host, d.connectPort);
       // Cancelled attempts resolve later; ignore them.
       if (attempt !== connectionAttempt) return;
       if (r.ok) {
         savedDevices = listSavedDevices();
-        step = "connected";
+        // Retire the pending marker before navigation unmounts this screen so
+        // onDestroy does not cancel the connection we just established.
+        reconnectPending = false;
+        connectingKey = "";
+        onConnected();
       } else {
         reconnectError = r.message || "Couldn't reach that TV.";
+        reconnectErrorKey = savedDeviceKey(d);
       }
     } catch (e) {
       if (attempt !== connectionAttempt) return;
       reconnectError = String(e);
+      reconnectErrorKey = savedDeviceKey(d);
     } finally {
-      if (attempt === connectionAttempt) connectingHost = "";
+      if (attempt === connectionAttempt) {
+        reconnectPending = false;
+        connectingKey = "";
+      }
     }
   }
 
   function cancelReconnect() {
     ++connectionAttempt;
+    reconnectPending = false;
     void session.cancelConnect().catch((e) => { reconnectError = String(e); });
-    connectingHost = "";
+    connectingKey = "";
     reconnectError = "";
+    reconnectErrorKey = "";
   }
 
   function goScan() {
-    if (connectingHost) cancelReconnect();
+    if (connectingKey) cancelReconnect();
     reconnectError = "";
+    reconnectErrorKey = "";
     step = "scan";
   }
 
@@ -94,76 +115,106 @@
   let scanned = $state(false);
   let manual = $state(false);
   let needsPairing = $state(false);
+  let connectAfterPair = $state<number | null>(null);
+  let notice = $state("");
+  let scanGeneration = 0;
 
   const codeReady = $derived(code.length === 6);
 
-  type Found = {
-    host: string;
-    name: string;
-    pairingPort?: number;
-    connectPort?: number;
-    legacy?: boolean;
-  };
-  const found = $derived.by(() => {
-    const byHost = new Map<string, Found>();
-    for (const d of discoveries) {
-      const entry = byHost.get(d.host) ?? { host: d.host, name: "" };
-      const name = d.name?.trim();
-      if (name && !name.startsWith("adb-")) entry.name = name;
-      if (d.service.includes("pairing")) {
-        entry.pairingPort = d.port;
-      } else {
-        entry.connectPort = d.port;
-        if (!d.service.includes("tls")) entry.legacy = true;
-      }
-      byHost.set(d.host, entry);
-    }
-    return [...byHost.values()];
-  });
+  const found = $derived(buildDiscoveryRows(discoveries, savedDevices, {
+    connected: session.isConnected,
+    host: session.host,
+    connectPort: session.connectPort,
+  }));
 
-  const foundLabel = $derived(
-    found.length === 1 ? "1 TV found" : `${found.length} TVs found`,
-  );
+  const foundLabel = "Connection options";
 
   async function scan() {
+    const generation = ++scanGeneration;
     error = "";
+    notice = "";
     busy = true;
     try {
       const result = await api.wirelessDiscover();
+      if (generation !== scanGeneration) return;
       discoveries = result.devices;
       scanned = true;
     } catch (e) {
-      error = String(e);
+      if (generation === scanGeneration) error = String(e);
     } finally {
-      busy = false;
+      if (generation === scanGeneration) busy = false;
     }
   }
 
-  function selectFound(f: Found) {
-    error = "";
-    host = f.host;
-    if (f.pairingPort) pairPort = f.pairingPort;
-    if (f.connectPort) connectPort = f.connectPort;
+  function leaveScan() {
+    ++scanGeneration;
+    busy = false;
+  }
 
-    if (f.pairingPort && !f.legacy) {
-      code = "";
-      needsPairing = true;
-      step = "pair";
-    } else {
-      needsPairing = false;
-      startConnect();
+  function connectFound(row: DiscoveryRow, advertisedPort: number) {
+    leaveScan();
+    error = "";
+    notice = "";
+    host = row.host;
+    connectPort = advertisedPort;
+    connectAfterPair = null;
+    needsPairing = false;
+    startConnect();
+  }
+
+  function pairFound(row: DiscoveryRow, advertisedPort: number) {
+    leaveScan();
+    error = "";
+    notice = "";
+    host = row.host;
+    pairPort = advertisedPort;
+    connectAfterPair = row.connectPorts.length === 1 ? row.connectPorts[0] : null;
+    if (connectAfterPair !== null) connectPort = connectAfterPair;
+    code = "";
+    needsPairing = true;
+    step = "pair";
+  }
+
+  function retrySaved(row: DiscoveryRow) {
+    if (!row.savedTarget) return;
+    leaveScan();
+    step = "reconnect";
+    attemptReconnect(row.savedTarget);
+  }
+
+  function openDashboard() {
+    leaveScan();
+    onConnected();
+  }
+
+  function endpointLabel(row: DiscoveryRow): string {
+    const endpoints: string[] = [];
+    if (row.connectPorts.length > 0) {
+      endpoints.push(`connect ${row.connectPorts.map((port) => `:${port}`).join(", ")}`);
     }
+    if (row.pairingPorts.length > 0) {
+      endpoints.push(`pair ${row.pairingPorts.map((port) => `:${port}`).join(", ")}`);
+    }
+    return [row.host, ...endpoints].join(" · ");
   }
 
   function manualPair() {
     if (!host) return;
+    leaveScan();
+    error = "";
+    notice = "";
     code = "";
+    connectAfterPair = Number(connectPort);
     needsPairing = true;
     step = "pair";
   }
 
   function manualConnect() {
     if (!host) return;
+    leaveScan();
+    error = "";
+    notice = "";
+    connectAfterPair = null;
     needsPairing = false;
     startConnect();
   }
@@ -176,6 +227,7 @@
   async function startConnect() {
     const attempt = ++connectionAttempt;
     error = "";
+    notice = "";
     step = "connecting";
     busy = true;
     try {
@@ -186,6 +238,14 @@
           error = paired.message;
           return;
         }
+        if (connectAfterPair === null) {
+          code = "";
+          needsPairing = false;
+          notice = "Pairing succeeded. Scan again to choose an advertised connect service.";
+          step = "scan";
+          return;
+        }
+        connectPort = connectAfterPair;
       }
       const result = await session.connect(host, Number(connectPort));
       if (attempt !== connectionAttempt) return;
@@ -193,6 +253,7 @@
         error = result.message;
         return;
       }
+      savedDevices = listSavedDevices();
       step = "connected";
     } catch (e) {
       if (attempt === connectionAttempt) error = String(e);
@@ -202,15 +263,18 @@
   }
 
   onDestroy(() => {
+    ++scanGeneration;
     ++connectionAttempt;
-    if (connectingHost || (busy && step === "connecting")) {
+    if (reconnectPending || (busy && step === "connecting")) {
       void session.cancelConnect().catch(() => {});
     }
   });
 
   function backToScan() {
     error = "";
+    notice = "";
     code = "";
+    connectAfterPair = null;
     step = "scan";
   }
 
@@ -224,8 +288,8 @@
         <BrandMark size={30} />
         <span class="wordmark">ATV&nbsp;Optimizer</span>
       </div>
-      <span class="statuspill" class:live={connectingHost !== ""}>
-        <span class="pdot" class:blink={connectingHost !== ""}></span>{connectingHost ? "Connecting" : "Ready"}
+      <span class="statuspill" class:live={connectingKey !== ""}>
+        <span class="pdot" class:blink={connectingKey !== ""}></span>{connectingKey ? "Connecting" : "Ready"}
       </span>
     </div>
 
@@ -233,7 +297,7 @@
     <h1>
       {#if reconnectError}
         Couldn't reconnect
-      {:else if connectingHost}
+      {:else if connectingKey}
         Connecting to {connectingName}…
       {:else}
         Which TV?
@@ -242,32 +306,38 @@
     <p class="lede">
       {#if reconnectError}
         <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
-      {:else if connectingHost}
-        Your only saved TV — no code needed. Cancel to pick a different one.
+      {:else if connectingKey}
+        {savedDevices.length === 1
+          ? "Your only saved TV — no code needed. Cancel to pick a different one."
+          : "Connecting only to the saved entry you selected."}
       {:else}
         Pick a saved TV to connect. Nothing connects until you choose.
       {/if}
     </p>
 
     <div class="devices">
-      {#each savedDevices as d, i (d.host)}
+      {#each savedDevices as d, i (savedDeviceKey(d))}
         <button
           class="device"
-          class:dialing={connectingHost === d.host}
+          class:dialing={connectingKey === savedDeviceKey(d)}
           onclick={() => attemptReconnect(d)}
-          disabled={connectingHost !== ""}
+          disabled={connectingKey !== ""}
         >
           <span class="device-icon"><span class="msr">{d.deviceType === "shield" ? "cast" : "tv"}</span></span>
           <span class="device-body">
             <span class="device-name">{d.name}</span>
-            <span class="mono device-addr">{d.host} · {deviceTypeLabel(d.deviceType)} · {lastUsedLabel(d.lastUsed)}</span>
-            {#if connectingHost === d.host}
+            <span class="mono device-addr">{d.host}:{d.connectPort} · {deviceTypeLabel(d.deviceType)} · {lastUsedLabel(d.lastUsed)}</span>
+            {#if connectingKey === savedDeviceKey(d)}
               <span class="device-tag">Handshaking…</span>
+            {:else if reconnectError && reconnectErrorKey === savedDeviceKey(d)}
+              <span class="device-tag">Couldn't reconnect</span>
+            {:else if savedHostHasMultipleIdentities(savedDevices, d.host)}
+              <span class="device-tag">Shared saved address · identities kept separate</span>
             {:else if i === 0 && savedDevices.length > 1}
               <span class="device-tag">Last used</span>
             {/if}
           </span>
-          {#if connectingHost !== d.host}<span class="msr device-go">arrow_forward</span>{/if}
+          {#if connectingKey !== savedDeviceKey(d)}<span class="msr device-go">arrow_forward</span>{/if}
         </button>
       {/each}
     </div>
@@ -285,7 +355,7 @@
 
     <div class="spacer"></div>
 
-    {#if connectingHost}
+    {#if connectingKey}
       <button class="ghost" onclick={cancelReconnect}>Cancel</button>
     {/if}
     <button class="ghost-link" onclick={goScan}>Scan for a different TV</button>
@@ -322,18 +392,47 @@
     {#if scanned && found.length}
       <p class="section-label">{foundLabel}</p>
       <div class="devices">
-        {#each found as f (f.host)}
-          <button class="device" onclick={() => selectFound(f)}>
+        {#each found as row (row.key)}
+          <div class="device">
             <span class="device-icon"><span class="msr">cast</span></span>
             <span class="device-body">
-              <span class="device-name">{f.name || "Android TV"}</span>
-              <span class="mono device-addr">{f.host}</span>
-              {#if f.legacy && !f.pairingPort}
+              <span class="device-name">{row.name}</span>
+              <span class="mono device-addr">{endpointLabel(row)}</span>
+              {#if row.status === "connected"}
+                <span class="device-tag">Connected on :{session.connectPort}</span>
+              {:else if row.status === "saved-address"}
+                <span class="device-tag">Saved address (unverified)</span>
+              {:else if row.status === "saved-missing"}
+                <span class="device-tag">Saved · Not found in this scan</span>
+              {:else}
+                <span class="device-tag">Found on network</span>
+              {/if}
+              {#if row.legacyConnectPorts.length > 0 && row.pairingPorts.length === 0}
                 <span class="device-tag">No code needed</span>
               {/if}
             </span>
-            <span class="msr device-go">arrow_forward</span>
-          </button>
+            <div class="manual-actions">
+              {#if row.status === "connected"}
+                <button class="primary small" onclick={openDashboard}>Open dashboard</button>
+              {:else if row.source === "saved"}
+                <button class="ghost small" onclick={() => retrySaved(row)}>Retry connection</button>
+              {/if}
+              {#if row.source === "discovery"}
+                {#each row.connectPorts as port (`connect:${row.key}:${port}`)}
+                  {#if row.status !== "connected" || port !== session.connectPort}
+                    <button class="primary small" onclick={() => connectFound(row, port)}>
+                      {row.status === "connected" || row.connectPorts.length > 1 ? `Connect :${port}` : "Connect"}
+                    </button>
+                  {/if}
+                {/each}
+                {#each row.pairingPorts as port (`pair:${row.key}:${port}`)}
+                  <button class="ghost small" onclick={() => pairFound(row, port)}>
+                    {row.status === "connected" || row.pairingPorts.length > 1 ? `Pair :${port}` : "Pair with code"}
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          </div>
         {/each}
       </div>
     {:else if scanned}
@@ -341,12 +440,13 @@
       <p class="lede empty">Confirm Wireless debugging is on, then scan again.</p>
     {/if}
 
+    {#if notice}<p class="lede empty" role="status">{notice}</p>{/if}
     {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     <div class="spacer"></div>
 
     {#if intent === "launch" && savedDevices.length > 0}
-      <button class="ghost-link" onclick={() => { error = ""; step = "reconnect"; }}>
+      <button class="ghost-link" onclick={() => { leaveScan(); error = ""; notice = ""; step = "reconnect"; }}>
         Back to saved TVs
       </button>
     {/if}
@@ -429,7 +529,7 @@
     <div class="spacer"></div>
 
     <button class="primary" disabled={!codeReady || busy} onclick={startConnect}>
-      Pair &amp; connect
+      {connectAfterPair === null ? "Pair with code" : "Pair & connect"}
     </button>
   {:else if step === "connecting"}
     <div class="center">
