@@ -103,6 +103,8 @@ export const api = {
   // ---- Apps ----
   listOtherPackages: (serial: string) =>
     call<OtherPackage[]>("list_other_packages", { serial }),
+  listInstalledPackages: (serial: string) =>
+    call<OtherPackage[]>("list_installed_packages", { serial }),
   disablePackage: (serial: string, pkg: string) =>
     call<ActionResult>("disable_package", { serial, package: pkg }),
   enablePackage: (serial: string, pkg: string) =>
