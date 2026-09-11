@@ -60,6 +60,7 @@ class Session {
   bloatCount = $state(0);
   /// Size of the recommended-debloat set the count is measured against.
   bloatTotal = $state(0);
+  bloatUnavailable = $state(false);
   bloatLoaded = $state(false);
   bloatLoading = $state(false);
   bloatError = $state("");
@@ -211,6 +212,7 @@ class Session {
     this.healthError = "";
     this.bloatCount = 0;
     this.bloatTotal = 0;
+    this.bloatUnavailable = false;
     this.bloatLoaded = false;
     this.bloatLoading = false;
     this.bloatError = "";
@@ -354,21 +356,26 @@ class Session {
       const catalog = await api.appListForDevice(deviceType);
       const defaults = catalog.filter((a) => a.default_optimize);
       let count = 0;
+      let installed = 0;
       if (defaults.length > 0) {
         const states = await api.packageStates(
           serial,
           defaults.map((a) => a.package),
         );
-        count = Object.values(states).filter(
-          (s) => s === "enabled",
-        ).length;
+        const complete = defaults.every((a) => Object.prototype.hasOwnProperty.call(states, a.package));
+        if (!complete) throw new Error("App status is incomplete.");
+        const requested = new Set(defaults.map((a) => a.package));
+        count = [...requested].filter((pkg) => states[pkg] === "enabled").length;
+        installed = [...requested].filter((pkg) => states[pkg] === "enabled" || states[pkg] === "disabled").length;
       }
       if (generation !== this.bloatGeneration || serial !== this.serial) return;
       this.bloatCount = count;
-      this.bloatTotal = defaults.length;
+      this.bloatTotal = installed;
+      this.bloatUnavailable = false;
     } catch (e) {
       if (generation !== this.bloatGeneration || serial !== this.serial) return;
       this.bloatError = String(e);
+      this.bloatUnavailable = true;
     } finally {
       if (generation === this.bloatGeneration && serial === this.serial) {
         this.bloatLoaded = true;

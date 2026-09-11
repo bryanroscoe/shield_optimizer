@@ -46,16 +46,7 @@
     ),
   );
 
-  // The ring is a real fraction: recommended-bloat apps already inactive over
-  // the whole recommended set. null when that signal failed to load — render
-  // "—", never a fabricated score.
-  const bloatKnown = $derived(session.bloatLoaded && !session.bloatError);
-  const cleanedFraction = $derived(
-    bloatKnown && session.bloatTotal > 0
-      ? (session.bloatTotal - session.bloatCount) / session.bloatTotal
-      : null,
-  );
-  const strokeDashoffset = $derived(289 * (1 - (cleanedFraction ?? 0)));
+  const bloatKnown = $derived(session.bloatLoaded && !session.bloatUnavailable && !session.bloatError);
 
   const ramFreeText = $derived(
     session.health?.ram?.free_mb != null
@@ -216,22 +207,12 @@
         <button class="rb-btn" onclick={retryHealth}>Retry</button>
       </div>
     {:else}
-      <!-- Health Ring Card -->
+      <!-- Recommended app review -->
       <div class="health-card">
         <div class="ring-container">
-          <svg width="104" height="104" viewBox="0 0 104 104" class="svg-ring">
-            <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="9"></circle>
-            {#if cleanedFraction !== null}
-              <circle
-                cx="52" cy="52" r="46" fill="none" stroke="var(--accent)"
-                stroke-width="9" stroke-linecap="round" stroke-dasharray="289"
-                stroke-dashoffset={strokeDashoffset} class="progress-circle"
-              ></circle>
-            {/if}
-          </svg>
           <div class="ring-text">
             <span class="mono score-value">{bloatKnown ? session.bloatCount : "—"}</span>
-            <span class="score-label">active</span>
+            <span class="score-label">Enabled</span>
           </div>
         </div>
 
@@ -242,21 +223,14 @@
             <button class="optimize-link" onclick={retryHealth}>
               Retry<span class="msr">refresh</span>
             </button>
-          {:else if session.bloatCount > 0}
-            <span class="health-title">Room to optimize</span>
-            <span class="health-desc">
-              <span class="accent-text">{session.bloatCount}</span> of {session.bloatTotal}
-              recommended-bloat apps still active.
-            </span>
-            <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Run optimize<span class="msr">arrow_forward</span>
-            </button>
           {:else}
-            <span class="health-title">System optimized</span>
-            <span class="health-desc">All {session.bloatTotal} recommended-bloat apps are inactive.</span>
-            <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Review apps<span class="msr">arrow_forward</span>
-            </button>
+            <span class="health-title">Recommended app review</span>
+            <span class="health-desc">
+              {#if session.bloatTotal > 0}
+                {#if session.bloatCount === 0}No recommended apps are enabled. You can still review optional apps.{:else}{session.bloatCount} of {session.bloatTotal} installed recommended apps are enabled.{/if}
+              {:else}No apps from the recommended list are installed. You can still review optional apps.{/if}
+            </span>
+            <button class="optimize-link" onclick={() => navigate("optimize")}>Review app choices<span class="msr">arrow_forward</span></button>
           {/if}
         </div>
       </div>

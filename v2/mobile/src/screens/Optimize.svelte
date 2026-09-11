@@ -27,7 +27,10 @@
   let mode = $state<OptimizeMode>("optimize");
   let showPaywall = $state(false);
 
-  let activeTab = $state<"recommended" | "all">("recommended");
+  let activeTab = $state<"recommended" | "optional">("recommended");
+  let optionalChoices = $state<Record<string, "keep" | "disable" | "uninstall">>({});
+  let planOrigin = $state<{ serial: string; generation: number } | null>(null);
+  let planRequest = 0;
   // Local selection (which rows are ticked). The backend safety gate remains
   // authoritative for every individual mutation during apply.
   let selected = $state<Set<string>>(new Set());
@@ -64,11 +67,16 @@
   });
 
   async function loadPlan(nextMode: OptimizeMode = mode) {
+    const request = ++planRequest;
+    const serial = session.serial;
+    const generation = session.generation;
     mode = nextMode;
     loading = true;
     error = "";
     locked = false;
     plan = null;
+    optionalChoices = {};
+    planOrigin = null;
     safetyMap = {};
     safetyFailed = false;
     ++safetyRequest;
@@ -83,7 +91,9 @@
         session.connectedDevice.device_type,
         nextMode,
       );
+      if (request !== planRequest || session.serial !== serial || session.generation !== generation) return;
       plan = p;
+      planOrigin = { serial, generation };
       const sel = new Set<string>();
       for (const it of p.items) {
         if (it.action.kind === "skip") continue;
@@ -98,7 +108,7 @@
       if (s.includes("LOCKED:")) locked = true;
       else error = s;
     } finally {
-      loading = false;
+      if (request === planRequest) loading = false;
     }
   }
 
@@ -138,8 +148,11 @@
   );
   const recommendedFlag = (it: OptimizePlanItem) =>
     mode === "optimize" ? it.entry.default_optimize : it.entry.default_restore;
+  const optionalItems = $derived(
+    actionable.filter((it) => mode === "optimize" && !it.entry.default_optimize),
+  );
   const visibleItems = $derived(
-    activeTab === "recommended" ? actionable.filter(recommendedFlag) : actionable,
+    activeTab === "recommended" ? actionable.filter(recommendedFlag) : optionalItems,
   );
 
   // Enabling is never destructive, so the never-disable guard only applies to
@@ -149,7 +162,11 @@
   }
 
   const selectedItems = $derived(
-    actionable.filter((it) => selected.has(it.entry.package) && !isHardBlocked(it)),
+    actionable.filter((it) => {
+      if (isHardBlocked(it)) return false;
+      if (optionalItems.includes(it)) return optionalChoices[it.entry.package] !== undefined && optionalChoices[it.entry.package] !== "keep";
+      return selected.has(it.entry.package);
+    }),
   );
   const selectedCount = $derived(selectedItems.length);
   const runningMb = $derived(
@@ -206,6 +223,18 @@
     selected = next;
   }
 
+  function setOptionalChoice(it: OptimizePlanItem, value: string) {
+    if (isHardBlocked(it)) return;
+    const next = { ...optionalChoices };
+    if (value === "keep") delete next[it.entry.package];
+    else next[it.entry.package] = value as "disable" | "uninstall";
+    optionalChoices = next;
+  }
+
+  const confirmationNames = $derived(
+    selectedItems.map((it) => `${it.entry.name} — ${actionLabel(it)}`).join(", "),
+  );
+
   function actionLabel(it: OptimizePlanItem): string {
     switch (it.action.kind) {
       case "uninstall":
@@ -232,6 +261,7 @@
     // not fire the rest of the plan at a different device.
     const serial = session.serial;
     const generation = session.generation;
+    if (!planOrigin || planOrigin.serial !== serial || planOrigin.generation !== generation) return;
     if (!serial) {
       showToast("No TV connected.", "error");
       return;
@@ -399,13 +429,12 @@
       <button class="tab-pill" class:active={activeTab === "recommended"} onclick={() => (activeTab = "recommended")}>
         Recommended
       </button>
-      <button class="tab-pill" class:active={activeTab === "all"} onclick={() => (activeTab = "all")}>
-        All curated
+      <button class="tab-pill" class:active={activeTab === "optional"} onclick={() => (activeTab = "optional")}>
+        Optional apps
       </button>
     </div>
     <p class="tab-hint">
-      Both tabs are the curated catalog for this TV. Everything else installed on the device lives
-      in the Apps tab.
+      {#if activeTab === "optional"}Keep anything you use. Nothing changes until you confirm.{:else}Recommended choices come from the audited catalog. Everything else installed lives in Apps.{/if}
     </p>
 
     <div class="optimize-summary-card">
@@ -414,7 +443,7 @@
           ? ` · ≈ ${Math.round(runningMb)} MB of RAM in play`
           : ""}
       </span>
-      <button class="select-all-btn" onclick={selectAll} disabled={applying}>Select all</button>
+      {#if activeTab === "recommended"}<button class="select-all-btn" onclick={selectAll} disabled={applying}>Select all</button>{/if}
     </div>
     {#if runningMb > 0}
       <p class="mb-note">
@@ -433,8 +462,8 @@
 
     {#if visibleItems.length === 0}
       <p class="lede empty">
-        {mode === "optimize"
-          ? "Nothing to optimize here — this TV is already clean."
+          {mode === "optimize"
+          ? activeTab === "optional" ? "No optional apps to review in this TV’s curated list" : "Nothing to optimize here."
           : "Nothing to restore — none of the curated apps are disabled."}
       </p>
       <div class="spacer"></div>
@@ -463,8 +492,17 @@
               {#if hardBlocked}
                 <span class="row-reason">{reasonOf(safetyMap[item.entry.package])}</span>
               {/if}
+              {#if activeTab === "optional" && !hardBlocked}
+                <label class="choice-label">Choice
+                  <select value={optionalChoices[item.entry.package] ?? "keep"} disabled={applying} onchange={(e) => setOptionalChoice(item, e.currentTarget.value)}>
+                    <option value="keep">Keep</option>
+                    {#if item.action.kind === "disable"}<option value="disable">Disable for this user</option>{/if}
+                    {#if item.action.kind === "uninstall"}<option value="uninstall">Uninstall for this user</option>{/if}
+                  </select>
+                </label>
+              {/if}
             </div>
-            <button
+            {#if activeTab === "recommended"}<button
               class="toggle-switch"
               class:checked={selected.has(item.entry.package) && !hardBlocked}
               disabled={applying || hardBlocked}
@@ -472,7 +510,7 @@
               aria-label="Toggle {item.entry.name}"
             >
               <span class="toggle-knob"></span>
-            </button>
+            </button>{/if}
           </div>
         {/each}
       </div>
@@ -521,7 +559,7 @@
       : `Re-enable ${selectedCount} app${selectedCount === 1 ? "" : "s"}?`}
     warning={warningText}
     message={mode === "optimize"
-      ? "Each selected app is processed in turn, then the optimized animation scales are written. Protected system packages stay blocked by the safety engine."
+      ? `Selected: ${confirmationNames}. Each app is processed in turn, then optimized animation scales are written. Protected system packages stay blocked by the safety engine.`
       : "Each selected app is re-enabled in turn, then animation scales are reset to 1×."}
     confirmLabel={mode === "optimize" ? "Apply" : "Restore"}
     onConfirm={runApply}
