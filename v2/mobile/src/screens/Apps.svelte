@@ -21,7 +21,8 @@
   // frames on a phone webview.
   let debouncedQuery = $state("");
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
-  let activeFilter = $state<"all" | "enabled" | "disabled" | "system">("all");
+  let activeFilter = $state<"all" | "enabled" | "disabled">("all");
+  let showSystemApps = $state(false);
   let selectedApp = $state<OtherPackage | null>(null);
   // The sheet stays open after a successful uninstall so Reinstall is offered.
   let sheetUninstalled = $state(false);
@@ -112,16 +113,39 @@
     return map;
   });
 
+  function matchesStatus(app: OtherPackage): boolean {
+    if (activeFilter === "enabled") return app.enabled;
+    if (activeFilter === "disabled") return !app.enabled;
+    return true;
+  }
+
+  const visibleApps = $derived.by(() =>
+    apps.filter((app) => (showSystemApps || !app.system) && matchesStatus(app)),
+  );
+
   const filteredApps = $derived.by(() => {
     const q = debouncedQuery;
-    return apps.filter((app) => {
-      if (q && !(haystacks.get(app.package) ?? "").includes(q)) return false;
-      if (activeFilter === "enabled") return app.enabled;
-      if (activeFilter === "disabled") return !app.enabled;
-      if (activeFilter === "system") return app.system;
-      return true;
-    });
+    return visibleApps.filter(
+      (app) => !q || (haystacks.get(app.package) ?? "").includes(q),
+    );
   });
+
+  const systemAppCount = $derived(apps.filter((app) => app.system).length);
+  const hiddenSystemMatches = $derived.by(() => {
+    if (showSystemApps) return 0;
+    const q = debouncedQuery;
+    return apps.filter(
+      (app) =>
+        app.system &&
+        matchesStatus(app) &&
+        (!q || (haystacks.get(app.package) ?? "").includes(q)),
+    ).length;
+  });
+  const countText = $derived(
+    debouncedQuery
+      ? `${filteredApps.length} ${filteredApps.length === 1 ? "result" : "results"}`
+      : `${visibleApps.length} of ${apps.length} visible`,
+  );
 
   /// Friendly name when the backend actually has one, otherwise the package.
   /// Never the package's last segment — that invents names like "Tv".
@@ -261,7 +285,7 @@
       <FindRemoteButton />
     </div>
     <h3 class="header-title">Apps</h3>
-    <span class="mono apps-count-badge">{filteredApps.length} found</span>
+    <span class="mono apps-count-badge" aria-live="polite">{countText}</span>
   </div>
 
   <div class="search-box">
@@ -283,8 +307,22 @@
     <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>
     <button class="filter-chip" class:active={activeFilter === "enabled"} onclick={() => (activeFilter = "enabled")}>Enabled</button>
     <button class="filter-chip" class:active={activeFilter === "disabled"} onclick={() => (activeFilter = "disabled")}>Disabled</button>
-    <button class="filter-chip" class:active={activeFilter === "system"} onclick={() => (activeFilter = "system")}>System</button>
   </div>
+
+  <button
+    class="system-toggle"
+    role="switch"
+    aria-checked={showSystemApps}
+    onclick={() => (showSystemApps = !showSystemApps)}
+  >
+    <span class="system-toggle-copy">
+      <span class="system-toggle-title">Show system apps</span>
+      <span class="system-toggle-detail">
+        {showSystemApps ? "Included in the current view" : `${systemAppCount} hidden`}
+      </span>
+    </span>
+    <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+  </button>
 
   {#if loading && apps.length === 0}
     <div class="center">
@@ -315,6 +353,36 @@
           <span class="msr more-icon">more_vert</span>
         </button>
       {/each}
+      {#if filteredApps.length === 0}
+        <div class="empty-state">
+          <div class="empty-message" role="status">
+            <h4>{debouncedQuery ? "No matching apps" : "No apps to show"}</h4>
+            <p>
+              {#if debouncedQuery}
+                No {activeFilter === "all" ? "" : `${activeFilter} `}apps match “{searchQuery.trim()}” in this view.
+              {:else if showSystemApps && activeFilter === "all"}
+                No apps are available in this non-curated list.
+              {:else if showSystemApps}
+                No {activeFilter} apps are available in this non-curated list.
+              {:else if activeFilter === "all"}
+                No user-installed apps are available in this non-curated list.
+              {:else}
+                No {activeFilter} user-installed apps are available in this non-curated list.
+              {/if}
+            </p>
+          </div>
+          <div class="empty-actions">
+            {#if debouncedQuery}
+              <button class="ghost small" onclick={() => (searchQuery = "")}>Clear search</button>
+            {/if}
+            {#if hiddenSystemMatches > 0}
+              <button class="primary" onclick={() => (showSystemApps = true)}>
+                {debouncedQuery ? "Show matching system apps" : "Show system apps"}
+              </button>
+            {/if}
+          </div>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -411,7 +479,7 @@
     display: flex;
     gap: 8px;
     overflow-x: auto;
-    margin-bottom: 14px;
+    margin-bottom: 10px;
     padding-bottom: 2px;
   }
   .filter-chip {
@@ -433,6 +501,69 @@
     font-weight: 600;
   }
 
+  .system-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 8px 12px;
+    margin-bottom: 14px;
+    border: 1px solid var(--line);
+    border-radius: 13px;
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--sans);
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+  }
+  .system-toggle-copy {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .system-toggle-title {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .system-toggle-detail {
+    color: var(--muted);
+    font-size: 10px;
+  }
+  .switch-track {
+    width: 42px;
+    height: 24px;
+    padding: 2px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    box-sizing: border-box;
+    flex: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .switch-knob {
+    display: block;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .system-toggle[aria-checked="true"] .switch-track {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .system-toggle[aria-checked="true"] .switch-knob {
+    background: var(--accent-ink);
+    transform: translateX(18px);
+  }
+  .system-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   .apps-list {
     display: flex;
     flex-direction: column;
@@ -441,6 +572,46 @@
     flex: 1;
     min-height: 0;
     padding-bottom: 12px;
+  }
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 28px 18px;
+    border: 1px dashed var(--line);
+    border-radius: 14px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .empty-state h4,
+  .empty-state p {
+    margin: 0;
+  }
+  .empty-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .empty-state h4 {
+    color: var(--text);
+    font-size: 15px;
+  }
+  .empty-state p {
+    max-width: 280px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .empty-actions {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .empty-actions button {
+    width: auto;
   }
   .app-row {
     /* Long package lists: let the browser skip offscreen row layout. */
