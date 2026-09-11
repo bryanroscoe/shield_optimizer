@@ -251,7 +251,33 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.showtime.standalone": { last_used: null, launch_count: 0 },
       };
     case "safety_info":
-      return { kind: "safe" };
+      switch (args.package) {
+        case "com.android.systemui":
+          return {
+            kind: "never_disable",
+            reason: "System UI — the launcher's host process. Disabling makes the device unusable.",
+          };
+        case "com.google.android.gms":
+          return {
+            kind: "never_disable",
+            reason: "Google Play Services. Disabling breaks every Google app + most third-party apps.",
+          };
+        case "com.android.providers.tv":
+          return {
+            kind: "caution",
+            reason: "Live Channels provider — disabling breaks Watch Next / Continue Watching rows for Netflix, Apple TV, Disney+, etc. and the Live Channels app.",
+          };
+        case "com.android.vending":
+          return {
+            kind: "caution",
+            reason: "Google Play Store. Disabling removes your install path for everything not yet on disk.",
+          };
+        default:
+          return {
+            kind: "unknown",
+            reason: "This package is not covered by the protected or caution rules. Its role and the effects of disabling or uninstalling it are unknown.",
+          };
+      }
     case "list_launchers":
       return launchers;
     case "current_launcher":
@@ -307,6 +333,13 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");
     case "report_all":
       return [{ serial: SERIAL, name: device.name, report: health, error: null }];
+    case "pair_device":
+      return {
+        ok: true,
+        message: "Paired successfully. Pairing established trust; to connect, enter the separate IP:port shown on the TV's main Wireless debugging screen in Connect IP.",
+      };
+    case "connect_device":
+      return { ok: true, message: `connected to ${String(args.address)}` };
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

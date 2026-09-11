@@ -105,7 +105,11 @@ pub async fn connect_device(
     state: State<'_, AppState>,
     address: String,
 ) -> Result<ConnectResult, String> {
-    let target = normalize_connect_address(&address)?;
+    connect_device_impl(state.inner(), &address).await
+}
+
+async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
+    let target = normalize_connect_address(address)?;
     let adb = state.adb_snapshot().await;
     let out = adb
         .raw(&["connect", &target])
@@ -178,11 +182,12 @@ pub struct ConnectResult {
     pub message: String,
 }
 
-/// `pair_device` — Android 11+ pairing flow. Pairs over a one-shot port the
-/// TV displays alongside a 6-digit PIN, then connects to the regular 5555
-/// port. Mirrors v1's `Connect-PinPairing` (§1.3).
+/// `pair_device` — Android 11+ pairing flow. Establishes trust over the
+/// one-shot pairing port the TV displays alongside a 6-digit PIN. Connecting
+/// is a separate step using the IP and port on the main Wireless debugging
+/// screen; modern Android devices do not necessarily listen on port 5555.
 ///
-/// `pair_address` is the IP[:port] shown on the TV's pairing screen.
+/// `pair_address` is the IP:port shown on the TV's pairing screen.
 /// `pin` is the 6-digit code, validated as digits only.
 #[tauri::command]
 pub async fn pair_device(
@@ -190,16 +195,24 @@ pub async fn pair_device(
     pair_address: String,
     pin: String,
 ) -> Result<ConnectResult, String> {
-    if let Err(message) = validate_pairing_pin(&pin) {
+    pair_device_impl(state.inner(), &pair_address, &pin).await
+}
+
+async fn pair_device_impl(
+    state: &AppState,
+    pair_address: &str,
+    pin: &str,
+) -> Result<ConnectResult, String> {
+    if let Err(message) = validate_pairing_pin(pin) {
         return Ok(ConnectResult { ok: false, message });
     }
-    let target = normalize_connect_address(&pair_address)?;
+    let target = normalize_pairing_address(pair_address)?;
     let adb = state.adb_snapshot().await;
     let pair_out = adb
-        .raw(&["pair", &target, &pin])
+        .raw(&["pair", &target, pin])
         .await
         .map_err(|e| format!("adb pair: {e}"))?;
-    let combined = format!("{}{}", pair_out.stdout, pair_out.stderr);
+    let combined = pair_out.combined().trim().to_string();
     if !combined.to_lowercase().contains("successfully paired") {
         return Ok(ConnectResult {
             ok: false,
@@ -207,20 +220,10 @@ pub async fn pair_device(
         });
     }
 
-    // After successful pair, connect on the regular 5555 port at the same IP.
-    let host_only = target.split(':').next().unwrap_or(&target);
-    let connect_target = format!("{host_only}:5555");
-    let connect_out = adb
-        .raw(&["connect", &connect_target])
-        .await
-        .map_err(|e| format!("adb connect after pair: {e}"))?;
-    let connect_result = connect_result_from(&connect_out);
     Ok(ConnectResult {
-        ok: connect_result.ok,
-        message: format!(
-            "Paired. Connect to {connect_target}: {}",
-            connect_result.message
-        ),
+        ok: true,
+        message: "Paired successfully. Pairing established trust; to connect, enter the separate IP:port shown on the TV's main Wireless debugging screen in Connect IP."
+            .to_string(),
     })
 }
 
@@ -232,6 +235,13 @@ pub fn validate_pairing_pin(pin: &str) -> Result<(), String> {
         return Err("PIN must be exactly 6 digits.".to_string());
     }
     Ok(())
+}
+
+fn normalize_pairing_address(address: &str) -> Result<String, String> {
+    if !address.trim().contains(':') {
+        return Err("pairing address must include the port shown on the TV".to_string());
+    }
+    normalize_connect_address(address)
 }
 
 /// Validate and normalize an `IP[:port]` string. Rejects empty input, IPs
@@ -477,6 +487,87 @@ mod tests {
         assert!(devices[1].properties.is_none());
     }
 
+    #[tokio::test]
+    async fn successful_pair_establishes_trust_without_connecting_to_5555() {
+        let mock = MockAdb::default().on_raw(
+            "pair 192.168.42.71:43219 123456",
+            "Successfully paired to 192.168.42.71:43219\n",
+        );
+        let raw_log = mock.raw_log();
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.71:43219", "123456")
+            .await
+            .unwrap();
+
+        assert!(result.ok);
+        assert_eq!(
+            result.message,
+            "Paired successfully. Pairing established trust; to connect, enter the separate IP:port shown on the TV's main Wireless debugging screen in Connect IP."
+        );
+        assert_eq!(
+            *raw_log.lock().unwrap(),
+            vec!["pair 192.168.42.71:43219 123456"]
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_pair_remains_a_failure_and_does_not_connect() {
+        let mock = MockAdb::default().on_raw(
+            "pair 192.168.42.71:43219 123456",
+            "Failed: Wrong password\n",
+        );
+        let raw_log = mock.raw_log();
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.71:43219", "123456")
+            .await
+            .unwrap();
+
+        assert!(!result.ok);
+        assert_eq!(result.message, "Failed: Wrong password");
+        assert_eq!(
+            *raw_log.lock().unwrap(),
+            vec!["pair 192.168.42.71:43219 123456"]
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_pairing_pin_fails_before_adb() {
+        let mock = MockAdb::default();
+        let raw_log = mock.raw_log();
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.71:43219", "12345a")
+            .await
+            .unwrap();
+
+        assert!(!result.ok);
+        assert_eq!(result.message, "PIN must be exactly 6 digits.");
+        assert!(raw_log.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn explicit_connection_port_is_used_instead_of_the_pairing_port() {
+        let mock = MockAdb::default().on_raw(
+            "connect 192.168.42.71:37123",
+            "connected to 192.168.42.71:37123\n",
+        );
+        let raw_log = mock.raw_log();
+        let state = state_with(mock);
+
+        let result = connect_device_impl(&state, "192.168.42.71:37123")
+            .await
+            .unwrap();
+
+        assert!(result.ok);
+        assert_eq!(result.message, "connected to 192.168.42.71:37123");
+        assert_eq!(
+            *raw_log.lock().unwrap(),
+            vec!["connect 192.168.42.71:37123"]
+        );
+    }
+
     #[test]
     fn normalize_accepts_bare_ip() {
         assert_eq!(
@@ -490,6 +581,18 @@ mod tests {
         assert_eq!(
             normalize_connect_address("10.0.0.1:5556").unwrap(),
             "10.0.0.1:5556"
+        );
+    }
+
+    #[test]
+    fn pairing_address_requires_the_tv_supplied_port() {
+        assert_eq!(
+            normalize_pairing_address("192.168.42.71").unwrap_err(),
+            "pairing address must include the port shown on the TV"
+        );
+        assert_eq!(
+            normalize_pairing_address("192.168.42.71:43219").unwrap(),
+            "192.168.42.71:43219"
         );
     }
 

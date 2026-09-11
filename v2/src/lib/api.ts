@@ -2,6 +2,7 @@
 // Rust backend — every command goes through here.
 
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { parseSafety } from "../../shared/safety";
 import type {
   ActionResult,
   AdbStatus,
@@ -140,7 +141,8 @@ export const api = {
     invoke<Record<string, number>>("app_memory_map", { serial }),
   appUsageMap: (serial: string) =>
     invoke<Record<string, import("$lib/types").AppUsage>>("app_usage_map", { serial }),
-  safetyInfo: (pkg: string) => invoke<Safety>("safety_info", { package: pkg }),
+  safetyInfo: async (pkg: string): Promise<Safety> =>
+    parseSafety(await invoke<unknown>("safety_info", { package: pkg })),
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
   sendText: (serial: string, text: string, forceShell = false) =>
     invoke<SendTextResult>("send_text", { serial, text, forceShell }),

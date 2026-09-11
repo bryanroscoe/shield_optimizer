@@ -1,6 +1,6 @@
 //! Safety classification for package operations.
 //!
-//! Two tiers:
+//! Three verdicts:
 //!
 //! - `NeverDisable` — disabling will brick the device, break ADB, or otherwise
 //!   make recovery impossible. The host layer refuses to send `pm disable-user`
@@ -8,9 +8,8 @@
 //! - `Caution` — recoverable but disabling will visibly degrade the device
 //!   (remote stops working, accessibility breaks, voice search dies). UI
 //!   surfaces a loud confirm with the reason.
-//!
-//! Everything else is implicitly `Safe`. The user can still disable arbitrary
-//! packages they pick from the memory table — the confirm just doesn't shout.
+//! - `Unknown` — the package is not covered by either reviewed rule table, so
+//!   this classifier cannot make a safety recommendation.
 
 use serde::Serialize;
 
@@ -18,15 +17,14 @@ use serde::Serialize;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Safety {
     /// Operation refused at the host layer. No `pm disable-user` will be sent.
-    NeverDisable {
-        reason: &'static str,
-    },
+    NeverDisable { reason: &'static str },
     /// Recoverable, but the UI should surface a loud confirm.
-    Caution {
-        reason: &'static str,
-    },
-    Safe,
+    Caution { reason: &'static str },
+    /// No reviewed safety rule covers this package.
+    Unknown { reason: &'static str },
 }
+
+const UNKNOWN_REASON: &str = "This package is not covered by the protected or caution rules. Its role and the effects of disabling or uninstalling it are unknown.";
 
 /// Classify a package for disable/uninstall safety.
 pub fn classify(package: &str) -> Safety {
@@ -36,7 +34,9 @@ pub fn classify(package: &str) -> Safety {
     if let Some(reason) = caution_reason(package) {
         return Safety::Caution { reason };
     }
-    Safety::Safe
+    Safety::Unknown {
+        reason: UNKNOWN_REASON,
+    }
 }
 
 /// True if the host layer should refuse to disable/uninstall this package.
@@ -263,8 +263,25 @@ mod tests {
     }
 
     #[test]
-    fn unknown_package_is_safe() {
-        assert!(matches!(classify("com.example.bloat"), Safety::Safe));
+    fn unmatched_packages_are_unknown_with_the_exact_reason() {
+        for package in [
+            "com.example.bloat",
+            "org.unfamiliar.tv.feature",
+            "system",
+            "com.example.app:remote",
+            "/system/bin/surfaceflinger",
+            "",
+            "not a package",
+        ] {
+            assert_eq!(
+                classify(package),
+                Safety::Unknown {
+                    reason: UNKNOWN_REASON,
+                },
+                "unexpected verdict for {package:?}"
+            );
+            assert!(!is_never_disable(package));
+        }
     }
 
     #[test]
@@ -278,5 +295,70 @@ mod tests {
         assert!(is_never_disable("com.google.android.inputmethod.latin"));
         assert!(is_never_disable("com.google.android.leanbackkeyboard"));
         assert!(is_never_disable("com.android.inputmethod.latin"));
+    }
+
+    #[test]
+    fn every_protected_rule_keeps_its_reason_and_membership() {
+        for &(package, reason) in NEVER_DISABLE {
+            assert_eq!(classify(package), Safety::NeverDisable { reason });
+            assert!(is_never_disable(package));
+        }
+    }
+
+    #[test]
+    fn caution_rules_keep_their_reasons_unless_protected_precedence_wins() {
+        for &(package, caution_reason) in CAUTION {
+            let expected = match never_disable_reason(package) {
+                Some(reason) => Safety::NeverDisable { reason },
+                None => Safety::Caution {
+                    reason: caution_reason,
+                },
+            };
+            assert_eq!(classify(package), expected);
+            assert_eq!(
+                is_never_disable(package),
+                never_disable_reason(package).is_some()
+            );
+        }
+        assert_eq!(
+            classify("com.google.android.feedback"),
+            Safety::Caution {
+                reason: "Disabling stops crash reports. Recoverable but it's how Google fixes Android bugs.",
+            }
+        );
+    }
+
+    #[test]
+    fn representative_protected_packages_remain_protected() {
+        for package in [
+            "android",
+            "com.android.shell",
+            "com.android.tv.settings",
+            "com.android.packageinstaller",
+            "com.android.permissioncontroller",
+            "com.google.android.gms",
+            "com.google.android.inputmethod.latin",
+        ] {
+            assert!(matches!(classify(package), Safety::NeverDisable { .. }));
+        }
+    }
+
+    #[test]
+    fn all_verdicts_serialize_with_tag_and_reason() {
+        assert_eq!(
+            serde_json::to_value(Safety::NeverDisable {
+                reason: "protected"
+            })
+            .unwrap(),
+            serde_json::json!({ "kind": "never_disable", "reason": "protected" })
+        );
+        assert_eq!(
+            serde_json::to_value(Safety::Caution { reason: "review" }).unwrap(),
+            serde_json::json!({ "kind": "caution", "reason": "review" })
+        );
+        assert_eq!(
+            serde_json::to_value(classify("com.example.bloat")).unwrap(),
+            serde_json::json!({ "kind": "unknown", "reason": UNKNOWN_REASON })
+        );
     }
 }

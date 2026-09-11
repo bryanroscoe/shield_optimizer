@@ -88,6 +88,7 @@ pub mod test_support {
         shell_rules: Vec<Rule>,
         raw_rules: Vec<Rule>,
         shell_log: Arc<Mutex<Vec<String>>>,
+        raw_log: Arc<Mutex<Vec<String>>>,
     }
 
     impl MockAdb {
@@ -139,6 +140,11 @@ pub mod test_support {
         pub fn shell_log(&self) -> Arc<Mutex<Vec<String>>> {
             Arc::clone(&self.shell_log)
         }
+        /// Shared handle to the recorded raw ADB argument log. Tests use this
+        /// to prove commands did not issue an implicit follow-up invocation.
+        pub fn raw_log(&self) -> Arc<Mutex<Vec<String>>> {
+            Arc::clone(&self.raw_log)
+        }
     }
 
     fn ok(stdout: String) -> AdbResult<AdbOutput> {
@@ -174,7 +180,9 @@ pub mod test_support {
     #[async_trait]
     impl AdbDriver for MockAdb {
         async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
-            reply_for(&self.raw_rules, &args.join(" "))
+            let command = args.join(" ");
+            self.raw_log.lock().unwrap().push(command.clone());
+            reply_for(&self.raw_rules, &command)
         }
         async fn shell(&self, _serial: &str, command: &str) -> AdbResult<AdbOutput> {
             self.shell_log.lock().unwrap().push(command.to_string());

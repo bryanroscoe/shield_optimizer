@@ -51,10 +51,45 @@
   let liveRefresh = $state(false);
   let liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const LIVE_REFRESH_INTERVAL_MS = 3000;
-  /// Cached safety classifications for the visible memory-table rows. Populated
-  /// in batch whenever the health report refreshes so each row knows whether
-  /// the Disable button should be hard-blocked.
-  let safetyMap = $state<Record<string, Safety>>({});
+  type PackageState = "enabled" | "disabled" | "missing";
+  type SafetyStatus =
+    | { status: "checking" }
+    | { status: "ready"; verdict: Safety }
+    | { status: "unavailable"; reason: string };
+  type PageContext = { serial: string; epoch: number };
+  let memorySafety = $state<Record<string, SafetyStatus>>({});
+  let packageSafety = $state<Record<string, SafetyStatus>>({});
+  let pageEpoch = $state(0);
+  let deviceRequest = 0;
+  let healthRequest = 0;
+  let appsRequest = 0;
+  let otherRequest = 0;
+  let enrichmentRequest = 0;
+  let mutationRequest = 0;
+  let destroyed = false;
+
+  function capturePageContext(): PageContext {
+    return { serial, epoch: pageEpoch };
+  }
+
+  function pageContextIsCurrent(context: PageContext): boolean {
+    return !destroyed && context.serial === serial && context.epoch === pageEpoch;
+  }
+
+  function safetyLabel(safety: SafetyStatus | undefined): string {
+    if (!safety || safety.status === "unavailable") return "Unavailable";
+    if (safety.status === "checking") return "Checking";
+    if (safety.verdict.kind === "never_disable") return "Protected";
+    if (safety.verdict.kind === "caution") return "Caution";
+    return "Unknown";
+  }
+
+  function safetyReason(safety: SafetyStatus | undefined): string {
+    if (!safety) return "Safety lookup has not completed.";
+    if (safety.status === "checking") return "Safety lookup is in progress.";
+    if (safety.status === "unavailable") return `Safety lookup failed: ${safety.reason}`;
+    return safety.verdict.reason;
+  }
 
   let renaming = $state(false);
   let renameValue = $state("");
@@ -83,8 +118,9 @@
   let appsLoaded = $state(false);
   let appsLoading = $state(false);
   let appsErr = $state<string | null>(null);
-  /// package → 'enabled' | 'disabled' | 'missing' — refreshed alongside the app list.
-  let appStates = $state<Record<string, "enabled" | "disabled" | "missing">>({});
+  /// Missing or invalid entries stay absent: absence means inventory unavailable.
+  let appStates = $state<Record<string, PackageState>>({});
+  let catalogInventoryVersion = 0;
   let appSearch = $state("");
   // Default on: the catalog lists ~70 known apps, most not present on any given
   // device, so an unfiltered list is mostly un-actionable "Missing" rows. Start
@@ -95,6 +131,9 @@
   /// SmartTube + system internals). Loaded lazily on the Apps tab.
   let otherPackages = $state<OtherPackage[]>([]);
   let othersLoading = $state(false);
+  let othersLoaded = $state(false);
+  let othersErr = $state<string | null>(null);
+  let otherInventoryVersion = 0;
   /// package → resident RAM (MB) for apps running right now. Lazy-loaded after
   /// the list paints; most apps aren't here (not running), so a value means the
   /// app is actively holding RAM — the cue for "disable this unused app".
@@ -111,7 +150,7 @@
 
   let visibleApps = $derived(
     apps.filter((a) => {
-      if (hideNotInstalled && (appStates[a.package] ?? "enabled") === "missing") return false;
+      if (hideNotInstalled && appStates[a.package] === "missing") return false;
       return matchesSearch(a.name, a.package);
     }),
   );
@@ -123,6 +162,7 @@
   );
   let appActionBusy = $state<string | null>(null);
   let appActionMessage = $state("");
+  let appMutationInFlight = $state(false);
   /// Package the "Copy to another device" panel is open for, plus targets.
   let clonePkg = $state<string | null>(null);
   let cloneTargets = $state<Device[]>([]);
@@ -159,10 +199,15 @@
   let optimizeResetToken = $state(0);
 
   async function loadDevice() {
+    const context = capturePageContext();
+    const request = ++deviceRequest;
     deviceErr = null;
     try {
-      device = await api.deviceProfile(serial);
+      const nextDevice = await api.deviceProfile(context.serial);
+      if (!pageContextIsCurrent(context) || request !== deviceRequest) return;
+      device = nextDevice;
     } catch (e) {
+      if (!pageContextIsCurrent(context) || request !== deviceRequest) return;
       deviceErr = String(e);
     }
   }
@@ -182,29 +227,31 @@
   }
 
   async function loadHealth() {
+    const context = capturePageContext();
+    const request = ++healthRequest;
     reportLoading = true;
     reportErr = null;
+    memorySafety = {};
     try {
-      report = await api.healthReport(serial);
+      const nextReport = await api.healthReport(context.serial);
+      if (!pageContextIsCurrent(context) || request !== healthRequest) return;
+      report = nextReport;
       reportLastRefreshed = new Date();
-      // Resolve safety for every visible row in parallel — single ms each,
-      // pure lookup against the engine const list. Cached so re-renders
-      // don't re-query.
-      const pkgs = report.top_memory.map((m) => m.package);
-      const results = await Promise.all(
-        pkgs.map((p) =>
-          safetyMap[p]
-            ? Promise.resolve(safetyMap[p])
-            : api.safetyInfo(p).catch(() => ({ kind: "safe" } as Safety)),
-        ),
-      );
-      const next = { ...safetyMap };
-      results.forEach((s, i) => (next[pkgs[i]] = s));
-      safetyMap = next;
+      const pkgs = nextReport.top_memory.map((m) => m.package);
+      memorySafety = Object.fromEntries(pkgs.map((pkg) => [pkg, { status: "checking" }]));
+      const results = await Promise.allSettled(pkgs.map((pkg) => api.safetyInfo(pkg)));
+      if (!pageContextIsCurrent(context) || request !== healthRequest || report !== nextReport) return;
+      memorySafety = Object.fromEntries(pkgs.map((pkg, index) => {
+        const result = results[index];
+        return result.status === "fulfilled"
+          ? [pkg, { status: "ready", verdict: result.value } satisfies SafetyStatus]
+          : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
+      }));
     } catch (e) {
+      if (!pageContextIsCurrent(context) || request !== healthRequest) return;
       reportErr = String(e);
     } finally {
-      reportLoading = false;
+      if (pageContextIsCurrent(context) && request === healthRequest) reportLoading = false;
     }
   }
 
@@ -250,6 +297,14 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
+    pageEpoch++;
+    deviceRequest++;
+    healthRequest++;
+    appsRequest++;
+    otherRequest++;
+    enrichmentRequest++;
+    mutationRequest++;
     if (liveRefreshTimer) clearInterval(liveRefreshTimer);
     if (nowTicker) clearInterval(nowTicker);
   });
@@ -276,33 +331,74 @@
 
   async function loadApps() {
     if (!device) return;
+    const context = capturePageContext();
+    const request = ++appsRequest;
+    otherRequest++;
+    enrichmentRequest++;
+    mutationRequest++;
+    catalogInventoryVersion++;
+    otherInventoryVersion++;
+    const deviceType = device.device_type;
     appsLoading = true;
     appsErr = null;
+    appsLoaded = false;
+    apps = [];
+    appStates = {};
+    packageSafety = {};
+    otherPackages = [];
+    othersLoaded = false;
+    othersLoading = false;
+    othersErr = null;
+    appMemory = {};
+    appUsage = {};
+    if (appMutationInFlight) appActionBusy = null;
+    appActionMessage = "";
     try {
-      // Pull the app list AND fresh enabled/disabled state for those packages.
-      // The package state lets us render per-row Disable/Enable/Uninstall
-      // buttons in their correct state.
-      const list = await api.appListForDevice(device.device_type);
+      const list = await api.appListForDevice(deviceType);
+      if (!pageContextIsCurrent(context) || request !== appsRequest) return;
       apps = list;
-      appStates = await fetchAppStates(list.map((a) => a.package));
-    } catch (e) {
-      appsErr = String(e);
-    } finally {
-      appsLoading = false;
+      const packages = list.map((a) => a.package);
+      packageSafety = Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }]));
+      const [stateResult, safetyResults] = await Promise.all([
+        api.packageStates(context.serial, packages),
+        Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg))),
+      ]);
+      if (!pageContextIsCurrent(context) || request !== appsRequest) return;
+      appStates = validatedPackageStates(packages, stateResult);
+      catalogInventoryVersion++;
+      const unavailableCount = packages.length - Object.keys(appStates).length;
+      if (unavailableCount > 0) appsErr = `State unavailable for ${unavailableCount} package(s). Refresh before taking action.`;
+      packageSafety = Object.fromEntries(packages.map((pkg, index) => {
+        const result = safetyResults[index];
+        return result.status === "fulfilled"
+          ? [pkg, { status: "ready", verdict: result.value } satisfies SafetyStatus]
+          : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
+      }));
       appsLoaded = true;
+    } catch (e) {
+      if (!pageContextIsCurrent(context) || request !== appsRequest) return;
+      appsErr = `Inventory unavailable: ${e}. Refresh to retry.`;
+      appsLoaded = true;
+    } finally {
+      if (pageContextIsCurrent(context) && request === appsRequest) appsLoading = false;
     }
-    loadOtherPackages();
-    loadAppMemory();
+    if (pageContextIsCurrent(context) && request === appsRequest) {
+      void loadOtherPackages();
+      void loadAppMemory();
+    }
   }
 
   /// Lazy RAM + last-used annotations: one `dumpsys meminfo` and one
   /// `dumpsys usagestats`, mapped onto the rows. Run after the list paints and
   /// never block it — a failure just leaves those cues off.
   async function loadAppMemory() {
+    const context = capturePageContext();
+    const request = ++enrichmentRequest;
     const [mem, usage] = await Promise.allSettled([
-      api.appMemoryMap(serial),
-      api.appUsageMap(serial),
+      api.appMemoryMap(context.serial),
+      api.appUsageMap(context.serial),
     ]);
+    if (!pageContextIsCurrent(context) || request !== enrichmentRequest) return;
     appMemory = mem.status === "fulfilled" ? mem.value : {};
     appUsage = usage.status === "fulfilled" ? usage.value : {};
   }
@@ -311,13 +407,41 @@
   // (SmartTube etc.) plus system internals. Loaded after the catalog so the
   // curated list paints first; failures here don't block the main list.
   async function loadOtherPackages() {
+    const context = capturePageContext();
+    const request = ++otherRequest;
+    mutationRequest++;
+    otherInventoryVersion++;
+    if (appMutationInFlight) appActionBusy = null;
+    appActionMessage = "";
     othersLoading = true;
+    othersLoaded = false;
+    othersErr = null;
+    otherPackages = [];
     try {
-      otherPackages = await api.listOtherPackages(serial);
+      const list = await api.listOtherPackages(context.serial);
+      if (!pageContextIsCurrent(context) || request !== otherRequest) return;
+      otherPackages = list;
+      othersLoaded = true;
+      otherInventoryVersion++;
+      const packages = list.map((entry) => entry.package);
+      const next = { ...packageSafety };
+      packages.forEach((pkg) => (next[pkg] = { status: "checking" }));
+      packageSafety = next;
+      const results = await Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg)));
+      if (!pageContextIsCurrent(context) || request !== otherRequest) return;
+      const resolved = { ...packageSafety };
+      packages.forEach((pkg, index) => {
+        const result = results[index];
+        resolved[pkg] = result.status === "fulfilled"
+          ? { status: "ready", verdict: result.value }
+          : { status: "unavailable", reason: String(result.reason) };
+      });
+      packageSafety = resolved;
     } catch (e) {
-      appActionMessage = `Could not list other packages: ${e}`;
+      if (!pageContextIsCurrent(context) || request !== otherRequest) return;
+      othersErr = `Other-package inventory unavailable: ${e}. Refresh to retry.`;
     } finally {
-      othersLoading = false;
+      if (pageContextIsCurrent(context) && request === otherRequest) othersLoading = false;
     }
   }
 
@@ -327,159 +451,214 @@
     } else {
       otherPackages = otherPackages.map((o) => (o.package === pkg ? { ...o, enabled } : o));
     }
+    otherInventoryVersion++;
+  }
+
+  function catalogStateIsCurrent(pkg: string, state: PackageState, version: number): boolean {
+    return version === catalogInventoryVersion
+      && apps.some((entry) => entry.package === pkg)
+      && appStates[pkg] === state;
+  }
+
+  function otherStateIsCurrent(pkg: string, enabled: boolean, version: number): boolean {
+    return version === otherInventoryVersion
+      && othersLoaded
+      && otherPackages.some((entry) => entry.package === pkg && entry.enabled === enabled);
   }
 
   async function disableOther(pkg: string) {
-    appActionBusy = pkg;
-    appActionMessage = "";
-    try {
-      const r = await api.disablePackage(serial, pkg);
-      appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "disabled" : "failed")}`;
-      if (r.ok) {
-        patchOtherState(pkg, false);
-        invalidateDeviceCaches();
-      }
-    } catch (e) {
-      appActionMessage = `${pkg}: ${e}`;
-    } finally {
-      appActionBusy = null;
-    }
+    await removeInstalledPackage("other", pkg, "disable");
   }
 
   async function enableOther(pkg: string) {
+    if (appActionBusy || appMutationInFlight) return;
+    const context = capturePageContext();
+    const request = ++mutationRequest;
+    const inventoryVersion = otherInventoryVersion;
+    if (!otherStateIsCurrent(pkg, false, inventoryVersion)) {
+      appActionMessage = `${pkg}: current disabled-state evidence is unavailable. Refresh to retry.`;
+      return;
+    }
+    appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
     try {
-      const r = await api.enablePackage(serial, pkg);
+      const r = await api.enablePackage(context.serial, pkg);
+      if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
       appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "enabled" : "failed")}`;
       if (r.ok) {
+        appActionBusy = null;
         patchOtherState(pkg, true);
         invalidateDeviceCaches();
       }
     } catch (e) {
+      if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
       appActionMessage = `${pkg}: ${e}`;
     } finally {
-      appActionBusy = null;
+      appMutationInFlight = false;
+      if (pageContextIsCurrent(context)
+        && request === mutationRequest
+        && otherStateIsCurrent(pkg, false, inventoryVersion)
+        && appActionBusy === pkg) appActionBusy = null;
     }
   }
 
   async function uninstallOther(pkg: string) {
-    if (!confirm(`Uninstall ${pkg}? Semi-reversible (Play Store reinstall or pm install-existing).`)) return;
-    appActionBusy = pkg;
-    appActionMessage = "";
-    try {
-      const r = await api.uninstallPackage(serial, pkg);
-      appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) {
-        patchOtherState(pkg, "removed");
-        invalidateDeviceCaches();
-      }
-    } catch (e) {
-      appActionMessage = `${pkg}: ${e}`;
-    } finally {
-      appActionBusy = null;
-    }
+    await removeInstalledPackage("other", pkg, "uninstall");
   }
 
   // Real state per package — one batched backend call (pm list packages +
   // pm list packages -d in parallel) so we can show Enabled/Disabled/Missing.
-  async function fetchAppStates(packages: string[]): Promise<Record<string, "enabled" | "disabled" | "missing">> {
-    if (packages.length === 0) return {};
-    try {
-      return await api.packageStates(serial, packages);
-    } catch {
-      const out: Record<string, "enabled" | "disabled" | "missing"> = {};
-      for (const p of packages) out[p] = "enabled";
-      return out;
+  function validatedPackageStates(packages: string[], value: unknown): Record<string, PackageState> {
+    const result: Record<string, PackageState> = {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+    const record = value as Record<string, unknown>;
+    for (const pkg of packages) {
+      const state = record[pkg];
+      if (state === "enabled" || state === "disabled" || state === "missing") result[pkg] = state;
     }
+    return result;
+  }
+
+  async function fetchAppStates(context: PageContext, packages: string[]): Promise<Record<string, PackageState>> {
+    if (packages.length === 0) return {};
+    return validatedPackageStates(packages, await api.packageStates(context.serial, packages));
   }
 
   /// Re-sync the App List's cached states after the Optimize wizard runs —
   /// it cached states before the run, same as executeOptimize used to do inline.
   async function resyncAppStates() {
+    const context = capturePageContext();
+    const request = ++appsRequest;
     if (apps.length > 0) {
-      appStates = await fetchAppStates(apps.map((a) => a.package));
+      try {
+        const packages = apps.map((a) => a.package);
+        const next = await fetchAppStates(context, packages);
+        if (!pageContextIsCurrent(context) || request !== appsRequest) return;
+        appStates = next;
+        catalogInventoryVersion++;
+        appsErr = Object.keys(next).length === packages.length
+          ? null
+          : "Some package states are unavailable. Refresh before taking action.";
+      } catch (e) {
+        if (!pageContextIsCurrent(context) || request !== appsRequest) return;
+        appStates = {};
+        appsErr = `Inventory unavailable: ${e}. Refresh to retry.`;
+      }
     }
     // The Optimize wizard can disable launchers and many packages — mark the
     // Launcher and Memory caches stale so they reload fresh on next visit.
     invalidateDeviceCaches();
   }
 
-  /// Lookup a package in the loaded app catalog (if it's there) for risk-aware
-  /// prompts when disabling from the memory table — where the user picked a
-  /// process by RAM, not a curated bloat entry.
-  function catalogEntry(pkg: string): AppEntry | undefined {
-    return apps.find((a) => a.package === pkg);
+  type RemovalSource = "catalog" | "other";
+  type RemovalAction = "disable" | "uninstall";
+
+  function removalSourceIsCurrent(source: RemovalSource, pkg: string, version: number): boolean {
+    if (source === "catalog") {
+      return version === catalogInventoryVersion
+        && apps.some((entry) => entry.package === pkg)
+        && (appStates[pkg] === "enabled" || appStates[pkg] === "disabled");
+    }
+    return version === otherInventoryVersion
+      && othersLoaded
+      && otherPackages.some((entry) => entry.package === pkg);
   }
 
-  function riskLabel(entry: AppEntry | undefined): string {
-    if (!entry) return "UNKNOWN";
-    return entry.risk.toUpperCase();
+  function removalName(source: RemovalSource, pkg: string): string {
+    return source === "catalog"
+      ? apps.find((entry) => entry.package === pkg)?.name ?? pkg
+      : otherPackages.find((entry) => entry.package === pkg)?.name ?? pkg;
   }
 
-  async function forceStopFromMemory(pkg: string) {
+  async function readRemovalEvidence(context: PageContext, pkg: string): Promise<{ state: PackageState; safety: Safety }> {
+    const [rawStates, safety] = await Promise.all([
+      api.packageStates(context.serial, [pkg]),
+      api.safetyInfo(pkg),
+    ]);
+    const state = validatedPackageStates([pkg], rawStates)[pkg];
+    if (state !== "enabled" && state !== "disabled") {
+      throw new Error("Current installed-state evidence is unavailable");
+    }
+    return { state, safety };
+  }
+
+  async function removeInstalledPackage(source: RemovalSource, pkg: string, action: RemovalAction) {
+    if (appActionBusy || appMutationInFlight) return;
+    const displayedSafety = packageSafety[pkg];
+    if (displayedSafety?.status !== "ready") {
+      appActionMessage = `${pkg}: safety unavailable. Refresh before ${action}.`;
+      return;
+    }
+    if (displayedSafety.verdict.kind === "never_disable") {
+      appActionMessage = `${pkg}: protected — ${displayedSafety.verdict.reason}`;
+      return;
+    }
+    const context = capturePageContext();
+    const request = ++mutationRequest;
+    const inventoryVersion = source === "catalog" ? catalogInventoryVersion : otherInventoryVersion;
+    if (!removalSourceIsCurrent(source, pkg, inventoryVersion)) {
+      appActionMessage = `${pkg}: current inventory evidence is unavailable. Refresh to retry.`;
+      return;
+    }
+    const name = removalName(source, pkg);
+    appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
     try {
-      const r = await api.forceStop(serial, pkg);
-      appActionMessage = r.ok
-        ? `${pkg} stopped — its RAM frees up now (it restarts on next launch). Refresh the report to see the change.`
-        : `Couldn't stop ${pkg}: ${r.message.trim()}`;
-    } catch (e) {
-      appActionMessage = String(e);
-    } finally {
+      const before = await readRemovalEvidence(context, pkg);
+      if (!pageContextIsCurrent(context)
+        || request !== mutationRequest
+        || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
+      if (before.safety.kind === "never_disable") {
+        appActionMessage = `${pkg}: protected — ${before.safety.reason}`;
+        return;
+      }
+      if (before.safety.kind !== displayedSafety.verdict.kind
+        || before.safety.reason !== displayedSafety.verdict.reason) {
+        appActionMessage = `${pkg}: safety changed. Refresh and review before ${action}.`;
+        return;
+      }
+      const approved = confirm(
+        `${action.toUpperCase()} ${name}\nPackage: ${pkg}\nSafety: ${before.safety.kind === "caution" ? "Caution" : "Unknown"}\nReason: ${before.safety.reason}\n\nProceed?`,
+      );
+      if (!approved
+        || !pageContextIsCurrent(context)
+        || request !== mutationRequest
+        || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
+      const after = await readRemovalEvidence(context, pkg);
+      if (!pageContextIsCurrent(context)
+        || request !== mutationRequest
+        || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
+      if (after.safety.kind === "never_disable"
+        || after.safety.kind !== before.safety.kind
+        || after.safety.reason !== before.safety.reason) {
+        appActionMessage = `${pkg}: safety changed after confirmation. No action was taken; refresh and review again.`;
+        return;
+      }
+      const result = action === "disable"
+        ? await api.disablePackage(context.serial, pkg)
+        : await api.uninstallPackage(context.serial, pkg);
+      if (!pageContextIsCurrent(context)
+        || request !== mutationRequest
+        || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
+      appActionMessage = `${pkg}: ${result.message.trim() || (result.ok ? action === "disable" ? "disabled" : "uninstalled" : "failed")}`;
+      if (!result.ok) return;
       appActionBusy = null;
-    }
-  }
-
-  async function safeDisableFromMemory(pkg: string, mb: number) {
-    // Make sure the catalog is loaded so we can look up risk.
-    if (apps.length === 0 && device) {
-      try {
-        apps = await api.appListForDevice(device.device_type);
-      } catch {
-        // Lookup is best-effort; carry on with the generic warning.
-      }
-    }
-
-    // Authoritative safety check — backend will refuse never-disable
-    // packages anyway, but we surface the reason inline so the user
-    // doesn't get a confusing "Refusing to disable" message after a
-    // pointless confirm.
-    let safety: Safety;
-    try {
-      safety = await api.safetyInfo(pkg);
-    } catch {
-      safety = { kind: "safe" };
-    }
-    if (safety.kind === "never_disable") {
-      alert(`Cannot disable ${pkg}.\n\n${safety.reason}`);
-      return;
-    }
-
-    const entry = catalogEntry(pkg);
-    let prompt = `Disable ${pkg} (${mb.toFixed(0)} MB)?\n\n`;
-    if (safety.kind === "caution") {
-      prompt += `⚠ ${safety.reason}\n\n`;
-    }
-    if (entry) {
-      prompt += `Risk tier: ${entry.risk.toUpperCase()}\n`;
-      prompt += `${entry.optimize_description}\n\n`;
-      if (entry.risk === "high" || entry.risk === "advanced") {
-        prompt += "⚠ HIGH RISK — this may break system features. Re-enable via Emergency Recovery if something goes wrong.\n\n";
-      }
-    } else if (safety.kind === "safe") {
-      prompt += "ℹ This package is not in the curated bloat catalog — disabling is allowed but unverified. Re-enable via Emergency Recovery if something goes wrong.\n\n";
-    }
-    prompt += "Proceed?";
-    if (!confirm(prompt)) return;
-    await disableApp(pkg);
-    // The memory table is fed by the health report's top_memory list, which
-    // disableApp doesn't touch — so the row lingered until a full refresh. A
-    // disabled app isn't running, so drop its row now (freed RAM and the rest
-    // reconcile on the next report refresh).
-    if (appStates[pkg] === "disabled" && report) {
-      report.top_memory = report.top_memory.filter((m) => m.package !== pkg);
+      if (source === "catalog") setCatalogState(pkg, action === "disable" ? "disabled" : "missing");
+      else patchOtherState(pkg, action === "disable" ? false : "removed");
+      invalidateDeviceCaches();
+    } catch (e) {
+      if (!pageContextIsCurrent(context)
+        || request !== mutationRequest
+        || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
+      appActionMessage = `${pkg}: ${e}. Refresh to retry; no removal was dispatched without current evidence.`;
+    } finally {
+      appMutationInFlight = false;
+      if (pageContextIsCurrent(context)
+        && request === mutationRequest
+        && removalSourceIsCurrent(source, pkg, inventoryVersion)
+        && appActionBusy === pkg) appActionBusy = null;
     }
   }
 
@@ -488,72 +667,83 @@
   /// it — it reloads fresh next time the Optimize tab is opened.
   function setCatalogState(pkg: string, state: "enabled" | "disabled" | "missing") {
     appStates[pkg] = state;
+    catalogInventoryVersion++;
     optimizeResetToken++;
   }
 
   async function disableApp(pkg: string) {
-    appActionBusy = pkg;
-    appActionMessage = "";
-    try {
-      const r = await api.disablePackage(serial, pkg);
-      appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) {
-        setCatalogState(pkg, "disabled");
-        invalidateDeviceCaches();
-      }
-    } catch (e) {
-      appActionMessage = `${pkg}: ${e}`;
-    } finally {
-      appActionBusy = null;
-    }
+    await removeInstalledPackage("catalog", pkg, "disable");
   }
 
   async function enableApp(pkg: string) {
+    if (appActionBusy || appMutationInFlight) return;
+    const context = capturePageContext();
+    const request = ++mutationRequest;
+    const inventoryVersion = catalogInventoryVersion;
+    if (!catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) {
+      appActionMessage = `${pkg}: current disabled-state evidence is unavailable. Refresh to retry.`;
+      return;
+    }
+    appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
     try {
-      const r = await api.enablePackage(serial, pkg);
+      const r = await api.enablePackage(context.serial, pkg);
+      if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
       appActionMessage = `${pkg}: ${r.message.trim()}`;
       if (r.ok) {
+        appActionBusy = null;
         setCatalogState(pkg, "enabled");
         invalidateDeviceCaches();
       }
     } catch (e) {
+      if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
       appActionMessage = `${pkg}: ${e}`;
     } finally {
-      appActionBusy = null;
+      appMutationInFlight = false;
+      if (pageContextIsCurrent(context)
+        && request === mutationRequest
+        && catalogStateIsCurrent(pkg, "disabled", inventoryVersion)
+        && appActionBusy === pkg) appActionBusy = null;
     }
   }
 
   async function uninstallApp(pkg: string) {
-    if (!confirm(`Uninstall ${pkg}? This is semi-reversible (Play Store reinstall or pm install-existing).`)) return;
-    appActionBusy = pkg;
-    appActionMessage = "";
-    try {
-      const r = await api.uninstallPackage(serial, pkg);
-      appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) setCatalogState(pkg, "missing");
-    } catch (e) {
-      appActionMessage = `${pkg}: ${e}`;
-    } finally {
-      appActionBusy = null;
-    }
+    await removeInstalledPackage("catalog", pkg, "uninstall");
   }
 
   // Best-effort system-app re-install via `cmd package install-existing` —
   // works only for apps still present on /system. For third-party uninstalls
   // we route through the Play Store instead.
   async function reinstallApp(pkg: string) {
+    if (appActionBusy || appMutationInFlight) return;
+    const context = capturePageContext();
+    const request = ++mutationRequest;
+    const inventoryVersion = catalogInventoryVersion;
+    if (!catalogStateIsCurrent(pkg, "missing", inventoryVersion)) {
+      appActionMessage = `${pkg}: current missing-state evidence is unavailable. Refresh to retry.`;
+      return;
+    }
+    appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
     try {
-      const r = await api.reinstallExisting(serial, pkg);
+      const r = await api.reinstallExisting(context.serial, pkg);
+      if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
       appActionMessage = `${pkg}: ${r.message.trim()}`;
-      if (r.ok) setCatalogState(pkg, "enabled");
+      if (r.ok) {
+        appActionBusy = null;
+        setCatalogState(pkg, "enabled");
+      }
     } catch (e) {
+      if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
       appActionMessage = `${pkg}: ${e}`;
     } finally {
-      appActionBusy = null;
+      appMutationInFlight = false;
+      if (pageContextIsCurrent(context)
+        && request === mutationRequest
+        && catalogStateIsCurrent(pkg, "missing", inventoryVersion)
+        && appActionBusy === pkg) appActionBusy = null;
     }
   }
 
@@ -562,6 +752,7 @@
     | { kind: "act"; label: string; action: "disable" | "uninstall" }
     | { kind: "review"; label: string; action: "disable" | "uninstall" }
     | { kind: "restore"; label: string }
+    | { kind: "unavailable"; label: string }
     | { kind: "keep" };
 
   /// The action actually safe to offer — mirrors the engine's AppEntry::
@@ -575,13 +766,21 @@
   /// state. `act` = a recommended (default) action. `review` = a "remove if you
   /// don't use it" candidate (optional, never a default). `restore` = the app
   /// is gone and would be brought back. `done`/`keep` = nothing to do.
-  function recommendation(a: AppEntry, state: "enabled" | "disabled" | "missing"): Recommendation {
+  function recommendation(a: AppEntry, state: PackageState | null, safety: SafetyStatus | undefined): Recommendation {
+    if (state === null) return { kind: "unavailable", label: "State unavailable" };
     if (state === "missing") {
       if (a.default_restore) return { kind: "restore", label: "Reinstall" };
       if (a.default_optimize && a.method === "uninstall") return { kind: "done", label: "Already uninstalled" };
       return { kind: "keep" };
     }
     const method = effectiveMethod(a);
+    if (safety?.status !== "ready") return { kind: "unavailable", label: "Safety unavailable" };
+    if (safety.verdict.kind === "never_disable") return { kind: "done", label: "Protected" };
+    if (safety.verdict.kind === "unknown") {
+      return state === "enabled"
+        ? { kind: "review", label: `${method === "disable" ? "Disable" : "Remove"} after review`, action: method }
+        : { kind: "keep" };
+    }
     if (a.default_optimize) {
       if (method === "disable") {
         return state === "disabled"
@@ -869,9 +1068,14 @@
     launchersLoaded = false;
     healthStale = true;
     if (apps.length === 0) return;
+    const context = capturePageContext();
     try {
-      appStates = await fetchAppStates(apps.map((a) => a.package));
+      appStates = await fetchAppStates(context, apps.map((a) => a.package));
+      if (!pageContextIsCurrent(context)) return;
+      catalogInventoryVersion++;
     } catch {
+      if (!pageContextIsCurrent(context)) return;
+      appStates = {};
       appsLoaded = false; // fall back to the lazy reload next tab visit
     }
   }
@@ -980,6 +1184,8 @@
     try {
       const r = await api.disconnectDevice(serial);
       if (r.ok) {
+        pageEpoch++;
+        mutationRequest++;
         goto("/");
       } else {
         headerActionMsg = `Disconnect failed: ${r.message}`;
@@ -1006,7 +1212,7 @@
         healthStale = false;
         loadHealth();
       }
-      // Preload catalog so the memory table can show risk tiers.
+      // Preload the app tab so its own inventory is ready when visited.
       if (!appsLoaded && !appsLoading) loadApps();
     }
     if (activeTab === "launcher" && !launchersLoaded && !launcherLoading) loadLauncher();
@@ -1030,6 +1236,13 @@
   /// so this is defensive — but it guarantees no device's data or in-flight
   /// timer can leak onto another if a device→device link is ever added).
   function resetDeviceState() {
+    pageEpoch++;
+    deviceRequest++;
+    healthRequest++;
+    appsRequest++;
+    otherRequest++;
+    enrichmentRequest++;
+    mutationRequest++;
     if (liveRefreshTimer) {
       clearInterval(liveRefreshTimer);
       liveRefreshTimer = null;
@@ -1039,11 +1252,11 @@
     // Unmount the extracted tab components — their state dies with them.
     visited = {};
     device = null; deviceErr = null;
-    report = null; reportErr = null; reportLastRefreshed = null; safetyMap = {};
+    report = null; reportErr = null; reportLastRefreshed = null; memorySafety = {};
     launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
-    apps = []; appsLoaded = false; appsErr = null; appStates = {}; appActionMessage = "";
-    otherPackages = []; appMemory = {}; appUsage = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
+    apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
+    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
@@ -1315,14 +1528,12 @@
         {:else}
           <table class="mem-table">
             <thead>
-              <tr><th>RAM</th><th>Package</th><th class="center">Risk</th><th></th></tr>
+              <tr><th>PSS</th><th>Reported package field</th><th class="center">Rule for field</th><th>Use</th></tr>
             </thead>
             <tbody>
               {#each report.top_memory as m}
-                {@const entry = catalogEntry(m.package)}
-                {@const safety = safetyMap[m.package] ?? { kind: "safe" }}
-                {@const blocked = safety.kind === "never_disable"}
-                <tr class:dim={blocked}>
+                {@const safety = memorySafety[m.package]}
+                <tr>
                   <td
                     class="num"
                     class:warn={m.mb >= 200}
@@ -1330,55 +1541,15 @@
                   >
                     {m.mb.toFixed(1)} MB
                   </td>
-                  <td class="pkg">{m.package}</td>
-                  <td
-                    class={`center risk ${entry
-                      ? "risk-" + entry.risk
-                      : blocked
-                        ? "risk-blocked"
-                        : safety.kind === "caution"
-                          ? "risk-medium"
-                          : "risk-unknown"}`}
-                    title={safety.kind !== "safe" ? safety.reason : ""}
-                  >
-                    {#if blocked}
-                      SYSTEM
-                    {:else if safety.kind === "caution"}
-                      CAUTION
-                    {:else}
-                      {riskLabel(entry)}
-                    {/if}
+                  <td class="pkg">
+                    {m.package}
+                    <div class="muted small">Identity unverified</div>
                   </td>
-                  <td class="row-actions">
-                    <button
-                      class="small-action subtle"
-                      onclick={() => forceStopFromMemory(m.package)}
-                      disabled={appActionBusy === m.package}
-                      title="am force-stop {m.package} — frees its RAM now; the app restarts on next launch"
-                    >
-                      {#if appActionBusy === m.package}
-                        <span class="busy"><span class="spinner" aria-hidden="true"></span>Stopping…</span>
-                      {:else}
-                        Force stop
-                      {/if}
-                    </button>
-                    {#if blocked}
-                      <span class="muted small" title={safety.reason}>Protected</span>
-                    {:else}
-                      <button
-                        class="small-action"
-                        class:danger={!entry || (entry && (entry.risk === "high" || entry.risk === "advanced")) || safety.kind === "caution"}
-                        onclick={() => safeDisableFromMemory(m.package, m.mb)}
-                        disabled={appActionBusy === m.package}
-                        title="pm disable-user --user 0 {m.package}"
-                      >
-                        {#if appActionBusy === m.package}
-                          <span class="busy"><span class="spinner" aria-hidden="true"></span>Disabling…</span>
-                        {:else}
-                          Disable
-                        {/if}
-                      </button>
-                    {/if}
+                  <td class="center" title={safetyReason(safety)}>
+                    {safetyLabel(safety).toUpperCase()}
+                  </td>
+                  <td>
+                    <span class="muted small" title="Memory rows are diagnostics only because the reported package field is not verified ownership.">Inspect only</span>
                   </td>
                 </tr>
               {/each}
@@ -1536,13 +1707,14 @@
       </div>
       {#if appsErr}
         <div class="error">{appsErr}</div>
-      {:else if appsLoading && apps.length === 0}
+      {/if}
+      {#if appsLoading && apps.length === 0}
         <div class="muted">Loading…</div>
       {:else}
         <p class="muted small legend">
           <strong>State</strong> is what the device reports right now.
-          <strong>Recommended</strong> is what v1's Optimize wizard would pick for you —
-          click to apply, or leave it. <strong>Tools</strong> has the Play Store link
+          <strong>Safety</strong> is the canonical engine verdict. Unknown removals need explicit review;
+          unavailable safety or state blocks removal. <strong>Tools</strong> has the Play Store link
           plus APK backup and copy-to-another-device.
         </p>
         {#if appActionMessage}
@@ -1550,6 +1722,9 @@
             {appActionMessage}
             <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss">✕</button>
           </p>
+        {/if}
+        {#if appMutationInFlight && !appActionBusy}
+          <p class="muted small mono action-message">Finishing the previous app action…</p>
         {/if}
         {#if clonePkg}
           <div class="clone-panel">
@@ -1569,15 +1744,17 @@
             <tr>
               <th>App</th>
               <th class="center">State</th>
-              <th class="center">Risk</th>
-              <th>Recommended</th>
+              <th class="center">Safety</th>
+              <th>Action</th>
               <th class="center">Tools</th>
             </tr>
           </thead>
           <tbody>
             {#each visibleApps as a (a.package)}
-              {@const state = appStates[a.package] ?? "enabled"}
-              {@const rec = recommendation(a, state)}
+              {@const state = appStates[a.package] ?? null}
+              {@const safety = packageSafety[a.package]}
+              {@const rec = recommendation(a, state, safety)}
+              {@const canRemove = (state === "enabled" || state === "disabled") && safety?.status === "ready" && safety.verdict.kind !== "never_disable"}
               <AppRow
                 name={a.name}
                 description={a.optimize_description}
@@ -1587,7 +1764,8 @@
                 mb={appMemory[a.package]}
                 usage={appUsage[a.package]}
                 showUsage={state !== "missing"}
-                risk={a.risk}
+                safety={safety?.status === "ready" ? safety.verdict : null}
+                safetyStatus={safety?.status ?? "unavailable"}
               >
                 {#snippet actions()}
                 <td class="rec-cell">
@@ -1596,7 +1774,7 @@
                       class="small-action recommended"
                       class:danger={rec.action === "uninstall"}
                       onclick={() => applyRecommendation(a.package, rec.action)}
-                      disabled={appActionBusy === a.package}
+                      disabled={appActionBusy === a.package || appMutationInFlight}
                       title={a.optimize_description}
                     >
                       {appActionBusy === a.package ? "…" : rec.label}
@@ -1606,7 +1784,7 @@
                       class="small-action review-action"
                       class:danger={rec.action === "uninstall"}
                       onclick={() => applyRecommendation(a.package, rec.action)}
-                      disabled={appActionBusy === a.package}
+                      disabled={appActionBusy === a.package || appMutationInFlight}
                       title="You may not use this one — check the last-used cue, then {rec.action} if so."
                     >
                       {appActionBusy === a.package ? "…" : rec.label}
@@ -1615,22 +1793,24 @@
                     <button
                       class="small-action recommended"
                       onclick={() => reinstallApp(a.package)}
-                      disabled={appActionBusy === a.package}
+                      disabled={appActionBusy === a.package || appMutationInFlight}
                       title="cmd package install-existing — works for system apps still on /system"
                     >
                       {appActionBusy === a.package ? "…" : rec.label}
                     </button>
                   {:else if rec.kind === "done"}
                     <span class="muted small done">✓ {rec.label}</span>
+                  {:else if rec.kind === "unavailable"}
+                    <span class="muted small">{rec.label} — refresh to retry</span>
                   {:else}
                     <span class="muted small">Keep</span>
                   {/if}
 
-                  {#if state === "enabled" && rec.kind !== "act" && !(rec.kind === "review" && rec.action === "disable")}
+                  {#if state === "enabled" && canRemove && rec.kind !== "act" && !(rec.kind === "review" && rec.action === "disable")}
                     <button
                       class="small-action subtle"
                       onclick={() => disableApp(a.package)}
-                      disabled={appActionBusy === a.package}
+                      disabled={appActionBusy === a.package || appMutationInFlight}
                       title="pm disable-user --user 0"
                     >Disable</button>
                   {/if}
@@ -1638,7 +1818,7 @@
                     <button
                       class="small-action subtle"
                       onclick={() => enableApp(a.package)}
-                      disabled={appActionBusy === a.package}
+                      disabled={appActionBusy === a.package || appMutationInFlight}
                       title="pm enable"
                     >Enable</button>
                   {/if}
@@ -1685,23 +1865,33 @@
         </table>
 
         <div class="other-apps">
-          <h3>Everything else {othersLoading ? "" : `(${visibleOthers.length})`}</h3>
+          <h3>Everything else {othersLoaded ? `(${visibleOthers.length})` : ""}</h3>
           <p class="muted small">
             Installed apps that aren't in the curated list — sideloaded apps (SmartTube etc.)
             get the same <strong>Backup</strong> and <strong>Copy to…</strong> tools.
-            {showSystemOthers ? "Showing system packages too — disable these only if you know what they are." : "System packages are hidden; tick \"Show system packages\" to include them."}
+            Every removal uses the canonical safety verdict and current inventory evidence.
+            {showSystemOthers ? "Showing system packages too." : "System packages are hidden; tick \"Show system packages\" to include them."}
           </p>
-          {#if othersLoading}
+          {#if othersErr}
+            <div class="error">
+              {othersErr}
+              <button class="small-action" onclick={loadOtherPackages} disabled={othersLoading}>Retry other packages</button>
+            </div>
+          {:else if othersLoading}
             <div class="muted">Loading installed packages…</div>
+          {:else if !othersLoaded}
+            <p class="muted">Other-package inventory is unavailable. Retry to load it.</p>
           {:else if visibleOthers.length === 0}
             <p class="muted">{otherPackages.length === 0 ? "No non-catalog packages found." : "Nothing matches your filters."}</p>
           {:else}
             <table class="app-table">
               <thead>
-                <tr><th>Package</th><th class="center">Type</th><th class="center">State</th><th>Actions</th><th class="center">Tools</th></tr>
+                <tr><th>Package</th><th class="center">Type</th><th class="center">State</th><th class="center">Safety</th><th>Actions</th><th class="center">Tools</th></tr>
               </thead>
               <tbody>
                 {#each visibleOthers as o (o.package)}
+                  {@const safety = packageSafety[o.package]}
+                  {@const canRemove = othersLoaded && safety?.status === "ready" && safety.verdict.kind !== "never_disable"}
                   <tr>
                     <td class="app-cell">
                       {#if o.name}
@@ -1723,12 +1913,13 @@
                         <div class="cell-cue"><UsageBadge usage={appUsage[o.package]} /></div>
                       {/if}
                     </td>
+                    <td class="center" title={safetyReason(safety)}>{safetyLabel(safety).toUpperCase()}</td>
                     <td class="rec-cell">
                       {#if o.enabled}
-                        <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package} title="pm disable-user --user 0">Disable</button>
-                        <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package} title="pm uninstall --user 0">Uninstall</button>
+                        <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Canonical safety and fresh inventory are required">Disable</button>
+                        <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Canonical safety and fresh inventory are required">Uninstall</button>
                       {:else}
-                        <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package} title="pm enable">Enable</button>
+                        <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight} title="pm enable">Enable</button>
                       {/if}
                     </td>
                     <td class="center tools-cell">
@@ -1867,6 +2058,7 @@
         deviceType={device.device_type}
         {appUsage}
         resetToken={optimizeResetToken}
+        {pageEpoch}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
       />
@@ -2023,14 +2215,9 @@
   }
   td.num.warn { color: var(--danger-strong); }
   td.num.caution { color: var(--warn); }
-  td.pkg, td.mono {
+  td.pkg {
     font-family: ui-monospace, monospace;
     font-size: 0.85rem;
-  }
-  td.risk {
-    font-family: ui-monospace, monospace;
-    font-size: 0.78rem;
-    letter-spacing: 0.04em;
   }
   .small {
     font-size: 0.82rem;

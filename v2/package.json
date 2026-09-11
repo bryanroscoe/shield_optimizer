@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test:app-files-catalog": "node tests/app-files-catalog.mjs",
+    "test:pairing-flow": "node tests/pairing-flow.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
     "tauri": "tauri"
   },

@@ -86,3 +86,8 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 - **PRs**: short summary, no checklists or boilerplate. Don't add test plans to the body.
 - **Comments**: only when the *why* is non-obvious. Don't add docstrings/comments to code you didn't change. No banner / section-divider comments.
 - **Spelling**: the company is "Truemed" — silently correct other casings (TrueMed, TRUEMED, truemed) in writing, except in verbatim quotes, URLs, and code identifiers.
+
+## Commit and push policy — direct instruction from Bryan, September 10, 2026
+
+This supersedes every earlier "no commits, no pushes" line in this file and in the town-level instructions, including the overnight-prototype restriction. All work in this workspace is committed and pushed to GitHub continuously: push your branch (or the rig main branch if you are the lead integrating accepted work) at every accepted milestone and before idling. Exclusions: secrets, credentials, dependency and build caches, gitignored files, runtime evidence over 50MB. No history rewrites, no force pushes. Not pushing is treated as a defect. Relayed by the Mayor at Bryan's direct request; the Mayor audits unpushed work every two hours.
+

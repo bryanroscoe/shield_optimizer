@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { api } from "$lib/api";
-  import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage } from "$lib/types";
+  import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage, Safety } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
   import { isStaleUsage, usageLabel } from "$lib/usage";
 
@@ -9,6 +10,7 @@
     deviceType,
     appUsage,
     resetToken,
+    pageEpoch,
     onStatesChanged,
     onPlanLoaded,
   }: {
@@ -16,6 +18,7 @@
     deviceType: DeviceType;
     appUsage: Record<string, AppUsage>;
     resetToken: number;
+    pageEpoch: number;
     onStatesChanged: () => void;
     onPlanLoaded: () => void;
   } = $props();
@@ -25,7 +28,7 @@
   let optimizePlanLoading = $state(false);
   let optimizePlanErr = $state<string | null>(null);
   /// Per-package action override. A package absent from the map follows the
-  /// plan's recommended action; a present value is the user's explicit pick
+  /// safety-gated default; a present value is the user's explicit pick
   /// from the per-row dropdown (including "skip"). The execute loop dispatches
   /// on effectiveAction(), so disable/uninstall/enable/skip all just work.
   type RowAction = "disable" | "uninstall" | "enable" | "skip";
@@ -37,21 +40,79 @@
   let optimizeAbort = $state(false);
   let optimizeSummary = $state<string>("");
   let optimizePerfApplied = $state<boolean>(false);
+  type SafetyStatus =
+    | { status: "checking" }
+    | { status: "ready"; verdict: Safety }
+    | { status: "unavailable"; reason: string };
+  type RunItem = {
+    package: string;
+    name: string;
+    action: RowAction;
+    verdict: Safety | null;
+  };
+  let safetyByPackage = $state<Record<string, SafetyStatus>>({});
+  let componentEpoch = 0;
+  let loadRequest = 0;
+  let runRequest = 0;
+  let performanceRequest = 0;
+  let destroyed = false;
+
+  type Context = {
+    serial: string;
+    deviceType: DeviceType;
+    resetToken: number;
+    pageEpoch: number;
+    componentEpoch: number;
+  };
+
+  function captureContext(): Context {
+    return { serial, deviceType, resetToken, pageEpoch, componentEpoch };
+  }
+
+  function contextIsCurrent(context: Context): boolean {
+    return !destroyed
+      && context.serial === serial
+      && context.deviceType === deviceType
+      && context.resetToken === resetToken
+      && context.pageEpoch === pageEpoch
+      && context.componentEpoch === componentEpoch;
+  }
 
   // Bulk mutations elsewhere (App List actions, snapshot apply, panic
   // recovery) change the installed/disabled sets the plan baked in — the
   // parent bumps resetToken so the plan drops and reloads fresh next run.
   // First run just records the baseline; only a later change clears the plan.
-  let seenResetToken: number | undefined;
+  let seenContext: string | undefined;
   $effect(() => {
-    const token = resetToken;
-    if (seenResetToken !== undefined && token !== seenResetToken) {
+    const contextKey = `${serial}\u0000${deviceType}\u0000${resetToken}\u0000${pageEpoch}`;
+    if (seenContext !== undefined && contextKey !== seenContext) {
+      componentEpoch++;
+      loadRequest++;
+      runRequest++;
+      performanceRequest++;
+      optimizeAbort = true;
       optimizePlan = null;
+      optimizePlanLoading = false;
+      optimizeRunning = false;
+      optimizeCurrent = null;
+      safetyByPackage = {};
     }
-    seenResetToken = token;
+    seenContext = contextKey;
+  });
+
+  onDestroy(() => {
+    destroyed = true;
+    componentEpoch++;
+    loadRequest++;
+    runRequest++;
+    performanceRequest++;
+    optimizeAbort = true;
   });
 
   async function loadOptimizePlan(mode: OptimizeMode) {
+    if (optimizeRunning) return;
+    const context = captureContext();
+    const request = ++loadRequest;
     optimizeMode = mode;
     optimizePlanLoading = true;
     optimizePlanErr = null;
@@ -61,15 +122,33 @@
     optimizeFailureMessages = {};
     optimizeSummary = "";
     optimizePerfApplied = false;
+    safetyByPackage = {};
     try {
-      optimizePlan = await api.prepareOptimize(serial, deviceType, mode);
+      const plan = await api.prepareOptimize(context.serial, context.deviceType, mode);
+      if (!contextIsCurrent(context) || request !== loadRequest) return;
+      optimizePlan = plan;
+      const packages = plan.items
+        .filter((item) => {
+          const action = naturalAction(item);
+          return action === "disable" || action === "uninstall";
+        })
+        .map((item) => item.entry.package);
+      safetyByPackage = Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }]));
+      const results = await Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg)));
+      if (!contextIsCurrent(context) || request !== loadRequest || optimizePlan !== plan) return;
+      safetyByPackage = Object.fromEntries(packages.map((pkg, index) => {
+        const result = results[index];
+        return result.status === "fulfilled"
+          ? [pkg, { status: "ready", verdict: result.value } satisfies SafetyStatus]
+          : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
+      }));
+      onPlanLoaded();
     } catch (e) {
+      if (!contextIsCurrent(context) || request !== loadRequest) return;
       optimizePlanErr = String(e);
     } finally {
-      optimizePlanLoading = false;
+      if (contextIsCurrent(context) && request === loadRequest) optimizePlanLoading = false;
     }
-    // Lazy "last used" cues for the Review rows (shared with the App List).
-    onPlanLoaded();
   }
 
   /// The natural action the engine computed for an actionable row (disable /
@@ -88,6 +167,11 @@
   function defaultAction(item: OptimizePlanItem): RowAction | null {
     const natural = naturalAction(item);
     if (natural === null) return null;
+    if (natural === "disable" || natural === "uninstall") {
+      const safety = safetyByPackage[item.entry.package];
+      if (safety?.status !== "ready" || safety.verdict.kind === "never_disable") return "skip";
+      if (safety.verdict.kind === "unknown") return "skip";
+    }
     const isDefault =
       optimizeMode === "optimize" ? item.entry.default_optimize : item.entry.default_restore;
     return isDefault ? natural : "skip";
@@ -96,16 +180,31 @@
   /// The action that will actually run: the user's dropdown pick if they made
   /// one, otherwise the per-app default (or skip for non-actionable rows).
   function effectiveAction(item: OptimizePlanItem): RowAction {
-    return optimizeOverrides[item.entry.package] ?? defaultAction(item) ?? "skip";
+    const action = optimizeOverrides[item.entry.package] ?? defaultAction(item) ?? "skip";
+    if (action === "disable" || action === "uninstall") {
+      const safety = safetyByPackage[item.entry.package];
+      if (safety?.status !== "ready" || safety.verdict.kind === "never_disable") return "skip";
+    }
+    return action;
   }
 
   /// Dropdown choices for a row, in mode-appropriate order. Restore only ever
   /// produces enable rows, so its menu is Enable / Skip; optimize rows can be
   /// downgraded (uninstall→disable) or upgraded (disable→uninstall).
   function actionOptions(item: OptimizePlanItem): RowAction[] {
-    return naturalAction(item) === "enable"
-      ? ["enable", "skip"]
-      : ["disable", "uninstall", "skip"];
+    if (naturalAction(item) === "enable") return ["enable", "skip"];
+    const safety = safetyByPackage[item.entry.package];
+    return safety?.status === "ready" && safety.verdict.kind !== "never_disable"
+      ? ["disable", "uninstall", "skip"]
+      : ["skip"];
+  }
+
+  function removalReviewIsAvailable(item: OptimizePlanItem): boolean {
+    const action = naturalAction(item);
+    const safety = safetyByPackage[item.entry.package];
+    return (action === "disable" || action === "uninstall")
+      && safety?.status === "ready"
+      && safety.verdict.kind !== "never_disable";
   }
 
   function actionLabel(item: OptimizePlanItem, action: RowAction): string {
@@ -114,36 +213,72 @@
     // read as "keep this", which is exactly backwards. The dropdown carries
     // the decision rule instead.
     if (item.entry.review && naturalAction(item) !== "enable") {
-      if (action === "skip") return "Keep (if you use it)";
+      if (action === "skip") return "Skip";
       return base;
     }
     return action === defaultAction(item) ? `${base} (recommended)` : base;
   }
 
   function setOptimizeAction(pkg: string, action: RowAction) {
+    if (optimizeRunning || !optimizePlan) return;
+    const item = optimizePlan.items.find((candidate) => candidate.entry.package === pkg);
+    if (!item || !actionOptions(item).includes(action)) return;
     optimizeOverrides[pkg] = action;
   }
 
+  function readySafety(pkg: string): Safety | null {
+    const safety = safetyByPackage[pkg];
+    return safety?.status === "ready" ? safety.verdict : null;
+  }
+
   async function executeOptimize() {
-    if (!optimizePlan) return;
-    const total = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length;
-    if (total === 0) {
-      optimizeSummary = "Nothing to do — every item is in its target state.";
+    if (!optimizePlan || optimizeRunning) return;
+    const context = captureContext();
+    const plan = optimizePlan;
+    const mode = optimizeMode;
+    const runItems: RunItem[] = plan.items.map((item) => {
+      const action = effectiveAction(item);
+      const safety = safetyByPackage[item.entry.package];
+      return {
+        package: item.entry.package,
+        name: item.entry.name,
+        action,
+        verdict: action === "disable" || action === "uninstall"
+          ? safety?.status === "ready" ? { ...safety.verdict } : null
+          : null,
+      };
+    });
+    const selected = runItems.filter((item) => item.action !== "skip");
+    if (selected.length === 0) {
+      optimizeSummary = "No actions are selected.";
       return;
     }
-    const label = optimizeMode === "optimize" ? "Optimize" : "Restore";
-    if (!confirm(`Run ${label} on ${total} package(s)? Disabled packages can be re-enabled via Emergency Recovery.`)) return;
+    if (selected.some((item) => (item.action === "disable" || item.action === "uninstall") && !item.verdict)) {
+      optimizeSummary = "Safety is unavailable for a selected removal. Reload the plan and review it again.";
+      return;
+    }
+    const label = mode === "optimize" ? "Optimize" : "Restore";
+    const removalDetails = selected
+      .filter((item) => item.verdict)
+      .map((item) => `${item.action.toUpperCase()} ${item.name} (${item.package})\nSafety: ${item.verdict!.kind === "caution" ? "Caution" : "Unknown"}\nReason: ${item.verdict!.reason}`)
+      .join("\n\n");
+    const confirmation = removalDetails
+      ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
+      : `Run ${label} on ${selected.length} package(s)?`;
+    if (!confirm(confirmation) || !contextIsCurrent(context) || optimizePlan !== plan || optimizeMode !== mode) return;
 
+    const request = ++runRequest;
     optimizeRunning = true;
     optimizeAbort = false;
     optimizeProgress = {};
     optimizeFailureMessages = {};
 
     let done = 0, skipped = 0, failed = 0;
-    for (const item of optimizePlan.items) {
-      if (optimizeAbort) break;
-      const pkg = item.entry.package;
-      const action = effectiveAction(item);
+    let safetyStopped = false;
+    for (const item of runItems) {
+      if (optimizeAbort || !contextIsCurrent(context) || request !== runRequest) break;
+      const pkg = item.package;
+      const action = item.action;
       if (action === "skip") {
         optimizeProgress[pkg] = "skipped";
         skipped++;
@@ -152,10 +287,31 @@
       optimizeCurrent = pkg;
       optimizeProgress[pkg] = "pending";
       try {
+        if (action === "disable" || action === "uninstall") {
+          const currentSafety = await api.safetyInfo(pkg);
+          if (!contextIsCurrent(context) || request !== runRequest) return;
+          if (optimizeAbort) break;
+          if (!item.verdict
+            || currentSafety.kind === "never_disable"
+            || currentSafety.kind !== item.verdict.kind
+            || currentSafety.reason !== item.verdict.reason) {
+            optimizeProgress[pkg] = "failed";
+            optimizeFailureMessages[pkg] = currentSafety.kind === "never_disable"
+              ? `Protected: ${currentSafety.reason}`
+              : "Safety changed after confirmation. Reload and review the plan.";
+            failed++;
+            safetyStopped = true;
+            optimizeAbort = true;
+            break;
+          }
+        }
+        if (!contextIsCurrent(context) || request !== runRequest) return;
+        if (optimizeAbort) break;
         let r: { ok: boolean; message: string };
-        if (action === "disable") r = await api.disablePackage(serial, pkg);
-        else if (action === "uninstall") r = await api.uninstallPackage(serial, pkg);
-        else r = await api.enablePackage(serial, pkg);
+        if (action === "disable") r = await api.disablePackage(context.serial, pkg);
+        else if (action === "uninstall") r = await api.uninstallPackage(context.serial, pkg);
+        else r = await api.enablePackage(context.serial, pkg);
+        if (!contextIsCurrent(context) || request !== runRequest) return;
         if (r.ok) {
           optimizeProgress[pkg] = "done";
           done++;
@@ -165,14 +321,23 @@
           failed++;
         }
       } catch (e) {
+        if (!contextIsCurrent(context) || request !== runRequest) return;
         optimizeProgress[pkg] = "failed";
         optimizeFailureMessages[pkg] = String(e);
         failed++;
+        if (action === "disable" || action === "uninstall") {
+          safetyStopped = true;
+          optimizeAbort = true;
+          break;
+        }
       }
     }
+    if (!contextIsCurrent(context) || request !== runRequest) return;
     optimizeCurrent = null;
     optimizeRunning = false;
-    optimizeSummary = optimizeAbort
+    optimizeSummary = safetyStopped
+      ? `Stopped before further removals. ${done} applied, ${failed} failed, ${skipped} skipped. Reload and review safety.`
+      : optimizeAbort
       ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
       : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
     // Keep the App List in parity — it cached states before this run.
@@ -180,19 +345,30 @@
   }
 
   async function applyPerformanceSettings() {
-    if (!optimizePlan) return;
+    if (!optimizePlan || optimizeRunning) return;
+    const context = captureContext();
+    const plan = optimizePlan;
+    const mode = optimizeMode;
+    const request = ++performanceRequest;
     const profile = optimizeMode === "optimize" ? "optimized" : "default";
     try {
-      const r = await api.applyPerformanceSettings(serial, profile);
+      const r = await api.applyPerformanceSettings(context.serial, profile);
+      if (!contextIsCurrent(context) || request !== performanceRequest || optimizePlan !== plan || optimizeMode !== mode) return;
       optimizePerfApplied = r.ok;
       optimizeSummary = optimizeSummary
         ? `${optimizeSummary} Performance: ${r.message.trim()}.`
         : `Performance: ${r.message.trim()}.`;
     } catch (e) {
+      if (!contextIsCurrent(context) || request !== performanceRequest || optimizePlan !== plan || optimizeMode !== mode) return;
       optimizeSummary = optimizeSummary
         ? `${optimizeSummary} Performance failed: ${e}.`
         : `Performance failed: ${e}.`;
     }
+  }
+
+  function cancelOptimize() {
+    if (!optimizeRunning) return;
+    optimizeAbort = true;
   }
 
   /// On-device state for an Optimize row, read off the plan's skip reason so
@@ -247,7 +423,7 @@
   </div>
   <p class="muted small">
     {optimizeMode === "optimize"
-      ? "Disable or uninstall bloat per the device's app catalog. Each row defaults to the recommended action — change it (Disable / Uninstall / Skip) per row, then Run."
+      ? "Review canonical safety before choosing Disable or Uninstall. Unknown packages default to Skip and require an explicit choice."
       : "Re-enable everything that's currently disabled per the device's app catalog. Set any row to Skip to leave it, then Run. Restore is reversible by running Optimize again."}
   </p>
 
@@ -272,6 +448,7 @@
     </div>
     {#if optimizeMode === "optimize"}
       {@const reviewItems = optimizePlan.items.filter((i) => i.entry.review && rowState(i) === "enabled")}
+      {@const removalReviewItems = reviewItems.filter(removalReviewIsAvailable)}
       {@const usageLoaded = Object.keys(appUsage).length > 0}
       {@const staleReview = usageLoaded ? reviewItems.filter((i) => isStaleUsage(appUsage[i.entry.package])) : []}
       {#if reviewItems.length > 0}
@@ -279,7 +456,12 @@
              apps YOU use, so these rows need a human call — and the usage data
              says where to look first. -->
         <div class="review-callout">
-          <strong>{reviewItems.length}</strong> app{reviewItems.length === 1 ? "" : "s"} flagged for review (orange bar) — remove the ones you don't use.
+          <strong>{reviewItems.length}</strong> app{reviewItems.length === 1 ? "" : "s"} flagged for usage review. Check whether you use them and review their safety status.
+          {#if removalReviewItems.length > 0}
+            <span class="stale-line">
+              <strong>{removalReviewItems.length}</strong> can be explicitly considered for Disable or Uninstall after review.
+            </span>
+          {/if}
           {#if staleReview.length > 0}
             <span class="stale-line">
               <strong>{staleReview.length}</strong> show no recent use:
@@ -301,7 +483,7 @@
         {optimizeRunning ? `Running… (${optimizeCurrent ?? ""})` : `Run ${optimizeMode === "optimize" ? "Optimize" : "Restore"}`}
       </button>
       {#if optimizeRunning}
-        <button onclick={() => (optimizeAbort = true)}>Abort</button>
+        <button onclick={cancelOptimize}>Abort</button>
       {/if}
       {#if optimizeSummary && !optimizeRunning}
         <button
@@ -329,7 +511,7 @@
         <tr>
           <th>App</th>
           <th class="center">State</th>
-          <th class="center">Risk</th>
+          <th class="center">Safety</th>
           <th>Action</th>
           <th>Result</th>
         </tr>
@@ -348,9 +530,10 @@
             mb={item.memory_mb ?? undefined}
             usage={appUsage[item.entry.package]}
             showUsage={naturalAction(item) !== null}
-            risk={item.entry.risk}
+            safety={readySafety(item.entry.package)}
+            safetyStatus={safetyByPackage[item.entry.package]?.status ?? "unavailable"}
             rowClass={eff === "skip"
-              ? item.entry.review && !skip
+              ? item.entry.review && !skip && removalReviewIsAvailable(item)
                 ? "review-flag"
                 : "dim"
               : !skip
@@ -373,14 +556,16 @@
                       item.entry.package,
                       (e.currentTarget as HTMLSelectElement).value as RowAction,
                     )}
-                  disabled={optimizeRunning}
+                  disabled={optimizeRunning || actionOptions(item).length === 1}
                 >
                   {#each actionOptions(item) as opt (opt)}
                     <option value={opt}>{actionLabel(item, opt)}</option>
                   {/each}
                 </select>
-                {#if item.entry.review && naturalAction(item) !== "enable"}
+                {#if item.entry.review && removalReviewIsAvailable(item)}
                   <div class="muted small review-hint">Uninstall / disable if unused</div>
+                {:else if safetyByPackage[item.entry.package]?.status === "unavailable"}
+                  <div class="muted small review-hint">Reload the plan to retry safety.</div>
                 {/if}
               {/if}
             </td>
@@ -404,8 +589,8 @@
 </div>
 
 <style>
-  /* Shared scoped utilities duplicated from the page; global rules
-     (.muted, button, .risk-* colors) live in the layout and are inherited. */
+  /* Shared scoped utilities duplicated from the page; global muted and button
+     rules live in the layout and are inherited. */
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);

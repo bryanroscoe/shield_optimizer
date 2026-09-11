@@ -17,11 +17,14 @@
   /// row), whether it succeeded, and the raw adb output for the details line.
   let sideloadResultPath = $state<string | null>(null);
   let sideloadOk = $state(false);
-  // Auto-discovered APK list — re-scanned whenever the user picks a folder
-  // (or after a successful install in case files were added/removed).
+  // A remembered folder is only a string from a previous explicit selection.
+  // Keep it separate from the folder backing the currently displayed results
+  // so mounting this tab never probes a stale or removable-volume path.
+  let savedFolder = $state<string | null>(null);
   let discoveredApks = $state<DiscoveredApk[]>([]);
   let discoveredFolder = $state<string | null>(null);
   let discoveryBusy = $state(false);
+  let scanError = $state("");
   /// package id → state, for the discovered APKs, so each row can say whether
   /// it's already installed on this device.
   let apkInstallState = $state<Record<string, "enabled" | "disabled" | "missing">>({});
@@ -39,7 +42,8 @@
     if (lastSep > 0) {
       const folder = selected.slice(0, lastSep);
       localStorage.setItem("shieldopt.lastApkFolder", folder);
-      await scanApkFolder(folder);
+      savedFolder = folder;
+      await scanApkFolder(folder, "selected");
     }
     await installApkPath(selected);
   }
@@ -48,21 +52,44 @@
     const picked = await openDialog({ multiple: false, directory: true });
     if (!picked || Array.isArray(picked)) return;
     localStorage.setItem("shieldopt.lastApkFolder", picked);
-    await scanApkFolder(picked);
+    savedFolder = picked;
+    await scanApkFolder(picked, "selected");
   }
 
-  async function scanApkFolder(folder: string) {
+  async function scanApkFolder(folder: string, source: "saved" | "selected") {
     discoveryBusy = true;
+    scanError = "";
     try {
-      discoveredApks = await api.listApksInFolder(folder);
+      let apks: DiscoveredApk[];
+      try {
+        apks = await api.listApksInFolder(folder);
+      } catch {
+        scanError = source === "saved"
+          ? "Couldn't scan the saved folder. It may be unavailable or permission was denied."
+          : "Couldn't scan this folder. It may be unavailable or permission was denied.";
+        return;
+      }
+
+      discoveredApks = apks;
       discoveredFolder = folder;
-      const pkgs = discoveredApks.map((a) => a.package).filter((p): p is string => !!p);
-      apkInstallState = pkgs.length ? await api.packageStates(serial, pkgs) : {};
-    } catch (e) {
-      sideloadResult = `Scan failed: ${e}`;
+      apkInstallState = {};
+      const pkgs = apks.map((a) => a.package).filter((p): p is string => !!p);
+      if (pkgs.length) {
+        try {
+          apkInstallState = await api.packageStates(serial, pkgs);
+        } catch {
+          const folderLabel = source === "saved" ? "saved folder" : "selected folder";
+          scanError = `APK files were read from the ${folderLabel}, but app status couldn't be checked on this TV.`;
+        }
+      }
     } finally {
       discoveryBusy = false;
     }
+  }
+
+  async function scanSavedFolder() {
+    if (!savedFolder || discoveryBusy || sideloadBusy !== null) return;
+    await scanApkFolder(savedFolder, "saved");
   }
 
   async function installApkPath(path: string) {
@@ -117,7 +144,7 @@
 
   onMount(() => {
     const last = localStorage.getItem("shieldopt.lastApkFolder");
-    if (last) scanApkFolder(last);
+    if (last?.trim()) savedFolder = last;
   });
 </script>
 
@@ -128,7 +155,7 @@
       <button onclick={pickApkFolder} disabled={sideloadBusy !== null || discoveryBusy}>
         {discoveryBusy ? "Scanning…" : "Choose folder…"}
       </button>
-      <button class="primary" onclick={pickAndInstallApk} disabled={sideloadBusy !== null}>
+      <button class="primary" onclick={pickAndInstallApk} disabled={sideloadBusy !== null || discoveryBusy}>
         {sideloadBusy !== null ? "Installing…" : "Pick file…"}
       </button>
     </div>
@@ -138,9 +165,33 @@
     Either way, install runs <code>adb install -r &lt;file&gt;</code>.
   </p>
 
+  {#if savedFolder}
+    <div class="saved-folder">
+      <div class="saved-folder-path small">
+        <strong>Saved folder</strong>
+        <code>{savedFolder}</code>
+      </div>
+      <button
+        class="small-action"
+        onclick={scanSavedFolder}
+        disabled={discoveryBusy || sideloadBusy !== null}
+      >
+        {discoveryBusy ? "Scanning…" : "Scan saved folder"}
+      </button>
+      <p class="muted small">
+        Scanning reads APK files in this folder and checks whether detected apps are installed on
+        this TV. Scanning does not install apps.
+      </p>
+    </div>
+  {/if}
+
+  {#if scanError}
+    <div class="install-result bad" role="alert"><span>✕ {scanError}</span></div>
+  {/if}
+
   {#if discoveredFolder && discoveredApks.length > 0}
     <div class="apk-folder muted small mono">
-      {discoveredFolder} — {discoveredApks.length} APK{discoveredApks.length === 1 ? "" : "s"} found
+      Scanned folder: {discoveredFolder} — {discoveredApks.length} APK{discoveredApks.length === 1 ? "" : "s"} found
     </div>
     <ul class="apk-list">
       {#each discoveredApks as apk (apk.path)}
@@ -178,7 +229,7 @@
       {/each}
     </ul>
   {:else if discoveredFolder}
-    <p class="muted small">No <code>.apk</code> files in {discoveredFolder}.</p>
+    <p class="muted small">No <code>.apk</code> files in the scanned folder: {discoveredFolder}.</p>
   {/if}
 
   {#if sideloadResult && !discoveredApks.some((a) => a.path === sideloadResultPath)}
@@ -276,6 +327,30 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     word-break: break-all;
+  }
+  .saved-folder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem 0.8rem;
+    align-items: center;
+    margin: 0.8rem 0;
+    padding: 0.7rem;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  .saved-folder-path {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .saved-folder-path code {
+    overflow-wrap: anywhere;
+  }
+  .saved-folder p {
+    grid-column: 1 / -1;
+    margin: 0;
   }
   .apk-list {
     list-style: none;

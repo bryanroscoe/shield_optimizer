@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { AppUsage, RiskTier } from "$lib/types";
+  import type { AppUsage, Safety } from "$lib/types";
   import StateBadge from "$lib/components/StateBadge.svelte";
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
 
   // One catalog-app table row, shared by the App List and the Optimize wizard.
   // Dumb on purpose: data in, an `actions` snippet for the per-tab buttons —
-  // the row owns layout (name/desc/pkg, state+RAM+usage cluster, risk), never
+  // the row owns layout (name/desc/pkg, state+RAM+usage cluster, safety), never
   // behaviour. Whether a cue shows (`mb`, `usage`) is the caller's call; the
   // badges already self-hide when their value is falsy.
   let {
@@ -20,7 +20,8 @@
     ramLabel = true,
     usage,
     showUsage = true,
-    risk,
+    safety = null,
+    safetyStatus = "unavailable",
     rowClass,
     actions,
   }: {
@@ -28,15 +29,37 @@
     description?: string;
     package: string;
     review?: boolean;
-    state: "enabled" | "disabled" | "missing";
+    state: "enabled" | "disabled" | "missing" | null;
     mb?: number;
     ramLabel?: boolean;
     usage?: AppUsage;
     showUsage?: boolean;
-    risk: RiskTier;
+    safety?: Safety | null;
+    safetyStatus?: "checking" | "ready" | "unavailable";
     rowClass?: string;
     actions: Snippet;
   } = $props();
+
+  function safetyLabel(): string {
+    if (safetyStatus === "checking") return "Checking safety";
+    if (safetyStatus !== "ready" || !safety) return "Safety unavailable";
+    if (safety.kind === "never_disable") return "Protected";
+    if (safety.kind === "caution") return "Caution";
+    return "Unknown";
+  }
+
+  function safetyClass(): string {
+    if (safetyStatus !== "ready" || !safety) return "unavailable";
+    return safety.kind === "never_disable" ? "protected" : safety.kind;
+  }
+
+  function safetyReason(): string {
+    if (safetyStatus === "checking") return "Waiting for the canonical safety check.";
+    if (safetyStatus !== "ready" || !safety) {
+      return "Safety information is unavailable. Retry before disabling or uninstalling.";
+    }
+    return safety.reason;
+  }
 </script>
 
 <tr class={rowClass}>
@@ -44,7 +67,7 @@
     <div class="app-name-row">
       {name}
       {#if review}
-        <span class="tag review" title="Remove if you don't use it">REVIEW</span>
+        <span class="tag review" title="Usage review — check whether you use this app">REVIEW</span>
       {/if}
     </div>
     {#if description}
@@ -53,7 +76,11 @@
     <div class="muted small mono pkg-id">{pkg}</div>
   </td>
   <td class="center cluster-cell">
-    <StateBadge {state} />
+    {#if state}
+      <StateBadge {state} />
+    {:else}
+      <span class="state-unavailable">STATE UNAVAILABLE</span>
+    {/if}
     {#if mb}
       <div class="cell-cue"><RamBadge {mb} label={ramLabel} /></div>
     {/if}
@@ -61,13 +88,15 @@
       <div class="cell-cue"><UsageBadge {usage} /></div>
     {/if}
   </td>
-  <td class={`risk center risk-${risk}`}>{risk.toUpperCase()}</td>
+  <td class={`safety center safety-${safetyClass()}`} title={safetyReason()}>
+    <span>{safetyLabel()}</span>
+    <span class="safety-reason">{safetyReason()}</span>
+  </td>
   {@render actions()}
 </tr>
 
 <style>
-  /* Risk colors (.risk-safe/-medium/-high/-advanced) are global, defined in
-     +layout.svelte, so they reach this scoped row. The table chrome (th/td
+  /* The table chrome (th/td
      borders, padding, .center) is owned by the host table; this row only
      styles the cells it fully owns. */
   td {
@@ -105,10 +134,30 @@
   .cell-cue {
     margin-top: 0.2rem;
   }
-  .risk {
+  .safety,
+  .state-unavailable {
     font-family: ui-monospace, monospace;
     font-size: 0.78rem;
     letter-spacing: 0.04em;
+  }
+  .state-unavailable,
+  .safety-unavailable,
+  .safety-unknown {
+    color: var(--fg-muted);
+  }
+  .safety-protected {
+    color: var(--danger);
+  }
+  .safety-caution {
+    color: var(--warn);
+  }
+  .safety-reason {
+    display: block;
+    margin-top: 0.15rem;
+    font-family: inherit;
+    font-size: 0.7rem;
+    letter-spacing: normal;
+    text-transform: none;
   }
   .tag {
     font-size: 0.7rem;

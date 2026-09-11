@@ -136,3 +136,4 @@ screenshots/tmp/
 credentials.json
 secrets.json
 reddit-post.md
+.runtime/

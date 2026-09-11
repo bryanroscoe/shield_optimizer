@@ -279,10 +279,7 @@ export interface ApplyResult {
   summary: string;
 }
 
-export type Safety =
-  | { kind: "never_disable"; reason: string }
-  | { kind: "caution"; reason: string }
-  | { kind: "safe" };
+export type { Safety } from "../../shared/safety";
 
 export interface RecoveryFailure {
   package: string;

@@ -242,7 +242,16 @@ pub async fn set_default_launcher_impl(
 
     // 1. Enable the package — no-op for already-enabled.
     progress.step("Enabling this launcher");
-    let _ = adb.shell(serial, &format!("pm enable {package}")).await;
+    let enable_result = adb.shell(serial, &format!("pm enable {package}")).await;
+    if let Some(failure) = command_failure(&enable_result) {
+        return Ok(SetLauncherResult {
+            ok: false,
+            strategy: None,
+            current_launcher: None,
+            last_error: Some(format!("Target enable failed for {package}: {failure}")),
+            stock_takeover_available: false,
+        });
+    }
 
     // Stock fast path: when the launcher currently holding HOME is *stock*, the
     // polite setters can't win — an enabled stock launcher overrides
@@ -423,7 +432,7 @@ pub async fn set_default_launcher_impl(
     // 5. Last resort: if the launcher still holding HOME is *stock*, disable it
     // (the same takeover the stock fast path uses). This catches the case where
     // HOME wasn't stock at the start but resolved back to it after the polite
-    // strategies. Gated, never touches other launchers, re-enables on failure.
+    // strategies. Gated, never touches other launchers, attempts to restore on failure.
     if let Some(active) = now_active.clone() {
         if let Some(result) = stock_takeover(
             &*adb,
@@ -467,7 +476,7 @@ pub async fn set_default_launcher_impl(
 /// Launcher-Wizard move: leave the *other* launchers alone, just take stock out
 /// of the way. Gated on `allow_stock_disable`; without it, returns
 /// `stock_takeover_available` so the UI can confirm. Never disables a
-/// NEVER_DISABLE package, and re-enables stock if the switch doesn't verify.
+/// NEVER_DISABLE package, and attempts to restore stock if the switch doesn't verify.
 /// Returns `None` when `active` isn't a disable-able stock launcher — the
 /// caller then falls through to its normal failure path.
 async fn stock_takeover(
@@ -502,11 +511,12 @@ async fn stock_takeover(
     progress.step(&format!(
         "Disabling the stock launcher ({active}) to hand Home over"
     ));
-    let disabled_ok = matches!(
-        adb.shell(serial, &format!("pm disable-user --user 0 {active}")).await,
-        Ok(ref o) if !o.shell_reported_failure()
-    );
-    if disabled_ok {
+    let disable_result = adb
+        .shell(serial, &format!("pm disable-user --user 0 {active}"))
+        .await;
+    let primary_failure = if let Some(failure) = command_failure(&disable_result) {
+        format!("Stock-disable command failed for {active}: {failure}")
+    } else {
         let _ = adb
             .shell(
                 serial,
@@ -523,22 +533,61 @@ async fn stock_takeover(
                 stock_takeover_available: false,
             });
         }
-        // Didn't verify — put stock back rather than leave a half-applied state.
-        if is_valid_package_name(active) {
-            let _ = adb.shell(serial, &format!("pm enable {active}")).await;
-        }
-    }
+        format!(
+            "Takeover verification failed: Android did not report {package} as the Home app after the stock-disable command completed for {active}"
+        )
+    };
+
+    // A transport or shell error cannot prove that the disable had no effect.
+    // Once issued, every non-verified takeover attempts to restore this same stock package.
+    progress.step("Restoring the stock launcher");
+    let restore_result = adb.shell(serial, &format!("pm enable {active}")).await;
+    let restoration = match command_failure(&restore_result) {
+        Some(failure) => format!("Stock-restore command failed for {active}: {failure}"),
+        None => format!(
+            "Restore command completed for {active}; enabled state was not independently verified"
+        ),
+    };
+    let current = active_launcher(adb, serial).await;
+    let observation = match current.as_deref() {
+        Some(observed) => format!("Android reports {observed} as the Home app"),
+        None => "Android's Home resolver was unavailable after the restore attempt".to_string(),
+    };
+
     Some(SetLauncherResult {
         ok: false,
         strategy: None,
-        current_launcher: Some(active.to_string()),
-        last_error: Some(format!(
-            "Disabled {active} but HOME still didn't switch to {package}, so it was re-enabled to \
-             avoid leaving the device without a launcher. Try again, or set it from the TV's \
-             Settings."
-        )),
+        current_launcher: current,
+        last_error: Some(format!("{primary_failure}. {restoration}. {observation}.")),
         stock_takeover_available: false,
     })
+}
+
+fn command_failure(result: &crate::adb::AdbResult<crate::adb::AdbOutput>) -> Option<String> {
+    match result {
+        Err(error) => Some(format!("ADB call failed: {error}")),
+        Ok(output) if !output.success() => {
+            let detail = command_output_detail(output);
+            Some(format!(
+                "command returned exit status {:?}{detail}",
+                output.exit_code
+            ))
+        }
+        Ok(output) if output.shell_reported_failure() => Some(format!(
+            "device reported failure: {}",
+            command_output_detail(output).trim_start_matches(": ")
+        )),
+        Ok(_) => None,
+    }
+}
+
+fn command_output_detail(output: &crate::adb::AdbOutput) -> String {
+    let detail = output.combined().trim().to_string();
+    if detail.is_empty() {
+        String::new()
+    } else {
+        format!(": {detail}")
+    }
 }
 
 /// `cmd package set-home-activity` / `pm set-home-activity` acknowledge with a
@@ -586,6 +635,9 @@ async fn active_launcher(adb: &dyn crate::adb::AdbDriver, serial: &str) -> Optio
         )
         .await
         .ok()?;
+    if !out.success() || out.shell_reported_failure() {
+        return None;
+    }
     out.stdout
         .lines()
         .map(str::trim)
@@ -651,8 +703,75 @@ pub async fn channel_provider_disabled(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adb::BATCH_SEPARATOR;
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    use async_trait::async_trait;
+
+    use crate::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
     use crate::commands::test_support::{state_with, MockAdb};
+    use crate::engine::AppListBundle;
+
+    struct ShellStep {
+        command: &'static str,
+        result: AdbResult<AdbOutput>,
+    }
+
+    struct ScriptedAdb {
+        steps: Mutex<VecDeque<ShellStep>>,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ScriptedAdb {
+        fn new(steps: Vec<ShellStep>) -> (Self, Arc<Mutex<Vec<String>>>) {
+            let log = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    steps: Mutex::new(steps.into()),
+                    log: Arc::clone(&log),
+                },
+                log,
+            )
+        }
+    }
+
+    #[async_trait]
+    impl AdbDriver for ScriptedAdb {
+        async fn raw(&self, _args: &[&str]) -> AdbResult<AdbOutput> {
+            Err(AdbError::Unsupported {
+                operation: "launcher test raw",
+            })
+        }
+
+        async fn shell(&self, _serial: &str, command: &str) -> AdbResult<AdbOutput> {
+            self.log.lock().unwrap().push(command.to_string());
+            let step = self
+                .steps
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| panic!("unexpected shell command: {command}"));
+            assert_eq!(command, step.command);
+            step.result
+        }
+    }
+
+    fn adb_output(stdout: &str, stderr: &str, exit_code: Option<i32>) -> AdbOutput {
+        AdbOutput {
+            stdout: stdout.to_string(),
+            stderr: stderr.to_string(),
+            exit_code,
+        }
+    }
+
+    fn state_with_script(script: ScriptedAdb) -> AppState {
+        AppState::new(
+            Arc::new(script),
+            AppListBundle::default(),
+            std::env::temp_dir(),
+        )
+        .with_entitlement(crate::license::Entitlement::Pro)
+    }
 
     /// Device output for a batched shell: sections joined by the sentinel the
     /// device would echo between sub-commands.
@@ -662,6 +781,245 @@ mod tests {
             .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
             .collect::<Vec<_>>()
             .join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
+
+    #[tokio::test]
+    async fn invalid_target_package_runs_no_commands() {
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let result = set_default_launcher_impl(
+            &state,
+            "serial",
+            "bad package; reboot",
+            true,
+            &Progress::Silent,
+        )
+        .await
+        .expect("invalid package is a result, not a transport error");
+
+        assert!(!result.ok);
+        assert_eq!(result.strategy, None);
+        assert_eq!(result.current_launcher, None);
+        assert!(!result.stock_takeover_available);
+        assert!(result
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("Invalid package name")));
+        assert!(log.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn target_enable_failures_stop_before_any_launcher_mutation() {
+        let cases = [
+            (
+                "transport",
+                Err(AdbError::Transport("USB link dropped".into())),
+                "ADB call failed",
+            ),
+            (
+                "stdout",
+                Ok(adb_output(
+                    "Failure [not installed for user 0]",
+                    "",
+                    Some(0),
+                )),
+                "device reported failure",
+            ),
+            (
+                "stderr",
+                Ok(adb_output("", "Error: package unavailable", Some(0))),
+                "device reported failure",
+            ),
+            (
+                "nonzero",
+                Ok(adb_output("", "permission denied", Some(13))),
+                "exit status Some(13)",
+            ),
+            (
+                "unknown-status",
+                Ok(adb_output("", "shell status unavailable", None)),
+                "exit status None",
+            ),
+        ];
+
+        for (name, enable_result, expected_error) in cases {
+            let command = "pm enable com.example.launcher";
+            let (script, log) = ScriptedAdb::new(vec![ShellStep {
+                command,
+                result: enable_result,
+            }]);
+            let state = state_with_script(script);
+
+            let result = set_default_launcher_impl(
+                &state,
+                "serial",
+                "com.example.launcher",
+                true,
+                &Progress::Silent,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{name}: unexpected outer error: {error}"));
+
+            assert!(!result.ok, "{name}");
+            assert_eq!(result.strategy, None, "{name}");
+            assert_eq!(result.current_launcher, None, "{name}");
+            assert!(!result.stock_takeover_available, "{name}");
+            let error = result.last_error.expect("stage-specific error");
+            assert!(error.contains("Target enable failed"), "{name}: {error}");
+            assert!(error.contains(expected_error), "{name}: {error}");
+            assert_eq!(&*log.lock().unwrap(), &[command.to_string()], "{name}");
+        }
+    }
+
+    #[tokio::test]
+    async fn stock_disable_uncertainty_restores_once_and_reports_unavailable_home() {
+        let stock = "com.google.android.tvlauncher";
+        let target = "com.example.launcher";
+        let disable = "pm disable-user --user 0 com.google.android.tvlauncher";
+        let restore = "pm enable com.google.android.tvlauncher";
+        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let (script, log) = ScriptedAdb::new(vec![
+            ShellStep {
+                command: disable,
+                result: Err(AdbError::Transport("reply lost".into())),
+            },
+            ShellStep {
+                command: restore,
+                result: Ok(adb_output("Package enabled", "", Some(0))),
+            },
+            ShellStep {
+                command: resolve,
+                result: Ok(adb_output(
+                    "com.stale.cached/.Home",
+                    "resolver command failed",
+                    Some(1),
+                )),
+            },
+        ]);
+
+        let result = stock_takeover(&script, "serial", target, stock, true, &Progress::Silent)
+            .await
+            .expect("stock takeover result");
+
+        assert!(!result.ok);
+        assert_eq!(result.current_launcher, None);
+        let error = result.last_error.expect("failure details");
+        assert!(error.contains("Stock-disable command failed"), "{error}");
+        assert!(error.contains("Restore command completed"), "{error}");
+        assert!(error.contains("resolver was unavailable"), "{error}");
+        assert_eq!(
+            &*log.lock().unwrap(),
+            &[
+                disable.to_string(),
+                restore.to_string(),
+                resolve.to_string()
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn restore_failure_variants_keep_primary_failure_and_fresh_home_observation() {
+        let stock = "com.google.android.tvlauncher";
+        let target = "com.example.launcher";
+        let other = "com.vendor.recoveryhome";
+        let disable = "pm disable-user --user 0 com.google.android.tvlauncher";
+        let restore = "pm enable com.google.android.tvlauncher";
+        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let cases = [
+            (
+                "transport",
+                Err(AdbError::Transport("restore reply lost".into())),
+                "ADB call failed",
+                "restore reply lost",
+            ),
+            (
+                "nonzero",
+                Ok(adb_output("", "restore permission denied", Some(13))),
+                "exit status Some(13)",
+                "restore permission denied",
+            ),
+            (
+                "unknown-status",
+                Ok(adb_output("", "restore status unavailable", None)),
+                "exit status None",
+                "restore status unavailable",
+            ),
+            (
+                "stdout",
+                Ok(adb_output("Failure [restore rejected]", "", Some(0))),
+                "device reported failure",
+                "Failure [restore rejected]",
+            ),
+            (
+                "stderr",
+                Ok(adb_output("", "Error: restore rejected", Some(0))),
+                "device reported failure",
+                "Error: restore rejected",
+            ),
+        ];
+
+        for (name, restore_result, expected_restore_error, expected_restore_detail) in cases {
+            let (script, log) = ScriptedAdb::new(vec![
+                ShellStep {
+                    command: disable,
+                    result: Ok(adb_output("Failure [transport reset]", "", Some(0))),
+                },
+                ShellStep {
+                    command: restore,
+                    result: restore_result,
+                },
+                ShellStep {
+                    command: resolve,
+                    result: Ok(adb_output(
+                        "com.vendor.recoveryhome/.HomeActivity",
+                        "",
+                        Some(0),
+                    )),
+                },
+            ]);
+
+            let result = stock_takeover(&script, "serial", target, stock, true, &Progress::Silent)
+                .await
+                .unwrap_or_else(|| panic!("{name}: stock takeover result"));
+
+            assert!(!result.ok, "{name}");
+            assert_eq!(result.current_launcher.as_deref(), Some(other), "{name}");
+            let error = result.last_error.expect("failure details");
+            assert!(
+                error.contains("Stock-disable command failed")
+                    && error.contains("Failure [transport reset]"),
+                "{name}: {error}"
+            );
+            assert!(
+                error.contains("Stock-restore command failed"),
+                "{name}: {error}"
+            );
+            assert!(
+                error.contains(expected_restore_error) && error.contains(expected_restore_detail),
+                "{name}: {error}"
+            );
+            assert!(
+                !error.contains("Restore command completed")
+                    && !error.contains("was restored")
+                    && !error.contains("was re-enabled"),
+                "{name}: {error}"
+            );
+            assert!(
+                error.contains("Android reports com.vendor.recoveryhome"),
+                "{name}: {error}"
+            );
+            assert_eq!(
+                &*log.lock().unwrap(),
+                &[
+                    disable.to_string(),
+                    restore.to_string(),
+                    resolve.to_string()
+                ],
+                "{name}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -851,7 +1209,7 @@ mod tests {
     #[tokio::test]
     async fn set_launcher_stock_takeover_reverts_when_it_does_not_verify() {
         // Resolver always names the stock launcher, so the takeover never
-        // verifies — the stock launcher must be re-enabled (revert).
+        // verifies — the stock restore command must be attempted.
         let mock = MockAdb::default()
             .on_shell("add-role-holder", "Unknown command")
             .on_shell_failure("set-home-activity", "Error: no such activity")
@@ -870,6 +1228,17 @@ mod tests {
         .unwrap();
 
         assert!(!res.ok);
+        assert_eq!(
+            res.current_launcher.as_deref(),
+            Some("com.google.android.tvlauncher")
+        );
+        let error = res.last_error.as_deref().expect("takeover error");
+        assert!(error.contains("Takeover verification failed"), "{error}");
+        assert!(error.contains("Restore command completed"), "{error}");
+        assert!(
+            !error.contains("was re-enabled"),
+            "must not claim an unverified enabled state: {error}"
+        );
         let calls = log.lock().unwrap();
         assert!(calls
             .iter()
@@ -878,7 +1247,15 @@ mod tests {
             calls
                 .iter()
                 .any(|c| c == "pm enable com.google.android.tvlauncher"),
-            "stock launcher should be re-enabled after a failed takeover"
+            "stock restore command should be attempted after a failed takeover"
+        );
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|command| *command == "pm enable com.google.android.tvlauncher")
+                .count(),
+            1,
+            "restore exactly the stock package once"
         );
     }
 
