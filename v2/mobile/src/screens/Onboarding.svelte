@@ -33,6 +33,7 @@
   let reconnectError = $state("");
   let connectingHost = $state("");
   let connectingName = $state("");
+  let reconnectPending = false;
   let connectionAttempt = 0;
   const primarySaved = $derived(savedDevices[0] ?? null);
 
@@ -51,13 +52,18 @@
     reconnectError = "";
     connectingHost = d.host;
     connectingName = d.name;
+    reconnectPending = true;
     try {
       const r = await session.connect(d.host, d.connectPort);
       // Cancelled attempts resolve later; ignore them.
       if (attempt !== connectionAttempt) return;
       if (r.ok) {
         savedDevices = listSavedDevices();
-        step = "connected";
+        // Retire the pending marker before navigation unmounts this screen so
+        // onDestroy does not cancel the connection we just established.
+        reconnectPending = false;
+        connectingHost = "";
+        onConnected();
       } else {
         reconnectError = r.message || "Couldn't reach that TV.";
       }
@@ -65,12 +71,16 @@
       if (attempt !== connectionAttempt) return;
       reconnectError = String(e);
     } finally {
-      if (attempt === connectionAttempt) connectingHost = "";
+      if (attempt === connectionAttempt) {
+        reconnectPending = false;
+        connectingHost = "";
+      }
     }
   }
 
   function cancelReconnect() {
     ++connectionAttempt;
+    reconnectPending = false;
     void session.cancelConnect().catch((e) => { reconnectError = String(e); });
     connectingHost = "";
     reconnectError = "";
@@ -203,7 +213,7 @@
 
   onDestroy(() => {
     ++connectionAttempt;
-    if (connectingHost || (busy && step === "connecting")) {
+    if (reconnectPending || (busy && step === "connecting")) {
       void session.cancelConnect().catch(() => {});
     }
   });
