@@ -1,6 +1,6 @@
 //! Desktop subprocess-backed ADB driver.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -190,65 +190,96 @@ impl AdbDriver for SubprocessAdb {
 /// priority list:
 ///
 /// 1. `SHIELD_OPTIMIZER_ADB` env var (explicit user override)
-/// 2. `ANDROID_HOME` / `ANDROID_SDK_ROOT` env vars + `platform-tools/adb`
-/// 3. PATH search (only finds adb on Linux/Windows or when the GUI was
+/// 2. App-managed platform-tools install
+/// 3. `ANDROID_HOME` / `ANDROID_SDK_ROOT` env vars + `platform-tools/adb`
+/// 4. PATH search (only finds adb on Linux/Windows or when the GUI was
 ///    launched from a shell that exported the right PATH)
-/// 4. Well-known install locations per OS:
+/// 5. Well-known install locations per OS:
 ///    - macOS: `/opt/homebrew/bin/adb`, `/usr/local/bin/adb`,
 ///      `~/Library/Android/sdk/platform-tools/adb`
 ///    - Linux: `/usr/bin/adb`, `/usr/local/bin/adb`,
 ///      `~/Android/Sdk/platform-tools/adb`
 ///    - Windows: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
-/// 5. Repo-local fallback for v1 coexistence: `../adb` relative to the
+/// 6. Repo-local fallback for v1 coexistence: `../adb` relative to the
 ///    Cargo workspace, since the v1 repo ships an adb binary there.
 pub fn discover_adb_binary() -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
+    let sources = AdbDiscoverySources {
+        explicit_override: std::env::var_os("SHIELD_OPTIMIZER_ADB").map(PathBuf::from),
+        managed_install: crate::adb::install::adb_path_in_install_root(),
+        sdk_roots: ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
+            .into_iter()
+            .filter_map(std::env::var_os)
+            .map(PathBuf::from)
+            .collect(),
+        well_known: well_known_adb_locations(),
+        cwd: std::env::current_dir().ok(),
+    };
 
-    // 1. Explicit env override.
-    if let Ok(p) = std::env::var("SHIELD_OPTIMIZER_ADB") {
-        candidates.push(PathBuf::from(p));
-    }
+    discover_adb_binary_from(sources, || which_in_path(&adb_exe_name()), Path::is_file)
+}
 
-    // 2. App-managed install root — populated by `install_platform_tools`
-    //    on first run when nothing else exists. Honored on subsequent runs
-    //    so the user only pays the download cost once.
-    if let Some(p) = crate::adb::install::adb_path_in_install_root() {
-        candidates.push(p);
-    }
+struct AdbDiscoverySources {
+    explicit_override: Option<PathBuf>,
+    managed_install: Option<PathBuf>,
+    sdk_roots: Vec<PathBuf>,
+    well_known: Vec<PathBuf>,
+    cwd: Option<PathBuf>,
+}
 
-    // 3. Android SDK env vars.
-    for var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
-        if let Ok(root) = std::env::var(var) {
-            let mut p = PathBuf::from(root);
-            p.push("platform-tools");
-            p.push(adb_exe_name());
-            candidates.push(p);
+fn discover_adb_binary_from<F, P>(
+    sources: AdbDiscoverySources,
+    path_search: F,
+    mut is_file: P,
+) -> Option<PathBuf>
+where
+    F: FnOnce() -> Option<PathBuf>,
+    P: FnMut(&Path) -> bool,
+{
+    let exe = adb_exe_name();
+
+    for candidate in sources
+        .explicit_override
+        .into_iter()
+        .chain(sources.managed_install)
+        .chain(
+            sources
+                .sdk_roots
+                .into_iter()
+                .map(|root| root.join("platform-tools").join(&exe)),
+        )
+    {
+        if is_file(&candidate) {
+            return Some(candidate);
         }
     }
 
-    // 4. PATH search.
-    if let Some(p) = which_in_path(&adb_exe_name()) {
-        candidates.push(p);
+    // PATH traversal can touch every directory in PATH. Defer it until all
+    // higher-priority candidates have failed instead of doing that work
+    // eagerly on every discovery call.
+    if let Some(candidate) = path_search() {
+        return Some(candidate);
     }
 
-    // 5. Well-known locations per OS.
-    for p in well_known_adb_locations() {
-        candidates.push(p);
+    for candidate in sources.well_known {
+        if is_file(&candidate) {
+            return Some(candidate);
+        }
     }
 
-    // 6. Repo-local fallback: the v1 repo ships `./adb` at the top level.
-    //    When `dev`-running v2 from the same repo, this lets developers go.
-    if let Ok(cwd) = std::env::current_dir() {
-        let mut p = cwd.clone();
-        p.push("adb");
-        candidates.push(p);
-        let mut p = cwd.clone();
-        p.pop();
-        p.push("adb");
-        candidates.push(p);
+    // Repo-local fallback: the v1 repo ships `./adb` at the top level. Only
+    // inspect the launch CWD after every installed location has failed.
+    if let Some(cwd) = sources.cwd {
+        for candidate in [Some(cwd.join("adb")), cwd.parent().map(|p| p.join("adb"))]
+            .into_iter()
+            .flatten()
+        {
+            if is_file(&candidate) {
+                return Some(candidate);
+            }
+        }
     }
 
-    candidates.into_iter().find(|p| p.is_file())
+    None
 }
 
 fn adb_exe_name() -> String {
@@ -330,55 +361,67 @@ fn which_in_path(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // Tests in this module mutate process-wide env vars; serialize them so
-    // they don't trip over each other under `cargo test`'s parallelism.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn discover_uses_explicit_env_override() {
-        let _g = ENV_LOCK.lock().unwrap();
-        // Point the override at this very binary — we know it exists at
-        // test runtime.
-        let exe = std::env::current_exe().unwrap();
-        std::env::set_var("SHIELD_OPTIMIZER_ADB", &exe);
-        // Clear other env that might point at a real adb.
-        std::env::remove_var("ANDROID_HOME");
-        std::env::remove_var("ANDROID_SDK_ROOT");
+    fn discovery_does_not_search_path_after_valid_override() {
+        let temp = tempfile::tempdir().unwrap();
+        let explicit = temp.path().join("explicit-adb");
+        std::fs::write(&explicit, b"fake adb").unwrap();
+        let sources = AdbDiscoverySources {
+            explicit_override: Some(explicit.clone()),
+            managed_install: Some(temp.path().join("managed-adb")),
+            sdk_roots: vec![temp.path().join("sdk")],
+            well_known: vec![temp.path().join("well-known-adb")],
+            cwd: Some(temp.path().join("launch-volume")),
+        };
 
-        let found = discover_adb_binary().expect("override should resolve");
-        // SHIELD_OPTIMIZER_ADB has top priority — so the override wins even
-        // when other adbs exist on PATH.
-        assert_eq!(found, exe);
+        let found = discover_adb_binary_from(
+            sources,
+            || panic!("PATH must not be searched after a valid explicit override"),
+            Path::is_file,
+        );
 
-        std::env::remove_var("SHIELD_OPTIMIZER_ADB");
+        assert_eq!(found.as_deref(), Some(explicit.as_path()));
     }
 
     #[test]
-    fn discover_returns_none_when_nothing_exists() {
-        let _g = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("SHIELD_OPTIMIZER_ADB");
-        std::env::set_var("ANDROID_HOME", "/definitely/not/a/real/path");
-        std::env::set_var("ANDROID_SDK_ROOT", "/definitely/not/a/real/path");
-        // Shadow PATH so the PATH search finds nothing — using a real dir
-        // that won't contain adb.
-        let temp = std::env::temp_dir();
-        let saved = std::env::var_os("PATH");
-        std::env::set_var("PATH", &temp);
+    fn discovery_uses_path_after_higher_priority_candidates_fail() {
+        let temp = tempfile::tempdir().unwrap();
+        let path_adb = temp.path().join("path-adb");
+        std::fs::write(&path_adb, b"fake adb").unwrap();
+        let sources = AdbDiscoverySources {
+            explicit_override: Some(temp.path().join("missing-explicit")),
+            managed_install: Some(temp.path().join("missing-managed")),
+            sdk_roots: vec![temp.path().join("missing-sdk")],
+            well_known: Vec::new(),
+            cwd: None,
+        };
 
-        // Note: this still walks well-known locations and the CWD fallbacks,
-        // which on some dev machines DO contain an adb (the v1 repo ships one).
-        // So the assertion is "either None or returns a valid file" — not "None".
-        if let Some(found) = discover_adb_binary() {
-            assert!(found.is_file(), "discovered path must be a real file");
-        }
+        let found = discover_adb_binary_from(sources, || Some(path_adb.clone()), Path::is_file);
 
-        if let Some(p) = saved {
-            std::env::set_var("PATH", p);
-        }
-        std::env::remove_var("ANDROID_HOME");
-        std::env::remove_var("ANDROID_SDK_ROOT");
+        assert_eq!(found.as_deref(), Some(path_adb.as_path()));
+    }
+
+    #[test]
+    fn discovery_does_not_search_path_after_valid_managed_install() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed = temp.path().join("managed-adb");
+        std::fs::write(&managed, b"fake adb").unwrap();
+        let sources = AdbDiscoverySources {
+            explicit_override: None,
+            managed_install: Some(managed.clone()),
+            sdk_roots: vec![temp.path().join("sdk")],
+            well_known: vec![temp.path().join("well-known-adb")],
+            cwd: Some(temp.path().join("launch-volume")),
+        };
+
+        let found = discover_adb_binary_from(
+            sources,
+            || panic!("PATH must not be searched after a valid managed install"),
+            Path::is_file,
+        );
+
+        assert_eq!(found.as_deref(), Some(managed.as_path()));
     }
 
     #[test]
