@@ -447,10 +447,13 @@
 
           <div class="tweak-row column">
             <div class="t-row-head">
-              <span class="msr t-icon">30fps_select</span>
+              <span class="msr t-icon" aria-hidden="true">sync_alt</span>
               <div class="t-info">
                 <span class="t-title">Match content frame rate</span>
-                <span class="t-desc">{frameLabel(frameRate)}</span>
+                <span class="t-desc"
+                  >Current policy: {frameLabel(frameRate)}. Matching depends on TV, app, and content
+                  support.</span
+                >
               </div>
               <button
                 class="reset-btn"

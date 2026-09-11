@@ -46,16 +46,9 @@
     ),
   );
 
-  // The ring is a real fraction: recommended-bloat apps already inactive over
-  // the whole recommended set. null when that signal failed to load — render
-  // "—", never a fabricated score.
-  const bloatKnown = $derived(session.bloatLoaded && !session.bloatError);
-  const cleanedFraction = $derived(
-    bloatKnown && session.bloatTotal > 0
-      ? (session.bloatTotal - session.bloatCount) / session.bloatTotal
-      : null,
+  const bloatKnown = $derived(
+    session.bloatLoaded && !session.bloatLoading && !session.bloatError,
   );
-  const strokeDashoffset = $derived(289 * (1 - (cleanedFraction ?? 0)));
 
   const ramFreeText = $derived(
     session.health?.ram?.free_mb != null
@@ -101,6 +94,10 @@
 
   async function retryHealth() {
     await Promise.all([session.loadHealth(true), session.loadBloat(true)]);
+  }
+
+  async function retryBloat() {
+    await session.loadBloat(true);
   }
 
   async function handleTrimCaches() {
@@ -216,46 +213,44 @@
         <button class="rb-btn" onclick={retryHealth}>Retry</button>
       </div>
     {:else}
-      <!-- Health Ring Card -->
+      <!-- Recommended review card -->
       <div class="health-card">
-        <div class="ring-container">
-          <svg width="104" height="104" viewBox="0 0 104 104" class="svg-ring">
-            <circle cx="52" cy="52" r="46" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="9"></circle>
-            {#if cleanedFraction !== null}
-              <circle
-                cx="52" cy="52" r="46" fill="none" stroke="var(--accent)"
-                stroke-width="9" stroke-linecap="round" stroke-dasharray="289"
-                stroke-dashoffset={strokeDashoffset} class="progress-circle"
-              ></circle>
-            {/if}
-          </svg>
-          <div class="ring-text">
-            <span class="mono score-value">{bloatKnown ? session.bloatCount : "—"}</span>
-            <span class="score-label">active</span>
-          </div>
+        <div class="review-count">
+          <span class="mono count-value">{session.bloatLoading ? "…" : bloatKnown ? session.bloatCount : "—"}</span>
+          <span class="count-label">Enabled</span>
         </div>
 
         <div class="health-details">
-          {#if !bloatKnown}
-            <span class="health-title">Couldn't assess</span>
+          <span class="health-title">Recommended app review</span>
+          {#if session.bloatLoading}
+            <span class="health-desc">Checking installed recommended apps…</span>
+          {:else if !bloatKnown}
             <span class="health-desc">{session.bloatError || "App status unavailable."}</span>
-            <button class="optimize-link" onclick={retryHealth}>
+            <button class="optimize-link" onclick={retryBloat}>
               Retry<span class="msr">refresh</span>
             </button>
           {:else if session.bloatCount > 0}
-            <span class="health-title">Room to optimize</span>
             <span class="health-desc">
-              <span class="accent-text">{session.bloatCount}</span> of {session.bloatTotal}
-              recommended-bloat apps still active.
+              {session.bloatCount} of {session.bloatTotal} installed recommended apps are enabled.
             </span>
             <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Run optimize<span class="msr">arrow_forward</span>
+              Review app choices
+              {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
+              <span class="msr">arrow_forward</span>
+            </button>
+          {:else if session.bloatTotal > 0}
+            <span class="health-desc">No recommended apps are enabled. You can still review optional apps.</span>
+            <button class="optimize-link" onclick={() => navigate("optimize")}>
+              Review app choices
+              {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
+              <span class="msr">arrow_forward</span>
             </button>
           {:else}
-            <span class="health-title">System optimized</span>
-            <span class="health-desc">All {session.bloatTotal} recommended-bloat apps are inactive.</span>
+            <span class="health-desc">No apps from the recommended list are installed. You can still review optional apps.</span>
             <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Review apps<span class="msr">arrow_forward</span>
+              Review app choices
+              {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
+              <span class="msr">arrow_forward</span>
             </button>
           {/if}
         </div>
@@ -587,34 +582,25 @@
     border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
     margin-bottom: 8px;
   }
-  .ring-container {
-    position: relative;
-    width: 104px;
-    height: 104px;
+  .review-count {
+    width: 86px;
+    min-height: 86px;
     flex: none;
-  }
-  .svg-ring {
-    display: block;
-    transform: rotate(-90deg);
-  }
-  .progress-circle {
-    transition: stroke-dashoffset 0.4s ease;
-  }
-  .ring-text {
-    position: absolute;
-    inset: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    border-radius: 18px;
+    background: color-mix(in srgb, var(--accent) 11%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
   }
-  .score-value {
+  .count-value {
     font-size: 26px;
     font-weight: 600;
     color: var(--accent);
     line-height: 1;
   }
-  .score-label {
+  .count-label {
     font-size: 9px;
     color: var(--muted);
     letter-spacing: 0.1em;
@@ -637,10 +623,6 @@
     color: var(--text-soft);
     line-height: 1.4;
   }
-  .accent-text {
-    color: var(--accent);
-    font-weight: 600;
-  }
   .optimize-link {
     display: inline-flex;
     align-items: center;
@@ -658,6 +640,14 @@
   }
   .optimize-link .msr {
     font-size: 15px;
+  }
+  .pro-marker {
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    font-family: var(--mono);
+    font-size: 8px;
+    letter-spacing: 0.06em;
   }
 
   /* Stats Grid */

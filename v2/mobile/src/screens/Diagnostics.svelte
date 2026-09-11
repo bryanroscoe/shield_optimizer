@@ -3,12 +3,9 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import { reasonOf, tierOf } from "../lib/safety";
+  import { tierOf } from "../lib/safety";
   import type { Safety } from "../lib/types";
-  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
-  import PaywallSheet from "../components/PaywallSheet.svelte";
-  import Toast from "../components/Toast.svelte";
 
   let { navigate, back }: {
     navigate: (screen: Screen) => void;
@@ -19,28 +16,19 @@
   // classifier. No inline package→risk table (that violated the "one detection
   // function" invariant and could disagree with the engine).
   let safetyMap = $state<Record<string, Safety>>({});
+  let safetyLoading = $state(false);
+  let safetyFailed = $state(false);
+  let safetyRetry = $state(0);
   let safetyRequest = 0;
   // Real catalog names (app_list_for_device). Missing package = no name, and we
   // then show the package itself rather than inventing one from its last dot
   // segment ("…youtube.tv" is not an app called "Tv").
   let catalogNames = $state<Record<string, string>>({});
+  let catalogRequest = 0;
+  let destroyed = false;
 
   let liveMode = $state(false);
   let liveTimer: ReturnType<typeof setInterval> | undefined;
-
-  let busyPkg = $state("");
-  let disableTarget = $state<{ pkg: string; label: string; reason: string; caution: boolean } | null>(null);
-  let showPaywall = $state(false);
-  let toast = $state("");
-  let toastType = $state<"success" | "error" | "info">("info");
-  let toastTimer: ReturnType<typeof setTimeout> | undefined;
-
-  function showToast(message: string, type: "success" | "error" | "info" = "info") {
-    toast = message;
-    toastType = type;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (toast = ""), 3200);
-  }
 
   const health = $derived(session.health);
   const topPackages = $derived(
@@ -60,41 +48,63 @@
   $effect(() => {
     const key = topKey;
     const pkgs = key ? key.split(",") : [];
+    const device = session.connectedDevice;
+    const liveness = session.liveness;
+    const generation = session.generation;
+    void safetyRetry;
     const request = ++safetyRequest;
-    const serial = session.serial;
-    if (pkgs.length === 0) {
-      safetyMap = {};
-      return;
-    }
+    const serial = device?.serial ?? "";
+    safetyMap = {};
+    safetyFailed = false;
+    safetyLoading = pkgs.length > 0 && liveness === "live";
+    if (pkgs.length === 0 || !device || liveness !== "live") return;
+    const current = () =>
+      !destroyed &&
+      request === safetyRequest &&
+      serial === session.serial &&
+      generation === session.generation &&
+      session.isConnected;
     Promise.all(pkgs.map(async (p) => [p, await api.safetyInfo(p)] as const))
       .then((pairs) => {
-        if (request !== safetyRequest || serial !== session.serial) return;
+        if (!current()) return;
         const map: Record<string, Safety> = {};
         for (const [p, s] of pairs) map[p] = s;
         safetyMap = map;
       })
       .catch(() => {
-        // Leave tags unresolved rather than inventing them.
+        if (!current()) return;
+        safetyMap = {};
+        safetyFailed = true;
+      })
+      .finally(() => {
+        if (current()) safetyLoading = false;
       });
   });
 
   $effect(() => {
     const device = session.connectedDevice;
-    if (!device) {
-      catalogNames = {};
-      return;
-    }
+    const liveness = session.liveness;
+    const generation = session.generation;
+    const request = ++catalogRequest;
+    catalogNames = {};
+    if (!device || liveness !== "live") return;
     const serial = device.serial;
     api
       .appListForDevice(device.device_type)
       .then((entries) => {
-        if (serial !== session.serial) return;
+        if (
+          destroyed ||
+          request !== catalogRequest ||
+          serial !== session.serial ||
+          generation !== session.generation ||
+          !session.isConnected
+        ) return;
         const map: Record<string, string> = {};
         for (const e of entries) map[e.package] = e.name;
         catalogNames = map;
       })
       .catch(() => {
-        // No names is fine — rows fall back to the package.
+        if (request === catalogRequest) catalogNames = {};
       });
   });
 
@@ -119,8 +129,10 @@
   }
 
   onDestroy(() => {
+    destroyed = true;
+    ++safetyRequest;
+    ++catalogRequest;
     stopLive();
-    clearTimeout(toastTimer);
   });
 
   async function refresh() {
@@ -170,68 +182,6 @@
   const hdrText = $derived(hdrTypes.length ? hdrTypes.join(" · ") : "");
   const audioOutput = $derived(health?.audio_device ?? "Unavailable");
 
-  function appLabel(pkg: string): string {
-    return catalogNames[pkg] || pkg;
-  }
-
-  async function handleForceStop(pkg: string) {
-    if (busyPkg || !session.serial) return;
-    busyPkg = pkg;
-    try {
-      const r = await api.forceStop(session.serial, pkg);
-      showToast(
-        r.ok ? `Stopped ${appLabel(pkg)}.` : r.message || "Couldn't stop the app.",
-        r.ok ? "success" : "error",
-      );
-      if (r.ok) await session.loadHealth(true);
-    } catch (e) {
-      showToast(String(e), "error");
-    } finally {
-      busyPkg = "";
-    }
-  }
-
-  // Fail closed: no `safety_info` verdict yet means no disable. never_disable is
-  // a hard block; caution gets the loud confirm carrying core's reason.
-  function requestDisable(pkg: string) {
-    const s = safetyMap[pkg];
-    if (!s) {
-      showToast("Still checking this package's safety — try again in a moment.", "info");
-      return;
-    }
-    if (s.kind === "never_disable") {
-      showToast(`Protected: ${s.reason}`, "error");
-      return;
-    }
-    disableTarget = {
-      pkg,
-      label: appLabel(pkg),
-      reason: reasonOf(s),
-      caution: s.kind === "caution",
-    };
-  }
-
-  async function confirmDisable() {
-    const target = disableTarget;
-    disableTarget = null;
-    if (!target || !session.serial) return;
-    busyPkg = target.pkg;
-    try {
-      const r = await api.disablePackage(session.serial, target.pkg);
-      if (r.ok) {
-        showToast(`Disabled ${target.label}.`, "success");
-        session.invalidateAll();
-        await session.loadHealth(true);
-      } else {
-        showToast(r.message || "Disable failed.", "error");
-      }
-    } catch (e) {
-      if (String(e).includes("LOCKED:")) showPaywall = true;
-      else showToast(String(e), "error");
-    } finally {
-      busyPkg = "";
-    }
-  }
 </script>
 
 <div class="screen">
@@ -355,6 +305,16 @@
       <!-- Top Memory Consumers -->
       <div class="top-memory-section">
         <span class="section-label">Top memory consumers</span>
+        <p class="consumers-note">
+          App identity is unverified. These reported memory entries are for inspection only.
+        </p>
+        {#if safetyFailed}
+          <div class="stale-warning" role="alert">
+            <span class="msr">warning</span>
+            <span>Safety unavailable for the reported names.</span>
+            <button class="retry-link" onclick={() => ++safetyRetry}>Retry</button>
+          </div>
+        {/if}
         {#if (health.top_memory?.length ?? 0) === 0}
           <p class="lede empty">No process memory data available.</p>
         {:else}
@@ -363,57 +323,29 @@
               {@const tier = tierOf(safetyMap[consumer.package])}
               <div class="consumer-row">
                 <div class="consumer-details">
-                  <span class="consumer-name">{appLabel(consumer.package)}</span>
-                  <span class="mono consumer-pkg">{consumer.package}</span>
+                  <span class="mono consumer-name">{consumer.package}</span>
+                  {#if catalogNames[consumer.package]}
+                    <span class="consumer-pkg">Catalog hint: {catalogNames[consumer.package]}</span>
+                  {/if}
                 </div>
                 {#if tier}
-                  <span class="risk-badge {tier.cls}">{tier.label}</span>
+                  <span class="risk-badge {tier.cls}" title="Rule lookup for the reported name only">
+                    Reported-name rule: {tier.label}
+                  </span>
+                {:else if safetyLoading}
+                  <span class="risk-badge pending">Checking safety…</span>
+                {:else}
+                  <span class="risk-badge pending">Safety unavailable</span>
                 {/if}
                 <span class="mono consumer-mb">{Math.round(consumer.mb)} MB</span>
-                <div class="row-actions">
-                  <button
-                    class="rowbtn"
-                    disabled={busyPkg !== ""}
-                    onclick={() => handleForceStop(consumer.package)}
-                    aria-label="Force stop {appLabel(consumer.package)}"
-                  >
-                    <span class="msr">stop_circle</span>
-                  </button>
-                  <button
-                    class="rowbtn"
-                    disabled={busyPkg !== "" || tier == null || tier.cls === "blocked"}
-                    onclick={() => requestDisable(consumer.package)}
-                    aria-label="Disable {appLabel(consumer.package)}"
-                  >
-                    <span class="msr">block</span>
-                  </button>
-                </div>
               </div>
             {/each}
           </div>
-          <p class="consumers-note">
-            Force stop frees the process now; Android may restart it. Disable is reversible from
-            Apps. Blocked packages can't be disabled at all.
-          </p>
         {/if}
       </div>
     </div>
   {/if}
 
-  <ConfirmDialog
-    open={disableTarget !== null}
-    danger
-    icon="block"
-    title={`Disable ${disableTarget?.label ?? "app"}?`}
-    warning={disableTarget?.caution ? disableTarget.reason : ""}
-    message="Disable is reversible — re-enable it from the Apps tab. The safety engine still has the final say on the TV."
-    confirmLabel="Disable"
-    onConfirm={confirmDisable}
-    onCancel={() => (disableTarget = null)}
-  />
-
-  <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
-  <Toast message={toast} type={toastType} />
 </div>
 
 <style>
@@ -680,43 +612,29 @@
     color: var(--danger);
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
-  .risk-badge.safe {
-    color: var(--teal);
-    background: color-mix(in srgb, var(--teal) 14%, transparent);
+  .risk-badge.unknown,
+  .risk-badge.pending {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
   }
   .consumer-mb {
     font-size: 12px;
     color: var(--text-soft);
     flex: none;
   }
-  .row-actions {
-    display: flex;
-    gap: 4px;
-    flex: none;
-  }
-  .rowbtn {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    background: var(--surface-2);
-    border: 1px solid var(--line);
-    color: var(--text-soft);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    padding: 0;
-  }
-  .rowbtn .msr {
-    font-size: 18px;
-  }
-  .rowbtn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
   .consumers-note {
     margin: 2px 0 0;
     font-size: 11px;
     color: var(--muted);
     line-height: 1.4;
+  }
+  .retry-link {
+    margin-left: auto;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
   }
 </style>

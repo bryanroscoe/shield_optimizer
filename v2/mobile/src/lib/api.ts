@@ -8,6 +8,7 @@
 // class of silent-failure bug this module exists to prevent.
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { parseSafety } from "../../../shared/safety";
 import { logCall, summarizeArgs } from "./log";
 import { connectionGeneration, emitConnectionLost, isConnectionLostError } from "./connectionEvents";
 import type {
@@ -103,6 +104,8 @@ export const api = {
   // ---- Apps ----
   listOtherPackages: (serial: string) =>
     call<OtherPackage[]>("list_other_packages", { serial }),
+  listInstalledPackages: (serial: string) =>
+    call<OtherPackage[]>("list_installed_packages", { serial }),
   disablePackage: (serial: string, pkg: string) =>
     call<ActionResult>("disable_package", { serial, package: pkg }),
   enablePackage: (serial: string, pkg: string) =>
@@ -111,9 +114,9 @@ export const api = {
     call<ActionResult>("uninstall_package", { serial, package: pkg }),
   forceStop: (serial: string, pkg: string) =>
     call<ActionResult>("force_stop", { serial, package: pkg }),
-  /// Backend-audited safety classification for one package — the ONLY source
-  /// of truth for "keep / caution / safe" tags. Never reimplement inline.
-  safetyInfo: (pkg: string) => call<Safety>("safety_info", { package: pkg }),
+  /// Backend-audited protected / caution / unknown verdict for one package.
+  safetyInfo: async (pkg: string): Promise<Safety> =>
+    parseSafety(await call<unknown>("safety_info", { package: pkg })),
 
   // ---- Maintenance ----
   trimCaches: (serial: string) =>

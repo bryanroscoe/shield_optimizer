@@ -24,6 +24,7 @@ class Session {
   private connectionGeneration = Date.now() * 1000;
   private healthGeneration = 0;
   private bloatGeneration = 0;
+  private bloatConnectionGeneration = 0;
   private recovering: { generation: number; promise: Promise<boolean> } | null = null;
   private recoveryAttempted = false;
 
@@ -55,10 +56,10 @@ class Session {
   healthLoading = $state(false);
   healthError = $state("");
 
-  // Count of still-active recommended-debloat packages (real signal from
-  // package_states), cached like health. Powers the dashboard score/summary.
+  // Enabled and installed counts for the recommended catalog, cached like
+  // health. Missing packages contribute to neither count.
   bloatCount = $state(0);
-  /// Size of the recommended-debloat set the count is measured against.
+  /// Installed recommended packages (enabled + disabled), not catalog size.
   bloatTotal = $state(0);
   bloatLoaded = $state(false);
   bloatLoading = $state(false);
@@ -205,6 +206,7 @@ class Session {
   private clearDeviceData(): void {
     ++this.healthGeneration;
     ++this.bloatGeneration;
+    this.bloatConnectionGeneration = 0;
     this.health = null;
     this.healthLoaded = false;
     this.healthLoading = false;
@@ -338,39 +340,62 @@ class Session {
     this.healthLoaded = false;
   }
 
-  /// Count enabled recommended-debloat apps for the connected device. Real
-  /// data (app_list_for_device + package_states). On failure sets bloatError
-  /// so the dashboard shows "—" rather than an invented score.
+  /// Count enabled and installed recommended apps for the connected device.
+  /// Every requested package must have a valid state before either count is
+  /// published; incomplete reads are unavailable, never a successful zero.
   async loadBloat(force = false): Promise<void> {
-    if (this.bloatLoading) return;
+    if (this.bloatLoading && this.bloatConnectionGeneration === this.generation) return;
     if (this.bloatLoaded && !force && this.bloatError === "") return;
     if (!this.connectedDevice) return;
     const serial = this.serial;
     const deviceType = this.connectedDevice.device_type;
-    const generation = ++this.bloatGeneration;
+    const connectionGeneration = this.generation;
+    const request = ++this.bloatGeneration;
+    this.bloatConnectionGeneration = connectionGeneration;
     this.bloatLoading = true;
     this.bloatError = "";
     try {
       const catalog = await api.appListForDevice(deviceType);
       const defaults = catalog.filter((a) => a.default_optimize);
-      let count = 0;
+      let enabled = 0;
+      let installed = 0;
       if (defaults.length > 0) {
+        const packages = defaults.map((entry) => entry.package);
         const states = await api.packageStates(
           serial,
-          defaults.map((a) => a.package),
+          packages,
         );
-        count = Object.values(states).filter(
-          (s) => s === "enabled",
+        const complete = packages.every((pkg) => {
+          if (!Object.prototype.hasOwnProperty.call(states, pkg)) return false;
+          const state = states[pkg];
+          return state === "enabled" || state === "disabled" || state === "missing";
+        });
+        if (!complete) throw new Error("Recommended app status is incomplete. Retry.");
+        enabled = packages.filter((pkg) => states[pkg] === "enabled").length;
+        installed = packages.filter(
+          (pkg) => states[pkg] === "enabled" || states[pkg] === "disabled",
         ).length;
       }
-      if (generation !== this.bloatGeneration || serial !== this.serial) return;
-      this.bloatCount = count;
-      this.bloatTotal = defaults.length;
+      if (
+        request !== this.bloatGeneration ||
+        connectionGeneration !== this.generation ||
+        serial !== this.serial
+      ) return;
+      this.bloatCount = enabled;
+      this.bloatTotal = installed;
     } catch (e) {
-      if (generation !== this.bloatGeneration || serial !== this.serial) return;
+      if (
+        request !== this.bloatGeneration ||
+        connectionGeneration !== this.generation ||
+        serial !== this.serial
+      ) return;
       this.bloatError = String(e);
     } finally {
-      if (generation === this.bloatGeneration && serial === this.serial) {
+      if (
+        request === this.bloatGeneration &&
+        connectionGeneration === this.generation &&
+        serial === this.serial
+      ) {
         this.bloatLoaded = true;
         this.bloatLoading = false;
       }

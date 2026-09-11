@@ -2,8 +2,9 @@
 
 Reported by Bryan after installing the debug build from `main` at `44d2d66` on a
 Pixel 10 Pro. These are user observations and requested improvements, not verified
-root causes. All items are open; this document records TODOs only. No implementation
-is authorized by this feedback capture.
+root causes. All acceptance items remain open; this document records TODOs and any
+explicitly labeled local WIP status. It does not authorize broader implementation or
+claim physical-device or released-build validation.
 
 ## 1. Dashboard summary feels confusing and too passive
 
@@ -46,6 +47,13 @@ wants a review of known “semi-bloated” apps, not only the existing recommend
 
 Selecting a TV that has connected before should not require an extra “Open
 dashboard” button after a successful connection.
+
+Local implementation note (unpublished WIP `f989bdc`; test and documentation
+refinements are uncommitted): the saved-TV path now opens Dashboard only after the
+current connection attempt succeeds and its device profile is confirmed. Browser-only
+regression coverage in the worktree exercises success, failure, cancellation, stale
+responses, and pending-versus-completed teardown. This has not been validated on a
+physical TV or included in a released build, so the acceptance items remain open.
 
 - [ ] After a confirmed successful connection to a previously connected TV, navigate
   directly to Dashboard.

@@ -4,10 +4,11 @@
   // inline classifier. Memory / last-used are passed in from the parent's
   // lazily-loaded maps. Destructive actions are emitted as callbacks so the
   // parent owns the optimistic-update + Pro-gating logic.
+  import { onDestroy } from "svelte";
   import { api } from "../lib/api";
+  import { session } from "../lib/session.svelte";
   import { reasonOf, tierOf } from "../lib/safety";
   import type { AppUsage, OtherPackage, Safety } from "../lib/types";
-  import ConfirmDialog from "./ConfirmDialog.svelte";
 
   let {
     app,
@@ -41,38 +42,53 @@
   let safetyLoading = $state(false);
   let safetyError = $state(false);
   let safetyRequest = 0;
+  let safetyRetry = $state(0);
   let tierOpen = $state(false);
-  let confirmDisable = $state(false);
 
   // Reload safety whenever the selected package changes.
   $effect(() => {
     const pkg = app?.package ?? "";
+    const device = session.connectedDevice;
+    const liveness = session.liveness;
+    const generation = session.generation;
+    void safetyRetry;
     const request = ++safetyRequest;
     safety = null;
     safetyError = false;
     tierOpen = false;
-    confirmDisable = false;
-    safetyLoading = pkg !== "";
+    safetyLoading = pkg !== "" && device !== null && liveness === "live";
     if (!pkg) return;
+    if (!device || liveness !== "live") {
+      safetyError = true;
+      return;
+    }
+    const serial = device.serial;
+    const current = () =>
+      request === safetyRequest &&
+      app?.package === pkg &&
+      session.serial === serial &&
+      session.generation === generation &&
+      session.isConnected;
     api
       .safetyInfo(pkg)
       .then((result) => {
-        if (request === safetyRequest && app?.package === pkg) safety = result;
+        if (current()) safety = result;
       })
       .catch(() => {
-        if (request === safetyRequest && app?.package === pkg) safetyError = true;
+        if (current()) safetyError = true;
       })
       .finally(() => {
-        if (request === safetyRequest && app?.package === pkg) safetyLoading = false;
+        if (current()) safetyLoading = false;
       });
   });
+
+  onDestroy(() => ++safetyRequest);
 
   const tier = $derived(tierOf(safety));
   const reason = $derived(reasonOf(safety));
   const blocked = $derived(safety?.kind === "never_disable");
-  const caution = $derived(safety?.kind === "caution");
   // Fail closed: no verdict yet means no destructive action.
-  const safetyUnavailable = $derived(safetyLoading || safety === null);
+  const safetyUnavailable = $derived(safetyLoading || safetyError || safety === null);
   const disableBlocked = $derived(
     app?.enabled && !uninstalled && (safetyUnavailable || blocked),
   );
@@ -88,14 +104,14 @@
     return n.includes("video") || n.includes("tv") ? "smart_display" : "apps";
   }
 
-  // Disabling a caution-tier package needs the loud confirm carrying core's
-  // reason — same gate the desktop memory table uses.
   function requestToggle(a: OtherPackage) {
-    if (a.enabled && caution) {
-      confirmDisable = true;
-      return;
-    }
+    if (a.enabled && (safetyUnavailable || blocked)) return;
     onToggle(a);
+  }
+
+  function requestUninstall(a: OtherPackage) {
+    if (safetyUnavailable || blocked) return;
+    onUninstall(a);
   }
 </script>
 
@@ -123,7 +139,7 @@
         {#if safetyLoading}
           <span class="tier-tag loading">Checking safety…</span>
         {:else if safetyError}
-          <span class="tier-tag blocked">Safety unavailable</span>
+          <span class="tier-tag unavailable">Safety unavailable</span>
         {:else if tier}
           <span class="tier-tag {tier.cls}">{tier.label}</span>
         {/if}
@@ -191,7 +207,7 @@
           >
             {app.enabled ? "Disable" : "Enable"}
           </button>
-          <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => onUninstall(app)}>
+          <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => requestUninstall(app)}>
             Uninstall<span class="pro-badge">PRO</span>
           </button>
         </div>
@@ -200,25 +216,13 @@
       {#if blocked}
         <p class="blocked-note">This package is protected — it can't be disabled or uninstalled from here.</p>
       {:else if safetyError}
-        <p class="blocked-note">Safety could not be verified. Disable and uninstall stay locked until you reopen this app.</p>
+        <p class="blocked-note">
+          Safety unavailable. Disable and uninstall stay locked.
+          <button class="retry-safety" onclick={() => ++safetyRetry}>Retry safety check</button>
+        </p>
       {/if}
     </div>
   </div>
-
-  <ConfirmDialog
-    open={confirmDisable}
-    danger
-    icon="block"
-    title={`Disable ${fmtLabel(app)}?`}
-    warning={reason}
-    message="The safety engine flagged this package as Caution. Disabling is reversible — tap Enable here to put it back."
-    confirmLabel="Disable"
-    onConfirm={() => {
-      confirmDisable = false;
-      if (app) onToggle(app);
-    }}
-    onCancel={() => (confirmDisable = false)}
-  />
 {/if}
 
 <style>
@@ -323,9 +327,13 @@
     background: color-mix(in srgb, var(--text) 6%, transparent);
     text-transform: none;
   }
-  .tier-tag.safe {
-    color: var(--teal);
-    background: color-mix(in srgb, var(--teal) 14%, transparent);
+  .tier-tag.unavailable {
+    color: var(--amber);
+    background: color-mix(in srgb, var(--amber) 14%, transparent);
+  }
+  .tier-tag.unknown {
+    color: var(--muted);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
   }
   .tier-tag.caution {
     color: var(--amber);
@@ -469,6 +477,17 @@
     font-size: 11px;
     color: var(--danger);
     line-height: 1.4;
+  }
+  .retry-safety {
+    margin-left: 6px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    text-decoration: underline;
+    cursor: pointer;
   }
   @keyframes sheetUp {
     from {

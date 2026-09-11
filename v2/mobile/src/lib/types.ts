@@ -115,10 +115,7 @@ export interface SendTextResult {
   transport: "channel" | "shell" | "none";
 }
 
-export type Safety =
-  | { kind: "never_disable"; reason: string }
-  | { kind: "caution"; reason: string }
-  | { kind: "safe" };
+export type { Safety } from "../../../shared/safety";
 
 export type RebootMode = "normal" | "recovery" | "bootloader";
 

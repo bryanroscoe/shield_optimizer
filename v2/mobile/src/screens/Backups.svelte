@@ -19,11 +19,34 @@
   let pkgError = $state("");
   let packages = $state<OtherPackage[]>([]);
   let search = $state("");
-  let busyPkg = $state("");
+  let showSystemApps = $state(false);
   let packagesSerial = $state("");
+  let packagesConnectionGeneration = $state(-1);
   let pickerGeneration = 0;
-  let restoreTarget = $state<BackupEntry | null>(null);
-  let busyRestore = $state("");
+  let watchedConnectionKey = `${session.generation}:${session.serial}:${session.isConnected}`;
+  let nextBackupOperation = 0;
+  let backupOperation = $state<{
+    id: number;
+    package: string;
+    label: string;
+    serial: string;
+    generation: number;
+  } | null>(null);
+  let busyPkg = $derived(backupOperation?.package ?? "");
+  let restoreTarget = $state<{
+    backup: BackupEntry;
+    serial: string;
+    generation: number;
+  } | null>(null);
+  let nextRestoreOperation = 0;
+  let restoreOperation = $state<{
+    id: number;
+    path: string;
+    package: string;
+    serial: string;
+    generation: number;
+  } | null>(null);
+  let busyRestore = $derived(restoreOperation?.path ?? "");
   let deleteTarget = $state<BackupEntry | null>(null);
   let busyDelete = $state("");
 
@@ -51,37 +74,98 @@
 
   onMount(loadBackups);
 
-  async function openPicker() {
-    picking = true;
-    const serial = session.serial;
-    if (!serial) return;
-    if (packages.length > 0 && packagesSerial === serial) return;
-    const generation = ++pickerGeneration;
+  function ownsConnection(serial: string, generation: number): boolean {
+    return (
+      session.isConnected &&
+      serial === session.serial &&
+      generation === session.generation
+    );
+  }
+
+  async function loadPackages(
+    serial: string,
+    connectionGeneration: number,
+    force = false,
+  ) {
+    if (!serial || !session.isConnected || connectionGeneration !== session.generation) {
+      packages = [];
+      packagesSerial = "";
+      packagesConnectionGeneration = -1;
+      pkgLoading = false;
+      pkgError = "No TV connected. Connect a TV before choosing an app.";
+      return;
+    }
+    if (
+      !force &&
+      packagesSerial === serial &&
+      packagesConnectionGeneration === connectionGeneration &&
+      !pkgError
+    ) return;
+    const requestGeneration = ++pickerGeneration;
     packages = [];
+    packagesSerial = "";
+    packagesConnectionGeneration = -1;
     pkgLoading = true;
     pkgError = "";
     try {
-      const rows = await api.listOtherPackages(serial);
-      if (generation !== pickerGeneration || serial !== session.serial) return;
+      const rows = await api.listInstalledPackages(serial);
+      if (
+        requestGeneration !== pickerGeneration ||
+        !ownsConnection(serial, connectionGeneration)
+      ) return;
       packages = rows;
       packagesSerial = serial;
+      packagesConnectionGeneration = connectionGeneration;
     } catch (e) {
-      if (generation !== pickerGeneration || serial !== session.serial) return;
+      if (
+        requestGeneration !== pickerGeneration ||
+        !ownsConnection(serial, connectionGeneration)
+      ) return;
       pkgError = String(e);
     } finally {
-      if (generation === pickerGeneration && serial === session.serial) pkgLoading = false;
+      if (
+        requestGeneration === pickerGeneration &&
+        ownsConnection(serial, connectionGeneration)
+      ) pkgLoading = false;
     }
   }
 
+  function openPicker() {
+    picking = true;
+    void loadPackages(session.serial, session.generation);
+  }
+
+  $effect(() => {
+    const serial = session.serial;
+    const connectionGeneration = session.generation;
+    const connected = session.isConnected;
+    const connectionKey = `${connectionGeneration}:${serial}:${connected}`;
+    if (connectionKey === watchedConnectionKey) return;
+    watchedConnectionKey = connectionKey;
+    pickerGeneration += 1;
+    packages = [];
+    packagesSerial = "";
+    packagesConnectionGeneration = -1;
+    pkgLoading = false;
+    pkgError = connected ? "" : "No TV connected. Connect a TV before choosing an app.";
+    search = "";
+    showSystemApps = false;
+    restoreTarget = null;
+    if (picking && connected) {
+      void loadPackages(serial, connectionGeneration, true);
+    }
+  });
+
   const filtered = $derived.by(() => {
     const q = search.trim().toLowerCase();
+    const visible = packages.filter((p) => showSystemApps || !p.system);
     const rows = q
-      ? packages.filter(
+      ? visible.filter(
           (p) =>
             p.package.toLowerCase().includes(q) ||
             (p.name ?? "").toLowerCase().includes(q),
         )
-      : packages;
+      : visible;
     return [...rows].sort((a, b) =>
       (a.name ?? a.package).localeCompare(b.name ?? b.package),
     );
@@ -89,37 +173,83 @@
 
   async function backup(p: OtherPackage) {
     const targetSerial = session.serial;
-    if (busyPkg || !targetSerial) return;
-    busyPkg = p.package;
+    const targetGeneration = session.generation;
+    if (busyPkg || !targetSerial || !session.isConnected) return;
+    if (
+      packagesSerial !== targetSerial ||
+      packagesConnectionGeneration !== targetGeneration ||
+      !packages.some((row) => row.package === p.package)
+    ) {
+      showToast("That app list is stale. Choose the app again for the connected TV.", "error");
+      return;
+    }
+    const label = p.name ?? p.package;
+    const operation = {
+      id: ++nextBackupOperation,
+      package: p.package,
+      label,
+      serial: targetSerial,
+      generation: targetGeneration,
+    };
+    backupOperation = operation;
     try {
       const entry = await api.backupApk(targetSerial, p.package);
       showToast(
-        `Backed up ${p.name ?? p.package} (${entry.apk_count} APK${entry.apk_count === 1 ? "" : "s"}).`,
+        `Backed up ${label}${p.name ? ` (${p.package})` : ""} from ${targetSerial}: ${entry.apk_count} APK part${entry.apk_count === 1 ? "" : "s"}.`,
         "success",
       );
       backups = [entry, ...backups.filter((b) => b.path !== entry.path)];
-      picking = false;
-      search = "";
+      if (ownsConnection(targetSerial, targetGeneration)) {
+        picking = false;
+        search = "";
+        showSystemApps = false;
+      }
     } catch (e) {
-      showToast(String(e), "error");
+      showToast(
+        `Backup failed for ${label}${p.name ? ` (${p.package})` : ""} on ${targetSerial}: ${String(e)}`,
+        "error",
+      );
     } finally {
-      busyPkg = "";
+      if (backupOperation?.id === operation.id) backupOperation = null;
     }
   }
 
+  function requestRestore(backup: BackupEntry) {
+    if (!session.isConnected || busyRestore) return;
+    restoreTarget = {
+      backup,
+      serial: session.serial,
+      generation: session.generation,
+    };
+  }
+
   async function confirmRestore() {
-    const backup = restoreTarget;
-    const targetSerial = session.serial;
+    const target = restoreTarget;
     restoreTarget = null;
-    if (!backup || !targetSerial || busyRestore) return;
-    busyRestore = backup.path;
+    if (!target || busyRestore) return;
+    const { backup, serial: targetSerial, generation: targetGeneration } = target;
+    if (!ownsConnection(targetSerial, targetGeneration)) {
+      showToast("The TV connection changed. Choose Restore again for the connected TV.", "error");
+      return;
+    }
+    const operation = {
+      id: ++nextRestoreOperation,
+      path: backup.path,
+      package: backup.package,
+      serial: targetSerial,
+      generation: targetGeneration,
+    };
+    restoreOperation = operation;
     try {
       const result = await api.restoreApkBackup(targetSerial, backup.path);
-      showToast(result.message, result.ok ? "success" : "error");
+      showToast(
+        `Restore ${backup.package} on ${targetSerial}: ${result.message}`,
+        result.ok ? "success" : "error",
+      );
     } catch (e) {
-      showToast(String(e), "error");
+      showToast(`Restore failed for ${backup.package} on ${targetSerial}: ${String(e)}`, "error");
     } finally {
-      busyRestore = "";
+      if (restoreOperation?.id === operation.id) restoreOperation = null;
     }
   }
 
@@ -185,53 +315,84 @@
     <div class="dest active">
       <span class="msr">smartphone</span>
       <span class="dest-title">This phone</span>
-      <span class="dest-sub">ATV Optimizer's private storage</span>
+      <span class="dest-sub">ATV Optimizer's private storage · no export</span>
     </div>
   </div>
 
   <!-- Back up an app -->
   <div class="create-card">
-    <span class="card-label">Back up an app's APK</span>
+    <span class="card-label">Back up one app's APKs</span>
     <p class="card-desc">
-      Saves every installed APK part to this phone so the app can be restored later. App data and
-      sign-in details are not included.
+      Choose exactly one installed app. Its base APK and every installed split APK are copied to
+      this phone. App data, settings, and sign-in details are not included.
     </p>
+    <p class="system-note">
+      System apps are hidden by default. You can reveal and copy them, but a system APK restore may
+      fail because of Android signatures, versions, or system dependencies. This is not a full-TV
+      recovery backup.
+    </p>
+    {#if backupOperation}
+      <p class="operation-note" role="status">
+        Backing up {backupOperation.label} ({backupOperation.package}) from
+        {backupOperation.serial}. Switching TVs will not retarget this operation.
+      </p>
+    {/if}
     {#if !picking}
-      <button class="primary small-inline" disabled={!session.serial} onclick={openPicker}>
+      <button class="primary small-inline" disabled={!session.isConnected} onclick={openPicker}>
         <span class="msr">backup</span>Choose an app
       </button>
+      {#if !session.isConnected}
+        <p class="connection-note" role="status">Connect a TV to choose an installed app.</p>
+      {/if}
     {:else}
       <input
         class="label-input"
         bind:value={search}
         placeholder="Search installed apps…"
+        aria-label="Search installed apps by name or package"
       />
+      <label class="system-toggle">
+        <input type="checkbox" bind:checked={showSystemApps} />
+        <span>Show system apps</span>
+      </label>
       {#if pkgLoading}
         <div class="center small">
           <span class="statuspill live"><span class="pdot blink"></span>Reading installed apps…</span>
         </div>
       {:else if pkgError}
         <p class="error">{pkgError}</p>
-        <button class="primary" onclick={openPicker}>Retry</button>
+        <button
+          class="primary"
+          disabled={!session.isConnected}
+          onclick={() => loadPackages(session.serial, session.generation, true)}
+        >Retry</button>
       {:else if filtered.length === 0}
         <p class="lede empty">No matching apps.</p>
       {:else}
         <span class="pkg-count">
-          {filtered.length} of {packages.length} installed app{packages.length === 1 ? "" : "s"}
+          {filtered.length} shown · {packages.length} installed app{packages.length === 1 ? "" : "s"}
         </span>
         <div class="pkg-list">
           {#each filtered as p (p.package)}
             {@const busy = busyPkg === p.package}
-            <button class="pkg-row" disabled={busyPkg !== ""} onclick={() => backup(p)}>
+            <button
+              class="pkg-row"
+              disabled={busyPkg !== ""}
+              onclick={() => backup(p)}
+              aria-label={`Back up ${p.name ? `${p.name} (${p.package})` : p.package}`}
+            >
               <span class="msr pkg-icon">android</span>
               <div class="pkg-body">
                 <span class="pkg-name">{p.name ?? p.package}</span>
                 <span class="pkg-sub mono">{p.package}</span>
+                <span class="pkg-flags">
+                  {p.system ? "System app" : "User app"}{p.enabled ? "" : " · Disabled"}
+                </span>
               </div>
               {#if busy}
                 <span class="pdot blink"></span>
               {:else}
-                <span class="msr pkg-dl">download</span>
+                <span class="pkg-action">Back up</span>
               {/if}
             </button>
           {/each}
@@ -242,6 +403,12 @@
   </div>
 
   <span class="section-label">Recent backups</span>
+  {#if restoreOperation}
+    <p class="operation-note" role="status">
+      Restoring {restoreOperation.package} to {restoreOperation.serial}. Switching TVs will not
+      retarget this operation.
+    </p>
+  {/if}
   {#if loading}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Loading backups…</span>
@@ -266,8 +433,8 @@
             {#if b.complete}
               <button
                 class="restore-btn"
-                disabled={!session.serial || busyRestore !== "" || busyDelete !== ""}
-                onclick={() => (restoreTarget = b)}
+                disabled={!session.isConnected || busyRestore !== "" || busyDelete !== ""}
+                onclick={() => requestRestore(b)}
               >
                 {#if busyRestore === b.path}
                   <span class="pdot blink"></span>
@@ -297,8 +464,8 @@
   {/if}
 
   <p class="drive-note">
-    Backups stay in this app's private storage — exporting them or syncing to Drive isn't available
-    yet.
+    Backups stay in this app's private phone storage. Exporting, file sharing, and cloud sync are
+    not available.
   </p>
 
   <div class="spacer"></div>
@@ -318,9 +485,9 @@
 
 <ConfirmDialog
   open={restoreTarget !== null}
-  title={`Restore ${restoreTarget?.package ?? "app"}?`}
-  message="Installs the saved APK bundle on the connected TV. This does not restore app data or sign-in details."
-  warning="Android will reject the restore if the saved app signature is incompatible with the installed version."
+  title={`Restore ${restoreTarget?.backup.package ?? "app"}?`}
+  message="Installs every APK part in this saved bundle on the connected TV. This does not restore app data, settings, or sign-in details, and it is not full-device recovery."
+  warning="Android may reject the restore when its signature or version is incompatible, or when a system app depends on the TV firmware."
   confirmLabel="Restore"
   icon="settings_backup_restore"
   onConfirm={confirmRestore}
@@ -403,6 +570,29 @@
     line-height: 1.45;
     margin: 0;
   }
+  .system-note,
+  .operation-note,
+  .connection-note {
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .system-note {
+    padding: 10px 11px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--amber) 8%, var(--canvas));
+    border: 1px solid color-mix(in srgb, var(--amber) 25%, var(--line));
+    color: var(--muted);
+  }
+  .operation-note {
+    padding: 9px 10px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+    color: var(--text-soft);
+  }
+  .connection-note {
+    color: var(--dim);
+  }
   .small-inline {
     width: auto;
     min-height: 44px;
@@ -427,6 +617,21 @@
   .label-input:focus {
     outline: 2px solid var(--accent);
     border-color: transparent;
+  }
+  .system-toggle {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    align-self: flex-start;
+    color: var(--text-soft);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .system-toggle input {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
   }
   .center.small {
     min-height: 60px;
@@ -500,8 +705,13 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .pkg-dl {
-    font-size: 20px;
+  .pkg-flags {
+    font-size: 9px;
+    color: var(--dim);
+  }
+  .pkg-action {
+    font-size: 10px;
+    font-weight: 650;
     color: var(--accent);
     flex: none;
   }

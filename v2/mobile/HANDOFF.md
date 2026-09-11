@@ -1,14 +1,34 @@
 # ATV Optimizer (mobile) — HANDOFF
 
 Read this top-to-bottom before doing any mobile work. It is the authoritative, current handoff
-(last refreshed 2026-09-05, after the stability reset and the device-less backlog pass).
+(lifecycle/current-authority corrections 2026-09-05 and local-integration review addendum
+2026-09-08 America/Chicago; older checkpoints are historical).
 Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (historical findings audit),
 `FEATURES.md` (historical screen ↔ command map), **`BACKLOG.md` (current ordered queue)**,
 `TRANSPORT-LICENSING-RESEARCH.md` (why the transport is what it is), `CLOUD-TASK.md` (brief for the
 nightly cloud agent). Cross-session memory also lives
 in `~/.claude/projects/-Users-bryanroscoe-Developer-shield-optimizer/memory/`.
 
-Branch: **`feat/atv-optimizer-mobile`**. Not merged to `main` and no PR yet.
+Current lifecycle evidence baseline: **`48cba23`**, Navigator workspace `crew/navigator`.
+The original mobile effort used `feat/atv-optimizer-mobile`; do not infer current
+branch or release state from that historical name. Bryan's later feedback records
+an installed debug build from `main` at `44d2d66` (see `USER-FEEDBACK-2026-09-05.md`).
+
+**Current authority (`so-vtm.8`): host-only review/evidence/docs, no device attachment
+or mutation, no speculative persistence, no commit/push/deploy.** This supersedes
+older phone-interaction and shipping instructions below. Mechanic owns integration
+and Sol file reservations; Navigator owns mobile UX/lifecycle evidence and docs.
+See **[`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md)** for the reproducible browser
+matrix and the owner-driven physical gate. Feedback #7 remains physically unresolved.
+
+**Pending local navigation candidate (`so-vtm.3`):** mechanic accepted the separate
+three-file Onboarding/session-test/feedback patch with 20 passing worker browser
+tests. Saved-TV success opens Dashboard directly after profile resolution;
+first-time/add-TV still uses the confirmation screen. Navigator's lifecycle matrix
+was run on baseline `48cba23`, not that candidate; its saved-TV Open dashboard
+observations must not be described as candidate behavior. No prior-screen
+persistence, physical validation, or publication is implied. See the evidence
+report for the preserved patch and provenance.
 
 ---
 
@@ -20,7 +40,7 @@ see §3). Product name **ATV Optimizer**. It shares the audited engine (`v2/crat
 mature **desktop** app (`v2/src-tauri` + `v2/src`); the rule is *reuse the desktop, keep core
 aligned, never fork it*.
 
-## 2. Current state — what's DONE (all committed + pushed, gate-green)
+## 2. Implementation checkpoints (validation applies to the cited checkpoint)
 - **Full frontend re-architecture** (`b7c3d75`): shared typed `api.ts`/`types.ts` (mirror desktop
   + core), a central `invoke` wrapper with a debug-log ring buffer (`lib/log.ts`), a runes
   **session store** (`lib/session.svelte.ts` — device/host/entitlement/liveness + health/bloat
@@ -35,13 +55,16 @@ aligned, never fork it*.
   Optimize, Apps (+AppDetailSheet), Remote, More, Launcher, Tweaks, Snapshots, Devices, RiskGuide,
   Files, Backups. Components: BottomTabs, Toast, ConfirmDialog, FindRemoteButton (one consistent
   "ring the remote?" affordance, Shield-gated), BrandMark, PaywallSheet, AppDetailSheet.
-- **Development Pro unlock**: `activate_license` persists then flips backend entitlement; **test
-  key `ATVOPT-PRO-2025`** (case-insensitive). `LOCKED:<feature>` errors route to PaywallSheet. This
-  is not commercial licensing; signed validation remains backlog work.
+- **Licensing**: `activate_license` persists then flips backend entitlement;
+  `LOCKED:<feature>` errors route to PaywallSheet. Signed offline validation is
+  implemented (see the 2026-09-04 checkpoint below); `ATVOPT-PRO-2025` is a
+  **debug-build-only** test key. Checkout/key issuance remains release work.
 - **Icon + branding**: launcher icon and in-app BrandMark are the designer's exact glyph — a
   TV/monitor on a stand with three **vertical faders** (exact SVG in `src-tauri/icons/icon.svg`).
-- **On-device validated**: connected to a real Shield over the new transport; the app is fully
-  usable; the connection-lost banner + real device name resolve. (Pixel 10 Pro test device.)
+- **Historical device evidence**: earlier Pixel/Shield sessions connected through the new
+  transport and exercised specific flows. Bryan later reported usability issues on the
+  debug build from `main` at `44d2d66`. Neither establishes complete current physical
+  validation; see `USER-FEEDBACK-2026-09-05.md` and the remaining device gates.
 - **Fast remote Phases 1–3**: a pinned generic raw ADB service stream, embedded scrcpy v3.1 server,
   Android session registry/lifecycle, and transparent same-request shell fallback are implemented.
   The Bedroom Shield gate measured 30 warm channel presses at 75.2 ms p95 and app force-stop left
@@ -129,7 +152,14 @@ aligned, never fork it*.
     Settings › About. See `RELEASE.md`.
   - **Follow-ups.** `remote_warm` starts the fast-remote channel when the Remote tab opens;
     snapshot reads batched; `pull_file` capped at 2 GiB with de-duplicated names; device profile
-    harvests `ro.serialno` and saved TVs are keyed by it (host is the fallback).
+    harvests `ro.serialno`. In the Mechanic-local `so-fb3.1.2` integration, equal hardware IDs are
+    the only cross-endpoint saved-TV identity and ID-less rows match only exact host+port. Conflicting
+    or newly identified histories remain separate, so two rows can share an address and single-TV
+    auto-dial is then suppressed. The integrated-local `so-fb3.1.3` follow-up now keys progress and
+    errors by saved identity, filters the current TV by verified hardware ID or exact ID-less endpoint,
+    shows host:port plus neutral shared-address guidance, and forgets the selected identity. Mechanic's
+    combined saved-device/diagnostics tests passed 25/25, mobile check reported 0 errors/0 warnings,
+    and the build passed; browser, device, publication, and release remain unverified.
   - **Code pairing (SPAKE2) — implemented, unverified on a device.** Clean-room Rust in the
     vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`), wired through
     `WirelessAdb::pair` and the Onboarding pair step. Key finding: BoringSSL's SPAKE2 is a bespoke
@@ -140,6 +170,37 @@ aligned, never fork it*.
     exact manual test (the Pixel's own pairing service first, then a Google TV). Also fixed a
     pre-existing encoder bug: `android_pubkey_encode` dropped a zero top byte (~1 key in 256
     rejected by adbd for AUTH and pairing).
+
+- **Navigator-reviewed local integrations (2026-09-08; not released):**
+  - **Canonical Unknown safety (`so-fb3.2.1`–`.2.4`).** Mechanic combined the accepted shared
+    contract, mobile rev3 consumers, desktop round-three consumers, and Navigator documentation in
+    `crew/mechanic`. Canonical safety now preserves Protected and Caution precedence and otherwise
+    reports Unknown with a reason; malformed, failed, or stale lookup remains unavailable rather than
+    becoming Unknown. Mobile and desktop removal paths require current installed-package identity and
+    canonical evidence, do not auto-select Unknown, and keep unresolved memory/process rows inspect-only.
+    Mechanic's integrated gates passed: core 199 tests plus clean clippy, desktop Tauri 36 tests, mobile
+    tests 25/25 with check 0/0 and build, desktop check 0/0 and build, and independent mobile 13/13 and
+    desktop 25/25 harnesses. `so-fb3.2.1` through `.2.4` are closed; the parent remains open for
+    actual process attribution. Browser sessions, desktop gallery regeneration, cross-OS CI, device,
+    publication, and release remain unverified. Exact hashes are recorded in
+    `mayor/artifacts/hq-b1t/shield-so-fb3.2-integration-record.txt`.
+  - **Unknown app diagnostics (`so-fb3.6.1`).** The mobile Apps screen records completed,
+    current-session uncatalogued-package results in a bounded local-only collector. Settings can
+    review a refreshable JSON snapshot, copy it explicitly, and clear it after confirmation; the
+    copy states that nothing is sent automatically and identifies the fields included before
+    sharing. The collector allowlists fields, rejects address/path/control-like tokens,
+    deduplicates observations, caps records/bytes/count, and makes clear win over queued saves.
+    Mechanic's focused collector tests passed 9/9; isolated TypeScript, Svelte compile, mobile
+    check (0 errors/0 warnings), and build passed. Runtime unresolved-process collection remains
+    deferred until the parent `so-fb3.2` process-attribution scope supplies typed identity;
+    `registry_version` is currently unavailable.
+    No browser, device, automatic upload, physical, or release claim.
+  - **Frame-rate presentation (`so-vtm.5`).** The misleading numeric `30fps_select` decoration is
+    replaced by the already-retained nonnumeric `sync_alt` glyph and marked `aria-hidden`.
+    Subordinate copy reports the current Never / Seamless only / Always / device-default policy
+    and says matching depends on TV, app, and content support; it does not present measured FPS.
+    Mechanic's mobile check passed with 0 errors/0 warnings and build passed. No 384 px render,
+    device verification, installed-build confirmation, physical matching claim, or release claim.
 
 ## 3. THE transport story (most important context)
 Originally the transport was **libadb-android (GPLv3)**, a Kotlin lib called over a JNI plugin.
@@ -159,11 +220,10 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 - The **Kotlin plugin (`tauri-plugin-atv-adb`) is now mDNS-discovery ONLY** (NsdManager, a pure
   Android framework, no GPL). libadb/Conscrypt/BouncyCastle Gradle deps + the jitpack repo are gone.
 - **Legacy network-debugging (`:5555`, no pairing code) works now** — that's the proven path.
-- **Gap:** `adb_client` does NOT do the Android-11 **SPAKE2 pairing** for *new* Google-TV devices
-  (the 6-digit-code flow). `wireless_pair` returns a clear "use network debugging for now" error.
-  Clean-room SPAKE2 (referencing Apache-2.0 AOSP) is a queued follow-up. Licensing note: for a
-  commercial release, add a third-party-licenses acknowledgment (MIT for adb_client + rustls/rsa/
-  rcgen); generate with `cargo about`.
+- **Code pairing:** the vendored crate now implements the Android-11 SPAKE2 flow and
+  `wireless_pair` is wired to it. Host model/loopback checks exist; real adbd pairing remains
+  unverified. Use `PAIRING-PLAN.md` for the physical gate and Network debugging as the
+  fallback. Generated third-party notices are available in Settings › About.
 
 ## 4. Repo layout (mobile)
 - `v2/mobile/src/` — Svelte 5 frontend. `lib/{api,types,session.svelte,router.svelte,log,savedDevices}.ts`,
@@ -188,14 +248,23 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 ## 5. What REMAINS
 
-Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. State at handoff (2026-09-05):
-every workspace gate is green, HEAD builds an arm64 debug APK, and **nothing since `bb33ecc` has
-run on a phone or TV**. The immediate sequence is:
+Use **[`BACKLOG.md`](BACKLOG.md)** as the ordered source of truth. Earlier host/APK
+checkpoints are recorded in `CORRECTNESS-AUDIT-2026-09-05.md`; Bryan's later
+`44d2d66` install is owner-reported, not a completed physical stability matrix.
+The current next steps are:
 
-1. **Install HEAD on the Pixel and run the physical stability check** (BACKLOG P0 #1, eight
-   points). This is the single most valuable thing the next agent can do. The Pixel refused
-   wireless ADB at handoff (its pairing rotated / Wireless debugging was off), so Bryan must read
-   the pairing code + port off the phone first.
+The 2026-09-08 integrations above exist only in Mechanic's local integration workspace.
+Do not describe any as shipped. The diagnostics report has no automatic network path; explicit
+clipboard JSON is the current export. Keep unmatched-process collection pending until canonical
+typed identity exists instead of inferring process/package identity in the frontend.
+
+1. **Keep restart feedback #7 open on `so-vtm.8`.** Navigator's 13 focused browser
+   lifecycle cases, 9 existing regressions, mobile check/build, and 3 pure lifecycle
+   tests passed at `48cba23`. Visibility-only resume retained the screen; JavaScript
+   reconstruction reset it and required a fresh connection/Connected confirmation.
+   Use `LIFECYCLE-EVIDENCE.md` for the precise limits and minimal owner report.
+   Physical investigation is gated; do not pair, install, or interact with a device
+   under the current host-only assignment.
 2. **Verify code pairing on a real device** (BACKLOG P1 #2). Follow `PAIRING-PLAN.md` exactly:
    the Pixel's own `_adb-tls-pairing` service from a host binary first, then a Google TV, including
    the wrong-code and silent-reconnect checks. Until this passes, treat pairing as unverified and
@@ -213,9 +282,9 @@ Desktop rebranding remains a separate migration because of the MSI UpgradeCode r
 
 ### Next-agent start checklist (updated 2026-09-05)
 
-- Confirm branch `feat/atv-optimizer-mobile` is at `fae340c` or later and read `BACKLOG.md`
-  (P0 first), `PAIRING-PLAN.md` if touching pairing, and the Phase 4 section of
-  `FAST-REMOTE-PLAN.md` before changing code.
+- Record the actual branch, HEAD, and dirty paths; preserve existing work and respect
+  mechanic's file reservations. Read `BACKLOG.md` (P0 first), `LIFECYCLE-EVIDENCE.md`,
+  `PAIRING-PLAN.md` if touching pairing, and the Phase 4 section of `FAST-REMOTE-PLAN.md`.
 - Gates (all must pass; run from `v2/`): `cargo fmt --check`; `cargo clippy -p shield-optimizer-core
   -p shield-optimizer-v2 -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p atvopt-license
   --all-targets -- -D warnings`; `cargo test -p shield-optimizer-core -p atv-optimizer-mobile
@@ -223,10 +292,10 @@ Desktop rebranding remains a separate migration because of the MSI UpgradeCode r
   the vendored crate is outside the workspace). From `v2/mobile`: `npm run check` (0/0) and
   `npm run build`. Android-target clippy works with the NDK clang exported as
   `CC_aarch64_linux_android` / `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`.
-- Device-less UI loop: `npm run build`, then a Playwright script at 384×812 that serves `build/`
-  and stubs `window.__TAURI_INTERNALS__.invoke` (the desktop `v2/node_modules` has Playwright and
-  Chromium). The 2026-09-04 smoke script covered scan, picker, auto-dial rules, connect failure,
-  lost-connection recovery, Emergency recovery and the back stack; recreate it from that list.
+- Reproducible device-less UI loop from `v2/mobile/`: `npm test` runs the existing browser
+  regressions; `node --test evidence/lifecycle/reproduce.mjs` runs the focused lifecycle matrix.
+  Both use mocked Tauri on Vite-compiled source. Run `npm run check` and `npm run build`
+  separately. These do not verify native Android callbacks or an installed APK.
 - If you add a Material Symbols icon name, rerun `scripts/subset-material-symbols.py` (needs
   `fonttools` + `brotli` in a venv) or the icon renders as literal text. If you add a crate,
   rerun `scripts/gen-notices.sh`.
@@ -239,14 +308,17 @@ Desktop rebranding remains a separate migration because of the MSI UpgradeCode r
 - Preserve the unrelated untracked root files (`atv-optimizer-android-strategy.html`, root
   `node_modules/`, `package.json`, and `package-lock.json`); they are user-owned and not part of the
   mobile commits.
-- Rebuild/install HEAD over **wireless ADB only** before claiming physical UI verification. Do not
-  reuse an old Pixel port or pairing code: run `adb mdns services`, pair only if needed, then use
-  the current `_adb-tls-connect._tcp` endpoint.
-- Bryan has re-authorized focused phone interaction. Avoid blind coordinate tapping and large
-  remote-button batches; announce intentional TV-input tests so they do not disrupt viewing.
+- A future authorized physical session must identify the installed build and use current
+  wireless endpoints. **No device interaction is authorized by the current assignment.**
+  Do not reuse recorded ports or treat this historical playbook as permission.
 - Do not mark Phase 4 or pairing complete from host tests or logs alone.
 
-## 6. OPERATIONS PLAYBOOK (how to build / deploy / test)
+## 6. OPERATIONS PLAYBOOK (historical device commands; authorization required)
+
+The device commands below are reference only during `so-vtm.8`; do not execute them
+under its host-only scope. Recorded addresses, tool versions, and pairing state are
+historical observations, not current device discovery.
+
 Env: `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli 2.11.x, the 4 android Rust
 targets installed. Test device: **Pixel 10 Pro**.
 
@@ -284,13 +356,14 @@ mobile `WirelessAdb`). One detection/safety function — `engine::safety` gates 
 return `Result<T,String>`. Svelte 5 runes only. **Never fake data.** Commits: new commit each time,
 no `Co-Authored-By`. Command arg names: camelCase in TS → Tauri maps to snake_case; `pkg`→`package`.
 
-## 8. How Bryan wants work done
-Aggressive **parallel Opus** sub-agents for independent work; action over asking; commit/push
-checkpoints. But sequence work that shares hot files (the transport `wireless_adb.rs` and the shared
-frontend `api.ts`/`router`/`App.svelte`) — parallel agents corrupt those. On-device screenshot/verify
-stays on the main thread (agents can't drive the phone). There is a **nightly cloud routine** intended
-(midnight = cron `0 5 * * *` UTC) that runs `CLOUD-TASK.md` against this branch — note the RemoteTrigger
-tool has a low body-size limit, so its prompt is a short pointer; set it up via https://claude.ai/code/routines.
+## 8. Current coordination
+
+Persistent Navigator owns mobile UX, independent lifecycle/regression evidence,
+and mobile documentation. Mechanic owns device architecture and integration;
+Sol implements bounded changes with explicit file reservations. Preserve existing
+work. This assignment permits no device attachment/mutation, commit, push, deploy,
+or speculative session persistence. Earlier parallel-Opus/cloud-routine and
+commit/push guidance is historical and does not expand current authority.
 
 ## 9. Commit history (this effort, newest first)
 ```
@@ -317,5 +390,6 @@ a9d2c8b HANDOFF: comprehensive current-state handoff for the next agent
 b7c3d75 Re-architecture: reliability, shared foundation, real Pro, icon
 16e5c42 (earlier) extract shared core workspace
 ```
-Immediate next action: re-pair the Pixel, install HEAD, run BACKLOG P0 #1, then the pairing manual
-test in `PAIRING-PLAN.md`.
+Immediate next action: review `LIFECYCLE-EVIDENCE.md`, keep `so-vtm.8` open for the
+owner-driven physical reproduction gate, and advance independently authorized host
+work. Do not re-pair or install on the Pixel under this assignment.
