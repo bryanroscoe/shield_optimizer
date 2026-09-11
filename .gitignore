@@ -136,3 +136,11 @@ screenshots/tmp/
 credentials.json
 secrets.json
 reddit-post.md
+
+# Gas Town (added by gt)
+.runtime/
+.logs/
+__pycache__/
+state.json
+CLAUDE.md
+CLAUDE.local.md
