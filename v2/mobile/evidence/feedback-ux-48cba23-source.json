@@ -1,0 +1,25 @@
+{
+  "workspace": "/Users/bryanroscoe/Developer/gastown/shield_optimizer/crew/navigator",
+  "head": "48cba2384ca3938e6655b77ccf85716dd86cca5f",
+  "scope": "Source inspection only. No application code edits, tests, GUI, builds, ADB or physical verification. Not integrated candidate acceptance.",
+  "source_sha256": {
+    "v2/crates/core/src/engine/safety.rs": "2bd0719ee482229a579ca9c7e5217e14c54e51c2c9b6809def76873f51174ac1",
+    "v2/crates/core/src/adb/parse.rs": "a2b89381e255d46bb229a314c0192d49bcf87333280f840e981b5583aefd58f7",
+    "v2/crates/core/src/commands/health.rs": "89899e4ee7b9757ac861545a6c36b086b664c5cd14cd4d0e31250d2ab1b1ea10",
+    "v2/crates/core/src/commands/apps.rs": "7068fe47e26999e9fbc5f932c4c7dedf787ad3fb3897234c04d969374c89888c",
+    "v2/crates/core/src/commands/tuning.rs": "aedda37c8340f43e574f0c5fe1533cd81bda695402ca568c91b337c294093a13",
+    "v2/crates/core/src/engine/types.rs": "08f48a1db423a292869b37462f7c4b8ba9df85c75ac455218477dc0b39e33d1e",
+    "v2/mobile/src/lib/savedDevices.ts": "b0ff066ea50945753f3b04dee5b91ff47338f7ed040a8555b088ce944fbeab81",
+    "v2/mobile/src/lib/safety.ts": "407e12bb37813084817c83c1da7aab48d9febb52cebf4284ca1aad020b98ac31",
+    "v2/mobile/src/screens/Onboarding.svelte": "73a1127d11ed14c37593e7f425b0d4f089c795c7000072bc43a021ee53da9ff8",
+    "v2/mobile/src/screens/Apps.svelte": "712809097f72d9dee9b38a7324c3932b0bc35f1468d7662fdfce1aee39dec5ed",
+    "v2/mobile/src/screens/Diagnostics.svelte": "c5110d0ff21ad7d3bf89d79843dd5d5dc05089c9cfd17ab603760767837d5efe",
+    "v2/mobile/src/screens/Tweaks.svelte": "8427c9a7d732f2d7362044e5f8476d03a938e4e9e0228065ab1465351fd1312a",
+    "v2/mobile/src/components/AppDetailSheet.svelte": "8e0a52c20d5f55036143547951731f9585ce03b6acaf9683757d6c3ebdf60bc5",
+    "v2/src/lib/types.ts": "28009e4a84e5e72bd75df548be4da68acf160414befc7bb432f48691f6424290",
+    "v2/src/lib/components/TweaksTab.svelte": "64db7e809b5c611c3ba6ecce8c19ef1d746e8128ec29e3b599c02ef1152f6aa8",
+    "v2/mobile/src/lib/log.ts": "c80028c2e59c7ced75c1031b2805e186a8c79617439e866cbe6f40a840b6fd77",
+    "v2/mobile/src/screens/More.svelte": "b7fa1653ad116bccfc00e385d645101a0a453328acdb08996feca4763fef12f0",
+    "v2/mobile/src/components/PaywallSheet.svelte": "b90fe5effdc1fe1805f68c87cda6a17ad64663a995c249942bdd9f72559d851c"
+  }
+}
