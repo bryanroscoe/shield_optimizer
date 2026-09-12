@@ -402,6 +402,8 @@
                 <span class="device-tag">Connected on :{session.connectPort}</span>
               {:else if row.status === "saved-address"}
                 <span class="device-tag">Saved address (unverified)</span>
+              {:else if row.status === "saved-other-port"}
+                <span class="device-tag">Saved · This address answered on another port</span>
               {:else if row.status === "saved-missing"}
                 <span class="device-tag">Saved · Not found in this scan</span>
               {:else}

@@ -4,6 +4,7 @@ export type DiscoveryRowStatus =
   | "connected"
   | "saved-address"
   | "found"
+  | "saved-other-port"
   | "saved-missing";
 
 export interface DiscoveryRow {
@@ -132,7 +133,12 @@ export function buildDiscoveryRows(
         live.host === first.host &&
         live.connectPort === first.connectPort
           ? "connected"
-          : "saved-missing",
+          // The address answered the scan on some other port. That is not the
+          // same claim as "offline", and it is the common case after a TV
+          // reboot rotates the wireless-debugging port.
+          : (discovered?.connectPorts.size ?? 0) > 0
+            ? "saved-other-port"
+            : "saved-missing",
       savedTarget,
     });
   }

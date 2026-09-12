@@ -160,6 +160,16 @@ aligned, never fork it*.
     shows host:port plus neutral shared-address guidance, and forgets the selected identity. Mechanic's
     combined saved-device/diagnostics tests passed 25/25, mobile check reported 0 errors/0 warnings,
     and the build passed; browser, device, publication, and release remain unverified.
+    Closing out `so-fb3.1`, the scan-row reconciliation (`lib/discoveryRows.ts`) now has its own
+    pure test suite (11 cases: repeated advertisements, mixed saved/new hosts, live-endpoint
+    identification, address and port changes, pairing-only hosts, colliding saved identities,
+    malformed records, `adb-…` instance names, legacy vs TLS ports). A saved endpoint whose address
+    answered the scan on a different port reports `saved-other-port` ("This address answered on
+    another port") instead of claiming it was not found — a rotated wireless-debugging port is not
+    evidence the TV is offline. Desktop was checked and is not affected: it enumerates devices
+    through the adb binary's own serials and keeps no saved-network-device list. Mobile gates:
+    tests 78/78, check 0 errors/0 warnings, build passed. Physical device verification of the
+    reconnect flow is still the open gate on the parent bead.
   - **Code pairing (SPAKE2) — implemented, unverified on a device.** Clean-room Rust in the
     vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`), wired through
     `WirelessAdb::pair` and the Onboarding pair step. Key finding: BoringSSL's SPAKE2 is a bespoke
