@@ -1,8 +1,16 @@
 # ATV Optimizer mobile backlog
 
-Updated 2026-09-05 (handoff). Nothing after `bb33ecc` has run on a phone or TV yet. This is the current ordered queue. `FEATURES.md` and
-`ARCHITECTURE-REVIEW.md` are historical audits and contain many findings that have already been
-fixed; use this file plus `HANDOFF.md` for current work.
+Updated 2026-09-05 America/Chicago (lifecycle evidence/current authority). Bryan's
+feedback records a debug build from `main` at `44d2d66` installed on the Pixel;
+this is owner-reported use, not a completed physical stability matrix.
+`FEATURES.md` and `ARCHITECTURE-REVIEW.md` are historical audits; use this file,
+`HANDOFF.md`, and `USER-FEEDBACK-2026-09-05.md` for current work. Track execution in
+`bd`, including restart feedback #7 on `so-vtm.8`.
+
+**Current scope is host-only: no device attachment/mutation, deployment, or
+speculative persistence.** Accepted Navigator work is committed and pushed under
+the September 10 policy in `AGENTS.md`; physical items below remain gated. The
+older installation instructions are not current permission.
 
 ## Correctness checkpoint
 
@@ -102,15 +110,28 @@ Verified device-less: all workspace gates green (fmt, clippy on 4 crates + aarch
 clippy, 165 core tests, 18 mobile tests, 27 vendored tests, `npm run check` 0/0, `npm run
 build`), plus a 384×812 Playwright pass with Tauri stubbed covering scan, the two-TV picker (no
 auto-dial), single-TV auto-dial, no auto-dial after an explicit Disconnect, connect-failure
-guidance, lost-connection probe/recovery, Emergency recovery, and the back-button stack. Nothing
-in this sweep has been installed on the Pixel yet.
+guidance, lost-connection probe/recovery, Emergency recovery, and the back-button stack.
+Those were the 2026-09-04 host results; later owner-reported `44d2d66` use does not
+complete the physical matrix.
 
 ## P0 — next correctness work
 
-1. **Install current HEAD on the Pixel and run the physical stability check.** The installed APK
-   predates the whole 2026-09-04 sweep. First re-pair the Pixel (Bryan reads the code + port off
-   Settings › Developer options › Wireless debugging), then `adb connect`, build with the §6
-   command in `HANDOFF.md`, `adb install -r -d`. On a real Shield: (a) put the TV to sleep or turn off Wi-Fi
+1. **Resolve restart feedback #7 with owner-driven lifecycle evidence (`so-vtm.8`).**
+   Host review is complete at `48cba23`: 13 focused browser cases and 9 existing regressions
+   pass; mobile check/build and 3 pure lifecycle tests pass. See
+   [`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md) for exact scope, reproducible commands,
+   and the physical gate. Visibility-only resume retains the screen; fresh JavaScript
+   starts over. This does not identify Bryan's leaving action or Android lifecycle event.
+   No session-persistence fix is authorized from that evidence alone.
+   Separately, mechanic accepted `so-vtm.3` navigation locally: saved-TV success
+   opens Dashboard directly after profile resolution (20 worker browser tests).
+   Navigator did not rerun that candidate; baseline interstitial observations do
+   not apply to its repaired saved-TV path. Physical/publication gates remain.
+
+   **Physical stability follow-up (gated):** once separately authorized, first identify
+   the installed build and capture exact Home/Back/Recents/recreation evidence. Do not
+   assume the APK predates the sweep, change it before recording the report, or reuse old
+   pairing endpoints. The broader real-Shield matrix also remains open: (a) put the TV to sleep or turn off Wi-Fi
    mid-session and confirm the app flips to "Reconnecting…" then the banner within ~45 s instead of
    staying green; (b) confirm a one-TV launch names the TV and can be cancelled, and a two-TV launch
    waits for a choice; (c) Disconnect, kill the app, relaunch — it must not redial; (d) run Optimize

@@ -1,0 +1,685 @@
+{
+  "scope": "Host Chromium with mocked Tauri; synthetic visibility events and virtual time; no Android lifecycle or real ADB execution",
+  "sourceHead": "48cba2384ca3938e6655b77ccf85716dd86cca5f",
+  "sourceStatus": "M ../../.gitignore\n M ../../CLAUDE.md\n?? ../../.beads/\n?? evidence/",
+  "root": "/Users/bryanroscoe/Developer/gastown/shield_optimizer/crew/navigator/v2/mobile",
+  "node": "v26.3.0",
+  "platform": "darwin/arm64",
+  "browser": "148.0.7778.96",
+  "hashes": {
+    "src/App.svelte": "e50b326fdff17fe0fdb3b10337c3bfb0f5b20dc95092863f364ed55ce58985a3",
+    "src/lib/router.svelte.ts": "aa40c3138fae5e9d65e780cb3eb14bf10285dad270d4dbccea67883d5a23ed2a",
+    "src/lib/session.svelte.ts": "4a8862a33adc57373d9ec528d6e12f6524bf8cad2a936be6f797c9b23e551e5c",
+    "src/lib/savedDevices.ts": "b0ff066ea50945753f3b04dee5b91ff47338f7ed040a8555b088ce944fbeab81",
+    "src/screens/Onboarding.svelte": "73a1127d11ed14c37593e7f425b0d4f089c795c7000072bc43a021ee53da9ff8",
+    "src-tauri/src/remote_lifecycle.rs": "921aed170929e4e50b2e431876472b46f6f4e55a68ba572516fbc1ab36f7ebf8",
+    "src-tauri/gen/android/app/src/main/java/com/atvoptimizer/mobile/MainActivity.kt": "433e6d45074e65ebe8041e263438c7531851b68fa9a12f234a03429ae9c1f189"
+  },
+  "observations": [
+    {
+      "id": "visibility-5000",
+      "hiddenMs": 5000,
+      "time": "virtual; no native grace timer runs",
+      "state": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:06.824Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "da007dc0-2f0e-48e5-b55e-fc1af9f03932"
+        }
+      ]
+    },
+    {
+      "id": "visibility-35000",
+      "hiddenMs": 35000,
+      "time": "virtual; no native grace timer runs",
+      "state": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:07.948Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "6ab1a0cc-6380-4a27-bb5b-3df946a1d431"
+        }
+      ]
+    },
+    {
+      "id": "visibility-50000",
+      "hiddenMs": 50000,
+      "time": "virtual; no native grace timer runs",
+      "state": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:08.265Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "fe5ef30a-437e-4445-ab5b-b0343f240860"
+        }
+      ]
+    },
+    {
+      "id": "resume-lost",
+      "state": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "lost",
+        "isConnected": false,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:08.557Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "89c15ca3-509f-41d2-8b4e-f2223f423cd4"
+        },
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661688557002
+          },
+          "documentId": "89c15ca3-509f-41d2-8b4e-f2223f423cd4"
+        }
+      ]
+    },
+    {
+      "id": "heartbeat-45000",
+      "state": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:08.957Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "07e76157-c714-440d-a54c-71c67665a932"
+        }
+      ]
+    },
+    {
+      "id": "reload-empty-pending",
+      "before": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:09.274Z\"}]"
+        }
+      },
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "",
+        "serial": "",
+        "liveness": "connecting",
+        "isConnected": false,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Connecting to Fixture TV A…",
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:09.274Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661689274001
+          },
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        },
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        }
+      ]
+    },
+    {
+      "id": "reload-empty-connected",
+      "state": {
+        "screen": "dashboard",
+        "stack": [
+          "dashboard"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:09.274Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661689274001
+          },
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        },
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        },
+        {
+          "command": "list_devices",
+          "args": {},
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        },
+        {
+          "command": "health_report",
+          "args": {
+            "serial": "tv-a.invalid:5555"
+          },
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        },
+        {
+          "command": "app_list_for_device",
+          "args": {
+            "deviceType": "shield"
+          },
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        },
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "1836d6b3-f57d-47f9-b5d0-983575714056"
+        }
+      ]
+    },
+    {
+      "id": "reload-retained-pending",
+      "before": {
+        "screen": "diagnostics",
+        "stack": [
+          "dashboard",
+          "diagnostics"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:09.820Z\"}]"
+        }
+      },
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "",
+        "serial": "",
+        "liveness": "connecting",
+        "isConnected": false,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Connecting to Fixture TV A…",
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:09.820Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661689820001
+          },
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        },
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        }
+      ]
+    },
+    {
+      "id": "reload-retained-connected",
+      "state": {
+        "screen": "dashboard",
+        "stack": [
+          "dashboard"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:09.820Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661689820001
+          },
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        },
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        },
+        {
+          "command": "list_devices",
+          "args": {},
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        },
+        {
+          "command": "health_report",
+          "args": {
+            "serial": "tv-a.invalid:5555"
+          },
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        },
+        {
+          "command": "app_list_for_device",
+          "args": {
+            "deviceType": "shield"
+          },
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        },
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "8024d9e1-4be4-4de7-84f5-b8ec5c469da5"
+        }
+      ]
+    },
+    {
+      "id": "fresh-context-saved-storage",
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Connected",
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:10.494Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661690494001
+          },
+          "documentId": "fd4e26e6-ff48-496b-a2ed-466366ea2133"
+        },
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "fd4e26e6-ff48-496b-a2ed-466366ea2133"
+        },
+        {
+          "command": "list_devices",
+          "args": {},
+          "documentId": "fd4e26e6-ff48-496b-a2ed-466366ea2133"
+        }
+      ]
+    },
+    {
+      "id": "disconnect-reload",
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "",
+        "serial": "",
+        "liveness": "idle",
+        "isConnected": false,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Which TV?",
+        "storage": {
+          "atv.autoConnect.v1": "0",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:10.769Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "b37db297-a13e-4035-93ad-484c37e949b6"
+        }
+      ]
+    },
+    {
+      "id": "two-saved-native-retained",
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "",
+        "serial": "",
+        "liveness": "idle",
+        "isConnected": false,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Which TV?",
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T00:00:00.000Z\"},{\"host\":\"tv-b.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV B\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T00:00:00.000Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "ad8f8ed1-cbf8-4c92-ad2a-86c5b9f70d0a"
+        }
+      ]
+    },
+    {
+      "id": "empty-storage",
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "",
+        "serial": "",
+        "liveness": "idle",
+        "isConnected": false,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Find your TV",
+        "storage": {
+          "atv.autoConnect.v1": "0",
+          "atv.savedDevices.v1": "[]"
+        }
+      },
+      "calls": [
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "12a62776-9cbb-4bfc-b750-4d22234379bc"
+        }
+      ]
+    },
+    {
+      "id": "browser-back-to-root",
+      "baseHistory": 2,
+      "note": "No root Back/Android exit claim; browser retains forward history.",
+      "state": {
+        "screen": "dashboard",
+        "stack": [
+          "dashboard"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": true,
+        "applyInProgress": false,
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:11.655Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        },
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661691655001
+          },
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        },
+        {
+          "command": "list_devices",
+          "args": {},
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        },
+        {
+          "command": "health_report",
+          "args": {
+            "serial": "tv-a.invalid:5555"
+          },
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        },
+        {
+          "command": "app_list_for_device",
+          "args": {
+            "deviceType": "shield"
+          },
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        },
+        {
+          "command": "app_list_for_device",
+          "args": {
+            "deviceType": "shield"
+          },
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        },
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "efbb007b-8efd-4551-bd69-0608839b5f97"
+        }
+      ]
+    },
+    {
+      "id": "no-key-replay",
+      "limit": "Completed fixture key only; no claim about interrupted native mutations.",
+      "state": {
+        "screen": "onboarding",
+        "stack": [
+          "onboarding"
+        ],
+        "host": "tv-a.invalid",
+        "serial": "tv-a.invalid:5555",
+        "liveness": "live",
+        "isConnected": true,
+        "healthLoaded": false,
+        "applyInProgress": false,
+        "heading": "Connected",
+        "storage": {
+          "atv.autoConnect.v1": "1",
+          "atv.savedDevices.v1": "[{\"host\":\"tv-a.invalid\",\"connectPort\":5555,\"name\":\"Fixture TV A\",\"deviceType\":\"shield\",\"lastUsed\":\"2026-09-06T02:28:11.899Z\"}]"
+        }
+      },
+      "calls": [
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661691899001
+          },
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "list_devices",
+          "args": {},
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "health_report",
+          "args": {
+            "serial": "tv-a.invalid:5555"
+          },
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "app_list_for_device",
+          "args": {
+            "deviceType": "shield"
+          },
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "remote_warm",
+          "args": {
+            "serial": "tv-a.invalid:5555"
+          },
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "send_key",
+          "args": {
+            "serial": "tv-a.invalid:5555",
+            "key": "volume_up",
+            "forceShell": false
+          },
+          "documentId": "c48b692c-d714-4b45-b069-d616809bee72"
+        },
+        {
+          "command": "wireless_connect",
+          "args": {
+            "host": "tv-a.invalid",
+            "port": 5555,
+            "requestId": 1788661691899001
+          },
+          "documentId": "e674b14f-3ff8-4021-b41b-0010644fa887"
+        },
+        {
+          "command": "get_entitlement",
+          "args": {},
+          "documentId": "e674b14f-3ff8-4021-b41b-0010644fa887"
+        },
+        {
+          "command": "list_devices",
+          "args": {},
+          "documentId": "e674b14f-3ff8-4021-b41b-0010644fa887"
+        },
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "e674b14f-3ff8-4021-b41b-0010644fa887"
+        },
+        {
+          "command": "wireless_status",
+          "args": {},
+          "documentId": "e674b14f-3ff8-4021-b41b-0010644fa887"
+        }
+      ]
+    }
+  ]
+}

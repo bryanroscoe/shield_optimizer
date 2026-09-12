@@ -26,8 +26,9 @@ the do-not-disable safety list gates every disable path.
 
 ## Where the release stands
 
-- `main` is at **`12c9859`**. The two large integration commits before it are `36b561c`
-  (core + desktop) and `d02de57` (mobile).
+- The last **code** change on `main` is **`12c9859`** (commits after it are documentation only).
+  The two large integration commits before it are `36b561c` (core + desktop) and `d02de57`
+  (mobile).
 - Everything on `main` past the v2-2.1.0 tag is **unreleased and unverified on physical hardware.**
   Local gates on one macOS host are green — core `cargo fmt`/`clippy`/tests, `src-tauri` tests,
   desktop and mobile `svelte-check` 0/0 and builds, mobile tests 78/78 — but **no Linux, no
@@ -45,11 +46,11 @@ the do-not-disable safety list gates every disable path.
      since release notes are read from that file.
   3. **Cross-OS CI.** Mobile and desktop harness jobs were proposed for `v2-tests.yml` and never
      added, so the mobile suite has never run on Linux or Windows.
-- The full decision packet with per-file provenance, the commit plan, the drafted changelog and the
-  step-by-step device script was written at
-  `mayor/artifacts/hq-b1t/shield-release-decision-20260909.md` in the retired tracker's tree. If
-  that tree is gone, the summary above is what survived; the device script can be reconstructed
-  from `v2/mobile/LIFECYCLE-EVIDENCE.md` and the issue list.
+- **The full decision packet is preserved in this repo at
+  [`docs/RELEASE-DECISION-2026-09-09.md`](RELEASE-DECISION-2026-09-09.md).** It has the per-file
+  provenance, the commit plan, the drafted `v2-2.2.0-beta.1` changelog section, the exact
+  step-by-step device script (desktop D1–D8 and mobile M1–M8, with an abort rule), the cross-OS CI
+  gap list, and an appendix on what is still unknown about #87 and #89. Read it before tagging.
 
 ## Where the work items went
 
@@ -61,6 +62,15 @@ the do-not-disable safety list gates every disable path.
   pairing), `#89` (macOS removable-volume prompts) and `#91` (Remote clipboard paste) are the
   original public reports; the migrated items covering the same work are separate issues. Close
   one side of each pair as a duplicate rather than working both.
+- **Engineering records that used to live outside this repo are now in it:**
+  [`docs/RELEASE-DECISION-2026-09-09.md`](RELEASE-DECISION-2026-09-09.md) (release and device-test
+  packet), [`v2/mobile/UNKNOWN-DIAGNOSTICS-UX.md`](../v2/mobile/UNKNOWN-DIAGNOSTICS-UX.md) (the UX
+  design for the unknown-app diagnostics log), and
+  [`v2/mobile/evidence/`](../v2/mobile/evidence/) — the lifecycle acceptance evidence for the
+  app-restart investigation, including `lifecycle/reproduce.mjs`, a runnable Playwright harness
+  that regenerates `baseline-48cba23.json` against a mocked Tauri layer with no device.
+  Not preserved: a 10 MB working directory of per-candidate manifests and patches, which was
+  vite build output, screenshots, and diffs of code that is already on `main`.
 - **Full history, including closed items, is `docs/gastown-shield_optimizer-beads-export.json`**
   (39 records). That file is the archive — closed items explain why decisions were made and are
   not part of the live backlog. Four records in it are retired-tracker scaffolding

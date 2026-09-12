@@ -1,0 +1,27 @@
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ synthetic hidden 5000ms / visible retains screen and probes once (1494.983125ms)
+✔ synthetic hidden 35000ms / visible retains screen and probes once (325.261792ms)
+✔ synthetic hidden 50000ms / visible retains screen and probes once (293.184625ms)
+✔ synthetic resume with lost socket tries once then shows Retry on prior screen (391.498667ms)
+✔ visible heartbeat waits 45 seconds before probing (293.961209ms)
+✔ reload clears prior screen/cache; native fixture retained=false (591.144333ms)
+✔ reload clears prior screen/cache; native fixture retained=true (470.2565ms)
+✔ fresh context with saved storage reconstructs bookkeeping, not a live session (466.429083ms)
+✔ explicit Disconnect survives reload and prevents automatic dial (403.209708ms)
+✔ two saved TVs wait for choice even when a simulated native connection remains (255.010916ms)
+✔ empty storage starts at Find your TV with no scan or connection (240.842834ms)
+✔ browser Back pops detail and root adds no synthetic spare; native exit untested (245.512667ms)
+✔ a completed mock remote key is not replayed after reload (404.615792ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6368.793042
