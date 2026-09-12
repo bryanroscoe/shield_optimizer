@@ -9,26 +9,23 @@ Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (historical fin
 nightly cloud agent). Cross-session memory also lives
 in `~/.claude/projects/-Users-bryanroscoe-Developer-shield-optimizer/memory/`.
 
-Current lifecycle evidence baseline: **`48cba23`**, Navigator workspace `crew/navigator`.
-The original mobile effort used `feat/atv-optimizer-mobile`; do not infer current
-branch or release state from that historical name. Bryan's later feedback records
-an installed debug build from `main` at `44d2d66` (see `USER-FEEDBACK-2026-09-05.md`).
+Current lifecycle evidence baseline: **`48cba23`**. The original mobile effort used
+`feat/atv-optimizer-mobile`; do not infer current branch or release state from that historical
+name. Bryan's feedback records an installed debug build from `main` at `44d2d66` (see
+`USER-FEEDBACK-2026-09-05.md`).
 
-**Current authority (`so-vtm.8`): host-only review/evidence/docs, no device attachment
-or mutation, no speculative persistence, no commit/push/deploy.** This supersedes
-older phone-interaction and shipping instructions below. Mechanic owns integration
-and Sol file reservations; Navigator owns mobile UX/lifecycle evidence and docs.
-See **[`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md)** for the reproducible browser
-matrix and the owner-driven physical gate. Feedback #7 remains physically unresolved.
+**Status as of 2026-09-12.** The coordination system that produced the `so-*` task ids referenced
+throughout this file has been retired; those ids now map to GitHub issues labeled `gastown`, and
+the full archive is `docs/gastown-shield_optimizer-beads-export.json`. Older "current authority"
+restrictions in this document — host-only review, no commit/push/deploy — **no longer apply.**
+The current policy is in the repo `CLAUDE.md`: commit and push finished work continuously.
 
-**Pending local navigation candidate (`so-vtm.3`):** mechanic accepted the separate
-three-file Onboarding/session-test/feedback patch with 20 passing worker browser
-tests. Saved-TV success opens Dashboard directly after profile resolution;
-first-time/add-TV still uses the confirmation screen. Navigator's lifecycle matrix
-was run on baseline `48cba23`, not that candidate; its saved-TV Open dashboard
-observations must not be described as candidate behavior. No prior-screen
-persistence, physical validation, or publication is implied. See the evidence
-report for the preserved patch and provenance.
+What has *not* changed is the physical gate. Nothing in `v2/mobile` has been verified on a phone
+or TV since `44d2d66`, and the saved-TV/lifecycle behavior described below rests on host browser
+evidence only. See **[`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md)** for the reproducible
+matrix and `evidence/lifecycle/reproduce.mjs` to regenerate it. Restart feedback #7 remains
+physically unresolved. The navigation change that opens the Dashboard directly after a saved-TV
+connect is merged; its browser tests pass and it has never run on a device.
 
 ---
 

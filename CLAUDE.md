@@ -9,6 +9,37 @@ The two release tracks are intentionally separate. Don't mix tag namespaces and 
 
 Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the priority list, and any in-flight scope that isn't yet in the code.
 
+## Start here — where the work is tracked
+
+- **The backlog is GitHub issues labeled [`gastown`](https://github.com/bryanroscoe/shield_optimizer/issues?q=is%3Aissue+is%3Aopen+label%3Agastown)**
+  in `bryanroscoe/shield_optimizer`. Each is titled `[<id>] <title>` and carries the original
+  description, acceptance criteria and dependencies. Issues without that label are user reports;
+  some of them duplicate a labeled issue (`#88`, `#89`, `#91` are the known pairs).
+- **[`docs/GASTOWN-HANDOFF.md`](docs/GASTOWN-HANDOFF.md) is the orientation document.** Read it
+  before picking anything up: it explains what the two products are, exactly where the release
+  stands, and what to work on first.
+- **[`docs/RELEASE-DECISION-2026-09-09.md`](docs/RELEASE-DECISION-2026-09-09.md)** has the release
+  plan and the step-by-step physical device test script. Read it before tagging anything.
+- **[`docs/gastown-shield_optimizer-beads-export.json`](docs/gastown-shield_optimizer-beads-export.json)**
+  is the full historical task archive including closed items — useful for "why was this done this
+  way", not a live queue.
+- **[`docs/ARCHIVE-INDEX.md`](docs/ARCHIVE-INDEX.md)** points at bulk working material kept outside
+  this repo on Bryan's machine.
+
+### What is in flight right now (2026-09-12)
+
+Everything on `main` past the `v2-2.1.0` tag is **unreleased and has never run on a physical
+device.** Local gates pass on one macOS host; Linux, Windows and device runs have not happened.
+Four user-reported fixes (#86, #87, #88, #89) are sitting on `main` and have not reached a user.
+**Running the device test and shipping the beta is the highest-value work available.** Three of
+those four fixes were written without reproducing the reporter's hardware, so treat them as
+unconfirmed until a reporter confirms.
+
+The mobile companion app (`v2/mobile/`) has its own authoritative handoff at
+[`v2/mobile/HANDOFF.md`](v2/mobile/HANDOFF.md). Its safety story depends on never claiming more
+certainty than it has: saved TVs are matched on verified hardware id and never on IP address
+alone, and uncatalogued packages are labeled Unknown rather than Safe. Preserve that.
+
 ## v2 architecture invariants
 
 These are load-bearing — break them and the safety story falls over.
@@ -87,7 +118,9 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 - **Comments**: only when the *why* is non-obvious. Don't add docstrings/comments to code you didn't change. No banner / section-divider comments.
 - **Spelling**: the company is "Truemed" — silently correct other casings (TrueMed, TRUEMED, truemed) in writing, except in verbatim quotes, URLs, and code identifiers.
 
-## Commit and push policy — direct instruction from Bryan, September 10, 2026
+## Commit and push policy
 
-This supersedes every earlier "no commits, no pushes" line in this file and in the town-level instructions, including the overnight-prototype restriction. All work in this workspace is committed and pushed to GitHub continuously: push your branch (or the rig main branch if you are the lead integrating accepted work) at every accepted milestone and before idling. Exclusions: secrets, credentials, dependency and build caches, gitignored files, runtime evidence over 50MB. No history rewrites, no force pushes. Not pushing is treated as a defect. Relayed by the Mayor at Bryan's direct request; the Mayor audits unpushed work every two hours.
-
+All work is committed and pushed to GitHub continuously: push at every finished milestone and
+before going idle. Never leave finished work sitting unpushed. Exclusions: secrets, credentials,
+dependency and build caches, gitignored files, and runtime evidence over 50 MB. No history
+rewrites and no force pushes.
