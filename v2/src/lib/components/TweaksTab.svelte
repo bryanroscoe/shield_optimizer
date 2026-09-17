@@ -760,13 +760,21 @@
     gap: 0.4rem;
     margin: 0.4rem 0 0.8rem;
   }
+  /* Each control is its own object rather than a hairline-separated line in
+     a long scroll — the board's settings rows. Eleven sections on one page
+     need the grouping more than they need the density. */
   .tweak-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--bg-button);
+    padding: 0.7rem 0.9rem;
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .tweak-row + .tweak-row {
+    margin-top: 0.4rem;
   }
   .surround-formats {
     background: var(--bg-inset);
