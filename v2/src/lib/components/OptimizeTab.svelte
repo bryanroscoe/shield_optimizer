@@ -432,16 +432,27 @@
   <div class="card-header">
     <h2><Icon name="auto_fix_high" size={17} /> Optimize / Restore Wizard</h2>
     <div class="header-actions">
-      <button
-        class:primary={optimizeMode === "optimize"}
-        onclick={() => loadOptimizePlan("optimize")}
-        disabled={optimizePlanLoading || optimizeRunning}
-      >Optimize</button>
-      <button
-        class:primary={optimizeMode === "restore"}
-        onclick={() => loadOptimizePlan("restore")}
-        disabled={optimizePlanLoading || optimizeRunning}
-      >Restore</button>
+      <!-- A mode switch, not an action pair. It was two buttons with the lime
+           fill marking the current mode, but lime means "press this" — using
+           it for state makes the app's one action colour ambiguous. A
+           segmented control shows which mode you are in without borrowing
+           the action colour, and matches the two-choice settings in Tweaks. -->
+      <div class="mode-box" role="group" aria-label="Plan mode">
+        <button
+          class="mode-btn"
+          class:active={optimizeMode === "optimize"}
+          aria-pressed={optimizeMode === "optimize"}
+          onclick={() => loadOptimizePlan("optimize")}
+          disabled={optimizePlanLoading || optimizeRunning}
+        >Optimize</button>
+        <button
+          class="mode-btn"
+          class:active={optimizeMode === "restore"}
+          aria-pressed={optimizeMode === "restore"}
+          onclick={() => loadOptimizePlan("restore")}
+          disabled={optimizePlanLoading || optimizeRunning}
+        >Restore</button>
+      </div>
     </div>
   </div>
   <p class="muted small">
@@ -697,10 +708,41 @@
   }
 
   /* Optimize-specific styles. */
+  /* The running total of what this run will do — accent-tinted so it reads as
+     the consequence of the button beneath it rather than another grey note. */
+  /* Recessed trough, filled active segment — the same idiom as a two-choice
+     setting in Tweaks. */
+  .mode-box {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .mode-btn {
+    border: 1px solid transparent;
+    background: none;
+    border-radius: calc(var(--radius-md) - 3px);
+    color: var(--fg-muted);
+    padding: 0.25rem 0.8rem;
+    font-size: 0.85rem;
+  }
+  .mode-btn:hover:not(.active):not(:disabled) {
+    background: var(--bg-button-hover);
+    color: var(--fg-primary);
+  }
+  .mode-btn.active {
+    background: var(--bg-surface);
+    border-color: var(--border);
+    color: var(--fg-primary);
+    font-weight: 600;
+  }
   .plan-summary {
     margin: 0.4rem 0;
-    padding: 0.5rem 0.8rem;
-    background: var(--bg-inset);
+    padding: 0.6rem 0.9rem;
+    background: var(--accent-surface);
+    border-color: var(--accent) !important;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 0.9rem;
