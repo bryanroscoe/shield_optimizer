@@ -1543,34 +1543,48 @@
   </div>
 
   {#if activeTab === "overview"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-overview" aria-labelledby="tab-overview">
-      <h2><Icon name="tv" size={17} /> Profile</h2>
-      {#if device.properties}
-        <dl class="kv">
-          <dt>Friendly name</dt>
-          <dd>{shown(device.properties.friendly_name)}</dd>
-          <dt>Brand</dt><dd>{shown(device.properties.brand)}</dd>
-          <dt>Model</dt><dd>{shown(device.properties.model)}</dd>
-          <dt>Codename</dt><dd>{shown(device.properties.device_codename)}</dd>
-          <dt>Manufacturer</dt><dd>{shown(device.properties.manufacturer)}</dd>
-          <dt>Android version</dt>
-          <dd>
-            {shown(device.properties.android_release)} (SDK {shown(device.properties.sdk_level)})
-          </dd>
-          <dt>Build ID</dt><dd>{shown(device.properties.build_id)}</dd>
-          <dt>Board platform</dt><dd>{shown(device.properties.board_platform)}</dd>
-          <dt>Hardware ID</dt><dd>{shown(device.properties.serial_number)}</dd>
-        </dl>
-      {:else}
-        <p class="muted small">
-          This device hasn't reported its details. It's usually still waiting on
-          the debugging authorization prompt on the TV — over the network some
-          TVs still title that "Allow USB debugging?".
-        </p>
-      {/if}
+    <div class="overview-stack" role="tabpanel" tabindex={0} id="tabpanel-overview" aria-labelledby="tab-overview">
+      <div class="card">
+        <h2><Icon name="tv" size={17} /> Profile</h2>
+        {#if device.properties}
+          <h3>Identity</h3>
+          <dl class="kv">
+            <dt>Friendly name</dt>
+            <dd>{shown(device.properties.friendly_name)}</dd>
+            <dt>Brand</dt><dd>{shown(device.properties.brand)}</dd>
+            <dt>Model</dt><dd>{shown(device.properties.model)}</dd>
+            <dt>Manufacturer</dt><dd>{shown(device.properties.manufacturer)}</dd>
+          </dl>
 
-      <div class="recovery-section">
-        <h3>Emergency Recovery</h3>
+          <h3>Software</h3>
+          <dl class="kv">
+            <dt>Android version</dt>
+            <dd>
+              {shown(device.properties.android_release)} (SDK {shown(device.properties.sdk_level)})
+            </dd>
+            <dt>Build ID</dt><dd class="mono">{shown(device.properties.build_id)}</dd>
+          </dl>
+
+          <h3>Hardware</h3>
+          <dl class="kv">
+            <dt>Codename</dt><dd class="mono">{shown(device.properties.device_codename)}</dd>
+            <dt>Board platform</dt><dd class="mono">{shown(device.properties.board_platform)}</dd>
+            <dt>Hardware ID</dt><dd class="mono">{shown(device.properties.serial_number)}</dd>
+          </dl>
+        {:else}
+          <p class="muted small">
+            This device hasn't reported its details. It's usually still waiting on
+            the debugging authorization prompt on the TV — over the network some
+            TVs still title that "Allow USB debugging?".
+          </p>
+        {/if}
+      </div>
+
+      <!-- Its own card, not a footnote on the spec sheet: this re-enables every
+           disabled package on the TV and deserves to look like the one
+           consequential thing on the screen. -->
+      <div class="card danger-card">
+        <h2><Icon name="restore" size={17} /> Emergency Recovery</h2>
         <p class="muted small">
           If something broke after disabling a package, re-enable everything that's
           currently disabled in one shot. Equivalent to v1's <code>Run-PanicRecovery</code>.
@@ -2360,6 +2374,24 @@
      duplicated from the Vitals list below rather than moved out of it. The
      icon carries the threshold colour so the tone is readable before the
      number is. */
+  /* Overview is two cards, not one: a read-only spec sheet and a destructive
+     action. They were sharing a card, which made the recovery button read as
+     a footnote on the device's build id. */
+  .overview-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .danger-card {
+    border-color: var(--danger-border);
+    background: linear-gradient(
+      var(--danger-surface),
+      var(--danger-surface)
+    ), var(--bg-surface);
+  }
+  .danger-card h2 :global(.msr) {
+    color: var(--danger-text);
+  }
   .stat-tiles {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
