@@ -410,7 +410,7 @@
     letter-spacing: 0.04em;
   }
   td.num {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     text-align: right;
     width: 100px;
   }
@@ -418,14 +418,14 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .error {
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   .row-actions {
@@ -489,7 +489,7 @@
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
   }
 
@@ -515,7 +515,7 @@
     margin-top: 0.5rem;
   }
   .apk-name {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.88rem;
     word-break: break-all;
   }

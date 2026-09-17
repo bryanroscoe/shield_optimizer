@@ -2,6 +2,22 @@
    Component-scoped rules stay in their own .svelte files; anything here is
    deliberately app-wide. Imported once from src/routes/+layout.svelte. */
 
+/* Offline-bundled fonts — see src/fonts/README.md. No CDN: a desktop app has
+   no network guarantee, and these also keep rendering identical across
+   macOS, Windows and Linux. */
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Semantic color tokens, one block per theme. $lib/theme.ts resolves the
    "system" preference to a concrete data-theme, so each palette is written
    exactly once here — an earlier version repeated the light values under a
@@ -78,13 +94,19 @@
   --warn-surface-2: #fff1e5;
   --advanced: #8250df;
 }
+
+/* Theme-independent tokens. */
+:root {
+  --sans: "Geist", system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "Roboto Mono", monospace;
+}
+
 html, body {
   margin: 0;
   padding: 0;
   height: 100vh;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
-    Cantarell, sans-serif;
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
   background: var(--bg-page);
   color: var(--fg-primary);
 }
@@ -136,6 +158,14 @@ input, select {
   font-size: 0.9rem;
   font-family: inherit;
 }
+/* Ten components declare their own scoped copy of this; routes/+page.svelte
+   uses class="mono" without one, so its pairing message and device serials
+   were rendering in the sans face. The scoped copies win on specificity and
+   are folded in separately. */
+.mono {
+  font-family: var(--mono);
+}
+
 .muted {
   color: var(--fg-secondary);
   opacity: 0.8;

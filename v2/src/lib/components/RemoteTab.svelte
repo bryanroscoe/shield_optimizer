@@ -330,7 +330,7 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .warn-text {
     color: var(--warn);

@@ -136,7 +136,7 @@
   }
   .safety,
   .state-unavailable {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.78rem;
     letter-spacing: 0.04em;
   }
@@ -173,7 +173,7 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   /* Optimize-row emphasis (passed via rowClass): skipped rows recede; rows that
      WILL be acted on get a left accent bar and a faint tint. The action/result

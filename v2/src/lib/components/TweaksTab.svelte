@@ -713,14 +713,14 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .error {
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   .row-actions {
@@ -770,7 +770,7 @@
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
   }
 

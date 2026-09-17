@@ -457,7 +457,7 @@
     flex-basis: 100%;
     margin: 0.4rem 0 0;
     font-size: 0.85rem;
-    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-family: var(--mono);
   }
   .device-list {
     list-style: none;
@@ -496,7 +496,7 @@
   .conn-tag {
     color: var(--fg-muted);
     font-size: 0.78rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .status-tag {
     font-size: 0.72rem;
@@ -629,7 +629,7 @@
   }
   .install-message {
     margin-top: 0.8rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .small {
     font-size: 0.82rem;
@@ -639,7 +639,7 @@
     color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   code {
@@ -647,7 +647,7 @@
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
   }
 </style>

@@ -20,7 +20,7 @@
 <style>
   .ram-tag {
     font-size: 0.72rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     color: var(--fg-muted);
     white-space: nowrap;
   }

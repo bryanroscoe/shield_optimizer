@@ -313,7 +313,7 @@
     color: var(--fg-muted);
     font-weight: 500;
     font-size: 0.9rem;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   button.version {
     background: none;
@@ -385,7 +385,7 @@
     flex: none;
   }
   .notes-body code {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
     background: var(--bg-muted);
     padding: 0.05rem 0.3rem;

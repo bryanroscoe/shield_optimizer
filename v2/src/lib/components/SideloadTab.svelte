@@ -296,7 +296,7 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .small-action {
     padding: 0.2rem 0.6rem;
@@ -315,7 +315,7 @@
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
   }
 
@@ -377,7 +377,7 @@
   .install-result.ok { color: var(--ok); }
   .install-result.bad { color: var(--warn); }
   .apk-name {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.88rem;
     word-break: break-all;
   }

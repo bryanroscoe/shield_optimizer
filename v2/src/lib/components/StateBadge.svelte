@@ -16,7 +16,7 @@
     border-radius: 4px;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .state-badge.state-enabled {
     background: var(--ok-surface);

@@ -616,14 +616,14 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .error {
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   table {

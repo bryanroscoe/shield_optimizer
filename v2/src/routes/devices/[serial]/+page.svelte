@@ -2276,7 +2276,7 @@
     flex-wrap: wrap;
   }
   .serial {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   .tabs {
@@ -2374,7 +2374,7 @@
   }
   .kv dd {
     margin: 0;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   table {
     width: 100%;
@@ -2443,21 +2443,21 @@
     letter-spacing: 0.04em;
   }
   td.num {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     text-align: right;
     width: 100px;
   }
   td.num.warn { color: var(--danger-strong); }
   td.num.caution { color: var(--warn); }
   td.pkg {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   .small {
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .launcher-list {
     list-style: none;
@@ -2508,7 +2508,7 @@
     color: var(--danger-text);
     padding: 0.7rem 1rem;
     border-radius: 6px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85rem;
   }
   .snap-list {
@@ -2865,7 +2865,7 @@
     border-radius: 4px;
     padding: 0.7rem 1rem;
     margin: 0.8rem 0;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.82rem;
     white-space: pre-wrap;
     word-break: break-word;
@@ -2875,7 +2875,7 @@
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
   }
 </style>

@@ -336,7 +336,7 @@
     border-radius: 4px;
     padding: 0.6rem 0.8rem;
     margin: 0.5rem 0;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.82rem;
     white-space: pre-wrap;
     word-break: break-word;
@@ -352,7 +352,7 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   .small-action {
     padding: 0.2rem 0.6rem;
@@ -372,7 +372,7 @@
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.85em;
   }
 
