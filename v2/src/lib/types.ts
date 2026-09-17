@@ -415,7 +415,3 @@ export function deviceTypeLabel(t: DeviceType): string {
       return "Unknown";
   }
 }
-
-export function riskBadgeClass(r: RiskTier): string {
-  return `risk-${r}`;
-}

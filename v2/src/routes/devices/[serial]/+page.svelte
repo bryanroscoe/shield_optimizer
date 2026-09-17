@@ -23,6 +23,14 @@
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import {
+    confirmVerdictLine,
+    isBlocked,
+    safetyClass,
+    safetyLabel,
+    safetyReason,
+    type SafetyStatus,
+  } from "$lib/safety";
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
   import StateBadge from "$lib/components/StateBadge.svelte";
@@ -55,10 +63,6 @@
   let liveRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const LIVE_REFRESH_INTERVAL_MS = 3000;
   type PackageState = "enabled" | "disabled" | "missing";
-  type SafetyStatus =
-    | { status: "checking" }
-    | { status: "ready"; verdict: Safety }
-    | { status: "unavailable"; reason: string };
   type PageContext = { serial: string; epoch: number };
   let memorySafety = $state<Record<string, SafetyStatus>>({});
   let packageSafety = $state<Record<string, SafetyStatus>>({});
@@ -79,20 +83,6 @@
     return !destroyed && context.serial === serial && context.epoch === pageEpoch;
   }
 
-  function safetyLabel(safety: SafetyStatus | undefined): string {
-    if (!safety || safety.status === "unavailable") return "Unavailable";
-    if (safety.status === "checking") return "Checking";
-    if (safety.verdict.kind === "never_disable") return "Protected";
-    if (safety.verdict.kind === "caution") return "Caution";
-    return "Unknown";
-  }
-
-  function safetyReason(safety: SafetyStatus | undefined): string {
-    if (!safety) return "Safety lookup has not completed.";
-    if (safety.status === "checking") return "Safety lookup is in progress.";
-    if (safety.status === "unavailable") return `Safety lookup failed: ${safety.reason}`;
-    return safety.verdict.reason;
-  }
 
   let renaming = $state(false);
   let renameValue = $state("");
@@ -652,7 +642,7 @@
       appActionMessage = `${pkg}: safety unavailable. Refresh before ${action}.`;
       return;
     }
-    if (displayedSafety.verdict.kind === "never_disable") {
+    if (isBlocked(displayedSafety.verdict)) {
       appActionMessage = `${pkg}: protected — ${displayedSafety.verdict.reason}`;
       return;
     }
@@ -672,7 +662,7 @@
       if (!pageContextIsCurrent(context)
         || request !== mutationRequest
         || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
-      if (before.safety.kind === "never_disable") {
+      if (isBlocked(before.safety)) {
         appActionMessage = `${pkg}: protected — ${before.safety.reason}`;
         return;
       }
@@ -682,7 +672,7 @@
         return;
       }
       const approved = confirm(
-        `${action.toUpperCase()} ${name}\nPackage: ${pkg}\nSafety: ${before.safety.kind === "caution" ? "Caution" : "Unknown"}\nReason: ${before.safety.reason}\n\nProceed?`,
+        `${action.toUpperCase()} ${name}\nPackage: ${pkg}\n${confirmVerdictLine(before.safety)}\n\nProceed?`,
       );
       if (!approved
         || !pageContextIsCurrent(context)
@@ -692,7 +682,7 @@
       if (!pageContextIsCurrent(context)
         || request !== mutationRequest
         || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
-      if (after.safety.kind === "never_disable"
+      if (isBlocked(after.safety)
         || after.safety.kind !== before.safety.kind
         || after.safety.reason !== before.safety.reason) {
         appActionMessage = `${pkg}: safety changed after confirmation. No action was taken; refresh and review again.`;
@@ -837,7 +827,7 @@
     }
     const method = effectiveMethod(a);
     if (safety?.status !== "ready") return { kind: "unavailable", label: "Safety unavailable" };
-    if (safety.verdict.kind === "never_disable") return { kind: "done", label: "Protected" };
+    if (isBlocked(safety.verdict)) return { kind: "done", label: "Protected" };
     if (safety.verdict.kind === "unknown") {
       return state === "enabled"
         ? { kind: "review", label: `${method === "disable" ? "Disable" : "Remove"} after review`, action: method }
@@ -1717,7 +1707,7 @@
                   </td>
                   <td class="pkg">{m.package}</td>
                   <td class="center" title={safetyReason(safety)}>
-                    {safetyLabel(safety).toUpperCase()}
+                    <span class={safetyClass(safety)}>{safetyLabel(safety)}</span>
                   </td>
                 </tr>
               {/each}
@@ -1931,7 +1921,7 @@
               {@const state = appStates[a.package] ?? null}
               {@const safety = packageSafety[a.package]}
               {@const rec = recommendation(a, state, safety)}
-              {@const canRemove = (state === "enabled" || state === "disabled") && safety?.status === "ready" && safety.verdict.kind !== "never_disable"}
+              {@const canRemove = (state === "enabled" || state === "disabled") && safety?.status === "ready" && !isBlocked(safety.verdict)}
               <AppRow
                 name={a.name}
                 description={a.optimize_description}
@@ -2068,7 +2058,7 @@
               <tbody>
                 {#each visibleOthers as o (o.package)}
                   {@const safety = packageSafety[o.package]}
-                  {@const canRemove = othersLoaded && safety?.status === "ready" && safety.verdict.kind !== "never_disable"}
+                  {@const canRemove = othersLoaded && safety?.status === "ready" && !isBlocked(safety.verdict)}
                   <tr>
                     <td class="app-cell">
                       {#if o.name}
@@ -2090,7 +2080,9 @@
                         <div class="cell-cue"><UsageBadge usage={appUsage[o.package]} /></div>
                       {/if}
                     </td>
-                    <td class="center" title={safetyReason(safety)}>{safetyLabel(safety).toUpperCase()}</td>
+                    <td class="center" title={safetyReason(safety)}>
+                      <span class={safetyClass(safety)}>{safetyLabel(safety)}</span>
+                    </td>
                     <td class="rec-cell">
                       {#if o.enabled}
                         <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Canonical safety and fresh inventory are required">Disable</button>

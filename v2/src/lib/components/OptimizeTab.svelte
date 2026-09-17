@@ -4,6 +4,7 @@
   import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage, Safety } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
   import { isStaleUsage, usageLabel } from "$lib/usage";
+  import { confirmVerdictLine, isBlocked, type SafetyStatus } from "$lib/safety";
 
   let {
     serial,
@@ -40,10 +41,6 @@
   let optimizeAbort = $state(false);
   let optimizeSummary = $state<string>("");
   let optimizePerfApplied = $state<boolean>(false);
-  type SafetyStatus =
-    | { status: "checking" }
-    | { status: "ready"; verdict: Safety }
-    | { status: "unavailable"; reason: string };
   type RunItem = {
     package: string;
     name: string;
@@ -169,7 +166,7 @@
     if (natural === null) return null;
     if (natural === "disable" || natural === "uninstall") {
       const safety = safetyByPackage[item.entry.package];
-      if (safety?.status !== "ready" || safety.verdict.kind === "never_disable") return "skip";
+      if (safety?.status !== "ready" || isBlocked(safety.verdict)) return "skip";
       if (safety.verdict.kind === "unknown") return "skip";
     }
     const isDefault =
@@ -183,7 +180,7 @@
     const action = optimizeOverrides[item.entry.package] ?? defaultAction(item) ?? "skip";
     if (action === "disable" || action === "uninstall") {
       const safety = safetyByPackage[item.entry.package];
-      if (safety?.status !== "ready" || safety.verdict.kind === "never_disable") return "skip";
+      if (safety?.status !== "ready" || isBlocked(safety.verdict)) return "skip";
     }
     return action;
   }
@@ -194,7 +191,7 @@
   function actionOptions(item: OptimizePlanItem): RowAction[] {
     if (naturalAction(item) === "enable") return ["enable", "skip"];
     const safety = safetyByPackage[item.entry.package];
-    return safety?.status === "ready" && safety.verdict.kind !== "never_disable"
+    return safety?.status === "ready" && !isBlocked(safety.verdict)
       ? ["disable", "uninstall", "skip"]
       : ["skip"];
   }
@@ -204,7 +201,7 @@
     const safety = safetyByPackage[item.entry.package];
     return (action === "disable" || action === "uninstall")
       && safety?.status === "ready"
-      && safety.verdict.kind !== "never_disable";
+      && !isBlocked(safety.verdict);
   }
 
   function actionLabel(item: OptimizePlanItem, action: RowAction): string {
@@ -260,7 +257,7 @@
     const label = mode === "optimize" ? "Optimize" : "Restore";
     const removalDetails = selected
       .filter((item) => item.verdict)
-      .map((item) => `${item.action.toUpperCase()} ${item.name} (${item.package})\nSafety: ${item.verdict!.kind === "caution" ? "Caution" : "Unknown"}\nReason: ${item.verdict!.reason}`)
+      .map((item) => `${item.action.toUpperCase()} ${item.name} (${item.package})\n${confirmVerdictLine(item.verdict!)}`)
       .join("\n\n");
     const confirmation = removalDetails
       ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
@@ -292,11 +289,11 @@
           if (!contextIsCurrent(context) || request !== runRequest) return;
           if (optimizeAbort) break;
           if (!item.verdict
-            || currentSafety.kind === "never_disable"
+            || isBlocked(currentSafety)
             || currentSafety.kind !== item.verdict.kind
             || currentSafety.reason !== item.verdict.reason) {
             optimizeProgress[pkg] = "failed";
-            optimizeFailureMessages[pkg] = currentSafety.kind === "never_disable"
+            optimizeFailureMessages[pkg] = isBlocked(currentSafety)
               ? `Protected: ${currentSafety.reason}`
               : "Safety changed after confirmation. Reload and review the plan.";
             failed++;

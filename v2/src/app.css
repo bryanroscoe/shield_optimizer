@@ -64,7 +64,6 @@
   --warn-surface: color-mix(in srgb, var(--warn) 12%, transparent);
   --warn-surface-2: color-mix(in srgb, var(--warn) 18%, transparent);
   --warn-border: color-mix(in srgb, var(--warn) 30%, transparent);
-  --advanced: #a78bfa;
   --scrim: rgba(0, 0, 0, 0.6);
   --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
@@ -222,9 +221,57 @@ textarea:focus-visible {
   color: var(--fg-secondary);
   opacity: 0.8;
 }
-.risk-safe { color: var(--ok); }
-.risk-medium { color: var(--warn); }
-.risk-high { color: var(--danger-strong); }
-.risk-advanced { color: var(--advanced); }
-.risk-unknown { color: var(--warn); font-weight: 500; }
-.risk-blocked { color: var(--fg-muted); font-weight: 500; }
+/* Safety verdicts. One chip, used by every table that shows one — see
+   $lib/safety.ts for the vocabulary. Two of the three tables used to render
+   the verdict as plain uncoloured text, so Protected and Unknown looked
+   identical. Tinted fill plus coloured text, the same recipe the state badges
+   already use.
+
+   Keep glyphs out of these chips: tests/memory-safety.mjs reads the cell's
+   text to check every lookup resolved, and an icon inside would join it. */
+.safety-tier {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.safety-tier--unknown {
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-primary) 7%, transparent);
+  border-color: var(--border);
+}
+.safety-tier--caution {
+  color: var(--warn);
+  background: var(--warn-surface-2);
+  border-color: var(--warn-border);
+}
+.safety-tier--protected {
+  color: var(--danger-text);
+  background: var(--danger-surface);
+  border-color: var(--danger-border);
+}
+/* Neither of these is a verdict, so they drop the uppercase mono treatment
+   that marks one. Unavailable is amber because it blocks removal — greying it
+   would read as "nothing to see here". */
+.safety-tier--checking {
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-primary) 7%, transparent);
+  border-color: var(--border);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+}
+.safety-tier--unavailable {
+  color: var(--warn);
+  background: var(--warn-surface);
+  border-color: var(--warn-border);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+}

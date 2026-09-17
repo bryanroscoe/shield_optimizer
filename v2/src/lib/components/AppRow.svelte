@@ -1,6 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import type { AppUsage, Safety } from "$lib/types";
+  import {
+    safetyClass,
+    safetyLabel,
+    safetyReason,
+    type SafetyStatus,
+  } from "$lib/safety";
   import StateBadge from "$lib/components/StateBadge.svelte";
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
@@ -40,26 +46,16 @@
     actions: Snippet;
   } = $props();
 
-  function safetyLabel(): string {
-    if (safetyStatus === "checking") return "Checking safety";
-    if (safetyStatus !== "ready" || !safety) return "Safety unavailable";
-    if (safety.kind === "never_disable") return "Protected";
-    if (safety.kind === "caution") return "Caution";
-    return "Unknown";
-  }
-
-  function safetyClass(): string {
-    if (safetyStatus !== "ready" || !safety) return "unavailable";
-    return safety.kind === "never_disable" ? "protected" : safety.kind;
-  }
-
-  function safetyReason(): string {
-    if (safetyStatus === "checking") return "Waiting for the canonical safety check.";
-    if (safetyStatus !== "ready" || !safety) {
-      return "Safety information is unavailable. Retry before disabling or uninstalling.";
-    }
-    return safety.reason;
-  }
+  /// This row takes the verdict and its resolution state as two props; the
+  /// shared vocabulary speaks one union, so rebuild it here rather than
+  /// re-implementing the mapping (which is how the wording drifted before).
+  const status = $derived<SafetyStatus>(
+    safetyStatus === "ready" && safety
+      ? { status: "ready", verdict: safety }
+      : safetyStatus === "checking"
+        ? { status: "checking" }
+        : { status: "unavailable", reason: "the lookup did not complete" },
+  );
 </script>
 
 <tr class={rowClass}>
@@ -88,9 +84,9 @@
       <div class="cell-cue"><UsageBadge {usage} /></div>
     {/if}
   </td>
-  <td class={`safety center safety-${safetyClass()}`} title={safetyReason()}>
-    <span>{safetyLabel()}</span>
-    <span class="safety-reason">{safetyReason()}</span>
+  <td class="safety center" title={safetyReason(status)}>
+    <span class={safetyClass(status)}>{safetyLabel(status)}</span>
+    <span class="safety-reason">{safetyReason(status)}</span>
   </td>
   {@render actions()}
 </tr>
@@ -140,16 +136,8 @@
     font-size: 0.78rem;
     letter-spacing: 0.04em;
   }
-  .state-unavailable,
-  .safety-unavailable,
-  .safety-unknown {
+  .state-unavailable {
     color: var(--fg-muted);
-  }
-  .safety-protected {
-    color: var(--danger);
-  }
-  .safety-caution {
-    color: var(--warn);
   }
   .safety-reason {
     display: block;
