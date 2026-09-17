@@ -1,6 +1,6 @@
 //! Safety classification for package operations.
 //!
-//! Three verdicts:
+//! Four verdicts, in precedence order:
 //!
 //! - `NeverDisable` — disabling will brick the device, break ADB, or otherwise
 //!   make recovery impossible. The host layer refuses to send `pm disable-user`
@@ -8,8 +8,18 @@
 //! - `Caution` — recoverable but disabling will visibly degrade the device
 //!   (remote stops working, accessibility breaks, voice search dies). UI
 //!   surfaces a loud confirm with the reason.
-//! - `Unknown` — the package is not covered by either reviewed rule table, so
-//!   this classifier cannot make a safety recommendation.
+//! - `Safe` — the reviewed app list covers this package and rates it safe to
+//!   remove on a TV. **Only ever reached from the catalog**, never as a
+//!   fallback; that distinction is the whole point of the verdict.
+//! - `Unknown` — nothing reviewed covers this package, so we genuinely do not
+//!   know what it does.
+//!
+//! The catalog is a reviewed source. Ignoring it — which this module did until
+//! the lists and the rule tables were connected — meant 82 of 89 hand-curated
+//! apps reported "role and effects unknown" while the row beside them displayed
+//! the role and the effect. It also made `Unknown` meaningless: when almost
+//! everything is unknown, a genuinely unrecognised sideloaded APK no longer
+//! stands out, which is exactly what the verdict exists to do.
 
 use serde::Serialize;
 
@@ -17,25 +27,131 @@ use serde::Serialize;
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Safety {
     /// Operation refused at the host layer. No `pm disable-user` will be sent.
-    NeverDisable { reason: &'static str },
+    NeverDisable {
+        reason: String,
+        source: SafetySource,
+    },
     /// Recoverable, but the UI should surface a loud confirm.
-    Caution { reason: &'static str },
-    /// No reviewed safety rule covers this package.
-    Unknown { reason: &'static str },
+    Caution {
+        reason: String,
+        source: SafetySource,
+    },
+    /// Reviewed and rated safe to remove on a TV.
+    Safe {
+        reason: String,
+        source: SafetySource,
+    },
+    /// Nothing reviewed covers this package.
+    Unknown {
+        reason: String,
+        source: SafetySource,
+    },
 }
 
-const UNKNOWN_REASON: &str = "This package is not covered by the protected or caution rules. Its role and the effects of disabling or uninstalling it are unknown.";
+/// Which reviewed source produced a verdict. Surfaced so the UI can say where
+/// an answer came from rather than asking the reader to trust a bare word —
+/// "we rated this" and "we have never seen this" deserve different treatment.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SafetySource {
+    /// The do-not-disable list in this module.
+    ProtectedList,
+    /// The caution list in this module.
+    CautionList,
+    /// The curated app lists under `crates/core/data/app-lists/`.
+    ReviewedCatalog,
+    /// Nothing covers it.
+    NoRecord,
+}
 
-/// Classify a package for disable/uninstall safety.
+const UNKNOWN_REASON: &str = "No reviewed app list covers this package, so what it does and what removing it would break are both unknown. Check it yourself before removing it.";
+
+/// Classify a package using only the rule tables in this module.
+///
+/// Callers that can reach the app lists should prefer
+/// [`classify_with_catalog`]; this one is for the never-disable guards, where
+/// the catalog is irrelevant because the protected list always wins anyway.
 pub fn classify(package: &str) -> Safety {
+    classify_with_catalog(package, None)
+}
+
+/// A reviewed catalog entry's contribution to a verdict: its risk tier and the
+/// sentence that was written about removing it.
+///
+/// Passed in rather than looked up so this module stays pure — the engine has
+/// no I/O and does not own the lists.
+#[derive(Debug, Clone, Copy)]
+pub struct CatalogVerdict<'a> {
+    pub risk: crate::engine::types::RiskTier,
+    pub description: &'a str,
+}
+
+/// Classify a package, consulting the reviewed catalog when one covers it.
+///
+/// Precedence is deliberate and the order matters:
+///
+/// 1. **Protected list** — bricking tier, always wins.
+/// 2. **Caution list** — a hand-written reason about this exact package beats a
+///    risk tier, which is why the seven packages in both stay Caution.
+/// 3. **Reviewed catalog** — a curated entry means somebody assessed it.
+/// 4. **Unknown** — nothing covers it, and we say so plainly.
+pub fn classify_with_catalog(package: &str, catalog: Option<CatalogVerdict<'_>>) -> Safety {
     if let Some(reason) = never_disable_reason(package) {
-        return Safety::NeverDisable { reason };
+        return Safety::NeverDisable {
+            reason: reason.to_string(),
+            source: SafetySource::ProtectedList,
+        };
     }
     if let Some(reason) = caution_reason(package) {
-        return Safety::Caution { reason };
+        return Safety::Caution {
+            reason: reason.to_string(),
+            source: SafetySource::CautionList,
+        };
+    }
+    if let Some(entry) = catalog {
+        return from_catalog(entry);
     }
     Safety::Unknown {
-        reason: UNKNOWN_REASON,
+        reason: UNKNOWN_REASON.to_string(),
+        source: SafetySource::NoRecord,
+    }
+}
+
+/// Map a reviewed risk tier onto a verdict.
+///
+/// Only `Safe` yields `Safety::Safe`. Everything above it is `Caution`: the
+/// tiers above safe exist precisely because removing those has consequences,
+/// and the catalog's own sentence explains what they are, so it leads the
+/// reason rather than being replaced by a generic one.
+fn from_catalog(entry: CatalogVerdict<'_>) -> Safety {
+    use crate::engine::types::RiskTier;
+    let description = entry.description.trim();
+    let detail = if description.is_empty() {
+        String::new()
+    } else {
+        format!(" {description}")
+    };
+    match entry.risk {
+        RiskTier::Safe => Safety::Safe {
+            reason: format!("Reviewed for Android TV and rated safe to remove.{detail}"),
+            source: SafetySource::ReviewedCatalog,
+        },
+        RiskTier::Medium => Safety::Caution {
+            reason: format!(
+                "Reviewed and rated medium risk — removable, but you may notice it go.{detail}"
+            ),
+            source: SafetySource::ReviewedCatalog,
+        },
+        RiskTier::High => Safety::Caution {
+            reason: format!("Reviewed and rated high risk — read this before removing it.{detail}"),
+            source: SafetySource::ReviewedCatalog,
+        },
+        RiskTier::Advanced => Safety::Caution {
+            reason: format!(
+                "Reviewed and rated advanced — for people who already know what this does.{detail}"
+            ),
+            source: SafetySource::ReviewedCatalog,
+        },
     }
 }
 
@@ -456,7 +572,8 @@ mod tests {
             assert_eq!(
                 classify(package),
                 Safety::Unknown {
-                    reason: UNKNOWN_REASON,
+                    reason: UNKNOWN_REASON.to_string(),
+                    source: SafetySource::NoRecord,
                 },
                 "unexpected verdict for {package:?}"
             );
@@ -480,7 +597,13 @@ mod tests {
     #[test]
     fn every_protected_rule_keeps_its_reason_and_membership() {
         for &(package, reason) in NEVER_DISABLE {
-            assert_eq!(classify(package), Safety::NeverDisable { reason });
+            assert_eq!(
+                classify(package),
+                Safety::NeverDisable {
+                    reason: reason.to_string(),
+                    source: SafetySource::ProtectedList,
+                }
+            );
             assert!(is_never_disable(package));
         }
     }
@@ -489,9 +612,13 @@ mod tests {
     fn caution_rules_keep_their_reasons_unless_protected_precedence_wins() {
         for &(package, caution_reason) in CAUTION {
             let expected = match never_disable_reason(package) {
-                Some(reason) => Safety::NeverDisable { reason },
+                Some(reason) => Safety::NeverDisable {
+                    reason: reason.to_string(),
+                    source: SafetySource::ProtectedList,
+                },
                 None => Safety::Caution {
-                    reason: caution_reason,
+                    reason: caution_reason.to_string(),
+                    source: SafetySource::CautionList,
                 },
             };
             assert_eq!(classify(package), expected);
@@ -503,7 +630,9 @@ mod tests {
         assert_eq!(
             classify("com.google.android.feedback"),
             Safety::Caution {
-                reason: "Disabling stops crash reports. Recoverable but it's how Google fixes Android bugs.",
+                reason: "Disabling stops crash reports. Recoverable but it's how Google fixes Android bugs."
+                    .to_string(),
+                source: SafetySource::CautionList,
             }
         );
     }
@@ -523,22 +652,184 @@ mod tests {
         }
     }
 
+    fn catalog(risk: crate::engine::types::RiskTier, description: &str) -> CatalogVerdict<'_> {
+        CatalogVerdict { risk, description }
+    }
+
+    #[test]
+    fn a_reviewed_safe_app_is_safe_not_unknown() {
+        use crate::engine::types::RiskTier;
+        // The regression: 82 of 89 curated apps reported "role and effects
+        // unknown" while their own description sat in the next column.
+        let verdict = classify_with_catalog(
+            "com.android.gallery3d",
+            Some(catalog(
+                RiskTier::Safe,
+                "Photo gallery — rarely used on TV.",
+            )),
+        );
+        match verdict {
+            Safety::Safe { reason, source } => {
+                assert_eq!(source, SafetySource::ReviewedCatalog);
+                assert!(reason.contains("rated safe to remove"), "{reason}");
+                // The curated sentence leads, rather than being replaced.
+                assert!(reason.contains("Photo gallery"), "{reason}");
+            }
+            other => panic!("expected Safe, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_risky_reviewed_app_is_caution_and_says_why() {
+        use crate::engine::types::RiskTier;
+        // com.google.android.tvlauncher: risk "high", and the app has a whole
+        // guarded wizard for it. Reporting "effects unknown" was plainly false.
+        let verdict = classify_with_catalog(
+            "com.google.android.tvlauncher",
+            Some(catalog(
+                RiskTier::High,
+                "Requires custom launcher first! Use Launcher Wizard.",
+            )),
+        );
+        match verdict {
+            Safety::Caution { reason, source } => {
+                assert_eq!(source, SafetySource::ReviewedCatalog);
+                assert!(reason.contains("high risk"), "{reason}");
+                assert!(reason.contains("Launcher Wizard"), "{reason}");
+            }
+            other => panic!("expected Caution, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_protected_list_outranks_any_catalog_entry() {
+        use crate::engine::types::RiskTier;
+        // Nothing a list says may downgrade a bricking-tier package, however
+        // confidently it says it.
+        for &(package, _) in NEVER_DISABLE {
+            let verdict = classify_with_catalog(
+                package,
+                Some(catalog(RiskTier::Safe, "definitely fine, promise")),
+            );
+            assert!(
+                matches!(verdict, Safety::NeverDisable { .. }),
+                "{package} was downgraded to {verdict:?}"
+            );
+            assert!(is_never_disable(package));
+        }
+    }
+
+    #[test]
+    fn a_hand_written_caution_outranks_a_generic_risk_tier() {
+        use crate::engine::types::RiskTier;
+        // Seven packages are in both the caution list and the catalog. A
+        // sentence written about that exact package beats a tier.
+        let verdict = classify_with_catalog(
+            "com.google.android.feedback",
+            Some(catalog(RiskTier::Safe, "Crash and feedback telemetry.")),
+        );
+        match verdict {
+            Safety::Caution { reason, source } => {
+                assert_eq!(source, SafetySource::CautionList);
+                assert!(reason.contains("crash reports"), "{reason}");
+            }
+            other => panic!("expected the caution-list verdict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_uncatalogued_package_is_still_unknown() {
+        // The verdict has to keep meaning something. A sideloaded APK nobody
+        // reviewed is the case it exists for.
+        let verdict = classify_with_catalog("com.random.sideload", None);
+        match verdict {
+            Safety::Unknown { reason, source } => {
+                assert_eq!(source, SafetySource::NoRecord);
+                assert!(reason.contains("No reviewed app list"), "{reason}");
+            }
+            other => panic!("expected Unknown, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn safe_is_never_reached_without_a_catalog_entry() {
+        // Safe must never be a fallback. That was the original sin the Unknown
+        // change set out to fix, and it must not come back through this door.
+        for package in [
+            "com.example.anything",
+            "com.netflix.ninja",
+            "",
+            "com.google.android.tvlauncher",
+        ] {
+            assert!(
+                !matches!(classify(package), Safety::Safe { .. }),
+                "{package} reached Safe with no catalog entry"
+            );
+        }
+    }
+
+    #[test]
+    fn a_catalog_entry_with_no_description_still_reads_cleanly() {
+        use crate::engine::types::RiskTier;
+        let verdict =
+            classify_with_catalog("com.example.app", Some(catalog(RiskTier::Safe, "   ")));
+        match verdict {
+            Safety::Safe { reason, .. } => {
+                assert_eq!(reason, "Reviewed for Android TV and rated safe to remove.");
+                assert!(
+                    !reason.contains("  "),
+                    "no double space from an empty detail"
+                );
+            }
+            other => panic!("expected Safe, got {other:?}"),
+        }
+    }
+
     #[test]
     fn all_verdicts_serialize_with_tag_and_reason() {
         assert_eq!(
             serde_json::to_value(Safety::NeverDisable {
-                reason: "protected"
+                reason: "protected".to_string(),
+                source: SafetySource::ProtectedList,
             })
             .unwrap(),
-            serde_json::json!({ "kind": "never_disable", "reason": "protected" })
+            serde_json::json!({
+                "kind": "never_disable",
+                "reason": "protected",
+                "source": "protected_list"
+            })
         );
         assert_eq!(
-            serde_json::to_value(Safety::Caution { reason: "review" }).unwrap(),
-            serde_json::json!({ "kind": "caution", "reason": "review" })
+            serde_json::to_value(Safety::Caution {
+                reason: "review".to_string(),
+                source: SafetySource::CautionList,
+            })
+            .unwrap(),
+            serde_json::json!({
+                "kind": "caution",
+                "reason": "review",
+                "source": "caution_list"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Safety::Safe {
+                reason: "reviewed".to_string(),
+                source: SafetySource::ReviewedCatalog,
+            })
+            .unwrap(),
+            serde_json::json!({
+                "kind": "safe",
+                "reason": "reviewed",
+                "source": "reviewed_catalog"
+            })
         );
         assert_eq!(
             serde_json::to_value(classify("com.example.bloat")).unwrap(),
-            serde_json::json!({ "kind": "unknown", "reason": UNKNOWN_REASON })
+            serde_json::json!({
+                "kind": "unknown",
+                "reason": UNKNOWN_REASON,
+                "source": "no_record"
+            })
         );
     }
 }

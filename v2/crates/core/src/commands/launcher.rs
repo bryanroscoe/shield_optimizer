@@ -582,10 +582,14 @@ fn command_failure(result: &crate::adb::AdbResult<crate::adb::AdbOutput>) -> Opt
         Err(error) => Some(format!("ADB call failed: {error}")),
         Ok(output) if !output.success() => {
             let detail = command_output_detail(output);
-            Some(format!(
-                "command returned exit status {:?}{detail}",
-                output.exit_code
-            ))
+            // `{:?}` on an Option renders as `Some(13)` / `None`, and this
+            // string goes straight into the launcher error banner and a
+            // confirm() body. Users were reading "exit code 13".
+            let code = match output.exit_code {
+                Some(code) => format!("exit code {code}"),
+                None => "no exit code".to_string(),
+            };
+            Some(format!("the command failed ({code}){detail}"))
         }
         Ok(output) if output.shell_reported_failure() => Some(format!(
             "device reported failure: {}",
@@ -933,12 +937,12 @@ mod tests {
             (
                 "nonzero",
                 Ok(adb_output("", "permission denied", Some(13))),
-                "exit status Some(13)",
+                "exit code 13",
             ),
             (
                 "unknown-status",
                 Ok(adb_output("", "shell status unavailable", None)),
-                "exit status None",
+                "no exit code",
             ),
         ];
 
@@ -1043,13 +1047,13 @@ mod tests {
             (
                 "nonzero",
                 Ok(adb_output("", "restore permission denied", Some(13))),
-                "exit status Some(13)",
+                "exit code 13",
                 "restore permission denied",
             ),
             (
                 "unknown-status",
                 Ok(adb_output("", "restore status unavailable", None)),
-                "exit status None",
+                "no exit code",
                 "restore status unavailable",
             ),
             (

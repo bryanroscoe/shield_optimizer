@@ -320,6 +320,14 @@ textarea:focus-visible {
   border: 1px solid transparent;
   white-space: nowrap;
 }
+/* `safe` is a real verdict from the reviewed list, not an absence of one, so
+   it gets a colour. Teal rather than the lime accent: the accent means "the
+   thing to press", and a verdict is not an action. */
+.safety-tier--safe {
+  color: var(--ok);
+  background: var(--ok-surface);
+  border-color: color-mix(in srgb, var(--ok) 30%, transparent);
+}
 .safety-tier--unknown {
   color: var(--fg-muted);
   background: color-mix(in srgb, var(--fg-primary) 7%, transparent);

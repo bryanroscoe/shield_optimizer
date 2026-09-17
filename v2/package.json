@@ -17,6 +17,7 @@
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
     "test:memory-safety": "node tests/memory-safety.mjs",
+    "test:optimize-plan": "node tests/optimize-plan.mjs",
     "test:playback-shell": "node tests/playback-shell.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
     "tauri": "tauri",

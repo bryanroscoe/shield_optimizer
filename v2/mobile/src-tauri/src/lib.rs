@@ -231,6 +231,7 @@ pub fn run() {
             apps::app_memory_map,
             apps::app_usage_map,
             apps::safety_info,
+            apps::process_safety_info,
             apps::trim_caches,
             apps::disable_package,
             apps::enable_package,

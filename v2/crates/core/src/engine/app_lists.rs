@@ -59,6 +59,20 @@ impl AppListBundle {
         out
     }
 
+    /// Find a curated entry by package, across every list.
+    ///
+    /// Device-agnostic on purpose: the lists are disjoint by package (verified —
+    /// no package appears in two of them), so there is exactly one answer and
+    /// no device type is needed to disambiguate. A reviewed risk tier is a
+    /// property of the app, not of the box it is installed on.
+    pub fn find(&self, package: &str) -> Option<&AppEntry> {
+        self.common
+            .iter()
+            .chain(self.shield.iter())
+            .chain(self.googletv.iter())
+            .find(|entry| entry.package == package)
+    }
+
     /// Total app count across all lists (for diagnostics).
     pub fn total(&self) -> usize {
         self.common.len() + self.shield.len() + self.googletv.len()

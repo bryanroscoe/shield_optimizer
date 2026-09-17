@@ -1,8 +1,12 @@
 // The ONE safety vocabulary for the mobile UI. Core's `safety_info` returns
-// exactly three kinds (crates/core/src/engine/safety.rs: NeverDisable /
-// Caution / Unknown); this maps each to the label, blurb and CSS class every
-// screen renders. Screens must not invent tiers (there is no "Advanced" tier)
-// and must not classify packages themselves.
+// exactly four kinds (crates/core/src/engine/safety.rs: NeverDisable /
+// Caution / Safe / Unknown); this maps each to the label, blurb and CSS class
+// every screen renders. Screens must not invent tiers and must not classify
+// packages themselves.
+//
+// `Safe` only ever comes from the reviewed app list, never as a fallback —
+// that is what separates "we looked at this and rated it" from "we have no
+// idea what this is", and both were previously collapsed into Unknown.
 
 import type { Safety } from "./types";
 
@@ -14,11 +18,19 @@ export interface SafetyTier {
   /// One-line explanation of the tier itself — never a claim about a package.
   description: string;
   /// Suffix for the `.tier-*` / `.risk-*` class rules in each consumer.
-  cls: "unknown" | "caution" | "blocked";
+  cls: "unknown" | "caution" | "blocked" | "safe";
   icon: string;
 }
 
 export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
+  safe: {
+    kind: "safe",
+    label: "Safe",
+    description:
+      "Reviewed for Android TV and rated safe to remove. The reason says what it is and what you lose.",
+    cls: "safe",
+    icon: "check_circle",
+  },
   unknown: {
     kind: "unknown",
     label: "Unknown",

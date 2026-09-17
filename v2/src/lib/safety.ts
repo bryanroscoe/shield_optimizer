@@ -1,19 +1,18 @@
 // The one safety vocabulary for the desktop UI.
 //
-// Core's `safety_info` returns exactly three kinds
-// (crates/core/src/engine/safety.rs: NeverDisable / Caution / Unknown). This
+// Core's `safety_info` returns exactly four kinds
+// (crates/core/src/engine/safety.rs: NeverDisable / Caution / Safe / Unknown).
+// `safe` only ever comes from the reviewed app list, never as a fallback. This
 // maps each to the label, blurb and class every screen renders. Screens must
 // not invent tiers and must not classify packages themselves — before this
 // module there were three separate copies of the mapping and they had already
 // drifted apart, so the same state read "Checking safety" on one screen and
 // "Checking" on another.
 //
-// Deliberately not modelled here: the app-list catalog's `risk` field. It is
-// hand-written editorial metadata that disagrees with the classifier in at
-// least two places (com.google.android.feedback and com.android.printspooler
-// are catalog "safe" but core Caution), and it says "how much will you miss
-// this", not "is this safe to remove". Rendering the two as peers would put
-// the word Safe next to a Caution verdict.
+// Deliberately not modelled here: the app-list catalog's `risk` field, which
+// is hand-written editorial metadata saying "how much will you miss this",
+// not "is this safe to remove". The engine's own `safe` verdict, sourced from
+// the reviewed list, is the answer to that second question.
 
 import type { Safety } from "../../shared/safety";
 
@@ -38,6 +37,13 @@ export interface SafetyTier {
 }
 
 export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
+  safe: {
+    kind: "safe",
+    label: "Safe",
+    description:
+      "Reviewed for Android TV and rated safe to remove. The reason says what it is and what you lose. Only ever comes from the reviewed list, never as a fallback.",
+    cls: "safety-tier safety-tier--safe",
+  },
   unknown: {
     kind: "unknown",
     label: "Unknown",
@@ -62,6 +68,7 @@ export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
 };
 
 export const SAFETY_TIER_LIST: SafetyTier[] = [
+  SAFETY_TIERS.safe,
   SAFETY_TIERS.unknown,
   SAFETY_TIERS.caution,
   SAFETY_TIERS.never_disable,

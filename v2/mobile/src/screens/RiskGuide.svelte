@@ -151,6 +151,12 @@
   .tier-unknown .tier-icon {
     color: var(--muted);
   }
+  .tier-safe {
+    border-color: color-mix(in srgb, var(--teal) 30%, transparent);
+  }
+  .tier-safe .tier-icon {
+    color: var(--teal);
+  }
   .tier-caution {
     border-color: color-mix(in srgb, var(--amber) 30%, transparent);
   }

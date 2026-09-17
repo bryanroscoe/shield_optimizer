@@ -15,7 +15,10 @@ use crate::adb::{
     parse_installed_packages_output, parse_permission_granted, parse_total_pss_by_process,
     parse_usage_stats, AppUsage,
 };
-use crate::engine::{classify_safety, is_last_enabled_home_handler, is_valid_package_name, Safety};
+use crate::engine::{
+    classify_safety, classify_with_catalog, is_last_enabled_home_handler, is_valid_package_name,
+    CatalogVerdict, Safety,
+};
 use crate::license::Feature;
 
 use super::AppState;
@@ -39,8 +42,38 @@ fn reject_invalid_package(package: &str) -> Option<ActionResult> {
 /// loud confirm", "show a hard block badge", and "no extra ceremony".
 /// Cheap; doesn't touch the device.
 #[tauri::command]
-pub fn safety_info(package: String) -> Safety {
-    classify_safety(&package)
+pub fn safety_info(state: State<'_, AppState>, package: String) -> Safety {
+    safety_for(state.inner(), &package)
+}
+
+/// Classify a package against the rule tables *and* the reviewed app lists.
+///
+/// The catalog is a reviewed source and has to be consulted here: without it,
+/// every curated app that was not also in one of the two rule tables reported
+/// "role and effects unknown" while its own description sat in the next column.
+pub fn safety_for(state: &AppState, package: &str) -> Safety {
+    let catalog = state.app_lists.find(package).map(|entry| CatalogVerdict {
+        risk: entry.risk,
+        description: entry.optimize_description.as_str(),
+    });
+    classify_with_catalog(package, catalog)
+}
+
+/// `process_safety_info` — classify a *process* name from a memory report.
+///
+/// Deliberately does **not** consult the app catalog. A row in Top Memory Users
+/// is a process name from `dumpsys meminfo`, which is not verified ownership of
+/// the package it resembles — the UI says so on that table. Looking it up in
+/// the catalog would let an unverified string inherit a curated "safe to
+/// remove" verdict, which is exactly the identity claim the memory table is
+/// built not to make.
+///
+/// The rule tables still apply: they only ever make a verdict *more*
+/// conservative, so a process that looks like a protected package is still
+/// flagged.
+#[tauri::command]
+pub fn process_safety_info(process: String) -> Safety {
+    classify_safety(&process)
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -319,7 +352,7 @@ pub(crate) async fn disable_package_impl(
     if let Some(rejection) = reject_invalid_package(package) {
         return Ok(rejection);
     }
-    if let Safety::NeverDisable { reason } = classify_safety(package) {
+    if let Safety::NeverDisable { reason, .. } = classify_safety(package) {
         return Ok(ActionResult {
             ok: false,
             message: format!("Refusing to disable {package}: {reason}"),
@@ -611,7 +644,7 @@ pub async fn uninstall_package(
     if let Some(rejection) = reject_invalid_package(&package) {
         return Ok(rejection);
     }
-    if let Safety::NeverDisable { reason } = classify_safety(&package) {
+    if let Safety::NeverDisable { reason, .. } = classify_safety(&package) {
         return Ok(ActionResult {
             ok: false,
             message: format!("Refusing to uninstall {package}: {reason}"),
@@ -702,6 +735,101 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bug was in the *wiring*, not the engine: `safety_info` never
+    /// consulted the app lists. An engine-level test passes happily while that
+    /// is broken, so this one goes through the real command path with the real
+    /// shipped catalog in state.
+    #[test]
+    fn safety_info_consults_the_shipped_catalog() {
+        let state = AppState::new(
+            std::sync::Arc::new(crate::commands::test_support::MockAdb::default()),
+            crate::commands::loader::load_embedded_app_lists().expect("lists parse"),
+            std::env::temp_dir(),
+        );
+
+        match safety_for(&state, "com.android.gallery3d") {
+            Safety::Safe { source, .. } => {
+                assert_eq!(source, crate::engine::SafetySource::ReviewedCatalog)
+            }
+            other => panic!("a curated app reported {other:?}"),
+        }
+        assert!(
+            matches!(
+                safety_for(&state, "com.google.android.tvlauncher"),
+                Safety::Caution { .. }
+            ),
+            "the stock launcher must not read as Unknown"
+        );
+        assert!(matches!(
+            safety_for(&state, "com.android.systemui"),
+            Safety::NeverDisable { .. }
+        ));
+        assert!(matches!(
+            safety_for(&state, "com.random.sideloaded.apk"),
+            Safety::Unknown { .. }
+        ));
+    }
+
+    /// Unknown has to keep meaning something. It is the signal that a package
+    /// is unrecognised, and it stops signalling anything if it is the answer
+    /// for everything.
+    #[test]
+    fn unknown_is_not_the_answer_for_curated_apps() {
+        let bundle = crate::commands::loader::load_embedded_app_lists().expect("lists parse");
+        let packages: Vec<String> = bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+            .map(|e| e.package.clone())
+            .collect();
+        let total = packages.len();
+        let state = AppState::new(
+            std::sync::Arc::new(crate::commands::test_support::MockAdb::default()),
+            bundle,
+            std::env::temp_dir(),
+        );
+        let unknown: Vec<&String> = packages
+            .iter()
+            .filter(|p| matches!(safety_for(&state, p), Safety::Unknown { .. }))
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "{} of {total} curated apps still report Unknown: {unknown:?}",
+            unknown.len()
+        );
+    }
+
+    /// A memory row is a process name, not a verified package. It must never
+    /// inherit a curated "safe to remove" verdict just because the string
+    /// happens to match a catalogued app — that is the identity claim the
+    /// memory table explicitly refuses to make.
+    #[test]
+    fn a_process_name_never_inherits_a_catalog_verdict() {
+        for process in [
+            "com.netflix.ninja",
+            "com.google.android.youtube.tv",
+            "com.google.android.tvlauncher",
+            "com.nvidia.tegrazone3",
+        ] {
+            let verdict = process_safety_info(process.to_string());
+            assert!(
+                !matches!(verdict, Safety::Safe { .. }),
+                "{process} inherited a catalog verdict as a process name: {verdict:?}"
+            );
+        }
+    }
+
+    /// The rule tables still apply to process names — they only ever make a
+    /// verdict more conservative, which is what a diagnostics table wants.
+    #[test]
+    fn a_process_that_looks_protected_is_still_flagged() {
+        assert!(matches!(
+            process_safety_info("com.android.systemui".to_string()),
+            Safety::NeverDisable { .. }
+        ));
+    }
 
     /// Shaped after a real Shield: Projectivy is HOME and the stock launcher
     /// has been disabled, so the only other handler is the settings fallback.

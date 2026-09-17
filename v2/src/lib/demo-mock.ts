@@ -343,34 +343,71 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.hulu.plus": { last_used: "2026-03-12 19:02:00", launch_count: 4 },
         "com.showtime.standalone": { last_used: null, launch_count: 0 },
       };
-    case "safety_info":
-      switch (args.package) {
-        case "com.android.systemui":
-          return {
-            kind: "never_disable",
-            reason: "System UI — the launcher's host process. Disabling makes the device unusable.",
-          };
-        case "com.google.android.gms":
-          return {
-            kind: "never_disable",
-            reason: "Google Play Services. Disabling breaks every Google app + most third-party apps.",
-          };
-        case "com.android.providers.tv":
-          return {
-            kind: "caution",
-            reason: "Live Channels provider — disabling breaks Watch Next / Continue Watching rows for Netflix, Apple TV, Disney+, etc. and the Live Channels app.",
-          };
-        case "com.android.vending":
-          return {
-            kind: "caution",
-            reason: "Google Play Store. Disabling removes your install path for everything not yet on disk.",
-          };
-        default:
-          return {
-            kind: "unknown",
-            reason: "This package is not covered by the protected or caution rules. Its role and the effects of disabling or uninstalling it are unknown.",
-          };
+    // Process names from a memory report never consult the catalog — an
+    // unverified string must not inherit a curated verdict.
+    case "process_safety_info": {
+      const proc = String(args.process ?? "");
+      if (proc === "com.android.systemui" || proc === "com.google.android.gms") {
+        return handle("safety_info", { package: proc });
       }
+      return {
+        kind: "unknown",
+        reason:
+          "This is a process name, not a verified package, so no reviewed verdict applies to it. Inspection only.",
+        source: "no_record",
+      };
+    }
+    case "safety_info": {
+      // Mirrors crates/core/src/engine/safety.rs, including its precedence:
+      // protected > caution > reviewed catalog > unknown. It has to, or the
+      // demo layer paints a picture of the product that isn't true — the
+      // catalog-blind version of this mock is what made every curated app in
+      // the screenshots read "Unknown".
+      const pkg = String(args.package ?? "");
+      const protectedList: Record<string, string> = {
+        "com.android.systemui":
+          "System UI — the launcher's host process. Disabling makes the device unusable.",
+        "com.google.android.gms":
+          "Google Play Services. Disabling breaks every Google app + most third-party apps.",
+      };
+      const cautionList: Record<string, string> = {
+        "com.android.providers.tv":
+          "Live Channels provider — disabling breaks Watch Next / Continue Watching rows for Netflix, Apple TV, Disney+, etc. and the Live Channels app.",
+        "com.android.vending":
+          "Google Play Store. Disabling removes your install path for everything not yet on disk.",
+      };
+      if (protectedList[pkg]) {
+        return { kind: "never_disable", reason: protectedList[pkg], source: "protected_list" };
+      }
+      if (cautionList[pkg]) {
+        return { kind: "caution", reason: cautionList[pkg], source: "caution_list" };
+      }
+      const entry = (demoApps as AppEntry[]).find((a) => a.package === pkg);
+      if (entry) {
+        const detail = entry.optimize_description?.trim();
+        const tail = detail ? ` ${detail}` : "";
+        if (entry.risk === "safe") {
+          return {
+            kind: "safe",
+            reason: `Reviewed for Android TV and rated safe to remove.${tail}`,
+            source: "reviewed_catalog",
+          };
+        }
+        const lead =
+          entry.risk === "high"
+            ? "Reviewed and rated high risk — read this before removing it."
+            : entry.risk === "advanced"
+              ? "Reviewed and rated advanced — for people who already know what this does."
+              : "Reviewed and rated medium risk — removable, but you may notice it go.";
+        return { kind: "caution", reason: `${lead}${tail}`, source: "reviewed_catalog" };
+      }
+      return {
+        kind: "unknown",
+        reason:
+          "No reviewed app list covers this package, so what it does and what removing it would break are both unknown. Check it yourself before removing it.",
+        source: "no_record",
+      };
+    }
     case "list_launchers":
       return launchers;
     case "current_launcher":

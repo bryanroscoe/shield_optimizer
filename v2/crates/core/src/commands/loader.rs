@@ -49,6 +49,119 @@ pub fn load_known_names() -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::engine::{classify_with_catalog, CatalogVerdict, Safety, SafetySource};
+
+    /// The shipped lists, not a fixture. This is the assertion that would have
+    /// caught the regression where 82 of 89 curated apps reported "role and
+    /// effects unknown" beside their own description.
+    #[test]
+    fn every_shipped_catalog_entry_gets_a_reviewed_verdict() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        let mut unknown = Vec::new();
+        for entry in bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+        {
+            let verdict = classify_with_catalog(
+                &entry.package,
+                Some(CatalogVerdict {
+                    risk: entry.risk,
+                    description: &entry.optimize_description,
+                }),
+            );
+            if let Safety::Unknown { .. } = verdict {
+                unknown.push(entry.package.clone());
+            }
+        }
+        assert!(
+            unknown.is_empty(),
+            "curated apps must never report Unknown; these did: {unknown:?}"
+        );
+    }
+
+    /// A curated entry must never be able to claim a package is safe when the
+    /// protected list says it bricks the device.
+    #[test]
+    fn no_shipped_entry_overrides_the_protected_list() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        for entry in bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+        {
+            let verdict = classify_with_catalog(
+                &entry.package,
+                Some(CatalogVerdict {
+                    risk: entry.risk,
+                    description: &entry.optimize_description,
+                }),
+            );
+            if crate::engine::is_never_disable(&entry.package) {
+                assert!(
+                    matches!(verdict, Safety::NeverDisable { .. }),
+                    "{} is protected but classified {verdict:?}",
+                    entry.package
+                );
+            }
+        }
+    }
+
+    /// Every curated entry needs a sentence a person can act on. An empty
+    /// description leaves the verdict saying nothing useful.
+    #[test]
+    fn every_shipped_entry_has_a_usable_description() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        for entry in bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+        {
+            assert!(
+                entry.optimize_description.trim().len() > 10,
+                "{} has no usable optimize_description: {:?}",
+                entry.package,
+                entry.optimize_description
+            );
+            assert!(
+                !entry.name.trim().is_empty(),
+                "{} has no display name",
+                entry.package
+            );
+        }
+    }
+
+    /// The lookup `safety_info` relies on must find every shipped package, and
+    /// the lists must stay disjoint — two entries for one package would make
+    /// the answer depend on iteration order.
+    #[test]
+    fn find_resolves_every_package_exactly_once() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        let mut seen = std::collections::HashSet::new();
+        for entry in bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+        {
+            assert!(
+                seen.insert(entry.package.clone()),
+                "{} appears in more than one list",
+                entry.package
+            );
+            assert!(
+                bundle.find(&entry.package).is_some(),
+                "{} is not findable",
+                entry.package
+            );
+        }
+        assert!(bundle.find("com.definitely.not.here").is_none());
+        let _ = SafetySource::NoRecord;
+    }
     use pretty_assertions::assert_eq;
 
     #[test]

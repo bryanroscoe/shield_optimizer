@@ -147,6 +147,10 @@ export const api = {
     invoke<Record<string, import("$lib/types").AppUsage>>("app_usage_map", { serial }),
   safetyInfo: async (pkg: string): Promise<Safety> =>
     parseSafety(await invoke<unknown>("safety_info", { package: pkg })),
+  /// Classify a *process* name from a memory report. Catalog-free on purpose —
+  /// see the Rust doc on `process_safety_info`.
+  processSafetyInfo: async (process: string): Promise<Safety> =>
+    parseSafety(await invoke<unknown>("process_safety_info", { process })),
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
   sendText: (serial: string, text: string, forceShell = false) =>
     invoke<SendTextResult>("send_text", { serial, text, forceShell }),

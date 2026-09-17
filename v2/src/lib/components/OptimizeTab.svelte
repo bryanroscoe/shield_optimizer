@@ -49,6 +49,18 @@
     verdict: Safety | null;
   };
   let safetyByPackage = $state<Record<string, SafetyStatus>>({});
+  /// Package whose safety detail is expanded, or null. The wizard's own copy
+  /// tells you to review safety before choosing, so the reason has to be
+  /// reachable here — without this the verdict rendered a caret that did
+  /// nothing and the reason was unreachable anywhere in the tab.
+  let expandedSafety = $state<string | null>(null);
+
+  function safetyKindLabel(kind: Safety["kind"]): string {
+    if (kind === "never_disable") return "Protected";
+    if (kind === "caution") return "Caution";
+    if (kind === "safe") return "Safe";
+    return "Unknown";
+  }
   let componentEpoch = 0;
   let loadRequest = 0;
   let runRequest = 0;
@@ -133,7 +145,13 @@
         .map((item) => item.entry.package);
       safetyByPackage = Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }]));
       const results = await Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg)));
-      if (!contextIsCurrent(context) || request !== loadRequest || optimizePlan !== plan) return;
+      // Deliberately not comparing `optimizePlan` to `plan`: `optimizePlan` is
+      // $state, so assigning an object stores a deep proxy and the identity
+      // check is always true. That bailed out here on every load and left every
+      // row on "Checking safety" — which forces Skip, so the wizard reported
+      // "0 items will be acted on" and Run Optimize did nothing at all. The
+      // request token already proves this load is the current one.
+      if (!contextIsCurrent(context) || request !== loadRequest) return;
       safetyByPackage = Object.fromEntries(packages.map((pkg, index) => {
         const result = results[index];
         return result.status === "fulfilled"
@@ -258,7 +276,7 @@
     const label = mode === "optimize" ? "Optimize" : "Restore";
     const removalDetails = selected
       .filter((item) => item.verdict)
-      .map((item) => `${item.action.toUpperCase()} ${item.name} (${item.package})\n${confirmVerdictLine(item.verdict!)}`)
+      .map((item) => `${item.action.toUpperCase()} ${item.name} (${item.package})\nSafety: ${safetyKindLabel(item.verdict!.kind)}\nReason: ${item.verdict!.reason}`)
       .join("\n\n");
     const confirmation = removalDetails
       ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
@@ -421,7 +439,7 @@
   </div>
   <p class="muted small">
     {optimizeMode === "optimize"
-      ? "Review canonical safety before choosing Disable or Uninstall. Unknown packages default to Skip and require an explicit choice."
+      ? "Check each app's safety before choosing Disable or Uninstall. Anything we can't vouch for is set to Skip until you say otherwise."
       : "Re-enable everything that's currently disabled per the device's app catalog. Set any row to Skip to leave it, then Run. Restore is reversible by running Optimize again."}
   </p>
 
@@ -457,7 +475,7 @@
           <strong>{reviewItems.length}</strong> app{reviewItems.length === 1 ? "" : "s"} flagged for usage review. Check whether you use them and review their safety status.
           {#if removalReviewItems.length > 0}
             <span class="stale-line">
-              <strong>{removalReviewItems.length}</strong> can be explicitly considered for Disable or Uninstall after review.
+              <strong>{removalReviewItems.length}</strong> of these can be removed if you don't use them.
             </span>
           {/if}
           {#if staleReview.length > 0}
@@ -530,6 +548,10 @@
             showUsage={naturalAction(item) !== null}
             safety={readySafety(item.entry.package)}
             safetyStatus={safetyByPackage[item.entry.package]?.status ?? "unavailable"}
+            detailOpen={expandedSafety === item.entry.package}
+            onToggleDetail={() =>
+              (expandedSafety =
+                expandedSafety === item.entry.package ? null : item.entry.package)}
             rowClass={eff === "skip"
               ? item.entry.review && !skip && removalReviewIsAvailable(item)
                 ? "review-flag"

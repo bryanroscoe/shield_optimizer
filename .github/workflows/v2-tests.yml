@@ -154,6 +154,13 @@ jobs:
         working-directory: v2
         run: npm run test:memory-safety
 
+      # The debloat wizard recommended nothing at all for a week — every row
+      # stuck on "Checking safety", which forces Skip. Silent; only rendering
+      # the wizard catches it.
+      - name: Optimize plan
+        working-directory: v2
+        run: npm run test:optimize-plan
+
       - name: Playback and expert shell regressions
         working-directory: v2
         run: npm run test:playback-shell

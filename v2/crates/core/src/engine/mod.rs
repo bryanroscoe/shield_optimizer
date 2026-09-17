@@ -25,7 +25,10 @@ pub use media::{
     Decoder, DisplayModeEntry, MediaCapabilities, SurroundMode, Verdict, VerdictLevel, VideoFormat,
 };
 pub use optimize::{compute_plan, OptimizeInputs, OptimizePlan};
-pub use safety::{classify as classify_safety, is_never_disable, shell_command_blocked, Safety};
+pub use safety::{
+    classify as classify_safety, classify_with_catalog, is_never_disable, shell_command_blocked,
+    CatalogVerdict, Safety, SafetySource,
+};
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
 pub use types::{
     ActionMethod, AppEntry, Device, DeviceProperties, DeviceStatus, OptimizeAction, OptimizeMode,

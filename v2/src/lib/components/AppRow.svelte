@@ -1,12 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import type { AppUsage, Safety } from "$lib/types";
-  import {
-    safetyClass,
-    safetyLabel,
-    safetyReason,
-    type SafetyStatus,
-  } from "$lib/safety";
+  import { safetySourceLabel } from "../../../shared/safety";
   import StateBadge from "$lib/components/StateBadge.svelte";
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
@@ -28,6 +23,8 @@
     showUsage = true,
     safety = null,
     safetyStatus = "unavailable",
+    detailOpen = false,
+    onToggleDetail,
     rowClass,
     actions,
   }: {
@@ -42,20 +39,44 @@
     showUsage?: boolean;
     safety?: Safety | null;
     safetyStatus?: "checking" | "ready" | "unavailable";
+    /// Whether this row's safety detail is expanded. Owned by the caller so
+    /// only one row opens at a time — and because `state` is already a prop
+    /// here, which shadows the `$state` rune.
+    detailOpen?: boolean;
+    onToggleDetail?: () => void;
     rowClass?: string;
     actions: Snippet;
   } = $props();
 
-  /// This row takes the verdict and its resolution state as two props; the
-  /// shared vocabulary speaks one union, so rebuild it here rather than
-  /// re-implementing the mapping (which is how the wording drifted before).
-  const status = $derived<SafetyStatus>(
-    safetyStatus === "ready" && safety
-      ? { status: "ready", verdict: safety }
-      : safetyStatus === "checking"
-        ? { status: "checking" }
-        : { status: "unavailable", reason: "the lookup did not complete" },
-  );
+  function safetyLabel(): string {
+    if (safetyStatus === "checking") return "Checking safety";
+    if (safetyStatus !== "ready" || !safety) return "Safety unavailable";
+    if (safety.kind === "never_disable") return "Protected";
+    if (safety.kind === "caution") return "Caution";
+    if (safety.kind === "safe") return "Safe";
+    return "Unknown";
+  }
+
+  function safetyClass(): string {
+    if (safetyStatus !== "ready" || !safety) return "unavailable";
+    return safety.kind === "never_disable" ? "protected" : safety.kind;
+  }
+
+  /// Where the verdict came from, in words. A bare "Unknown" conflates "we
+  /// rated this high risk" with "we have never seen this package"; those want
+  /// very different treatment from the reader.
+  function safetySource(): string {
+    if (safetyStatus !== "ready" || !safety) return "Could not be checked";
+    return safetySourceLabel(safety.source);
+  }
+
+  function safetyReason(): string {
+    if (safetyStatus === "checking") return "Checking whether this is safe to remove…";
+    if (safetyStatus !== "ready" || !safety) {
+      return "Safety information is unavailable. Retry before disabling or uninstalling.";
+    }
+    return safety.reason;
+  }
 </script>
 
 <tr class={rowClass}>
@@ -84,12 +105,33 @@
       <div class="cell-cue"><UsageBadge {usage} /></div>
     {/if}
   </td>
-  <td class="safety center" title={safetyReason(status)}>
-    <span class={safetyClass(status)}>{safetyLabel(status)}</span>
-    <span class="safety-reason">{safetyReason(status)}</span>
+  <!-- Verdict only, with the detail behind a click. The full sentence inline
+       turned every row into a five-line block and cut the list from five apps
+       on screen to three; a tooltip alone is undiscoverable and useless on
+       touch. -->
+  <td class={`safety center safety-${safetyClass()}`}>
+    <button
+      class="safety-toggle"
+      aria-expanded={detailOpen}
+      title={detailOpen ? "Hide the reason" : "Why this verdict?"}
+      onclick={() => onToggleDetail?.()}
+    >
+      {safetyLabel()}<span class="safety-caret">{detailOpen ? "▴" : "▾"}</span>
+    </button>
   </td>
   {@render actions()}
 </tr>
+{#if detailOpen}
+  <tr class="safety-detail-row">
+    <td colspan="5">
+      <div class="safety-detail">
+        <span class={`safety-detail-kind safety-${safetyClass()}`}>{safetyLabel()}</span>
+        <p class="safety-detail-reason">{safetyReason()}</p>
+        <p class="muted small safety-detail-source">{safetySource()} · {pkg}</p>
+      </div>
+    </td>
+  </tr>
+{/if}
 
 <style>
   /* The table chrome (th/td
@@ -98,7 +140,7 @@
   td {
     text-align: left;
     padding: 0.5rem 0.6rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--bg-button);
     vertical-align: middle;
   }
   td.center {
@@ -130,37 +172,70 @@
   .cell-cue {
     margin-top: 0.2rem;
   }
-  /* The cell is centred by the shared .center class so the chip sits under
-     its column heading, but the reason underneath is a sentence and has to
-     read as one — left-aligned, in the body face, at body-ish size. It was
-     inheriting centred monospace from this rule and wrapping into a block
-     that was tall, ragged and hard to read. */
-  .safety {
-    font-size: 0.78rem;
-  }
+  .safety,
   .state-unavailable {
-    font-family: var(--mono);
+    font-family: ui-monospace, monospace;
     font-size: 0.78rem;
     letter-spacing: 0.04em;
   }
-  .state-unavailable {
+  .state-unavailable,
+  .safety-unavailable,
+  .safety-unknown {
     color: var(--fg-muted);
   }
-  .safety-reason {
-    display: block;
-    margin-top: 0.3rem;
-    text-align: left;
-    color: var(--fg-muted);
-    font-family: var(--sans);
-    font-size: 0.75rem;
-    line-height: 1.4;
-    letter-spacing: normal;
-    text-transform: none;
+  .safety-protected {
+    color: var(--danger);
+  }
+  .safety-caution {
+    color: var(--warn);
+  }
+  .safety-safe {
+    color: var(--ok);
+  }
+  .safety-toggle {
+    background: none;
+    border: none;
+    padding: 0.1rem 0.3rem;
+    font: inherit;
+    color: inherit;
+    letter-spacing: inherit;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .safety-toggle:hover {
+    background: var(--bg-button-hover);
+  }
+  .safety-caret {
+    margin-left: 0.25rem;
+    opacity: 0.6;
+    font-size: 0.7em;
+  }
+  .safety-detail-row td {
+    padding-top: 0;
+  }
+  .safety-detail {
+    margin: 0 0 0.5rem;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg-inset);
+    border-left: 3px solid var(--border);
+    border-radius: 0 4px 4px 0;
+  }
+  .safety-detail-kind {
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .safety-detail-reason {
+    margin: 0.25rem 0 0.35rem;
+    line-height: 1.45;
+  }
+  .safety-detail-source {
+    margin: 0;
   }
   .tag {
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: var(--radius-sm);
+    border-radius: 4px;
     letter-spacing: 0.04em;
   }
   .tag.review {
@@ -171,7 +246,7 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: var(--mono);
+    font-family: ui-monospace, monospace;
   }
   /* Optimize-row emphasis (passed via rowClass): skipped rows recede; rows that
      WILL be acted on get a left accent bar and a faint tint. The action/result
