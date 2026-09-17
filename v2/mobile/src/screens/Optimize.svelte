@@ -3,7 +3,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import { isBlocked, reasonOf, tierOf } from "../lib/safety";
+  import { SAFETY_TIERS, isBlocked, reasonOf, tierOf } from "../lib/safety";
   import type {
     OptimizeMode,
     OptimizePlan,
@@ -199,7 +199,7 @@
           item.action.kind !== "enable" &&
           item.action.kind !== "skip" &&
           item.entry.default_optimize &&
-          map[item.entry.package]?.kind === "caution" &&
+          isReviewed(map[item.entry.package]?.kind) &&
           !selectionTouched.has(item.entry.package)
         ) next.add(item.entry.package);
       }
@@ -283,7 +283,7 @@
     return (
       it.action.kind !== "enable" &&
       it.entry.default_optimize &&
-      safetyMap[it.entry.package]?.kind === "caution"
+      isReviewed(safetyMap[it.entry.package]?.kind)
     );
   };
   const optionalItems = $derived(
@@ -325,11 +325,23 @@
     return it.action.kind !== "enable" && isBlocked(safetyMap[it.entry.package]);
   }
 
+  /// A verdict that came from a reviewed source — the catalog rated it safe, or
+  /// a rule says remove it carefully. Both are "we looked at this".
+  ///
+  /// `caution` alone used to stand for this, back when the only alternatives
+  /// were `unknown` and `never_disable`. Once `safe` existed, every check
+  /// written that way silently excluded the *most* removable apps: they could
+  /// not be selected and vanished from the Recommended tab.
+  function isReviewed(kind: Safety["kind"] | undefined): boolean {
+    return kind === "safe" || kind === "caution";
+  }
+
   function isSelectable(it: OptimizePlanItem): boolean {
     if (!planCurrent() || it.action.kind === "skip") return false;
     if (it.action.kind === "enable") return true;
     const verdict = safetyMap[it.entry.package];
-    return verdict?.kind === "caution" || verdict?.kind === "unknown";
+    if (!verdict) return false;
+    return verdict.kind !== "never_disable";
   }
 
   const selectedItems = $derived(
@@ -365,7 +377,7 @@
     if (destructive.length > 0) {
       parts.push(
         destructive
-          .map(({ item, verdict }) => `${verdict?.kind === "unknown" ? "Unknown" : "Caution"}: ${item.entry.name} — ${reasonOf(verdict)}`)
+          .map(({ item, verdict }) => `${SAFETY_TIERS[verdict?.kind ?? "unknown"].label}: ${item.entry.name} — ${reasonOf(verdict)}`)
           .join(" "),
       );
     }
@@ -1122,6 +1134,10 @@
   .tier-chip.restore {
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 7%, transparent);
+  }
+  .tier-chip.safe {
+    color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 14%, transparent);
   }
   .tier-chip.caution {
     color: var(--amber);

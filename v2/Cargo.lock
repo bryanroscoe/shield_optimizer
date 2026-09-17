@@ -4380,7 +4380,7 @@ dependencies = [
 
 [[package]]
 name = "shield-optimizer-core"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4401,7 +4401,7 @@ dependencies = [
 
 [[package]]
 name = "shield-optimizer-v2"
-version = "2.1.0"
+version = "2.2.0"
 dependencies = [
  "anyhow",
  "async-trait",

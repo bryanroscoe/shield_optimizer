@@ -57,7 +57,11 @@ export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
   },
 };
 
+/// The legend, ordered least to most restricted. Every kind in the union
+/// belongs here — a tier the user can be shown but cannot look up reads as a
+/// bug in the app.
 export const SAFETY_TIER_LIST: SafetyTier[] = [
+  SAFETY_TIERS.safe,
   SAFETY_TIERS.unknown,
   SAFETY_TIERS.caution,
   SAFETY_TIERS.never_disable,
@@ -72,6 +76,25 @@ export function tierOf(safety: Safety | null | undefined): SafetyTier | null {
 /// The core-supplied reason for every canonical verdict.
 export function reasonOf(safety: Safety | null | undefined): string {
   return safety?.reason ?? "";
+}
+
+/// One sentence stating what the engine said about a package, for the confirm
+/// dialog the user reads before a removal. Derived from the kind rather than
+/// written per call site: a two-way `unknown ? … : "Caution"` ternary over this
+/// four-valued union told the user the engine had "marked this Caution" about
+/// packages it had actually rated Safe — a false claim about our own verdict,
+/// at the moment of consent.
+export function verdictSummary(safety: Safety | null | undefined): string {
+  switch (safety?.kind) {
+    case "safe":
+      return "The safety engine rated this Safe to remove.";
+    case "caution":
+      return "The safety engine marked this Caution.";
+    case "never_disable":
+      return "The safety engine marked this Protected.";
+    default:
+      return "The removal impact is Unknown.";
+  }
 }
 
 /// Host layer refuses these outright — the UI must hard-block, not confirm.

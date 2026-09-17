@@ -335,6 +335,10 @@
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 7%, transparent);
   }
+  .tier-tag.safe {
+    color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 14%, transparent);
+  }
   .tier-tag.caution {
     color: var(--amber);
     background: color-mix(in srgb, var(--amber) 14%, transparent);

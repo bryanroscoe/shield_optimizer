@@ -169,9 +169,19 @@ whether this build works for you.
 
 ### Safety
 
+- **Every verdict now says where it came from.** A bare "Unknown" was doing two
+  jobs — "we rated this risky" and "we have never seen this package" — which
+  read the same and mean very different things. There are now four verdicts:
+  **Protected** (refused on every path), **Caution** (a known consequence,
+  stated), **Safe** (in the reviewed catalog and rated safe to remove), and
+  **Unknown** (no record). Click a verdict to see the reason and which list it
+  came from.
 - Apps missing from the audited catalog are labeled **Unknown** with a reason
   instead of Safe. Unknown apps are never pre-selected for disable or uninstall;
   you choose them explicitly and the confirmation says so.
+- The App List and the Optimize wizard show the verdict alone, with the full
+  reason behind a click. Spelling every reason out inline turned each row into a
+  five-line block and cut the list from five apps on screen to three.
 - A failed inventory read no longer shows an app as Enabled.
 - The last enabled launcher is protected on every disable path, not just the
   launcher screen.

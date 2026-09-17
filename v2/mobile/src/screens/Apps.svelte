@@ -3,6 +3,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { recordUnknownDiagnostics } from "../lib/unknownDiagnostics";
+  import { verdictSummary } from "../lib/safety";
   import packageMetadata from "../../package.json";
   import type { Screen } from "../lib/router.svelte";
   import type { AppUsage, OtherPackage, Safety } from "../lib/types";
@@ -627,8 +628,8 @@
     title={`${removalIntent?.action === "disable" ? "Disable" : "Uninstall"} ${removalIntent ? label(removalIntent.app) : "app"}?`}
     warning={removalIntent?.verdict.reason ?? ""}
     message={removalIntent?.action === "disable"
-      ? `${removalIntent.verdict.kind === "unknown" ? "The removal impact is Unknown." : "The safety engine marked this Caution."} Disable is reversible with Enable.`
-      : `${removalIntent?.verdict.kind === "unknown" ? "The removal impact is Unknown." : "The safety engine marked this Caution."} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.`}
+      ? `${verdictSummary(removalIntent.verdict)} Disable is reversible with Enable.`
+      : `${verdictSummary(removalIntent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.`}
     confirmLabel={removalIntent?.action === "disable" ? "Disable" : "Uninstall"}
     onConfirm={confirmRemoval}
     onCancel={() => {

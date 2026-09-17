@@ -1,6 +1,6 @@
 [package]
 name = "shield-optimizer-core"
-version = "2.1.0"
+version = "2.2.0"
 description = "Shared engine, ADB abstractions, and Tauri commands for Shield Optimizer / ATV Optimizer"
 authors = ["Bryan Roscoe"]
 edition = "2021"

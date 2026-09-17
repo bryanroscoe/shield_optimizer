@@ -147,10 +147,13 @@ confirm "Bump + tag? (y/N)" || { echo "Aborted."; exit 1; }
 
 # --- Patch the version into all three files ---------------------------------
 
-python3 - <<PY
+NEW="$NEW" TAURI_CONF="$TAURI_CONF" CARGO_TOML="$CARGO_TOML" \
+CORE_CARGO_TOML="$CORE_CARGO_TOML" CARGO_LOCK="$CARGO_LOCK" \
+PACKAGE_JSON="$PACKAGE_JSON" python3 - <<'PY'
+import os
 import json, re, pathlib
 
-new = "$NEW"
+new = os.environ["NEW"]
 
 # Compute an MSI-compliant version. Two WiX constraints drive this:
 #   1. Pre-release identifiers must be numeric-only (so `0.1.0-beta.1` is
@@ -187,14 +190,14 @@ else:
 wix_version = f"{major}.{minor}.{build3}"
 
 # tauri.conf.json
-p = pathlib.Path("$TAURI_CONF")
+p = pathlib.Path(os.environ["TAURI_CONF"])
 conf = json.loads(p.read_text())
 conf["version"] = new
 conf.setdefault("bundle", {}).setdefault("windows", {}).setdefault("wix", {})["version"] = wix_version
 p.write_text(json.dumps(conf, indent=2) + "\n")
 
 # Cargo.toml files — keep formatting, edit only each [package].version line.
-for cargo_path in ["$CARGO_TOML", "$CORE_CARGO_TOML"]:
+for cargo_path in [os.environ["CARGO_TOML"], os.environ["CORE_CARGO_TOML"]]:
     cargo = pathlib.Path(cargo_path).read_text()
     cargo, n = re.subn(r'(?m)^(version\s*=\s*)"[^"]+"', rf'\1"{new}"', cargo, count=1)
     assert n == 1, f"{cargo_path}: no top-level version= line found"
@@ -203,7 +206,7 @@ for cargo_path in ["$CARGO_TOML", "$CORE_CARGO_TOML"]:
 # Cargo.lock — find the [[package]] block whose name matches the crate and
 # rewrite its version line. Without this, the next `cargo build` rewrites
 # Cargo.lock and leaves the working tree dirty after a release.
-lock_path = pathlib.Path("$CARGO_LOCK")
+lock_path = pathlib.Path(os.environ["CARGO_LOCK"])
 lock = lock_path.read_text()
 for package_name in ["shield-optimizer-v2", "shield-optimizer-core"]:
     lock, n = re.subn(
@@ -216,7 +219,7 @@ for package_name in ["shield-optimizer-v2", "shield-optimizer-core"]:
 lock_path.write_text(lock)
 
 # package.json
-p = pathlib.Path("$PACKAGE_JSON")
+p = pathlib.Path(os.environ["PACKAGE_JSON"])
 pkg = json.loads(p.read_text())
 pkg["version"] = new
 p.write_text(json.dumps(pkg, indent=2) + "\n")

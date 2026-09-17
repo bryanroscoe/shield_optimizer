@@ -789,6 +789,10 @@
     border-radius: 6px;
     flex: none;
   }
+  .risk-badge.safe {
+    color: var(--teal);
+    background: color-mix(in srgb, var(--teal) 14%, transparent);
+  }
   .risk-badge.caution {
     color: var(--amber);
     background: color-mix(in srgb, var(--amber) 14%, transparent);

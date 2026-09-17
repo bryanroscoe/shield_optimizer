@@ -377,3 +377,60 @@ test("differing Unknown reasons stay on their own rows", async (t) => {
   assert.match(await list.innerText(), /Not in the reviewed registry\./);
   assert.match(await list.innerText(), /Reviewed registry was unreachable\./);
 });
+
+// The catalog's `safe` verdict is newer than this screen. Every check here was
+// originally written as `kind === "caution"`, which was a correct stand-in for
+// "reviewed" while the only other kinds were `unknown` and `never_disable`.
+// Once `safe` existed those checks silently excluded the apps the catalog
+// rates *safest*: unselectable, and absent from Recommended.
+test("Safe defaults are recommended, selected and actionable", async (t) => {
+  const safeDefault = item("Safe Default", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [safeDefault] } },
+    safety: {
+      [safeDefault.entry.package]: {
+        kind: "safe",
+        reason: "Reviewed for Android TV and rated safe to remove.",
+        source: "reviewed_catalog",
+      },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("Safe Default", { exact: true }).waitFor();
+
+  // Recommended, not banished to Optional.
+  assert.match(
+    await page.getByRole("button", { name: "Recommended", exact: true }).getAttribute("class"),
+    /active/,
+  );
+  await page.getByText("1 selected · 1 recommended · 0 optional", { exact: false }).waitFor();
+
+  // Selected by default, and the toggle is actually operable -- `isSelectable`
+  // returning false both clears the check and disables the control.
+  const toggle = page.getByRole("button", { name: "Toggle Safe Default" });
+  assert.match(await toggle.getAttribute("class"), /checked/);
+  assert.equal(await toggle.isDisabled(), false);
+  assert.equal(await page.getByRole("button", { name: /Apply optimization/ }).isDisabled(), false);
+});
+
+test("the confirm summary names the Safe verdict rather than calling it Caution", async (t) => {
+  const safeDefault = item("Safe Default", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [safeDefault] } },
+    safety: {
+      [safeDefault.entry.package]: {
+        kind: "safe",
+        reason: "Reviewed for Android TV and rated safe to remove.",
+        source: "reviewed_catalog",
+      },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("Safe Default", { exact: true }).waitFor();
+  await page.getByRole("button", { name: /Apply optimization/ }).click();
+  const dialog = page.locator(".dialog-card");
+  await dialog.waitFor();
+  const text = await dialog.innerText();
+  assert.match(text, /Safe: Safe Default/);
+  assert.doesNotMatch(text, /Caution: Safe Default/);
+});
