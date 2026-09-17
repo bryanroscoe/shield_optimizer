@@ -17,6 +17,14 @@
   font-weight: 100 900;
   font-display: swap;
 }
+/* block, not swap: these ligatures are literal words, so a fallback face would
+   paint "settings" where a gear belongs. Better briefly blank than wrong. */
+@font-face {
+  font-family: "Material Symbols Rounded";
+  src: url("./fonts/material-symbols-rounded.woff2") format("woff2");
+  font-weight: 100 700;
+  font-display: block;
+}
 
 /* Semantic color tokens, one block per theme. $lib/theme.ts resolves the
    "system" preference to a concrete data-theme, so each palette is written

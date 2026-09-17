@@ -1,5 +1,6 @@
 <script lang="ts">
   import "../app.css";
+  import Icon from "$lib/components/Icon.svelte";
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -165,7 +166,7 @@
         {#if pendingUpdate}
           {#if updateInstalled}
             <button class="update-badge installed" onclick={restartApp} title="Relaunch to finish updating">
-              Update installed — Restart now ↻
+              Update installed — Restart now <Icon name="restart_alt" size={15} />
             </button>
           {:else if updateBusy}
             <span class="update-badge updating">{updateProgress}</span>
@@ -213,7 +214,7 @@
   </main>
   <footer>
     <button class="kofi" onclick={() => openUrl("https://ko-fi.com/bryanroscoe")}>
-      ☕ Enjoying Shield Optimizer? Support it on Ko-fi
+      <Icon name="local_cafe" size={15} /> Enjoying Shield Optimizer? Support it on Ko-fi
     </button>
   </footer>
 </div>
@@ -266,7 +267,7 @@
     </div>
     <div class="notes-actions">
       <button class="notes-history" onclick={() => openUrl(update!.url)}>
-        All releases ↗
+        All releases <Icon name="open_in_new" size={14} />
       </button>
       <span class="spacer"></span>
       {#if arrived}
@@ -394,6 +395,9 @@
   /* A button, not an anchor: these open in the system browser via the opener
      plugin, and the href is remote text we only partly trust. */
   .notes-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
     background: none;
     border: none;
     padding: 0;
@@ -416,6 +420,9 @@
     font-size: 0.85rem;
   }
   .update-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
     margin-left: 0.6rem;
     padding: 0.15rem 0.6rem;
     border: 1px solid var(--accent);
@@ -513,6 +520,9 @@
   /* Link-styled button: external URLs must go through the opener plugin
      (a plain <a target="_blank"> doesn't reach the system browser in Tauri). */
   .kofi {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     background: none;
     border: none;
     padding: 0;

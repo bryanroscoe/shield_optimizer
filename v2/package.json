@@ -19,7 +19,8 @@
     "test:memory-safety": "node tests/memory-safety.mjs",
     "test:playback-shell": "node tests/playback-shell.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "subset-icons": "python3 scripts/subset-material-symbols.py"
   },
   "license": "MIT",
   "dependencies": {
@@ -35,6 +36,7 @@
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tauri-apps/cli": "^2",
     "@types/node": "^25.9.1",
+    "material-symbols": "^0.45.10",
     "playwright": "^1.60.0",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
