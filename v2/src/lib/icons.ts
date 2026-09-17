@@ -44,6 +44,7 @@ export const ICONS = [
   "storage",
   "device_thermostat",
   "monitor_heart",
+  "speed",
   "aspect_ratio",
   "volume_up",
   "volume_down",

@@ -320,6 +320,34 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return packageStates((args.packages as string[]) ?? []);
     case "app_permission_state":
       return "granted";
+    // Every installed package, catalog entries included. The Health tab uses
+    // this to tell a memory row that really is an installed app from a process
+    // name it cannot tie to one — without it, every row reads "not a package".
+    // Deliberately omits the native processes in top_memory (surfaceflinger
+    // and friends), because those genuinely are not packages.
+    case "list_installed_packages":
+      return [
+        ...apps.map((a) => ({
+          package: a.package,
+          system: true,
+          enabled: true,
+          name: a.name,
+        })),
+        { package: "com.netflix.ninja", system: false, enabled: true, name: "Netflix" },
+        { package: "com.plexapp.android", system: false, enabled: true, name: "Plex" },
+        { package: "com.disney.disneyplus", system: false, enabled: true, name: "Disney+" },
+        { package: "com.spotify.tv.android", system: false, enabled: true, name: "Spotify" },
+        { package: "tv.twitch.android.app", system: false, enabled: true, name: "Twitch" },
+        { package: "com.nvidia.tegrazone3", system: true, enabled: true, name: "NVIDIA Games" },
+        { package: "com.google.android.tvlauncher", system: true, enabled: true, name: null },
+        { package: "com.nvidia.shield.remote.server", system: true, enabled: true, name: null },
+        { package: "com.teamsmart.videomanager.tv", system: false, enabled: true, name: "SmartTube" },
+        { package: "ca.devmesh.overseerrtv", system: false, enabled: true, name: "Overseerr (TV)" },
+        { package: "org.fdroid.fdroid", system: false, enabled: true, name: "F-Droid" },
+        { package: "com.android.vending", system: true, enabled: true, name: null },
+        { package: "com.android.providers.media", system: true, enabled: true, name: null },
+        { package: "com.nvidia.ota", system: true, enabled: false, name: null },
+      ];
     case "list_other_packages":
       return [
         { package: "com.teamsmart.videomanager.tv", system: false, enabled: true, name: "SmartTube" },

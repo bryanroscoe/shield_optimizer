@@ -115,6 +115,22 @@
     }
   }
 
+  /// Safety for one row of the memory report.
+  ///
+  /// Confirming the name against the installed list is allowed to make a
+  /// verdict *more* cautious, never less. An app can declare
+  /// `android:process` as any string — including another package's name — so
+  /// a matching name is strong evidence of ownership but not proof. Being
+  /// wrong about Protected or Caution costs a needless warning; being wrong
+  /// about Safe tells someone it is fine to remove something on the strength
+  /// of a string, which is the one claim this app must never make from an
+  /// unverified name. tests/memory-safety.mjs pins that.
+  async function memorySafetyFor(pkg: string, installed: Set<string>): Promise<Safety> {
+    if (!installed.has(pkg)) return api.processSafetyInfo(pkg);
+    const verdict = await api.safetyInfo(pkg);
+    return verdict.kind === "safe" ? api.processSafetyInfo(pkg) : verdict;
+  }
+
   function capturePageContext(): PageContext {
     return { serial, epoch: pageEpoch };
   }
@@ -315,6 +331,19 @@
   const busiestRate = $derived(busiest?.rx_bytes_per_s ?? null);
   const busiestName = $derived(busiest?.name ?? null);
 
+  /// Shared by the RAM tile and the RAM meter, which now live in two separate
+  /// cards and must not drift apart.
+  const ramPct = $derived(
+    report?.ram.total_mb && report.ram.used_mb != null
+      ? Math.round((report.ram.used_mb / report.ram.total_mb) * 100)
+      : null,
+  );
+  const ramFreeMb = $derived(
+    report?.ram.total_mb != null && report?.ram.used_mb != null
+      ? report.ram.total_mb - report.ram.used_mb
+      : null,
+  );
+
   let resourceErr = $state<string | null>(null);
   let resourceRequest = 0;
 
@@ -394,9 +423,7 @@
       if (!pageContextIsCurrent(context) || request !== healthRequest) return;
       memoryConfirmed = installed;
       const results = await Promise.allSettled(
-        pkgs.map((pkg) =>
-          installed.has(pkg) ? api.safetyInfo(pkg) : api.processSafetyInfo(pkg),
-        ),
+        pkgs.map((pkg) => memorySafetyFor(pkg, installed)),
       );
       // Deliberately not comparing `report` to `nextReport`: `report` is
       // $state, so assigning an object stores a deep proxy and the identity
@@ -1399,7 +1426,8 @@
     }
     if (activeTab === "launcher" && !launchersLoaded && !launcherLoading) loadLauncher();
     if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
-    if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
+    // Health reads it too, for the "every change is reversible" callout.
+    if ((activeTab === "snapshot" || activeTab === "health") && !snapshotsLoaded) loadSnapshots();
   });
 
   // A device-state change (enable/disable/uninstall/launcher switch) in one tab
@@ -1751,50 +1779,36 @@
       </aside>
     </div>
   {:else if activeTab === "health"}
-    <div class="card" role="tabpanel" tabindex={0} id="tabpanel-health" aria-labelledby="tab-health">
-      <div class="card-header">
-        <h2><Icon name="monitor_heart" size={17} /> Health Report</h2>
-        <div class="header-actions">
-          <label class="live-refresh">
-            <input type="checkbox" checked={liveRefresh} onchange={toggleLiveRefresh} />
-            Live refresh
-          </label>
-          <span class="muted small" title={reportLastRefreshed?.toISOString() ?? ""}>
-            {refreshLabel}
-          </span>
-          <button
-            onclick={clearCaches}
-            disabled={trimBusy}
-            title="pm trim-caches — clears every app's cache; caches rebuild on next launch"
-          >
-            {trimBusy ? "Clearing…" : "Clear caches"}
-          </button>
-          <button onclick={loadHealth} disabled={reportLoading}>
-            {reportLoading ? "Loading…" : "Refresh"}
-          </button>
-          <button onclick={loadResourceSample} disabled={resourceLoading}>
-            {resourceLoading ? "Sampling…" : "Sample resources"}
-          </button>
+    <div class="health-stack" role="tabpanel" tabindex={0} id="tabpanel-health" aria-labelledby="tab-health">
+      <div class="card">
+        <div class="card-header">
+          <h2><Icon name="monitor_heart" size={17} /> Vitals</h2>
+          <div class="header-actions">
+            <span class="muted small" title={reportLastRefreshed?.toISOString() ?? ""}>
+              {refreshLabel}
+            </span>
+            <!-- A button, not a checkbox: it is the only control in a ruled
+                 header that was not one. The dot carries the on state so the
+                 lime fill is not doing status duty. -->
+            <button
+              class="live-toggle"
+              class:on={liveRefresh}
+              aria-pressed={liveRefresh}
+              onclick={toggleLiveRefresh}
+              title="Re-read the health report every few seconds"
+            >
+              <span class="live-dot" aria-hidden="true"></span> Live
+            </button>
+            <button onclick={loadHealth} disabled={reportLoading}>
+              {reportLoading ? "Loading…" : "Refresh"}
+            </button>
+          </div>
         </div>
-      </div>
-      {#if trimMessage}
-        <p class="muted small mono">{trimMessage}</p>
-      {/if}
-      {#if reportErr}
-        <div class="error">{reportErr}</div>
-      {:else if !report}
-        <div class="muted">{reportLoading ? "Querying…" : "—"}</div>
-      {:else}
-        <h3>Vitals</h3>
-        {#if resourceErr}<p class="error">Resource sample: {resourceErr}</p>{/if}
-        {@const ramPct =
-          report.ram.total_mb && report.ram.used_mb != null
-            ? Math.round((report.ram.used_mb / report.ram.total_mb) * 100)
-            : null}
-        {@const ramFreeMb =
-          report.ram.total_mb != null && report.ram.used_mb != null
-            ? report.ram.total_mb - report.ram.used_mb
-            : null}
+        {#if reportErr}
+          <div class="error">{reportErr}</div>
+        {:else if !report}
+          <div class="muted">{reportLoading ? "Querying…" : "—"}</div>
+        {:else}
         <div class="stat-tiles">
           <div class="stat-tile">
             <span class="stat-icon {ramPct != null ? meterTone(ramPct) : ''}">
@@ -1858,12 +1872,27 @@
             <span class="stat-caption">{busiestName ?? "Network"}</span>
           </div>
         </div>
+        {/if}
+      </div>
+
+      {#if report && !reportErr}
+      <div class="health-grid">
+        <div class="health-col">
+          <div class="card">
+            <h2><Icon name="speed" size={17} /> Resources</h2>
+            {#if resourceErr}<p class="error">Resource sample: {resourceErr}</p>{/if}
         <dl class="kv">
           <dt>CPU</dt>
           <dd>
             {#if resource?.cpu_percent != null}
               {resource.cpu_percent.toFixed(1)}%
               {#if resource.interval_ms != null}<span class="muted small">over {(resource.interval_ms / 1000).toFixed(2)}s</span>{/if}
+              <button
+                class="small-action subtle"
+                onclick={loadResourceSample}
+                disabled={resourceLoading}
+                title="Re-read CPU and network without re-running the whole report"
+              >{resourceLoading ? "Sampling…" : "Sample again"}</button>
             {:else}
               {resourceLoading ? "sampling…" : "—"}
             {/if}
@@ -1885,16 +1914,15 @@
           <dt>Temperature</dt>
           <dd>{report.temperature_c != null ? `${report.temperature_c.toFixed(1)}°C` : "—"}</dd>
           {#if report.ram.total_mb != null}
-            {@const ramPercent = ramPct}
             <dt>RAM</dt>
             <dd>
               <div class="meter-value">
                 <span>{report.ram.used_mb ?? "?"} / {report.ram.total_mb} MB</span>
-                {#if ramPercent != null}<span class="muted">{ramPercent}%</span>{/if}
+                {#if ramPct != null}<span class="muted">{ramPct}%</span>{/if}
               </div>
-              {#if ramPercent != null}
+              {#if ramPct != null}
                 <div class="meter" role="presentation">
-                  <div class="meter-fill {meterTone(ramPercent)}" style="width: {Math.min(100, ramPercent)}%"></div>
+                  <div class="meter-fill {meterTone(ramPct)}" style="width: {Math.min(100, ramPct)}%"></div>
                 </div>
               {/if}
             </dd>
@@ -1910,7 +1938,19 @@
                 {#if report.storage.used_percent != null}
                   <span class="muted">{report.storage.used_percent}%</span>
                 {/if}
+                <!-- A device mutation that moves exactly this number, so it
+                     belongs beside it rather than in the header looking like a
+                     view control. -->
+                <button
+                  class="small-action subtle"
+                  onclick={clearCaches}
+                  disabled={trimBusy}
+                  title="pm trim-caches — clears every app's cache; caches rebuild on next launch"
+                >{trimBusy ? "Clearing…" : "Clear caches"}</button>
               </div>
+              {#if trimMessage}
+                <p class="muted small mono trim-note">{trimMessage}</p>
+              {/if}
               {#if report.storage.used_percent != null}
                 <div class="meter" role="presentation">
                   <div
@@ -1923,15 +1963,44 @@
           {/if}
         </dl>
 
-        <h3>Display & Audio</h3>
-        <dl class="kv">
-          <dt>Resolution</dt><dd>{report.display.resolution ?? "—"}</dd>
-          <dt>Refresh</dt><dd>{report.display.refresh_hz ? `${report.display.refresh_hz} Hz` : "—"}</dd>
-          <dt>HDR</dt><dd>{report.display.hdr_types.length ? report.display.hdr_types.join(", ") : "SDR only"}</dd>
-          <dt>Audio out</dt><dd>{report.audio_device ?? "—"}</dd>
-        </dl>
+          </div>
 
-        <h3>Top Memory Users</h3>
+          <div class="card">
+            <h2><Icon name="tv" size={17} /> Display &amp; Audio</h2>
+            <!-- One card, two blocks. The board draws two cards, but the audio
+                 side is a single string and a whole card for one value reads
+                 as empty. The chips are facts, not verdicts, so they take no
+                 status colour. -->
+            <div class="av-grid">
+              <div class="av-block">
+                <h3>Display</h3>
+                <div class="av-primary">{report.display.resolution ?? "—"}</div>
+                <div class="av-chips">
+                  {#if report.display.refresh_hz}
+                    <span class="av-chip">{report.display.refresh_hz} Hz</span>
+                  {/if}
+                  {#if report.display.hdr_types.length}
+                    {#each report.display.hdr_types as hdr (hdr)}
+                      <span class="av-chip">{hdr}</span>
+                    {/each}
+                  {:else}
+                    <span class="av-chip muted">SDR only</span>
+                  {/if}
+                </div>
+              </div>
+              <span class="av-rule" aria-hidden="true"></span>
+              <div class="av-block">
+                <h3>Audio out</h3>
+                <!-- Printed whole. We cannot reliably split "Dolby Atmos" from
+                     "over HDMI (eARC)", and guessing would be inventing data. -->
+                <div class="av-primary av-audio">{report.audio_device ?? "—"}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card health-memory">
+          <h2><Icon name="memory" size={17} /> Top memory users</h2>
         <p class="muted small consumers-note">
           Rows whose name matches an installed package are classified against the
           reviewed app list. The rest are process names we cannot tie to an app,
@@ -1979,6 +2048,31 @@
             </p>
           {/if}
         {/if}
+        </div>
+      </div>
+
+      <!-- The one piece of genuine state this screen can lead with, in place
+           of the board's invented score: whether the work is reversible. -->
+      {#if snapshots.length > 0}
+        {@const newest = snapshots[0]}
+        <div class="callout callout-ok">
+          <Icon name="check_circle" size={16} />
+          <span>
+            Snapshot saved {snapTimestamp(newest.saved_at)} — every change is reversible.
+          </span>
+          <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
+            Open snapshots
+          </button>
+        </div>
+      {:else}
+        <div class="callout callout-warn">
+          <Icon name="warning" size={16} />
+          <span>No snapshot saved yet — save one before you change anything.</span>
+          <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
+            Save a snapshot
+          </button>
+        </div>
+      {/if}
       {/if}
     </div>
   {:else if activeTab === "launcher"}
@@ -2708,6 +2802,123 @@
   }
   .tabs button.far {
     margin-left: auto;
+  }
+  .health-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  /* Memory takes the wide column, inverting the board: its Process cells carry
+     forty-to-seventy-character package ids, which wrap on every row in a
+     narrow rail. */
+  .health-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 1.25rem;
+    align-items: start;
+  }
+  .health-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    min-width: 0;
+  }
+  .health-memory {
+    min-width: 0;
+  }
+  .av-grid {
+    display: grid;
+    grid-template-columns: 1fr 1px 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+  .av-block {
+    min-width: 0;
+  }
+  .av-block h3 {
+    margin-top: 0;
+  }
+  .av-rule {
+    align-self: stretch;
+    background: var(--border);
+  }
+  .av-primary {
+    font-family: var(--mono);
+    font-size: 1.3rem;
+    font-weight: 600;
+    line-height: 1.15;
+  }
+  .av-audio {
+    font-size: 1rem;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .av-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.45rem;
+  }
+  /* Facts about the panel, not verdicts — no status colour. */
+  .av-chip {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.1rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface-2);
+    color: var(--fg-secondary);
+    white-space: nowrap;
+  }
+  .live-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--fg-muted);
+  }
+  .live-toggle.on {
+    border-color: var(--ok);
+    color: var(--fg-primary);
+  }
+  .live-toggle.on .live-dot {
+    background: var(--ok);
+  }
+  .callout-link {
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .callout-ok {
+    border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+  }
+  .callout-ok :global(.msr) {
+    color: var(--ok);
+  }
+  .callout-warn :global(.msr) {
+    color: var(--warn);
+  }
+  .trim-note {
+    margin: 0.3rem 0 0;
+  }
+  /* An outlier package id must never widen the table. */
+  .mem-table .pkg {
+    max-width: 0;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 1100px) {
+    .health-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
   .stat-tiles {
     display: grid;
