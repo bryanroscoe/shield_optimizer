@@ -688,27 +688,6 @@
 <style>
   /* Shared scoped utilities duplicated from the page; global rules
      (.muted, button, input) live in the layout and are inherited. */
-  .card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.2rem;
-  }
-  .card h2 {
-    margin: 0 0 0.8rem;
-    font-size: 1.1rem;
-  }
-  .card h3 {
-    margin: 1rem 0 0.4rem;
-    font-size: 1rem;
-    color: var(--fg-secondary);
-  }
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
   .small {
     font-size: 0.82rem;
   }

@@ -374,22 +374,6 @@
   /* --- Shared scoped utilities, duplicated from the page (see CLAUDE.md note
          on component CSS). Global rules (.muted, button, input) live in the
          layout and are inherited. --- */
-  .card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.2rem;
-  }
-  .card h2 {
-    margin: 0 0 0.8rem;
-    font-size: 1.1rem;
-  }
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
   .header-actions {
     display: flex;
     gap: 0.8rem;

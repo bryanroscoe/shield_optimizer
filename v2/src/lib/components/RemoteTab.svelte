@@ -256,17 +256,18 @@
         <button onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={22} /></button>
         <span></span>
       </div>
+      <div class="remote-keys">
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("back")} title="Back"><Icon name="arrow_back" size={15} /> Back</button>
         <button onclick={() => sendRemoteKey("home")} title="Home"><Icon name="home" size={15} /> Home</button>
         <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={15} /> Settings</button>
       </div>
       <div class="remote-row">
-        <button onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher"><Icon name="apps" size={15} /> Recents</button>
+        <button class="span-3" onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher"><Icon name="apps" size={15} /> Recents</button>
       </div>
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("rewind")} title="Rewind" aria-label="Rewind"><Icon name="fast_rewind" size={18} /></button>
-        <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause" aria-label="Play or pause"><Icon name="play_arrow" size={18} /><Icon name="pause" size={18} /></button>
+        <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause" aria-label="Play or pause"><Icon name="play_pause" size={20} /></button>
         <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward" aria-label="Fast forward"><Icon name="fast_forward" size={18} /></button>
       </div>
       <div class="remote-row">
@@ -278,6 +279,7 @@
         <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
         <button onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={15} /> Power</button>
       </div>
+      </div>
     </div>
   </div>
 </div>
@@ -285,16 +287,6 @@
 <style>
   /* Shared scoped utilities duplicated from the page; global rules
      (.muted, button) live in the layout and are inherited. */
-  .card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.2rem;
-  }
-  .card h2 {
-    margin: 0 0 0.8rem;
-    font-size: 1.1rem;
-  }
   .remote-header {
     display: flex;
     align-items: baseline;
@@ -322,11 +314,6 @@
   .transport.live {
     color: var(--ok);
   }
-  .card h3 {
-    margin: 1rem 0 0.4rem;
-    font-size: 1rem;
-    color: var(--fg-secondary);
-  }
   .small {
     font-size: 0.82rem;
   }
@@ -340,11 +327,14 @@
   /* Remote-specific styles. */
   .remote-layout {
     display: flex;
-    gap: 2.5rem;
+    gap: 3rem;
     flex-wrap: wrap;
     align-items: flex-start;
   }
-  .remote-typing { flex: 1; min-width: 280px; max-width: 480px; }
+  .remote-typing {
+    flex: 1;
+    min-width: 280px;
+  }
   .typing-header {
     display: flex;
     align-items: center;
@@ -377,21 +367,68 @@
     animation: caret-blink 1s steps(1) infinite;
   }
   @keyframes caret-blink { 50% { opacity: 0; } }
-  .remote-pad { display: flex; flex-direction: column; gap: 0.6rem; }
-  .dpad {
-    display: grid;
-    grid-template-columns: repeat(3, 3.2rem);
-    grid-auto-rows: 3.2rem;
-    gap: 0.4rem;
-    justify-items: stretch;
+  .remote-pad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.9rem;
   }
-  .dpad button { font-size: 1rem; }
-  .dpad .ok { font-weight: 700; }
+  /* A D-pad should look like one control, not four loose rectangles. The
+     ring is a single disc; the four directions are transparent wedges laid
+     over it in a 3x3 grid, with OK as a raised centre. */
+  .dpad {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 3.4rem);
+    grid-auto-rows: 3.4rem;
+    justify-items: stretch;
+    border-radius: 50%;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    padding: 0.35rem;
+    width: max-content;
+  }
+  .dpad button {
+    background: none;
+    border: none;
+    border-radius: 50%;
+    color: var(--fg-secondary);
+    padding: 0;
+  }
+  .dpad button:hover {
+    background: var(--bg-button-hover);
+    color: var(--fg-primary);
+  }
+  .dpad button:active {
+    background: var(--accent-surface);
+    color: var(--accent);
+  }
+  .dpad .ok {
+    background: var(--bg-button);
+    border: 1px solid var(--border);
+    color: var(--fg-primary);
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+  .dpad .ok:hover {
+    background: var(--accent-strong);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  /* One grid for every key row, so the columns line up down the stack
+     instead of each row sizing itself. */
+  .remote-keys {
+    display: grid;
+    gap: 0.4rem;
+    width: max-content;
+  }
   .remote-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 0.4rem;
-    max-width: 10.4rem;
+  }
+  .remote-row .span-3 {
+    grid-column: 1 / -1;
   }
   .dpad button,
   .remote-row button {

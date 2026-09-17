@@ -2396,27 +2396,6 @@
     color: var(--accent);
     border-bottom-color: var(--accent);
   }
-  .card {
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.2rem;
-  }
-  .card h2 {
-    margin: 0 0 0.8rem;
-    font-size: 1.1rem;
-  }
-  .card h3 {
-    margin: 1rem 0 0.4rem;
-    font-size: 1rem;
-    color: var(--fg-secondary);
-  }
-  .card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
   /* Usage meters, lifted from the mobile Diagnostics screen: a number alone
      makes you do the arithmetic, a bar tells you at a glance. Desktop tokens
      rather than mobile's, so it matches the rest of this app. */
@@ -2440,8 +2419,12 @@
     border-radius: var(--radius-xs);
     transition: width 0.3s ease;
   }
+  /* Solid, not a gradient. In dark --accent and --accent-strong are the same
+     lime so the gradient was already flat; in light they are dark olive and
+     lime, which made one bar look like two different states. --accent is the
+     readable one against the track in both themes. */
   .meter-fill.ok {
-    background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+    background: var(--accent);
   }
   .meter-fill.warn {
     background: var(--warn);

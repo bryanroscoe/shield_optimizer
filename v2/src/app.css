@@ -237,6 +237,61 @@ textarea:focus-visible {
   color: var(--fg-secondary);
   opacity: 0.8;
 }
+/* Card chrome, from the desktop board in the design source. Every screen in
+   this app is a card, so this is most of what the refresh looks like.
+   Previously each of nine files carried a byte-identical copy of these rules;
+   they differed only in that one of them set h3 to 1.2rem by accident. */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.35rem 1.5rem;
+}
+.card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+/* The board sets subsection headings as small mono uppercase labels rather
+   than smaller headings — it reads as a divider instead of competing with
+   the card title. */
+.card h3 {
+  margin: 1.6rem 0 0.7rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.card h3:first-of-type {
+  margin-top: 1.1rem;
+}
+/* Title row: name on the left, controls on the right, a hairline under both
+   so the card's body reads as separate from its chrome. */
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.85rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.card-header .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+/* A card whose title is not wrapped in .card-header still wants the rule. */
+.card > h2:first-child {
+  padding-bottom: 0.85rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
 /* Safety verdicts. One chip, used by every table that shows one — see
    $lib/safety.ts for the vocabulary. Two of the three tables used to render
    the verdict as plain uncoloured text, so Protected and Unknown looked
