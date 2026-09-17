@@ -68,48 +68,56 @@
   --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
-/* Light values. */
+/* Light values, from the "Desktop, light mode" board in the design source
+   (see src/fonts/README.md for where that lives). Surfaces, neutrals and the
+   accent are the design's own numbers.
+
+   Three status colours are darkened from what the board shows. The board uses
+   them on tinted chips, where 3:1 is the bar; this app also prints them as
+   body text, where the bar is 4.5:1 and the design's #12A87A (3.0), #C98A12
+   (2.9) and #77808D (4.0) all miss it. Hue is unchanged — only lightness —
+   because issue #26 was a user unable to read this theme. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg-page: #f7f8f5;
+  --bg-page: #f7f8fa;
   --bg-surface: #ffffff;
-  --bg-surface-2: #f1f3ee;
-  --bg-button: #f2f4ef;
-  --bg-button-hover: #e7eae1;
+  --bg-surface-2: #edeff3;
+  --bg-button: #f2f4f7;
+  --bg-button-hover: #e4e7ed;
   --bg-input: #ffffff;
-  --bg-inset: #f1f3ee;
-  --bg-muted: #e6e9e0;
+  --bg-inset: #edeff3;
+  --bg-muted: #e4e7ed;
   --bg-nav-active: color-mix(in srgb, var(--accent) 14%, transparent);
-  --border: #e3e6dd;
-  --border-strong: #9aa38c;
-  --fg-primary: #14171a;
-  --fg-secondary: #3c434c;
-  --fg-muted: #5c646e;
-  --fg-faint: #646b75;
-  /* Lime is 1.3:1 on white — fine as a fill under dark ink, unusable as text.
-     The text/border accent is the same hue taken far darker. */
-  --accent: #3f6212;
+  --border: rgba(15, 20, 28, 0.09);
+  --border-strong: rgba(15, 20, 28, 0.28);
+  --fg-primary: #14171c;
+  --fg-secondary: #3d444e;
+  --fg-muted: #656c75;
+  --fg-faint: #656c75;
+  /* The design mixes the lime into the ink rather than picking a new green:
+     color-mix(in srgb, var(--accent) 34%, #14171C). Written out so it does not
+     depend on --accent, which the highlight-colour picker may change. */
+  --accent: #52612d;
   --accent-strong: #c9f24e;
   --accent-strong-hover: #b6dd3d;
   --accent-ink: #0b0d10;
-  --accent-glow: rgba(63, 98, 18, 0.28);
+  --accent-glow: rgba(82, 97, 45, 0.28);
   --accent-surface: color-mix(in srgb, var(--accent) 14%, transparent);
-  --danger: #c3362b;
+  --danger: #d2402f;
   --danger-ink: #ffffff;
-  --danger-strong: #9e2b1e;
-  --danger-text: #9e2b1e;
+  --danger-strong: #b02f20;
+  --danger-text: #c0331f;
   --danger-surface: color-mix(in srgb, var(--danger) 12%, transparent);
-  --danger-surface-text: #9e2b1e;
+  --danger-surface-text: #a82c1c;
   --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
-  --ok: #0b5c3a;
+  --ok: #0c7656;
   --ok-surface: color-mix(in srgb, var(--ok) 14%, transparent);
-  --warn: #6e4700;
+  --warn: #875c0c;
   --warn-surface: color-mix(in srgb, var(--warn) 12%, transparent);
   --warn-surface-2: color-mix(in srgb, var(--warn) 18%, transparent);
   --warn-border: color-mix(in srgb, var(--warn) 30%, transparent);
-  --advanced: #6d38d6;
-  --scrim: rgba(20, 23, 26, 0.35);
-  --shadow-modal: 0 12px 40px rgba(20, 23, 26, 0.14);
+  --scrim: rgba(15, 20, 28, 0.35);
+  --shadow-modal: 0 50px 100px -30px rgba(15, 20, 28, 0.28);
 }
 
 /* Theme-independent tokens. */
