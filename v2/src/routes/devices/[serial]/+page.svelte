@@ -2141,13 +2141,6 @@
       {#if appsLoading && apps.length === 0}
         <div class="muted">Loading…</div>
       {:else}
-        <p class="muted small legend">
-          <strong>State</strong> is what the device reports right now.
-          <strong>Safety</strong> is our verdict on removing it — click it for the reason and where it came from.
-          Anything we can't vouch for needs an explicit tick before it can be removed.
-          <strong>Tools</strong> has the Play Store link plus APK backup and
-          copy-to-another-device.
-        </p>
         {#if appActionMessage}
           <p class="muted small mono action-message">
             {appActionMessage}
@@ -2174,10 +2167,16 @@
           <thead>
             <tr>
               <th>App</th>
-              <th class="center">State</th>
-              <th class="center">Safety</th>
+              <th class="center" title="What the device reports right now.">State</th>
+              <th
+                class="center"
+                title="Our verdict on removing it — click a verdict for the reason and where it came from. Anything we can't vouch for needs an explicit tick before it can be removed."
+              >Safety</th>
               <th class="controls-start">Action</th>
-              <th class="center">Tools</th>
+              <th
+                class="center"
+                title="Play Store link, APK backup, and copy to another device."
+              >Tools</th>
             </tr>
           </thead>
           <tbody>
@@ -3332,18 +3331,7 @@
     color: var(--fg-secondary);
     cursor: pointer;
   }
-  .legend {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin: 0 0 0.8rem;
-    padding: 0.5rem 0.8rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    line-height: 1.4;
-  }
+
   .install-output {
     background: var(--bg-inset);
     border: 1px solid var(--border);
