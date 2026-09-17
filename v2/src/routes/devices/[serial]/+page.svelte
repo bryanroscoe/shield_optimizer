@@ -59,6 +59,8 @@
   type PackageState = "enabled" | "disabled" | "missing";
   type PageContext = { serial: string; epoch: number };
   let memorySafety = $state<Record<string, SafetyStatus>>({});
+  /// Process names confirmed to be installed packages on this device.
+  let memoryConfirmed = $state<Set<string>>(new Set());
   /// Package whose safety detail is expanded in the App List, or null. One at a
   /// time: the verdict is a single line, and the reasoning behind it is worth
   /// reading properly rather than skimming twelve at once.
@@ -72,6 +74,32 @@
   let enrichmentRequest = 0;
   let mutationRequest = 0;
   let destroyed = false;
+
+  let profileCopied = $state(false);
+
+  /// The whole spec sheet as text, for pasting into a bug report.
+  async function copyProfile() {
+    const p = device?.properties;
+    if (!p) return;
+    const lines = [
+      `Friendly name: ${shown(p.friendly_name)}`,
+      `Brand: ${shown(p.brand)}`,
+      `Model: ${shown(p.model)}`,
+      `Codename: ${shown(p.device_codename)}`,
+      `Manufacturer: ${shown(p.manufacturer)}`,
+      `Android version: ${shown(p.android_release)} (SDK ${shown(p.sdk_level)})`,
+      `Build ID: ${shown(p.build_id)}`,
+      `Board platform: ${shown(p.board_platform)}`,
+      `Hardware ID: ${shown(p.serial_number)}`,
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      profileCopied = true;
+      setTimeout(() => (profileCopied = false), 2000);
+    } catch {
+      /* clipboard unavailable — the values are all on screen anyway */
+    }
+  }
 
   function capturePageContext(): PageContext {
     return { serial, epoch: pageEpoch };
@@ -256,6 +284,17 @@
   // wait for it would make the whole tab feel slow.
   let resource = $state<ResourceSample | null>(null);
   let resourceLoading = $state(false);
+
+  /// Fastest inbound interface in the last sample — the one worth a tile.
+  /// Ties and empty samples give null, which the tile renders as a dash.
+  const busiest = $derived(
+    (resource?.interfaces ?? [])
+      .filter((n) => n.rx_bytes_per_s != null)
+      .sort((a, b) => (b.rx_bytes_per_s ?? 0) - (a.rx_bytes_per_s ?? 0))[0] ?? null,
+  );
+  const busiestRate = $derived(busiest?.rx_bytes_per_s ?? null);
+  const busiestName = $derived(busiest?.name ?? null);
+
   let resourceErr = $state<string | null>(null);
   let resourceRequest = 0;
 
@@ -315,9 +354,30 @@
       reportLastRefreshed = new Date();
       const pkgs = nextReport.top_memory.map((m) => m.package);
       memorySafety = Object.fromEntries(pkgs.map((pkg) => [pkg, { status: "checking" }]));
-      // Process names, not verified packages — use the catalog-free lookup so an
-      // unverified string cannot inherit a curated "safe to remove" verdict.
-      const results = await Promise.allSettled(pkgs.map((pkg) => api.processSafetyInfo(pkg)));
+      // These are process names from `dumpsys meminfo`, and a process can be
+      // named anything, so a bare name must not inherit a curated verdict.
+      // But a name that matches a package the device reports as installed IS
+      // that package — Android names a process after its package by default —
+      // and for those the catalog applies legitimately. So: confirm against
+      // the installed list first, and only then ask the catalog-aware lookup.
+      // Anything we cannot confirm still gets the catalog-free classification.
+      let installed: Set<string>;
+      try {
+        installed = new Set(
+          (await api.listInstalledPackages(context.serial)).map((p) => p.package),
+        );
+      } catch {
+        // No installed list means nothing is confirmed; fall back to treating
+        // every row as an unverified process rather than guessing.
+        installed = new Set();
+      }
+      if (!pageContextIsCurrent(context) || request !== healthRequest) return;
+      memoryConfirmed = installed;
+      const results = await Promise.allSettled(
+        pkgs.map((pkg) =>
+          installed.has(pkg) ? api.safetyInfo(pkg) : api.processSafetyInfo(pkg),
+        ),
+      );
       // Deliberately not comparing `report` to `nextReport`: `report` is
       // $state, so assigning an object stores a deep proxy and the identity
       // check is always true — which bailed out here every time and left every
@@ -1376,6 +1436,7 @@
     visited = {};
     device = null; deviceErr = null;
     report = null; reportErr = null; reportLastRefreshed = null; memorySafety = {};
+    memoryConfirmed = new Set();
     launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = "";
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
@@ -1543,34 +1604,62 @@
   </div>
 
   {#if activeTab === "overview"}
-    <div class="overview-stack" role="tabpanel" tabindex={0} id="tabpanel-overview" aria-labelledby="tab-overview">
+    <div class="profile-layout" role="tabpanel" tabindex={0} id="tabpanel-overview" aria-labelledby="tab-overview">
       <div class="card">
-        <h2><Icon name="tv" size={17} /> Profile</h2>
+        <div class="card-header">
+          <h2><Icon name="tv" size={17} /> Profile</h2>
+          <div class="header-actions">
+            <button class="small-action" onclick={copyProfile} disabled={!device.properties}>
+              <Icon name="content_copy" size={14} /> {profileCopied ? "Copied" : "Copy all"}
+            </button>
+          </div>
+        </div>
         {#if device.properties}
-          <h3>Identity</h3>
-          <dl class="kv">
-            <dt>Friendly name</dt>
-            <dd>{shown(device.properties.friendly_name)}</dd>
-            <dt>Brand</dt><dd>{shown(device.properties.brand)}</dd>
-            <dt>Model</dt><dd>{shown(device.properties.model)}</dd>
-            <dt>Manufacturer</dt><dd>{shown(device.properties.manufacturer)}</dd>
-          </dl>
-
-          <h3>Software</h3>
-          <dl class="kv">
-            <dt>Android version</dt>
-            <dd>
-              {shown(device.properties.android_release)} (SDK {shown(device.properties.sdk_level)})
-            </dd>
-            <dt>Build ID</dt><dd class="mono">{shown(device.properties.build_id)}</dd>
-          </dl>
-
-          <h3>Hardware</h3>
-          <dl class="kv">
-            <dt>Codename</dt><dd class="mono">{shown(device.properties.device_codename)}</dd>
-            <dt>Board platform</dt><dd class="mono">{shown(device.properties.board_platform)}</dd>
-            <dt>Hardware ID</dt><dd class="mono">{shown(device.properties.serial_number)}</dd>
-          </dl>
+          <h3>Device properties</h3>
+          <div class="prop-table">
+            <div class="prop-row">
+              <span class="prop-label">Friendly name</span>
+              <span class="prop-value">{shown(device.properties.friendly_name)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Brand</span>
+              <span class="prop-value mono">{shown(device.properties.brand)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Model</span>
+              <span class="prop-value mono">{shown(device.properties.model)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Codename</span>
+              <span class="prop-value mono">{shown(device.properties.device_codename)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Manufacturer</span>
+              <span class="prop-value mono">{shown(device.properties.manufacturer)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Build ID</span>
+              <span class="prop-value mono">{shown(device.properties.build_id)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Board platform</span>
+              <span class="prop-value mono">{shown(device.properties.board_platform)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Hardware ID</span>
+              <span class="prop-value mono">{shown(device.properties.serial_number)}</span>
+            </div>
+            <div class="prop-row">
+              <span class="prop-label">Android version</span>
+              <span class="prop-value mono">
+                {shown(device.properties.android_release)} · SDK {shown(device.properties.sdk_level)}
+              </span>
+            </div>
+          </div>
+          <p class="muted small prop-note">
+            Read-only — sourced from <code>getprop</code>. The friendly name is the
+            only field this app can change, with Rename above.
+          </p>
         {:else}
           <p class="muted small">
             This device hasn't reported its details. It's usually still waiting on
@@ -1580,42 +1669,56 @@
         {/if}
       </div>
 
-      <!-- Its own card, not a footnote on the spec sheet: this re-enables every
-           disabled package on the TV and deserves to look like the one
-           consequential thing on the screen. -->
-      <div class="card danger-card">
-        <h2><Icon name="restore" size={17} /> Emergency Recovery</h2>
-        <p class="muted small">
-          If something broke after disabling a package, re-enable everything that's
-          currently disabled in one shot. Equivalent to v1's <code>Run-PanicRecovery</code>.
-        </p>
-        <button
-          class="danger-button"
-          onclick={runRecovery}
-          disabled={recoveryBusy}
-          title="pm enable every package currently in `pm list packages -d`"
-        >
-          {recoveryBusy ? "Restoring…" : "Re-enable all disabled packages"}
-        </button>
-        {#if recoveryErr}
-          <div class="error">{recoveryErr}</div>
-        {/if}
-        {#if recoveryResult}
-          <div class="recovery-result">
-            <p><strong>{recoveryResult.message}</strong></p>
-            {#if recoveryResult.failed.length > 0}
-              <details>
-                <summary>{recoveryResult.failed.length} package(s) failed</summary>
-                <ul class="mono small">
-                  {#each recoveryResult.failed as f}
-                    <li>{f.package}: {f.error}</li>
-                  {/each}
-                </ul>
-              </details>
-            {/if}
-          </div>
-        {/if}
-      </div>
+      <aside class="profile-side">
+        <h3 class="side-label">Emergency recovery</h3>
+        <div class="card danger-card">
+          <h2><Icon name="restore" size={17} /> Re-enable everything</h2>
+          <!-- The copy says "everything currently disabled" rather than "what
+               this app disabled", because that is what the command does:
+               panic_recovery runs `pm enable` over `pm list packages -d`. There
+               is no per-app change log, so a package you disabled by hand
+               elsewhere is re-enabled too. -->
+          <p class="muted small">
+            Re-enables every package that is currently disabled on this TV — not
+            only the ones changed here. Use it when the TV boots to a black
+            screen, the launcher is gone, or an app you need has vanished.
+          </p>
+          <button
+            class="danger-button recovery-run"
+            onclick={runRecovery}
+            disabled={recoveryBusy}
+            title="pm enable every package currently in `pm list packages -d`"
+          >
+            {recoveryBusy ? "Restoring…" : "Run Emergency Recovery"}
+          </button>
+          <p class="muted recovery-caption">Asks for confirmation · cannot be undone from here</p>
+          {#if recoveryErr}
+            <div class="error">{recoveryErr}</div>
+          {/if}
+          {#if recoveryResult}
+            <div class="recovery-result">
+              <p><strong>{recoveryResult.message}</strong></p>
+              {#if recoveryResult.failed.length > 0}
+                <details>
+                  <summary>{recoveryResult.failed.length} package(s) failed</summary>
+                  <ul class="mono small">
+                    {#each recoveryResult.failed as f}
+                      <li>{f.package}: {f.error}</li>
+                    {/each}
+                  </ul>
+                </details>
+              {/if}
+            </div>
+          {/if}
+        </div>
+        <div class="callout">
+          <Icon name="info" size={16} />
+          <span>
+            Recovery cannot tell which app disabled a package. Anything disabled
+            outside this app is re-enabled as well.
+          </span>
+        </div>
+      </aside>
     </div>
   {:else if activeTab === "health"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-health" aria-labelledby="tab-health">
@@ -1665,7 +1768,7 @@
         <div class="stat-tiles">
           <div class="stat-tile">
             <span class="stat-icon {ramPct != null ? meterTone(ramPct) : ''}">
-              <Icon name="memory" size={17} />
+              <Icon name="memory" size={20} />
             </span>
             <span class="stat-value">
               {#if ramFreeMb != null}
@@ -1682,7 +1785,7 @@
                 ? meterTone(report.storage.used_percent)
                 : ''}"
             >
-              <Icon name="storage" size={17} />
+              <Icon name="storage" size={20} />
             </span>
             <span class="stat-value">
               {#if report.storage.used_percent != null}
@@ -1693,7 +1796,7 @@
           </div>
           <div class="stat-tile">
             <span class="stat-icon">
-              <Icon name="device_thermostat" size={17} />
+              <Icon name="device_thermostat" size={20} />
             </span>
             <span class="stat-value">
               {#if report.temperature_c != null}
@@ -1701,6 +1804,28 @@
               {:else}—{/if}
             </span>
             <span class="stat-caption">Temp</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-icon">
+              <Icon name="memory" size={20} />
+            </span>
+            <span class="stat-value">
+              {#if resource?.cpu_percent != null}
+                {resource.cpu_percent.toFixed(0)}<span class="stat-unit">%</span>
+              {:else}<span class="stat-pending">{resourceLoading ? "…" : "—"}</span>{/if}
+            </span>
+            <span class="stat-caption">CPU</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-icon">
+              <Icon name="arrow_downward" size={20} />
+            </span>
+            <span class="stat-value">
+              {#if busiestRate != null}
+                {formatRate(busiestRate)}
+              {:else}<span class="stat-pending">{resourceLoading ? "…" : "—"}</span>{/if}
+            </span>
+            <span class="stat-caption">{busiestName ?? "Network"}</span>
           </div>
         </div>
         <dl class="kv">
@@ -1778,8 +1903,10 @@
 
         <h3>Top Memory Users</h3>
         <p class="muted small consumers-note">
-          These are process names, so the app behind each one isn't confirmed.
-          Inspection only — nothing here can be disabled from this table.
+          Rows whose name matches an installed package are classified against the
+          reviewed app list. The rest are process names we cannot tie to an app,
+          so only the protected and caution rules apply to them. Inspection only
+          — nothing here can be disabled from this table.
         </p>
         {#if report.top_memory.length === 0}
           <p class="muted">No process data.</p>
@@ -1799,7 +1926,15 @@
                   >
                     {m.mb.toFixed(1)} MB
                   </td>
-                  <td class="pkg">{m.package}</td>
+                  <td class="pkg">
+                    {m.package}
+                    {#if !memoryConfirmed.has(m.package)}
+                      <span
+                        class="unconfirmed"
+                        title="No installed package has this name, so this is a process we cannot tie to an app. Its verdict comes from the protected and caution rules only — the reviewed app list is not applied to unverified names."
+                      >not a package</span>
+                    {/if}
+                  </td>
                   <td class="center" title={safetyReason(safety)}>
                     <span class={safetyClass(safety)}>{safetyLabel(safety)}</span>
                   </td>
@@ -2028,6 +2163,7 @@
                 showUsage={state !== "missing"}
                 safety={safety?.status === "ready" ? safety.verdict : null}
                 safetyStatus={safety?.status ?? "unavailable"}
+                safetyUnavailableReason={safety?.status === "unavailable" ? safety.reason : undefined}
                 detailOpen={expandedSafety === a.package}
                 onToggleDetail={() =>
                   (expandedSafety = expandedSafety === a.package ? null : a.package)}
@@ -2392,23 +2528,138 @@
   .danger-card h2 :global(.msr) {
     color: var(--danger-text);
   }
+  /* Board 11.1: the spec sheet takes the width it needs and recovery sits
+     beside it, so a destructive action is never buried under a scroll of
+     read-only values. */
+  .profile-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 22rem;
+    gap: 1.25rem;
+    align-items: start;
+  }
+  .profile-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .side-label {
+    margin: 0 0 0.1rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+  /* Rows rather than a definition list: the values line up in one column and
+     each property reads as its own line. */
+  .prop-table {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+  .prop-row {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: baseline;
+    padding: 0.6rem 0.9rem;
+  }
+  .prop-row + .prop-row {
+    border-top: 1px solid var(--border);
+  }
+  .prop-row:nth-child(odd) {
+    background: var(--bg-surface-2);
+  }
+  .prop-label {
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+  }
+  .prop-value {
+    overflow-wrap: anywhere;
+  }
+  .prop-note {
+    margin-top: 0.7rem;
+  }
+  .danger-card {
+    border-color: var(--danger-border);
+    background: linear-gradient(var(--danger-surface), var(--danger-surface)),
+      var(--bg-surface);
+  }
+  .danger-card h2 :global(.msr) {
+    color: var(--danger-text);
+  }
+  .recovery-run {
+    width: 100%;
+    margin-top: 0.9rem;
+  }
+  .recovery-caption {
+    margin: 0.5rem 0 0;
+    text-align: center;
+    font-size: 0.74rem;
+  }
+  /* Neutral note, not a warning: it qualifies the scope of the action above
+     rather than adding a second alarm. */
+  .callout {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    color: var(--fg-secondary);
+    font-size: 0.8rem;
+    line-height: 1.45;
+  }
+  .callout :global(.msr) {
+    color: var(--fg-muted);
+    margin-top: 0.1rem;
+  }
+  @media (max-width: 1100px) {
+    .profile-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  /* Five tiles on a fill-first grid rather than three stretched across the
+     full width — that stretch was most of the empty space. The icon sits on
+     the number's line instead of on a row of its own. */
+  /* Marks a row we could not match to an installed package, so a reader can
+     tell "no rule covered this app" apart from "this is not an app". */
+  .unconfirmed {
+    margin-left: 0.45rem;
+    padding: 0.05rem 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface-2);
+    color: var(--fg-muted);
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    white-space: nowrap;
+  }
   .stat-tiles {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+    gap: 0.6rem;
     margin: 0 0 1.1rem;
   }
   .stat-tile {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding: 0.8rem 0.9rem;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    column-gap: 0.55rem;
+    row-gap: 0.1rem;
+    align-items: center;
+    padding: 0.7rem 0.85rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--bg-surface-2);
   }
   .stat-icon {
+    grid-row: 1 / span 2;
     display: inline-flex;
+    color: var(--fg-muted);
+  }
+  .stat-pending {
     color: var(--fg-muted);
   }
   .stat-icon.ok {
@@ -2421,10 +2672,12 @@
     color: var(--danger-text);
   }
   .stat-value {
+    grid-column: 2;
     font-family: var(--mono);
-    font-size: 1.4rem;
+    font-size: 1.25rem;
     font-weight: 600;
-    line-height: 1.1;
+    line-height: 1.15;
+    white-space: nowrap;
   }
   .stat-unit {
     margin-left: 0.15rem;
@@ -2433,7 +2686,8 @@
     color: var(--fg-muted);
   }
   .stat-caption {
-    font-size: 0.74rem;
+    grid-column: 2;
+    font-size: 0.72rem;
     color: var(--fg-muted);
   }
   .back-btn,

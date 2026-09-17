@@ -23,6 +23,7 @@
     showUsage = true,
     safety = null,
     safetyStatus = "unavailable",
+    safetyUnavailableReason,
     detailOpen = false,
     onToggleDetail,
     rowClass,
@@ -39,6 +40,10 @@
     showUsage?: boolean;
     safety?: Safety | null;
     safetyStatus?: "checking" | "ready" | "unavailable";
+    /// Why the lookup failed, when it did. Shown instead of a generic
+    /// sentence so an unavailable verdict is diagnosable rather than just
+    /// alarming.
+    safetyUnavailableReason?: string;
     /// Whether this row's safety detail is expanded. Owned by the caller so
     /// only one row opens at a time — and because `state` is already a prop
     /// here, which shadows the `$state` rune.
@@ -66,7 +71,11 @@
   /// rated this high risk" with "we have never seen this package"; those want
   /// very different treatment from the reader.
   function safetySource(): string {
-    if (safetyStatus !== "ready" || !safety) return "Could not be checked";
+    if (safetyStatus !== "ready" || !safety) {
+      return safetyUnavailableReason?.trim()
+        ? `Could not be checked — ${safetyUnavailableReason.trim()}`
+        : "Could not be checked";
+    }
     return safetySourceLabel(safety.source);
   }
 

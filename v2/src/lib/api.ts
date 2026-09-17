@@ -141,6 +141,11 @@ export const api = {
     invoke<string>("get_app_op", { serial, package: pkg, op }),
   listOtherPackages: (serial: string) =>
     invoke<OtherPackage[]>("list_other_packages", { serial }),
+  /// Every installed package, catalogued ones included. Used to confirm that a
+  /// process name from a memory report really is an installed package before
+  /// the catalog's verdict is applied to it.
+  listInstalledPackages: (serial: string) =>
+    invoke<OtherPackage[]>("list_installed_packages", { serial }),
   appMemoryMap: (serial: string) =>
     invoke<Record<string, number>>("app_memory_map", { serial }),
   appUsageMap: (serial: string) =>

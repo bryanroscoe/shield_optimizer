@@ -548,6 +548,10 @@
             showUsage={naturalAction(item) !== null}
             safety={readySafety(item.entry.package)}
             safetyStatus={safetyByPackage[item.entry.package]?.status ?? "unavailable"}
+            safetyUnavailableReason={(() => {
+              const st = safetyByPackage[item.entry.package];
+              return st?.status === "unavailable" ? st.reason : undefined;
+            })()}
             detailOpen={expandedSafety === item.entry.package}
             onToggleDetail={() =>
               (expandedSafety =
