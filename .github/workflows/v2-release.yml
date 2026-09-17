@@ -385,7 +385,17 @@ jobs:
             echo "Updater manifest unchanged; nothing to commit."
           else
             git commit -m "Update updater manifest for ${TAG}"
-            git push origin HEAD:${{ github.event.repository.default_branch }}
+            # `merge-updater` and `refresh-screenshots` both commit to the
+            # default branch and can finish at the same time, so the loser of
+            # the race gets a non-fast-forward rejection. That is what failed
+            # the v2-2.1.0 gallery job. Rebase and retry instead.
+            branch="${{ github.event.repository.default_branch }}"
+            for attempt in 1 2 3 4 5; do
+              if git push origin "HEAD:$branch"; then break; fi
+              echo "  push attempt $attempt rejected; rebasing on origin/$branch…"
+              git pull --rebase origin "$branch"
+              [[ $attempt -eq 5 ]] && { echo "push still failing after rebase"; exit 1; }
+            done
             echo "Updater manifest published for ${TAG}."
           fi
 
@@ -448,5 +458,15 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add screenshots/gallery.gif screenshots/gallery-light.gif
           git commit -m "Regenerate gallery GIFs for ${TAG}"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          # `merge-updater` and `refresh-screenshots` both commit to the
+          # default branch and can finish at the same time, so the loser of
+          # the race gets a non-fast-forward rejection. That is what failed
+          # the v2-2.1.0 gallery job. Rebase and retry instead.
+          branch="${{ github.event.repository.default_branch }}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:$branch"; then break; fi
+            echo "  push attempt $attempt rejected; rebasing on origin/$branch…"
+            git pull --rebase origin "$branch"
+            [[ $attempt -eq 5 ]] && { echo "push still failing after rebase"; exit 1; }
+          done
           echo "Galleries refreshed for ${TAG}."

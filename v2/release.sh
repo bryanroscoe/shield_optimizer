@@ -34,12 +34,31 @@ BUMP="patch"
 PRE=""
 EXPLICIT=""
 
+# Piping `yes` into this script is blocked by the auto-mode classifier, and
+# rightly so — these gates are the safety net. `--yes` is the sanctioned way to
+# skip them deliberately, for CI or an agent that has already decided.
+ASSUME_YES=0
+
+# Ask a y/N question, or answer it automatically under --yes. Returns 0 for
+# yes, 1 for no, so callers read as `confirm "..." || abort`.
+confirm() {
+  local prompt="$1"
+  if [[ "$ASSUME_YES" == "1" ]]; then
+    echo "$prompt [auto-yes]"
+    return 0
+  fi
+  local REPLY
+  read -p "$prompt " -n 1 -r; echo
+  [[ $REPLY =~ ^[Yy]$ ]]
+}
+
 usage() {
   cat <<EOF
-Usage: $0 [--major|--minor|--patch] [--beta|--rc|--alpha] [--set X.Y.Z]
+Usage: $0 [--major|--minor|--patch] [--beta|--rc|--alpha] [--set X.Y.Z] [--yes]
   bump kind:    --patch (default) | --minor | --major
   pre-release:  --beta | --rc | --alpha | --preview
   explicit:     --set X.Y.Z[-tag]   (overrides bump kind, used verbatim)
+  --yes, -y:    auto-confirm every gate (non-interactive / CI use)
 
 Examples:
   $0                       # 0.1.0 -> 0.1.1
@@ -61,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --alpha) PRE="alpha"; shift ;;
     --preview) PRE="preview"; shift ;;
     --set) EXPLICIT="$2"; shift 2 ;;
+    --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) usage ;;
     *) echo "Unknown flag: $1" >&2; usage ;;
   esac
@@ -76,8 +96,7 @@ fi
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Working tree has uncommitted changes:" >&2
   git status --short >&2
-  read -p "Continue anyway? (y/N) " -n 1 -r; echo
-  [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+  confirm "Continue anyway? (y/N)" || { echo "Aborted."; exit 1; }
 fi
 
 # --- Read current version ----------------------------------------------------
@@ -124,8 +143,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-read -p "Bump + tag? (y/N) " -n 1 -r; echo
-[[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 1; }
+confirm "Bump + tag? (y/N)" || { echo "Aborted."; exit 1; }
 
 # --- Patch the version into all three files ---------------------------------
 
@@ -212,8 +230,7 @@ git add "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_J
 git commit -m "Release $TAG"
 git tag -a "$TAG" -m "Release $TAG"
 
-read -p "Push the tag? (this fires the build workflow) (y/N) " -n 1 -r; echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if confirm "Push the tag? (this fires the build workflow) (y/N)"; then
   git push origin HEAD
   git push origin "$TAG"
   echo
