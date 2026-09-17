@@ -735,7 +735,7 @@
   }
   .small-action.active {
     background: var(--accent-strong);
-    color: #fff;
+    color: var(--accent-ink);
     border-color: var(--accent);
   }
   .dns-custom {

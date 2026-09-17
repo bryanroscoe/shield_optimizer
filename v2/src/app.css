@@ -26,73 +26,91 @@
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg-page: #0e1116;
-  --bg-surface: #161b22;
-  --bg-surface-2: #1c2128;
-  --bg-button: #21262d;
-  --bg-button-hover: #30363d;
-  --bg-input: #0d1117;
-  --bg-inset: #0d1117;
-  --bg-muted: #3d3d3d;
-  --bg-nav-active: #1f2937;
-  --border: #30363d;
-  --fg-primary: #e6edf3;
-  --fg-secondary: #c9d1d9;
-  --fg-muted: #7d8590;
-  --fg-faint: #aaaaaa;
-  --accent: #58a6ff;
-  --accent-strong: #1f6feb;
-  --accent-strong-hover: #388bfd;
-  --accent-glow: #58a6ff80;
-  --danger: #da3633;
-  --danger-strong: #f85149;
-  --danger-surface: #5d1b1b;
-  --danger-border: #8b3030;
-  --danger-text: #ff8a80;
-  --danger-surface-text: #ffffff;
-  --ok: #3fb950;
-  --ok-surface: #1b3d2c;
-  --warn: #d29922;
-  --warn-surface: #3d2f00;
-  --warn-border: #5d4a00;
-  --warn-surface-2: #5d3b1b;
-  --advanced: #a371f7;
+  --bg-page: #0b0d10;
+  --bg-surface: #16191e;
+  --bg-surface-2: #1e2229;
+  --bg-button: #1e2229;
+  --bg-button-hover: #262b33;
+  --bg-input: #0b0d10;
+  --bg-inset: #101317;
+  --bg-muted: #262b33;
+  --bg-nav-active: color-mix(in srgb, var(--accent) 14%, transparent);
+  --border: rgba(255, 255, 255, 0.09);
+  /* Form controls need a visible edge; the hairline above is too faint. */
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --fg-primary: #f2f5f8;
+  --fg-secondary: #c7cdd6;
+  --fg-muted: #8a929e;
+  --fg-faint: #868e9a;
+  /* --accent is text, links, borders and focus. --accent-strong is the fill
+     you put --accent-ink on top of. In dark they are the same lime; in light
+     they must differ, because lime is unreadable as text on white. */
+  --accent: #c9f24e;
+  --accent-strong: #c9f24e;
+  --accent-strong-hover: #d8f871;
+  --accent-ink: #0b0d10;
+  --accent-glow: rgba(201, 242, 78, 0.45);
+  --accent-surface: color-mix(in srgb, var(--accent) 14%, transparent);
+  --danger: #fb6b5f;
+  --danger-ink: #0b0d10;
+  --danger-strong: #ff8b80;
+  --danger-text: #fb6b5f;
+  --danger-surface: color-mix(in srgb, var(--danger) 14%, transparent);
+  --danger-surface-text: #ffb5ae;
+  --danger-border: color-mix(in srgb, var(--danger) 30%, transparent);
+  --ok: #35d6a5;
+  --ok-surface: color-mix(in srgb, var(--ok) 14%, transparent);
+  --warn: #f5b544;
+  --warn-surface: color-mix(in srgb, var(--warn) 12%, transparent);
+  --warn-surface-2: color-mix(in srgb, var(--warn) 18%, transparent);
+  --warn-border: color-mix(in srgb, var(--warn) 30%, transparent);
+  --advanced: #a78bfa;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.55);
 }
 
 /* Light values. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg-page: #f6f8fa;
+  --bg-page: #f7f8f5;
   --bg-surface: #ffffff;
-  --bg-surface-2: #f0f3f6;
-  --bg-button: #f1f3f5;
-  --bg-button-hover: #e7ebef;
+  --bg-surface-2: #f1f3ee;
+  --bg-button: #f2f4ef;
+  --bg-button-hover: #e7eae1;
   --bg-input: #ffffff;
-  --bg-inset: #eef1f4;
-  --bg-muted: #e4e8ec;
-  --bg-nav-active: #ddeaff;
-  --border: #d0d7de;
-  --fg-primary: #1f2328;
-  --fg-secondary: #424a53;
-  --fg-muted: #656d76;
-  --fg-faint: #6e7781;
-  --accent: #0969da;
-  --accent-strong: #0969da;
-  --accent-strong-hover: #0860ca;
-  --accent-glow: #0969da55;
-  --danger: #cf222e;
-  --danger-strong: #cf222e;
-  --danger-surface: #ffebe9;
-  --danger-border: #ff9492;
-  --danger-text: #cf222e;
-  --danger-surface-text: #cf222e;
-  --ok: #1a7f37;
-  --ok-surface: #dafbe1;
-  --warn: #9a6700;
-  --warn-surface: #fff8c5;
-  --warn-border: #d4a72c;
-  --warn-surface-2: #fff1e5;
-  --advanced: #8250df;
+  --bg-inset: #f1f3ee;
+  --bg-muted: #e6e9e0;
+  --bg-nav-active: color-mix(in srgb, var(--accent) 14%, transparent);
+  --border: #e3e6dd;
+  --border-strong: #9aa38c;
+  --fg-primary: #14171a;
+  --fg-secondary: #3c434c;
+  --fg-muted: #5c646e;
+  --fg-faint: #646b75;
+  /* Lime is 1.3:1 on white — fine as a fill under dark ink, unusable as text.
+     The text/border accent is the same hue taken far darker. */
+  --accent: #3f6212;
+  --accent-strong: #c9f24e;
+  --accent-strong-hover: #b6dd3d;
+  --accent-ink: #0b0d10;
+  --accent-glow: rgba(63, 98, 18, 0.28);
+  --accent-surface: color-mix(in srgb, var(--accent) 14%, transparent);
+  --danger: #c3362b;
+  --danger-ink: #ffffff;
+  --danger-strong: #9e2b1e;
+  --danger-text: #9e2b1e;
+  --danger-surface: color-mix(in srgb, var(--danger) 12%, transparent);
+  --danger-surface-text: #9e2b1e;
+  --danger-border: color-mix(in srgb, var(--danger) 32%, transparent);
+  --ok: #0b5c3a;
+  --ok-surface: color-mix(in srgb, var(--ok) 14%, transparent);
+  --warn: #6e4700;
+  --warn-surface: color-mix(in srgb, var(--warn) 12%, transparent);
+  --warn-surface-2: color-mix(in srgb, var(--warn) 18%, transparent);
+  --warn-border: color-mix(in srgb, var(--warn) 30%, transparent);
+  --advanced: #6d38d6;
+  --scrim: rgba(20, 23, 26, 0.35);
+  --shadow-modal: 0 12px 40px rgba(20, 23, 26, 0.14);
 }
 
 /* Theme-independent tokens. */
@@ -133,10 +151,14 @@ button {
 button:hover {
   background: var(--bg-button-hover);
 }
+/* The fill is lime in both themes, so the label is always dark ink. The
+   border carries --accent rather than the fill colour: in dark that is the
+   same lime and invisible, but in light it is the only thing separating a
+   lime button from a white card. */
 button.primary {
   background: var(--accent-strong);
-  border-color: var(--accent-strong);
-  color: #fff;
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 button.primary:hover {
   background: var(--accent-strong-hover);
@@ -144,19 +166,38 @@ button.primary:hover {
 button.danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--danger-ink);
 }
 button.danger:hover {
   background: var(--danger-strong);
 }
-input, select {
+input, select, textarea {
   background: var(--bg-input);
   color: var(--fg-primary);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   padding: 0.45rem 0.7rem;
   font-size: 0.9rem;
   font-family: inherit;
+}
+/* Set globally: only two of the six files with checkboxes used to set this,
+   so the rest rendered in the browser's default blue. The fill token, not the
+   text one — the browser picks the checkmark ink from the fill's luminance. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--accent-strong);
+}
+
+/* There was no focus styling at all before this; the browser default ring
+   does not survive a palette this dark. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: transparent;
 }
 /* Ten components declare their own scoped copy of this; routes/+page.svelte
    uses class="mono" without one, so its pairing message and device serials

@@ -28,6 +28,6 @@
   }
   .state-badge.state-missing {
     background: var(--bg-muted);
-    color: var(--fg-faint);
+    color: var(--fg-muted);
   }
 </style>

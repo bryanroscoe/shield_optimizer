@@ -399,7 +399,7 @@
   th, td {
     text-align: left;
     padding: 0.5rem 0.6rem;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
     vertical-align: middle;
   }
   th {
@@ -555,7 +555,7 @@
   .files-table th, .files-table td {
     text-align: left;
     padding: 0.4rem 0.6rem;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
   }
   .files-table .num { text-align: right; white-space: nowrap; }
   .files-table .row-actions { text-align: right; white-space: nowrap; }

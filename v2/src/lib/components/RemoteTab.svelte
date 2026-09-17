@@ -315,7 +315,7 @@
     cursor: pointer;
   }
   .compat-toggle input {
-    accent-color: var(--accent);
+    accent-color: var(--accent-strong);
     cursor: pointer;
   }
   .transport.live {

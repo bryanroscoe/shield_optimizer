@@ -303,7 +303,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--accent-strong);
     box-shadow: 0 0 8px var(--accent-glow);
   }
   .title {
@@ -329,7 +329,7 @@
   .notes-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
     z-index: 10;
   }
   .notes-dialog {
@@ -347,7 +347,7 @@
     background: var(--bg-surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-modal);
   }
   .notes-dialog h2 {
     margin: 0;
@@ -427,14 +427,17 @@
     cursor: pointer;
     white-space: nowrap;
   }
-  .update-badge:hover { background: var(--accent); color: #fff; }
+  .update-badge:hover {
+    background: var(--accent-strong);
+    color: var(--accent-ink);
+  }
   .update-badge.updating {
     cursor: default;
     opacity: 0.8;
   }
   .update-badge.installed {
-    background: var(--accent);
-    color: #fff;
+    background: var(--accent-strong);
+    color: var(--accent-ink);
   }
   .update-badge.installed:hover {
     background: var(--accent-strong-hover);
@@ -468,7 +471,7 @@
     white-space: nowrap;
   }
   .auto-update-toggle input {
-    accent-color: var(--accent);
+    accent-color: var(--accent-strong);
     cursor: pointer;
   }
   .theme-toggle {
@@ -490,7 +493,7 @@
   }
   .theme-toggle button.active {
     background: var(--accent-strong);
-    color: #fff;
+    color: var(--accent-ink);
   }
   .theme-toggle button:hover:not(.active) {
     background: var(--bg-button-hover);

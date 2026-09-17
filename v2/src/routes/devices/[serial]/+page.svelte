@@ -2384,7 +2384,7 @@
   th, td {
     text-align: left;
     padding: 0.5rem 0.6rem;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
     vertical-align: middle;
   }
   th.center, td.center {
@@ -2469,7 +2469,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.7rem 0;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
   }
   .launcher-name {
     font-weight: 500;
@@ -2585,7 +2585,7 @@
   }
   .small-action.recommended {
     background: var(--accent-strong);
-    color: #fff;
+    color: var(--accent-ink);
     border-color: var(--accent);
     font-weight: 500;
   }
