@@ -1610,6 +1610,55 @@
       {:else}
         <h3>Vitals</h3>
         {#if resourceErr}<p class="error">Resource sample: {resourceErr}</p>{/if}
+        {@const ramPct =
+          report.ram.total_mb && report.ram.used_mb != null
+            ? Math.round((report.ram.used_mb / report.ram.total_mb) * 100)
+            : null}
+        {@const ramFreeMb =
+          report.ram.total_mb != null && report.ram.used_mb != null
+            ? report.ram.total_mb - report.ram.used_mb
+            : null}
+        <div class="stat-tiles">
+          <div class="stat-tile">
+            <span class="stat-icon {ramPct != null ? meterTone(ramPct) : ''}">
+              <Icon name="memory" size={17} />
+            </span>
+            <span class="stat-value">
+              {#if ramFreeMb != null}
+                {ramFreeMb >= 1024 ? (ramFreeMb / 1024).toFixed(1) : ramFreeMb}<span
+                  class="stat-unit">{ramFreeMb >= 1024 ? "GB" : "MB"}</span
+                >
+              {:else}—{/if}
+            </span>
+            <span class="stat-caption">RAM free</span>
+          </div>
+          <div class="stat-tile">
+            <span
+              class="stat-icon {report.storage.used_percent != null
+                ? meterTone(report.storage.used_percent)
+                : ''}"
+            >
+              <Icon name="storage" size={17} />
+            </span>
+            <span class="stat-value">
+              {#if report.storage.used_percent != null}
+                {report.storage.used_percent}<span class="stat-unit">%</span>
+              {:else}—{/if}
+            </span>
+            <span class="stat-caption">Storage used</span>
+          </div>
+          <div class="stat-tile">
+            <span class="stat-icon">
+              <Icon name="device_thermostat" size={17} />
+            </span>
+            <span class="stat-value">
+              {#if report.temperature_c != null}
+                {report.temperature_c.toFixed(0)}<span class="stat-unit">°C</span>
+              {:else}—{/if}
+            </span>
+            <span class="stat-caption">Temp</span>
+          </div>
+        </div>
         <dl class="kv">
           <dt>CPU</dt>
           <dd>
@@ -1637,10 +1686,7 @@
           <dt>Temperature</dt>
           <dd>{report.temperature_c != null ? `${report.temperature_c.toFixed(1)}°C` : "—"}</dd>
           {#if report.ram.total_mb != null}
-            {@const ramPercent =
-              report.ram.total_mb && report.ram.used_mb != null
-                ? Math.round((report.ram.used_mb / report.ram.total_mb) * 100)
-                : null}
+            {@const ramPercent = ramPct}
             <dt>RAM</dt>
             <dd>
               <div class="meter-value">
@@ -2276,6 +2322,54 @@
     font-size: 0.85rem;
   }
   /* Controls that now pair an icon with a label. */
+  /* Scan layer for the Health tab: the three numbers people look for first,
+     duplicated from the Vitals list below rather than moved out of it. The
+     icon carries the threshold colour so the tone is readable before the
+     number is. */
+  .stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 1.1rem;
+  }
+  .stat-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface-2);
+  }
+  .stat-icon {
+    display: inline-flex;
+    color: var(--fg-muted);
+  }
+  .stat-icon.ok {
+    color: var(--ok);
+  }
+  .stat-icon.warn {
+    color: var(--warn);
+  }
+  .stat-icon.danger {
+    color: var(--danger-text);
+  }
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 1.4rem;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+  .stat-unit {
+    margin-left: 0.15rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--fg-muted);
+  }
+  .stat-caption {
+    font-size: 0.74rem;
+    color: var(--fg-muted);
+  }
   .back-btn,
   .reboot-btn,
   .net-grid span,
