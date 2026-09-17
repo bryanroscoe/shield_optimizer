@@ -130,7 +130,14 @@
   .cell-cue {
     margin-top: 0.2rem;
   }
-  .safety,
+  /* The cell is centred by the shared .center class so the chip sits under
+     its column heading, but the reason underneath is a sentence and has to
+     read as one — left-aligned, in the body face, at body-ish size. It was
+     inheriting centred monospace from this rule and wrapping into a block
+     that was tall, ragged and hard to read. */
+  .safety {
+    font-size: 0.78rem;
+  }
   .state-unavailable {
     font-family: var(--mono);
     font-size: 0.78rem;
@@ -141,9 +148,12 @@
   }
   .safety-reason {
     display: block;
-    margin-top: 0.15rem;
-    font-family: inherit;
-    font-size: 0.7rem;
+    margin-top: 0.3rem;
+    text-align: left;
+    color: var(--fg-muted);
+    font-family: var(--sans);
+    font-size: 0.75rem;
+    line-height: 1.4;
     letter-spacing: normal;
     text-transform: none;
   }
