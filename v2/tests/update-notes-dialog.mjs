@@ -8,6 +8,12 @@ import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readFileSync } from "node:fs";
+const CURRENT_VERSION = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
+
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const V2 = join(HERE, "..");
 
@@ -201,8 +207,13 @@ async function exerciseArrived({ browser, base }) {
   assert.equal(await updated.getByRole("dialog").count(), 0);
   await updated.close();
 
-  // Same version as last launch: nothing happened, say nothing.
-  const same = await newPage("2.1.0");
+  // Same version as last launch: nothing happened, say nothing. Read the
+  // version from package.json rather than naming one — this assertion is about
+  // "last seen equals current", and hardcoding a number turns every release
+  // into a test failure. It did: the v2-2.2.0 bump left this pinned at 2.1.0,
+  // which is a *different* version, so the app correctly announced an update
+  // and the test read that as a bug.
+  const same = await newPage(CURRENT_VERSION);
   await same.waitForTimeout(300);
   assert.equal(
     await same.getByRole("dialog").count(),
