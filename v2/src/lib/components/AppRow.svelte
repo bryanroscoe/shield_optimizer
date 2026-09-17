@@ -5,6 +5,7 @@
   import StateBadge from "$lib/components/StateBadge.svelte";
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
+  import Icon from "$lib/components/Icon.svelte";
 
   // One catalog-app table row, shared by the App List and the Optimize wizard.
   // Dumb on purpose: data in, an `actions` snippet for the per-tab buttons —
@@ -16,7 +17,7 @@
     description,
     package: pkg,
     review = false,
-    state,
+    state: pkgState,
     mb,
     ramLabel = true,
     usage,
@@ -45,8 +46,9 @@
     /// alarming.
     safetyUnavailableReason?: string;
     /// Whether this row's safety detail is expanded. Owned by the caller so
-    /// only one row opens at a time — and because `state` is already a prop
-    /// here, which shadows the `$state` rune.
+    /// only one row opens at a time. The `state` prop is destructured to
+    /// `pkgState` so nothing in this file is bound to the name `state`, which
+    /// would otherwise make every `$state(...)` read as a store subscription.
     detailOpen?: boolean;
     onToggleDetail?: () => void;
     rowClass?: string;
@@ -86,32 +88,59 @@
     }
     return safety.reason;
   }
+
+  let pkgCopied = $state(false);
+
+  async function copyPkg() {
+    try {
+      await navigator.clipboard.writeText(pkg);
+      pkgCopied = true;
+      setTimeout(() => (pkgCopied = false), 1500);
+    } catch {
+      /* clipboard blocked — the id is still on screen to select by hand */
+    }
+  }
 </script>
 
 <tr class={rowClass}>
   <td class="app-cell">
     <div class="app-name-row">
-      {name}
+      <span class="app-name">{name}</span>
       {#if review}
         <span class="tag review" title="Usage review — check whether you use this app">REVIEW</span>
       {/if}
+      <!-- The id sits on the name's line rather than under it: this audience
+           pastes it into bug reports, so it stays visible, and the copy button
+           saves selecting mono text out of a dense table. -->
+      <span class="mono pkg-id">{pkg}</span>
+      <button
+        class="pkg-copy"
+        title={pkgCopied ? "Copied" : `Copy ${pkg}`}
+        aria-label={`Copy package id ${pkg}`}
+        onclick={copyPkg}
+      >
+        <Icon name={pkgCopied ? "check" : "content_copy"} size={13} />
+      </button>
     </div>
     {#if description}
-      <div class="muted small app-desc">{description}</div>
+      <!-- One line, clipped. The full sentence stays reachable in the row's
+           detail panel and in the title, so nothing is lost. -->
+      <div class="muted app-desc" title={description}>{description}</div>
     {/if}
-    <div class="muted small mono pkg-id">{pkg}</div>
   </td>
   <td class="center cluster-cell">
-    {#if state}
-      <StateBadge {state} />
+    {#if pkgState}
+      <StateBadge state={pkgState} />
     {:else}
       <span class="state-unavailable">STATE UNAVAILABLE</span>
     {/if}
-    {#if mb}
-      <div class="cell-cue"><RamBadge {mb} label={ramLabel} /></div>
-    {/if}
-    {#if usage && showUsage}
-      <div class="cell-cue"><UsageBadge {usage} /></div>
+    <!-- RAM and last-used share one line so this column caps at two lines
+         like the app column; stacked badges made the row grow instead. -->
+    {#if (mb && mb > 0) || (usage && showUsage)}
+      <div class="cell-cue">
+        {#if mb && mb > 0}<RamBadge {mb} label={ramLabel} />{/if}
+        {#if usage && showUsage}<UsageBadge {usage} />{/if}
+      </div>
     {/if}
   </td>
   <!-- Verdict only, with the detail behind a click. The full sentence inline
@@ -136,6 +165,9 @@
       <div class="safety-detail">
         <span class={`safety-detail-kind safety-${safetyClass()}`}>{safetyLabel()}</span>
         <p class="safety-detail-reason">{safetyReason()}</p>
+        {#if description}
+          <p class="muted small safety-detail-desc">{description}</p>
+        {/if}
         <p class="muted small safety-detail-source">{safetySource()} · {pkg}</p>
       </div>
     </td>
@@ -155,31 +187,81 @@
   td.center {
     text-align: center;
   }
+  /* Two lines per row, fixed. Three stacked lines showed about five apps at a
+     time on a list that runs to hundreds. */
   .app-cell {
-    line-height: 1.3;
-    /* Long system package ids are one unbreakable token; without this they
-       force the column — and the whole table — wider than the viewport.
-       `anywhere` also shrinks the column's min-content width. Inherited by the
-       child name/pkg rows. */
+    /* The flexible column: every other cell is width:1% + nowrap, so this one
+       takes what is left. Without max-width:0 its min-content is the full
+       description — the table then grows past the card and pushes State,
+       Safety and Action off the right edge. This is what makes the ellipsis
+       fire instead of the table widening. */
+    /* Claim the space as well as cap it: max-width alone lets the nowrap
+       cells win every pixel and clips the name row to nothing. */
+    width: 46%;
+    max-width: 0;
+    line-height: 1.35;
     overflow-wrap: anywhere;
   }
   .app-name-row {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
     font-size: 0.95rem;
     font-weight: 500;
+    min-width: 0;
+  }
+  .app-name {
+    flex: none;
   }
   .app-desc {
-    margin-top: 0.15rem;
-    font-size: 0.82rem;
-    max-width: 42rem;
+    margin-top: 0.1rem;
+    font-size: 0.8rem;
+    /* One line — the first clause is what decides yes or no, and the rest is
+       in the detail panel. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .pkg-id {
-    margin-top: 0.1rem;
-    font-size: 0.78rem;
-    opacity: 0.7;
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  /* Small stacked cue (RAM / last-used badge) under the row's state badge. */
+  /* Only on hover, so three hundred rows are not three hundred buttons. */
+  .pkg-copy {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.25rem;
+    border: none;
+    background: none;
+    color: var(--fg-muted);
+    opacity: 0;
+    cursor: pointer;
+  }
+  tr:hover .pkg-copy,
+  .pkg-copy:focus-visible {
+    opacity: 1;
+  }
+  .pkg-copy:hover {
+    color: var(--accent);
+    background: none;
+  }
+  /* RAM and last-used on one line under the state pill. */
   .cell-cue {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
     margin-top: 0.2rem;
+  }
+  .safety-detail-desc {
+    margin: 0 0 0.3rem;
   }
   .safety,
   .state-unavailable {

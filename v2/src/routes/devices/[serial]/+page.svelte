@@ -1576,26 +1576,35 @@
   </header>
 
   <div class="tabs" role="tablist" aria-label="Device sections">
+    <!-- Ordered by the shape of the job rather than by history: the tabs you
+         act in come first, in roughly the order a debloat happens, then the
+         ones you only read, then Shell on its own. Health and Playback moved
+         right because they are reports, not tasks. `sep` draws a hairline
+         before the tab, and Shell is pushed to the far edge — it is the
+         documented opt-in exception to the safety story, so it should not sit
+         shoulder to shoulder with the curated actions. -->
     {#each [
-      { id: "overview", label: "Overview" },
-      { id: "health", label: "Health" },
-      { id: "media", label: "Playback" },
-      { id: "launcher", label: "Launcher" },
-      { id: "apps", label: "App List" },
-      { id: "optimize", label: "Optimize" },
-      { id: "tweaks", label: "Tweaks" },
-      { id: "remote", label: "Remote" },
-      { id: "files", label: "Files" },
-      { id: "sideload", label: "Install APK" },
-      { id: "snapshot", label: "Snapshot" },
-      { id: "shell", label: "Shell" },
+      { id: "overview", label: "Overview", sep: false, far: false },
+      { id: "optimize", label: "Optimize", sep: false, far: false },
+      { id: "apps", label: "App List", sep: false, far: false },
+      { id: "launcher", label: "Launcher", sep: false, far: false },
+      { id: "tweaks", label: "Tweaks", sep: false, far: false },
+      { id: "snapshot", label: "Snapshot", sep: false, far: false },
+      { id: "sideload", label: "Install APK", sep: true, far: false },
+      { id: "remote", label: "Remote", sep: false, far: false },
+      { id: "files", label: "Files", sep: false, far: false },
+      { id: "health", label: "Health", sep: false, far: false },
+      { id: "media", label: "Playback", sep: false, far: false },
+      { id: "shell", label: "Shell", sep: true, far: true },
     ] as t (t.id)}
+      {#if t.sep}<span class="tab-sep" aria-hidden="true"></span>{/if}
       <button
         role="tab"
         aria-selected={activeTab === t.id}
         aria-controls={`tabpanel-${t.id}`}
         id={`tab-${t.id}`}
         class:active={activeTab === t.id}
+        class:far={t.far}
         onclick={() => (activeTab = t.id as Tab)}
       >
         {t.label}
@@ -2142,7 +2151,7 @@
               <th>App</th>
               <th class="center">State</th>
               <th class="center">Safety</th>
-              <th>Action</th>
+              <th class="controls-start">Action</th>
               <th class="center">Tools</th>
             </tr>
           </thead>
@@ -2169,7 +2178,7 @@
                   (expandedSafety = expandedSafety === a.package ? null : a.package)}
               >
                 {#snippet actions()}
-                <td class="rec-cell">
+                <td class="rec-cell controls-start">
                   {#if rec.kind === "act"}
                     <button
                       class="small-action recommended"
@@ -2636,6 +2645,19 @@
     font-size: 0.68rem;
     white-space: nowrap;
   }
+  /* Hairline between tab groups — twelve tabs at this width have no room for
+     captions, so the rule does the grouping. */
+  .tab-sep {
+    align-self: center;
+    width: 1px;
+    height: 16px;
+    margin: 0 0.4rem;
+    background: var(--border);
+    flex: none;
+  }
+  .tabs button.far {
+    margin-left: auto;
+  }
   .stat-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
@@ -2793,6 +2815,12 @@
     text-align: center;
   }
   .app-table .app-cell {
+    /* The flexible column. Every other cell is width:1% + nowrap, so this one
+       takes the remainder — but a nowrap description makes its min-content the
+       full sentence, which widens the table until State/Safety/Action fall off
+       the right edge. max-width:0 lets it shrink to the space left over, which
+       is what makes the ellipsis fire instead of the table growing. */
+    max-width: 0;
     line-height: 1.3;
     /* Long system package ids (com.google.android.overlay.modules.…) are one
        unbreakable token; without this they force the column — and the whole
@@ -2801,26 +2829,24 @@
        so the table stops overflowing. Inherited by the child name/pkg rows. */
     overflow-wrap: anywhere;
   }
+  /* Everything right of this line does something; everything left of it tells
+     you something. One rule down the whole table rather than a tinted column,
+     which becomes a stripe over three hundred rows. */
+  .app-table .controls-start {
+    border-left: 1px solid var(--border);
+    padding-left: 1rem;
+  }
+  /* Carries the eye from the app name across to its controls — the columns are
+     far apart on a 1280px window. */
+  .app-table tbody tr:hover td {
+    background: var(--bg-inset);
+  }
   .app-table .rec-cell,
   .app-table .tools-cell {
     /* Keep the action/tool buttons from being squeezed once the name column
        can shrink — they stay on one line at their natural width. */
     white-space: nowrap;
     width: 1%;
-  }
-  .app-name-row {
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-  .app-table .app-desc {
-    margin-top: 0.15rem;
-    font-size: 0.82rem;
-    max-width: 42rem;
-  }
-  .app-table .pkg-id {
-    margin-top: 0.1rem;
-    font-size: 0.78rem;
-    opacity: 0.7;
   }
   /* Small stacked cue (RAM / last-used badge) under a row's state badge. */
   .cell-cue {
