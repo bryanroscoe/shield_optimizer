@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
   import { getRemoteForceShell, setRemoteForceShell } from "$lib/prefs";
 
@@ -246,36 +247,36 @@
            repeat if the cursor slides off mid-hold. -->
       <div class="dpad">
         <span></span>
-        <button onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad up (hold to repeat)">▲</button>
+        <button onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad up (hold to repeat)" aria-label="D-pad up"><Icon name="keyboard_arrow_up" size={22} /></button>
         <span></span>
-        <button onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)">◀</button>
+        <button onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)" aria-label="D-pad left"><Icon name="keyboard_arrow_left" size={22} /></button>
         <button class="ok" onclick={() => sendRemoteKey("select")} title="Select / OK">OK</button>
-        <button onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad right (hold to repeat)">▶</button>
+        <button onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad right (hold to repeat)" aria-label="D-pad right"><Icon name="keyboard_arrow_right" size={22} /></button>
         <span></span>
-        <button onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)">▼</button>
+        <button onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={22} /></button>
         <span></span>
       </div>
       <div class="remote-row">
-        <button onclick={() => sendRemoteKey("back")} title="Back">Back</button>
-        <button onclick={() => sendRemoteKey("home")} title="Home">Home</button>
-        <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)">⚙ Settings</button>
+        <button onclick={() => sendRemoteKey("back")} title="Back"><Icon name="arrow_back" size={15} /> Back</button>
+        <button onclick={() => sendRemoteKey("home")} title="Home"><Icon name="home" size={15} /> Home</button>
+        <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={15} /> Settings</button>
       </div>
       <div class="remote-row">
-        <button onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher">Recents</button>
+        <button onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher"><Icon name="apps" size={15} /> Recents</button>
       </div>
       <div class="remote-row">
-        <button onclick={() => sendRemoteKey("rewind")} title="Rewind">◀◀</button>
-        <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause">▶❙❙</button>
-        <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward">▶▶</button>
+        <button onclick={() => sendRemoteKey("rewind")} title="Rewind" aria-label="Rewind"><Icon name="fast_rewind" size={18} /></button>
+        <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause" aria-label="Play or pause"><Icon name="play_arrow" size={18} /><Icon name="pause" size={18} /></button>
+        <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward" aria-label="Fast forward"><Icon name="fast_forward" size={18} /></button>
       </div>
       <div class="remote-row">
-        <button onclick={() => sendRemoteKey("volume_down")} title="Volume down">Vol −</button>
-        <button onclick={() => sendRemoteKey("mute")} title="Mute">Mute</button>
-        <button onclick={() => sendRemoteKey("volume_up")} title="Volume up">Vol +</button>
+        <button onclick={() => sendRemoteKey("volume_down")} title="Volume down" aria-label="Volume down"><Icon name="volume_down" size={18} /></button>
+        <button onclick={() => sendRemoteKey("mute")} title="Mute" aria-label="Mute"><Icon name="volume_off" size={18} /></button>
+        <button onclick={() => sendRemoteKey("volume_up")} title="Volume up" aria-label="Volume up"><Icon name="volume_up" size={18} /></button>
       </div>
       <div class="remote-row">
         <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
-        <button onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)">Power</button>
+        <button onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={15} /> Power</button>
       </div>
     </div>
   </div>
@@ -391,6 +392,13 @@
     grid-template-columns: repeat(3, 1fr);
     gap: 0.4rem;
     max-width: 10.4rem;
+  }
+  .dpad button,
+  .remote-row button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
   }
   .remote-row button { padding: 0.45rem 0.3rem; white-space: nowrap; }
 </style>

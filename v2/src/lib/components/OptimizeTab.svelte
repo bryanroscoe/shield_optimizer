@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
   import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage, Safety } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
@@ -568,7 +569,7 @@
             </td>
             <td>
               {#if progress === "done"}
-                <span class="tag installed">✓ DONE</span>
+                <span class="tag installed"><Icon name="check" size={13} /> DONE</span>
               {:else if progress === "pending"}
                 <span class="muted small">…</span>
               {:else if progress === "skipped"}

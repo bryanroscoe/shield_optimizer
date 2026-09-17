@@ -23,6 +23,7 @@
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import Icon from "$lib/components/Icon.svelte";
   import {
     confirmVerdictLine,
     isBlocked,
@@ -1381,7 +1382,9 @@
 </script>
 
 <div class="back-row">
-  <button onclick={() => goto("/")}>← Back to devices</button>
+  <button class="back-btn" onclick={() => goto("/")}>
+    <Icon name="arrow_back" size={16} /> Back to devices
+  </button>
 </div>
 
 {#if deviceErr}
@@ -1433,12 +1436,13 @@
       <div class="device-header-actions">
         <div class="reboot-wrap">
           <button
+            class="reboot-btn"
             onclick={() => (rebootMenuOpen = !rebootMenuOpen)}
             disabled={rebootBusy}
             aria-haspopup="menu"
             aria-expanded={rebootMenuOpen}
           >
-            {rebootBusy ? "Rebooting…" : "Reboot ▾"}
+            {rebootBusy ? "Rebooting…" : "Reboot"}{#if !rebootBusy}<Icon name="expand_more" size={16} />{/if}
           </button>
           {#if rebootMenuOpen}
             <div class="reboot-menu" role="menu">
@@ -1622,8 +1626,8 @@
               <div class="net-grid">
                 {#each resource.interfaces as network (network.name)}
                   <span class="net-name">{network.name}</span>
-                  <span>↓ {formatRate(network.rx_bytes_per_s)}</span>
-                  <span>↑ {formatRate(network.tx_bytes_per_s)}</span>
+                  <span><Icon name="arrow_downward" size={13} /> {formatRate(network.rx_bytes_per_s)}</span>
+                  <span><Icon name="arrow_upward" size={13} /> {formatRate(network.tx_bytes_per_s)}</span>
                 {/each}
               </div>
             {:else}
@@ -1716,7 +1720,7 @@
           {#if appActionMessage}
             <p class="muted small mono">
               {appActionMessage}
-              <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss">✕</button>
+              <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss" aria-label="Dismiss"><Icon name="close" size={15} /></button>
             </p>
           {/if}
         {/if}
@@ -1738,7 +1742,7 @@
         {/if}
         {#if channelDisabled}
           <div class="warning">
-            ⚠ <code>com.android.providers.tv</code> is disabled on this device. Watch Next / Continue
+            <Icon name="warning" size={15} /> <code>com.android.providers.tv</code> is disabled on this device. Watch Next / Continue
             Watching rows from Apple TV, Netflix, Disney+ etc. will be empty until you re-enable it.
           </div>
         {/if}
@@ -1887,7 +1891,7 @@
         {#if appActionMessage}
           <p class="muted small mono action-message">
             {appActionMessage}
-            <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss">✕</button>
+            <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss" aria-label="Dismiss"><Icon name="close" size={15} /></button>
           </p>
         {/if}
         {#if appMutationInFlight && !appActionBusy}
@@ -1966,7 +1970,7 @@
                       {appActionBusy === a.package ? "…" : rec.label}
                     </button>
                   {:else if rec.kind === "done"}
-                    <span class="muted small done">✓ {rec.label}</span>
+                    <span class="muted small done"><Icon name="check" size={14} /> {rec.label}</span>
                   {:else if rec.kind === "unavailable"}
                     <span class="muted small">{rec.label} — refresh to retry</span>
                   {:else}
@@ -2270,6 +2274,15 @@
   .serial {
     font-family: var(--mono);
     font-size: 0.85rem;
+  }
+  /* Controls that now pair an icon with a label. */
+  .back-btn,
+  .reboot-btn,
+  .net-grid span,
+  .done {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
   .tabs {
     display: flex;

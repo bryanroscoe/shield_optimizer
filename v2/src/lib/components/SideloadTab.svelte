@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
@@ -186,7 +187,7 @@
   {/if}
 
   {#if scanError}
-    <div class="install-result bad" role="alert"><span>✕ {scanError}</span></div>
+    <div class="install-result bad" role="alert"><span><Icon name="close" size={15} /> {scanError}</span></div>
   {/if}
 
   {#if discoveredFolder && discoveredApks.length > 0}
@@ -221,7 +222,7 @@
           </div>
           {#if sideloadResultPath === apk.path && sideloadResult}
             <div class="install-result" class:ok={sideloadOk} class:bad={!sideloadOk}>
-              <span>{sideloadOk ? "✓" : "✕"} {sideloadResult}</span>
+              <span><Icon name={sideloadOk ? "check" : "close"} size={15} /> {sideloadResult}</span>
               {#if sideloadHint}<span class="muted small"> — {sideloadHint}</span>{/if}
             </div>
           {/if}
@@ -234,7 +235,7 @@
 
   {#if sideloadResult && !discoveredApks.some((a) => a.path === sideloadResultPath)}
     <div class="install-result" class:ok={sideloadOk} class:bad={!sideloadOk}>
-      <span>{sideloadOk ? "✓" : "✕"} {sideloadResult}</span>
+      <span><Icon name={sideloadOk ? "check" : "close"} size={15} /> {sideloadResult}</span>
       {#if sideloadHint}<span class="muted small"> — {sideloadHint}</span>{/if}
     </div>
   {/if}

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api } from "$lib/api";
+  import Icon from "$lib/components/Icon.svelte";
   import appFilesCatalog from "$lib/app-files-catalog.json";
   import type { Device, FileEntry, FindResult } from "$lib/types";
 
@@ -279,7 +280,7 @@
       disabled={filesPath === "/" || (filesPath === "/sdcard" && !powerUserPaths) || filesLoading}
       title="Up one level"
     >
-      ↑ Up
+      <Icon name="arrow_upward" size={15} /> Up
     </button>
     {#each crumbs as c, i (c.path)}
       {#if i > 0}<span class="muted">/</span>{/if}
@@ -323,10 +324,13 @@
             <td class="file-name">
               {#if f.is_dir}
                 <button class="dir-link" onclick={() => loadFiles(`${filesPath}/${f.name}`)}>
-                  📁 {f.name}
+                  <Icon name="folder" size={16} fill /> {f.name}
                 </button>
               {:else}
-                <span>{f.is_symlink ? "🔗" : "📄"} {f.name}</span>
+                <span>
+                  <Icon name={f.is_symlink ? "link" : "description"} size={16} />
+                  {f.name}
+                </span>
               {/if}
             </td>
             <td class="num muted">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
@@ -559,6 +563,14 @@
   }
   .files-table .num { text-align: right; white-space: nowrap; }
   .files-table .row-actions { text-align: right; white-space: nowrap; }
+  /* Icon + name share a baseline row; the icon is the file-type cue so it
+     takes the muted colour until the row is hovered. */
+  .dir-link,
+  .file-name > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
   .dir-link {
     background: none;
     border: none;

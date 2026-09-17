@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
@@ -160,7 +161,7 @@
     </div>
 
     {#if plan.cross_device_warning}
-      <div class="warning">⚠ {plan.cross_device_warning}</div>
+      <div class="warning"><Icon name="warning" size={15} /> {plan.cross_device_warning}</div>
     {/if}
 
     <div class="plan-summary">
