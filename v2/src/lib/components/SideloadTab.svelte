@@ -274,7 +274,7 @@
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.2rem;
   }
   .card h2 {
@@ -305,7 +305,7 @@
   .tag {
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
@@ -314,7 +314,7 @@
     background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--mono);
     font-size: 0.85em;
   }
@@ -325,7 +325,7 @@
     padding: 0.4rem 0.6rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     word-break: break-all;
   }
   .saved-folder {
@@ -337,7 +337,7 @@
     padding: 0.7rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   .saved-folder-path {
     display: flex;

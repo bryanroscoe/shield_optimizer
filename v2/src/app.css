@@ -117,6 +117,17 @@
 :root {
   --sans: "Geist", system-ui, -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, "Roboto Mono", monospace;
+
+  /* Corner ladder. Desktop was noticeably sharper than the phone app (4 and
+     6px almost everywhere); the phone is rounder than suits a screen showing
+     this much at once. These sit between the two — clearly softer, without
+     the padding a phone-sized radius implies on a dense table. */
+  --radius-xs: 4px; /* meter and progress fills */
+  --radius-sm: 6px; /* badges, tags, chips */
+  --radius-md: 8px; /* buttons, inputs, small actions */
+  --radius-lg: 12px; /* cards and panels */
+  --radius-xl: 16px; /* dialogs */
+  --radius-pill: 999px;
 }
 
 html, body {
@@ -142,7 +153,7 @@ button {
   background: var(--bg-button);
   color: var(--fg-primary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.4rem 0.9rem;
   cursor: pointer;
   font-size: 0.9rem;
@@ -175,7 +186,7 @@ input, select, textarea {
   background: var(--bg-input);
   color: var(--fg-primary);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.45rem 0.7rem;
   font-size: 0.9rem;
   font-family: inherit;

@@ -296,7 +296,7 @@
     padding: 0.7rem 1rem;
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     margin-bottom: 0.5rem;
   }
   .snap-main {
@@ -328,12 +328,12 @@
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
   .action-msg {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0.6rem 0.8rem;
     margin: 0.5rem 0;
     font-family: var(--mono);
@@ -344,7 +344,7 @@
   .tag {
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
@@ -371,7 +371,7 @@
     background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--mono);
     font-size: 0.85em;
   }
@@ -379,7 +379,7 @@
   /* Snapshot-apply preview — same visual language as the Optimize wizard. */
   .preview-panel {
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: var(--bg-surface);
     padding: 1rem 1.2rem;
     margin: 0.5rem 0 1rem;
@@ -399,7 +399,7 @@
     border: 1px solid var(--warn-border);
     color: var(--warn);
     padding: 0.6rem 0.9rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     margin: 0.6rem 0;
     font-size: 0.9rem;
   }
@@ -442,7 +442,7 @@
     display: inline-block;
     font-size: 0.74rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-muted);
     color: var(--fg-faint);
   }
@@ -458,7 +458,7 @@
     padding: 0.6rem 0.9rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
   .warn-text { color: var(--warn); }
 </style>

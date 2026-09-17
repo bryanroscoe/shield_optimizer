@@ -373,7 +373,7 @@
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.2rem;
   }
   .card h2 {
@@ -424,7 +424,7 @@
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-family: var(--mono);
     font-size: 0.85rem;
   }
@@ -462,7 +462,7 @@
     padding: 0.4rem 0.6rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     word-break: break-word;
   }
   .clone-panel {
@@ -474,7 +474,7 @@
     padding: 0.5rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 0.9rem;
   }
   .inline-check {
@@ -488,7 +488,7 @@
     background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--mono);
     font-size: 0.85em;
   }
@@ -499,7 +499,7 @@
     padding: 0.6rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
   .app-backups summary {
     cursor: pointer;

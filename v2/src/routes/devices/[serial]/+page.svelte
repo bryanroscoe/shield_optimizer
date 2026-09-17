@@ -2300,7 +2300,7 @@
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.2rem;
   }
   .card h2 {
@@ -2332,13 +2332,13 @@
     max-width: 22rem;
     margin-top: 0.3rem;
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     background: var(--bg-inset);
     overflow: hidden;
   }
   .meter-fill {
     height: 100%;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
     transition: width 0.3s ease;
   }
   .meter-fill.ok {
@@ -2481,7 +2481,7 @@
   .tag {
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
@@ -2494,20 +2494,20 @@
     border: 1px solid var(--warn-border);
     color: var(--warn);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     margin: 0.8rem 0;
     font-size: 0.9rem;
   }
   .warning code {
     background: var(--bg-inset);
     padding: 0.1rem 0.3rem;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
   }
   .error {
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-family: var(--mono);
     font-size: 0.85rem;
   }
@@ -2524,7 +2524,7 @@
     padding: 0.7rem 1rem;
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     margin-bottom: 0.5rem;
   }
   .snap-main { flex: 1; min-width: 0; }
@@ -2541,7 +2541,7 @@
     padding: 1rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
   .preview-box ul {
     margin: 0.4rem 0;
@@ -2624,7 +2624,7 @@
     padding: 0.4rem 0.6rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     word-break: break-word;
   }
   .link-button {
@@ -2705,7 +2705,7 @@
     margin-top: 0.3rem;
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.3rem;
     display: flex;
     flex-direction: column;
@@ -2740,7 +2740,7 @@
     padding: 0.6rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   .recovery-result ul {
     margin: 0.4rem 0 0;
@@ -2758,7 +2758,7 @@
     padding: 0.6rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   .apply-result ul {
     margin: 0.3rem 0 0;
@@ -2776,7 +2776,7 @@
   .screenshot-preview img {
     max-width: 480px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
   .screenshot-meta {
     display: flex;
@@ -2793,7 +2793,7 @@
     padding: 0.5rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 0.9rem;
   }
   .tools-cell {
@@ -2856,13 +2856,13 @@
     padding: 0.5rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     line-height: 1.4;
   }
   .install-output {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0.7rem 1rem;
     margin: 0.8rem 0;
     font-family: var(--mono);
@@ -2874,7 +2874,7 @@
     background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--mono);
     font-size: 0.85em;
   }

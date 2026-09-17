@@ -594,7 +594,7 @@
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.2rem;
   }
   .card h2 {
@@ -622,7 +622,7 @@
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-family: var(--mono);
     font-size: 0.85rem;
   }
@@ -647,7 +647,7 @@
   .tag {
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     letter-spacing: 0.04em;
   }
   .tag.installed { background: var(--ok-surface); color: var(--ok); }
@@ -656,7 +656,7 @@
     padding: 0.4rem 0.6rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     word-break: break-word;
   }
   .apply-row {
@@ -687,7 +687,7 @@
     padding: 0.5rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 0.9rem;
   }
   .review-callout {
@@ -695,7 +695,7 @@
     padding: 0.5rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--warn);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 0.85rem;
   }
   .review-callout .stale-line {
@@ -738,7 +738,7 @@
     display: inline-block;
     font-size: 0.74rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-muted);
     color: var(--fg-faint);
     letter-spacing: 0.02em;

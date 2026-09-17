@@ -287,7 +287,7 @@
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.2rem;
   }
   .card h2 {
@@ -363,7 +363,7 @@
     min-height: 3.2rem;
     padding: 0.8rem;
     border: 1px dashed var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     cursor: text;
     background: var(--bg-inset);
   }

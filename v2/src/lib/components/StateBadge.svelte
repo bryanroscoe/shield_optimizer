@@ -13,7 +13,7 @@
     display: inline-block;
     font-size: 0.74rem;
     padding: 0.15rem 0.55rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     font-family: var(--mono);

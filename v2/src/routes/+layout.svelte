@@ -346,7 +346,7 @@
     padding: 1.25rem;
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-xl);
     box-shadow: var(--shadow-modal);
   }
   .notes-dialog h2 {
@@ -389,7 +389,7 @@
     font-size: 0.85em;
     background: var(--bg-muted);
     padding: 0.05rem 0.3rem;
-    border-radius: 3px;
+    border-radius: var(--radius-xs);
   }
   /* A button, not an anchor: these open in the system browser via the opener
      plugin, and the href is remote text we only partly trust. */
@@ -419,7 +419,7 @@
     margin-left: 0.6rem;
     padding: 0.15rem 0.6rem;
     border: 1px solid var(--accent);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     background: var(--accent-surface, transparent);
     color: var(--accent);
     font-size: 0.78rem;
@@ -455,7 +455,7 @@
     color: var(--fg-secondary);
     font-size: 0.92rem;
     padding: 0.3rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   nav a.active {
     color: var(--accent);
@@ -477,7 +477,7 @@
   .theme-toggle {
     display: flex;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
   .theme-toggle button {

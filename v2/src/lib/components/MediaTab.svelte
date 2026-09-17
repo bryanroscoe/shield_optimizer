@@ -162,7 +162,7 @@
   .card {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.2rem;
   }
   .card h2 {
@@ -190,7 +190,7 @@
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-family: var(--mono);
     font-size: 0.85rem;
   }
@@ -207,7 +207,7 @@
   .verdict {
     border: 1px solid var(--border);
     border-left-width: 3px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     padding: 0.6rem 0.8rem;
     background: var(--bg-inset);
   }
@@ -258,7 +258,7 @@
   .pill {
     display: inline-block;
     padding: 0.1rem 0.45rem;
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     font-size: 0.75rem;
     border: 1px solid var(--border);
     background: var(--bg-button);
@@ -286,7 +286,7 @@
   .audio-box {
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0.6rem 0.8rem;
     line-height: 1.6;
   }

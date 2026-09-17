@@ -470,7 +470,7 @@
     justify-content: space-between;
     padding: 0.9rem 1rem;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     background: var(--bg-surface);
     margin-bottom: 0.6rem;
     transition: background 0.1s;
@@ -501,7 +501,7 @@
   .status-tag {
     font-size: 0.72rem;
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   .status-tag.unauthorized {
     background: var(--danger-surface);
@@ -537,7 +537,7 @@
   .pair-form {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1rem 1.2rem;
     margin-bottom: 1rem;
   }
@@ -547,7 +547,7 @@
   }
   .pair-note {
     padding: 0.65rem 0.75rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     background: var(--bg-inset);
     color: var(--fg-secondary);
   }
@@ -567,7 +567,7 @@
   .report-all {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1rem 1.2rem;
     margin-bottom: 1rem;
   }
@@ -596,7 +596,7 @@
     padding: 0.6rem 0.8rem;
     background: var(--bg-inset);
     border: 1px solid var(--danger-surface);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 0.85rem;
   }
   .unauthorized-help strong {
@@ -615,7 +615,7 @@
   .install-pane {
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-lg);
     padding: 1.5rem;
   }
   .install-pane h2 {
@@ -638,7 +638,7 @@
     background: var(--danger-surface);
     color: var(--danger-text);
     padding: 0.7rem 1rem;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
     font-family: var(--mono);
     font-size: 0.85rem;
   }
@@ -646,7 +646,7 @@
     background: var(--bg-inset);
     border: 1px solid var(--border);
     padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--mono);
     font-size: 0.85em;
   }
