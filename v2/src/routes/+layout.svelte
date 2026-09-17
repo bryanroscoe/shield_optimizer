@@ -494,7 +494,7 @@
     cursor: pointer;
   }
   button.version:hover {
-    color: var(--fg);
+    color: var(--fg-primary);
     text-decoration: underline;
   }
 
