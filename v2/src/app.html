@@ -7,11 +7,17 @@
     <title>Shield Optimizer</title>
     <script>
       // Apply the saved theme before first paint to avoid a flash of the
-      // wrong colors. Mirrors $lib/theme.ts; "system" leaves no attribute.
+      // wrong colors. Mirrors $lib/theme.ts: "system" is resolved here, so
+      // data-theme is always present and always concrete.
       try {
         var t = localStorage.getItem("shieldopt.theme");
-        if (t === "light" || t === "dark")
-          document.documentElement.setAttribute("data-theme", t);
+        if (t !== "light" && t !== "dark")
+          t =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+        document.documentElement.setAttribute("data-theme", t);
       } catch (e) {}
     </script>
     %sveltekit.head%

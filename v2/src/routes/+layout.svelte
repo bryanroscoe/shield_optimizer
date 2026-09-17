@@ -4,7 +4,12 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
-  import { getThemePref, setThemePref, type ThemePref } from "$lib/theme";
+  import {
+    getThemePref,
+    setThemePref,
+    watchOsTheme,
+    type ThemePref,
+  } from "$lib/theme";
   import {
     getAutoUpdate,
     getLastSeenVersion,
@@ -48,6 +53,8 @@
   onMount(() => {
     theme = getThemePref();
     autoUpdate = getAutoUpdate();
+    // Keep Auto honest while the app is open, not just at launch.
+    watchOsTheme();
 
     api
       .checkForUpdate()
@@ -272,11 +279,13 @@
 {/if}
 
 <style>
-  /* Semantic color tokens. Dark is the default (in :root); light values are
-     applied either by an explicit data-theme="light" or, when no preference is
-     set, by the OS via prefers-color-scheme. Dark values are unchanged from the
-     original design — only light values are new. */
-  :global(:root) {
+  /* Semantic color tokens, one block per theme. $lib/theme.ts resolves the
+     "system" preference to a concrete data-theme, so each palette is written
+     exactly once here — an earlier version repeated the light values under a
+     prefers-color-scheme query, where they could drift from this copy. The
+     bare :root keeps dark as the fallback if the attribute is ever missing. */
+  :global(:root),
+  :global(:root[data-theme="dark"]) {
     color-scheme: dark;
     --bg-page: #0e1116;
     --bg-surface: #161b22;
@@ -311,7 +320,7 @@
     --advanced: #a371f7;
   }
 
-  /* Light values — shared by explicit light and OS-light-when-unset. */
+  /* Light values. */
   :global(:root[data-theme="light"]) {
     color-scheme: light;
     --bg-page: #f6f8fa;
@@ -346,43 +355,6 @@
     --warn-surface-2: #fff1e5;
     --advanced: #8250df;
   }
-  @media (prefers-color-scheme: light) {
-    :global(:root:not([data-theme])) {
-      color-scheme: light;
-      --bg-page: #f6f8fa;
-      --bg-surface: #ffffff;
-      --bg-surface-2: #f0f3f6;
-      --bg-button: #f1f3f5;
-      --bg-button-hover: #e7ebef;
-      --bg-input: #ffffff;
-      --bg-inset: #eef1f4;
-      --bg-muted: #e4e8ec;
-      --bg-nav-active: #ddeaff;
-      --border: #d0d7de;
-      --fg-primary: #1f2328;
-      --fg-secondary: #424a53;
-      --fg-muted: #656d76;
-      --fg-faint: #6e7781;
-      --accent: #0969da;
-      --accent-strong: #0969da;
-      --accent-strong-hover: #0860ca;
-      --accent-glow: #0969da55;
-      --danger: #cf222e;
-      --danger-strong: #cf222e;
-      --danger-surface: #ffebe9;
-      --danger-border: #ff9492;
-      --danger-text: #cf222e;
-      --danger-surface-text: #cf222e;
-      --ok: #1a7f37;
-      --ok-surface: #dafbe1;
-      --warn: #9a6700;
-      --warn-surface: #fff8c5;
-      --warn-border: #d4a72c;
-      --warn-surface-2: #fff1e5;
-      --advanced: #8250df;
-    }
-  }
-
   :global(html, body) {
     margin: 0;
     padding: 0;
