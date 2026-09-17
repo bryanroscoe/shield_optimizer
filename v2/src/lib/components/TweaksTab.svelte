@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
   import type {
     TweaksState,
@@ -283,7 +284,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-tweaks" aria-labelledby="tab-tweaks">
   <div class="card-header">
-    <h2>System Tweaks</h2>
+    <h2><Icon name="tune" size={17} /> System Tweaks</h2>
     <button onclick={loadTweaks} disabled={tweaksLoading}>
       {tweaksLoading ? "Loading…" : "Refresh"}
     </button>
@@ -708,8 +709,31 @@
     align-items: center;
     flex-wrap: wrap;
   }
+  /* A two-choice setting reads as a segmented control: one recessed trough,
+     the chosen segment filled. Kept as two explicit buttons rather than a
+     single switch — for a system setting, saying which state you want is
+     better than flipping an unlabelled toggle. */
+  .tweak-row .row-actions {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .tweak-row .row-actions .small-action {
+    border: 1px solid transparent;
+    background: none;
+    border-radius: calc(var(--radius-md) - 3px);
+    color: var(--fg-muted);
+    min-width: 3rem;
+  }
+  .tweak-row .row-actions .small-action:hover:not(.active):not(:disabled) {
+    background: var(--bg-button-hover);
+    color: var(--fg-primary);
+  }
   .small-action {
-    padding: 0.2rem 0.6rem;
+    padding: 0.25rem 0.7rem;
     font-size: 0.78rem;
   }
   .small-action.active {

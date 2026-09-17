@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
+  import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
   import type { MediaCapabilities } from "$lib/types";
   import { formatSupport, matchContentLabel, surroundLabel } from "../../../shared/media";
@@ -50,7 +51,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-media" aria-labelledby="tab-media">
   <div class="card-header">
-    <h2>Playback</h2>
+    <h2><Icon name="play_circle" size={17} /> Playback</h2>
     <button onclick={load} disabled={loading}>
       {loading ? "Reading…" : "Refresh"}
     </button>

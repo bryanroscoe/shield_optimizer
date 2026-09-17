@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from "$lib/api";
+  import Icon from "$lib/components/Icon.svelte";
   import { getShellBookmarks, setShellBookmarks, type ShellBookmark } from "$lib/prefs";
   import type { ShellRunResult } from "$lib/types";
   import { onDestroy } from "svelte";
@@ -77,7 +78,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-shell" aria-labelledby="tab-shell">
   <div class="card-header">
-    <h2>Shell</h2>
+    <h2><Icon name="terminal" size={17} /> Shell</h2>
     <button onclick={() => run()} disabled={!acknowledged || running || !command.trim()}>
       {running ? "Running…" : "Run"}
     </button>

@@ -186,7 +186,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-files" aria-labelledby="tab-files">
   <div class="card-header">
-    <h2>Files</h2>
+    <h2><Icon name="folder" size={17} /> Files</h2>
     <div class="header-actions">
       <button onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
         {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}

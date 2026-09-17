@@ -248,10 +248,18 @@ textarea:focus-visible {
   padding: 1.35rem 1.5rem;
 }
 .card h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 1.05rem;
   font-weight: 650;
   letter-spacing: -0.01em;
+}
+/* The title's icon is a marker, not a second voice — muted, so the name
+   still leads. */
+.card h2 .msr {
+  color: var(--fg-muted);
 }
 /* The board sets subsection headings as small mono uppercase labels rather
    than smaller headings — it reads as a divider instead of competing with

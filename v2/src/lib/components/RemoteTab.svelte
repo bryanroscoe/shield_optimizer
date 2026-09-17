@@ -190,7 +190,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-remote" aria-labelledby="tab-remote">
   <div class="remote-header">
-    <h2>Remote</h2>
+    <h2><Icon name="settings_remote" size={17} /> Remote</h2>
     {#if transport}
       <span class="transport" class:live={transport === "channel"}
         title={transport === "channel"

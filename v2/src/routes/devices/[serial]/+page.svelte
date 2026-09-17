@@ -1424,14 +1424,6 @@
             </button>
           </h1>
         {/if}
-        <div class="device-meta">
-          <span>{deviceTypeLabel(device.device_type)}</span>
-          {#if device.model}<span>· {device.model}</span>{/if}
-          <span class="serial">· {device.serial}</span>
-          {#if device.properties?.android_release}
-            <span>· Android {device.properties.android_release}</span>
-          {/if}
-        </div>
       </div>
       <div class="device-header-actions">
         <div class="reboot-wrap">
@@ -1468,6 +1460,14 @@
           {disconnectBusy ? "Disconnecting…" : "Disconnect"}
         </button>
       </div>
+    </div>
+    <div class="device-meta">
+      <span>{deviceTypeLabel(device.device_type)}</span>
+      {#if device.model}<span>· {device.model}</span>{/if}
+      <span class="serial">· {device.serial}</span>
+      {#if device.properties?.android_release}
+        <span>· Android {device.properties.android_release}</span>
+      {/if}
     </div>
     {#if headerActionMsg}
       <p class="muted small mono action-message">{headerActionMsg}</p>
@@ -1514,7 +1514,7 @@
 
   {#if activeTab === "overview"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-overview" aria-labelledby="tab-overview">
-      <h2>Profile</h2>
+      <h2><Icon name="tv" size={17} /> Profile</h2>
       {#if device.properties}
         <dl class="kv">
           <dt>Friendly name</dt>
@@ -1576,7 +1576,7 @@
   {:else if activeTab === "health"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-health" aria-labelledby="tab-health">
       <div class="card-header">
-        <h2>Health Report</h2>
+        <h2><Icon name="monitor_heart" size={17} /> Health Report</h2>
         <div class="header-actions">
           <label class="live-refresh">
             <input type="checkbox" checked={liveRefresh} onchange={toggleLiveRefresh} />
@@ -1775,7 +1775,7 @@
   {:else if activeTab === "launcher"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-launcher" aria-labelledby="tab-launcher">
       <div class="card-header">
-        <h2>Launchers</h2>
+        <h2><Icon name="home" size={17} /> Launchers</h2>
         <button onclick={loadLauncher} disabled={launcherLoading}>
           {launcherLoading ? "Loading…" : "Refresh"}
         </button>
@@ -1899,7 +1899,7 @@
   {:else if activeTab === "apps"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-apps" aria-labelledby="tab-apps">
       <div class="card-header">
-        <h2>App List for {deviceTypeLabel(device.device_type)}</h2>
+        <h2><Icon name="apps" size={17} /> App List for {deviceTypeLabel(device.device_type)}</h2>
         <div class="header-actions">
           <span class="muted">{apps.length} curated · {otherPackages.length} other</span>
           <button onclick={loadApps} disabled={appsLoading}>
@@ -2156,7 +2156,7 @@
   {:else if activeTab === "snapshot"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-snapshot" aria-labelledby="tab-snapshot">
       <div class="card-header">
-        <h2>Snapshots</h2>
+        <h2><Icon name="history" size={17} /> Snapshots</h2>
         <button class="primary" onclick={saveSnapshot} disabled={saveBusy}>
           {saveBusy ? "Saving…" : "Save current state"}
         </button>
@@ -2766,16 +2766,21 @@
   .dismiss:hover {
     color: var(--fg-primary);
   }
+  /* The meta line sits below this row rather than inside its left column, so
+     the title and the actions are the only two things in it and can simply be
+     centred on each other. Previously the actions top-aligned against the
+     title-plus-meta block and read a few pixels low. */
   .device-title-row {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 1rem;
   }
   .device-header-actions {
     display: flex;
     gap: 0.5rem;
-    align-items: flex-start;
+    align-items: center;
+    flex-shrink: 0;
   }
   .reboot-wrap {
     position: relative;

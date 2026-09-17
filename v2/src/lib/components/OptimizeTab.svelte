@@ -405,7 +405,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize">
   <div class="card-header">
-    <h2>Optimize / Restore Wizard</h2>
+    <h2><Icon name="auto_fix_high" size={17} /> Optimize / Restore Wizard</h2>
     <div class="header-actions">
       <button
         class:primary={optimizeMode === "optimize"}

@@ -151,7 +151,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-sideload" aria-labelledby="tab-sideload">
   <div class="card-header">
-    <h2>Install APK</h2>
+    <h2><Icon name="download" size={17} /> Install APK</h2>
     <div class="header-actions">
       <button onclick={pickApkFolder} disabled={sideloadBusy !== null || discoveryBusy}>
         {discoveryBusy ? "Scanning…" : "Choose folder…"}
