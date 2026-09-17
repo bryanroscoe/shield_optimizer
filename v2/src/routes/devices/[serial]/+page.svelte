@@ -23,6 +23,7 @@
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import { getKeptPackages, setPackageKept } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import { isBlocked, safetyClass, type SafetyStatus } from "$lib/safety";
   import RamBadge from "$lib/components/RamBadge.svelte";
@@ -66,6 +67,19 @@
   /// reading properly rather than skimming twelve at once.
   let expandedSafety = $state<string | null>(null);
   let packageSafety = $state<Record<string, SafetyStatus>>({});
+  /// Packages the user has decided to keep on THIS device. An opinion, not
+  /// device state — it never touches a snapshot, and it is keyed by hardware
+  /// id so it cannot leak between two TVs that swapped addresses.
+  let keptPackages = $state<Set<string>>(new Set());
+  /// Hides rows that are already decided — kept, or already disabled/removed —
+  /// so the list works as a shrinking worklist.
+  let hideDecided = $state(false);
+
+  const hardwareId = $derived(device?.properties?.serial_number ?? null);
+
+  function toggleKept(pkg: string) {
+    keptPackages = new Set(setPackageKept(hardwareId, pkg, !keptPackages.has(pkg)));
+  }
   let pageEpoch = $state(0);
   let deviceRequest = 0;
   let healthRequest = 0;
@@ -202,6 +216,12 @@
   let visibleApps = $derived(
     apps.filter((a) => {
       if (hideNotInstalled && appStates[a.package] === "missing") return false;
+      // "Decided" is kept-by-you or already off the device; hiding both turns
+      // the list into a worklist that shrinks as you work.
+      if (hideDecided) {
+        const st = appStates[a.package];
+        if (keptPackages.has(a.package) || st === "disabled" || st === "missing") return false;
+      }
       return matchesSearch(a.name, a.package);
     }),
   );
@@ -508,6 +528,7 @@
       ]);
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
       appStates = validatedPackageStates(packages, stateResult);
+      keptPackages = getKeptPackages(hardwareId);
       catalogInventoryVersion++;
       const unavailableCount = packages.length - Object.keys(appStates).length;
       if (unavailableCount > 0) appsErr = `State unavailable for ${unavailableCount} package(s). Refresh before taking action.`;
@@ -2106,6 +2127,10 @@
           Hide not installed
         </label>
         <label class="inline-check">
+          <input type="checkbox" bind:checked={hideDecided} />
+          Hide decided
+        </label>
+        <label class="inline-check">
           <input type="checkbox" bind:checked={showSystemOthers} />
           Show system packages
         </label>
@@ -2208,6 +2233,16 @@
                     >
                       {appActionBusy === a.package ? "…" : rec.label}
                     </button>
+                  {:else if keptPackages.has(a.package)}
+                    <!-- The user's own decision, shown exactly like "already
+                         disabled": grey, because a decided row should recede.
+                         Never teal or lime — those mean verdict and action. -->
+                    <span class="muted small done"><Icon name="check" size={14} /> Kept</span>
+                    <button
+                      class="small-action subtle change-keep"
+                      onclick={() => toggleKept(a.package)}
+                      title="Undo keeping this app"
+                    >Change</button>
                   {:else if rec.kind === "done"}
                     <span class="muted small done"><Icon name="check" size={14} /> {rec.label}</span>
                   {:else if rec.kind === "unavailable"}
@@ -2216,6 +2251,13 @@
                     <span class="muted small">Keep</span>
                   {/if}
 
+                  {#if !keptPackages.has(a.package) && state === "enabled" && (rec.kind === "act" || rec.kind === "review")}
+                    <button
+                      class="small-action subtle"
+                      onclick={() => toggleKept(a.package)}
+                      title="Mark this as one you use, so it stops being recommended for removal"
+                    >Keep</button>
+                  {/if}
                   {#if state === "enabled" && canRemove && rec.kind !== "act" && !(rec.kind === "review" && rec.action === "disable")}
                     <button
                       class="small-action subtle"
@@ -2482,6 +2524,7 @@
         {serial}
         deviceType={device.device_type}
         {appUsage}
+        {keptPackages}
         resetToken={optimizeResetToken}
         {pageEpoch}
         onStatesChanged={resyncAppStates}
@@ -2647,6 +2690,15 @@
   }
   /* Hairline between tab groups — twelve tabs at this width have no room for
      captions, so the rule does the grouping. */
+  /* Only on hover: an undo does not need to advertise itself on every
+     decided row. */
+  .change-keep {
+    opacity: 0;
+  }
+  tr:hover .change-keep,
+  .change-keep:focus-visible {
+    opacity: 1;
+  }
   .tab-sep {
     align-self: center;
     width: 1px;

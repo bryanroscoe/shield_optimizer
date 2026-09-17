@@ -77,3 +77,58 @@ export function setLastSeenVersion(version: string): void {
     localStorage.setItem(LAST_SEEN_VERSION_KEY, version);
   }
 }
+
+const KEEP_KEY = "shieldopt.keptPackages";
+
+/// Packages the user has explicitly decided to keep, per device.
+///
+/// Keyed by hardware id (`ro.serialno`), never by address: two TVs can swap
+/// IPs, and a decision about one must not silently apply to the other. A
+/// device that cannot report an id gets no keep list rather than a shared one.
+///
+/// This is an opinion, not device state, which is why it lives here and not in
+/// a snapshot — a snapshot restores what the TV was, and "I decided to keep
+/// Plex" is not something the TV ever knew.
+type KeepMap = Record<string, string[]>;
+
+function readKeepMap(): KeepMap {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(KEEP_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const out: KeepMap = {};
+    for (const [id, pkgs] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(pkgs)) out[id] = pkgs.filter((p): p is string => typeof p === "string");
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export function getKeptPackages(hardwareId: string | null | undefined): Set<string> {
+  if (!hardwareId) return new Set();
+  return new Set(readKeepMap()[hardwareId] ?? []);
+}
+
+export function setPackageKept(
+  hardwareId: string | null | undefined,
+  pkg: string,
+  kept: boolean,
+): Set<string> {
+  const current = getKeptPackages(hardwareId);
+  if (!hardwareId) return current;
+  if (kept) current.add(pkg);
+  else current.delete(pkg);
+  const map = readKeepMap();
+  if (current.size === 0) delete map[hardwareId];
+  else map[hardwareId] = [...current].sort();
+  try {
+    localStorage.setItem(KEEP_KEY, JSON.stringify(map));
+  } catch {
+    /* storage unavailable — the decision just will not survive a restart */
+  }
+  return current;
+}

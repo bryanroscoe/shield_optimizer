@@ -11,6 +11,7 @@
     serial,
     deviceType,
     appUsage,
+    keptPackages,
     resetToken,
     pageEpoch,
     onStatesChanged,
@@ -19,6 +20,9 @@
     serial: string;
     deviceType: DeviceType;
     appUsage: Record<string, AppUsage>;
+    /// Packages the user marked "keep" in the App List. The wizard must not
+    /// recommend removing something they already said they use.
+    keptPackages: Set<string>;
     resetToken: number;
     pageEpoch: number;
     onStatesChanged: () => void;
@@ -184,6 +188,9 @@
     const natural = naturalAction(item);
     if (natural === null) return null;
     if (natural === "disable" || natural === "uninstall") {
+      // A keep decision outranks the catalog's recommendation: the user has
+      // already answered the question the wizard is about to ask.
+      if (keptPackages.has(item.entry.package)) return "skip";
       const safety = safetyByPackage[item.entry.package];
       if (safety?.status !== "ready" || isBlocked(safety.verdict)) return "skip";
       if (safety.verdict.kind === "unknown") return "skip";
