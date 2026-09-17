@@ -48,7 +48,7 @@ Mobile companion app (`v2/mobile`, feedback items so-vtm.1–.9 and so-fb3.1/.2/
 - Unknown safety consumers + unknown-app diagnostics logging (`safety.ts`, `Apps.svelte`, `AppDetailSheet.svelte`, `Diagnostics.svelte`, `More.svelte`, `RiskGuide.svelte`, `unknownDiagnostics.ts`).
 - Apps system-app visibility filter (.4), APK backup scope and coverage (.6), frame-rate control copy (.5), Dashboard recommended-app count + Optional apps review with Keep default (.7; `Dashboard.svelte`, `Optimize.svelte`, `session.svelte.ts`).
 - Tests: `savedDevices`, `unknownDiagnostics`, `apps-filter`, `backups`, `dashboard-optional-review`, updated `session` (67 cases).
-- Docs: `HANDOFF.md`, `USER-FEEDBACK-2026-09-05.md`, new `LIFECYCLE-EVIDENCE.md`, `LOCAL-STATUS-2026-09-05.md`, `FEEDBACK-UX-2026-09-07.md` (navigator-owned; navigator's final reconciliation for .7 is still pending).
+- Docs: `HANDOFF.md`, `USER-FEEDBACK-2026-09-05.md`, new `LIFECYCLE-EVIDENCE.md`, `FEEDBACK-UX-2026-09-07.md` (navigator-owned; navigator's final reconciliation for .7 is still pending).
 
 ## 2. D1 — proposed commit plan
 

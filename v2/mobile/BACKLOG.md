@@ -7,8 +7,9 @@ this is owner-reported use, not a completed physical stability matrix.
 `HANDOFF.md`, and `USER-FEEDBACK-2026-09-05.md` for current work. Track execution in
 `bd`, including restart feedback #7 on `so-vtm.8`.
 
-**Current scope is host-only: no device attachment/mutation, deployment, or
-speculative persistence.** Accepted Navigator work is committed and pushed under
+**Scope note (corrected 2026-09-16):** the old host-only / no-commit restriction is dead — see
+`CLAUDE.md`, work is committed and pushed continuously. What remains real is the *device* gate:
+nothing in `v2/mobile` has been verified on a phone or TV since `44d2d66`. Accepted Navigator work is committed and pushed under
 the September 10 policy in `AGENTS.md`; physical items below remain gated. The
 older installation instructions are not current permission.
 

@@ -1,5 +1,12 @@
 # Mobile feedback — 2026-09-05
 
+> **Status, 2026-09-16: items 1-6 shipped in `d02de57`; item 7 (restart) is still open.**
+> The unchecked boxes below are the original list as written, kept for traceability. Where each
+> landed: #1/#2 `src/screens/Optimize.svelte` + `tests/dashboard-optional-review.test.mjs`;
+> #3 `src/screens/Apps.svelte` + `tests/apps-filter.test.mjs`; #4 `src/screens/Tweaks.svelte`;
+> #5 `src/screens/Onboarding.svelte`; #6 `src/screens/Backups.svelte` + `tests/backups.test.mjs`.
+> **#7 remains physically unresolved** — see [`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md).
+
 Reported by Bryan after installing the debug build from `main` at `44d2d66` on a
 Pixel 10 Pro. These are user observations and requested improvements, not verified
 root causes. All acceptance items remain open; this document records TODOs and any

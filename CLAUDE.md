@@ -38,8 +38,8 @@ as unconfirmed until they do.
 The remaining gate before a beta is the device script in
 [`docs/RELEASE-DECISION-2026-09-09.md`](docs/RELEASE-DECISION-2026-09-09.md); steps D1 and D8 are
 the only real proof for #89, since that fix concerns the working directory the app inherits when
-launched from a mounted DMG. `v2/CHANGELOG.md` already has the `v2-2.2.0-beta.1` section the
-release workflow will read.
+launched from a mounted DMG. `v2/CHANGELOG.md` already has the `v2-2.2.0` section the release workflow will read.
+(The 2026-09-09 decision packet proposed a beta first; the call since was to ship `2.2.0` straight.)
 
 The mobile companion app (`v2/mobile/`) has its own authoritative handoff at
 [`v2/mobile/HANDOFF.md`](v2/mobile/HANDOFF.md). Its safety story depends on never claiming more
@@ -116,6 +116,23 @@ The release workflow also regenerates the gallery on every `v2-*` tag (the `refr
   - The MSI **UpgradeCode** is auto-derived by Tauri from `productName`/`identifier` and must stay stable for upgrades to work — **don't rename the product or change the identifier** without understanding it resets the UpgradeCode and orphans existing installs.
 - **Don't pipe `yes` into `release.sh`.** The auto-mode classifier blocks it (correctly) — the script's interactive gates are the safety net. Run it interactively, or pass `--yes` if you have deliberately decided to skip the gates (CI, or an agent acting on an explicit instruction).
 
+### Still undone: signing and update-key custody
+
+Both are genuinely open, and both were reasoned through once — preserved here because the roadmap
+doc that held them has been deleted.
+
+- **Code signing.** macOS means the Apple Developer Program ($99/yr) plus notarization; there is no
+  shortcut. Windows is a choice between an EV certificate ($300-500/yr, immediate SmartScreen
+  reputation), a standard OV certificate ($100-300/yr, which needs roughly 30k installs to build
+  that reputation), or shipping unsigned with documented bypass instructions. The third is worse
+  than it looks for this audience specifically: people installing a debloater already have reason
+  to be suspicious, and a SmartScreen "this looks like malware" banner confirms the fear. Linux
+  needs no signing. Setup notes for when we do this are at the top of `.github/workflows/v2-release.yml`.
+- **Update-key custody.** The Tauri updater signs with Ed25519, and **the private key must never
+  rotate** — doing so breaks auto-update for every installed copy on an older version, permanently.
+  There is no recovery path except telling users to reinstall by hand. Where the key lives, who can
+  reach it, and how it is backed up needs writing down before the installed base gets large.
+
 ### Homebrew tap
 
 The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `shield-optimizer`, pointing at the universal `.dmg` from the latest `v2-*` release.
@@ -127,6 +144,9 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 
 - **Commits**: always create a new commit. Never `--amend` unless explicitly asked. No `Co-Authored-By` trailers on commits.
 - **PRs**: short summary, no checklists or boilerplate. Don't add test plans to the body.
+- **Roadmap markers**: closing a roadmap or parity item updates its status in the same commit
+  (`v2/ATVTOOLS-PARITY.md`, `v2/ATV-OPTIMIZER-ANDROID-PLAN.md`, `v2/mobile/BACKLOG.md`). Docs that
+  claim shipped work is unbuilt send the next reader to rebuild it — that has happened here.
 - **Comments**: only when the *why* is non-obvious. Don't add docstrings/comments to code you didn't change. No banner / section-divider comments.
 - **Spelling**: the company is "Truemed" — silently correct other casings (TrueMed, TRUEMED, truemed) in writing, except in verbatim quotes, URLs, and code identifiers.
 

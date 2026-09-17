@@ -1,5 +1,9 @@
 # Saved TVs, app risk, details, and product copy
 
+> **Brief written 2026-09-07; implemented in `d02de57`,** except process identity (GitHub #97).
+> Statements below that this is "not implemented behavior" no longer hold. The coordination
+> sections near the end refer to a retired system and are historical only.
+
 Navigator source review for `so-fb3.1`–`.4`, with `.6` reporting handoff, convoy `hq-cv-z4oev`.
 Workspace baseline: `48cba2384ca3938e6655b77ccf85716dd86cca5f`,
 `crew/navigator`. This is an implementation brief, not implemented behavior.

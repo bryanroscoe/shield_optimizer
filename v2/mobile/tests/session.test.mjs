@@ -1,20 +1,18 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { createServer } from "vite";
+import { startViteServer } from "./helpers/vite-harness.mjs";
 
 let server;
 let browser;
 let origin;
 before(async () => {
-  server = await createServer({
-    root: fileURLToPath(new URL("../", import.meta.url)),
-    logLevel: "silent",
-    server: { host: "127.0.0.1", port: 0 },
-  });
-  await server.listen();
-  origin = `http://127.0.0.1:${server.httpServer.address().port}`;
+  // Use the shared harness rather than a bespoke server: it is the only place
+  // that turns off the `strictPort: true` pinned in vite.config.ts for
+  // `tauri android dev`. Without that override this suite inherited strict
+  // mode, so a port collision was fatal instead of something Vite stepped
+  // around -- the "Port 5173 is already in use" half of GitHub #113.
+  ({ server, origin } = await startViteServer());
   browser = await chromium.launch({ headless: true });
 });
 after(async () => {

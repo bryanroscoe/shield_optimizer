@@ -1,5 +1,10 @@
 # ATV Optimizer — Transport Licensing & Architecture Research
 
+> **Decision record — adopted, and the outcome is now shipped.** `adb_client` (MIT) replaced
+> libadb-android in `3e8bcfc`; SPAKE2 pairing landed in `5e76b24`. Passages below written in the
+> present tense about libadb describe the *old* transport, not the current one — see
+> [`HANDOFF.md`](HANDOFF.md) §3.
+
 Question: how should the phone/tablet app drive an Android TV over **Android-11 wireless
 debugging** (SPAKE2 pairing-code + TLS-1.3 + RSA auth + shell/exec) **without shipping GPLv3
 code**, so the product can be sold closed-source? Current transport is

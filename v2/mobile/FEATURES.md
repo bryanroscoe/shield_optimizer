@@ -1,5 +1,10 @@
 # ATV Optimizer mobile — features inventory
 
+> **Snapshot, 2026-07.** Nearly every status row below is now wrong — four screens it calls
+> missing exist. The architecture section describing a libadb transport is describing code that
+> was deleted in `3e8bcfc`. Use [`HANDOFF.md`](HANDOFF.md) §4 for the current screen/command map
+> and `src-tauri/src/lib.rs` for the authoritative command list.
+
 > Historical snapshot from the initial architecture review. Many row statuses below are stale.
 > Use [`BACKLOG.md`](BACKLOG.md) and [`HANDOFF.md`](HANDOFF.md) for the current implementation and
 > ordered queue; update this matrix only as a dedicated reconciliation pass.

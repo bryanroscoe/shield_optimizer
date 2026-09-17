@@ -18,7 +18,7 @@ That runs two steps:
 
 ## What's captured
 
-Devices list → PIN pairing guidance → device Overview → Health → Launcher → App List → Optimize wizard → Tweaks → Remote → Files → Install APK → Snapshot → global Snapshots page.
+Devices list → PIN pairing guidance → device Overview → Health → Playback → Launcher → App List → Optimize wizard → Tweaks → Remote → Files → Install APK → Snapshot → Shell → global Snapshots page.
 
 The demo data is a faithful Nvidia Shield — real package names, the real launcher catalog, and the real merged app list ([`../src/lib/demo-apps.json`](../src/lib/demo-apps.json), regenerated from `../crates/core/data/app-lists/`). It is **not** a real device; it's fixtures so the capture is deterministic and hardware-free.
 

@@ -5,8 +5,7 @@ Read this top-to-bottom before doing any mobile work. It is the authoritative, c
 2026-09-08 America/Chicago; older checkpoints are historical).
 Companion deep-dives (all in this dir): `ARCHITECTURE-REVIEW.md` (historical findings audit),
 `FEATURES.md` (historical screen ↔ command map), **`BACKLOG.md` (current ordered queue)**,
-`TRANSPORT-LICENSING-RESEARCH.md` (why the transport is what it is), `CLOUD-TASK.md` (brief for the
-nightly cloud agent). Cross-session memory also lives
+`TRANSPORT-LICENSING-RESEARCH.md` (why the transport is what it is). Cross-session memory also lives
 in `~/.claude/projects/-Users-bryanroscoe-Developer-shield-optimizer/memory/`.
 
 Current lifecycle evidence baseline: **`48cba23`**. The original mobile effort used
@@ -170,7 +169,7 @@ aligned, never fork it*.
     adb held two transports for one device and the desktop list faithfully rendered both. Desktop
     now collapses rows on verified hardware id, using the same identity rule as this app. Mobile
     gates:
-    tests 78/78, check 0 errors/0 warnings, build passed. Physical device verification of the
+    tests 78/78 at the time (the suite is now 99), check 0 errors/0 warnings, build passed. Physical device verification of the
     reconnect flow is still the open gate on the parent bead.
   - **Code pairing (SPAKE2) — implemented, unverified on a device.** Clean-room Rust in the
     vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`), wired through
@@ -183,7 +182,7 @@ aligned, never fork it*.
     pre-existing encoder bug: `android_pubkey_encode` dropped a zero top byte (~1 key in 256
     rejected by adbd for AUTH and pairing).
 
-- **Navigator-reviewed local integrations (2026-09-08; not released):**
+- **Navigator-reviewed integrations (2026-09-08) — all shipped in `d02de57`, 2026-09-10:**
   - **Canonical Unknown safety (`so-fb3.2.1`–`.2.4`).** Mechanic combined the accepted shared
     contract, mobile rev3 consumers, desktop round-three consumers, and Navigator documentation in
     `crew/mechanic`. Canonical safety now preserves Protected and Caution precedence and otherwise
@@ -239,10 +238,10 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 
 ## 4. Repo layout (mobile)
 - `v2/mobile/src/` — Svelte 5 frontend. `lib/{api,types,session.svelte,router.svelte,log,savedDevices}.ts`,
-  `screens/*.svelte` (14), `components/*.svelte` (7), `app.css` (design tokens + offline @font-face).
+  `screens/*.svelte` (14), `components/*.svelte` (8), `app.css` (design tokens + offline @font-face).
 - `v2/mobile/src-tauri/src/` — mobile Tauri app: `lib.rs` (builder + `generate_handler!`),
   `wireless_adb.rs` (adb_client transport = `AdbDriver`), `wireless_commands.rs` (wireless_*),
-  `file_commands.rs` (list_remote_dir/pull_file/backup_apk/list_backups).
+  `file_commands.rs` (list_remote_dir/pull_file/backup_apk/list_backups/restore_apk_backup/delete_backup).
 - `v2/mobile/tauri-plugin-atv-adb/` — mDNS discovery plugin (Kotlin NsdManager + thin Rust).
 - `v2/vendor/adb_client/` — vendored MIT transport; `SHIELD-OPTIMIZER-PATCH.md` lists every local
   change (raw service stream, finite timeouts, stray-stream tolerance, `tcp/pairing/`).
@@ -250,7 +249,7 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
 - `v2/crates/core/src/adb/batch.rs` — sentinel-batched shell helper; `crates/core/src/license.rs`
   — signed license verification.
 - Mobile docs: `HANDOFF.md` (this), `BACKLOG.md`, `FAST-REMOTE-PLAN.md`, `PAIRING-PLAN.md`,
-  `LICENSING.md`, `RELEASE.md`, `THIRD-PARTY-NOTICES.md` (generated), `CLOUD-TASK.md`.
+  `LICENSING.md`, `RELEASE.md`, `THIRD-PARTY-NOTICES.md` (generated).
 - `v2/crates/core/` — SHARED engine+commands (pure `engine/`, `commands/*`, `adb/{driver,parse}`,
   `license.rs`). Desktop and mobile both register from here. **Keep `engine/` pure; keep aligned
   with desktop.**
@@ -275,8 +274,8 @@ typed identity exists instead of inferring process/package identity in the front
    tests passed at `48cba23`. Visibility-only resume retained the screen; JavaScript
    reconstruction reset it and required a fresh connection/Connected confirmation.
    Use `LIFECYCLE-EVIDENCE.md` for the precise limits and minimal owner report.
-   Physical investigation is gated; do not pair, install, or interact with a device
-   under the current host-only assignment.
+   Physical investigation is the open gate: this needs a real phone and TV, and nothing
+   here has run on either since `44d2d66`.
 2. **Verify code pairing on a real device** (BACKLOG P1 #2). Follow `PAIRING-PLAN.md` exactly:
    the Pixel's own `_adb-tls-pairing` service from a host binary first, then a Google TV, including
    the wrong-code and silent-reconnect checks. Until this passes, treat pairing as unverified and
@@ -320,16 +319,16 @@ Desktop rebranding remains a separate migration because of the MSI UpgradeCode r
 - Preserve the unrelated untracked root files (`atv-optimizer-android-strategy.html`, root
   `node_modules/`, `package.json`, and `package-lock.json`); they are user-owned and not part of the
   mobile commits.
-- A future authorized physical session must identify the installed build and use current
-  wireless endpoints. **No device interaction is authorized by the current assignment.**
-  Do not reuse recorded ports or treat this historical playbook as permission.
+- A physical session must identify the installed build and discover current wireless
+  endpoints. Do not reuse the ports recorded below — they are historical observations, and a
+  rotated wireless-debugging port is the normal case.
 - Do not mark Phase 4 or pairing complete from host tests or logs alone.
 
 ## 6. OPERATIONS PLAYBOOK (historical device commands; authorization required)
 
-The device commands below are reference only during `so-vtm.8`; do not execute them
-under its host-only scope. Recorded addresses, tool versions, and pairing state are
-historical observations, not current device discovery.
+The device commands below are reference material. Recorded addresses, tool versions and
+pairing state are historical observations, not current device discovery — re-discover before
+using any of them.
 
 Env: `ANDROID_HOME=~/Android/sdk`, NDK `28.2.13676358`, tauri-cli 2.11.x, the 4 android Rust
 targets installed. Test device: **Pixel 10 Pro**.
@@ -370,12 +369,10 @@ no `Co-Authored-By`. Command arg names: camelCase in TS → Tauri maps to snake_
 
 ## 8. Current coordination
 
-Persistent Navigator owns mobile UX, independent lifecycle/regression evidence,
-and mobile documentation. Mechanic owns device architecture and integration;
-Sol implements bounded changes with explicit file reservations. Preserve existing
-work. This assignment permits no device attachment/mutation, commit, push, deploy,
-or speculative session persistence. Earlier parallel-Opus/cloud-routine and
-commit/push guidance is historical and does not expand current authority.
+The role split described here (Navigator / Mechanic / Sol) belonged to a coordination system
+that has been retired, along with its no-commit/no-push restriction. Current policy is in the repo
+`CLAUDE.md`: work is committed and pushed continuously. Kept only because the surrounding sections
+reference these names.
 
 ## 9. Commit history (this effort, newest first)
 ```

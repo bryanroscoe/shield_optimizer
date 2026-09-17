@@ -77,8 +77,7 @@ save-persistence coverage.
 *Neuromancer* produced 216 entities, 843 page snapshots and 24 recaps, reviewed
 and accepted. Open: pricing, legal scope, entity density and recap length.
 
-**Shield Optimizer.** All accepted work is on `main` in commits `36b561c` and
-`d02de57`. Remaining: cut a release tag and run the physical device test.
+**Shield Optimizer.** State as of 2026-09-12 was `36b561c` + `d02de57`; `main` has moved well past that. See `v2/HANDOFF.md` for current state and `CLAUDE.md` for what is in flight. Remaining then and now: run the physical device test and cut a release tag.
 
 **Saget.** Ten local candidates accepted, seven production changes applied with
 rollback and independent verification. Remaining decisions are listed in

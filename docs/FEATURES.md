@@ -1,5 +1,10 @@
 # Shield Optimizer — Feature Catalog
 
+> **This is the v1 (PowerShell) catalog.** It was intended to become the cross-version spec and
+> never did — it has no v2 coverage and no parity column, and has not been updated since
+> 2026-05-20. For v2 behaviour use `v2/README.md`, `v2/ATVTOOLS-PARITY.md` and `v2/CHANGELOG.md`.
+> Line references into `Shield-Optimizer.ps1` have drifted; re-check before trusting one.
+
 This document is the **source of truth** for what Shield Optimizer does. It exists for two reasons:
 
 1. **Reference for the v2 (Tauri/Rust) rewrite** — a language-agnostic spec of every behavior, every ADB command, and every edge case the current v1 PowerShell implementation handles, so v2 can reach behavioral parity without reverse-engineering.

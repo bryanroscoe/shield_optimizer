@@ -1,13 +1,19 @@
 # Remote-control latency plan
 
-Status: **planned, not started.** The Remote tab works but each key press takes
-~700 ms, which makes the D-pad feel broken. This doc captures the investigation
-and the agreed design so implementation can start cold.
+Status: **implemented.** All three phases below shipped. `RemoteInputSession` lives in
+`crates/core/src/adb/remote_input.rs` (not `src-tauri/` — `16e5c42` moved the shared layer), the
+pinned scrcpy v3.1 server is bundled at `v2/src-tauri/resources/scrcpy-server-v3.1`, and
+`crates/core/src/commands/input.rs` drives the channel with the old per-press path as fallback.
+
+Kept for the Phase 0 hardware measurements and the lifecycle gotchas below — the ~700 ms figure,
+`cmd input` being absent on Shield Android 11, and the server's socket-close and stdin behaviour.
+Those were measured on real devices and are recorded nowhere else. The ~700 ms per press now
+describes only the fallback path.
 
 ## Why a key press takes ~700 ms today
 
 Every press runs `adb -s X shell "input keyevent <code>"`
-(`src-tauri/src/commands/input.rs`), paying four costs in series:
+(now `crates/core/src/commands/input.rs`), paying four costs in series:
 
 1. Spawn a fresh `adb` client + connect to the local adb server (~30–80 ms)
 2. Open a new shell service on the device over the network (~50–150 ms)

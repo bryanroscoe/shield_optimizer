@@ -17,9 +17,9 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
-## v2-2.2.0-beta.1
+## v2-2.2.0
 
-Four reported bugs reach users for the first time, plus a Playback tab, an
+Five reported bugs reach users for the first time, plus a Playback tab, an
 expert shell, and a companion-app overhaul. Three of those fixes were written
 without the reporter's hardware in hand — if you filed one of them, please say
 whether this build works for you.

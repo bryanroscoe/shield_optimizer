@@ -83,14 +83,18 @@ There is no minimum or maximum Android version. If a device is not showing up, i
 
 | Tab | What it does |
 |-----|--------------|
-| **Overview** | Device profile — model, Android version, build. |
-| **Health** | Temperature, RAM, storage, display mode + HDR, audio, and the top memory consumers (with risk tags). |
-| **Optimize** | The debloat wizard — review each app's recommended action with its RAM usage, untick anything you want to keep, then **Run**. Reversible via Restore. |
+| **Overview** | Device profile — model, Android version, build, hardware ID. |
+| **Health** | Temperature, CPU and network sampling, RAM and storage meters, display mode + HDR, audio, and the top memory consumers (with safety verdicts). |
+| **Playback** | What the TV is actually outputting — resolution, refresh, HDR and audio passthrough. |
 | **Launcher** | Install Projectivy / FLauncher / ATV / Wolf, set a default, and safely disable the stock launcher. |
 | **App List** | Per-app Disable / Enable / Uninstall, or install via the Play Store. |
+| **Optimize** | The debloat wizard — review each app's recommended action with its RAM usage, untick anything you want to keep, then **Run**. Reversible via Restore. |
+| **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough. |
+| **Remote** | An on-screen D-pad and live typing, over a low-latency channel. Paste a long URL or password instead of typing it. |
+| **Files** | Browse `/sdcard`, pull files to this computer, upload, and find an app's exported backups. |
 | **Install APK** | Sideload an `.apk` from a folder. |
-| **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling. |
 | **Snapshot** | Save a device's state and re-apply it later — to the same device (rollback) or a different one (clone). |
+| **Shell** | Run an ADB shell command directly, for anything the UI doesn't cover. |
 
 A curated **do-not-disable list** blocks brick-tier disables from every path, and **Recovery** re-enables every disabled package if you ever need a clean slate.
 

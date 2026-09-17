@@ -66,7 +66,7 @@ Shape: `adb -s X exec-out screencap -p > local.png`, save to a user folder, show
 ### P3 — Evaluate later
 **10. Screen recording** — `screenrecord` (3-min cap, no DRM), pull + save. Nice demo material.
 **11. Permissions viewer/grant/revoke** — `dumpsys package <pkg>` parse + `pm grant/revoke`. Niche; gate behind Advanced.
-**12. Remote control / D-pad** — `input keyevent` buttons. Probably low value on desktop (TV remote in hand), but trivial if requested.
+**12. Remote control / D-pad** — `input keyevent` buttons. **Shipped** (Remote tab, scrcpy low-latency channel, clipboard paste in `2d571fd`).
 **Skip:** screen mirroring, gamepad, media remote — phone-form-factor features.
 
 ## Related design items (from beta feedback)

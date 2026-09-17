@@ -1,6 +1,6 @@
 # Shield Optimizer v2
 
-A ground-up rewrite of Shield Optimizer as a **native installable desktop app** with **built-in auto-update** and an eventual **mobile companion** — replacing the v1 PowerShell script while preserving every behavior catalogued in [`docs/FEATURES.md`](../docs/FEATURES.md).
+A ground-up rewrite of Shield Optimizer as a **native installable desktop app** with **built-in auto-update** and a **mobile companion** (`mobile/`) — replacing the v1 PowerShell script while preserving every behavior catalogued in [`docs/FEATURES.md`](../docs/FEATURES.md).
 
 <img alt="Shield Optimizer v2 walkthrough (dark)" src="screenshots/gallery.gif" />
 
@@ -118,7 +118,10 @@ v2/
 These are non-negotiable; deviating is a regression:
 
 1. **Engine has no I/O.** It returns plans and inspects results — does not call `adb`, does not read files, does not make HTTP requests, does not log. The tests prove this by injecting a mock ADB driver.
-2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the shared command layer (next to the command bridge, not in the engine). The loader is responsible for: shipping with embedded JSON defaults; fetching the latest from a versioned URL (`raw.githubusercontent.com/.../v2/crates/core/data/app-lists/<file>.json` or similar) on launch; falling back to embedded on offline; signature-verifying fetched lists. The engine accepts app lists as inputs and is agnostic to where they came from. This is the only way to honor commitment #1 while supporting hot-shipping of dead-app updates.
+2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the shared command layer (next to the command bridge, not in the engine). The loader is responsible for: shipping with embedded JSON defaults; embedding them at compile time via `include_str!`. The engine accepts app lists as inputs and is
+agnostic to where they came from, which leaves the door open to fetching a newer list at runtime
+— **not built.** Editing the JSON currently requires a rebuild and a release. If runtime fetching
+is ever added it needs signature verification and an offline fallback to embedded.
 3. **All ADB output goes through one wrapper.** Single point for tracing, retries, structured logging. No naked `adb ...` calls scattered through the codebase.
 4. **The detection logic exists exactly once.** v1 has two device-type-detection paths that don't agree on edge cases (see `docs/FEATURES.md` §13.1). v2 must have one.
 5. **Snapshots are versioned.** `schemaVersion` in every snapshot file. The reader handles old versions or rejects them with a clear error.
@@ -152,11 +155,11 @@ cd v2
 npm install                # install frontend deps
 npm run tauri dev          # run in development (opens a window)
 
-# Bundler build (when packaging is wired up — Phase 10):
-# npm run tauri build      # would produce platform installers
+# Bundler build — produces the platform installers the release workflow ships:
+npm run tauri build
 ```
 
-For now, the development flow is:
+The development flow is:
 - `cd v2 && npm run tauri dev` to run the GUI
 - `cd v2 && cargo test -p shield-optimizer-core -p shield-optimizer-v2` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
@@ -175,7 +178,6 @@ Default in the plan is **Svelte**. Override before running `create-tauri-app` if
 ## See also
 
 - [ATV-OPTIMIZER-ANDROID-PLAN.md](ATV-OPTIMIZER-ANDROID-PLAN.md) — Android app implementation plan
-- [PLAN.md](PLAN.md) — historical phased porting roadmap
 - [`../docs/FEATURES.md`](../docs/FEATURES.md) — behavior spec (the source of truth)
 - v1: `Shield-Optimizer.ps1` at repo root
 

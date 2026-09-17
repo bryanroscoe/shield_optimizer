@@ -1,5 +1,10 @@
 # Mobile restart report: lifecycle evidence
 
+> **Snapshot at `48cba23`.** Two corrections: the `so-vtm.3` navigation change this calls an
+> uncommitted candidate shipped in `d02de57`, and the "host-only, nothing committed or pushed"
+> restrictions below are retired — see `CLAUDE.md`. The *device* gate is still real: feedback #7
+> remains unresolved on hardware. The reproducible matrix and `evidence/lifecycle/` are current.
+
 Source-review addendum (Navigator workspace date 2026-09-07):
 [new feedback UX contract](FEEDBACK-UX-2026-09-07.md) covers saved discovery,
 Unknown risk, process/app identity, details and background-control copy at the
