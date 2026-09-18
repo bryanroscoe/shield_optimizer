@@ -566,27 +566,7 @@
         <button class="run-cancel" onclick={cancelOptimize}>Cancel remaining</button>
       </div>
     {/if}
-    <div class="apply-row">
-      <button
-        class="primary"
-        onclick={executeOptimize}
-        disabled={optimizeRunning || actionable === 0}
-      >
-        {optimizeRunning ? "Running…" : `Run ${optimizeMode === "optimize" ? "Optimize" : "Restore"}`}
-      </button>
-      {#if optimizeSummary && !optimizeRunning}
-        <button
-          onclick={applyPerformanceSettings}
-          disabled={optimizePerfApplied}
-          title={optimizeMode === "optimize" ? "Set animation scales to 0.5×" : "Reset animation scales to 1×"}
-        >
-          {optimizePerfApplied ? "Performance applied" : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
-        </button>
-      {/if}
-    </div>
-    {#if optimizeSummary}
-      <p class="muted small mono action-message">{optimizeSummary}</p>
-    {/if}
+
     <!-- The board promises "a snapshot is written before the first change".
          This app writes none, so the callout says what is actually true and
          points at the tab that does it. -->
@@ -696,6 +676,35 @@
         {/each}
       </tbody>
     </table>
+
+    <!-- The action sits after the list it acts on. Above it, Run was reachable
+         before you had read a single row of the plan you were running. -->
+    <div class="apply-row apply-foot">
+      <button
+        class="primary"
+        onclick={executeOptimize}
+        disabled={optimizeRunning || actionable === 0}
+        title={actionable === 0
+          ? "Nothing is selected — arm a row above, or use Select all safe"
+          : `Apply ${actionable} change${actionable === 1 ? "" : "s"} to this TV`}
+      >
+        {optimizeRunning
+          ? "Running…"
+          : `Run ${optimizeMode === "optimize" ? "Optimize" : "Restore"} · ${actionable} item${actionable === 1 ? "" : "s"}`}
+      </button>
+      {#if optimizeSummary && !optimizeRunning}
+        <button
+          onclick={applyPerformanceSettings}
+          disabled={optimizePerfApplied}
+          title={optimizeMode === "optimize" ? "Set animation scales to 0.5×" : "Reset animation scales to 1×"}
+        >
+          {optimizePerfApplied ? "Performance applied" : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
+        </button>
+      {/if}
+    </div>
+    {#if optimizeSummary}
+      <p class="muted small mono action-message">{optimizeSummary}</p>
+    {/if}
   {/if}
 </div>
 
@@ -816,6 +825,11 @@
   }
   .optimize-note {
     margin: 0.6rem 0 0.2rem;
+  }
+  .apply-foot {
+    margin-top: 1.2rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--border);
   }
   .plan-bar {
     display: flex;

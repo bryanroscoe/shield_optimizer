@@ -367,6 +367,7 @@
                   class="file-tool"
                   onclick={() => loadFiles(`${filesPath}/${f.name}`)}
                   title="Open {f.name}"
+                  data-tip="Open folder"
                   aria-label={`Open the folder ${f.name}`}
                 ><Icon name="chevron_right" size={16} /></button>
               {:else if !f.is_symlink}
@@ -375,6 +376,7 @@
                   onclick={() => downloadFile(f.name)}
                   disabled={filesBusy !== null}
                   title="Save this file to a folder on this computer"
+                  data-tip="Download"
                   aria-label={`Download ${f.name}`}
                 ><Icon name="download" size={16} /></button>
                 <button
@@ -382,6 +384,7 @@
                   onclick={() => startFileCopy(f.name)}
                   disabled={filesBusy !== null}
                   title="Copy this file to another connected device"
+                  data-tip="Copy to device"
                   aria-label={`Copy ${f.name} to another device`}
                 ><Icon name="swap_horiz" size={16} /></button>
               {/if}
@@ -390,6 +393,7 @@
                 onclick={() => deleteEntry(f)}
                 disabled={filesBusy !== null}
                 title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
+                  data-tip="Delete from TV" data-tip-align="end"
                 aria-label={`Delete ${f.name} from the device`}
               ><Icon name="delete" size={16} /></button>
             </td>

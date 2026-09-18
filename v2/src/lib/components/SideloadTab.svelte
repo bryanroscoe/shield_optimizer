@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -29,6 +29,47 @@
   /// package id → state, for the discovered APKs, so each row can say whether
   /// it's already installed on this device.
   let apkInstallState = $state<Record<string, "enabled" | "disabled" | "missing">>({});
+
+  /// Board 11.9 draws a drop target. HTML5 drag events never carry a real
+  /// path in a webview, so this uses Tauri's own drag-drop stream, which does.
+  /// It is a no-op outside the app shell (the screenshot pipeline runs in a
+  /// plain browser), so the pane simply never highlights there.
+  let dragging = $state(false);
+  let dropError = $state("");
+  let unlistenDrop: (() => void) | null = null;
+
+  onMount(async () => {
+    try {
+      const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+      unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+        if (event.payload.type === "over") {
+          dragging = true;
+          return;
+        }
+        if (event.payload.type === "leave") {
+          dragging = false;
+          return;
+        }
+        dragging = false;
+        const apks = event.payload.paths.filter((path) => path.toLowerCase().endsWith(".apk"));
+        if (apks.length === 0) {
+          dropError = "That is not an .apk. Drop an APK file, or use Pick file…";
+          return;
+        }
+        if (apks.length > 1) {
+          // Installing several in one gesture would hide which one failed.
+          dropError = `Dropped ${apks.length} APKs — drop one at a time so each result is its own.`;
+          return;
+        }
+        dropError = "";
+        void installApkPath(apks[0]);
+      });
+    } catch {
+      /* not running inside the app shell — no drop target, everything else works */
+    }
+  });
+
+  onDestroy(() => unlistenDrop?.());
 
   async function pickAndInstallApk() {
     const selected = await openDialog({
@@ -246,13 +287,14 @@
   {:else if discoveredFolder}
     <p class="muted small">No <code>.apk</code> files in the scanned folder: {discoveredFolder}.</p>
   {:else if !savedFolder}
-    <div class="sideload-empty">
-      <Icon name="download" size={28} />
-      <strong>No folder scanned yet</strong>
+    <div class="sideload-empty" class:dragging>
+      <Icon name="upload" size={28} />
+      <strong>{dragging ? "Drop to install" : "Drop an .apk here"}</strong>
       <span class="small">
-        Choose folder… to list every APK inside it and keep it for next time, or
-        Pick file… to install one straight away.
+        Or Choose folder… to list every APK inside it and keep it for next time,
+        or Pick file… to install one straight away.
       </span>
+      {#if dropError}<span class="small drop-error">{dropError}</span>{/if}
     </div>
   {/if}
 
@@ -283,12 +325,14 @@
             {:else if apkInstallState[entry.package] === "disabled"}
               <span class="tag disabled">INSTALLED (disabled)</span>
             {/if}
+            <!-- This opens a web page; it does not download or install
+                 anything. A download glyph here promised otherwise. -->
             <button
               class="catalog-get"
               onclick={() => openDownloadPage(entry.url)}
-              title={`Open the official download page — ${entry.url}`}
+              title={`Open the official download page in your browser — ${entry.url}`}
               aria-label={`Open the official download page for ${entry.name}`}
-            ><Icon name="download" size={16} /></button>
+            ><Icon name="open_in_new" size={16} /> <span>Get</span></button>
           </li>
         {/each}
       </ul>
@@ -396,12 +440,14 @@
     flex: none;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    padding: 0.3rem;
-    border: 1px solid transparent;
+    gap: 0.3rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: none;
     color: var(--accent);
+    font-size: 0.78rem;
+    white-space: nowrap;
     cursor: pointer;
   }
   .catalog-get:hover {
@@ -515,6 +561,18 @@
     border-radius: var(--radius-lg);
     text-align: center;
     color: var(--fg-muted);
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .sideload-empty.dragging {
+    border-color: var(--accent);
+    background: var(--accent-surface);
+    color: var(--fg-secondary);
+  }
+  .sideload-empty.dragging :global(.msr) {
+    color: var(--accent);
+  }
+  .drop-error {
+    color: var(--warn);
   }
   .sideload-empty :global(.msr) {
     color: var(--fg-muted);

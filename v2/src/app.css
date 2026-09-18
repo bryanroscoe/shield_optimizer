@@ -406,3 +406,47 @@ textarea:focus-visible {
   white-space: nowrap;
   cursor: pointer;
 }
+
+/* Instant tooltips for icon-only controls.
+   `title` is the accessible fallback and stays on every one of these, but the
+   browser waits about a second before showing it — long enough that an icon
+   button reads as unlabelled. `data-tip` paints the same words immediately on
+   hover and on keyboard focus. Purely additive: nothing depends on it, and a
+   control without `data-tip` behaves exactly as before. */
+[data-tip] {
+  position: relative;
+}
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--fg-primary);
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+/* A tooltip on the last control in a row would otherwise be clipped by the
+   card's edge; these flip to the right-hand side. */
+[data-tip][data-tip-align="end"]::after {
+  left: auto;
+  right: 0;
+  transform: none;
+}

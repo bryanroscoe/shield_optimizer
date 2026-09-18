@@ -184,14 +184,14 @@ async function exerciseFeatures(browser, base) {
   await page.getByRole("tab", { name: "Health", exact: true }).click();
   await waitPending("resource_sample");
   const health = page.locator("#tabpanel-health");
-  await health.getByRole("heading", { name: "Vitals", exact: true }).waitFor();
+  await health.getByRole("heading", { name: "Health", exact: true }).waitFor();
   const sampleCount = (await calls("resource_sample")).length;
   await health.getByRole("button", { name: "Refresh", exact: true }).click();
   await health.getByRole("button", { name: "Refresh", exact: true }).waitFor();
   assert.equal((await calls("resource_sample")).length, sampleCount, "health refresh cannot overlap resource samples");
   await settle("resource_sample", "sample unavailable");
   await health.getByText("Resource sample: sample unavailable", { exact: true }).waitFor();
-  assert.equal(await health.getByRole("heading", { name: "Vitals", exact: true }).isVisible(), true);
+  assert.equal(await health.getByRole("heading", { name: "Health", exact: true }).isVisible(), true);
   assert.equal(await health.getByText("Temperature", { exact: true }).isVisible(), true, "resource error preserves health report");
   await hold("resource_sample", false);
   await health.getByRole("button", { name: "Refresh", exact: true }).click();

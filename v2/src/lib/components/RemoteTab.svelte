@@ -270,14 +270,14 @@
       {/if}
       <div class="remote-keys">
       <div class="remote-row transport-row">
-        <button onclick={() => sendRemoteKey("rewind")} title="Rewind" aria-label="Rewind"><Icon name="fast_rewind" size={18} /></button>
-        <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause" aria-label="Play or pause"><Icon name="play_pause" size={20} /></button>
-        <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward" aria-label="Fast forward"><Icon name="fast_forward" size={18} /></button>
+        <button onclick={() => sendRemoteKey("rewind")} title="Rewind" data-tip="Rewind" aria-label="Rewind"><Icon name="fast_rewind" size={18} /></button>
+        <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause" data-tip="Play / Pause" aria-label="Play or pause"><Icon name="play_pause" size={20} /></button>
+        <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward" data-tip="Fast forward" aria-label="Fast forward"><Icon name="fast_forward" size={18} /></button>
       </div>
       <div class="remote-row">
-        <button onclick={() => sendRemoteKey("volume_down")} title="Volume down" aria-label="Volume down"><Icon name="volume_down" size={18} /></button>
-        <button onclick={() => sendRemoteKey("mute")} title="Mute" aria-label="Mute"><Icon name="volume_off" size={18} /></button>
-        <button onclick={() => sendRemoteKey("volume_up")} title="Volume up" aria-label="Volume up"><Icon name="volume_up" size={18} /></button>
+        <button onclick={() => sendRemoteKey("volume_down")} title="Volume down" data-tip="Volume down" aria-label="Volume down"><Icon name="volume_down" size={18} /></button>
+        <button onclick={() => sendRemoteKey("mute")} title="Mute" data-tip="Mute" aria-label="Mute"><Icon name="volume_off" size={18} /></button>
+        <button onclick={() => sendRemoteKey("volume_up")} title="Volume up" data-tip="Volume up" aria-label="Volume up"><Icon name="volume_up" size={18} /></button>
       </div>
       <div class="remote-row">
         <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={15} /> Settings</button>
@@ -350,6 +350,23 @@
     justify-content: center;
     max-width: 900px;
     margin-inline: auto;
+  }
+  /* The pad reads first and the typing box second: the remote is the thing
+     this screen is, and the left edge is where a reader starts. DOM order
+     stays typing-then-pad so Tab still reaches the capture box before fifteen
+     buttons and the paste path is untouched. */
+  .remote-typing {
+    order: 2;
+  }
+  .remote-pad {
+    order: 1;
+  }
+  @media (max-width: 760px) {
+    /* Stacked, the order that matters is reading order again. */
+    .remote-typing,
+    .remote-pad {
+      order: 0;
+    }
   }
   .remote-typing {
     /* ~60ch of mono: the echo's own length. */

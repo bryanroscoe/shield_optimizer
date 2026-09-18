@@ -399,7 +399,10 @@
               </div>
             </div>
             <span class="device-status online"><span class="status-dot" aria-hidden="true"></span> Online</span>
-            <span class="device-open">Open</span>
+            <!-- The whole row is the link, so a button inside it was a second
+                 target for the same action. A chevron says "this opens"
+                 without pretending to be separately clickable. -->
+            <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={20} /></span>
           </a>
         {:else}
           <div class="device-row not-clickable" class:unauthorized={d.status === "unauthorized"}>
@@ -551,17 +554,13 @@
   .device-status.online .status-dot {
     background: var(--ok);
   }
-  /* The row is the link, so this is a label that looks like the button it
-     effectively is — not a second, separately-focusable control. */
-  .device-open {
+  .device-go {
+    display: inline-flex;
     flex: none;
-    padding: 0.35rem 1rem;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-md);
-    background: var(--accent-strong);
-    color: var(--accent-ink);
-    font-size: 0.85rem;
-    font-weight: 600;
+    color: var(--fg-muted);
+  }
+  a.device-row:hover .device-go {
+    color: var(--accent);
   }
   .devices-note {
     margin-top: 1rem;

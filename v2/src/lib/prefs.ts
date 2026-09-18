@@ -132,3 +132,45 @@ export function setPackageKept(
   }
   return current;
 }
+
+const SHELL_ACK_KEY = "shieldOptimizer.expertShellAcknowledged";
+
+function readAckSet(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SHELL_ACK_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? new Set(parsed.filter((v): v is string => typeof v === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/// Whether expert shell has been acknowledged for this TV before.
+///
+/// Keyed by hardware id, never by address — the same rule the keep decisions
+/// follow. Consenting to arbitrary shell on the living-room Shield must not
+/// silently consent for whatever else later answers on that IP. With no
+/// hardware id we have not identified the device, so the answer is no and the
+/// user ticks the box again.
+export function getShellAcknowledged(hardwareId: string | null | undefined): boolean {
+  if (!hardwareId) return false;
+  return readAckSet().has(hardwareId);
+}
+
+export function setShellAcknowledged(
+  hardwareId: string | null | undefined,
+  acknowledged: boolean,
+): void {
+  if (!hardwareId) return;
+  const set = readAckSet();
+  if (acknowledged) set.add(hardwareId);
+  else set.delete(hardwareId);
+  try {
+    localStorage.setItem(SHELL_ACK_KEY, JSON.stringify([...set].sort()));
+  } catch {
+    /* storage unavailable — the box just has to be ticked again next time */
+  }
+}

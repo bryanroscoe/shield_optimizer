@@ -5,7 +5,14 @@
   import type { ShellRunResult } from "$lib/types";
   import { onDestroy } from "svelte";
 
-  let { serial, acknowledged = $bindable(false), onexecuted }: { serial: string; acknowledged?: boolean; onexecuted?: () => void } = $props();
+  let { serial, acknowledged = false, onacknowledge, onexecuted }: {
+    serial: string;
+    acknowledged?: boolean;
+    /// The consent is remembered per TV by the page, not by this component —
+    /// it is the one that knows the hardware id.
+    onacknowledge?: (next: boolean) => void;
+    onexecuted?: () => void;
+  } = $props();
   let alive = true;
   onDestroy(() => { alive = false; });
 
@@ -15,6 +22,20 @@
   let err = $state<string | null>(null);
   let bookmarks = $state<ShellBookmark[]>(getShellBookmarks());
   let bookmarkLabel = $state("");
+
+  let outputCopied = $state(false);
+
+  async function copyOutput() {
+    if (!result || result.blocked) return;
+    const text = [result.stdout, result.stderr].filter((p) => p.trim()).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      outputCopied = true;
+      setTimeout(() => (outputCopied = false), 1500);
+    } catch {
+      /* clipboard blocked — the output is still selectable in the pane */
+    }
+  }
 
   function clearOutput() {
     result = null;
@@ -95,9 +116,7 @@
       <h2><Icon name="terminal" size={17} /> Shell</h2>
       <p class="muted small mono header-sub">adb -s {serial} shell</p>
     </div>
-    <button onclick={clearOutput} disabled={running || (!result && !err)}>
-      <Icon name="delete" size={15} /> Clear output
-    </button>
+    <span class="muted small header-note">Ctrl/⌘+Enter runs</span>
   </div>
 
   <!-- The board puts its warning at the foot of the screen, but ours carries
@@ -114,8 +133,14 @@
         to 30 seconds; stopping local ADB does not guarantee remote work has stopped.
       </p>
       <label class="small shell-ack">
-        <input type="checkbox" bind:checked={acknowledged} disabled={running} />
-        I understand these risks and want to enable expert shell for this device session.
+        <input
+          type="checkbox"
+          checked={acknowledged}
+          disabled={running}
+          onchange={(e) => onacknowledge?.((e.currentTarget as HTMLInputElement).checked)}
+        />
+        I understand these risks and want to enable expert shell on this TV.
+        Remembered for this TV until you untick it.
       </label>
     </div>
   </div>
@@ -139,10 +164,20 @@
           class="primary run-btn"
           onclick={() => run()}
           disabled={!acknowledged || running || !command.trim()}
+          title={!acknowledged
+            ? "Tick the box above to enable expert shell on this TV"
+            : !command.trim()
+              ? "Type a command first"
+              : "Run this command on the TV"}
         >
           <Icon name="play_arrow" size={16} fill /> {running ? "Running…" : "Run"}
         </button>
       </div>
+      {#if !acknowledged}
+        <p class="muted small run-hint">
+          Run is disabled until you tick the box above.
+        </p>
+      {/if}
 
       {#if err}
         <p class="error">{err}</p>
@@ -173,6 +208,17 @@
               {/if}
               {#if result.stderr.trim()}<span class="muted">stderr</span>{/if}
               <span class="muted">{outLines} line{outLines === 1 ? "" : "s"}</span>
+              <!-- On the output, not in the card header: these act on what is
+                   in the pane, so they belong at its edge. -->
+              <span class="meta-actions">
+                <button class="small-action subtle" onclick={copyOutput}>
+                  <Icon name={outputCopied ? "check" : "content_copy"} size={14} />
+                  {outputCopied ? "Copied" : "Copy"}
+                </button>
+                <button class="small-action subtle" onclick={clearOutput}>
+                  <Icon name="delete" size={14} /> Clear
+                </button>
+              </span>
             </div>
           </div>
         {/if}
@@ -350,10 +396,24 @@
   .shell-prompt .shell-input:focus {
     outline: none;
   }
+  /* Aligned to the top of the input rather than stretched down its side: a
+     resizable textarea made the button grow into a lime slab. */
   .run-btn {
     flex: none;
-    align-self: stretch;
+    align-self: flex-start;
     padding-inline: 1.4rem;
+    padding-block: 0.7rem;
+  }
+  .run-hint {
+    margin: 0.4rem 0 0;
+  }
+  .header-note {
+    font-family: var(--mono);
+  }
+  .meta-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-left: auto;
   }
   .shell-pane {
     margin-top: 0.8rem;

@@ -23,7 +23,7 @@
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
-  import { getKeptPackages, setPackageKept } from "$lib/prefs";
+  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import { isBlocked, safetyClass, type SafetyStatus } from "$lib/safety";
   import AppRow from "$lib/components/AppRow.svelte";
@@ -282,6 +282,8 @@
   // tells the tab to drop that stale plan and reload fresh next run.
   let optimizeResetToken = $state(0);
   let mediaResetToken = $state(0);
+  /// Remembered per TV, by hardware id. Re-read whenever the device (and so
+  /// its id) resolves, and written back on every change.
   let shellAcknowledged = $state(false);
 
   async function loadDevice() {
@@ -553,6 +555,7 @@
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
       appStates = validatedPackageStates(packages, stateResult);
       keptPackages = getKeptPackages(hardwareId);
+      shellAcknowledged = getShellAcknowledged(hardwareId);
       catalogInventoryVersion++;
       const unavailableCount = packages.length - Object.keys(appStates).length;
       if (unavailableCount > 0) appsErr = `State unavailable for ${unavailableCount} package(s). Refresh before taking action.`;
@@ -1467,7 +1470,7 @@
     resource = null;
     resourceLoading = false;
     resourceErr = null;
-    shellAcknowledged = false;
+    shellAcknowledged = getShellAcknowledged(device?.properties?.serial_number);
     appsRequest++;
     otherRequest++;
     enrichmentRequest++;
@@ -1622,15 +1625,17 @@
   </header>
 
   <div class="tabs" role="tablist" aria-label="Device sections">
-    <!-- Ordered by the shape of the job rather than by history: the tabs you
-         act in come first, in roughly the order a debloat happens, then the
-         ones you only read, then Shell pushed to the far edge — it is the
-         documented opt-in exception to the safety story, so it should not sit
-         shoulder to shoulder with the curated actions. Grouping is carried by
-         that gap alone; hairline separators between tabs read as rendering
-         artifacts rather than as structure. -->
+    <!-- Health sits second, right after Overview: "how is this TV doing" is
+         the ordinary reason to open a device, not a power-user afterthought.
+         The rest follow the shape of the job — the tabs you act in, in roughly
+         the order a debloat happens, then the ones you only read, then Shell
+         pushed to the far edge, since it is the documented opt-in exception to
+         the safety story and should not sit shoulder to shoulder with the
+         curated actions. That gap carries the grouping on its own; hairline
+         separators between tabs read as rendering artifacts. -->
     {#each [
       { id: "overview", label: "Overview", far: false },
+      { id: "health", label: "Health", far: false },
       { id: "optimize", label: "Optimize", far: false },
       { id: "apps", label: "App List", far: false },
       { id: "launcher", label: "Launcher", far: false },
@@ -1639,7 +1644,6 @@
       { id: "sideload", label: "Install APK", far: false },
       { id: "remote", label: "Remote", far: false },
       { id: "files", label: "Files", far: false },
-      { id: "health", label: "Health", far: false },
       { id: "media", label: "Playback", far: false },
       { id: "shell", label: "Shell", far: true },
     ] as t (t.id)}
@@ -1776,96 +1780,137 @@
     </div>
   {:else if activeTab === "health"}
     <div class="health-stack" role="tabpanel" tabindex={0} id="tabpanel-health" aria-labelledby="tab-health">
-      <div class="card">
-        <div class="card-header">
-          <h2><Icon name="monitor_heart" size={17} /> Vitals</h2>
-          <div class="header-actions">
-            <span class="muted small" title={reportLastRefreshed?.toISOString() ?? ""}>
-              {refreshLabel}
-            </span>
-            <!-- A button, not a checkbox: it is the only control in a ruled
-                 header that was not one. The dot carries the on state so the
-                 lime fill is not doing status duty. -->
-            <button
-              class="live-toggle"
-              class:on={liveRefresh}
-              aria-pressed={liveRefresh}
-              onclick={toggleLiveRefresh}
-              title="Re-read the health report every few seconds"
-            >
-              <span class="live-dot" aria-hidden="true"></span> Live
-            </button>
-            <button onclick={loadHealth} disabled={reportLoading}>
-              {reportLoading ? "Loading…" : "Refresh"}
-            </button>
-          </div>
+      <div class="health-head">
+        <div class="header-title">
+          <h2><Icon name="monitor_heart" size={17} /> Health</h2>
+          <p class="muted small mono header-sub" title={reportLastRefreshed?.toISOString() ?? ""}>
+            {refreshLabel} · dumpsys meminfo, df, top
+          </p>
         </div>
+        <div class="header-actions">
+          <!-- Two controls, not three. Refresh already re-runs the resource
+               sample (loadHealth kicks it off), so the separate "Sample again"
+               beside the CPU figure was a third button for a job Refresh
+               already did. -->
+          <span class="live-pill" class:on={liveRefresh}>
+            <span class="live-dot" aria-hidden="true"></span>
+            {liveRefresh ? "live" : "paused"}
+          </span>
+          <button
+            onclick={toggleLiveRefresh}
+            title={liveRefresh
+              ? "Stop re-reading the report every few seconds"
+              : "Re-read the report every few seconds"}
+          >
+            {liveRefresh ? "Pause" : "Go live"}
+          </button>
+          <button onclick={loadHealth} disabled={reportLoading}>
+            {reportLoading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+      <div class="health-vitals">
         {#if reportErr}
           <div class="error">{reportErr}</div>
         {:else if !report}
           <div class="muted">{reportLoading ? "Querying…" : "—"}</div>
         {:else}
+        <!-- Board 11.2's five cards: a title, the figure, the bar, and the
+             one sub-line that says what the figure is measured against. The
+             old tiles were a glyph and a naked number, so "64%" did not say
+             64% of what. -->
         <div class="stat-tiles">
-          <div class="stat-tile">
-            <span class="stat-icon {ramPct != null ? meterTone(ramPct) : ''}">
-              <Icon name="memory" size={20} />
-            </span>
-            <span class="stat-value">
-              {#if ramFreeMb != null}
-                {ramFreeMb >= 1024 ? (ramFreeMb / 1024).toFixed(1) : ramFreeMb}<span
-                  class="stat-unit">{ramFreeMb >= 1024 ? "GB" : "MB"}</span
-                >
-              {:else}—{/if}
-            </span>
-            <span class="stat-caption">RAM free</span>
+          <div class="stat-card">
+            <div class="stat-head">
+              <span class="stat-title">RAM</span>
+              {#if report.ram.total_mb != null}
+                <span class="stat-figure mono">{report.ram.used_mb ?? "?"} / {report.ram.total_mb} MB</span>
+              {/if}
+            </div>
+            {#if ramPct != null}
+              <div class="meter" role="presentation">
+                <div class="meter-fill {meterTone(ramPct)}" style="width: {Math.min(100, ramPct)}%"></div>
+              </div>
+            {/if}
+            <div class="stat-foot mono">
+              <span>{ramFreeMb != null ? `${ramFreeMb} MB free` : "—"}</span>
+              {#if ramPct != null}<span>{100 - ramPct}% free</span>{/if}
+            </div>
           </div>
-          <div class="stat-tile">
-            <span
-              class="stat-icon {report.storage.used_percent != null
-                ? meterTone(report.storage.used_percent)
-                : ''}"
-            >
-              <Icon name="storage" size={20} />
-            </span>
-            <span class="stat-value">
-              {#if report.storage.used_percent != null}
-                {report.storage.used_percent}<span class="stat-unit">%</span>
-              {:else}—{/if}
-            </span>
-            <span class="stat-caption">Storage used</span>
+
+          <div class="stat-card">
+            <div class="stat-head">
+              <span class="stat-title">Storage</span>
+              {#if report.storage.total}
+                <span class="stat-figure mono">{report.storage.used ?? "?"} / {report.storage.total}</span>
+              {/if}
+            </div>
+            {#if report.storage.used_percent != null}
+              <div class="meter" role="presentation">
+                <div
+                  class="meter-fill {meterTone(report.storage.used_percent)}"
+                  style="width: {Math.min(100, report.storage.used_percent)}%"
+                ></div>
+              </div>
+            {/if}
+            <div class="stat-foot mono">
+              <span>/data</span>
+              <!-- A device mutation that moves exactly this number, so it sits
+                   with it rather than in the header among the view controls. -->
+              <button
+                class="small-action subtle"
+                onclick={clearCaches}
+                disabled={trimBusy}
+                title="pm trim-caches — clears every app's cache; caches rebuild on next launch"
+              >{trimBusy ? "Clearing…" : "Clear caches"}</button>
+            </div>
           </div>
-          <div class="stat-tile">
-            <span class="stat-icon">
-              <Icon name="device_thermostat" size={20} />
-            </span>
-            <span class="stat-value">
-              {#if report.temperature_c != null}
-                {report.temperature_c.toFixed(0)}<span class="stat-unit">°C</span>
-              {:else}—{/if}
-            </span>
-            <span class="stat-caption">Temp</span>
+
+          <div class="stat-card">
+            <div class="stat-head">
+              <span class="stat-title">Swap</span>
+              {#if report.ram.swap_mb != null}
+                <span class="stat-figure mono">{report.ram.swap_mb} MB</span>
+              {/if}
+            </div>
+            <div class="stat-foot mono">
+              <span>{report.ram.swap_mb != null ? "in use" : "not reported"}</span>
+            </div>
           </div>
-          <div class="stat-tile">
-            <span class="stat-icon">
-              <Icon name="memory" size={20} />
-            </span>
-            <span class="stat-value">
+
+          <div class="stat-card">
+            <div class="stat-head">
+              <span class="stat-title">CPU</span>
+            </div>
+            <div class="stat-big mono">
               {#if resource?.cpu_percent != null}
                 {resource.cpu_percent.toFixed(0)}<span class="stat-unit">%</span>
               {:else}<span class="stat-pending">{resourceLoading ? "…" : "—"}</span>{/if}
-            </span>
-            <span class="stat-caption">CPU</span>
+            </div>
+            <div class="stat-foot mono">
+              <span>
+                {#if resource?.interval_ms != null}
+                  sampled over {(resource.interval_ms / 1000).toFixed(2)}s
+                {:else}
+                  from top
+                {/if}
+              </span>
+            </div>
           </div>
-          <div class="stat-tile">
-            <span class="stat-icon">
-              <Icon name="arrow_downward" size={20} />
-            </span>
-            <span class="stat-value">
-              {#if busiestRate != null}
-                {formatRate(busiestRate)}
-              {:else}<span class="stat-pending">{resourceLoading ? "…" : "—"}</span>{/if}
-            </span>
-            <span class="stat-caption">{busiestName ?? "Network"}</span>
+
+          <div class="stat-card">
+            <div class="stat-head">
+              <span class="stat-title">Temperature</span>
+            </div>
+            <div class="stat-big mono">
+              {#if report.temperature_c != null}
+                {report.temperature_c.toFixed(0)}<span class="stat-unit">°C</span>
+              {:else}—{/if}
+            </div>
+            <!-- The board prints "throttles at 85 °C". We do not read the
+                 throttle point from the device, so this says where the number
+                 came from instead of inventing a threshold. -->
+            <div class="stat-foot mono"><span>thermal zone</span></div>
           </div>
         </div>
         {/if}
@@ -1875,90 +1920,30 @@
       <div class="health-grid">
         <div class="health-col">
           <div class="card">
-            <h2><Icon name="speed" size={17} /> Resources</h2>
+            <h2><Icon name="speed" size={17} /> Network · per interface</h2>
             {#if resourceErr}<p class="error">Resource sample: {resourceErr}</p>{/if}
-        <dl class="kv">
-          <dt>CPU</dt>
-          <dd>
-            {#if resource?.cpu_percent != null}
-              {resource.cpu_percent.toFixed(1)}%
-              {#if resource.interval_ms != null}<span class="muted small">over {(resource.interval_ms / 1000).toFixed(2)}s</span>{/if}
-              <button
-                class="small-action subtle"
-                onclick={loadResourceSample}
-                disabled={resourceLoading}
-                title="Re-read CPU and network without re-running the whole report"
-              >{resourceLoading ? "Sampling…" : "Sample again"}</button>
-            {:else}
-              {resourceLoading ? "sampling…" : "—"}
-            {/if}
-          </dd>
-          <dt>Network</dt>
-          <dd>
+            {#if trimMessage}<p class="muted small mono trim-note">{trimMessage}</p>{/if}
+            <!-- Every interface as its own row, as the board has it. The old
+                 <dl> packed them into a three-column grid inside one cell,
+                 which put six interfaces into a block you had to decode. -->
             {#if resource?.interfaces.length}
-              <div class="net-grid">
-                {#each resource.interfaces as network (network.name)}
-                  <span class="net-name">{network.name}</span>
-                  <span><Icon name="arrow_downward" size={13} /> {formatRate(network.rx_bytes_per_s)}</span>
-                  <span><Icon name="arrow_upward" size={13} /> {formatRate(network.tx_bytes_per_s)}</span>
-                {/each}
-              </div>
+              <table class="net-table">
+                <thead>
+                  <tr><th>Interface</th><th class="right">RX</th><th class="right">TX</th></tr>
+                </thead>
+                <tbody>
+                  {#each resource.interfaces as network (network.name)}
+                    <tr>
+                      <td class="mono">{network.name}</td>
+                      <td class="right mono">{formatRate(network.rx_bytes_per_s)}</td>
+                      <td class="right mono">{formatRate(network.tx_bytes_per_s)}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
             {:else}
-              {resourceLoading ? "sampling…" : "—"}
+              <p class="muted">{resourceLoading ? "Sampling…" : "The device reported no interfaces."}</p>
             {/if}
-          </dd>
-          <dt>Temperature</dt>
-          <dd>{report.temperature_c != null ? `${report.temperature_c.toFixed(1)}°C` : "—"}</dd>
-          {#if report.ram.total_mb != null}
-            <dt>RAM</dt>
-            <dd>
-              <div class="meter-value">
-                <span>{report.ram.used_mb ?? "?"} / {report.ram.total_mb} MB</span>
-                {#if ramPct != null}<span class="muted">{ramPct}%</span>{/if}
-              </div>
-              {#if ramPct != null}
-                <div class="meter" role="presentation">
-                  <div class="meter-fill {meterTone(ramPct)}" style="width: {Math.min(100, ramPct)}%"></div>
-                </div>
-              {/if}
-            </dd>
-          {/if}
-          {#if report.ram.swap_mb != null}
-            <dt>Swap</dt><dd>{report.ram.swap_mb} MB</dd>
-          {/if}
-          {#if report.storage.total}
-            <dt>Storage</dt>
-            <dd>
-              <div class="meter-value">
-                <span>{report.storage.used ?? "?"} / {report.storage.total}</span>
-                {#if report.storage.used_percent != null}
-                  <span class="muted">{report.storage.used_percent}%</span>
-                {/if}
-                <!-- A device mutation that moves exactly this number, so it
-                     belongs beside it rather than in the header looking like a
-                     view control. -->
-                <button
-                  class="small-action subtle"
-                  onclick={clearCaches}
-                  disabled={trimBusy}
-                  title="pm trim-caches — clears every app's cache; caches rebuild on next launch"
-                >{trimBusy ? "Clearing…" : "Clear caches"}</button>
-              </div>
-              {#if trimMessage}
-                <p class="muted small mono trim-note">{trimMessage}</p>
-              {/if}
-              {#if report.storage.used_percent != null}
-                <div class="meter" role="presentation">
-                  <div
-                    class="meter-fill {meterTone(report.storage.used_percent)}"
-                    style="width: {Math.min(100, report.storage.used_percent)}%"
-                  ></div>
-                </div>
-              {/if}
-            </dd>
-          {/if}
-        </dl>
-
           </div>
 
           <div class="card">
@@ -2413,6 +2398,7 @@
                       onclick={() => backupApkFor(a.package)}
                       disabled={appActionBusy === a.package}
                       title="Back up this app's APK(s) to a folder on this computer"
+                      data-tip="Back up APK"
                       aria-label={`Back up the APK for ${a.name}`}
                     ><Icon name="download" size={16} /></button>
                     <button
@@ -2420,6 +2406,7 @@
                       onclick={() => startClone(a.package)}
                       disabled={appActionBusy === a.package}
                       title="Copy this app to another connected TV (app data does not transfer)"
+                      data-tip="Copy to another TV"
                       aria-label={`Copy ${a.name} to another TV`}
                     ><Icon name="swap_horiz" size={16} /></button>
                   {/if}
@@ -2429,6 +2416,8 @@
                       onclick={() => openInPlayStore(a.package)}
                       disabled={appActionBusy === a.package}
                       title="Open {a.name} on the Play Store on the TV"
+                      data-tip="Play Store"
+                      data-tip-align="end"
                       aria-label={`Open ${a.name} on the Play Store`}
                     ><Icon name="shop" size={16} /></button>
                   {/if}
@@ -2518,6 +2507,7 @@
                           onclick={() => backupApkFor(o.package)}
                           disabled={appActionBusy === o.package}
                           title="Back up this app's APK(s) to a folder on this computer"
+                      data-tip="Back up APK"
                           aria-label={`Back up the APK for ${o.name ?? o.package}`}
                         ><Icon name="download" size={16} /></button>
                         <button
@@ -2525,6 +2515,7 @@
                           onclick={() => startClone(o.package)}
                           disabled={appActionBusy === o.package}
                           title="Copy this app to another connected TV"
+                      data-tip="Copy to another TV"
                           aria-label={`Copy ${o.name ?? o.package} to another TV`}
                         ><Icon name="swap_horiz" size={16} /></button>
                       </div>
@@ -2766,7 +2757,15 @@
   {/if}
   {#if visited.shell}
     <div hidden={activeTab !== "shell"}>
-      <ShellTab {serial} bind:acknowledged={shellAcknowledged} onexecuted={shellExecuted} />
+      <ShellTab
+        {serial}
+        acknowledged={shellAcknowledged}
+        onacknowledge={(next) => {
+          shellAcknowledged = next;
+          setShellAcknowledged(hardwareId, next);
+        }}
+        onexecuted={shellExecuted}
+      />
     </div>
   {/if}
   {#if visited.optimize}
@@ -3005,23 +3004,103 @@
     color: var(--fg-secondary);
     white-space: nowrap;
   }
-  .live-toggle {
+  /* Board 11.2's header: a status pill that states whether the numbers are
+     moving, then the control that changes it. The pill is never lime — it
+     reports, it does not invite a press. */
+  .health-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .live-pill {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+    padding: 0.25rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+  }
+  .live-pill.on {
+    border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+    color: var(--ok);
   }
   .live-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--fg-muted);
+    background: currentColor;
   }
-  .live-toggle.on {
-    border-color: var(--ok);
-    color: var(--fg-primary);
+  /* Five cards, each stating what its figure is measured against. */
+  .stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 7rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface-2);
+    min-width: 0;
   }
-  .live-toggle.on .live-dot {
-    background: var(--ok);
+  .stat-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+  .stat-title {
+    font-weight: 600;
+  }
+  .stat-figure {
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+  .stat-big {
+    font-size: 1.9rem;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .stat-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-top: auto;
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .net-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  .net-table th {
+    padding: 0.4rem 0.2rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-weight: 500;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: left;
+  }
+  .net-table td {
+    padding: 0.45rem 0.2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .net-table tr:last-child td {
+    border-bottom: none;
+  }
+  .net-table th.right,
+  .net-table td.right {
+    text-align: right;
   }
   .trim-note {
     margin: 0.3rem 0 0;
@@ -3036,48 +3115,31 @@
       grid-template-columns: minmax(0, 1fr);
     }
   }
+  /* Five across, as the board has them, collapsing rather than reflowing into
+     an orphan. They sit straight on the page: wrapping them in a card put a
+     border around five bordered things. */
   .stat-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
-    gap: 0.6rem;
-    margin: 0 0 1.1rem;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+    align-items: stretch;
   }
-  .stat-tile {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-rows: auto auto;
-    column-gap: 0.55rem;
-    row-gap: 0.1rem;
-    align-items: center;
-    padding: 0.7rem 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--bg-surface-2);
+  @media (max-width: 1250px) {
+    .stat-tiles {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
-  .stat-icon {
-    grid-row: 1 / span 2;
-    display: inline-flex;
-    color: var(--fg-muted);
+  @media (max-width: 760px) {
+    .stat-tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
   .stat-pending {
     color: var(--fg-muted);
   }
-  .stat-icon.ok {
-    color: var(--ok);
-  }
-  .stat-icon.warn {
-    color: var(--warn);
-  }
   .stat-icon.danger {
     color: var(--danger-text);
-  }
-  .stat-value {
-    grid-column: 2;
-    font-family: var(--mono);
-    font-size: 1.25rem;
-    font-weight: 600;
-    line-height: 1.15;
-    white-space: nowrap;
   }
   .stat-unit {
     margin-left: 0.15rem;
@@ -3085,14 +3147,8 @@
     font-weight: 500;
     color: var(--fg-muted);
   }
-  .stat-caption {
-    grid-column: 2;
-    font-size: 0.72rem;
-    color: var(--fg-muted);
-  }
   .back-btn,
   .reboot-btn,
-  .net-grid span,
   .done {
     display: inline-flex;
     align-items: center;
@@ -3159,32 +3215,10 @@
   .meter-fill.danger {
     background: var(--danger);
   }
-  /* One column per field instead of a ragged "name: down x / up y" line, so
-     the rates line up when a device reports six interfaces. */
-  .net-grid {
-    display: grid;
-    grid-template-columns: auto auto auto;
-    gap: 0.1rem 1rem;
-    justify-content: start;
-  }
   .net-name {
     color: var(--fg-muted);
   }
 
-  .kv {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 0.4rem 1.5rem;
-    margin: 0;
-    font-size: 0.9rem;
-  }
-  .kv dt {
-    color: var(--fg-muted);
-  }
-  .kv dd {
-    margin: 0;
-    font-family: var(--mono);
-  }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -3225,10 +3259,12 @@
     align-items: center;
     gap: 0.35rem;
   }
-  /* The recommendation text is a label, not a paragraph — wrapped, it made the
-     buttons beside it sit at a different height on every row. */
+  /* Labels and verbs in the action cell are single-line things. Wrapped, they
+     made every row a different height and "Remove if unused" stacked into a
+     three-line block. */
   .app-table .actions-cell > .muted,
-  .app-table .actions-cell > .done {
+  .app-table .actions-cell > .done,
+  .app-table .actions-cell button {
     white-space: nowrap;
   }
   /* The verb buttons keep their own spacing rule; inside a flex row the old
