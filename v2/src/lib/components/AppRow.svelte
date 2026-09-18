@@ -211,7 +211,9 @@
     min-width: 0;
   }
   .app-name {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .app-desc {
     margin-top: 0.1rem;
@@ -324,9 +326,17 @@
     margin: 0;
   }
   .tag {
+    /* `.app-cell` sets `overflow-wrap: anywhere` so long package ids can break,
+       and that inherits. In a flex row it let REVIEW break between every
+       letter and render as a vertical column of six characters — so the tag
+       opts back out and refuses to shrink. */
+    flex: none;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: keep-all;
     font-size: 0.7rem;
     padding: 0.15rem 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
     letter-spacing: 0.04em;
   }
   .tag.review {
@@ -337,7 +347,7 @@
     font-size: 0.82rem;
   }
   .mono {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
   }
   /* Optimize-row emphasis (passed via rowClass): skipped rows recede; rows that
      WILL be acted on get a left accent bar and a faint tint. The action/result

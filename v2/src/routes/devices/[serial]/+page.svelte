@@ -1627,26 +1627,25 @@
   <div class="tabs" role="tablist" aria-label="Device sections">
     <!-- Ordered by the shape of the job rather than by history: the tabs you
          act in come first, in roughly the order a debloat happens, then the
-         ones you only read, then Shell on its own. Health and Playback moved
-         right because they are reports, not tasks. `sep` draws a hairline
-         before the tab, and Shell is pushed to the far edge — it is the
+         ones you only read, then Shell pushed to the far edge — it is the
          documented opt-in exception to the safety story, so it should not sit
-         shoulder to shoulder with the curated actions. -->
+         shoulder to shoulder with the curated actions. Grouping is carried by
+         that gap alone; hairline separators between tabs read as rendering
+         artifacts rather than as structure. -->
     {#each [
-      { id: "overview", label: "Overview", sep: false, far: false },
-      { id: "optimize", label: "Optimize", sep: false, far: false },
-      { id: "apps", label: "App List", sep: false, far: false },
-      { id: "launcher", label: "Launcher", sep: false, far: false },
-      { id: "tweaks", label: "Tweaks", sep: false, far: false },
-      { id: "snapshot", label: "Snapshot", sep: false, far: false },
-      { id: "sideload", label: "Install APK", sep: true, far: false },
-      { id: "remote", label: "Remote", sep: false, far: false },
-      { id: "files", label: "Files", sep: false, far: false },
-      { id: "health", label: "Health", sep: false, far: false },
-      { id: "media", label: "Playback", sep: false, far: false },
-      { id: "shell", label: "Shell", sep: true, far: true },
+      { id: "overview", label: "Overview", far: false },
+      { id: "optimize", label: "Optimize", far: false },
+      { id: "apps", label: "App List", far: false },
+      { id: "launcher", label: "Launcher", far: false },
+      { id: "tweaks", label: "Tweaks", far: false },
+      { id: "snapshot", label: "Snapshot", far: false },
+      { id: "sideload", label: "Install APK", far: false },
+      { id: "remote", label: "Remote", far: false },
+      { id: "files", label: "Files", far: false },
+      { id: "health", label: "Health", far: false },
+      { id: "media", label: "Playback", far: false },
+      { id: "shell", label: "Shell", far: true },
     ] as t (t.id)}
-      {#if t.sep}<span class="tab-sep" aria-hidden="true"></span>{/if}
       <button
         role="tab"
         aria-selected={activeTab === t.id}
@@ -2341,7 +2340,11 @@
                   {:else if rec.kind === "unavailable"}
                     <span class="muted small">{rec.label} — refresh to retry</span>
                   {:else}
-                    <span class="muted small">Keep</span>
+                    <!-- No recommendation. This used to read "Keep", which now
+                         collides with the Keep button one column over: the same
+                         word meant both "we suggest keeping it" and "I have
+                         decided to keep it". -->
+                    <span class="muted small">No change needed</span>
                   {/if}
 
                   {#if !keptPackages.has(a.package) && state === "enabled" && (rec.kind === "act" || rec.kind === "review")}
@@ -2792,14 +2795,6 @@
   .change-keep:focus-visible {
     opacity: 1;
   }
-  .tab-sep {
-    align-self: center;
-    width: 1px;
-    height: 16px;
-    margin: 0 0.4rem;
-    background: var(--border);
-    flex: none;
-  }
   .tabs button.far {
     margin-left: auto;
   }
@@ -2988,13 +2983,20 @@
     margin-bottom: 1rem;
     border-bottom: 1px solid var(--border);
     padding-bottom: 0;
+    /* Twelve tabs do not always fit. Scrolling the strip is the honest
+       failure: wrapping "Install APK" onto two lines makes one tab twice the
+       height of its neighbours and shoves the underline off the baseline. */
+    overflow-x: auto;
+    scrollbar-width: thin;
   }
   .tabs button {
+    flex: none;
+    white-space: nowrap;
     border: none;
     border-bottom: 2px solid transparent;
     border-radius: 0;
     background: transparent;
-    padding: 0.5rem 0.8rem;
+    padding: 0.5rem 0.7rem;
   }
   .tabs button.active {
     color: var(--accent);
