@@ -252,7 +252,7 @@
         {#each snapshots as s (s.path)}
           <tr>
             <td>
-              <div class="snap-name">{s.label ?? s.filename}</div>
+              <div class="snap-name">{s.label ?? s.device_name}</div>
               <div class="muted small mono snap-sub">
                 {s.disabled_count} disabled · {s.settings_count} settings ·
                 launcher {s.launcher ?? "—"} · {s.filename}
@@ -269,7 +269,7 @@
               {#if authorizedDevices().length > 0}
                 <select
                   disabled={actionBusy === s.path}
-                  aria-label={`Apply ${s.label ?? s.filename} to a device`}
+                  aria-label={`Apply ${s.label ?? s.device_name} to a device`}
                   onchange={(e) => {
                     const target = e.target as HTMLSelectElement;
                     const serial = target.value;
@@ -363,10 +363,27 @@
   }
   .snap-sub {
     margin-top: 0.15rem;
-    overflow-wrap: anywhere;
+    /* break-word, not anywhere: a package id should break when it has to, but
+       "23 disabled" should not be split across three lines. */
+    overflow-wrap: break-word;
   }
-  .src-cell {
+  /* The name column takes the room; the rest claim only what they need. The
+     `max-width: 0` trick used elsewhere does not work here — the Action cell
+     holds a <select> whose min-content is its longest option, so the name
+     column collapsed to a word per line instead. Capping the select is what
+     actually frees the width. */
+  .snap-table th:first-child,
+  .snap-table td:first-child {
+    width: auto;
+  }
+  .src-cell,
+  .snap-table th.right,
+  .snap-table td.right {
+    width: 1%;
     white-space: nowrap;
+  }
+  .snap-actions select {
+    max-width: 11rem;
   }
   .snap-tool {
     display: inline-flex;
