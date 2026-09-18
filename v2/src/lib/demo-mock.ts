@@ -357,12 +357,19 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         { package: "com.android.providers.media", system: true, enabled: true, name: null },
         { package: "com.nvidia.ota", system: true, enabled: false, name: null },
       ];
+    // Covers the rows the App List actually shows first, so the RAM and
+    // Last used columns read as columns in the gallery rather than as a
+    // stack of em dashes.
     case "app_memory_map":
       return {
         "com.teamsmart.videomanager.tv": 184.2,
         "com.netflix.ninja": 243.7,
         "com.amazon.amazonvideo.livingroom.nvidia": 126.5,
         "com.spocky.projengmenu": 92.1,
+        "com.google.android.feedback": 12.4,
+        "com.google.android.videos": 58.9,
+        "com.google.android.music": 31.2,
+        "com.Funimation.FunimationNow.androidtv": 142.6,
       };
     case "app_usage_map":
       return {
@@ -370,6 +377,12 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.teamsmart.videomanager.tv": { last_used: "2026-06-04 21:30:00", launch_count: 88 },
         "com.hulu.plus": { last_used: "2026-03-12 19:02:00", launch_count: 4 },
         "com.showtime.standalone": { last_used: null, launch_count: 0 },
+        "com.google.android.feedback": { last_used: "2026-06-01 08:14:00", launch_count: 3 },
+        "com.android.printspooler": { last_used: null, launch_count: 0 },
+        "com.android.gallery3d": { last_used: null, launch_count: 0 },
+        "com.google.android.videos": { last_used: "2025-11-02 21:40:00", launch_count: 6 },
+        "com.google.android.music": { last_used: null, launch_count: 0 },
+        "com.Funimation.FunimationNow.androidtv": { last_used: null, launch_count: 0 },
       };
     // Process names from a memory report never consult the catalog — an
     // unverified string must not inherit a curated verdict.

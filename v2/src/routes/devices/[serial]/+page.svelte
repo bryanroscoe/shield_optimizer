@@ -2260,16 +2260,12 @@
           <thead>
             <tr>
               <th>App</th>
-              <th class="center" title="What the device reports right now.">State</th>
               <th
-                class="center"
-                title="Our verdict on removing it — click a verdict for the reason and where it came from. Anything we can't vouch for needs an explicit tick before it can be removed."
-              >Safety</th>
-              <th class="controls-start">Action</th>
-              <th
-                class="center"
-                title="Play Store link, APK backup, and copy to another device."
-              >Tools</th>
+                title="Our verdict on removing it, and which list it came from — click a row's verdict for the full reason. Anything we can't vouch for needs an explicit tick before it can be removed."
+              >Verdict &amp; source</th>
+              <th class="right" title="Resident RAM right now (dumpsys meminfo).">RAM</th>
+              <th class="right" title="Last foreground use from usagestats.">Last used</th>
+              <th class="controls-start">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -2296,6 +2292,7 @@
               >
                 {#snippet actions()}
                 <td class="rec-cell controls-start">
+                  <div class="actions-cell">
                   {#if rec.kind === "act"}
                     <button
                       class="small-action recommended"
@@ -2370,38 +2367,39 @@
                       title="pm enable"
                     >Enable</button>
                   {/if}
-                </td>
-                <td class="center tools-cell">
-                  {#if a.play_store}
-                    <button
-                      class="small-action"
-                      onclick={() => openInPlayStore(a.package)}
-                      disabled={appActionBusy === a.package}
-                      title="Open {a.name} on the Play Store on the device"
-                    >
-                      Play Store
-                    </button>
-                  {/if}
+                  <!-- One Actions column, split by a hairline: the decision on
+                       the left, the always-available tools on the right as
+                       icons. Spelling the three tools out in words cost more
+                       width than the package ids did, which is what pushed the
+                       App column into truncating them. The legend under the
+                       table names them. -->
+                  <span class="tool-sep" aria-hidden="true"></span>
                   {#if state !== "missing"}
                     <button
-                      class="small-action subtle"
+                      class="tool-btn"
                       onclick={() => backupApkFor(a.package)}
                       disabled={appActionBusy === a.package}
-                      title="Save this app's APK(s) to a folder on this computer"
-                    >
-                      Backup
-                    </button>
+                      title="Back up this app's APK(s) to a folder on this computer"
+                      aria-label={`Back up the APK for ${a.name}`}
+                    ><Icon name="download" size={16} /></button>
                     <button
-                      class="small-action subtle"
+                      class="tool-btn"
                       onclick={() => startClone(a.package)}
                       disabled={appActionBusy === a.package}
-                      title="Install this app onto another connected device (app data does not transfer)"
-                    >
-                      Copy to…
-                    </button>
-                  {:else if !a.play_store}
-                    <span class="muted small">—</span>
+                      title="Copy this app to another connected TV (app data does not transfer)"
+                      aria-label={`Copy ${a.name} to another TV`}
+                    ><Icon name="swap_horiz" size={16} /></button>
                   {/if}
+                  {#if a.play_store}
+                    <button
+                      class="tool-btn"
+                      onclick={() => openInPlayStore(a.package)}
+                      disabled={appActionBusy === a.package}
+                      title="Open {a.name} on the Play Store on the TV"
+                      aria-label={`Open ${a.name} on the Play Store`}
+                    ><Icon name="shop" size={16} /></button>
+                  {/if}
+                  </div>
                 </td>
                 {/snippet}
               </AppRow>
@@ -2411,6 +2409,13 @@
             {/if}
           </tbody>
         </table>
+        <!-- The board puts the tool legend here rather than in a column head:
+             three icons repeated down hundreds of rows only need naming once. -->
+        <p class="tool-legend">
+          <span><Icon name="download" size={14} /> back up APK</span>
+          <span><Icon name="swap_horiz" size={14} /> copy to TV</span>
+          <span><Icon name="shop" size={14} /> Play Store</span>
+        </p>
 
         <div class="other-apps">
           <h3>Everything else {othersLoaded ? `(${visibleOthers.length})` : ""}</h3>
@@ -3075,6 +3080,11 @@
     border-bottom: 1px solid var(--border);
     vertical-align: middle;
   }
+  th.right {
+    text-align: right;
+    /* "Last used" is two words over a one-line column of values. */
+    white-space: nowrap;
+  }
   th.center, td.center {
     text-align: center;
   }
@@ -3112,13 +3122,60 @@
     white-space: nowrap;
     width: 1%;
   }
-  /* Small stacked cue (RAM / last-used badge) under a row's state badge. */
-  .cell-cue {
-    margin-top: 0.2rem;
+  /* One Actions column, per board 11.5: the decision, a hairline, then the
+     tools. The hairline is what separates "change this app" from "do something
+     with this app" without spending a whole column heading on it. */
+  .app-table .actions-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
   }
-  .app-table .rec-cell {
-    /* Keep button + subtle override on one row when possible. */
-    white-space: nowrap;
+  /* The verb buttons keep their own spacing rule; inside a flex row the old
+     margin-right would double up with the gap. */
+  .app-table .actions-cell .small-action {
+    margin-right: 0;
+  }
+  .app-table .actions-cell .done {
+    margin-right: 0;
+  }
+  .tool-sep {
+    align-self: stretch;
+    width: 1px;
+    margin: 0.15rem 0.3rem;
+    background: var(--border);
+  }
+  /* Icon-only, because the three words cost more width than the package ids
+     they were squeezing out. Every one keeps its title and aria-label, and the
+     legend under the table spells them out. */
+  .tool-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+  }
+  .tool-btn:hover:not(:disabled) {
+    border-color: var(--border);
+    background: var(--bg-button-hover);
+    color: var(--fg-primary);
+  }
+  .tool-legend {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .tool-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
   }
   .app-table .rec-cell .small-action {
     margin-right: 0.3rem;

@@ -19,7 +19,6 @@
     review = false,
     state: pkgState,
     mb,
-    ramLabel = true,
     usage,
     showUsage = true,
     safety = null,
@@ -36,7 +35,6 @@
     review?: boolean;
     state: "enabled" | "disabled" | "missing" | null;
     mb?: number;
-    ramLabel?: boolean;
     usage?: AppUsage;
     showUsage?: boolean;
     safety?: Safety | null;
@@ -103,15 +101,25 @@
 </script>
 
 <tr class={rowClass}>
+  <!-- Board 11.5's app cell: identity on line one, what it does on line two,
+       the id you paste into a bug report on line three. The state pill rides
+       with the name rather than owning a column of its own. -->
   <td class="app-cell">
     <div class="app-name-row">
       <span class="app-name">{name}</span>
+      {#if pkgState}
+        <StateBadge state={pkgState} />
+      {:else}
+        <span class="state-unavailable">STATE UNAVAILABLE</span>
+      {/if}
       {#if review}
         <span class="tag review" title="Usage review — check whether you use this app">REVIEW</span>
       {/if}
-      <!-- The id sits on the name's line rather than under it: this audience
-           pastes it into bug reports, so it stays visible, and the copy button
-           saves selecting mono text out of a dense table. -->
+    </div>
+    {#if description}
+      <div class="muted app-desc" title={description}>{description}</div>
+    {/if}
+    <div class="pkg-line">
       <span class="mono pkg-id">{pkg}</span>
       <button
         class="pkg-copy"
@@ -122,40 +130,34 @@
         <Icon name={pkgCopied ? "check" : "content_copy"} size={13} />
       </button>
     </div>
-    {#if description}
-      <!-- One line, clipped. The full sentence stays reachable in the row's
-           detail panel and in the title, so nothing is lost. -->
-      <div class="muted app-desc" title={description}>{description}</div>
-    {/if}
   </td>
-  <td class="center cluster-cell">
-    {#if pkgState}
-      <StateBadge state={pkgState} />
-    {:else}
-      <span class="state-unavailable">STATE UNAVAILABLE</span>
-    {/if}
-    <!-- RAM and last-used share one line so this column caps at two lines
-         like the app column; stacked badges made the row grow instead. -->
-    {#if (mb && mb > 0) || (usage && showUsage)}
-      <div class="cell-cue">
-        {#if mb && mb > 0}<RamBadge {mb} label={ramLabel} />{/if}
-        {#if usage && showUsage}<UsageBadge {usage} />{/if}
-      </div>
-    {/if}
-  </td>
-  <!-- Verdict only, with the detail behind a click. The full sentence inline
-       turned every row into a five-line block and cut the list from five apps
-       on screen to three; a tooltip alone is undiscoverable and useless on
-       touch. -->
-  <td class={`safety center safety-${safetyClass()}`}>
+  <!-- Verdict AND where it came from, as the board has it. A bare chip makes
+       "we rated this" and "we have never seen it" look identical; the source
+       line is the difference. Click still opens the full reason. -->
+  <td class={`verdict-cell safety-${safetyClass()}`}>
     <button
       class="safety-toggle"
       aria-expanded={detailOpen}
-      title={detailOpen ? "Hide the reason" : "Why this verdict?"}
+      title={detailOpen ? "Hide the full reason" : "Show the full reason"}
       onclick={() => onToggleDetail?.()}
     >
-      {safetyLabel()}<span class="safety-caret">{detailOpen ? "▴" : "▾"}</span>
+      <span class="verdict-chip">{safetyLabel()}</span>
+      <span class="verdict-source">{safetySource()}</span>
     </button>
+  </td>
+  <td class="num-cell">
+    {#if mb && mb > 0}
+      <RamBadge {mb} label={false} />
+    {:else}
+      <span class="muted dash">—</span>
+    {/if}
+  </td>
+  <td class="num-cell">
+    {#if usage && showUsage}
+      <UsageBadge {usage} bare />
+    {:else}
+      <span class="muted dash">—</span>
+    {/if}
   </td>
   {@render actions()}
 </tr>
@@ -168,7 +170,7 @@
         {#if description}
           <p class="muted small safety-detail-desc">{description}</p>
         {/if}
-        <p class="muted small safety-detail-source">{safetySource()} · {pkg}</p>
+        <p class="muted small safety-detail-source mono">{pkg}</p>
       </div>
     </td>
   </tr>
@@ -197,17 +199,17 @@
        fire instead of the table widening. */
     /* Claim the space as well as cap it: max-width alone lets the nowrap
        cells win every pixel and clips the name row to nothing. */
-    width: 46%;
+    width: 38%;
     max-width: 0;
     line-height: 1.35;
     overflow-wrap: anywhere;
   }
   .app-name-row {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 0.5rem;
     font-size: 0.95rem;
-    font-weight: 500;
+    font-weight: 600;
     min-width: 0;
     /* A name longer than the column clips here rather than widening the table. */
     overflow: hidden;
@@ -230,8 +232,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .pkg-line {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 0;
+    margin-top: 0.1rem;
+  }
   .pkg-id {
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     min-width: 0;
     font-size: 0.75rem;
     font-weight: 400;
@@ -260,20 +269,23 @@
     color: var(--accent);
     background: none;
   }
-  /* RAM and last-used on one line under the state pill. */
-  .cell-cue {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.35rem;
-    margin-top: 0.2rem;
-  }
   .safety-detail-desc {
     margin: 0 0 0.3rem;
   }
-  .safety,
+  /* RAM and Last used get their own columns, as on board 11.5 — a number
+     buried under a pill is a number nobody scans down. */
+  .num-cell {
+    width: 1%;
+    text-align: right;
+    white-space: nowrap;
+    font-family: var(--mono);
+    font-size: 0.78rem;
+  }
+  .num-cell .dash {
+    opacity: 0.5;
+  }
   .state-unavailable {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: 0.78rem;
     letter-spacing: 0.04em;
   }
@@ -291,23 +303,56 @@
   .safety-safe {
     color: var(--ok);
   }
+  .verdict-cell {
+    width: 22%;
+    max-width: 0;
+  }
   .safety-toggle {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
+    width: 100%;
     background: none;
     border: none;
-    padding: 0.1rem 0.3rem;
+    padding: 0.15rem 0.3rem;
     font: inherit;
     color: inherit;
-    letter-spacing: inherit;
+    text-align: left;
     cursor: pointer;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   .safety-toggle:hover {
     background: var(--bg-button-hover);
   }
-  .safety-caret {
-    margin-left: 0.25rem;
-    opacity: 0.6;
-    font-size: 0.7em;
+  /* Filled chip, per the board — the old treatment coloured the text only, so
+     PROTECTED and UNKNOWN were typographically identical at a glance. */
+  .verdict-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.12rem 0.5rem;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, currentColor 14%, transparent);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  /* Two lines of source, then clipped; the full sentence is one click away. */
+  .verdict-source {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: var(--fg-muted);
+    font-size: 0.75rem;
+    line-height: 1.35;
+    letter-spacing: normal;
+    text-transform: none;
+    overflow-wrap: anywhere;
   }
   .safety-detail-row td {
     padding-top: 0;

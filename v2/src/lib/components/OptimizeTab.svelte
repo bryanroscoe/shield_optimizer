@@ -544,8 +544,9 @@
       <thead>
         <tr>
           <th>App</th>
-          <th class="center">State</th>
-          <th class="center">Safety</th>
+          <th>Verdict &amp; source</th>
+          <th class="right">RAM</th>
+          <th class="right">Last used</th>
           <th>Action</th>
           <th>Result</th>
         </tr>
@@ -638,6 +639,10 @@
     gap: 0.8rem;
     align-items: center;
   }
+  th.right {
+    text-align: right;
+  }
+
   .small {
     font-size: 0.82rem;
   }

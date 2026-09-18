@@ -65,6 +65,7 @@ export const ICONS = [
   "description",
   "link",
   "download",
+  "shop",
   "terminal",
   "play_circle",
   "settings_remote",

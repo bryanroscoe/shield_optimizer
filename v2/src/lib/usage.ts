@@ -28,6 +28,18 @@ export function usageLabel(u: AppUsage | undefined): string {
   return `last used ${Math.floor(days / 365)}y ago`;
 }
 
+/// The same answer without the "last used" prefix, for a column whose heading
+/// already says it. Kept beside `usageLabel` so the two cannot drift.
+export function usageLabelBare(u: AppUsage | undefined): string {
+  const days = daysSinceUsed(u);
+  if (days === null) return "never";
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days}d ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
 /// Stale = a removal candidate: no record at all, or untouched for 30+ days.
 export function isStaleUsage(u: AppUsage | undefined): boolean {
   const days = daysSinceUsed(u);
