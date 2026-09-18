@@ -26,9 +26,6 @@
   import { getKeptPackages, setPackageKept } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import { isBlocked, safetyClass, type SafetyStatus } from "$lib/safety";
-  import RamBadge from "$lib/components/RamBadge.svelte";
-  import UsageBadge from "$lib/components/UsageBadge.svelte";
-  import StateBadge from "$lib/components/StateBadge.svelte";
   import AppRow from "$lib/components/AppRow.svelte";
   import FilesTab from "$lib/components/FilesTab.svelte";
   import TweaksTab from "$lib/components/TweaksTab.svelte";
@@ -2473,54 +2470,74 @@
           {:else if visibleOthers.length === 0}
             <p class="muted">{otherPackages.length === 0 ? "No non-catalog packages found." : "Nothing matches your filters."}</p>
           {:else}
+            <!-- Same shape as the curated table above it. These are the same
+                 kind of row about the same kind of thing, so a reader should
+                 not have to learn two layouts on one screen. Type rides with
+                 the name as a tag, the way the state pill does. -->
             <table class="app-table">
               <thead>
-                <tr><th>Package</th><th class="center">Type</th><th class="center">State</th><th class="center">Safety</th><th>Actions</th><th class="center">Tools</th></tr>
+                <tr>
+                  <th>App</th>
+                  <th>Verdict &amp; source</th>
+                  <th class="right">RAM</th>
+                  <th class="right">Last used</th>
+                  <th class="controls-start">Actions</th>
+                </tr>
               </thead>
               <tbody>
                 {#each visibleOthers as o (o.package)}
                   {@const safety = packageSafety[o.package]}
                   {@const canRemove = othersLoaded && safety?.status === "ready" && !isBlocked(safety.verdict)}
-                  <tr>
-                    <td class="app-cell">
-                      {#if o.name}
-                        <div class="app-name-row">{o.name}</div>
-                        <div class="muted small mono pkg-id">{o.package}</div>
-                      {:else}
-                        <div class="mono small">{o.package}</div>
-                      {/if}
+                  <AppRow
+                    name={o.name ?? o.package}
+                    package={o.package}
+                    state={o.enabled ? "enabled" : "disabled"}
+                    mb={appMemory[o.package]}
+                    usage={appUsage[o.package]}
+                    safety={safety?.status === "ready" ? safety.verdict : null}
+                    safetyStatus={safety?.status ?? "unavailable"}
+                    safetyUnavailableReason={safety?.status === "unavailable" ? safety.reason : undefined}
+                    extraTag={o.system ? "SYSTEM" : "3RD-PARTY"}
+                    extraTagKind={o.system ? "neutral" : "ok"}
+                    detailOpen={expandedSafety === o.package}
+                    onToggleDetail={() =>
+                      (expandedSafety = expandedSafety === o.package ? null : o.package)}
+                  >
+                    {#snippet actions()}
+                    <td class="rec-cell controls-start">
+                      <div class="actions-cell">
+                        {#if o.enabled}
+                          <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Needs a completed safety check and a current package list">Disable</button>
+                          <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Needs a completed safety check and a current package list">Uninstall</button>
+                        {:else}
+                          <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight} title="pm enable">Enable</button>
+                        {/if}
+                        <span class="tool-sep" aria-hidden="true"></span>
+                        <button
+                          class="tool-btn"
+                          onclick={() => backupApkFor(o.package)}
+                          disabled={appActionBusy === o.package}
+                          title="Back up this app's APK(s) to a folder on this computer"
+                          aria-label={`Back up the APK for ${o.name ?? o.package}`}
+                        ><Icon name="download" size={16} /></button>
+                        <button
+                          class="tool-btn"
+                          onclick={() => startClone(o.package)}
+                          disabled={appActionBusy === o.package}
+                          title="Copy this app to another connected TV"
+                          aria-label={`Copy ${o.name ?? o.package} to another TV`}
+                        ><Icon name="swap_horiz" size={16} /></button>
+                      </div>
                     </td>
-                    <td class="center type-cell">
-                      <span class={`tag ${o.system ? "missing" : "installed"}`}>{o.system ? "SYSTEM" : "3RD-PARTY"}</span>
-                    </td>
-                    <td class="center">
-                      <StateBadge state={o.enabled ? "enabled" : "disabled"} />
-                      {#if appMemory[o.package]}
-                        <div class="cell-cue"><RamBadge mb={appMemory[o.package]} /></div>
-                      {/if}
-                      {#if appUsage[o.package]}
-                        <div class="cell-cue"><UsageBadge usage={appUsage[o.package]} /></div>
-                      {/if}
-                    </td>
-                    <td class="center" title={safetyReason(safety)}>
-                      <span class={safetyClass(safety)}>{safetyLabel(safety)}</span>
-                    </td>
-                    <td class="rec-cell">
-                      {#if o.enabled}
-                        <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Needs a completed safety check and a current package list">Disable</button>
-                        <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Needs a completed safety check and a current package list">Uninstall</button>
-                      {:else}
-                        <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight} title="pm enable">Enable</button>
-                      {/if}
-                    </td>
-                    <td class="center tools-cell">
-                      <button class="small-action subtle" onclick={() => backupApkFor(o.package)} disabled={appActionBusy === o.package} title="Save this app's APK(s) to a folder on this computer">Backup</button>
-                      <button class="small-action subtle" onclick={() => startClone(o.package)} disabled={appActionBusy === o.package} title="Install this app onto another connected device">Copy to…</button>
-                    </td>
-                  </tr>
+                    {/snippet}
+                  </AppRow>
                 {/each}
               </tbody>
             </table>
+            <p class="tool-legend">
+              <span><Icon name="download" size={14} /> back up APK</span>
+              <span><Icon name="swap_horiz" size={14} /> copy to TV</span>
+            </p>
           {/if}
         </div>
       {/if}
@@ -3187,21 +3204,6 @@
   th.center, td.center {
     text-align: center;
   }
-  .app-table .app-cell {
-    /* The flexible column. Every other cell is width:1% + nowrap, so this one
-       takes the remainder — but a nowrap description makes its min-content the
-       full sentence, which widens the table until State/Safety/Action fall off
-       the right edge. max-width:0 lets it shrink to the space left over, which
-       is what makes the ellipsis fire instead of the table growing. */
-    max-width: 0;
-    line-height: 1.3;
-    /* Long system package ids (com.google.android.overlay.modules.…) are one
-       unbreakable token; without this they force the column — and the whole
-       table — wider than the viewport, pushing the action buttons off-screen.
-       `anywhere` (not `break-word`) also shrinks the column's min-content width
-       so the table stops overflowing. Inherited by the child name/pkg rows. */
-    overflow-wrap: anywhere;
-  }
   /* Everything right of this line does something; everything left of it tells
      you something. One rule down the whole table rather than a tinted column,
      which becomes a stripe over three hundred rows. */
@@ -3215,12 +3217,6 @@
     background: var(--bg-inset);
   }
   .app-table .rec-cell,
-  .app-table .tools-cell {
-    /* Keep the action/tool buttons from being squeezed once the name column
-       can shrink — they stay on one line at their natural width. */
-    white-space: nowrap;
-    width: 1%;
-  }
   /* One Actions column, per board 11.5: the decision, a hairline, then the
      tools. The hairline is what separates "change this app" from "do something
      with this app" without spending a whole column heading on it. */
@@ -3228,6 +3224,12 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
+  }
+  /* The recommendation text is a label, not a paragraph — wrapped, it made the
+     buttons beside it sit at a different height on every row. */
+  .app-table .actions-cell > .muted,
+  .app-table .actions-cell > .done {
+    white-space: nowrap;
   }
   /* The verb buttons keep their own spacing rule; inside a flex row the old
      margin-right would double up with the gap. */
@@ -3930,7 +3932,6 @@
     border-top: 1px solid var(--border);
   }
   .type-cell { white-space: nowrap; }
-  .type-cell .tag { white-space: nowrap; }
   .checkbox-row {
     display: flex;
     align-items: center;

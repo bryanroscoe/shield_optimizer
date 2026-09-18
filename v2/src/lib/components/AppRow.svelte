@@ -17,6 +17,8 @@
     description,
     package: pkg,
     review = false,
+    extraTag,
+    extraTagKind = "neutral",
     state: pkgState,
     mb,
     usage,
@@ -33,6 +35,11 @@
     description?: string;
     package: string;
     review?: boolean;
+    /// One extra tag beside the name — "SYSTEM" / "3RD-PARTY" for the
+    /// non-catalog table. Kept generic so the row does not learn about
+    /// package inventories.
+    extraTag?: string;
+    extraTagKind?: "neutral" | "ok";
     state: "enabled" | "disabled" | "missing" | null;
     mb?: number;
     usage?: AppUsage;
@@ -114,6 +121,9 @@
       {/if}
       {#if review}
         <span class="tag review" title="Usage review — check whether you use this app">REVIEW</span>
+      {/if}
+      {#if extraTag}
+        <span class={`tag tag-${extraTagKind}`}>{extraTag}</span>
       {/if}
     </div>
     {#if description}
@@ -393,6 +403,14 @@
   .tag.review {
     background: var(--warn-surface-2);
     color: var(--warn);
+  }
+  .tag-neutral {
+    background: var(--bg-button);
+    color: var(--fg-muted);
+  }
+  .tag-ok {
+    background: var(--ok-surface);
+    color: var(--ok);
   }
   .small {
     font-size: 0.82rem;
