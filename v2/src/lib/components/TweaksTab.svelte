@@ -732,6 +732,19 @@
     background: var(--bg-button-hover);
     color: var(--fg-primary);
   }
+  /* This must out-specify `.tweak-row .row-actions .small-action` above, which
+     is (0,3,0) and blanks the background. A bare `.small-action.active` is
+     only (0,2,0), so it lost — and every segmented control in Tweaks rendered
+     with neither side selected, making live settings look inert. */
+  .tweak-row .row-actions .small-action.active {
+    background: var(--accent-strong);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+  }
+  .tweak-row .row-actions .small-action.active:disabled {
+    opacity: 1;
+  }
   .small-action {
     padding: 0.25rem 0.7rem;
     font-size: 0.78rem;
