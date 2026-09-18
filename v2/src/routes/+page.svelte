@@ -4,6 +4,7 @@
   import { api } from "$lib/api";
   import type { Device, DeviceReport } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import Icon from "$lib/components/Icon.svelte";
 
   let devices = $state<Device[]>([]);
 
@@ -220,12 +221,31 @@
 </script>
 
 <section class="header-row">
-  <h1>Devices</h1>
-  <button onclick={refresh} disabled={loading}>
-    {loading ? "Refreshing…" : "Refresh"}
-  </button>
+  <div class="header-title">
+    <h1>Devices</h1>
+    <p class="muted small mono header-sub">
+      {#if adbMissing}
+        adb not found
+      {:else if devices.length === 0}
+        no TV connected
+      {:else}
+        {devices.length} connected · {devices.filter((d) => d.status === "device").length} ready
+      {/if}
+    </p>
+  </div>
+  <div class="header-actions">
+    <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
+      <Icon name="wifi_tethering" size={15} /> {scanBusy ? "Scanning…" : "Scan LAN"}
+    </button>
+    <button onclick={refresh} disabled={loading} title="Re-read the list of connected devices">
+      {loading ? "Refreshing…" : "Refresh"}
+    </button>
+  </div>
 </section>
 
+<!-- The board leads with Scan LAN and Add by IP. The other four are still
+     here, one row down, because every one of them is the only way to do the
+     thing it does. -->
 <section class="connect-form">
   <input
     placeholder="IP[:port] — e.g. 192.168.42.71"
@@ -233,10 +253,7 @@
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
   <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim()}>
-    {connectBusy ? "Connecting…" : "Connect IP"}
-  </button>
-  <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
-    {scanBusy ? "Scanning…" : "Scan Network"}
+    <Icon name="add" size={15} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
   <button onclick={() => (pairOpen = !pairOpen)} disabled={adbMissing} title="Android 11+ PIN pairing flow">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
@@ -368,24 +385,29 @@
       <li>
         {#if href}
           <a class="device-row clickable" href={href}>
+            <span class="device-icon" aria-hidden="true">
+              <Icon name={d.connection === "network" ? "cast_connected" : "tv"} size={20} />
+            </span>
             <div class="device-main">
               <div class="device-name">
-                <span class="conn-tag">[{d.connection === "network" ? "NET" : "USB"}]</span>
                 <span>{d.name}</span>
               </div>
-              <div class="device-meta muted">
-                {deviceTypeLabel(d.device_type)}
+              <div class="device-meta muted mono">
+                {d.serial} · {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
-                · {d.serial}
+                · {d.connection === "network" ? "network" : "usb"}
               </div>
             </div>
-            <span class="chevron">›</span>
+            <span class="device-status online"><span class="status-dot" aria-hidden="true"></span> Online</span>
+            <span class="device-open">Open</span>
           </a>
         {:else}
-          <div class="device-row" class:unauthorized={d.status === "unauthorized"}>
+          <div class="device-row not-clickable" class:unauthorized={d.status === "unauthorized"}>
+            <span class="device-icon" aria-hidden="true">
+              <Icon name={d.status === "offline" ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
+            </span>
             <div class="device-main">
               <div class="device-name">
-                <span class="conn-tag">[{d.connection === "network" ? "NET" : "USB"}]</span>
                 <span>{d.name}</span>
                 {#if d.status === "unauthorized"}
                   <span class="status-tag unauthorized">UNAUTHORIZED</span>
@@ -396,7 +418,7 @@
                   <span class="status-tag not-a-tv">NOT AN ANDROID TV</span>
                 {/if}
               </div>
-              <div class="device-meta muted">
+              <div class="device-meta muted mono">
                 {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
@@ -429,6 +451,16 @@
       </li>
     {/each}
   </ul>
+{/if}
+
+{#if !adbMissing}
+  <div class="callout devices-note">
+    <Icon name="info" size={16} />
+    <span>
+      Pairing keys are stored locally, on this computer. Every other screen needs a
+      selected TV — this is the only one that works without one.
+    </span>
+  </div>
 {/if}
 
 <style>
@@ -464,10 +496,14 @@
     padding: 0;
     margin: 0;
   }
+  /* Board 11.12's row: a glyph for what it is, the name, the address in mono,
+     whether it is reachable, and the one thing to do about it. The [NET] tag
+     folded into the meta line — a bracketed word beside the name read as part
+     of the name. */
   .device-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 1rem;
     padding: 0.9rem 1rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -476,6 +512,59 @@
     transition: background 0.1s;
     text-decoration: none;
     color: inherit;
+  }
+  .device-row.not-clickable {
+    align-items: flex-start;
+  }
+  .device-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.8rem;
+    height: 2.8rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-inset);
+    color: var(--fg-muted);
+  }
+  a.device-row .device-icon {
+    color: var(--fg-secondary);
+  }
+  .device-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: none;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+  }
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fg-muted);
+  }
+  .device-status.online {
+    color: var(--ok);
+  }
+  .device-status.online .status-dot {
+    background: var(--ok);
+  }
+  /* The row is the link, so this is a label that looks like the button it
+     effectively is — not a second, separately-focusable control. */
+  .device-open {
+    flex: none;
+    padding: 0.35rem 1rem;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    background: var(--accent-strong);
+    color: var(--accent-ink);
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .devices-note {
+    margin-top: 1rem;
   }
   a.device-row {
     color: inherit;
@@ -493,10 +582,22 @@
     gap: 0.5rem;
     font-weight: 500;
   }
-  .conn-tag {
-    color: var(--fg-muted);
-    font-size: 0.78rem;
-    font-family: var(--mono);
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .header-title h1 {
+    margin: 0;
+  }
+  .header-sub {
+    margin: 0;
+  }
+  .header-actions {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
   }
   .status-tag {
     font-size: 0.72rem;
@@ -520,10 +621,6 @@
   .device-meta {
     font-size: 0.82rem;
     margin-top: 0.2rem;
-  }
-  .chevron {
-    color: var(--fg-muted);
-    font-size: 1.4rem;
   }
   .empty {
     text-align: center;

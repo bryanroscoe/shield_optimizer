@@ -40,6 +40,9 @@ export const ICONS = [
   // Device and hardware
   "tv",
   "cast",
+  "cast_connected",
+  "tv_off",
+  "wifi_tethering",
   "memory",
   "storage",
   "device_thermostat",

@@ -129,10 +129,17 @@
 </script>
 
 <section class="header-row">
-  <h1>Snapshots</h1>
+  <div class="header-title">
+    <h1>Snapshots</h1>
+    <p class="muted small mono header-sub">
+      all devices · {snapshots.length} saved
+    </p>
+  </div>
   <div class="header-actions">
     {#if snapshotDir}
-      <button onclick={revealFolder} title={snapshotDir}>Open folder</button>
+      <button onclick={revealFolder} title={snapshotDir}>
+        <Icon name="folder_open" size={15} /> Open folder
+      </button>
     {/if}
     <button onclick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
   </div>
@@ -228,45 +235,73 @@
     <p class="muted">Open a device and save a snapshot from its Snapshot tab.</p>
   </div>
 {:else}
-  <ul class="snap-list">
-    {#each snapshots as s (s.path)}
-      <li>
-        <div class="snap-main">
-          <div class="snap-title">
-            <strong>{s.device_name}</strong>
-            <span class="tag installed">{deviceTypeLabel(s.device_type).toUpperCase()}</span>
-            <span class="muted small mono">{s.device_serial}</span>
-          </div>
-          <div class="muted small">
-            {formatTimestamp(s.saved_at)} ·
-            {s.disabled_count} disabled,
-            {s.settings_count} settings,
-            launcher {s.launcher ?? "—"}
-          </div>
-          <div class="muted small mono">{s.filename}</div>
-        </div>
-        <div class="snap-actions">
-          {#if authorizedDevices().length > 0}
-            <select
-              disabled={actionBusy === s.path}
-              onchange={(e) => {
-                const target = e.target as HTMLSelectElement;
-                const serial = target.value;
-                if (serial) previewTo(s, serial);
-                target.value = "";
-              }}
-            >
-              <option value="">Apply to device…</option>
-              {#each authorizedDevices() as d}
-                <option value={d.serial}>Preview → {d.name}</option>
-              {/each}
-            </select>
-          {/if}
-          <button class="small-action danger" onclick={() => deleteSnap(s)}>Delete</button>
-        </div>
-      </li>
-    {/each}
-  </ul>
+  <!-- Board 11.12's table: what it is, where it came from, when, and what you
+       can do with it. The old rows stacked four lines each and gave the file
+       name as much weight as the device it came from. -->
+  <div class="snap-table-box">
+    <table class="snap-table">
+      <thead>
+        <tr>
+          <th>Snapshot</th>
+          <th>Source device</th>
+          <th class="right">Saved</th>
+          <th class="right">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each snapshots as s (s.path)}
+          <tr>
+            <td>
+              <div class="snap-name">{s.label ?? s.filename}</div>
+              <div class="muted small mono snap-sub">
+                {s.disabled_count} disabled · {s.settings_count} settings ·
+                launcher {s.launcher ?? "—"} · {s.filename}
+              </div>
+            </td>
+            <td class="src-cell">
+              <div class="mono">{s.device_name}</div>
+              <div class="muted small mono">
+                {deviceTypeLabel(s.device_type).toLowerCase()} · {s.device_serial}
+              </div>
+            </td>
+            <td class="right mono nowrap">{formatTimestamp(s.saved_at)}</td>
+            <td class="right snap-actions">
+              {#if authorizedDevices().length > 0}
+                <select
+                  disabled={actionBusy === s.path}
+                  aria-label={`Apply ${s.label ?? s.filename} to a device`}
+                  onchange={(e) => {
+                    const target = e.target as HTMLSelectElement;
+                    const serial = target.value;
+                    if (serial) previewTo(s, serial);
+                    target.value = "";
+                  }}
+                >
+                  <option value="">Apply to device…</option>
+                  {#each authorizedDevices() as d}
+                    <option value={d.serial}>Preview → {d.name}</option>
+                  {/each}
+                </select>
+              {/if}
+              <button
+                class="snap-tool danger"
+                onclick={() => deleteSnap(s)}
+                title="Delete this snapshot file from disk"
+                aria-label={`Delete ${s.filename}`}
+              ><Icon name="delete" size={16} /></button>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  </div>
+  <div class="callout snapshots-note">
+    <Icon name="content_copy" size={16} />
+    <span>
+      Applying a snapshot from a different device is a clone — the apply plan names
+      every package the target is missing before anything runs.
+    </span>
+  </div>
 {/if}
 
 <style>
@@ -276,6 +311,86 @@
     justify-content: space-between;
     margin-bottom: 0.6rem;
   }
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .header-title h1 {
+    margin: 0;
+  }
+  .header-sub {
+    margin: 0;
+  }
+  .snap-table-box {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface);
+    overflow: hidden;
+  }
+  .snap-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .snap-table th {
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-weight: 500;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    text-align: left;
+  }
+  .snap-table td {
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  .snap-table tr:last-child td {
+    border-bottom: none;
+  }
+  .snap-table th.right,
+  .snap-table td.right {
+    text-align: right;
+  }
+  .nowrap {
+    white-space: nowrap;
+  }
+  .snap-name {
+    font-weight: 600;
+  }
+  .snap-sub {
+    margin-top: 0.15rem;
+    overflow-wrap: anywhere;
+  }
+  .src-cell {
+    white-space: nowrap;
+  }
+  .snap-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
+    vertical-align: middle;
+  }
+  .snap-tool.danger {
+    color: var(--danger);
+  }
+  .snap-tool.danger:hover {
+    border-color: var(--danger);
+    background: var(--danger-surface);
+    color: var(--danger-surface-text);
+  }
+  .snapshots-note {
+    margin-top: 1rem;
+  }
   .header-actions {
     display: flex;
     gap: 0.5rem;
@@ -283,33 +398,6 @@
   h1 {
     margin: 0;
     font-size: 1.4rem;
-  }
-  .snap-list {
-    list-style: none;
-    padding: 0;
-    margin: 1rem 0 0;
-  }
-  .snap-list li {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.7rem 1rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    margin-bottom: 0.5rem;
-  }
-  .snap-main {
-    flex: 1;
-    min-width: 0;
-  }
-  .snap-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.2rem;
   }
   .snap-actions {
     display: flex;
@@ -342,31 +430,11 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
-  .tag {
-    font-size: 0.7rem;
-    padding: 0.15rem 0.5rem;
-    border-radius: var(--radius-sm);
-    letter-spacing: 0.04em;
-  }
-  .tag.installed { background: var(--ok-surface); color: var(--ok); }
   .small {
     font-size: 0.82rem;
   }
   .mono {
     font-family: var(--mono);
-  }
-  .small-action {
-    padding: 0.2rem 0.6rem;
-    font-size: 0.78rem;
-  }
-  .small-action.danger {
-    background: var(--bg-button);
-    border-color: var(--danger-surface);
-    color: var(--danger-strong);
-  }
-  .small-action.danger:hover {
-    background: var(--danger-surface);
-    color: var(--danger-surface-text);
   }
   code {
     background: var(--bg-inset);
