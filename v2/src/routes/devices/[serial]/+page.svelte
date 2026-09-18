@@ -2528,75 +2528,160 @@
   {:else if activeTab === "snapshot"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-snapshot" aria-labelledby="tab-snapshot">
       <div class="card-header">
-        <h2><Icon name="history" size={17} /> Snapshots</h2>
+        <div class="header-title">
+          <h2><Icon name="history" size={17} /> Snapshot</h2>
+          <p class="muted small mono header-sub">
+            package states, launcher &amp; tweak values for this device
+          </p>
+        </div>
         <button class="primary" onclick={saveSnapshot} disabled={saveBusy}>
-          {saveBusy ? "Saving…" : "Save current state"}
+          <Icon name="save" size={15} /> {saveBusy ? "Saving…" : "Save snapshot"}
         </button>
       </div>
       {#if saveResult}<p class="muted small">{saveResult}</p>{/if}
       {#if snapshotsErr}<div class="error">{snapshotsErr}</div>{/if}
+
+      <div class="snap-layout">
+        <div class="snap-col">
       {#if snapshots.length === 0}
         <p class="muted">No snapshots yet. Use the button above to save one.</p>
       {:else}
+        <p class="rail-label">Saved · {snapshots.length}</p>
         <ul class="snap-list">
           {#each snapshots as s (s.path)}
-            <li>
+            {@const selected = previewPath === s.path}
+            <li class:is-selected={selected}>
+              <span class="snap-icon" aria-hidden="true"><Icon name="history" size={18} /></span>
               <div class="snap-main">
                 <div class="snap-title">
                   <strong>{s.label ?? s.device_name}</strong>
-                  <span class="tag installed">{deviceTypeLabel(s.device_type).toUpperCase()}</span>
                   {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
+                  <!-- The action rides on the title's line so the summary below
+                       gets the full width; squeezed beside it, the summary
+                       wrapped onto five lines. -->
+                  <span class="snap-actions">
+                    {#if selected}
+                      <span class="tag installed">SELECTED</span>
+                    {:else}
+                      <button class="small-action" onclick={() => previewSnapshot(s.path)}>Preview apply</button>
+                    {/if}
+                  </span>
                 </div>
-                <div class="muted small">
-                  {snapTimestamp(s.saved_at)} ·
-                  {s.disabled_count} disabled,
-                  {s.settings_count} settings,
-                  launcher {s.launcher ?? "—"}
+                <div class="muted small mono snap-meta">
+                  {snapTimestamp(s.saved_at)} · {s.disabled_count} disabled ·
+                  {s.settings_count} settings · launcher {s.launcher ?? "—"}
                 </div>
-              </div>
-              <div class="snap-actions">
-                <button class="small-action" onclick={() => previewSnapshot(s.path)}>Preview apply</button>
               </div>
             </li>
           {/each}
         </ul>
       {/if}
+      {#if preview && previewPath}
+        {@const chosen = snapshots.find((s) => s.path === previewPath)}
+        {#if chosen}
+          <!-- What is inside the thing you picked, before you read what it
+               would do — board 11.10's "contents of selection". -->
+          <div class="foot-card snap-contents">
+            <span class="foot-label">Contents of selection</span>
+            <dl class="snap-contents-list">
+              <dt>Package states</dt><dd class="mono">{chosen.disabled_count}</dd>
+              <dt>Launcher</dt><dd class="mono">{chosen.launcher ?? "—"}</dd>
+              <dt>Tweak values</dt><dd class="mono">{chosen.settings_count}</dd>
+            </dl>
+          </div>
+        {/if}
+      {/if}
+        </div>
+
+        <div class="snap-col">
       {#if previewBusy}
         <p class="muted">Computing plan…</p>
       {:else if previewErr}
         <div class="error">{previewErr}</div>
       {:else if preview && previewPath}
-        <div class="preview-box">
-          <h3>Plan preview</h3>
-          {#if preview.cross_device_warning}
-            <div class="warning">{preview.cross_device_warning}</div>
-          {/if}
-          <ul>
-            <li><strong>{preview.packages_to_disable.length}</strong> packages will be disabled</li>
-            <li><strong>{preview.packages_already_disabled.length}</strong> already disabled (no-op)</li>
-            <li><strong>{preview.packages_not_installed.length}</strong> not present on device</li>
-            <li>Launcher: <code>{preview.launcher_to_set ?? "(unchanged)"}</code></li>
-            <li><strong>{Object.keys(preview.settings_to_write).length}</strong> settings will be written
-              {#if preview.settings_already_set.length > 0}
-                <span class="muted">({preview.settings_already_set.length} already set, no-op)</span>
+        {@const settingsToWrite = Object.entries(preview.settings_to_write)}
+        {@const alreadySet = new Set(preview.settings_already_set)}
+        {@const willChange =
+          preview.packages_to_disable.length +
+          settingsToWrite.filter(([k]) => !alreadySet.has(k)).length +
+          preview.settings_to_delete.length +
+          (preview.launcher_to_set ? 1 : 0)}
+        {@const unchanged =
+          preview.packages_already_disabled.length +
+          preview.packages_not_installed.length +
+          preview.settings_already_set.length}
+        <p class="rail-label">Apply plan — preview before running</p>
+        {#if preview.cross_device_warning}
+          <div class="warning">{preview.cross_device_warning}</div>
+        {/if}
+        <!-- Row per item, as the board has it: what it is now and what this
+             snapshot would make it. "Now" is left blank where the device has
+             not told us — a preview that guesses is worse than one that says
+             it does not know. -->
+        <div class="plan-box">
+          <table class="plan-table">
+            <thead>
+              <tr><th>Item</th><th>Now</th><th>Will become</th></tr>
+            </thead>
+            <tbody>
+              {#each preview.packages_to_disable as pkg (pkg)}
+                <tr><td class="mono">{pkg}</td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
+              {/each}
+              {#if preview.launcher_to_set}
+                <tr>
+                  <td class="mono">launcher</td>
+                  <td class="plan-now">{currentLauncher?.package ?? "—"}</td>
+                  <td class="plan-next change mono">→ {preview.launcher_to_set}</td>
+                </tr>
               {/if}
-            </li>
-            <li><strong>{preview.settings_to_delete.length}</strong> settings will be reset to device defaults
-              {#each preview.settings_to_delete as key}<div><code>{key}</code></div>{/each}
-            </li>
-          </ul>
-          <div class="apply-row">
-            <button
-              class="primary"
-              onclick={applySnapshot}
-              disabled={applyBusy || applyResult !== null}
-            >
-              {applyBusy ? "Applying…" : applyResult ? "Applied" : "Apply this snapshot"}
-            </button>
-            <span class="muted small">
-              Disable is reversible via Emergency Recovery on the Overview tab.
-            </span>
+              {#each settingsToWrite as [key, value] (key)}
+                <tr>
+                  <td class="mono">{key}</td>
+                  <td class="plan-now mono">{alreadySet.has(key) ? value : "—"}</td>
+                  <td class="plan-next mono" class:change={!alreadySet.has(key)}>
+                    → {value}{alreadySet.has(key) ? " (no change)" : ""}
+                  </td>
+                </tr>
+              {/each}
+              {#each preview.settings_to_delete as key (key)}
+                <tr>
+                  <td class="mono">{key}</td>
+                  <td class="plan-now mono">—</td>
+                  <td class="plan-next change">→ DEVICE DEFAULT</td>
+                </tr>
+              {/each}
+              {#each preview.packages_already_disabled as pkg (pkg)}
+                <tr class="plan-noop"><td class="mono">{pkg}</td><td class="plan-now">DISABLED</td><td class="plan-next">→ DISABLED (no change)</td></tr>
+              {/each}
+              {#each preview.packages_not_installed as pkg (pkg)}
+                <tr class="plan-noop"><td class="mono">{pkg}</td><td class="plan-now">NOT INSTALLED</td><td class="plan-next">→ skipped</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        <div class="plan-totals">
+          <div class="foot-card">
+            <span class="foot-label">Will change</span>
+            <span class="mono plan-total">{willChange} item{willChange === 1 ? "" : "s"}</span>
           </div>
+          <div class="foot-card">
+            <span class="foot-label">Unchanged</span>
+            <span class="mono plan-total">{unchanged} item{unchanged === 1 ? "" : "s"}</span>
+          </div>
+        </div>
+        <div class="apply-row">
+          <button
+            class="primary apply-btn"
+            onclick={applySnapshot}
+            disabled={applyBusy || applyResult !== null}
+          >
+            {applyBusy ? "Applying…" : applyResult ? "Applied" : "Apply this snapshot"}
+          </button>
+          <span class="muted small">
+            Disable is reversible via Emergency Recovery on the Overview tab.
+          </span>
+        </div>
+        <div class="preview-box">
           {#if applyErr}
             <div class="error">{applyErr}</div>
           {/if}
@@ -2619,7 +2704,19 @@
             </div>
           {/if}
         </div>
+      {:else}
+        <p class="rail-label">Apply plan — preview before running</p>
+        <div class="plan-empty">
+          <Icon name="history" size={28} />
+          <strong>No snapshot selected</strong>
+          <span class="small">
+            Pick one on the left and this shows every package and setting it would
+            change, and every one it would leave alone, before anything runs.
+          </span>
+        </div>
       {/if}
+        </div>
+      </div>
     </div>
   {/if}
 
@@ -3354,21 +3451,123 @@
     font-family: var(--mono);
     font-size: 0.85rem;
   }
+  /* What you have on the left, what applying it would do on the right —
+     board 11.10. The plan used to sit under the list, so choosing a snapshot
+     scrolled the thing you were choosing out of view. */
+  .snap-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: 1.5rem;
+    align-items: start;
+    margin-top: 1rem;
+  }
+  .snap-col {
+    min-width: 0;
+  }
   .snap-list {
     list-style: none;
     padding: 0;
-    margin: 0.6rem 0 0;
+    margin: 0;
   }
   .snap-list li {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+    align-items: flex-start;
+    gap: 0.75rem;
     padding: 0.7rem 1rem;
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     margin-bottom: 0.5rem;
+  }
+  /* The one you are previewing, tinted — the plan on the right belongs to it. */
+  .snap-list li.is-selected {
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    background: var(--accent-surface);
+  }
+  .snap-list li.is-selected .snap-icon {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+  }
+  .snap-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.4rem;
+    height: 2.4rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+    color: var(--fg-muted);
+  }
+  .snap-contents {
+    margin-top: 1rem;
+  }
+  .snap-contents-list {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.35rem 1rem;
+    margin: 0;
+  }
+  .snap-contents-list dt {
+    color: var(--fg-secondary);
+  }
+  .snap-contents-list dd {
+    margin: 0;
+    text-align: right;
+  }
+  /* Row per item: what it is now, what this snapshot makes it. */
+  .plan-box {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-inset);
+    overflow: hidden;
+  }
+  .plan-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+  .plan-table th {
+    padding: 0.5rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .plan-table td {
+    padding: 0.45rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
+  }
+  .plan-table tr:last-child td {
+    border-bottom: none;
+  }
+  .plan-now,
+  .plan-next {
+    width: 1%;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+  }
+  .plan-next.change {
+    color: var(--ok);
+  }
+  /* A no-op is still information, so it stays on the list — just quieter. */
+  .plan-noop td {
+    color: var(--fg-muted);
+  }
+  .plan-totals {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .plan-total {
+    font-size: 1.3rem;
+    font-weight: 600;
+  }
+  .apply-btn {
+    width: 100%;
+    justify-content: center;
+    padding-block: 0.7rem;
   }
   .snap-main { flex: 1; min-width: 0; }
   .snap-title {
@@ -3378,7 +3577,35 @@
     flex-wrap: wrap;
     margin-bottom: 0.2rem;
   }
-  .snap-actions { display: flex; gap: 0.4rem; align-items: center; flex-shrink: 0; }
+  .snap-actions {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .snap-meta {
+    overflow-wrap: anywhere;
+  }
+  .plan-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 3rem 1.5rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    text-align: center;
+    color: var(--fg-muted);
+  }
+  .plan-empty strong {
+    color: var(--fg-secondary);
+  }
+  @media (max-width: 1100px) {
+    .snap-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
   .preview-box {
     margin-top: 1rem;
     padding: 1rem;
