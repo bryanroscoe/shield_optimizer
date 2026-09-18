@@ -57,6 +57,13 @@ pub struct RestartResult {
     pub message: String,
 }
 
+/// How many times to try reconnecting one network device after a restart, and
+/// how long to wait between tries (the wait grows with each attempt). Four
+/// attempts spans about 1.8s, which covers the adbd socket-teardown window
+/// without making a genuinely-absent device feel like a hang.
+const RECONNECT_ATTEMPTS: u32 = 4;
+const RECONNECT_BACKOFF: std::time::Duration = std::time::Duration::from_millis(300);
+
 /// `restart_adb` — `adb kill-server` then `adb start-server`. Matches v1's
 /// Restart-AdbServer (main-menu shortcut A). Useful when the daemon wedges
 /// after the device sleeps, when multiple adb versions collided, or after a
@@ -108,17 +115,34 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     let mut ok = !lower.contains("error") && !lower.contains("cannot");
 
     // Reconnect the network devices we saw before the restart.
+    //
+    // Not on the first try. `start-server` returns as soon as the daemon has
+    // forked, and the TV's adbd needs a moment to free the socket the
+    // kill-server just tore down — connecting into that window fails with
+    // "No route to host" even though the device is up and port 5555 is open.
+    // Restarting by hand a second later then works, which is what makes this
+    // read as "ADB is broken" rather than "too early". So give each device a
+    // few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     for serial in &network_serials {
-        let connected = match adb.raw(&["connect", serial]).await {
-            // "connected to X" and "already connected to X" both pass;
-            // "failed to connect" / "cannot connect" do not.
-            Ok(out) => format!("{}{}", out.stdout, out.stderr)
-                .to_lowercase()
-                .contains("connected to"),
-            Err(_) => false,
-        };
+        let mut connected = false;
+        for attempt in 0..RECONNECT_ATTEMPTS {
+            if attempt > 0 {
+                tokio::time::sleep(RECONNECT_BACKOFF * attempt).await;
+            }
+            connected = match adb.raw(&["connect", serial]).await {
+                // "connected to X" and "already connected to X" both pass;
+                // "failed to connect" / "cannot connect" do not.
+                Ok(out) => format!("{}{}", out.stdout, out.stderr)
+                    .to_lowercase()
+                    .contains("connected to"),
+                Err(_) => false,
+            };
+            if connected {
+                break;
+            }
+        }
         if connected {
             reconnected.push(serial.clone());
         } else {
@@ -139,7 +163,8 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     }
     if !failed.is_empty() {
         message.push_str(&format!(
-            "\nCould not reconnect: {} — try Scan Network or Connect IP.",
+            "\nCould not reconnect after {} tries: {} — check the TV is awake and Network Debugging is still on, then try Scan Network or Connect IP.",
+            RECONNECT_ATTEMPTS,
             failed.join(", ")
         ));
     }
@@ -178,7 +203,7 @@ mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn restart_adb_reports_failure_when_network_reconnect_fails() {
         // Daemon restarts fine, but the previously-connected network device
         // can't be reconnected — that's a user-visible failure, and the message
@@ -199,6 +224,43 @@ mod tests {
         assert!(
             res.message.contains("Could not reconnect") && res.message.contains(serial),
             "message should name the unreconnected device: {}",
+            res.message
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_adb_retries_a_reconnect_that_fails_immediately() {
+        // The daemon has only just forked and the TV's adbd is still tearing
+        // down the socket kill-server closed, so the first connect comes back
+        // "No route to host" for a device that is plainly up. Reporting that as
+        // unreachable is what makes a working setup look broken.
+        let serial = "192.168.42.196:5555";
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{serial}\tdevice\n"),
+            )
+            .on_raw("start-server", "* daemon started successfully")
+            .on_raw_seq(
+                "connect",
+                &[
+                    Err("failed to connect to '192.168.42.196:5555': No route to host"),
+                    Ok("connected to 192.168.42.196:5555"),
+                ],
+            );
+        let state = state_with(mock);
+
+        let res = restart_adb_impl(&state).await.unwrap();
+
+        assert!(res.ok, "a retried reconnect is a success: {}", res.message);
+        assert!(
+            res.message.contains("Reconnected") && res.message.contains(serial),
+            "message should name the device it got back: {}",
+            res.message
+        );
+        assert!(
+            !res.message.contains("Could not reconnect"),
+            "a device that came back must not also be listed as lost: {}",
             res.message
         );
     }

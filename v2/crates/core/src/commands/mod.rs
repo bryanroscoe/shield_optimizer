@@ -129,6 +129,23 @@ pub mod test_support {
                 .push(Rule::single(needle, Reply::Ok(stdout.into())));
             self
         }
+        /// Hand back replies in order for successive matching `raw` calls,
+        /// sticking on the last once exhausted. `Ok` is stdout, `Err` is an
+        /// `AdbError` message — so a test can say "fails twice, then works".
+        pub fn on_raw_seq(mut self, needle: &str, responses: &[Result<&str, &str>]) -> Self {
+            self.raw_rules.push(Rule {
+                needle: needle.into(),
+                replies: responses
+                    .iter()
+                    .map(|r| match r {
+                        Ok(out) => Reply::Ok((*out).into()),
+                        Err(msg) => Reply::Err((*msg).into()),
+                    })
+                    .collect(),
+                cursor: AtomicUsize::new(0),
+            });
+            self
+        }
         /// Make matching `raw` calls fail with a typed `AdbError`.
         pub fn on_raw_err(mut self, needle: &str, err_message: &str) -> Self {
             self.raw_rules
