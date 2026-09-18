@@ -187,13 +187,18 @@
 {/if}
 
 <style>
-  /* The table chrome (th/td
-     borders, padding, .center) is owned by the host table; this row only
-     styles the cells it fully owns. */
+  /* The table chrome (th/td borders, padding, .center) is owned by the host
+     table; this row only styles the cells it fully owns.
+     `--bg-button` is a button FILL, not a line — against a card it is about
+     1.1:1 and effectively invisible. These cells drew their divider with it
+     while the actions cell, which comes in from the host, drew the same
+     divider with `--border`. The result was one visible short line under the
+     actions and nothing under the rest, which reads as a stray line rather
+     than as a row divider. */
   td {
     text-align: left;
     padding: 0.5rem 0.6rem;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
     vertical-align: middle;
   }
   td.center {

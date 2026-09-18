@@ -522,7 +522,7 @@
   }
   .apk-list li {
     padding: 0.5rem 0;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
   }
   .apk-list li:last-child {
     border-bottom: none;
@@ -592,7 +592,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.6rem 0;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
   }
   .catalog-list li button {
     white-space: nowrap;

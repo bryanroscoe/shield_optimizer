@@ -317,7 +317,7 @@
   }
   .media-table td {
     padding: 0.4rem 0.5rem 0.4rem 0;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
     font-size: 0.9rem;
   }
   .media-table tr.film td {

@@ -585,7 +585,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.5rem 0;
-    border-top: 1px solid var(--bg-button);
+    border-top: 1px solid var(--border);
     margin-top: 0.5rem;
   }
   .apk-name {

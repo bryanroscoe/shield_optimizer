@@ -3250,10 +3250,14 @@
   .app-table tbody tr:hover td {
     background: var(--bg-inset);
   }
-  .app-table .rec-cell,
   /* One Actions column, per board 11.5: the decision, a hairline, then the
      tools. The hairline is what separates "change this app" from "do something
-     with this app" without spending a whole column heading on it. */
+     with this app" without spending a whole column heading on it.
+
+     The flex goes on the inner div and NEVER on the <td>. A flex table cell
+     drops out of table layout and sizes to its own content, so its
+     border-bottom landed a dozen pixels above the other cells' — one row
+     divider drawn at two different heights. */
   .app-table .actions-cell {
     display: flex;
     align-items: center;

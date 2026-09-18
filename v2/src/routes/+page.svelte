@@ -391,6 +391,12 @@
             <div class="device-main">
               <div class="device-name">
                 <span>{d.name}</span>
+                <!-- Whether it is reachable belongs with the name, not stranded
+                     at the far edge: it qualifies the device, and reading it
+                     meant crossing the address line to get there. -->
+                <span class="device-status online">
+                  <span class="status-dot" aria-hidden="true"></span> Online
+                </span>
               </div>
               <div class="device-meta muted mono">
                 {d.serial} · {deviceTypeLabel(d.device_type)}
@@ -398,11 +404,10 @@
                 · {d.connection === "network" ? "network" : "usb"}
               </div>
             </div>
-            <span class="device-status online"><span class="status-dot" aria-hidden="true"></span> Online</span>
             <!-- The whole row is the link, so a button inside it was a second
                  target for the same action. A chevron says "this opens"
                  without pretending to be separately clickable. -->
-            <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={20} /></span>
+            <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={28} /></span>
           </a>
         {:else}
           <div class="device-row not-clickable" class:unauthorized={d.status === "unauthorized"}>
@@ -537,9 +542,10 @@
   .device-status {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.35rem;
     flex: none;
-    font-size: 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 500;
     color: var(--fg-muted);
   }
   .status-dot {
@@ -554,13 +560,15 @@
   .device-status.online .status-dot {
     background: var(--ok);
   }
+  /* Lime, because it is the one thing on the row that does something. */
   .device-go {
     display: inline-flex;
     flex: none;
-    color: var(--fg-muted);
+    margin-left: auto;
+    color: var(--accent);
   }
   a.device-row:hover .device-go {
-    color: var(--accent);
+    transform: translateX(2px);
   }
   .devices-note {
     margin-top: 1rem;
@@ -674,7 +682,7 @@
   .report-row {
     margin: 0.7rem 0;
     padding-bottom: 0.7rem;
-    border-bottom: 1px solid var(--bg-button);
+    border-bottom: 1px solid var(--border);
   }
   .report-row:last-child {
     border-bottom: none;
