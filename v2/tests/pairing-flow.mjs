@@ -137,7 +137,7 @@ async function exercisePairingFlow({ browser, base }) {
 
   const connectAddress = page.getByPlaceholder("IP[:port] — e.g. 192.168.42.71");
   await connectAddress.fill(CONNECT_ADDRESS);
-  await page.getByRole("button", { name: "Connect IP" }).click();
+  await page.getByRole("button", { name: "Add by IP" }).click();
   await page.getByText("failed to connect to explicit endpoint", { exact: true }).waitFor();
 
   calls = await page.evaluate(() => window.__PAIRING_FLOW_CALLS__);

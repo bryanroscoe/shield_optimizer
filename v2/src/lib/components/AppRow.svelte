@@ -401,14 +401,12 @@
     font-family: var(--mono);
   }
   /* Optimize-row emphasis (passed via rowClass): skipped rows recede; rows that
-     WILL be acted on get a left accent bar and a faint tint. The action/result
-     cells come in through the actions snippet, so the tint reaches them via
-     :global. */
+     WILL be acted on get a left accent bar. The full-row tint went with the
+     select: now that the armed segment is visible on every row, tinting the
+     row as well said the same thing twice and made a plan of twelve rows read
+     as one solid block of lime. */
   tr.dim {
     opacity: 0.78;
-  }
-  tr.acting :global(td) {
-    background: color-mix(in srgb, var(--accent-strong) 8%, transparent);
   }
   tr.acting td:first-child {
     box-shadow: inset 3px 0 0 var(--accent-strong);
