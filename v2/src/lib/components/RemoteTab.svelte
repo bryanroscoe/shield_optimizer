@@ -199,17 +199,13 @@
         {transport === "channel" ? "● instant" : "○ compatible (slower)"}
       </span>
     {/if}
-    <label class="compat-toggle" title="Skip the fast channel and use the slower, universal ADB input — use this if the instant channel misbehaves on your device.">
-      <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
-      Force compatible mode
-    </label>
   </div>
   <div class="remote-layout">
     <div class="remote-typing">
       <div class="typing-header">
         <h3>Live typing</h3>
-        <button class="small-action" onclick={pasteFromClipboard} title="Send the clipboard to the TV">
-          Paste
+        <button class="small-action primary" onclick={pasteFromClipboard} title="Send the clipboard to the TV">
+          <Icon name="content_paste" size={14} /> Paste
         </button>
       </div>
       <p class="muted small">
@@ -241,7 +237,13 @@
       {/if}
     </div>
     <div class="remote-pad">
-      <h3>Buttons</h3>
+      <!-- Row order follows mobile board 6.1: nav trio, then the disc as the
+           anchor, then transport, volume, and the system trio last. -->
+      <div class="remote-row nav-row">
+        <button onclick={() => sendRemoteKey("back")} title="Back"><Icon name="arrow_back" size={15} /> Back</button>
+        <button onclick={() => sendRemoteKey("home")} title="Home"><Icon name="home" size={15} /> Home</button>
+        <button onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher"><Icon name="apps" size={15} /> Recents</button>
+      </div>
       <!-- D-pad uses pointerdown/up (not click) so holding a direction
            auto-repeats on the fast channel; pointerleave/cancel stop the
            repeat if the cursor slides off mid-hold. -->
@@ -256,16 +258,18 @@
         <button onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={22} /></button>
         <span></span>
       </div>
+      <!-- What the status pill's tooltip used to hide. It changes with the
+           transport, and it is the one thing you need to know before you hold
+           a direction down. -->
+      {#if transport}
+        <p class="pad-caption">
+          {transport === "channel"
+            ? "Hold a direction to repeat"
+            : "Each press takes about 0.7s"}
+        </p>
+      {/if}
       <div class="remote-keys">
-      <div class="remote-row">
-        <button onclick={() => sendRemoteKey("back")} title="Back"><Icon name="arrow_back" size={15} /> Back</button>
-        <button onclick={() => sendRemoteKey("home")} title="Home"><Icon name="home" size={15} /> Home</button>
-        <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={15} /> Settings</button>
-      </div>
-      <div class="remote-row">
-        <button class="span-3" onclick={() => sendRemoteKey("recents")} title="Recent apps / app switcher"><Icon name="apps" size={15} /> Recents</button>
-      </div>
-      <div class="remote-row">
+      <div class="remote-row transport-row">
         <button onclick={() => sendRemoteKey("rewind")} title="Rewind" aria-label="Rewind"><Icon name="fast_rewind" size={18} /></button>
         <button onclick={() => sendRemoteKey("play_pause")} title="Play / Pause" aria-label="Play or pause"><Icon name="play_pause" size={20} /></button>
         <button onclick={() => sendRemoteKey("fast_forward")} title="Fast forward" aria-label="Fast forward"><Icon name="fast_forward" size={18} /></button>
@@ -276,10 +280,18 @@
         <button onclick={() => sendRemoteKey("volume_up")} title="Volume up" aria-label="Volume up"><Icon name="volume_up" size={18} /></button>
       </div>
       <div class="remote-row">
+        <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={15} /> Settings</button>
         <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
-        <button onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={15} /> Power</button>
+        <button class="power" onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={15} /> Power</button>
       </div>
       </div>
+      <!-- A setting about how this remote talks to the TV, so it sits with the
+           remote and with the caption it changes — not in the card header,
+           where it looked like a page-level control. -->
+      <label class="compat-toggle" title="Skip the fast channel and use the slower, universal ADB input — use this if the instant channel misbehaves on your device.">
+        <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
+        Force compatible mode
+      </label>
     </div>
   </div>
 </div>
@@ -294,15 +306,16 @@
     flex-wrap: wrap;
   }
   .transport {
+    margin-left: auto;
     font-size: 0.74rem;
     color: var(--fg-muted);
     cursor: default;
   }
   .compat-toggle {
-    margin-left: auto;
     display: flex;
     align-items: center;
     gap: 0.35rem;
+    margin-top: 0.2rem;
     font-size: 0.78rem;
     color: var(--fg-muted);
     cursor: pointer;
@@ -325,14 +338,23 @@
   }
 
   /* Remote-specific styles. */
+  /* Bounded and centred rather than stretched. Nothing on this screen scales
+     with the viewport — a capture box that echoes about sixty characters has
+     no business being 1200px wide — so letting the row fill a wide card left
+     the remote in a narrow rail beside several hundred pixels of nothing. */
   .remote-layout {
     display: flex;
     gap: 3rem;
     flex-wrap: wrap;
     align-items: flex-start;
+    justify-content: center;
+    max-width: 900px;
+    margin-inline: auto;
   }
   .remote-typing {
-    flex: 1;
+    /* ~60ch of mono: the echo's own length. */
+    flex: 0 1 480px;
+    max-width: 480px;
     min-width: 280px;
   }
   .typing-header {
@@ -351,7 +373,10 @@
     font-size: 0.78rem;
   }
   .type-capture {
-    min-height: 3.2rem;
+    /* Five lines, so a pasted URL or a multi-line paste has somewhere to go
+       and the column reads as a surface rather than a single input. */
+    min-height: 9rem;
+    overflow-wrap: anywhere;
     padding: 0.8rem;
     border: 1px dashed var(--border);
     border-radius: var(--radius-md);
@@ -367,11 +392,21 @@
     animation: caret-blink 1s steps(1) infinite;
   }
   @keyframes caret-blink { 50% { opacity: 0; } }
+  /* The width mobile board 6.1 gives the remote. Fixed, because a remote is a
+     physical object — it should not get wider just because the window did. */
   .remote-pad {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.9rem;
+    flex: 0 0 340px;
+    max-width: 340px;
+  }
+  .pad-caption {
+    margin: -0.2rem 0 0;
+    font-size: 0.76rem;
+    color: var(--fg-muted);
+    text-align: center;
   }
   /* A D-pad should look like one control, not four loose rectangles. The
      ring is a single disc; the four directions are transparent wedges laid
@@ -379,8 +414,8 @@
   .dpad {
     position: relative;
     display: grid;
-    grid-template-columns: repeat(3, 3.4rem);
-    grid-auto-rows: 3.4rem;
+    grid-template-columns: repeat(3, 5rem);
+    grid-auto-rows: 5rem;
     justify-items: stretch;
     border-radius: 50%;
     background: var(--bg-inset);
@@ -405,10 +440,10 @@
   }
   .dpad .ok {
     background: var(--bg-button);
-    border: 1px solid var(--border);
-    color: var(--fg-primary);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    color: var(--accent);
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
   }
   .dpad .ok:hover {
     background: var(--accent-strong);
@@ -420,15 +455,28 @@
   .remote-keys {
     display: grid;
     gap: 0.4rem;
-    width: max-content;
+    width: 100%;
   }
   .remote-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 0.4rem;
+    width: 100%;
   }
-  .remote-row .span-3 {
-    grid-column: 1 / -1;
+  /* Play is the one you reach for, so it gets the extra width — as on 6.1. */
+  .remote-row.transport-row {
+    grid-template-columns: 1fr 1.3fr 1fr;
+  }
+  .remote-row.nav-row {
+    margin-bottom: 0.2rem;
+  }
+  /* Destructive, so it carries the danger edge rather than a plain one. */
+  .remote-row button.power {
+    border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+    color: var(--danger);
+  }
+  .remote-row button.power:hover {
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   .dpad button,
   .remote-row button {
@@ -437,5 +485,9 @@
     justify-content: center;
     gap: 0.35rem;
   }
-  .remote-row button { padding: 0.45rem 0.3rem; white-space: nowrap; }
+  .remote-row button {
+    padding: 0.6rem 0.3rem;
+    white-space: nowrap;
+    border-radius: var(--radius-lg);
+  }
 </style>

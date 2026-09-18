@@ -84,6 +84,7 @@ export const ICONS = [
   "save",
   "delete",
   "content_copy",
+  "content_paste",
   "swap_horiz",
   "restore",
   "local_cafe",

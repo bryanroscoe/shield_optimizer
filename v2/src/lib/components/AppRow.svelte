@@ -209,11 +209,17 @@
     font-size: 0.95rem;
     font-weight: 500;
     min-width: 0;
+    /* A name longer than the column clips here rather than widening the table. */
+    overflow: hidden;
   }
+  /* The name never wraps and never shrinks: it is the one thing you read to
+     decide, and `.app-cell`'s inherited `overflow-wrap: anywhere` will happily
+     break "Funimation" across two lines if the item is allowed to narrow. The
+     package id beside it absorbs whatever width is left and ellipsises. */
   .app-name {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow-wrap: anywhere;
+    flex: none;
+    white-space: nowrap;
+    overflow-wrap: normal;
   }
   .app-desc {
     margin-top: 0.1rem;
