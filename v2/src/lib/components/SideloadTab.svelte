@@ -7,7 +7,7 @@
   import sideloadCatalog from "$lib/sideload-catalog.json";
   import type { DiscoveredApk } from "$lib/types";
 
-  let { serial }: { serial: string } = $props();
+  let { serial, deviceLabel = "" }: { serial: string; deviceLabel?: string } = $props();
 
   /// Path of the APK currently installing (null when idle) — per-path so a
   /// multi-APK list only shows the spinner on the row actually installing.
@@ -151,7 +151,10 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-sideload" aria-labelledby="tab-sideload">
   <div class="card-header">
-    <h2><Icon name="download" size={17} /> Install APK</h2>
+    <div class="header-title">
+      <h2><Icon name="download" size={17} /> Install APK</h2>
+      <p class="muted small mono header-sub">sideload to {deviceLabel || serial}</p>
+    </div>
     <div class="header-actions">
       <button onclick={pickApkFolder} disabled={sideloadBusy !== null || discoveryBusy}>
         {discoveryBusy ? "Scanning…" : "Choose folder…"}
@@ -166,19 +169,26 @@
     Either way, install runs <code>adb install -r &lt;file&gt;</code>.
   </p>
 
+  <div class="sideload-layout">
+    <div class="sideload-main">
   {#if savedFolder}
+    <!-- The board's watch-folder card: the path you scan, and the one control
+         that changes it, on one line. -->
     <div class="saved-folder">
-      <div class="saved-folder-path small">
-        <strong>Saved folder</strong>
-        <code>{savedFolder}</code>
+      <div class="saved-folder-head">
+        <span class="folder-icon" aria-hidden="true"><Icon name="folder_open" size={18} /></span>
+        <div class="saved-folder-path small">
+          <strong>Watch folder</strong>
+          <code>{savedFolder}</code>
+        </div>
+        <button
+          class="small-action"
+          onclick={scanSavedFolder}
+          disabled={discoveryBusy || sideloadBusy !== null}
+        >
+          {discoveryBusy ? "Scanning…" : "Scan folder"}
+        </button>
       </div>
-      <button
-        class="small-action"
-        onclick={scanSavedFolder}
-        disabled={discoveryBusy || sideloadBusy !== null}
-      >
-        {discoveryBusy ? "Scanning…" : "Scan saved folder"}
-      </button>
       <p class="muted small">
         Scanning reads APK files in this folder and checks whether detected apps are installed on
         this TV. Scanning does not install apps.
@@ -191,13 +201,13 @@
   {/if}
 
   {#if discoveredFolder && discoveredApks.length > 0}
-    <div class="apk-folder muted small mono">
-      Scanned folder: {discoveredFolder} — {discoveredApks.length} APK{discoveredApks.length === 1 ? "" : "s"} found
-    </div>
+    <p class="rail-label">Discovered APKs · {discoveredApks.length}</p>
+    <div class="apk-folder muted small mono">{discoveredFolder}</div>
     <ul class="apk-list">
       {#each discoveredApks as apk (apk.path)}
         <li>
           <div class="apk-row">
+            <span class="apk-icon" aria-hidden="true"><Icon name="android" size={18} /></span>
             <div class="apk-meta">
               <div class="apk-name">{apk.name}</div>
               <div class="muted small">
@@ -217,7 +227,11 @@
               onclick={() => installApkPath(apk.path)}
               disabled={sideloadBusy !== null}
             >
-              {sideloadBusy === apk.path ? "Installing…" : "Install"}
+              {sideloadBusy === apk.path
+                ? "Installing…"
+                : apk.package && apkInstallState[apk.package]
+                  ? "Reinstall"
+                  : "Install"}
             </button>
           </div>
           {#if sideloadResultPath === apk.path && sideloadResult}
@@ -231,6 +245,15 @@
     </ul>
   {:else if discoveredFolder}
     <p class="muted small">No <code>.apk</code> files in the scanned folder: {discoveredFolder}.</p>
+  {:else if !savedFolder}
+    <div class="sideload-empty">
+      <Icon name="download" size={28} />
+      <strong>No folder scanned yet</strong>
+      <span class="small">
+        Choose folder… to list every APK inside it and keep it for next time, or
+        Pick file… to install one straight away.
+      </span>
+    </div>
   {/if}
 
   {#if sideloadResult && !discoveredApks.some((a) => a.path === sideloadResultPath)}
@@ -240,33 +263,43 @@
     </div>
   {/if}
 
-  <details class="sideload-catalog">
-    <summary>Popular sideloads — common apps you download to install ({sideloadCatalog.length})</summary>
-    <p class="muted small">
-      Apps people commonly install that aren't on the Play Store. Links go to the
-      official source only — download the APK there, then install it with the
-      buttons above. You're sideloading third-party software; check it's the
-      official release.
-    </p>
-    <ul class="catalog-list">
-      {#each sideloadCatalog as entry (entry.package)}
-        <li>
-          <div>
-            <div class="apk-name">{entry.name}</div>
-            <div class="muted small">{entry.description}</div>
-            <div class="muted small mono">{entry.package}</div>
-          </div>
-          <button
-            class="small-action"
-            onclick={() => openDownloadPage(entry.url)}
-            title={entry.url}
-          >
-            Open download page
-          </button>
-        </li>
-      {/each}
-    </ul>
-  </details>
+    </div>
+
+    <!-- The board gives the catalog a permanent rail rather than a disclosure.
+         It is the answer to "what do I even install", so it should not be a
+         thing you have to know to open. -->
+    <aside class="sideload-rail">
+      <p class="rail-label">Suggested sideloads · {sideloadCatalog.length}</p>
+      <ul class="catalog-list">
+        {#each sideloadCatalog as entry (entry.package)}
+          <li>
+            <div class="catalog-text">
+              <div class="apk-name">{entry.name}</div>
+              <div class="muted small">{entry.description}</div>
+              <div class="muted small mono catalog-pkg">{entry.package}</div>
+            </div>
+            {#if apkInstallState[entry.package] === "enabled"}
+              <span class="tag installed">INSTALLED</span>
+            {:else if apkInstallState[entry.package] === "disabled"}
+              <span class="tag disabled">INSTALLED (disabled)</span>
+            {/if}
+            <button
+              class="catalog-get"
+              onclick={() => openDownloadPage(entry.url)}
+              title={`Open the official download page — ${entry.url}`}
+              aria-label={`Open the official download page for ${entry.name}`}
+            ><Icon name="download" size={16} /></button>
+          </li>
+        {/each}
+      </ul>
+      <p class="muted small rail-note">
+        Apps people commonly install that aren't on the Play Store. Links go to the
+        official source only — download the APK there, then install it with the
+        buttons on the left. You're sideloading third-party software; check it's the
+        official release.
+      </p>
+    </aside>
+  </div>
 </div>
 
 <style>
@@ -277,6 +310,105 @@
     gap: 0.8rem;
     align-items: center;
   }
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .header-title h2 {
+    margin: 0;
+  }
+  .header-sub {
+    margin: 0;
+  }
+  /* What you have on the left, what you could have on the right — board 11.9.
+     The catalog was a closed <details> at the bottom, which is the wrong place
+     for the answer to "what do I even install". */
+  .sideload-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
+    gap: 1.5rem;
+    align-items: start;
+    margin-top: 1rem;
+  }
+  .sideload-main,
+  .sideload-rail {
+    min-width: 0;
+  }
+  .rail-label {
+    margin: 1rem 0 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+  }
+  .sideload-rail .rail-label {
+    margin-top: 0;
+  }
+  .rail-note {
+    margin-top: 0.7rem;
+  }
+  .saved-folder-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  .folder-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.2rem;
+    height: 2.2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+    color: var(--fg-muted);
+  }
+  .saved-folder-head .saved-folder-path {
+    flex: 1;
+    min-width: 0;
+  }
+  .apk-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.2rem;
+    height: 2.2rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+    color: var(--ok);
+  }
+  .catalog-text {
+    flex: 1;
+    min-width: 0;
+  }
+  .catalog-pkg {
+    overflow-wrap: anywhere;
+  }
+  /* A link out, not an install — the icon says "fetch it", and the title says
+     where from, because sideloading somebody else's build deserves a name. */
+  .catalog-get {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .catalog-get:hover {
+    border-color: var(--border);
+    background: var(--bg-button-hover);
+  }
+
   .small {
     font-size: 0.82rem;
   }
@@ -366,13 +498,29 @@
     font-size: 0.88rem;
     word-break: break-all;
   }
-  .sideload-catalog {
-    margin-top: 1.5rem;
-    padding-top: 1.2rem;
-    border-top: 1px solid var(--border);
+  .catalog-text .apk-name {
+    font-family: var(--sans);
+    font-size: 0.92rem;
+    font-weight: 600;
+    word-break: normal;
   }
-  .sideload-catalog summary {
-    cursor: pointer;
+  /* Nothing scanned yet is a state, not a blank half-screen. */
+  .sideload-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2.5rem 1.5rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    text-align: center;
+    color: var(--fg-muted);
+  }
+  .sideload-empty :global(.msr) {
+    color: var(--fg-muted);
+  }
+  .sideload-empty strong {
+    color: var(--fg-secondary);
     font-weight: 600;
   }
   .catalog-list {

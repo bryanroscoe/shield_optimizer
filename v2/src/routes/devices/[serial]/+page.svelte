@@ -2637,7 +2637,7 @@
   {/if}
   {#if visited.sideload}
     <div hidden={activeTab !== "sideload"}>
-      <SideloadTab {serial} />
+      <SideloadTab {serial} deviceLabel={device?.name ?? ""} />
     </div>
   {/if}
   {#if visited.remote}

@@ -65,7 +65,7 @@ async function exerciseSideloadScan({ browser, base }) {
 
   // The remembered folder is shown, so the user can see what Scan would read.
   await page.getByText(SAVED_FOLDER, { exact: true }).waitFor();
-  const scanButton = page.getByRole("button", { name: "Scan saved folder" });
+  const scanButton = page.getByRole("button", { name: "Scan folder" });
   await scanButton.waitFor();
 
   let scans = await page.evaluate(() => window.__SCAN_CALLS__);
