@@ -362,3 +362,47 @@ textarea:focus-visible {
   letter-spacing: normal;
   font-weight: 500;
 }
+
+/* Callout — a bordered aside that states one fact and, optionally, offers the
+   one action that answers it. Global because three components now render one
+   and Svelte scopes styles per file. The tint lives on the border and the
+   icon, never on a fill, so a callout never competes with a lime action. */
+.callout {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.callout .msr {
+  color: var(--fg-muted);
+  margin-top: 0.1rem;
+  flex: none;
+}
+.callout-ok {
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+}
+.callout-ok .msr {
+  color: var(--ok);
+}
+.callout-warn {
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 7%, var(--bg-surface));
+}
+.callout-warn .msr {
+  color: var(--warn);
+}
+.callout-link {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}

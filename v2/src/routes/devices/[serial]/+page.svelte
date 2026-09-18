@@ -2077,7 +2077,12 @@
   {:else if activeTab === "launcher"}
     <div class="card" role="tabpanel" tabindex={0} id="tabpanel-launcher" aria-labelledby="tab-launcher">
       <div class="card-header">
-        <h2><Icon name="home" size={17} /> Launchers</h2>
+        <div class="header-title">
+          <h2><Icon name="home" size={17} /> Launcher</h2>
+          <p class="muted small mono header-sub">
+            home app resolution · {launchers.length} known launcher{launchers.length === 1 ? "" : "s"}
+          </p>
+        </div>
         <button onclick={loadLauncher} disabled={launcherLoading}>
           {launcherLoading ? "Loading…" : "Refresh"}
         </button>
@@ -2085,9 +2090,6 @@
       {#if launcherErr}
         <div class="error">{launcherErr}</div>
       {:else}
-        {#if currentLauncher?.package}
-          <p>Currently active: <strong>{currentLauncher.package}</strong></p>
-        {/if}
         {#if channelDisabled}
           <div class="warning">
             <Icon name="warning" size={15} /> <code>com.android.providers.tv</code> is disabled on this device. Watch Next / Continue
@@ -2097,40 +2099,43 @@
         {#if launchers.length === 0 && !launcherLoading}
           <p class="muted">No launchers loaded.</p>
         {:else}
+          <div class="launcher-head">
+            <span>Launcher</span><span>State</span><span class="right">Action</span>
+          </div>
           <ul class="launcher-list">
             {#each launchers as l}
               {@const isCurrent = currentLauncher?.package === l.entry.package}
               {@const busy = launcherActionBusy === l.entry.package}
-              <li>
-                <div>
-                  <div class="launcher-name">
-                    {l.entry.name}
-                    {#if isCurrent}
-                      <span class="tag installed">ACTIVE</span>
+              <li class:is-current={isCurrent}>
+                <div class="launcher-ident">
+                  <span class="launcher-icon" aria-hidden="true"><Icon name="home" size={18} /></span>
+                  <div class="launcher-text">
+                    <div class="launcher-name">{l.entry.name}</div>
+                    <div class="muted small mono launcher-pkg">{l.entry.package}</div>
+                    {#if busy && launcherProgress}
+                      <div class="launcher-progress" role="status" aria-live="polite">
+                        <span class="spinner" aria-hidden="true"></span>{launcherProgress}…
+                      </div>
                     {/if}
                   </div>
-                  <div class="muted small mono">{l.entry.package}</div>
-                  {#if busy && launcherProgress}
-                    <div class="launcher-progress" role="status" aria-live="polite">
-                      <span class="spinner" aria-hidden="true"></span>{launcherProgress}…
-                    </div>
+                </div>
+                <div class="tags">
+                  {#if l.stock}
+                    <span class="tag stock">STOCK</span>
+                  {:else if l.other}
+                    <span class="tag stock">HOME APP</span>
+                  {/if}
+                  {#if isCurrent}
+                    <span class="tag installed">ACTIVE</span>
+                  {/if}
+                  {#if l.installed}
+                    {#if !l.stock && !l.other}<span class="tag installed">INSTALLED</span>{/if}
+                    {#if !l.enabled}<span class="tag disabled">DISABLED</span>{/if}
+                  {:else}
+                    <span class="tag missing">MISSING</span>
                   {/if}
                 </div>
                 <div class="row-actions">
-                  <div class="tags">
-                    {#if l.stock}
-                      <span class="tag stock">STOCK</span>
-                    {:else if l.other}
-                      <span class="tag stock">HOME APP</span>
-                    {:else if l.installed}
-                      <span class="tag installed">INSTALLED</span>
-                    {:else}
-                      <span class="tag missing">MISSING</span>
-                    {/if}
-                    {#if l.installed && !l.enabled}
-                      <span class="tag disabled">DISABLED</span>
-                    {/if}
-                  </div>
                   {#if !l.installed}
                     <button
                       class="small-action"
@@ -2153,7 +2158,7 @@
                     {/if}
                     {#if !isCurrent}
                       <button
-                        class="primary small-action"
+                        class="small-action"
                         onclick={() => setDefaultLauncher(l.entry.package)}
                         disabled={launcherActionBusy !== null}
                         title={l.enabled
@@ -2166,23 +2171,54 @@
                     {#if !isCurrent && l.enabled}
                       <button
                         class="small-action subtle"
+                        class:danger={l.stock}
                         onclick={() => disableLauncher(l.entry.package)}
                         disabled={launcherActionBusy !== null}
-                        title="pm disable-user --user 0 {l.entry.package}"
+                        title={l.stock
+                          ? `pm disable-user --user 0 ${l.entry.package} — this is the TV's stock home app`
+                          : `pm disable-user --user 0 ${l.entry.package}`}
                       >{busy ? "Disabling…" : "Disable"}</button>
                     {:else if isCurrent}
+                      <!-- The reason it cannot be disabled is the callout under
+                           this table, so the row states the fact and the page
+                           states the why — once, rather than on every row. -->
                       <span
-                        class="muted small"
-                        title="Disabling the launcher you're currently using would leave the TV with no Home screen"
-                      >
-                        Set another launcher as default to disable this one
-                      </span>
+                        class="current-default"
+                        title="Disabling the launcher you're currently using would leave the TV with no Home screen. Set another launcher as default first."
+                      >Current default</span>
                     {/if}
                   {/if}
                 </div>
               </li>
             {/each}
           </ul>
+          <!-- The board also promises an automatic snapshot here. This app does
+               not take one, so the callout says what is true and points at the
+               tab that does it. -->
+          <div class="callout callout-warn launcher-callout">
+            <Icon name="warning" size={16} />
+            <span>
+              Disabling the current home app without setting a replacement first leaves the
+              TV with no home screen. Save a snapshot before you change this.
+            </span>
+            <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
+              Open snapshots
+            </button>
+          </div>
+          <div class="launcher-foot">
+            <div class="foot-card">
+              <span class="foot-label">Resolved home app</span>
+              <!-- `activity` is already a package/activity component; only
+                   fall back to the bare package when the TV gave us none. -->
+              <span class="mono foot-value">
+                {currentLauncher?.activity ?? currentLauncher?.package ?? "—"}
+              </span>
+            </div>
+            <div class="foot-card">
+              <span class="foot-label">State tags</span>
+              <span class="mono foot-value">stock · home app · installed · missing · disabled · active</span>
+            </div>
+          </div>
           {#if launcherActionMessage}
             <p class="muted small mono action-message">{launcherActionMessage}</p>
           {/if}
@@ -2753,21 +2789,6 @@
   }
   /* Neutral note, not a warning: it qualifies the scope of the action above
      rather than adding a second alarm. */
-  .callout {
-    display: flex;
-    gap: 0.6rem;
-    padding: 0.8rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg-surface);
-    color: var(--fg-secondary);
-    font-size: 0.8rem;
-    line-height: 1.45;
-  }
-  .callout :global(.msr) {
-    color: var(--fg-muted);
-    margin-top: 0.1rem;
-  }
   @media (max-width: 1100px) {
     .profile-layout {
       grid-template-columns: minmax(0, 1fr);
@@ -2887,25 +2908,6 @@
   }
   .live-toggle.on .live-dot {
     background: var(--ok);
-  }
-  .callout-link {
-    margin-left: auto;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--accent);
-    font: inherit;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .callout-ok {
-    border-color: color-mix(in srgb, var(--ok) 35%, transparent);
-  }
-  .callout-ok :global(.msr) {
-    color: var(--ok);
-  }
-  .callout-warn :global(.msr) {
-    color: var(--warn);
   }
   .trim-note {
     margin: 0.3rem 0 0;
@@ -3208,23 +3210,115 @@
   .mono {
     font-family: var(--mono);
   }
+  /* Three columns, as board 11.4 has it: who, what state, what you can do.
+     The state tags were sharing a flex row with the buttons, so a row with
+     three tags pushed its own actions off the edge. */
+  .launcher-head,
+  .launcher-list li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 20rem);
+    align-items: center;
+    gap: 1rem;
+  }
+  .launcher-head {
+    padding: 0 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg-muted);
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .launcher-head .right {
+    text-align: right;
+  }
   .launcher-list {
     list-style: none;
     padding: 0;
-    margin: 0.5rem 0 0;
+    margin: 0;
   }
   .launcher-list li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.7rem 0;
+    padding: 0.7rem 0.6rem;
     border-bottom: 1px solid var(--border);
   }
+  /* The row you are actually running gets the tint; everything else recedes. */
+  .launcher-list li.is-current {
+    background: var(--accent-surface);
+  }
+  .launcher-list li.is-current .launcher-icon {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+  }
+  .launcher-ident {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+  .launcher-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.4rem;
+    height: 2.4rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+    color: var(--fg-muted);
+  }
+  .launcher-text {
+    min-width: 0;
+  }
+  .launcher-pkg {
+    overflow-wrap: anywhere;
+  }
   .launcher-name {
-    font-weight: 500;
+    font-weight: 600;
+  }
+  .launcher-callout {
+    margin-top: 1rem;
+  }
+  /* The two reference panels the board ends on: what the TV actually resolved,
+     and what the tags above mean. */
+  .launcher-foot {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  .foot-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-inset);
+    min-width: 0;
+  }
+  .foot-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
+  }
+  .foot-value {
+    font-size: 0.85rem;
+    overflow-wrap: anywhere;
+  }
+  .current-default {
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+    color: var(--fg-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: default;
   }
   .tags {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.4rem;
   }
   .tag {
@@ -3317,6 +3411,23 @@
     gap: 0.4rem;
     align-items: center;
     flex-wrap: wrap;
+  }
+  /* Right-aligned under an "Action" heading that is itself right-aligned. */
+  .launcher-list .row-actions {
+    justify-content: flex-end;
+  }
+  /* Title over a mono subtitle, as every board 11.x header has it. */
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .header-title h2 {
+    margin: 0;
+  }
+  .header-sub {
+    margin: 0;
   }
   .small-action {
     padding: 0.2rem 0.6rem;

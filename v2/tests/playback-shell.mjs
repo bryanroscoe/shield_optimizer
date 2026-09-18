@@ -78,7 +78,7 @@ async function exerciseFeatures(browser, base) {
   assert.equal((await calls("run_shell")).length, 0, "keyboard shortcut must respect acknowledgment");
   await shell.getByRole("checkbox", { name: /I understand these risks/ }).check();
   await shell.getByRole("textbox", { name: "Bookmark name" }).fill("Saved uptime");
-  await shell.getByRole("button", { name: "Save bookmark", exact: true }).click();
+  await shell.getByRole("button", { name: "Bookmark current command", exact: true }).click();
   await editor.fill("different command");
   await shell.getByRole("button", { name: "Saved uptime", exact: true }).click();
   assert.equal(await editor.inputValue(), "uptime");

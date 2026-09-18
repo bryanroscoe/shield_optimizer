@@ -3,6 +3,7 @@
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
+  import type { IconName } from "$lib/icons";
   import appFilesCatalog from "$lib/app-files-catalog.json";
   import type { Device, FileEntry, FindResult } from "$lib/types";
 
@@ -182,14 +183,36 @@
   }
 
   onMount(() => loadFiles(filesPath));
+
+  /// Board 11.8 gives each row a glyph for what the file is. Extension-based,
+  /// because that is all `ls` tells us — an unrecognised extension falls back
+  /// to the generic document rather than guessing.
+  function fileIcon(name: string): IconName {
+    const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+    if (ext === "apk") return "android";
+    if (["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) return "image";
+    if (["txt", "log"].includes(ext)) return "terminal";
+    return "description";
+  }
 </script>
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-files" aria-labelledby="tab-files">
   <div class="card-header">
-    <h2><Icon name="folder" size={17} /> Files</h2>
+    <div class="header-title">
+      <h2><Icon name="folder" size={17} /> Files</h2>
+      <p class="muted small mono header-sub">
+        {#if filesEntries}
+          {filesEntries.length} item{filesEntries.length === 1 ? "" : "s"} · {formatSize(
+            filesEntries.reduce((n, f) => n + (f.is_dir ? 0 : (f.size_bytes ?? 0)), 0),
+          )} in this folder
+        {:else}
+          browsing the device
+        {/if}
+      </p>
+    </div>
     <div class="header-actions">
-      <button onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
-        {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}
+      <button class="primary" onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
+        <Icon name="upload" size={15} /> {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}
       </button>
       <button onclick={() => loadFiles(filesPath)} disabled={filesLoading}>
         {filesLoading ? "Loading…" : "Refresh"}
@@ -316,7 +339,7 @@
   {:else}
     <table class="files-table">
       <thead>
-        <tr><th>Name</th><th class="num">Size</th><th>Modified</th><th></th></tr>
+        <tr><th>Name</th><th class="num">Size</th><th class="num">Modified</th><th class="num">Actions</th></tr>
       </thead>
       <tbody>
         {#each filesEntries as f (f.name)}
@@ -328,45 +351,57 @@
                 </button>
               {:else}
                 <span>
-                  <Icon name={f.is_symlink ? "link" : "description"} size={16} />
+                  <Icon name={f.is_symlink ? "link" : fileIcon(f.name)} size={16} />
                   {f.name}
                 </span>
               {/if}
             </td>
-            <td class="num muted">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
-            <td class="muted small">{f.modified}</td>
+            <td class="num muted mono">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
+            <td class="num muted small mono">{f.modified}</td>
+            <!-- Icon-only, per the board: three verbs spelled out on every row
+                 crowded out the names they belonged to. Each keeps its title
+                 and gains an aria-label, and the legend is under the table. -->
             <td class="row-actions">
-              {#if !f.is_dir && !f.is_symlink}
+              {#if f.is_dir}
                 <button
-                  class="small-action"
+                  class="file-tool"
+                  onclick={() => loadFiles(`${filesPath}/${f.name}`)}
+                  title="Open {f.name}"
+                  aria-label={`Open the folder ${f.name}`}
+                ><Icon name="chevron_right" size={16} /></button>
+              {:else if !f.is_symlink}
+                <button
+                  class="file-tool"
                   onclick={() => downloadFile(f.name)}
                   disabled={filesBusy !== null}
                   title="Save this file to a folder on this computer"
-                >
-                  {filesBusy === f.name ? "…" : "Download"}
-                </button>
+                  aria-label={`Download ${f.name}`}
+                ><Icon name="download" size={16} /></button>
                 <button
-                  class="small-action subtle"
+                  class="file-tool"
                   onclick={() => startFileCopy(f.name)}
                   disabled={filesBusy !== null}
                   title="Copy this file to another connected device"
-                >
-                  Copy to…
-                </button>
+                  aria-label={`Copy ${f.name} to another device`}
+                ><Icon name="swap_horiz" size={16} /></button>
               {/if}
               <button
-                class="small-action subtle danger"
+                class="file-tool danger"
                 onclick={() => deleteEntry(f)}
                 disabled={filesBusy !== null}
                 title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
-              >
-                Delete
-              </button>
+                aria-label={`Delete ${f.name} from the device`}
+              ><Icon name="delete" size={16} /></button>
             </td>
           </tr>
         {/each}
       </tbody>
     </table>
+    <p class="tool-legend">
+      <span><Icon name="download" size={14} /> download</span>
+      <span><Icon name="swap_horiz" size={14} /> copy to device</span>
+      <span><Icon name="delete" size={14} /> delete from TV</span>
+    </p>
   {/if}
 </div>
 
@@ -416,6 +451,11 @@
     font-family: var(--mono);
     font-size: 0.85rem;
   }
+  .files-table .row-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.2rem;
+  }
   .row-actions {
     display: flex;
     gap: 0.4rem;
@@ -426,15 +466,57 @@
     padding: 0.2rem 0.6rem;
     font-size: 0.78rem;
   }
-  .small-action.danger {
-    background: var(--bg-button);
-    border-color: var(--danger-surface);
-    color: var(--danger-strong);
+  /* Icon-only row tools. Borderless until hovered, so a long listing is a list
+     of files rather than a wall of buttons. */
+  .file-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--fg-muted);
+    cursor: pointer;
   }
-  .small-action.danger:hover {
+  .file-tool:hover:not(:disabled) {
+    border-color: var(--border);
+    background: var(--bg-button-hover);
+    color: var(--fg-primary);
+  }
+  .file-tool.danger {
+    color: var(--danger);
+  }
+  .file-tool.danger:hover:not(:disabled) {
+    border-color: var(--danger);
     background: var(--danger-surface);
     color: var(--danger-surface-text);
-    border-color: var(--danger-strong);
+  }
+  .tool-legend {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+  .tool-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .header-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .header-title h2 {
+    margin: 0;
+  }
+  .header-sub {
+    margin: 0;
   }
   .small-action.subtle {
     background: transparent;

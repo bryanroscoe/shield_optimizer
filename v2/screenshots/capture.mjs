@@ -114,7 +114,9 @@ async function captureScreens(page, shot) {
 
     // 11. Files.
     await page.locator("#tab-files").click();
-    await page.getByText("Download", { exact: true }).first().waitFor();
+    // The row tools are icons now, and the legend's text node sits beside an
+    // icon ligature, so wait on a listing row landing instead.
+    await page.locator(".files-table tbody tr").first().waitFor();
     await shot("files");
 
     // 12. Install APK.
