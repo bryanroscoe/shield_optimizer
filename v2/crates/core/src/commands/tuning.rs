@@ -205,6 +205,12 @@ pub enum DisplayScalePreset {
     /// 1920x1080 @ density 320.
     #[serde(rename = "fhd_1080p")]
     Fhd1080p,
+    /// 1280x720 @ density 213. A quarter of 1080p's pixels again — the
+    /// cheapest the UI can render while staying a supported TV resolution.
+    /// Density 213 keeps UI elements the same physical size as the other two
+    /// presets (720/1080 x 320, rounded to Android's tvdpi bucket).
+    #[serde(rename = "hd_720p")]
+    Hd720p,
     /// Reset both to device defaults.
     #[serde(rename = "reset")]
     Reset,
@@ -221,6 +227,7 @@ pub async fn set_display_scaling(
     let cmds: Vec<&str> = match preset {
         DisplayScalePreset::Uhd4k => vec!["wm size 3839x2160", "wm density 640"],
         DisplayScalePreset::Fhd1080p => vec!["wm size 1920x1080", "wm density 320"],
+        DisplayScalePreset::Hd720p => vec!["wm size 1280x720", "wm density 213"],
         DisplayScalePreset::Reset => vec!["wm size reset", "wm density reset"],
     };
     let cmd = cmds.join("; ");

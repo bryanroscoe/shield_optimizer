@@ -149,6 +149,7 @@ pub fn run() {
             input::open_settings,
             sideload::install_apk,
             sideload::list_apks_in_folder,
+            sideload::inspect_apk,
             backup::backup_apk,
             backup::clone_app,
             files::list_dir,

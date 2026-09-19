@@ -186,8 +186,27 @@ button.primary {
   border-color: var(--accent);
   color: var(--accent-ink);
 }
-button.primary:hover {
+button.primary:hover:not(:disabled) {
   background: var(--accent-strong-hover);
+}
+/* There was no disabled rule at all, so a disabled button looked exactly like
+   a live one — a full lime Run that did nothing when clicked. A disabled
+   control has to look inert: it loses the accent fill, drops to muted ink, and
+   takes a not-allowed cursor so the pointer says so before the click does. */
+button:disabled,
+button[aria-disabled="true"] {
+  background: var(--bg-inset);
+  border-color: var(--border);
+  color: var(--fg-muted);
+  cursor: not-allowed;
+}
+button.primary:disabled {
+  background: var(--bg-inset);
+  border-color: var(--border);
+  color: var(--fg-muted);
+}
+button:disabled:hover {
+  background: var(--bg-inset);
 }
 button.danger {
   background: var(--danger);

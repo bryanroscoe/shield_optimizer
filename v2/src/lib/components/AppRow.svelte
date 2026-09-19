@@ -19,6 +19,7 @@
     review = false,
     extraTag,
     extraTagKind = "neutral",
+    userInstalled = false,
     state: pkgState,
     mb,
     usage,
@@ -40,6 +41,10 @@
     /// package inventories.
     extraTag?: string;
     extraTagKind?: "neutral" | "ok";
+    /// A package the device reports as non-system. It still gets no verdict —
+    /// we have not reviewed it — but "not in any reviewed list" reads as a
+    /// warning when the honest answer is "you put this here".
+    userInstalled?: boolean;
     state: "enabled" | "disabled" | "missing" | null;
     mb?: number;
     usage?: AppUsage;
@@ -82,6 +87,12 @@
       return safetyUnavailableReason?.trim()
         ? `Could not be checked — ${safetyUnavailableReason.trim()}`
         : "Could not be checked";
+    }
+    if (safety.source === "no_record" && userInstalled) {
+      // Not an upgrade of the verdict — the kind stays Unknown. This only
+      // says which kind of unknown it is, which is the part that decides
+      // whether you can reason about it at all.
+      return "Not in any reviewed list · you installed this, not the system";
     }
     return safetySourceLabel(safety.source);
   }
@@ -147,11 +158,17 @@
   <td class={`verdict-cell safety-${safetyClass()}`}>
     <button
       class="safety-toggle"
+      class:open={detailOpen}
       aria-expanded={detailOpen}
       title={detailOpen ? "Hide the full reason" : "Show the full reason"}
       onclick={() => onToggleDetail?.()}
     >
-      <span class="verdict-chip">{safetyLabel()}</span>
+      <span class="verdict-top">
+        <span class="verdict-chip">{safetyLabel()}</span>
+        <!-- The row already opens; nothing said so. A chevron that turns is
+             the cheapest way to make a disclosure look like one. -->
+        <span class="verdict-caret" aria-hidden="true"><Icon name="expand_more" size={16} /></span>
+      </span>
       <span class="verdict-source">{safetySource()}</span>
     </button>
   </td>
@@ -166,7 +183,13 @@
     {#if usage && showUsage}
       <UsageBadge {usage} bare />
     {:else}
-      <span class="muted dash">—</span>
+      <!-- A dash is "we have no record", which is not the same as "never
+           opened" — usagestats ages out and resets on a wipe. -->
+      <span
+        class="muted dash"
+        title="No usage record. Android's usagestats history is limited (roughly a year of rolling buckets) and is cleared by a factory reset, so this can mean the app aged out rather than that it was never opened."
+        data-tip="No usage record"
+      >—</span>
     {/if}
   </td>
   {@render actions()}
@@ -177,7 +200,10 @@
       <div class="safety-detail">
         <span class={`safety-detail-kind safety-${safetyClass()}`}>{safetyLabel()}</span>
         <p class="safety-detail-reason">{safetyReason()}</p>
-        {#if description}
+        <!-- Only when the reason does not already contain it: a catalog verdict
+             appends the app's own description to its sentence, so printing the
+             description again underneath said the same thing twice. -->
+        {#if description && !safetyReason().includes(description.trim())}
           <p class="muted small safety-detail-desc">{description}</p>
         {/if}
         <p class="muted small safety-detail-source mono">{pkg}</p>
@@ -322,6 +348,8 @@
     width: 22%;
     max-width: 0;
   }
+  /* The whole cell is the target, not just the chip: a two-line block with a
+     click area the size of one word is a disclosure you have to aim at. */
   .safety-toggle {
     display: flex;
     flex-direction: column;
@@ -329,16 +357,34 @@
     gap: 0.2rem;
     width: 100%;
     background: none;
-    border: none;
-    padding: 0.15rem 0.3rem;
+    border: 1px solid transparent;
+    padding: 0.4rem 0.5rem;
+    margin: -0.4rem -0.5rem;
     font: inherit;
     color: inherit;
     text-align: left;
     cursor: pointer;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
   }
   .safety-toggle:hover {
     background: var(--bg-button-hover);
+    border-color: var(--border);
+  }
+  .verdict-top {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .verdict-caret {
+    display: inline-flex;
+    color: var(--fg-muted);
+    transition: transform 0.15s;
+  }
+  .safety-toggle:hover .verdict-caret {
+    color: var(--fg-secondary);
+  }
+  .safety-toggle.open .verdict-caret {
+    transform: rotate(180deg);
   }
   /* Filled chip, per the board — the old treatment coloured the text only, so
      PROTECTED and UNKNOWN were typographically identical at a glance. */

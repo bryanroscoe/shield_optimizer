@@ -205,6 +205,20 @@ export interface DiscoveredApk {
   package: string | null;
 }
 
+/// What an APK claims about itself, read before anything is installed.
+/// `abi_compatible: null` means we could not establish it — never render that
+/// as a mismatch.
+export interface ApkInspection {
+  path: string;
+  name: string;
+  size_bytes: number;
+  package: string | null;
+  abis: string[];
+  device_abis: string[];
+  abi_compatible: boolean | null;
+  already_installed: boolean;
+}
+
 export interface BackupApkResult {
   ok: boolean;
   files: string[];
@@ -365,7 +379,7 @@ export interface WriteResult {
   message: string;
 }
 
-export type DisplayScalePreset = "uhd_4k" | "fhd_1080p" | "reset";
+export type DisplayScalePreset = "uhd_4k" | "fhd_1080p" | "hd_720p" | "reset";
 
 export interface DisplayScaleResult {
   ok: boolean;

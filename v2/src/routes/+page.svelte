@@ -210,6 +210,25 @@
   // Best-effort discovery on boot: if no devices show up after the initial
   // refresh and adb is available, kick off a scan so users with already-paired
   // devices don't have to click anything. v1 behaved similarly.
+  let forgetBusy = $state<string | null>(null);
+
+  /// Drop a network transport so the row stops appearing. Only offered for
+  /// network devices: `adb disconnect` is the only thing "forget" can mean
+  /// here, and it has nothing to drop for a USB one. Not a delete — the TV is
+  /// untouched and reconnects the moment you add it again.
+  async function forgetDevice(d: Device) {
+    if (d.connection !== "network") return;
+    forgetBusy = d.serial;
+    try {
+      await api.disconnectDevice(d.serial);
+      await refresh();
+    } catch (e) {
+      connectMessage = `Could not disconnect ${d.serial}: ${e}`;
+    } finally {
+      forgetBusy = null;
+    }
+  }
+
   async function bootDiscovery() {
     await refresh();
     if (adbMissing) return;
@@ -454,6 +473,20 @@
                 </div>
               {/if}
             </div>
+            <!-- Only for network transports: "forget" here is `adb disconnect`,
+                 and there is nothing to disconnect on USB. It removes the row,
+                 not the device — adding the address back brings it straight
+                 home. -->
+            {#if d.connection === "network"}
+              <button
+                class="forget-btn"
+                onclick={() => forgetDevice(d)}
+                disabled={forgetBusy !== null}
+                title="adb disconnect {d.serial} — removes this row; the TV itself is untouched"
+              >
+                {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
+              </button>
+            {/if}
           </div>
         {/if}
       </li>
@@ -561,6 +594,12 @@
     background: var(--ok);
   }
   /* Lime, because it is the one thing on the row that does something. */
+  .forget-btn {
+    flex: none;
+    align-self: flex-start;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.82rem;
+  }
   .device-go {
     display: inline-flex;
     flex: none;

@@ -644,8 +644,20 @@
 
     <h3>Display Scaling</h3>
     <p class="muted small">
-      Forces a specific resolution + density via <code>wm size</code> + <code>wm density</code>.
-      Mostly for Shield TV — useful for testing 1080p mode on a 4K device.
+      Tells Android to render the whole UI at a different resolution than the
+      panel, via <code>wm size</code> and <code>wm density</code>. The TV still
+      outputs at its native resolution — it just upscales what Android drew.
+    </p>
+    <p class="muted small">
+      <strong>Why you'd drop it:</strong> a 4K Shield renders four times the
+      pixels of a 1080p one for the same launcher. Rendering at 1080p makes the
+      UI and app menus noticeably lighter on GPU and RAM, at the cost of
+      sharpness in text and icons. Video is unaffected — players decode at the
+      source resolution regardless. <strong>Why you'd raise it:</strong> to put
+      it back, or to check how something looks at a size you don't own.
+      Density is how large UI elements are drawn; the presets pair each
+      resolution with a density that keeps things roughly the same physical
+      size.
     </p>
     {#if currentDisplayScaling}
       <div class="current-scaling muted small mono">
@@ -660,16 +672,24 @@
         disabled={displayScaleBusy !== null}
         onclick={() => applyDisplayScaling("uhd_4k")}
       >
-        <span class="scale-title">{displayScaleBusy === "uhd_4k" ? "Applying…" : "Shield 4K"}</span>
-        <span class="muted small">3839×2160, density 640</span>
+        <span class="scale-title">{displayScaleBusy === "uhd_4k" ? "Applying…" : "4K"}</span>
+        <span class="muted small">3839×2160, density 640 — Shield rejects 3840</span>
       </button>
       <button
         class="scale-option"
         disabled={displayScaleBusy !== null}
         onclick={() => applyDisplayScaling("fhd_1080p")}
       >
-        <span class="scale-title">{displayScaleBusy === "fhd_1080p" ? "Applying…" : "Shield 1080p"}</span>
-        <span class="muted small">1920×1080, density 320</span>
+        <span class="scale-title">{displayScaleBusy === "fhd_1080p" ? "Applying…" : "1080p"}</span>
+        <span class="muted small">1920×1080, density 320 — a quarter of 4K's pixels</span>
+      </button>
+      <button
+        class="scale-option"
+        disabled={displayScaleBusy !== null}
+        onclick={() => applyDisplayScaling("hd_720p")}
+      >
+        <span class="scale-title">{displayScaleBusy === "hd_720p" ? "Applying…" : "720p"}</span>
+        <span class="muted small">1280×720, density 213 — lightest; UI gets soft</span>
       </button>
       <button
         class="scale-option"
@@ -683,6 +703,15 @@
     {#if displayScaleMessage}
       <p class="muted small mono action-message">{displayScaleMessage}</p>
     {/if}
+    <div class="callout callout-warn scale-note">
+      <Icon name="warning" size={16} />
+      <span>
+        A size or density the TV dislikes can leave the UI unreadable or the
+        launcher off-screen. Reset puts both back; if you cannot see well enough
+        to click it, rebooting the TV does not clear an override, so use Reset
+        from here or <code>wm size reset</code> from the Shell tab.
+      </span>
+    </div>
   {/if}
 </div>
 
@@ -828,6 +857,9 @@
     padding: 0.5rem 0.7rem;
     margin: 0.4rem 0 0.6rem;
     line-height: 1.4;
+  }
+  .scale-note {
+    margin-top: 0.8rem;
   }
   .scale-options {
     display: grid;

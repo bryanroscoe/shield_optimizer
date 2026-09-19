@@ -459,7 +459,8 @@
            it for state makes the app's one action colour ambiguous. A
            segmented control shows which mode you are in without borrowing
            the action colour, and matches the two-choice settings in Tweaks. -->
-      <div class="mode-box" role="group" aria-label="Plan mode">
+      <span class="mode-label" id="plan-mode-label">Plan</span>
+      <div class="mode-box" role="group" aria-labelledby="plan-mode-label">
         <button
           class="mode-btn"
           class:active={optimizeMode === "optimize"}
@@ -814,11 +815,24 @@
     background: var(--bg-button-hover);
     color: var(--fg-primary);
   }
+  /* A segmented control with both halves in surface grey reads as chrome, not
+     as a choice you have made. The armed half now carries a visible edge and a
+     shadow so it looks pressed, and the label beside it says what is being
+     chosen — without this, "Optimize | Restore" looked like a toggle switch
+     someone else had already set. */
   .mode-btn.active {
     background: var(--bg-surface);
-    border-color: var(--border);
+    border-color: var(--accent);
     color: var(--fg-primary);
     font-weight: 600;
+    box-shadow: 0 1px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  .mode-label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-muted);
   }
   .header-sub {
     margin: 0 0 0.3rem;

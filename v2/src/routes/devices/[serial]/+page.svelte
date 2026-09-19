@@ -547,7 +547,15 @@
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
       apps = list;
       const packages = list.map((a) => a.package);
-      packageSafety = Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }]));
+      // Merge, never replace. "Everything else" writes into this same map from
+      // its own async loader, and a whole-object assignment here dropped every
+      // verdict that loader had already resolved — leaving those rows with no
+      // entry at all, which renders as "Safety unavailable · could not be
+      // checked" with nothing to say why, because there was no failure.
+      packageSafety = {
+        ...packageSafety,
+        ...Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }])),
+      };
       const [stateResult, safetyResults] = await Promise.all([
         api.packageStates(context.serial, packages),
         Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg))),
@@ -559,12 +567,15 @@
       catalogInventoryVersion++;
       const unavailableCount = packages.length - Object.keys(appStates).length;
       if (unavailableCount > 0) appsErr = `State unavailable for ${unavailableCount} package(s). Refresh before taking action.`;
-      packageSafety = Object.fromEntries(packages.map((pkg, index) => {
-        const result = safetyResults[index];
-        return result.status === "fulfilled"
-          ? [pkg, { status: "ready", verdict: result.value } satisfies SafetyStatus]
-          : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
-      }));
+      packageSafety = {
+        ...packageSafety,
+        ...Object.fromEntries(packages.map((pkg, index) => {
+          const result = safetyResults[index];
+          return result.status === "fulfilled"
+            ? [pkg, { status: "ready", verdict: result.value } satisfies SafetyStatus]
+            : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
+        })),
+      };
       appsLoaded = true;
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
@@ -2282,7 +2293,12 @@
                 title="Our verdict on removing it, and which list it came from — click a row's verdict for the full reason. Anything we can't vouch for needs an explicit tick before it can be removed."
               >Verdict &amp; source</th>
               <th class="right" title="Resident RAM right now (dumpsys meminfo).">RAM</th>
-              <th class="right" title="Last foreground use from usagestats.">Last used</th>
+              <th
+                class="right"
+                title="Last foreground use, from Android's usagestats. History is limited — roughly a year of rolling buckets — and is cleared by a factory reset, so a dash can mean the record aged out rather than that the app was never opened."
+                data-tip="Limited history — see tooltip"
+                data-tip-align="end"
+              >Last used</th>
               <th class="controls-start">Actions</th>
             </tr>
           </thead>
@@ -2311,6 +2327,7 @@
                 {#snippet actions()}
                 <td class="rec-cell controls-start">
                   <div class="actions-cell">
+                    <div class="row-verbs">
                   {#if rec.kind === "act"}
                     <button
                       class="small-action recommended"
@@ -2385,13 +2402,24 @@
                       title="pm enable"
                     >Enable</button>
                   {/if}
+                    </div>
                   <!-- One Actions column, split by a hairline: the decision on
                        the left, the always-available tools on the right as
                        icons. Spelling the three tools out in words cost more
                        width than the package ids did, which is what pushed the
                        App column into truncating them. The legend under the
-                       table names them. -->
+                       table names them.
+
+                       The tools sit in a fixed three-slot grid, and a tool a
+                       row does not have leaves its slot empty rather than
+                       shifting the others — so every icon is in the same place
+                       on every row and you can travel down the column. -->
                   <span class="tool-sep" aria-hidden="true"></span>
+                  <div class="row-tools">
+                  {#if state === "missing"}
+                    <span class="tool-slot-empty" aria-hidden="true"></span>
+                    <span class="tool-slot-empty" aria-hidden="true"></span>
+                  {/if}
                   {#if state !== "missing"}
                     <button
                       class="tool-btn"
@@ -2420,7 +2448,10 @@
                       data-tip-align="end"
                       aria-label={`Open ${a.name} on the Play Store`}
                     ><Icon name="shop" size={16} /></button>
+                  {:else}
+                    <span class="tool-slot-empty" aria-hidden="true"></span>
                   {/if}
+                  </div>
                   </div>
                 </td>
                 {/snippet}
@@ -2488,6 +2519,7 @@
                     safetyUnavailableReason={safety?.status === "unavailable" ? safety.reason : undefined}
                     extraTag={o.system ? "SYSTEM" : "3RD-PARTY"}
                     extraTagKind={o.system ? "neutral" : "ok"}
+                    userInstalled={!o.system}
                     detailOpen={expandedSafety === o.package}
                     onToggleDetail={() =>
                       (expandedSafety = expandedSafety === o.package ? null : o.package)}
@@ -2495,13 +2527,16 @@
                     {#snippet actions()}
                     <td class="rec-cell controls-start">
                       <div class="actions-cell">
+                        <div class="row-verbs">
                         {#if o.enabled}
                           <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Needs a completed safety check and a current package list">Disable</button>
                           <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} title="Needs a completed safety check and a current package list">Uninstall</button>
                         {:else}
                           <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight} title="pm enable">Enable</button>
                         {/if}
+                        </div>
                         <span class="tool-sep" aria-hidden="true"></span>
+                        <div class="row-tools">
                         <button
                           class="tool-btn"
                           onclick={() => backupApkFor(o.package)}
@@ -2518,6 +2553,8 @@
                       data-tip="Copy to another TV"
                           aria-label={`Copy ${o.name ?? o.package} to another TV`}
                         ><Icon name="swap_horiz" size={16} /></button>
+                        <span class="tool-slot-empty" aria-hidden="true"></span>
+                        </div>
                       </div>
                     </td>
                     {/snippet}
@@ -3037,12 +3074,14 @@
     background: currentColor;
   }
   /* Five cards, each stating what its figure is measured against. */
+  /* No min-height: a card with no bar (Swap, which reports a figure and
+     nothing to scale it against) was padded out to match the ones that have
+     one, which is where most of the empty space came from. */
   .stat-card {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    min-height: 7rem;
-    padding: 0.9rem 1rem;
+    gap: 0.45rem;
+    padding: 0.75rem 0.85rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--bg-surface-2);
@@ -3063,7 +3102,7 @@
     white-space: nowrap;
   }
   .stat-big {
-    font-size: 1.9rem;
+    font-size: 1.6rem;
     font-weight: 600;
     line-height: 1;
   }
@@ -3118,22 +3157,14 @@
   /* Five across, as the board has them, collapsing rather than reflowing into
      an orphan. They sit straight on the page: wrapping them in a card put a
      border around five bordered things. */
+  /* Fit as many as the width allows rather than dropping to a fixed three and
+     orphaning the fifth on a row of its own. */
   .stat-tiles {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: 0.6rem;
     margin: 0;
     align-items: stretch;
-  }
-  @media (max-width: 1250px) {
-    .stat-tiles {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-  }
-  @media (max-width: 760px) {
-    .stat-tiles {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
   }
   .stat-pending {
     color: var(--fg-muted);
@@ -3262,14 +3293,36 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
+    justify-content: space-between;
   }
   /* Labels and verbs in the action cell are single-line things. Wrapped, they
      made every row a different height and "Remove if unused" stacked into a
      three-line block. */
-  .app-table .actions-cell > .muted,
-  .app-table .actions-cell > .done,
-  .app-table .actions-cell button {
+  .app-table .actions-cell button,
+  .app-table .row-verbs > .muted,
+  .app-table .row-verbs > .done {
     white-space: nowrap;
+  }
+  .app-table .row-verbs {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1;
+    min-width: 0;
+  }
+  /* Three fixed slots, so an icon is in the same place on every row and the
+     column can be read straight down. A row without a Play Store link leaves
+     that slot empty instead of sliding the other two across. */
+  .app-table .row-tools {
+    display: grid;
+    grid-template-columns: repeat(3, 2rem);
+    justify-items: center;
+    align-items: center;
+    flex: none;
+  }
+  .tool-slot-empty {
+    display: block;
+    width: 2rem;
   }
   /* The verb buttons keep their own spacing rule; inside a flex row the old
      margin-right would double up with the gap. */

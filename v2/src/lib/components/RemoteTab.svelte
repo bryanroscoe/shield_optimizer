@@ -247,16 +247,17 @@
       <!-- D-pad uses pointerdown/up (not click) so holding a direction
            auto-repeats on the fast channel; pointerleave/cancel stop the
            repeat if the cursor slides off mid-hold. -->
+      <!-- Four wedges, not a 3x3 grid. The grid left the four corners of the
+           disc dead — about a third of the target area did nothing — so each
+           direction is now a quarter of the circle, clipped to a triangle.
+           `clip-path` clips hit testing too, so the wedges meet exactly and
+           there is nowhere inside the disc that is not a direction. -->
       <div class="dpad">
-        <span></span>
-        <button onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad up (hold to repeat)" aria-label="D-pad up"><Icon name="keyboard_arrow_up" size={22} /></button>
-        <span></span>
-        <button onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)" aria-label="D-pad left"><Icon name="keyboard_arrow_left" size={22} /></button>
+        <button class="dir up" onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad up (hold to repeat)" aria-label="D-pad up"><Icon name="keyboard_arrow_up" size={24} /></button>
+        <button class="dir right" onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad right (hold to repeat)" aria-label="D-pad right"><Icon name="keyboard_arrow_right" size={24} /></button>
+        <button class="dir down" onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={24} /></button>
+        <button class="dir left" onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)" aria-label="D-pad left"><Icon name="keyboard_arrow_left" size={24} /></button>
         <button class="ok" onclick={() => sendRemoteKey("select")} title="Select / OK">OK</button>
-        <button onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad right (hold to repeat)" aria-label="D-pad right"><Icon name="keyboard_arrow_right" size={22} /></button>
-        <span></span>
-        <button onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={22} /></button>
-        <span></span>
       </div>
       <!-- What the status pill's tooltip used to hide. It changes with the
            transport, and it is the one thing you need to know before you hold
@@ -430,32 +431,60 @@
      over it in a 3x3 grid, with OK as a raised centre. */
   .dpad {
     position: relative;
-    display: grid;
-    grid-template-columns: repeat(3, 5rem);
-    grid-auto-rows: 5rem;
-    justify-items: stretch;
+    width: 16rem;
+    height: 16rem;
     border-radius: 50%;
     background: var(--bg-inset);
     border: 1px solid var(--border);
-    padding: 0.35rem;
-    width: max-content;
+    overflow: hidden;
   }
-  .dpad button {
-    background: none;
+  .dpad .dir {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    padding: 0.9rem;
     border: none;
-    border-radius: 50%;
+    border-radius: 0;
+    background: none;
     color: var(--fg-secondary);
-    padding: 0;
   }
-  .dpad button:hover {
+  .dpad .dir.up {
+    clip-path: polygon(0 0, 100% 0, 50% 50%);
+    align-items: flex-start;
+    justify-content: center;
+  }
+  .dpad .dir.right {
+    clip-path: polygon(100% 0, 100% 100%, 50% 50%);
+    align-items: center;
+    justify-content: flex-end;
+  }
+  .dpad .dir.down {
+    clip-path: polygon(100% 100%, 0 100%, 50% 50%);
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .dpad .dir.left {
+    clip-path: polygon(0 100%, 0 0, 50% 50%);
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .dpad .dir:hover {
     background: var(--bg-button-hover);
     color: var(--fg-primary);
   }
-  .dpad button:active {
+  .dpad .dir:active {
     background: var(--accent-surface);
     color: var(--accent);
   }
+  /* Sits above the wedges and takes their clicks back in the middle. */
   .dpad .ok {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 6.5rem;
+    height: 6.5rem;
+    border-radius: 50%;
     background: var(--bg-button);
     border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
     color: var(--accent);
@@ -495,7 +524,7 @@
   .remote-row button.power:hover {
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
-  .dpad button,
+  .dpad .ok,
   .remote-row button {
     display: inline-flex;
     align-items: center;

@@ -5,7 +5,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import sideloadCatalog from "$lib/sideload-catalog.json";
-  import type { DiscoveredApk } from "$lib/types";
+  import type { ApkInspection, DiscoveredApk } from "$lib/types";
 
   let { serial, deviceLabel = "" }: { serial: string; deviceLabel?: string } = $props();
 
@@ -36,6 +36,24 @@
   /// plain browser), so the pane simply never highlights there.
   let dragging = $state(false);
   let dropError = $state("");
+  /// A dropped APK is staged, never installed. Dropping a file used to install
+  /// it outright, so the first you knew of what you had installed was the
+  /// result message — the gesture is easy to make by accident and impossible
+  /// to take back.
+  let staged = $state<ApkInspection | null>(null);
+  let staging = $state(false);
+
+  async function stageApk(path: string) {
+    staging = true;
+    staged = null;
+    try {
+      staged = await api.inspectApk(serial, path);
+    } catch (e) {
+      dropError = `Could not read that APK: ${e}`;
+    } finally {
+      staging = false;
+    }
+  }
   let unlistenDrop: (() => void) | null = null;
 
   onMount(async () => {
@@ -62,7 +80,7 @@
           return;
         }
         dropError = "";
-        void installApkPath(apks[0]);
+        void stageApk(apks[0]);
       });
     } catch {
       /* not running inside the app shell — no drop target, everything else works */
@@ -212,6 +230,72 @@
 
   <div class="sideload-layout">
     <div class="sideload-main">
+  {#if staging}
+    <p class="muted">Reading that APK…</p>
+  {:else if staged}
+    {@const mismatch = staged.abi_compatible === false}
+    <div class="staged-card" class:mismatch>
+      <div class="staged-head">
+        <span class="apk-icon" aria-hidden="true"><Icon name="android" size={18} /></span>
+        <div class="staged-title">
+          <div class="apk-name">{staged.name}</div>
+          <div class="muted small mono">
+            {staged.package ?? "package id unreadable"} · {formatBytes(staged.size_bytes)}
+          </div>
+        </div>
+      </div>
+      <dl class="staged-facts">
+        <dt>Package</dt>
+        <dd class="mono">{staged.package ?? "could not read the manifest"}</dd>
+        <dt>Native code</dt>
+        <dd class="mono">
+          {#if staged.abis.length === 0}
+            none — runs on any architecture
+          {:else}
+            {staged.abis.join(", ")}
+          {/if}
+        </dd>
+        <dt>This TV</dt>
+        <dd class="mono">{staged.device_abis.length ? staged.device_abis.join(", ") : "not reported"}</dd>
+        <dt>Already installed</dt>
+        <dd class="mono">{staged.already_installed ? "yes — this would replace it" : "no"}</dd>
+      </dl>
+      <!-- `abi_compatible` is null when we could not read one side. That is not
+           a mismatch and must not be drawn as one. -->
+      {#if mismatch}
+        <div class="callout callout-warn">
+          <Icon name="warning" size={16} />
+          <span>
+            This APK ships native code for {staged.abis.join(", ")}, and this TV
+            reports {staged.device_abis.join(", ")}. It will probably fail to
+            install, or install and crash on launch.
+          </span>
+        </div>
+      {:else if staged.abi_compatible === null && staged.abis.length > 0}
+        <div class="callout">
+          <Icon name="info" size={16} />
+          <span>
+            The TV did not report its architecture, so whether this APK's native
+            code matches could not be checked.
+          </span>
+        </div>
+      {/if}
+      <p class="muted small">
+        Nothing has been installed. This is a third-party build from outside the
+        Play Store — install it only if you know where it came from.
+      </p>
+      <div class="staged-actions">
+        <button
+          class="primary"
+          onclick={() => { const path = staged?.path; staged = null; if (path) void installApkPath(path); }}
+          disabled={sideloadBusy !== null}
+        >
+          {staged.already_installed ? "Reinstall" : "Install"}{staged.package ? ` ${staged.package}` : ""}
+        </button>
+        <button onclick={() => (staged = null)} disabled={sideloadBusy !== null}>Cancel</button>
+      </div>
+    </div>
+  {/if}
   {#if savedFolder}
     <!-- The board's watch-folder card: the path you scan, and the one control
          that changes it, on one line. -->
@@ -286,13 +370,13 @@
     </ul>
   {:else if discoveredFolder}
     <p class="muted small">No <code>.apk</code> files in the scanned folder: {discoveredFolder}.</p>
-  {:else if !savedFolder}
+  {:else if !savedFolder && !staged && !staging}
     <div class="sideload-empty" class:dragging>
       <Icon name="upload" size={28} />
-      <strong>{dragging ? "Drop to install" : "Drop an .apk here"}</strong>
+      <strong>{dragging ? "Drop to review" : "Drop an .apk here"}</strong>
       <span class="small">
-        Or Choose folder… to list every APK inside it and keep it for next time,
-        or Pick file… to install one straight away.
+        Nothing installs until you confirm. Or Choose folder… to list every APK
+        inside it and keep it for next time, or Pick file… to install one.
       </span>
       {#if dropError}<span class="small drop-error">{dropError}</span>{/if}
     </div>
@@ -574,6 +658,48 @@
   .drop-error {
     color: var(--warn);
   }
+  /* A dropped APK lands here, not on the device. */
+  .staged-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    padding: 1rem 1.1rem;
+    margin-bottom: 1rem;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-lg);
+    background: var(--bg-surface-2);
+  }
+  .staged-card.mismatch {
+    border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+  }
+  .staged-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .staged-title {
+    min-width: 0;
+  }
+  .staged-facts {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.3rem 1rem;
+    margin: 0;
+    font-size: 0.85rem;
+  }
+  .staged-facts dt {
+    color: var(--fg-muted);
+  }
+  .staged-facts dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .staged-actions {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
   .sideload-empty :global(.msr) {
     color: var(--fg-muted);
   }
