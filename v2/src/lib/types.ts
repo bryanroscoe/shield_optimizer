@@ -94,6 +94,22 @@ export interface ConnectResult {
   message: string;
 }
 
+export interface ForgetResult {
+  ok: boolean;
+  /// Every adb transport key dropped for this device, the requested one first.
+  disconnected: string[];
+  /// Still advertising Wireless debugging, so adb will re-attach it by itself.
+  still_advertised: boolean;
+  message: string;
+}
+
+/// One read of `adb mdns services` for a just-paired device's connect port.
+export type PairedConnectProbe =
+  | { state: "waiting" }
+  | { state: "attached"; serial: string }
+  | { state: "endpoint"; address: string }
+  | { state: "ambiguous"; addresses: string[] };
+
 export interface DisplayMode {
   resolution: string | null;
   refresh_hz: number | null;

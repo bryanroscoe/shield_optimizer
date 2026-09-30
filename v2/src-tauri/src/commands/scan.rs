@@ -282,8 +282,8 @@ fn summary_message(
     if found == 0 {
         return format!(
             "No devices on {subnet_label}.x answered on the ADB port. Make sure Network \
-             Debugging is enabled on your TV, or use Add by IP for newer Google TVs that \
-             need PIN pairing first."
+             debugging or Wireless debugging is on. A device that only offers Wireless \
+             debugging may need Pair PIN first."
         );
     }
     let mut message = format!(
@@ -308,6 +308,126 @@ fn summary_message(
         ));
     }
     message
+}
+
+/// `local_address_for` — the local IPv4 address this computer would use to
+/// reach `host`, for the Pair PIN "typo?" hint. Asks the OS routing table by
+/// connecting an unbound UDP socket, which sends nothing. `None` for anything
+/// that is not an IPv4 literal, or when there is no route.
+#[tauri::command]
+pub async fn local_address_for(host: String) -> Result<Option<String>, String> {
+    let Ok(ip) = host.trim().parse::<std::net::Ipv4Addr>() else {
+        return Ok(None);
+    };
+    let local = std::net::UdpSocket::bind(("0.0.0.0", 0))
+        .and_then(|socket| {
+            socket.connect((ip, 9))?;
+            socket.local_addr()
+        })
+        .ok()
+        .map(|addr| addr.ip())
+        .filter(|ip| !ip.is_unspecified() && !ip.is_loopback());
+    Ok(local.map(|ip| ip.to_string()))
+}
+
+// Live, against a real Wireless debugging device that is already paired and
+// attached. Ignored in CI; run by hand:
+//   SHIELD_TEST_PAIR_ADDRESS=192.168.42.211:45439 SHIELD_TEST_HARDWARE_ID=58040DLCH005YV \
+//     cargo test -p shield-optimizer-v2 live_forget_then_auto_connect -- --ignored --nocapture
+// Forgets every transport of that hardware id, checks none is left, then does
+// what the Pair PIN flow does after a pair: polls mDNS for the connect port
+// and dials it. Disconnect and reconnect only; nothing on the device changes.
+#[cfg(test)]
+mod live {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use shield_optimizer_core::commands::devices::{
+        connect_device_impl, forget_device_impl, list_devices_impl, probe_paired_connect_impl,
+        PairedConnectProbe,
+    };
+    use shield_optimizer_core::engine::AppListBundle;
+
+    use super::AppState;
+    use crate::adb::{parse_device_list, AdbDriver, SubprocessAdb};
+
+    async fn serials_with_id(adb: &dyn AdbDriver, id: &str) -> Vec<String> {
+        let out = adb.raw(&["devices"]).await.expect("adb devices");
+        let mut hits = Vec::new();
+        for entry in parse_device_list(&out.stdout) {
+            if let Ok(p) = adb.shell(&entry.serial, "getprop ro.serialno").await {
+                if p.stdout.trim() == id {
+                    hits.push(entry.serial);
+                }
+            }
+        }
+        hits
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_forget_then_auto_connect() {
+        let (Ok(pair_address), Ok(id)) = (
+            std::env::var("SHIELD_TEST_PAIR_ADDRESS"),
+            std::env::var("SHIELD_TEST_HARDWARE_ID"),
+        ) else {
+            eprintln!("set SHIELD_TEST_PAIR_ADDRESS and SHIELD_TEST_HARDWARE_ID to run");
+            return;
+        };
+        let adb: Arc<dyn AdbDriver> = Arc::new(SubprocessAdb::discover().expect("adb binary"));
+        let state = AppState::new(adb.clone(), AppListBundle::default(), std::env::temp_dir());
+
+        let before = serials_with_id(adb.as_ref(), &id).await;
+        eprintln!("transports before: {before:?}");
+        let first = before
+            .first()
+            .expect("the device must be attached to start");
+
+        let forgot = forget_device_impl(&state, first).await.expect("forget");
+        eprintln!("forget: {forgot:?}");
+        assert!(forgot.ok);
+        let after = serials_with_id(adb.as_ref(), &id).await;
+        eprintln!("transports right after forget: {after:?}");
+        assert!(
+            after.is_empty(),
+            "every alias must be gone on the first click"
+        );
+
+        let started = Instant::now();
+        let serial = loop {
+            let probe = probe_paired_connect_impl(&state, &pair_address)
+                .await
+                .expect("probe");
+            eprintln!("{:>5.1}s probe: {probe:?}", started.elapsed().as_secs_f32());
+            match probe {
+                PairedConnectProbe::Attached { serial } => break serial,
+                PairedConnectProbe::Endpoint { address } => {
+                    let r = connect_device_impl(&state, &address)
+                        .await
+                        .expect("connect");
+                    eprintln!("connect {address}: {}", r.message);
+                    if r.ok {
+                        break address;
+                    }
+                }
+                PairedConnectProbe::Ambiguous { addresses } => panic!("ambiguous: {addresses:?}"),
+                PairedConnectProbe::Waiting => {}
+            }
+            assert!(started.elapsed() < Duration::from_secs(45), "timed out");
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+        };
+
+        let devices = list_devices_impl(&state).await.expect("list");
+        let row = devices
+            .iter()
+            .find(|d| d.serial == serial)
+            .expect("the connected transport is a listed row");
+        eprintln!("row: {} {} ({:?})", row.serial, row.name, row.status);
+        assert_eq!(
+            row.properties.as_ref().map(|p| p.serial_number.as_str()),
+            Some(id.as_str())
+        );
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,8 @@
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { api } from "$lib/api";
-  import type { Device, DeviceReport } from "$lib/types";
+  import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
+  import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
@@ -27,6 +28,8 @@
   let connectAddress = $state("");
   let connectBusy = $state(false);
   let connectMessage = $state("");
+  /// adb's own words behind a failure `connectMessage` explains.
+  let connectDetail = $state("");
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
@@ -36,6 +39,23 @@
   let pairPin = $state("");
   let pairBusy = $state(false);
   let pairMessage = $state("");
+  let pairDetail = $state("");
+  /// "typo?" when the pairing host is not on this computer's network.
+  let pairWarning = $state<string | null>(null);
+  let pairWarnToken = 0;
+
+  /// After a successful pair: "waiting" polls mDNS for the connect port,
+  /// "manual" is the fallback where the user types it (#88).
+  let pairStage = $state<"idle" | "waiting" | "manual">("idle");
+  let pairElapsed = $state(0);
+  let pairWaitHost = "";
+  let pairWaitToken = 0;
+  const PAIR_CONNECT_WAIT_S = 45;
+  const PAIR_PROBE_INTERVAL_MS = 1500;
+
+  /// The row that connected last, so it can carry a call to action.
+  let justConnected = $state<string | null>(null);
+  let flashSerial = $state<string | null>(null);
 
   let restartBusy = $state(false);
   let restartMessage = $state("");
@@ -89,23 +109,65 @@
     }
   }
 
+  function showConnectFailure(address: string, raw: string) {
+    const explained = explainAdbFailure("connect", address, raw);
+    connectMessage = explained.summary ?? explained.raw;
+    connectDetail = explained.summary ? explained.raw : "";
+  }
+
+  /// The adb transport key `adb connect <address>` registers: a bare host
+  /// gets the backend's `:5555` default.
+  function connectKey(address: string): string {
+    const a = address.trim();
+    return /:\d+$/.test(a) ? a : `${a}:5555`;
+  }
+
   async function connect() {
-    if (!connectAddress.trim()) return;
+    const address = connectAddress.trim();
+    if (!address) return;
     connectBusy = true;
     connectMessage = "";
+    connectDetail = "";
     try {
-      const r = await api.connectDevice(connectAddress.trim());
-      connectMessage = r.message.trim();
+      const r = await api.connectDevice(address);
       if (r.ok) {
+        connectMessage = r.message.trim();
         connectAddress = "";
         pairNextStep = false;
         await refresh();
+        await announceConnected(connectKey(address));
+      } else {
+        showConnectFailure(address, r.message);
       }
     } catch (e) {
-      connectMessage = String(e);
+      showConnectFailure(address, String(e));
     } finally {
       connectBusy = false;
     }
+  }
+
+  /// The row that just connected: panel closed, row scrolled to, outlined for
+  /// a moment, and given its own call to action. Found by adb transport key
+  /// only. If the key is not a listed row, nothing is highlighted rather than
+  /// picking a row that merely shares its IP.
+  async function announceConnected(serial: string): Promise<boolean> {
+    const row = devices.find((d) => d.serial === serial);
+    cancelPairWait(false);
+    pairOpen = false;
+    pairNextStep = false;
+    pairMessage = "";
+    pairDetail = "";
+    if (!row) return false;
+    justConnected = row.serial;
+    flashSerial = row.serial;
+    await tick();
+    const el = document.querySelector(`[data-serial="${CSS.escape(row.serial)}"]`);
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    el?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+    setTimeout(() => {
+      if (flashSerial === row.serial) flashSerial = null;
+    }, 2400);
+    return true;
   }
 
   let connectInput = $state<HTMLInputElement | null>(null);
@@ -237,36 +299,172 @@
   /// Over USB it is reliably "Allow USB debugging?". Over the network the
   /// title varies by Android version and OEM — plenty of TVs still show the
   /// USB wording for a Wi-Fi connection — so don't swear to one.
+  /// Held under an Android 11+ Wireless debugging key, so it appears in that
+  /// screen's Paired devices list. Decided from the adb transport key alone:
+  /// a `:5555` address is legacy network debugging and never does.
+  function isWirelessDebuggingTransport(d: Device): boolean {
+    return d.serial.includes("._adb-tls-connect.");
+  }
+
   function authPromptLabel(d: Device): string {
     return d.connection === "usb" ? '"Allow USB debugging?"' : '"Allow debugging?"';
   }
 
+  function showPairFailure(address: string, raw: string) {
+    const explained = explainAdbFailure("pair", address, raw);
+    pairMessage = explained.summary ?? explained.raw;
+    pairDetail = explained.summary ? explained.raw : "";
+  }
+
+  $effect(() => {
+    const host = hostOf(pairAddress);
+    const token = ++pairWarnToken;
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
+      pairWarning = null;
+      return;
+    }
+    api
+      .localAddressFor(host)
+      .then((local) => {
+        if (token === pairWarnToken) pairWarning = subnetWarning(host, local);
+      })
+      .catch(() => {
+        if (token === pairWarnToken) pairWarning = null;
+      });
+  });
+
   async function pair() {
-    if (!pairAddress.trim() || pairPin.length !== 6) return;
+    const address = pairAddress.trim();
+    if (!address || pairPin.length !== 6) return;
+    cancelPairWait(false);
     pairBusy = true;
     pairMessage = "";
+    pairDetail = "";
+    pairNextStep = false;
     try {
-      const r = await api.pairDevice(pairAddress.trim(), pairPin.trim());
-      pairMessage = r.message;
+      const r = await api.pairDevice(address, pairPin.trim());
       if (r.ok) {
-        const host = pairedHost(pairAddress);
+        const host = pairedHost(address);
         pairAddress = "";
-        if (host) {
-          connectAddress = `${host}:`;
-          pairNextStep = true;
-          await tick();
-          connectInput?.focus();
-          const end = connectAddress.length;
-          connectInput?.setSelectionRange(end, end);
-        }
+        // The manual fallback is ready from the start; the connect port is a
+        // different one from the pairing port, so only the host carries over.
+        if (host) connectAddress = `${host}:`;
         await refresh();
+        void waitForConnect(address, host);
+      } else {
+        showPairFailure(address, r.message);
       }
     } catch (e) {
-      pairMessage = String(e);
+      showPairFailure(address, String(e));
     } finally {
       pairPin = "";
       pairBusy = false;
     }
+  }
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /// Watch mDNS for the connect endpoint the just-paired device advertises and
+  /// connect to it. Android often holds that back while the pairing dialog is
+  /// still open, which is why the owner only saw his phone after cancelling
+  /// it. Only an advertised port is ever dialled: never a guess, never the
+  /// pairing port.
+  async function waitForConnect(pairTarget: string, host: string) {
+    const token = ++pairWaitToken;
+    pairWaitHost = host;
+    pairStage = "waiting";
+    pairElapsed = 0;
+    const started = Date.now();
+    while (token === pairWaitToken) {
+      let probe: PairedConnectProbe;
+      try {
+        probe = await api.probePairedConnect(pairTarget);
+      } catch {
+        probe = { state: "waiting" };
+      }
+      if (token !== pairWaitToken) return;
+      if (probe.state === "attached") {
+        await refresh();
+        if (token !== pairWaitToken) return;
+        await pairConnected(probe.serial);
+        return;
+      }
+      if (probe.state === "endpoint") {
+        const r = await api
+          .connectDevice(probe.address)
+          .catch((e) => ({ ok: false, message: String(e) }));
+        if (token !== pairWaitToken) return;
+        if (r.ok) {
+          await refresh();
+          if (token !== pairWaitToken) return;
+          await pairConnected(probe.address);
+          return;
+        }
+      }
+      if (probe.state === "ambiguous") {
+        fallBackToManual(
+          `It advertises more than one connect port (${probe.addresses.join(", ")}). Use the one on its main Wireless debugging screen.`,
+        );
+        return;
+      }
+      pairElapsed = Math.min(PAIR_CONNECT_WAIT_S, Math.floor((Date.now() - started) / 1000));
+      if (Date.now() - started >= PAIR_CONNECT_WAIT_S * 1000) {
+        fallBackToManual(`No connect port appeared within ${PAIR_CONNECT_WAIT_S} seconds.`);
+        return;
+      }
+      await sleep(PAIR_PROBE_INTERVAL_MS);
+    }
+  }
+
+  async function pairConnected(serial: string) {
+    const found = await announceConnected(serial);
+    connectAddress = "";
+    const row = devices.find((d) => d.serial === serial);
+    connectMessage = found && row ? `Connected ${row.name}.` : `Connected ${serial}.`;
+    connectDetail = "";
+  }
+
+  /// Stop watching. `toManual` hands over to the typed fallback, which is
+  /// what Cancel does; a new pair or a closed panel just stops.
+  function cancelPairWait(toManual: boolean) {
+    const wasWaiting = pairStage === "waiting";
+    pairWaitToken++;
+    if (wasWaiting && toManual) {
+      fallBackToManual("Stopped waiting.");
+    } else if (wasWaiting) {
+      pairStage = "idle";
+    }
+  }
+
+  async function fallBackToManual(why: string) {
+    pairWaitToken++;
+    pairStage = "manual";
+    pairMessage = why;
+    pairDetail = "";
+    if (pairWaitHost) connectAddress = `${pairWaitHost}:`;
+    pairNextStep = true;
+    await tick();
+    connectInput?.focus();
+    const end = connectAddress.length;
+    connectInput?.setSelectionRange(end, end);
+  }
+
+  function togglePair() {
+    if (pairOpen) cancelPairWait(false);
+    pairOpen = !pairOpen;
+  }
+
+  async function openPairPanel() {
+    pairOpen = true;
+    await tick();
+    const input = document.querySelector<HTMLInputElement>(".pair-form input");
+    input?.scrollIntoView({ block: "nearest" });
+    input?.focus();
+  }
+
+  function focusConnectBox() {
+    connectInput?.scrollIntoView({ block: "nearest" });
+    connectInput?.focus();
   }
 
   async function restartAdb() {
@@ -306,16 +504,56 @@
   /// network devices: `adb disconnect` is the only thing "forget" can mean
   /// here, and it has nothing to drop for a USB one. Not a delete — the TV is
   /// untouched and reconnects the moment you add it again.
+  ///
+  /// One device can be held under several adb keys (its mDNS name and an
+  /// `ip:port`), and the row shows only one, so the backend drops every key
+  /// with the same verified hardware id. A paired device that is still
+  /// advertising Wireless debugging is re-attached by adb within seconds; the
+  /// backend says so, and the list is re-read so it never shows a device as
+  /// gone while it is back.
   async function forgetDevice(d: Device) {
     if (d.connection !== "network") return;
     forgetBusy = d.serial;
+    connectMessage = "";
+    connectDetail = "";
+    if (justConnected === d.serial) justConnected = null;
     try {
-      await api.disconnectDevice(d.serial);
+      const r = await api.forgetDevice(d.serial);
       await refresh();
+      if (!r.ok || r.still_advertised) connectMessage = r.message;
+      if (r.ok && r.still_advertised) void watchReattach(d);
     } catch (e) {
       connectMessage = `Could not disconnect ${d.serial}: ${e}`;
     } finally {
       forgetBusy = null;
+    }
+  }
+
+  let reattachToken = 0;
+  const REATTACH_WATCH_MS = 15000;
+
+  async function watchReattach(d: Device) {
+    const token = ++reattachToken;
+    const id = idKey(d.properties?.serial_number);
+    const started = Date.now();
+    while (token === reattachToken && Date.now() - started < REATTACH_WATCH_MS) {
+      await sleep(3000);
+      if (token !== reattachToken) return;
+      let list: Device[];
+      try {
+        list = await api.listDevices();
+      } catch {
+        return;
+      }
+      if (token !== reattachToken) return;
+      devices = list;
+      if (id && list.some((x) => idKey(x.properties?.serial_number) === id)) {
+        connectMessage =
+          `${d.name} reconnected by itself: it is still advertising Wireless debugging, and adb ` +
+          "re-attaches paired devices while it does. To keep it off this list, turn off Wireless " +
+          "debugging on the device, or remove this computer under Wireless debugging → Paired devices there.";
+        return;
+      }
     }
   }
 
@@ -326,7 +564,13 @@
     await scan();
   }
 
-  onMount(bootDiscovery);
+  onMount(() => {
+    void bootDiscovery();
+    return () => {
+      pairWaitToken++;
+      reattachToken++;
+    };
+  });
 </script>
 
 <section class="header-row">
@@ -365,7 +609,7 @@
   <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim()}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
-  <button onclick={() => (pairOpen = !pairOpen)} disabled={adbMissing} title="Android 11+ PIN pairing flow">
+  <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
   <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
@@ -376,11 +620,17 @@
   </button>
   {#if pairNextStep}
     <p class="connect-message pair-next">
-      Now enter the port shown on the TV's main Wireless debugging screen, then Add by IP.
+      Enter the port shown on the TV or phone's main Wireless debugging screen, then Add by IP.
     </p>
   {/if}
   {#if connectMessage}
-    <p class="connect-message muted">{connectMessage}</p>
+    <p class="connect-message muted" class:plain={!!connectDetail}>{connectMessage}</p>
+  {/if}
+  {#if connectDetail}
+    <details class="adb-details connect-details">
+      <summary>Details</summary>
+      <pre>{connectDetail}</pre>
+    </details>
   {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
@@ -394,13 +644,14 @@
   <section class="pair-form">
     <h3>Pair a new device</h3>
     <p class="muted small">
-      On the TV: Settings → Developer options → Wireless debugging → Pair device with pairing code.
-      Enter the IP:port and 6-digit PIN from that pairing dialog.
+      On the TV or phone, open Developer options (Settings → System on Google TV and phones;
+      Settings → Device Preferences on older Android TV and Shield), then Wireless debugging → Pair
+      device with pairing code. Enter the IP:port and 6-digit PIN from that dialog.
     </p>
     <p class="pair-note small">
-      <strong>Pairing and connecting use different ports.</strong>
-      After pairing, return to the main Wireless debugging screen and enter the IP address and port
-      shown there in the box above, then click <strong>Add by IP</strong>. Do not reuse the pairing port.
+      After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
+      appear, enter the IP:port from the main Wireless debugging screen and click
+      <strong>Add by IP</strong>. Do not reuse the pairing port.
     </p>
     <div class="pair-row">
       <input
@@ -416,13 +667,34 @@
       <button
         class="primary"
         onclick={pair}
-        disabled={pairBusy || !pairAddress.trim() || pairPin.length !== 6}
+        disabled={pairBusy || pairStage === "waiting" || !pairAddress.trim() || pairPin.length !== 6}
       >
         {pairBusy ? "Pairing…" : "Pair"}
       </button>
     </div>
+    {#if pairWarning}
+      <p class="pair-warning small" role="status">{pairWarning}</p>
+    {/if}
+    {#if pairStage === "waiting"}
+      <div class="pair-waiting" role="status">
+        <p class="pair-paired"><strong>Paired.</strong> Close the pairing dialog on your phone/TV.</p>
+        <div class="pair-progress-row">
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="muted small">
+            Waiting for the device to advertise its connect port… {pairElapsed}s of {PAIR_CONNECT_WAIT_S}s
+          </span>
+          <button class="row-action" onclick={() => cancelPairWait(true)}>Cancel</button>
+        </div>
+      </div>
+    {/if}
     {#if pairMessage}
-      <p class="muted small mono">{pairMessage}</p>
+      <p class="small" class:muted={!pairDetail} class:pair-error={!!pairDetail}>{pairMessage}</p>
+    {/if}
+    {#if pairDetail}
+      <details class="adb-details">
+        <summary>Details</summary>
+        <pre>{pairDetail}</pre>
+      </details>
     {/if}
   </section>
 {/if}
@@ -490,7 +762,8 @@
   <div class="empty">
     <h2>No devices connected.</h2>
     <p class="muted">
-      Connect by IP above, or run <code>adb connect &lt;ip&gt;:5555</code> in a terminal.
+      Use Scan LAN or Add by IP above. A device that only offers Wireless debugging may need Pair
+      PIN first.
     </p>
   </div>
 {:else}
@@ -499,7 +772,12 @@
       {@const href = deviceHref(d)}
       <li>
         {#if href}
-          <a class="device-row clickable" href={href}>
+          <a
+            class="device-row clickable"
+            class:flash={flashSerial === d.serial}
+            href={href}
+            data-serial={d.serial}
+          >
             <span class="device-icon" aria-hidden="true">
               <Icon name={d.connection === "network" ? "cast_connected" : "tv"} size={20} />
             </span>
@@ -534,6 +812,11 @@
                  stop the click reaching it — otherwise Forget would navigate
                  to the device it just disconnected. -->
             <span class="row-actions">
+              {#if justConnected === d.serial}
+                <button class="row-action primary" onclick={(e) => rowAction(e, () => goto(toolsHref(d)))}>
+                  Open
+                </button>
+              {/if}
               {#if isUnconfirmedTv(d)}
                 <button
                   class="row-action"
@@ -553,7 +836,7 @@
                   class="row-action forget-btn"
                   onclick={(e) => rowAction(e, () => forgetDevice(d))}
                   disabled={forgetBusy === d.serial}
-                  data-tip="adb disconnect · removes this row, the TV is untouched"
+                  data-tip="Disconnects every connection to this device · the device is untouched"
                   data-tip-align="end"
                 >
                   {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
@@ -565,7 +848,12 @@
             <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={28} /></span>
           </a>
         {:else}
-          <div class="device-row not-clickable" class:unauthorized={d.status === "unauthorized"}>
+          <div
+            class="device-row not-clickable"
+            class:unauthorized={d.status === "unauthorized"}
+            class:flash={flashSerial === d.serial}
+            data-serial={d.serial}
+          >
             <span class="device-icon" aria-hidden="true">
               <Icon name={d.status === "offline" ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
             </span>
@@ -591,6 +879,12 @@
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
               </div>
+              {#if justConnected === d.serial && isNotATv(d) && d.status === "device"}
+                <p class="small just-connected-note">
+                  Connected. It reported it isn't an Android TV, so it doesn't open by default; use
+                  Open anyway to try the tools.
+                </p>
+              {/if}
               {#if d.status === "unauthorized"}
                 <div class="unauthorized-help">
                   <strong>This device needs to be authorized:</strong>
@@ -605,12 +899,21 @@
                     <li>Click <em>Allow</em>.</li>
                     <li>Click Refresh above.</li>
                   </ol>
-                  <p class="muted small">
-                    If you don't see the dialog, run <code>adb disconnect {d.serial}</code> from a terminal,
-                    then on the TV go to Developer options → Revoke USB debugging authorizations
-                    {#if d.connection === "network"}(or Wireless debugging → Forget, on Android 11+){/if},
-                    and reconnect.
-                  </p>
+                  <p class="muted small">If you don't see the dialog:</p>
+                  <ol class="small unauthorized-fallback">
+                    <li>Wake the TV; the prompt can be hidden behind the screensaver.</li>
+                    {#if d.connection === "network"}
+                      <li>Click <strong>Forget</strong> here, then Add by IP again; the prompt reappears.</li>
+                    {:else}
+                      <li>Unplug the cable and plug it back in; the prompt reappears.</li>
+                    {/if}
+                    <li>
+                      Still nothing? On the TV, open Developer options and choose Revoke USB debugging
+                      authorizations{#if isWirelessDebuggingTransport(d)} (or Wireless debugging → tap this
+                        computer → Forget){/if}. That un-trusts every computer, not just this one. Then
+                      reconnect.
+                    </li>
+                  </ol>
                 </div>
               {/if}
               {#if confirmOpenSerial === d.serial}
@@ -636,6 +939,7 @@
               {#if isNotATv(d) && d.status === "device"}
                 <button
                   class="row-action"
+                  class:primary={justConnected === d.serial}
                   onclick={() => (confirmOpenSerial = d.serial)}
                   disabled={confirmOpenSerial === d.serial}
                   data-tip="Open the tools on this device even though it is not an Android TV"
@@ -660,7 +964,7 @@
                   class="row-action forget-btn"
                   onclick={() => forgetDevice(d)}
                   disabled={forgetBusy === d.serial}
-                  data-tip="adb disconnect · removes this row, the TV is untouched"
+                  data-tip="Disconnects every connection to this device · the device is untouched"
                   data-tip-align="end"
                 >
                   {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
@@ -678,8 +982,11 @@
   <div class="callout devices-note">
     <Icon name="info" size={16} />
     <span>
-      Click a TV to open its tools. Everything runs over ADB from this computer;
-      nothing is sent anywhere else.
+      <strong>Don't see your device?</strong> Some devices, mostly newer ones that only offer
+      Wireless debugging, need a one-time pairing: use
+      <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>. Devices with Network
+      debugging connect directly with
+      <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
     </span>
   </div>
 {/if}
@@ -734,8 +1041,26 @@
     text-decoration: none;
     color: inherit;
   }
-  .device-row.not-clickable {
-    align-items: flex-start;
+  .device-row.flash {
+    animation: row-flash 2.4s ease-out;
+  }
+  @keyframes row-flash {
+    0%,
+    45% {
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+    100% {
+      box-shadow: 0 0 0 2px transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .device-row.flash {
+      animation: none;
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+  }
+  .just-connected-note {
+    margin: 0.35rem 0 0;
   }
   .device-icon {
     display: inline-flex;
@@ -775,12 +1100,15 @@
   }
   /* The row's own controls, pushed to the far end and kept clear of the
      chevron. Secondary by design: the row itself is the primary action. */
+  /* As tall as the device icon, so in a row that top-aligns for its help text
+     (unauthorized) the buttons still sit on the icon's centre line. */
   .row-actions {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
     flex: none;
     margin-left: auto;
+    min-height: 2.8rem;
   }
   .row-action {
     flex: none;
@@ -804,6 +1132,27 @@
   }
   .devices-note {
     margin-top: 1rem;
+  }
+  .inline-link {
+    display: inline;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+    vertical-align: baseline;
+  }
+  .inline-link:hover {
+    background: none;
+    text-decoration-thickness: 2px;
+  }
+  .inline-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
   }
   a.device-row {
     color: inherit;
@@ -906,6 +1255,73 @@
   }
   .pair-row input[inputmode="numeric"] {
     flex: 0 0 8rem;
+  }
+  .pair-warning {
+    margin: 0.5rem 0 0;
+    padding: 0.4rem 0.65rem;
+    border: 1px solid var(--warn-border);
+    border-radius: var(--radius-md);
+    background: var(--warn-surface);
+    color: var(--warn);
+  }
+  .pair-waiting {
+    margin-top: 0.75rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-inset);
+  }
+  .pair-paired {
+    margin: 0 0 0.4rem;
+  }
+  .pair-progress-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .pair-progress-row .row-action {
+    margin-left: auto;
+  }
+  .spinner {
+    flex: none;
+    width: 0.9rem;
+    height: 0.9rem;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner {
+      animation: none;
+    }
+  }
+  .pair-error {
+    margin: 0.6rem 0 0;
+    color: var(--fg-primary);
+  }
+  .adb-details {
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+  }
+  .adb-details pre {
+    margin: 0.3rem 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--mono);
+  }
+  .connect-details {
+    flex-basis: 100%;
+  }
+  .connect-message.plain {
+    font-family: inherit;
   }
   .report-all {
     background: var(--bg-surface);

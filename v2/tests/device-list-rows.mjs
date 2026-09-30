@@ -92,6 +92,11 @@ const ROWS = [
   { id: 6, serial: "0323220054321", name: "Workshop Shield",
     model: "Shield TV (2019 Tube)", device_type: "shield", tv_evidence: "tv",
     status: "device", connection: "usb", properties: tvProperties },
+  // Unauthorized under a Wireless debugging key: the only kind that appears
+  // in that screen's Paired devices list.
+  { id: 7, serial: "adb-9XK2-abc._adb-tls-connect._tcp", name: "adb-9XK2-abc._adb-tls-connect._tcp",
+    model: "", device_type: "unknown", tv_evidence: "unknown",
+    status: "unauthorized", connection: "network", properties: null },
 ];
 
 const rowFor = (page, name) =>
@@ -144,10 +149,25 @@ async function exercise({ browser, base }) {
   assert.equal(await net.getByText("NOT AN ANDROID TV").count(), 0,
     "an unreadable device is unknown, not known-not-a-TV");
 
+  // No-dialog fallback: the app's own controls, never a terminal adb (the
+  // bundled adb is not on PATH, and a different one restarts the shared
+  // server and drops every device). Wake first; Revoke says what it costs.
+  assert.match(netHelp, /Wake the TV; the prompt can be hidden behind the screensaver\./, netHelp);
+  assert.match(netHelp, /Click Forget here, then Add by IP again; the prompt reappears\./, netHelp);
+  assert.match(netHelp, /Revoke USB debugging authorizations\. That un-trusts every computer, not just this one\./, netHelp);
+  assert.doesNotMatch(netHelp, /terminal|adb disconnect/, "no terminal instructions");
+  assert.doesNotMatch(netHelp, /Paired devices|tap this computer/,
+    "a :5555 transport is legacy network debugging and never appears under Wireless debugging");
+  const wireless = rowFor(page, "adb-9XK2-abc._adb-tls-connect._tcp");
+  const wirelessHelp = await wireless.locator(".unauthorized-help").innerText();
+  assert.match(wirelessHelp, /or Wireless debugging → tap this computer → Forget/, wirelessHelp);
+
   // An unauthorized USB device: the USB wording is correct and must survive.
   const usb = rowFor(page, "0323220012345");
   const usbHelp = await usb.locator(".unauthorized-help").innerText();
   assert.match(usbHelp, /"Allow USB debugging\?"/, usbHelp);
+  assert.doesNotMatch(usbHelp, /Click Forget/, "a USB row has no Forget");
+  assert.doesNotMatch(usbHelp, /terminal|adb disconnect/);
 
   // #120: a box that never said what it is still opens, and says so. This is
   // the row 2.2.0 locked its owner out of.
@@ -162,7 +182,7 @@ async function exercise({ browser, base }) {
     "the row we are unsure about is the one worth reporting");
 
   // Forget is on EVERY network row now, including the online, clickable ones.
-  for (const name of ["Bedroom Shield", "Bryan Pixel 10 Pro", "192.168.42.143:5555", "Living Room Box"]) {
+  for (const name of ["Bedroom Shield", "Bryan Pixel 10 Pro", "192.168.42.143:5555", "Living Room Box", "adb-9XK2-abc._adb-tls-connect._tcp"]) {
     assert.equal(await rowFor(page, name).getByRole("button", { name: "Forget" }).count(), 1,
       `${name} is on the network, so it can be forgotten`);
   }
@@ -187,6 +207,44 @@ async function exercise({ browser, base }) {
   await phone.getByRole("button", { name: "Cancel" }).click();
   assert.equal(await phone.getByText("The tools are built for", { exact: false }).count(), 0);
   assert.equal(await phone.locator("a.device-row").count(), 0, "Cancel must not open it");
+
+  // Forget is one backend call that drops every alias of the device, and when
+  // adb will re-attach it (still advertising Wireless debugging) the screen
+  // says so, then shows it back rather than pretending it is gone.
+  await page.evaluate((rows) => {
+    const bridge = window.__TAURI_INTERNALS__;
+    const previous = bridge.invoke;
+    window.__FORGET_CALLS__ = [];
+    let forgotten = false;
+    let lists = 0;
+    bridge.invoke = async (command, args = {}) => {
+      if (command === "disconnect_device") throw new Error("Forget must not use the single-key disconnect");
+      if (command === "forget_device") {
+        window.__FORGET_CALLS__.push(args.serial);
+        forgotten = true;
+        return {
+          ok: true,
+          disconnected: [args.serial, "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp"],
+          still_advertised: true,
+          message: "Disconnected, but the device is still advertising Wireless debugging, so adb will reconnect it by itself within a few seconds.",
+        };
+      }
+      if (command === "list_devices" && forgotten) {
+        lists += 1;
+        return lists === 1 ? rows.filter((r) => r.name !== "Bryan Pixel 10 Pro") : rows;
+      }
+      return previous(command, args);
+    };
+  }, ROWS);
+  await phone.getByRole("button", { name: "Forget" }).click();
+  await page.getByText("still advertising Wireless debugging, so adb will reconnect it", { exact: false }).waitFor();
+  await page.getByText("Bryan Pixel 10 Pro reconnected by itself", { exact: false }).waitFor({ timeout: 10000 });
+  assert.match(
+    await page.locator(".connect-message").first().innerText(),
+    /turn off Wireless debugging on the device, or remove this computer under Wireless debugging → Paired devices/,
+  );
+  assert.deepEqual(await page.evaluate(() => window.__FORGET_CALLS__), ["192.168.42.211:34083"]);
+  await page.getByText("Bryan Pixel 10 Pro", { exact: true }).waitFor();
   await page.close();
 
   await exerciseOpenAnyway({ browser, base });
