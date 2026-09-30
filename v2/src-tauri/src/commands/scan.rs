@@ -193,6 +193,36 @@ async fn attached_serials(adb: &dyn AdbDriver) -> Vec<(String, DeviceStatus)> {
     }
 }
 
+/// Offline transport keys adb holds for the service advertising `target`.
+///
+/// Redialling an advertised endpoint whose mDNS transport has gone offline
+/// gives adb a second key for the same device. The offline one reports no
+/// `ro.serialno`, so identity-based collapsing can't merge them and the TV
+/// shows up twice. These are the keys to drop before dialling.
+fn stale_aliases_for(target: &str, services: &[MdnsService], offline: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for service in services.iter().filter(|s| s.endpoint() == target) {
+        let prefix = format!("{}.", service.instance);
+        for key in offline {
+            if (key == &service.instance || key.starts_with(&prefix)) && !out.contains(key) {
+                out.push(key.clone());
+            }
+        }
+    }
+    out
+}
+
+async fn offline_serials(adb: &dyn AdbDriver) -> Vec<String> {
+    match adb.raw(&["devices"]).await {
+        Ok(out) => parse_device_list(&out.stdout)
+            .into_iter()
+            .filter(|entry| entry.status == DeviceStatus::Offline)
+            .map(|entry| entry.serial)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Of the advertised endpoints skipped because adb already holds them, which
 /// are ready and which are waiting for the user to authorize this computer.
 fn split_already_attached(
@@ -291,7 +321,11 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let mut connected = held_ready;
     let mut unauthorized = held_unauthorized;
     let mut failed = Vec::new();
+    let offline = offline_serials(adb.as_ref()).await;
     for target in &targets.connect {
+        for stale in stale_aliases_for(target, &services, &offline) {
+            let _ = adb.raw(&["disconnect", &stale]).await;
+        }
         let mut outcome = adb_connect(adb.as_ref(), target).await;
         // Only a hard failure is worth retrying — "unauthorized" means the
         // device is waiting for the user to approve the prompt on-screen.
@@ -503,6 +537,34 @@ mod tests {
             host: host.into(),
             port,
         }
+    }
+
+    #[test]
+    fn a_redial_drops_the_offline_alias_of_the_same_service_only() {
+        let services = vec![
+            service(
+                "adb-SERIALA-abc",
+                "_adb-tls-connect._tcp",
+                "192.168.1.9",
+                41541,
+            ),
+            service(
+                "adb-SERIALB-def",
+                "_adb-tls-connect._tcp",
+                "192.168.1.10",
+                40000,
+            ),
+        ];
+        let offline = vec![
+            "adb-SERIALA-abc._adb-tls-connect._tcp".to_string(),
+            "adb-SERIALB-def._adb-tls-connect._tcp".to_string(),
+            "192.168.1.20:5555".to_string(),
+        ];
+        assert_eq!(
+            stale_aliases_for("192.168.1.9:41541", &services, &offline),
+            vec!["adb-SERIALA-abc._adb-tls-connect._tcp".to_string()]
+        );
+        assert!(stale_aliases_for("192.168.1.30:5555", &services, &offline).is_empty());
     }
 
     #[test]
