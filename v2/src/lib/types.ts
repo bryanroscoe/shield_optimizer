@@ -125,7 +125,8 @@ export type PairedConnectProbe =
   | { state: "unidentified" }
   | { state: "attached"; serial: string }
   | { state: "endpoint"; address: string }
-  | { state: "ambiguous"; addresses: string[] };
+  | { state: "ambiguous"; addresses: string[] }
+  | { state: "not_the_paired_device"; message: string };
 
 export interface DisplayMode {
   resolution: string | null;

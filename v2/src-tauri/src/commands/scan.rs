@@ -175,19 +175,53 @@ fn merge_scan_targets(
     }
 }
 
-/// Serials adb currently holds a *ready* transport for. Used to avoid handing
-/// adb a second key for a device it is already attached to. An offline or
-/// unauthorized transport is not a reason to skip dialling: it is exactly the
-/// stale state a scan should be able to recover from.
-async fn attached_serials(adb: &dyn AdbDriver) -> Vec<String> {
+/// Transports adb currently holds, with their state, minus offline ones. Used
+/// to avoid handing adb a second key for a device it is already attached to.
+///
+/// Offline is left out: it is the stale state a scan should recover from by
+/// dialling again. Unauthorized stays in: a second key would be a second
+/// unauthorized row that can't be merged (neither exposes `ro.serialno`), and
+/// dialling again can't answer the prompt on the TV.
+async fn attached_serials(adb: &dyn AdbDriver) -> Vec<(String, DeviceStatus)> {
     match adb.raw(&["devices"]).await {
         Ok(out) => parse_device_list(&out.stdout)
             .into_iter()
-            .filter(|entry| entry.status == DeviceStatus::Device)
-            .map(|entry| entry.serial)
+            .filter(|entry| entry.status != DeviceStatus::Offline)
+            .map(|entry| (entry.serial, entry.status))
             .collect(),
         Err(_) => Vec::new(),
     }
+}
+
+/// Of the advertised endpoints skipped because adb already holds them, which
+/// are ready and which are waiting for the user to authorize this computer.
+fn split_already_attached(
+    already_attached: &[String],
+    services: &[MdnsService],
+    attached: &[(String, DeviceStatus)],
+) -> (Vec<String>, Vec<String>) {
+    let mut ready = Vec::new();
+    let mut unauthorized = Vec::new();
+    for endpoint in already_attached {
+        let status = services
+            .iter()
+            .filter(|s| &s.endpoint() == endpoint)
+            .find_map(|s| {
+                let prefix = format!("{}.", s.instance);
+                attached
+                    .iter()
+                    .find(|(key, _)| {
+                        key != endpoint && (key == &s.instance || key.starts_with(&prefix))
+                    })
+                    .map(|(_, status)| *status)
+            });
+        if status == Some(DeviceStatus::Unauthorized) {
+            unauthorized.push(endpoint.clone());
+        } else {
+            ready.push(endpoint.clone());
+        }
+    }
+    (ready, unauthorized)
 }
 
 /// Ask the adb daemon what it has seen advertised over mDNS. Requires
@@ -237,8 +271,14 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     // and starting it is also what makes adb auto-connect the mDNS devices it
     // already trusts, so read the attached list only after this point.
     let services = discover_mdns_services(adb.as_ref()).await;
-    let attached = attached_serials(adb.as_ref()).await;
+    let attached_with_status = attached_serials(adb.as_ref()).await;
+    let attached: Vec<String> = attached_with_status
+        .iter()
+        .map(|(k, _)| k.clone())
+        .collect();
     let targets = merge_scan_targets(&swept, &services, &attached);
+    let (held_ready, held_unauthorized) =
+        split_already_attached(&targets.already_attached, &services, &attached_with_status);
 
     let found: Vec<String> = targets
         .connect
@@ -248,8 +288,8 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
         .cloned()
         .collect();
 
-    let mut connected = targets.already_attached.clone();
-    let mut unauthorized = Vec::new();
+    let mut connected = held_ready;
+    let mut unauthorized = held_unauthorized;
     let mut failed = Vec::new();
     for target in &targets.connect {
         let mut outcome = adb_connect(adb.as_ref(), target).await;
@@ -431,6 +471,7 @@ mod live {
                 }
                 PairedConnectProbe::Ambiguous { addresses } => panic!("ambiguous: {addresses:?}"),
                 PairedConnectProbe::Unidentified => panic!("no instance"),
+                PairedConnectProbe::NotThePairedDevice { message } => panic!("{message}"),
                 PairedConnectProbe::Waiting => {}
             }
             assert!(started.elapsed() < Duration::from_secs(45), "timed out");
@@ -603,7 +644,11 @@ mod tests {
              192.168.42.71:5555\tdevice\n",
         );
         let attached = attached_serials(&mock).await;
-        assert_eq!(attached, vec!["192.168.42.71:5555"]);
+        assert_eq!(
+            attached,
+            vec![("192.168.42.71:5555".to_string(), DeviceStatus::Device)]
+        );
+        let keys: Vec<String> = attached.iter().map(|(k, _)| k.clone()).collect();
 
         let services = vec![service(
             "adb-58040DLCH005YV-jBeCEe",
@@ -611,9 +656,46 @@ mod tests {
             "192.168.42.211",
             34083,
         )];
-        let targets = merge_scan_targets(&[], &services, &attached);
+        let targets = merge_scan_targets(&[], &services, &keys);
         assert_eq!(targets.connect, vec!["192.168.42.211:34083"]);
         assert!(targets.already_attached.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unauthorized_transport_is_not_dialled_again_and_reports_unauthorized() {
+        // Codex on #128: redialling an unauthorized mDNS key by host:port
+        // makes a second unauthorized row that can never be merged, and
+        // cannot answer the prompt on the TV anyway.
+        use shield_optimizer_core::commands::test_support::MockAdb;
+        let mock = MockAdb::default().on_raw(
+            "devices",
+            "List of devices attached\n\
+             adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\tunauthorized\n\
+             adb-1324619053514-aB1._adb-tls-connect._tcp\tdevice\n",
+        );
+        let attached = attached_serials(&mock).await;
+        let keys: Vec<String> = attached.iter().map(|(k, _)| k.clone()).collect();
+        let services = vec![
+            service(
+                "adb-58040DLCH005YV-jBeCEe",
+                crate::adb::MDNS_SERVICE_CONNECT,
+                "192.168.42.211",
+                34083,
+            ),
+            service(
+                "adb-1324619053514-aB1",
+                crate::adb::MDNS_SERVICE_CONNECT,
+                "192.168.42.196",
+                40001,
+            ),
+        ];
+        let targets = merge_scan_targets(&[], &services, &keys);
+        assert!(targets.connect.is_empty(), "{:?}", targets.connect);
+
+        let (ready, unauthorized) =
+            split_already_attached(&targets.already_attached, &services, &attached);
+        assert_eq!(ready, vec!["192.168.42.196:40001"]);
+        assert_eq!(unauthorized, vec!["192.168.42.211:34083"]);
     }
 
     #[test]

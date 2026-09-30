@@ -152,10 +152,7 @@ fn collapse_duplicate_transports(devices: Vec<Device>) -> Vec<Device> {
 }
 
 fn is_ip_port(serial: &str) -> bool {
-    match serial.rsplit_once(':') {
-        Some((host, port)) => port.parse::<u16>().is_ok() && host.split('.').count() == 4,
-        None => false,
-    }
+    crate::adb::is_network_endpoint(serial)
 }
 
 /// `id` is a 1-based menu index, so it has to stay contiguous after a merge.
@@ -398,6 +395,9 @@ pub enum PairedConnectProbe {
     Endpoint { address: String },
     /// That device advertises more than one connect endpoint. Not guessing.
     Ambiguous { addresses: Vec<String> },
+    /// The matching transport answered with a different `ro.serialno`, or
+    /// none. Not accepted; the UI falls back to a typed address.
+    NotThePairedDevice { message: String },
 }
 
 /// `probe_paired_connect` — one read of `adb mdns services` for the connect
@@ -445,9 +445,23 @@ pub async fn probe_paired_connect_impl(
             .collect(),
         Err(_) => Vec::new(),
     };
-    Ok(paired_connect_probe(
-        &target, instance, &services, &attached,
-    ))
+    let probe = paired_connect_probe(&target, instance, &services, &attached);
+    // A transport key is only a name. Before calling it the paired device,
+    // ask it: a stale advertisement can point at an attached transport that
+    // belongs to someone else.
+    if let PairedConnectProbe::Attached { serial } = &probe {
+        let expected = instance_serial(instance);
+        let actual = read_hardware_id(&*adb, serial).await;
+        if expected.is_none() || actual.as_deref() != expected {
+            return Ok(PairedConnectProbe::NotThePairedDevice {
+                message: format!(
+                    "{serial} is attached, but it isn't the device that was just paired, so it \
+                     wasn't picked."
+                ),
+            });
+        }
+    }
+    Ok(probe)
 }
 
 async fn read_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
@@ -1248,6 +1262,7 @@ mod tests {
             "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp"
         ));
         assert!(is_ip_port("192.168.42.211:34083"));
+        assert!(is_ip_port("[fe80::1]:41541"));
         assert!(!is_ip_port("192.168.42.211"));
         assert!(!is_ip_port("192.168.42:5555"));
     }
@@ -1802,6 +1817,48 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn an_attached_transport_is_accepted_only_when_its_serial_matches() {
+        let mock = MockAdb::default()
+            .on_raw("mdns services", &mdns_pixel(46545))
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{PIXEL_MDNS}\tdevice\n"),
+            )
+            .on_shell_for(PIXEL_MDNS, "ro.serialno", "58040DLCH005YV\n");
+        let state = state_with(mock);
+        assert_eq!(
+            probe_paired_connect_impl(&state, "192.168.42.211:45439", Some(PIXEL_PAIR))
+                .await
+                .unwrap(),
+            PairedConnectProbe::Attached {
+                serial: PIXEL_MDNS.to_string()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_advertisement_pointing_at_another_attached_device_is_refused() {
+        // Codex on #128: the advertised endpoint names a transport adb holds,
+        // but that transport is a different device. Its key must not be
+        // enough to call it the one just paired.
+        let mock = MockAdb::default()
+            .on_raw("mdns services", &mdns_pixel(46545))
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{PIXEL_IP}\tdevice\n"),
+            )
+            .on_shell_for(PIXEL_IP, "ro.serialno", "OLDTV0001\n");
+        let state = state_with(mock);
+        let probe = probe_paired_connect_impl(&state, "192.168.42.211:45439", Some(PIXEL_PAIR))
+            .await
+            .unwrap();
+        assert!(
+            matches!(probe, PairedConnectProbe::NotThePairedDevice { .. }),
+            "{probe:?}"
+        );
     }
 
     #[tokio::test]

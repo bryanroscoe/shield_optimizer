@@ -78,6 +78,26 @@ impl MdnsService {
     }
 }
 
+/// Is this adb transport key a network `host:port`? Dotted IPv4
+/// (`192.168.1.5:5555`) or bracketed IPv6 (`[fe80::1]:41541`, the form adb
+/// and [`MdnsService::endpoint`] use). A USB hardware serial is neither.
+pub fn is_network_endpoint(serial: &str) -> bool {
+    static IPV4_PORT: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^\d+\.\d+\.\d+\.\d+:\d+$").unwrap());
+    if IPV4_PORT.is_match(serial) {
+        return true;
+    }
+    let Some(rest) = serial.strip_prefix('[') else {
+        return false;
+    };
+    let Some((host, port)) = rest.split_once("]:") else {
+        return false;
+    };
+    // A scoped link-local address carries `%iface`, which Ipv6Addr rejects.
+    let bare = host.split('%').next().unwrap_or(host);
+    bare.parse::<std::net::Ipv6Addr>().is_ok() && port.parse::<u16>().is_ok_and(|p| p > 0)
+}
+
 /// See [`MdnsService::instance_serial`].
 pub fn instance_serial(instance: &str) -> Option<&str> {
     let rest = instance.strip_prefix("adb-")?;
@@ -147,9 +167,6 @@ pub fn parse_mdns_services(output: &str) -> Vec<MdnsService> {
 /// emulator-5554         device
 /// ```
 pub fn parse_device_list(adb_devices_output: &str) -> Vec<DeviceListEntry> {
-    static IP_PORT: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\d+\.\d+\.\d+\.\d+:\d+$").unwrap());
-
     let mut entries = Vec::new();
     for line in adb_devices_output.lines() {
         let line = line.trim();
@@ -169,7 +186,7 @@ pub fn parse_device_list(adb_devices_output: &str) -> Vec<DeviceListEntry> {
         // serial (Android 11+ pairs over `_adb-tls-connect._tcp` etc.; those
         // never look like `ip:port` but always carry the `_tcp` service tag).
         // USB serials are plain hardware ids and contain neither.
-        let connection = if IP_PORT.is_match(serial) || serial.contains("._tcp") {
+        let connection = if is_network_endpoint(serial) || serial.contains("._tcp") {
             ConnectionType::Network
         } else {
             ConnectionType::Usb
@@ -891,6 +908,22 @@ mod tests {
         );
         assert_eq!(instance_serial("adb-58040DLCH005YV-"), None);
         assert_eq!(instance_serial("Living Room TV"), None);
+    }
+
+    #[test]
+    fn a_bracketed_ipv6_transport_is_a_network_connection() {
+        let entries = parse_device_list(
+            "List of devices attached\n\
+             [fe80::1]:41541\tdevice\n\
+             [fe80::1%en0]:41541\tunauthorized\n\
+             0323220054321\tdevice\n",
+        );
+        assert_eq!(entries[0].connection, ConnectionType::Network);
+        assert_eq!(entries[1].connection, ConnectionType::Network);
+        assert_eq!(entries[2].connection, ConnectionType::Usb);
+        assert!(is_network_endpoint("192.168.1.5:5555"));
+        assert!(!is_network_endpoint("[not-an-ip]:5555"));
+        assert!(!is_network_endpoint("[fe80::1]"));
     }
 
     #[test]

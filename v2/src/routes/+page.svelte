@@ -424,6 +424,10 @@
         }
         lastFailure = { address: probe.address, message: r.message };
       }
+      if (probe.state === "not_the_paired_device") {
+        fallBackToManual(probe.message);
+        return;
+      }
       if (probe.state === "ambiguous") {
         fallBackToManual(
           `It advertises more than one connect port (${probe.addresses.join(", ")}). Use the one on its main Wireless debugging screen.`,

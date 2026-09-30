@@ -324,6 +324,24 @@ async function exercisePairingFlow({ browser, base }) {
     await page.close();
   }
 
+  // 1e. adb holds a transport the advertisement points at, but it answered
+  // with a different ro.serialno: refused, manual box, nothing highlighted.
+  {
+    const page = await freshPage(browser, base);
+    await installBridge(page, {
+      probeReplies: [{
+        state: "not_the_paired_device",
+        message: "192.168.1.42:5555 is attached, but it isn't the device that was just paired, so it wasn't picked.",
+      }],
+    });
+    await openAndPair(page);
+    await page.getByText("isn't the device that was just paired", { exact: false }).waitFor();
+    assert.equal(await page.locator(".pair-waiting").count(), 0);
+    assert.equal(await page.locator(".device-row.flash").count(), 0);
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
+    await page.close();
+  }
+
   // 3. Cancel hands over to the manual box straight away.
   {
     const page = await freshPage(browser, base);
