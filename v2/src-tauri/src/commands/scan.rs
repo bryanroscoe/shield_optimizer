@@ -9,6 +9,7 @@ use crate::adb::{
     local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, AdbDriver,
     MdnsService, ADB_NETWORK_PORT,
 };
+use shield_optimizer_core::engine::types::DeviceStatus;
 
 use super::AppState;
 
@@ -73,6 +74,10 @@ async fn adb_connect(adb: &dyn AdbDriver, target: &str) -> ConnectOutcome {
 struct ScanTargets {
     /// `host:port` endpoints to hand to `adb connect`, in a stable order.
     connect: Vec<String>,
+    /// Advertised endpoints not dialled because adb already holds a ready
+    /// transport for that service. They were found and are connected; they
+    /// just need no second key.
+    already_attached: Vec<String>,
     /// Pairing `host:port` for devices that advertise no connectable service.
     needs_pairing: Vec<String>,
 }
@@ -116,6 +121,7 @@ fn merge_scan_targets(
     attached: &[String],
 ) -> ScanTargets {
     let mut connect: Vec<String> = Vec::new();
+    let mut already_attached: Vec<String> = Vec::new();
     let mut advertised_hosts: Vec<&str> = Vec::new();
 
     for service in services.iter().filter(|s| s.is_connectable()) {
@@ -126,10 +132,13 @@ fn merge_scan_targets(
         }
         // Reconnecting under a second key gains nothing and costs a duplicate
         // row.
+        let endpoint = service.endpoint();
         if would_duplicate_transport(service, attached) {
+            if !already_attached.contains(&endpoint) {
+                already_attached.push(endpoint);
+            }
             continue;
         }
-        let endpoint = service.endpoint();
         if !connect.contains(&endpoint) {
             connect.push(endpoint);
         }
@@ -161,17 +170,20 @@ fn merge_scan_targets(
 
     ScanTargets {
         connect,
+        already_attached,
         needs_pairing,
     }
 }
 
-/// Serials adb currently holds a transport for. Used to avoid handing adb a
-/// second key for a device it is already attached to. Same read as
-/// `commands/install.rs` performs around a daemon restart.
+/// Serials adb currently holds a *ready* transport for. Used to avoid handing
+/// adb a second key for a device it is already attached to. An offline or
+/// unauthorized transport is not a reason to skip dialling: it is exactly the
+/// stale state a scan should be able to recover from.
 async fn attached_serials(adb: &dyn AdbDriver) -> Vec<String> {
     match adb.raw(&["devices"]).await {
         Ok(out) => parse_device_list(&out.stdout)
             .into_iter()
+            .filter(|entry| entry.status == DeviceStatus::Device)
             .map(|entry| entry.serial)
             .collect(),
         Err(_) => Vec::new(),
@@ -231,11 +243,12 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let found: Vec<String> = targets
         .connect
         .iter()
+        .chain(targets.already_attached.iter())
+        .chain(targets.needs_pairing.iter())
         .cloned()
-        .chain(targets.needs_pairing.iter().cloned())
         .collect();
 
-    let mut connected = Vec::new();
+    let mut connected = targets.already_attached.clone();
     let mut unauthorized = Vec::new();
     let mut failed = Vec::new();
     for target in &targets.connect {
@@ -573,6 +586,34 @@ mod tests {
             targets.connect
         );
         assert!(targets.needs_pairing.is_empty());
+        // Codex on #128: not dialling it must not also drop it from the
+        // scan's found/connected counts.
+        assert_eq!(targets.already_attached, vec!["192.168.42.211:34083"]);
+    }
+
+    #[tokio::test]
+    async fn an_offline_transport_does_not_stop_the_scan_redialling() {
+        // Codex on #128: a stale offline mDNS transport used to count as
+        // attached, so the advertised endpoint was never dialled again.
+        use shield_optimizer_core::commands::test_support::MockAdb;
+        let mock = MockAdb::default().on_raw(
+            "devices",
+            "List of devices attached\n\
+             adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\toffline\n\
+             192.168.42.71:5555\tdevice\n",
+        );
+        let attached = attached_serials(&mock).await;
+        assert_eq!(attached, vec!["192.168.42.71:5555"]);
+
+        let services = vec![service(
+            "adb-58040DLCH005YV-jBeCEe",
+            crate::adb::MDNS_SERVICE_CONNECT,
+            "192.168.42.211",
+            34083,
+        )];
+        let targets = merge_scan_targets(&[], &services, &attached);
+        assert_eq!(targets.connect, vec!["192.168.42.211:34083"]);
+        assert!(targets.already_attached.is_empty());
     }
 
     #[test]
