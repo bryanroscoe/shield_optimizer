@@ -148,6 +148,12 @@ jobs:
         working-directory: v2
         run: npm run test:version-compare
 
+      # adb pair/connect failures get plain guidance with the raw text kept,
+      # and unknown errors are not guessed at.
+      - name: adb errors
+        working-directory: v2
+        run: npm run test:adb-errors
+
       # The Remote box could be typed into but not pasted into (#91), which is
       # backwards for the long URLs and passwords it exists for.
       - name: Remote paste

@@ -793,12 +793,22 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "report_all":
       return [{ serial: SERIAL, name: device.name, report: health, error: null }];
     case "pair_device":
-      return {
-        ok: true,
-        message: "Paired successfully. Pairing established trust; connecting is a separate step on a different port.",
-      };
+      return { ok: true, message: "Paired.", instance: "adb-DEMO0001-a1B2c3" };
     case "connect_device":
       return { ok: true, message: `connected to ${String(args.address)}` };
+    // Nothing advertised: the gallery's pairing frame shows the waiting state.
+    // tests/pairing-flow.mjs overrides this for the success and timeout paths.
+    case "probe_paired_connect":
+      return { state: "waiting" };
+    case "local_address_for":
+      return "192.168.1.10";
+    case "forget_device":
+      return {
+        ok: true,
+        disconnected: [String(args.serial)],
+        still_advertised: false,
+        message: `Disconnected ${String(args.serial)}.`,
+      };
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

@@ -185,6 +185,44 @@ const COLLECT_SIBLINGS = (max) => {
   return results;
 };
 
+// Runs in the page. A Devices row's actions must sit on the device icon's
+// centre line whatever the row's own `align-items` says. The sibling check
+// skips rows that ask for top alignment, which is exactly how the not-a-TV
+// row's Open anyway / Copy diagnostics / Forget drifted above the icon's
+// centre (`.device-row.not-clickable { align-items: flex-start }`).
+const COLLECT_ROW_ACTIONS = (max) => {
+  const results = [];
+  let checked = 0;
+  let notClickable = 0;
+  for (const row of document.querySelectorAll(".device-row")) {
+    const icon = row.querySelector(":scope > .device-icon");
+    const actions = row.querySelector(":scope > .row-actions");
+    if (!icon || !actions || !actions.querySelector("button")) continue;
+    const a = icon.getBoundingClientRect();
+    const b = actions.getBoundingClientRect();
+    if (a.height === 0 || b.height === 0) continue;
+    checked += 1;
+    if (row.classList.contains("not-clickable")) notClickable += 1;
+    const delta = a.top + a.height / 2 - (b.top + b.height / 2);
+    if (Math.abs(delta) > max) {
+      results.push({
+        selector: `.device-row${row.classList.contains("not-clickable") ? ".not-clickable" : ""}`,
+        text: `${row.querySelector(".device-name")?.textContent?.trim().slice(0, 40)}: icon vs row-actions`,
+        delta,
+        source: "row-actions",
+      });
+    }
+  }
+  return { results, checked, notClickable };
+};
+
+async function collectRowActions(page, screen, offenders) {
+  const { results, checked, notClickable } = await page.evaluate(COLLECT_ROW_ACTIONS, MAX_DELTA);
+  assert.ok(checked > 0, `${screen}: no device rows with actions to check`);
+  assert.ok(notClickable > 0, `${screen}: the not-a-TV row must be among the rows checked`);
+  for (const record of results) offenders.push({ screen, ...record });
+}
+
 async function collectSiblings(page, screen, offenders) {
   const records = await page.evaluate(COLLECT_SIBLINGS, MAX_DELTA);
   for (const record of records) offenders.push({ screen, ...record });
@@ -219,15 +257,20 @@ async function main() {
 
     browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    // The demo's not-a-TV row, so the Devices check covers the non-clickable
+    // row shape as well as the link rows.
+    await page.addInitScript(() => localStorage.setItem("shieldopt.demo.notTv", "1"));
     const offenders = [];
     const seen = { count: 0 };
 
     await page.goto(base, { waitUntil: "networkidle" });
     await page.getByText("NVIDIA SHIELD", { exact: false }).first().waitFor();
+    await page.getByText("Pixel Tablet", { exact: true }).waitFor();
     // The icon font has to be loaded before any glyph box means anything.
     await page.evaluate(() => document.fonts.ready);
     await collect(page, "devices", offenders, seen);
     await collectSiblings(page, "devices", offenders);
+    await collectRowActions(page, "devices", offenders);
 
     await page.goto(`${base}/devices/${encodeURIComponent(SERIAL)}`, { waitUntil: "networkidle" });
     await page.locator("#tab-overview").waitFor();

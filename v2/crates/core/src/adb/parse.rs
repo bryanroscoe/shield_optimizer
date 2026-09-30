@@ -45,8 +45,25 @@ pub const MDNS_SERVICE_PAIRING: &str = "_adb-tls-pairing._tcp";
 
 impl MdnsService {
     /// `host:port`, ready to hand to `adb connect` / `adb pair`.
+    ///
+    /// `adb mdns services` prints an IPv6 host bare; this brackets it, which
+    /// is the form adb accepts and the form it uses for the transport key, so
+    /// this can be compared directly against `adb devices` serials.
     pub fn endpoint(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+
+    /// The hardware serial a Wireless debugging instance name embeds:
+    /// `adb-<ro.serialno>-<random suffix>`. The pairing and connect services
+    /// of one device carry different suffixes, so this, not the full name, is
+    /// what ties them together. `None` for anything that does not have that
+    /// shape, or whose serial is empty or `unknown`.
+    pub fn instance_serial(&self) -> Option<&str> {
+        instance_serial(&self.instance)
     }
 
     /// Can this be connected to directly? True for legacy `_adb._tcp` and for
@@ -59,6 +76,37 @@ impl MdnsService {
     pub fn is_pairing(&self) -> bool {
         self.service == MDNS_SERVICE_PAIRING
     }
+}
+
+/// Is this adb transport key a network `host:port`? Dotted IPv4
+/// (`192.168.1.5:5555`) or bracketed IPv6 (`[fe80::1]:41541`, the form adb
+/// and [`MdnsService::endpoint`] use). A USB hardware serial is neither.
+pub fn is_network_endpoint(serial: &str) -> bool {
+    static IPV4_PORT: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^\d+\.\d+\.\d+\.\d+:\d+$").unwrap());
+    if IPV4_PORT.is_match(serial) {
+        return true;
+    }
+    let Some(rest) = serial.strip_prefix('[') else {
+        return false;
+    };
+    let Some((host, port)) = rest.split_once("]:") else {
+        return false;
+    };
+    // A scoped link-local address carries `%iface`, which Ipv6Addr rejects.
+    let bare = host.split('%').next().unwrap_or(host);
+    bare.parse::<std::net::Ipv6Addr>().is_ok() && port.parse::<u16>().is_ok_and(|p| p > 0)
+}
+
+/// See [`MdnsService::instance_serial`].
+pub fn instance_serial(instance: &str) -> Option<&str> {
+    let rest = instance.strip_prefix("adb-")?;
+    let (serial, suffix) = rest.rsplit_once('-')?;
+    let serial = serial.trim();
+    if serial.is_empty() || suffix.is_empty() || serial.eq_ignore_ascii_case("unknown") {
+        return None;
+    }
+    Some(serial)
 }
 
 /// Parse `adb mdns services` output.
@@ -119,9 +167,6 @@ pub fn parse_mdns_services(output: &str) -> Vec<MdnsService> {
 /// emulator-5554         device
 /// ```
 pub fn parse_device_list(adb_devices_output: &str) -> Vec<DeviceListEntry> {
-    static IP_PORT: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\d+\.\d+\.\d+\.\d+:\d+$").unwrap());
-
     let mut entries = Vec::new();
     for line in adb_devices_output.lines() {
         let line = line.trim();
@@ -141,7 +186,7 @@ pub fn parse_device_list(adb_devices_output: &str) -> Vec<DeviceListEntry> {
         // serial (Android 11+ pairs over `_adb-tls-connect._tcp` etc.; those
         // never look like `ip:port` but always carry the `_tcp` service tag).
         // USB serials are plain hardware ids and contain neither.
-        let connection = if IP_PORT.is_match(serial) || serial.contains("._tcp") {
+        let connection = if is_network_endpoint(serial) || serial.contains("._tcp") {
             ConnectionType::Network
         } else {
             ConnectionType::Usb
@@ -841,6 +886,52 @@ mod tests {
         // Same TV, different ports — neither may be substituted for the other.
         assert_eq!(services[0].host, services[1].host);
         assert_ne!(services[0].port, services[1].port);
+        // Different suffixes, same embedded hardware serial.
+        assert_ne!(services[0].instance, services[1].instance);
+        assert_eq!(services[0].instance_serial(), Some("58040DLCH005YV"));
+        assert_eq!(services[1].instance_serial(), Some("58040DLCH005YV"));
+    }
+
+    #[test]
+    fn instance_serial_rejects_malformed_or_unknown_names() {
+        assert_eq!(
+            instance_serial("adb-58040DLCH005YV-jBeCEe"),
+            Some("58040DLCH005YV")
+        );
+        assert_eq!(instance_serial("adb-AB-12-CD-x9"), Some("AB-12-CD"));
+        assert_eq!(instance_serial("adb-unknown-jBeCEe"), None);
+        assert_eq!(instance_serial("adb--jBeCEe"), None);
+        assert_eq!(
+            instance_serial("adb-1321920044953"),
+            None,
+            "legacy name has no suffix"
+        );
+        assert_eq!(instance_serial("adb-58040DLCH005YV-"), None);
+        assert_eq!(instance_serial("Living Room TV"), None);
+    }
+
+    #[test]
+    fn a_bracketed_ipv6_transport_is_a_network_connection() {
+        let entries = parse_device_list(
+            "List of devices attached\n\
+             [fe80::1]:41541\tdevice\n\
+             [fe80::1%en0]:41541\tunauthorized\n\
+             0323220054321\tdevice\n",
+        );
+        assert_eq!(entries[0].connection, ConnectionType::Network);
+        assert_eq!(entries[1].connection, ConnectionType::Network);
+        assert_eq!(entries[2].connection, ConnectionType::Usb);
+        assert!(is_network_endpoint("192.168.1.5:5555"));
+        assert!(!is_network_endpoint("[not-an-ip]:5555"));
+        assert!(!is_network_endpoint("[fe80::1]"));
+    }
+
+    #[test]
+    fn ipv6_endpoint_is_bracketed_like_the_adb_transport_key() {
+        let input = "List of discovered mdns services\n\
+            adb-v6-x\t_adb-tls-connect._tcp\tfe80::1:41541\n";
+        let services = parse_mdns_services(input);
+        assert_eq!(services[0].endpoint(), "[fe80::1]:41541");
     }
 
     #[test]

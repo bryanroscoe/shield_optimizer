@@ -90,12 +90,22 @@ pub mod test_support {
     #[derive(Default)]
     pub struct MockAdb {
         shell_rules: Vec<Rule>,
+        serial_shell_rules: Vec<(String, Rule)>,
         raw_rules: Vec<Rule>,
         shell_log: Arc<Mutex<Vec<String>>>,
         raw_log: Arc<Mutex<Vec<String>>>,
     }
 
     impl MockAdb {
+        /// Like `on_shell`, but only for calls against `serial`. Checked before
+        /// the serial-agnostic rules.
+        pub fn on_shell_for(mut self, serial: &str, needle: &str, stdout: &str) -> Self {
+            self.serial_shell_rules.push((
+                serial.into(),
+                Rule::single(needle, Reply::Ok(stdout.into())),
+            ));
+            self
+        }
         /// Return `stdout` for any `shell` whose command contains `needle`.
         pub fn on_shell(mut self, needle: &str, stdout: &str) -> Self {
             self.shell_rules
@@ -232,8 +242,26 @@ pub mod test_support {
             self.raw_log.lock().unwrap().push(command.clone());
             reply_for(&self.raw_rules, &command)
         }
-        async fn shell(&self, _serial: &str, command: &str) -> AdbResult<AdbOutput> {
+        async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
             self.shell_log.lock().unwrap().push(command.to_string());
+            let for_serial = self
+                .serial_shell_rules
+                .iter()
+                .find(|(s, rule)| s == serial && command.contains(rule.needle.as_str()));
+            if let Some((_, rule)) = for_serial {
+                return match &rule.replies[0] {
+                    Reply::Ok(out) => ok(out.clone()),
+                    Reply::Code(out, code) => Ok(AdbOutput {
+                        stdout: out.clone(),
+                        stderr: String::new(),
+                        exit_code: Some(*code),
+                    }),
+                    Reply::Err(msg) => Err(AdbError::NonZeroExit {
+                        code: Some(1),
+                        stderr: msg.clone(),
+                    }),
+                };
+            }
             reply_for(&self.shell_rules, command)
         }
     }

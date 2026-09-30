@@ -11,6 +11,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:app-files-catalog": "node tests/app-files-catalog.mjs",
     "test:pairing-flow": "node tests/pairing-flow.mjs",
+    "test:adb-errors": "node tests/adb-errors.mjs",
     "test:sideload-scan": "node tests/sideload-scan.mjs",
     "test:device-list-rows": "node tests/device-list-rows.mjs",
     "test:release-notes": "node tests/release-notes.mjs",

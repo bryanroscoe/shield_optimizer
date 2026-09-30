@@ -94,6 +94,40 @@ export interface ConnectResult {
   message: string;
 }
 
+export interface ForgetResult {
+  ok: boolean;
+  /// Every adb transport key dropped for this device, the requested one first.
+  disconnected: string[];
+  /// Still advertising Wireless debugging, so adb will re-attach it by itself.
+  still_advertised: boolean;
+  message: string;
+}
+
+export interface PairResult {
+  ok: boolean;
+  message: string;
+  /// mDNS instance of the paired device's pairing service; null when adb
+  /// never saw it, and then nothing advertised can be tied to this device.
+  instance: string | null;
+}
+
+export interface PairedConnectResult {
+  ok: boolean;
+  /// It answered but its ro.serialno isn't the paired device's; it was
+  /// disconnected again.
+  not_the_paired_device: boolean;
+  message: string;
+}
+
+/// One read of `adb mdns services` for a just-paired device's connect port.
+export type PairedConnectProbe =
+  | { state: "waiting" }
+  | { state: "unidentified" }
+  | { state: "attached"; serial: string }
+  | { state: "endpoint"; address: string }
+  | { state: "ambiguous"; addresses: string[] }
+  | { state: "not_the_paired_device"; message: string };
+
 export interface DisplayMode {
   resolution: string | null;
   refresh_hz: number | null;

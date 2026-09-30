@@ -11,6 +11,10 @@ import type {
   BackupApkResult,
   CloneAppResult,
   ConnectResult,
+  ForgetResult,
+  PairedConnectProbe,
+  PairResult,
+  PairedConnectResult,
   CurrentDisplayScaling,
   CurrentLauncher,
   Device,
@@ -71,7 +75,15 @@ export const api = {
   disconnectDevice: (serial: string) =>
     invoke<ConnectResult>("disconnect_device", { serial }),
   pairDevice: (pairAddress: string, pin: string) =>
-    invoke<ConnectResult>("pair_device", { pairAddress, pin }),
+    invoke<PairResult>("pair_device", { pairAddress, pin }),
+  forgetDevice: (serial: string) =>
+    invoke<ForgetResult>("forget_device", { serial }),
+  probePairedConnect: (pairAddress: string, instance: string | null) =>
+    invoke<PairedConnectProbe>("probe_paired_connect", { pairAddress, instance }),
+  connectPaired: (address: string, instance: string) =>
+    invoke<PairedConnectResult>("connect_paired", { address, instance }),
+  localAddressFor: (host: string) =>
+    invoke<string | null>("local_address_for", { host }),
   renameDevice: (serial: string, name: string) =>
     invoke<ActionResult>("rename_device", { serial, name }),
 

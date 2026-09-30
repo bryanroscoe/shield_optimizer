@@ -40,6 +40,34 @@ When you add a new section, put it at the top; older releases go below.
 
 ### Fixed
 
+- **Forget didn't work the first time on a Wireless debugging device.** adb often holds one
+  phone or TV under two connections (its mDNS name and its `IP:port`), and Forget dropped
+  only the one the row showed, so the row stayed. Forget now drops every connection with
+  the same verified hardware id (never matched by address). If the device is still
+  advertising Wireless debugging, adb reconnects it within seconds; the app now says so,
+  shows it coming back, and explains how to stop that (turn off Wireless debugging, or
+  remove this computer under Paired devices on the device).
+- **After Pair PIN, the device didn't appear until the pairing dialog was cancelled.**
+  After a successful pair the app now asks you to close the pairing dialog, then watches
+  mDNS for up to 45 seconds for the device's advertised connect port and connects to it
+  by itself. It never guesses a port and never reuses the pairing port. When the device
+  connects, the pairing panel closes and the new row is scrolled to, briefly outlined, and
+  given an **Open** button (or **Open anyway** with a note for a device that isn't a TV).
+  Cancel, or 45 seconds without an advertisement, falls back to the connect box, already
+  filled in with the device's address.
+- **Pair and connect errors were raw adb text.** A mistyped IP showed "protocol fault
+  (couldn't read status message): Undefined error: 0". Unreachable addresses, a wrong PIN
+  and a closed or expired pairing dialog now get a plain sentence about what to check,
+  with adb's own words under **Details**. The pairing box also warns, without blocking,
+  when the address isn't on this computer's network ("typo?").
+- **Buttons on a "not an Android TV" row sat above the row's centre line.** Open anyway,
+  Copy diagnostics and Forget now line up with the rest of the row.
+- **Help text told people to run `adb` in a terminal.** The app bundles its own adb, and a
+  different one restarts the shared adb server and drops every connected device. The
+  "no authorization prompt" steps now say to wake the TV, use Forget and Add by IP, and
+  only then Revoke (which un-trusts every computer). The Wireless debugging "Forget this
+  computer" step is offered only for Wireless debugging connections. The pairing and
+  Devices copy no longer implies every Android 11+ device needs pairing.
 - **A real Android TV was refused as "Not an Android TV"**
   ([#120](https://github.com/bryanroscoe/shield_optimizer/issues/120)). 2.2.0 decided
   from one property (`ro.build.characteristics`) and treated its absence as proof. The

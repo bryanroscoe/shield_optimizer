@@ -52,9 +52,10 @@ async function captureScreens(page, shot) {
     await page.getByText("NVIDIA SHIELD", { exact: false }).first().waitFor();
     await shot("devices");
 
-    // 2. Android 11+ pairing guidance, including the separate connect endpoint.
-    await page.getByRole("button", { name: "Pair PIN" }).click();
-    await page.getByText("Pairing and connecting use different ports.", { exact: false }).waitFor();
+    // 2. Pairing, caught while it waits for the device to advertise its
+    // connect port (the demo never advertises one, so the frame is stable).
+    await page.locator(".connect-form").getByRole("button", { name: "Pair PIN" }).click();
+    await page.getByText("the app connects automatically", { exact: false }).waitFor();
     await page.getByText("Do not reuse the pairing port.", { exact: false }).waitFor();
     const pairAddress = page.getByPlaceholder("IP:pair_port — e.g. 192.168.42.71:43219");
     const pairPin = page.getByPlaceholder("6-digit PIN");
@@ -62,7 +63,8 @@ async function captureScreens(page, shot) {
     await pairAddress.fill("192.168.1.42:43219");
     await pairPin.fill("123456");
     await page.getByRole("button", { name: "Pair", exact: true }).click();
-    await page.getByText("Paired successfully.", { exact: false }).waitFor();
+    await page.getByText("Close the pairing dialog on your phone/TV.", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
     if (await pairPin.inputValue()) throw new Error("pairing PIN was not cleared after submission");
     if (await pairAddress.inputValue()) throw new Error("pairing address was not cleared after success");
     // The paired host carries over with a bare trailing colon (#88); the
