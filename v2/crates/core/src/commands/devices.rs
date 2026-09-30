@@ -778,9 +778,14 @@ fn is_ipv4(host: &str) -> bool {
 /// Only the bracketed form. Bare IPv6 is ambiguous with `host:port` and adb
 /// wants brackets anyway, so requiring them keeps the parse unambiguous.
 fn is_bracketed_ipv6(host: &str) -> bool {
+    // Validate exactly as `is_network_endpoint` does, so anything the parser
+    // calls a network transport (including a scoped `fe80::1%en0`) can be
+    // connected to.
     host.strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
-        .is_some_and(|inner| !inner.is_empty() && inner.parse::<std::net::Ipv6Addr>().is_ok())
+        .is_some_and(|inner| {
+            !inner.is_empty() && crate::adb::is_network_endpoint(&format!("[{inner}]:1"))
+        })
 }
 
 /// An adb wireless-debugging mDNS instance, e.g.
@@ -1384,6 +1389,27 @@ mod tests {
             crate::engine::types::DeviceStatus::Unauthorized
         );
         assert!(devices[1].properties.is_none());
+    }
+
+    #[test]
+    fn normalize_accepts_a_scoped_ipv6_endpoint_from_discovery() {
+        // Codex on #128: mDNS can report a link-local host with its scope,
+        // and endpoint() brackets it as-is. Rejecting it here meant the
+        // auto-connect retried for 45 s and gave up on a device it had found.
+        assert_eq!(
+            normalize_connect_address("[fe80::1%en0]:41541").unwrap(),
+            "[fe80::1%en0]:41541"
+        );
+        assert_eq!(
+            normalize_connect_address("[fe80::1]:41541").unwrap(),
+            "[fe80::1]:41541"
+        );
+        assert!(normalize_connect_address("[fe80::zz%en0]:41541").is_err());
+        let services = parse_mdns_services(
+            "List of discovered mdns services\n\
+             adb-V6SER-c2\t_adb-tls-connect._tcp\tfe80::1%en0:41541\n",
+        );
+        assert!(normalize_connect_address(&services[0].endpoint()).is_ok());
     }
 
     #[test]
