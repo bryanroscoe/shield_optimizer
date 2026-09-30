@@ -89,20 +89,20 @@ const TV_ROW = {
   properties: {
     friendly_name: MDNS_NAME, brand: "TCL", model: "QM7L Pro", device_codename: "x",
     manufacturer: "TCL", android_release: "14", sdk_level: "34", build_id: "X",
-    board_platform: "mt", characteristics: "tv", serial_number: "TCL0000001", leanback: true,
+    board_platform: "mt", characteristics: "tv", serial_number: "DEMO0001", leanback: true,
   },
 };
 
 /// Replace the demo bridge for one scenario. `probeReplies` is handed back in
 /// order (sticking on the last); `connectOk` decides what connect_device says;
 /// the new row joins list_devices once a connect has succeeded.
-async function installBridge(page, { probeReplies, connectOk = true, pairError = null, wrongDevice = false }) {
-  await page.evaluate(({ probeReplies, connectOk, pairError, wrongDevice, row }) => {
+async function installBridge(page, { probeReplies, connectOk = true, pairError = null, wrongDevice = false, listed = false }) {
+  await page.evaluate(({ probeReplies, connectOk, pairError, wrongDevice, listed, row }) => {
     const demo = window.__TAURI_INTERNALS__;
     const originalInvoke = demo.invoke.bind(demo);
     window.__PAIRING_FLOW_CALLS__ = [];
     let probes = 0;
-    let connected = false;
+    let connected = listed;
     demo.invoke = async (command, args = {}) => {
       window.__PAIRING_FLOW_CALLS__.push({ command, args });
       if (command === "pair_device" && pairError) throw pairError;
@@ -129,7 +129,7 @@ async function installBridge(page, { probeReplies, connectOk = true, pairError =
       if (command === "list_devices" && connected) return [...result, row];
       return result;
     };
-  }, { probeReplies, connectOk, pairError, wrongDevice, row: TV_ROW });
+  }, { probeReplies, connectOk, pairError, wrongDevice, listed, row: TV_ROW });
 }
 
 async function openAndPair(page, address = PAIR_ADDRESS) {
@@ -283,6 +283,44 @@ async function exercisePairingFlow({ browser, base }) {
     assert.equal(await page.locator(".pair-waiting").count(), 0);
     assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
     assert.equal((await calls(page, "connect_device")).length, 0);
+    await page.close();
+  }
+
+  // 1d. adb reports the device under its mDNS key, but the list collapsed it
+  // into a row kept under IP:port. The row is found by the verified
+  // ro.serialno that the pairing instance embeds, and highlighted.
+  {
+    const page = await freshPage(browser, base);
+    await installBridge(page, {
+      probeReplies: [{ state: "attached", serial: "adb-DEMO0001-zZ9._adb-tls-connect._tcp" }],
+      listed: true,
+    });
+    await openAndPair(page);
+    const row = page.locator(`[data-serial="${CONNECT_ADDRESS}"]`);
+    await page.locator(`[data-serial="${CONNECT_ADDRESS}"].flash`).waitFor({ timeout: 10000 });
+    await page.getByText(`Connected ${MDNS_NAME}.`, { exact: true }).waitFor();
+    assert.equal(await row.getByRole("button", { name: "Open", exact: true }).count(), 1);
+    await page.close();
+  }
+
+  // 2c. The endpoint is advertised on every poll but keeps refusing. At the
+  // timeout that failure is what the user is told, not "nothing appeared".
+  {
+    const page = await freshPage(browser, base, { clock: true });
+    await installBridge(page, {
+      probeReplies: [{ state: "endpoint", address: CONNECT_ADDRESS }],
+      connectOk: false,
+    });
+    await openAndPair(page);
+    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    for (let i = 0; i < 40 && (await page.locator(".pair-waiting").count()) > 0; i++) {
+      await page.clock.runFor(1500);
+    }
+    await page.getByText(`It advertised ${CONNECT_ADDRESS}, but connecting kept failing.`, { exact: false }).waitFor();
+    assert.equal(await page.getByText("No connect port appeared", { exact: false }).count(), 0);
+    await page.locator(".pair-form .adb-details summary").click();
+    await page.locator(".pair-form .adb-details").getByText("failed to connect to explicit endpoint", { exact: true }).waitFor();
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
     await page.close();
   }
 

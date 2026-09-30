@@ -4,6 +4,7 @@
   import { api } from "$lib/api";
   import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
+  import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
@@ -150,14 +151,21 @@
   /// a moment, and given its own call to action. Found by adb transport key
   /// only. If the key is not a listed row, nothing is highlighted rather than
   /// picking a row that merely shares its IP.
-  async function announceConnected(serial: string): Promise<boolean> {
-    const row = devices.find((d) => d.serial === serial);
+  ///
+  /// `hardwareId` is the verified `ro.serialno` when the caller knows it.
+  /// The list collapses one device's aliases into a single row and may keep
+  /// a different key than the one just connected, so that row is found by
+  /// its reported hardware id instead — still never by address.
+  async function announceConnected(serial: string, hardwareId: string | null = null): Promise<Device | null> {
+    const row =
+      devices.find((d) => d.serial === serial) ??
+      (hardwareId ? devices.find((d) => idKey(d.properties?.serial_number) === hardwareId) : undefined);
     cancelPairWait(false);
     pairOpen = false;
     pairNextStep = false;
     pairMessage = "";
     pairDetail = "";
-    if (!row) return false;
+    if (!row) return null;
     justConnected = row.serial;
     flashSerial = row.serial;
     await tick();
@@ -167,7 +175,7 @@
     setTimeout(() => {
       if (flashSerial === row.serial) flashSerial = null;
     }, 2400);
-    return true;
+    return row;
   }
 
   let connectInput = $state<HTMLInputElement | null>(null);
@@ -375,6 +383,10 @@
     pairStage = "waiting";
     pairElapsed = 0;
     const started = Date.now();
+    const hardwareId = instanceSerial(instance);
+    /// The endpoint was advertised but refused us: that, not discovery, is
+    /// what the user has to fix if the wait runs out.
+    let lastFailure: { address: string; message: string } | null = null;
     while (token === pairWaitToken) {
       let probe: PairedConnectProbe;
       try {
@@ -392,7 +404,7 @@
       if (probe.state === "attached") {
         await refresh();
         if (token !== pairWaitToken) return;
-        await pairConnected(probe.serial);
+        await pairConnected(probe.serial, hardwareId);
         return;
       }
       if (probe.state === "endpoint" && instance) {
@@ -403,13 +415,14 @@
         if (r.ok) {
           await refresh();
           if (token !== pairWaitToken) return;
-          await pairConnected(probe.address);
+          await pairConnected(probe.address, hardwareId);
           return;
         }
         if (r.not_the_paired_device) {
           fallBackToManual(r.message);
           return;
         }
+        lastFailure = { address: probe.address, message: r.message };
       }
       if (probe.state === "ambiguous") {
         fallBackToManual(
@@ -419,18 +432,25 @@
       }
       pairElapsed = Math.min(PAIR_CONNECT_WAIT_S, Math.floor((Date.now() - started) / 1000));
       if (Date.now() - started >= PAIR_CONNECT_WAIT_S * 1000) {
-        fallBackToManual(`No connect port appeared within ${PAIR_CONNECT_WAIT_S} seconds.`);
+        if (lastFailure) {
+          const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message);
+          fallBackToManual(
+            `It advertised ${lastFailure.address}, but connecting kept failing. ${explained.summary ?? ""}`.trim(),
+            explained.raw,
+          );
+        } else {
+          fallBackToManual(`No connect port appeared within ${PAIR_CONNECT_WAIT_S} seconds.`);
+        }
         return;
       }
       await sleep(PAIR_PROBE_INTERVAL_MS);
     }
   }
 
-  async function pairConnected(serial: string) {
-    const found = await announceConnected(serial);
+  async function pairConnected(serial: string, hardwareId: string | null) {
+    const row = await announceConnected(serial, hardwareId);
     connectAddress = "";
-    const row = devices.find((d) => d.serial === serial);
-    connectMessage = found && row ? `Connected ${row.name}.` : `Connected ${serial}.`;
+    connectMessage = row ? `Connected ${row.name}.` : `Connected ${serial}.`;
     connectDetail = "";
   }
 
@@ -446,11 +466,11 @@
     }
   }
 
-  async function fallBackToManual(why: string) {
+  async function fallBackToManual(why: string, detail = "") {
     pairWaitToken++;
     pairStage = "manual";
     pairMessage = why;
-    pairDetail = "";
+    pairDetail = detail;
     if (pairWaitHost) connectAddress = `${pairWaitHost}:`;
     pairNextStep = true;
     await tick();

@@ -75,4 +75,16 @@ assert.equal(hostOf("192.168.1.9:40000"), "192.168.1.9");
 assert.equal(hostOf("192.168.1.9"), "192.168.1.9");
 assert.equal(hostOf("[fe80::1]:40000"), "[fe80::1]");
 
+// The serial a Wireless debugging instance embeds, same rule as the Rust side.
+const mdnsSource = readFileSync(join(v2Root, "src/lib/mdns.ts"), "utf8");
+const { instanceSerial } = await import(
+  "data:text/javascript," + encodeURIComponent(stripTypeScriptTypes(mdnsSource, { mode: "strip" }))
+);
+assert.equal(instanceSerial("adb-58040DLCH005YV-A1b2C3"), "58040DLCH005YV");
+assert.equal(instanceSerial("adb-58040DLCH005YV-jBeCEe"), "58040DLCH005YV");
+assert.equal(instanceSerial("adb-AB-12-x9"), "AB-12");
+for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "Living Room", null, ""]) {
+  assert.equal(instanceSerial(bad), null, String(bad));
+}
+
 console.log("adb errors passed: pair/connect failures map to guidance with raw details kept, unknown errors are not guessed at, and the subnet typo warning only fires on readable IPv4.");
