@@ -96,8 +96,8 @@ const TV_ROW = {
 /// Replace the demo bridge for one scenario. `probeReplies` is handed back in
 /// order (sticking on the last); `connectOk` decides what connect_device says;
 /// the new row joins list_devices once a connect has succeeded.
-async function installBridge(page, { probeReplies, connectOk = true, pairError = null }) {
-  await page.evaluate(({ probeReplies, connectOk, pairError, row }) => {
+async function installBridge(page, { probeReplies, connectOk = true, pairError = null, wrongDevice = false }) {
+  await page.evaluate(({ probeReplies, connectOk, pairError, wrongDevice, row }) => {
     const demo = window.__TAURI_INTERNALS__;
     const originalInvoke = demo.invoke.bind(demo);
     window.__PAIRING_FLOW_CALLS__ = [];
@@ -111,16 +111,25 @@ async function installBridge(page, { probeReplies, connectOk = true, pairError =
         probes += 1;
         return reply;
       }
-      if (command === "connect_device") {
-        if (!connectOk) return { ok: false, message: "failed to connect to explicit endpoint" };
+      if (command === "connect_paired" && wrongDevice) {
+        return {
+          ok: false,
+          not_the_paired_device: true,
+          message: `${args.address} is a different device (serial OLDTV0001, expected DEMO0001), so it was disconnected.`,
+        };
+      }
+      if (command === "connect_device" || command === "connect_paired") {
+        if (!connectOk) {
+          return { ok: false, not_the_paired_device: false, message: "failed to connect to explicit endpoint" };
+        }
         connected = true;
-        return { ok: true, message: `connected to ${args.address}` };
+        return { ok: true, not_the_paired_device: false, message: `connected to ${args.address}` };
       }
       const result = await originalInvoke(command, args);
       if (command === "list_devices" && connected) return [...result, row];
       return result;
     };
-  }, { probeReplies, connectOk, pairError, row: TV_ROW });
+  }, { probeReplies, connectOk, pairError, wrongDevice, row: TV_ROW });
 }
 
 async function openAndPair(page, address = PAIR_ADDRESS) {
@@ -181,9 +190,10 @@ async function exercisePairingFlow({ browser, base }) {
     assert.ok(probes.every((c) => c.args.pairAddress === PAIR_ADDRESS));
     assert.ok(probes.every((c) => c.args.instance === "adb-DEMO0001-a1B2c3"),
       "the probe is keyed on the paired device's mDNS instance, not its address");
-    assert.deepEqual(await calls(page, "connect_device"),
-      [{ command: "connect_device", args: { address: CONNECT_ADDRESS } }],
-      "only the advertised connect port is dialled — never the pairing port, never a guess");
+    assert.deepEqual(await calls(page, "connect_paired"),
+      [{ command: "connect_paired", args: { address: CONNECT_ADDRESS, instance: "adb-DEMO0001-a1B2c3" } }],
+      "only the advertised connect port is dialled, and its serial is checked against the pairing");
+    assert.equal((await calls(page, "connect_device")).length, 0);
     assert.notEqual(CONNECT_ADDRESS, PAIR_ADDRESS);
 
     await row.getByRole("button", { name: "Open", exact: true }).click();
@@ -200,7 +210,25 @@ async function exercisePairingFlow({ browser, base }) {
     await openAndPair(page);
     await page.locator('[data-serial="192.168.1.42:5555"].flash').waitFor({ timeout: 10000 });
     assert.equal((await calls(page, "connect_device")).length, 0);
+    assert.equal((await calls(page, "connect_paired")).length, 0);
     assert.equal(await page.locator(".pair-form").count(), 0);
+    await page.close();
+  }
+
+  // 1c. The advertised endpoint answers with a different ro.serialno: it is
+  // dropped, no row is announced, and the manual box takes over at once.
+  {
+    const page = await freshPage(browser, base);
+    await installBridge(page, {
+      probeReplies: [{ state: "endpoint", address: CONNECT_ADDRESS }],
+      wrongDevice: true,
+    });
+    await openAndPair(page);
+    await page.getByText(`${CONNECT_ADDRESS} is a different device`, { exact: false }).waitFor();
+    assert.equal(await page.locator(".pair-waiting").count(), 0);
+    assert.equal(await page.locator(`[data-serial="${CONNECT_ADDRESS}"]`).count(), 0);
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
+    assert.equal((await calls(page, "connect_paired")).length, 1, "no retry against the same stranger");
     await page.close();
   }
 
@@ -222,7 +250,7 @@ async function exercisePairingFlow({ browser, base }) {
     assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
     assert.equal(await connectBox(page).evaluate((el) => el === document.activeElement), true,
       "the connect box must have focus after the fallback");
-    assert.equal((await calls(page, "connect_device")).length, 0, "the fallback never connects by itself");
+    assert.equal((await calls(page, "connect_device")).length + (await calls(page, "connect_paired")).length, 0, "the fallback never connects by itself");
 
     // The fallback still works by hand, and a failure is explained with the
     // raw adb text behind Details.

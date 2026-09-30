@@ -110,6 +110,7 @@ pub fn run() {
             devices::pair_device,
             devices::forget_device,
             devices::probe_paired_connect,
+            devices::connect_paired,
             scan::local_address_for,
             devices::rename_device,
             health::health_report,

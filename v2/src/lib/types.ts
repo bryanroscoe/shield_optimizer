@@ -111,6 +111,14 @@ export interface PairResult {
   instance: string | null;
 }
 
+export interface PairedConnectResult {
+  ok: boolean;
+  /// It answered but its ro.serialno isn't the paired device's; it was
+  /// disconnected again.
+  not_the_paired_device: boolean;
+  message: string;
+}
+
 /// One read of `adb mdns services` for a just-paired device's connect port.
 export type PairedConnectProbe =
   | { state: "waiting" }

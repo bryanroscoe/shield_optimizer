@@ -11,7 +11,7 @@ pub use driver::{
     AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ShellTermination,
 };
 pub use parse::{
-    parse_active_audio_device, parse_device_list, parse_disabled_packages_output,
+    instance_serial, parse_active_audio_device, parse_device_list, parse_disabled_packages_output,
     parse_display_mode, parse_display_modes, parse_dumpsys_meminfo, parse_hardware_properties_temp,
     parse_installed_packages_output, parse_ls_output, parse_mdns_services, parse_meminfo_summary,
     parse_net_dev, parse_permission_granted, parse_proc_stat, parse_storage_info,

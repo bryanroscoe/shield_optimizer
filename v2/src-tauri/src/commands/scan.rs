@@ -344,7 +344,7 @@ mod live {
     use std::time::{Duration, Instant};
 
     use shield_optimizer_core::commands::devices::{
-        connect_device_impl, forget_device_impl, list_devices_impl, probe_paired_connect_impl,
+        connect_paired_impl, forget_device_impl, list_devices_impl, probe_paired_connect_impl,
         PairedConnectProbe,
     };
     use shield_optimizer_core::engine::AppListBundle;
@@ -407,10 +407,11 @@ mod live {
             match probe {
                 PairedConnectProbe::Attached { serial } => break serial,
                 PairedConnectProbe::Endpoint { address } => {
-                    let r = connect_device_impl(&state, &address)
+                    let r = connect_paired_impl(&state, &address, &instance)
                         .await
                         .expect("connect");
-                    eprintln!("connect {address}: {}", r.message);
+                    eprintln!("connect_paired {address}: {r:?}");
+                    assert!(!r.not_the_paired_device, "{}", r.message);
                     if r.ok {
                         break address;
                     }

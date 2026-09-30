@@ -395,15 +395,19 @@
         await pairConnected(probe.serial);
         return;
       }
-      if (probe.state === "endpoint") {
+      if (probe.state === "endpoint" && instance) {
         const r = await api
-          .connectDevice(probe.address)
-          .catch((e) => ({ ok: false, message: String(e) }));
+          .connectPaired(probe.address, instance)
+          .catch((e) => ({ ok: false, not_the_paired_device: false, message: String(e) }));
         if (token !== pairWaitToken) return;
         if (r.ok) {
           await refresh();
           if (token !== pairWaitToken) return;
           await pairConnected(probe.address);
+          return;
+        }
+        if (r.not_the_paired_device) {
+          fallBackToManual(r.message);
           return;
         }
       }
