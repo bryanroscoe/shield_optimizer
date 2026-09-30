@@ -333,6 +333,7 @@ pub async fn local_address_for(host: String) -> Result<Option<String>, String> {
 // Live, against a real Wireless debugging device that is already paired and
 // attached. Ignored in CI; run by hand:
 //   SHIELD_TEST_PAIR_ADDRESS=192.168.42.211:45439 SHIELD_TEST_HARDWARE_ID=58040DLCH005YV \
+//   SHIELD_TEST_MDNS_INSTANCE=adb-58040DLCH005YV-jBeCEe \
 //     cargo test -p shield-optimizer-v2 live_forget_then_auto_connect -- --ignored --nocapture
 // Forgets every transport of that hardware id, checks none is left, then does
 // what the Pair PIN flow does after a pair: polls mDNS for the connect port
@@ -367,11 +368,15 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn live_forget_then_auto_connect() {
-        let (Ok(pair_address), Ok(id)) = (
+        let (Ok(pair_address), Ok(id), Ok(instance)) = (
             std::env::var("SHIELD_TEST_PAIR_ADDRESS"),
             std::env::var("SHIELD_TEST_HARDWARE_ID"),
+            std::env::var("SHIELD_TEST_MDNS_INSTANCE"),
         ) else {
-            eprintln!("set SHIELD_TEST_PAIR_ADDRESS and SHIELD_TEST_HARDWARE_ID to run");
+            eprintln!(
+                "set SHIELD_TEST_PAIR_ADDRESS, SHIELD_TEST_HARDWARE_ID and \
+                 SHIELD_TEST_MDNS_INSTANCE to run"
+            );
             return;
         };
         let adb: Arc<dyn AdbDriver> = Arc::new(SubprocessAdb::discover().expect("adb binary"));
@@ -395,7 +400,7 @@ mod live {
 
         let started = Instant::now();
         let serial = loop {
-            let probe = probe_paired_connect_impl(&state, &pair_address)
+            let probe = probe_paired_connect_impl(&state, &pair_address, Some(&instance))
                 .await
                 .expect("probe");
             eprintln!("{:>5.1}s probe: {probe:?}", started.elapsed().as_secs_f32());
@@ -411,6 +416,7 @@ mod live {
                     }
                 }
                 PairedConnectProbe::Ambiguous { addresses } => panic!("ambiguous: {addresses:?}"),
+                PairedConnectProbe::Unidentified => panic!("no instance"),
                 PairedConnectProbe::Waiting => {}
             }
             assert!(started.elapsed() < Duration::from_secs(45), "timed out");

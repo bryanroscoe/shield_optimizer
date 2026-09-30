@@ -793,10 +793,7 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "report_all":
       return [{ serial: SERIAL, name: device.name, report: health, error: null }];
     case "pair_device":
-      return {
-        ok: true,
-        message: "Paired successfully. Pairing established trust; connecting is a separate step on a different port.",
-      };
+      return { ok: true, message: "Paired.", instance: "adb-DEMO0001-a1B2c3" };
     case "connect_device":
       return { ok: true, message: `connected to ${String(args.address)}` };
     // Nothing advertised: the gallery's pairing frame shows the waiting state.

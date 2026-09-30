@@ -350,7 +350,7 @@
         // different one from the pairing port, so only the host carries over.
         if (host) connectAddress = `${host}:`;
         await refresh();
-        void waitForConnect(address, host);
+        void waitForConnect(address, host, r.instance);
       } else {
         showPairFailure(address, r.message);
       }
@@ -369,7 +369,7 @@
   /// still open, which is why the owner only saw his phone after cancelling
   /// it. Only an advertised port is ever dialled: never a guess, never the
   /// pairing port.
-  async function waitForConnect(pairTarget: string, host: string) {
+  async function waitForConnect(pairTarget: string, host: string, instance: string | null) {
     const token = ++pairWaitToken;
     pairWaitHost = host;
     pairStage = "waiting";
@@ -378,11 +378,17 @@
     while (token === pairWaitToken) {
       let probe: PairedConnectProbe;
       try {
-        probe = await api.probePairedConnect(pairTarget);
+        probe = await api.probePairedConnect(pairTarget, instance);
       } catch {
         probe = { state: "waiting" };
       }
       if (token !== pairWaitToken) return;
+      if (probe.state === "unidentified") {
+        fallBackToManual(
+          "Paired. Close the pairing dialog on your phone/TV. The app couldn't tell which advertised device this is, so it won't connect by itself.",
+        );
+        return;
+      }
       if (probe.state === "attached") {
         await refresh();
         if (token !== pairWaitToken) return;

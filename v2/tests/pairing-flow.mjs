@@ -179,6 +179,8 @@ async function exercisePairingFlow({ browser, base }) {
     const probes = await calls(page, "probe_paired_connect");
     assert.equal(probes.length, 3);
     assert.ok(probes.every((c) => c.args.pairAddress === PAIR_ADDRESS));
+    assert.ok(probes.every((c) => c.args.instance === "adb-DEMO0001-a1B2c3"),
+      "the probe is keyed on the paired device's mDNS instance, not its address");
     assert.deepEqual(await calls(page, "connect_device"),
       [{ command: "connect_device", args: { address: CONNECT_ADDRESS } }],
       "only the advertised connect port is dialled — never the pairing port, never a guess");
@@ -240,6 +242,19 @@ async function exercisePairingFlow({ browser, base }) {
     ).waitFor();
     await page.locator(".connect-details summary").click();
     await page.getByText("failed to connect to '192.168.1.88:37123': Connection refused", { exact: true }).waitFor();
+    await page.close();
+  }
+
+  // 2b. The paired device's mDNS identity was never seen: nothing advertised
+  // can be tied to it, so it goes straight to the manual box without dialling.
+  {
+    const page = await freshPage(browser, base);
+    await installBridge(page, { probeReplies: [{ state: "unidentified" }] });
+    await openAndPair(page);
+    await page.getByText("couldn't tell which advertised device this is", { exact: false }).waitFor();
+    assert.equal(await page.locator(".pair-waiting").count(), 0);
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
+    assert.equal((await calls(page, "connect_device")).length, 0);
     await page.close();
   }
 

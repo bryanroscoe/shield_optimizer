@@ -103,9 +103,18 @@ export interface ForgetResult {
   message: string;
 }
 
+export interface PairResult {
+  ok: boolean;
+  message: string;
+  /// mDNS instance of the paired device's pairing service; null when adb
+  /// never saw it, and then nothing advertised can be tied to this device.
+  instance: string | null;
+}
+
 /// One read of `adb mdns services` for a just-paired device's connect port.
 export type PairedConnectProbe =
   | { state: "waiting" }
+  | { state: "unidentified" }
   | { state: "attached"; serial: string }
   | { state: "endpoint"; address: string }
   | { state: "ambiguous"; addresses: string[] };

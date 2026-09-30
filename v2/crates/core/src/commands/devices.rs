@@ -387,13 +387,16 @@ fn still_advertised(services: &[MdnsService], disconnected: &[String]) -> bool {
 #[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PairedConnectProbe {
-    /// Nothing advertised for that host yet; keep waiting.
+    /// Nothing advertised for that device yet; keep waiting.
     Waiting,
+    /// We never learned which mDNS service the paired device is, so nothing
+    /// advertised can be tied to it. The UI falls back to a typed address.
+    Unidentified,
     /// adb already attached it under this key, so there is nothing to dial.
     Attached { serial: String },
-    /// The single connect endpoint advertised for the paired host.
+    /// The single connect endpoint the paired device advertises.
     Endpoint { address: String },
-    /// More than one connect endpoint for that host. Not guessing.
+    /// That device advertises more than one connect endpoint. Not guessing.
     Ambiguous { addresses: Vec<String> },
 }
 
@@ -402,6 +405,12 @@ pub enum PairedConnectProbe {
 /// does not advertise, or accept, the connect service while its pairing dialog
 /// is still open.
 ///
+/// The device is identified by `instance`, the mDNS service instance its
+/// pairing service carried when it was paired (see `pair_device`). Its
+/// pairing and connect services share it. An address is never enough: a
+/// different device that held the same DHCP address earlier can still be in
+/// adb's mDNS view. Without an instance the answer is `Unidentified`.
+///
 /// `pair_address` is what the user paired against. Its port is the pairing
 /// port and is never reused; only an advertised `_adb-tls-connect._tcp` port is
 /// ever returned.
@@ -409,20 +418,22 @@ pub enum PairedConnectProbe {
 pub async fn probe_paired_connect(
     state: State<'_, AppState>,
     pair_address: String,
+    instance: Option<String>,
 ) -> Result<PairedConnectProbe, String> {
-    probe_paired_connect_impl(state.inner(), &pair_address).await
+    probe_paired_connect_impl(state.inner(), &pair_address, instance.as_deref()).await
 }
 
 pub async fn probe_paired_connect_impl(
     state: &AppState,
     pair_address: &str,
+    instance: Option<&str>,
 ) -> Result<PairedConnectProbe, String> {
     let target = normalize_pairing_address(pair_address)?;
-    let adb = state.adb_snapshot().await;
-    let services = match adb.raw(&["mdns", "services"]).await {
-        Ok(out) => parse_mdns_services(&out.stdout),
-        Err(_) => Vec::new(),
+    let Some(instance) = instance.filter(|i| !i.trim().is_empty()) else {
+        return Ok(PairedConnectProbe::Unidentified);
     };
+    let adb = state.adb_snapshot().await;
+    let services = read_mdns_services(&*adb).await;
     let attached: Vec<String> = match adb.raw(&["devices"]).await {
         Ok(out) => parse_device_list(&out.stdout)
             .into_iter()
@@ -431,7 +442,16 @@ pub async fn probe_paired_connect_impl(
             .collect(),
         Err(_) => Vec::new(),
     };
-    Ok(paired_connect_probe(&target, &services, &attached))
+    Ok(paired_connect_probe(
+        &target, instance, &services, &attached,
+    ))
+}
+
+async fn read_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
+    match adb.raw(&["mdns", "services"]).await {
+        Ok(out) => parse_mdns_services(&out.stdout),
+        Err(_) => Vec::new(),
+    }
 }
 
 fn same_host(advertised: &str, paired: &str) -> bool {
@@ -443,28 +463,47 @@ fn same_host(advertised: &str, paired: &str) -> bool {
     bare(advertised) == bare(paired)
 }
 
+fn split_target(target: &str) -> Option<(&str, u16)> {
+    let (host, port) = target.rsplit_once(':')?;
+    Some((host, port.parse().ok()?))
+}
+
+/// The mDNS instance of the device being paired at `pair_target`: the one
+/// `_adb-tls-pairing._tcp` service advertised on exactly that host *and*
+/// pairing port. The pairing port is random per dialog, so this is the device
+/// whose dialog the user is reading, not whoever else used the address. More
+/// than one candidate, or none, is `None`.
+fn pairing_instance(pair_target: &str, services: &[MdnsService]) -> Option<String> {
+    let (host, port) = split_target(pair_target)?;
+    if let Some((instance, _)) = host.split_once("._") {
+        return Some(instance.to_string());
+    }
+    let mut found: Vec<&str> = services
+        .iter()
+        .filter(|s| s.is_pairing() && s.port == port && same_host(&s.host, host))
+        .map(|s| s.instance.as_str())
+        .collect();
+    found.dedup();
+    match found.as_slice() {
+        [one] => Some((*one).to_string()),
+        _ => None,
+    }
+}
+
 fn paired_connect_probe(
     pair_target: &str,
+    instance: &str,
     services: &[MdnsService],
     attached: &[String],
 ) -> PairedConnectProbe {
-    let Some((pair_host, pair_port)) = pair_target
-        .rsplit_once(':')
-        .and_then(|(h, p)| Some((h, p.parse::<u16>().ok()?)))
-    else {
+    let Some((_, pair_port)) = split_target(pair_target) else {
         return PairedConnectProbe::Waiting;
     };
-    // Paired against an mDNS name: the connect service shares its instance.
-    let pair_instance = pair_host.split_once("._").map(|(instance, _)| instance);
 
     let mut matches: Vec<&MdnsService> = Vec::new();
     for s in services
         .iter()
-        .filter(|s| s.service == MDNS_SERVICE_CONNECT)
-        .filter(|s| match pair_instance {
-            Some(instance) => s.instance == instance,
-            None => same_host(&s.host, pair_host),
-        })
+        .filter(|s| s.service == MDNS_SERVICE_CONNECT && s.instance == instance)
         .filter(|s| s.port != pair_port)
     {
         if !matches.iter().any(|m| m.endpoint() == s.endpoint()) {
@@ -516,36 +555,57 @@ pub async fn pair_device(
     state: State<'_, AppState>,
     pair_address: String,
     pin: String,
-) -> Result<ConnectResult, String> {
+) -> Result<PairResult, String> {
     pair_device_impl(state.inner(), &pair_address, &pin).await
+}
+
+#[derive(Serialize, Debug)]
+pub struct PairResult {
+    pub ok: bool,
+    pub message: String,
+    /// The mDNS instance of the device that was paired, read from its
+    /// pairing service. `probe_paired_connect` finds the connect service by
+    /// it. `None` when adb's mDNS view did not show that pairing service.
+    pub instance: Option<String>,
 }
 
 async fn pair_device_impl(
     state: &AppState,
     pair_address: &str,
     pin: &str,
-) -> Result<ConnectResult, String> {
+) -> Result<PairResult, String> {
     if let Err(message) = validate_pairing_pin(pin) {
-        return Ok(ConnectResult { ok: false, message });
+        return Ok(PairResult {
+            ok: false,
+            message,
+            instance: None,
+        });
     }
     let target = normalize_pairing_address(pair_address)?;
     let adb = state.adb_snapshot().await;
+    // Read before pairing: the device can stop advertising its pairing
+    // service the moment pairing completes.
+    let mut instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
     let pair_out = adb
         .raw(&["pair", &target, pin])
         .await
         .map_err(|e| format!("adb pair: {e}"))?;
     let combined = pair_out.combined().trim().to_string();
     if !combined.to_lowercase().contains("successfully paired") {
-        return Ok(ConnectResult {
+        return Ok(PairResult {
             ok: false,
             message: combined,
+            instance: None,
         });
     }
+    if instance.is_none() {
+        instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
+    }
 
-    Ok(ConnectResult {
+    Ok(PairResult {
         ok: true,
-        message: "Paired successfully. Pairing established trust; connecting is a separate step on a different port."
-            .to_string(),
+        message: "Paired.".to_string(),
+        instance,
     })
 }
 
@@ -1294,13 +1354,33 @@ mod tests {
             .unwrap();
 
         assert!(result.ok);
-        assert_eq!(
-            result.message,
-            "Paired successfully. Pairing established trust; connecting is a separate step on a different port."
+        assert_eq!(result.message, "Paired.");
+        assert_eq!(result.instance, None, "no pairing service was advertised");
+        let log = raw_log.lock().unwrap();
+        assert!(log.contains(&"pair 192.168.42.71:43219 123456".to_string()));
+        assert!(
+            log.iter().all(|c| !c.starts_with("connect")),
+            "pairing never connects by itself: {log:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn pair_records_the_instance_advertised_on_that_pairing_port() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "pair 192.168.42.211:45439 123456",
+                "Successfully paired to 192.168.42.211:45439\n",
+            )
+            .on_raw("mdns services", &mdns_pixel(46545));
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.211:45439", "123456")
+            .await
+            .unwrap();
+
         assert_eq!(
-            *raw_log.lock().unwrap(),
-            vec!["pair 192.168.42.71:43219 123456"]
+            result.instance.as_deref(),
+            Some("adb-58040DLCH005YV-jBeCEe")
         );
     }
 
@@ -1319,10 +1399,9 @@ mod tests {
 
         assert!(!result.ok);
         assert_eq!(result.message, "Failed: Wrong password");
-        assert_eq!(
-            *raw_log.lock().unwrap(),
-            vec!["pair 192.168.42.71:43219 123456"]
-        );
+        let log = raw_log.lock().unwrap();
+        assert!(log.contains(&"pair 192.168.42.71:43219 123456".to_string()));
+        assert!(log.iter().all(|c| !c.starts_with("connect")), "{log:?}");
     }
 
     #[tokio::test]
@@ -1558,17 +1637,19 @@ mod tests {
         }
     }
 
+    const PIXEL: &str = "adb-58040DLCH005YV-jBeCEe";
+
     #[test]
     fn probe_waits_until_the_connect_service_appears() {
         // Only the pairing service: the dialog is still open on the phone.
         let services = vec![svc(
-            "adb-58040DLCH005YV-jBeCEe",
+            PIXEL,
             crate::adb::MDNS_SERVICE_PAIRING,
             "192.168.42.211",
             45439,
         )];
         assert_eq!(
-            paired_connect_probe("192.168.42.211:45439", &services, &[]),
+            paired_connect_probe("192.168.42.211:45439", PIXEL, &services, &[]),
             PairedConnectProbe::Waiting
         );
     }
@@ -1577,24 +1658,101 @@ mod tests {
     fn probe_returns_the_advertised_connect_port_never_the_pairing_port() {
         let services = parse_mdns_services(&mdns_pixel(46545));
         assert_eq!(
-            paired_connect_probe("192.168.42.211:45439", &services, &[]),
+            paired_connect_probe("192.168.42.211:45439", PIXEL, &services, &[]),
             PairedConnectProbe::Endpoint {
                 address: PIXEL_IP.to_string()
             }
         );
-        let same_port = vec![svc("adb-x", MDNS_SERVICE_CONNECT, "192.168.42.211", 45439)];
+        let same_port = vec![svc(PIXEL, MDNS_SERVICE_CONNECT, "192.168.42.211", 45439)];
         assert_eq!(
-            paired_connect_probe("192.168.42.211:45439", &same_port, &[]),
+            paired_connect_probe("192.168.42.211:45439", PIXEL, &same_port, &[]),
             PairedConnectProbe::Waiting
         );
     }
 
     #[test]
-    fn probe_ignores_other_hosts() {
-        let services = parse_mdns_services(&mdns_pixel(46545));
+    fn probe_never_takes_another_device_on_the_same_address() {
+        // Codex on #128: a device that held this DHCP address earlier can
+        // still be in adb's mDNS view before the new one advertises. Same IP,
+        // different instance: not the device that was just paired.
+        let services = vec![svc(
+            "adb-OLDTV0001-xyz",
+            MDNS_SERVICE_CONNECT,
+            "192.168.42.211",
+            40111,
+        )];
         assert_eq!(
-            paired_connect_probe("192.168.42.212:45439", &services, &[]),
+            paired_connect_probe("192.168.42.211:45439", PIXEL, &services, &[]),
             PairedConnectProbe::Waiting
+        );
+    }
+
+    #[test]
+    fn probe_picks_the_paired_instance_when_two_connect_services_share_an_ip() {
+        let services = vec![
+            svc(
+                "adb-OLDTV0001-xyz",
+                MDNS_SERVICE_CONNECT,
+                "192.168.42.211",
+                40111,
+            ),
+            svc(PIXEL, MDNS_SERVICE_CONNECT, "192.168.42.211", 46545),
+        ];
+        assert_eq!(
+            paired_connect_probe("192.168.42.211:45439", PIXEL, &services, &[]),
+            PairedConnectProbe::Endpoint {
+                address: PIXEL_IP.to_string()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_without_an_instance_claims_nothing() {
+        let mock = MockAdb::default().on_raw("mdns services", &mdns_pixel(46545));
+        let log = mock.raw_log();
+        let state = state_with(mock);
+        assert_eq!(
+            probe_paired_connect_impl(&state, "192.168.42.211:45439", None)
+                .await
+                .unwrap(),
+            PairedConnectProbe::Unidentified
+        );
+        assert!(
+            log.lock().unwrap().is_empty(),
+            "nothing to look up without an identity"
+        );
+    }
+
+    #[test]
+    fn pairing_instance_is_the_service_on_that_exact_pairing_port() {
+        let services = vec![
+            svc(
+                "adb-OLDTV0001-xyz",
+                MDNS_SERVICE_CONNECT,
+                "192.168.42.211",
+                40111,
+            ),
+            svc(
+                "adb-OLDTV0001-xyz",
+                crate::adb::MDNS_SERVICE_PAIRING,
+                "192.168.42.211",
+                39000,
+            ),
+            svc(
+                PIXEL,
+                crate::adb::MDNS_SERVICE_PAIRING,
+                "192.168.42.211",
+                45439,
+            ),
+        ];
+        assert_eq!(
+            pairing_instance("192.168.42.211:45439", &services).as_deref(),
+            Some(PIXEL)
+        );
+        assert_eq!(pairing_instance("192.168.42.211:45440", &services), None);
+        assert_eq!(
+            pairing_instance("adb-v6._adb-tls-pairing._tcp:37000", &[]).as_deref(),
+            Some("adb-v6")
         );
     }
 
@@ -1602,7 +1760,12 @@ mod tests {
     fn probe_reports_a_transport_adb_already_attached() {
         let services = parse_mdns_services(&mdns_pixel(46545));
         assert_eq!(
-            paired_connect_probe("192.168.42.211:45439", &services, &[PIXEL_MDNS.to_string()]),
+            paired_connect_probe(
+                "192.168.42.211:45439",
+                PIXEL,
+                &services,
+                &[PIXEL_MDNS.to_string()]
+            ),
             PairedConnectProbe::Attached {
                 serial: PIXEL_MDNS.to_string()
             }
@@ -1612,33 +1775,33 @@ mod tests {
     #[test]
     fn probe_does_not_guess_between_two_connect_ports() {
         let services = vec![
-            svc("adb-a", MDNS_SERVICE_CONNECT, "192.168.42.211", 40001),
-            svc("adb-b", MDNS_SERVICE_CONNECT, "192.168.42.211", 40002),
+            svc(PIXEL, MDNS_SERVICE_CONNECT, "192.168.42.211", 40001),
+            svc(PIXEL, MDNS_SERVICE_CONNECT, "fe80::1", 40002),
         ];
         assert!(matches!(
-            paired_connect_probe("192.168.42.211:45439", &services, &[]),
+            paired_connect_probe("192.168.42.211:45439", PIXEL, &services, &[]),
             PairedConnectProbe::Ambiguous { addresses } if addresses.len() == 2
         ));
     }
 
     #[test]
-    fn probe_matches_an_mdns_pairing_name_by_instance_and_brackets_ipv6() {
+    fn probe_brackets_an_ipv6_connect_endpoint() {
         let services = vec![svc(
             "adb-v6",
             MDNS_SERVICE_CONNECT,
             "fe80::1c2d:3e4f:5a6b:7c8d",
             41541,
         )];
-        let want = PairedConnectProbe::Endpoint {
-            address: "[fe80::1c2d:3e4f:5a6b:7c8d]:41541".to_string(),
-        };
         assert_eq!(
-            paired_connect_probe("adb-v6._adb-tls-pairing._tcp:37000", &services, &[]),
-            want
-        );
-        assert_eq!(
-            paired_connect_probe("[fe80::1c2d:3e4f:5a6b:7c8d]:37000", &services, &[]),
-            want
+            paired_connect_probe(
+                "adb-v6._adb-tls-pairing._tcp:37000",
+                "adb-v6",
+                &services,
+                &[]
+            ),
+            PairedConnectProbe::Endpoint {
+                address: "[fe80::1c2d:3e4f:5a6b:7c8d]:41541".to_string()
+            }
         );
     }
 }
