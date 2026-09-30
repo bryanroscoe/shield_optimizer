@@ -212,14 +212,18 @@ fn stale_aliases_for(target: &str, services: &[MdnsService], offline: &[String])
     out
 }
 
-async fn offline_serials(adb: &dyn AdbDriver) -> Vec<String> {
+/// `None` when adb could not be asked: an unread list proves nothing about
+/// whether a stale alias is gone.
+async fn offline_serials(adb: &dyn AdbDriver) -> Option<Vec<String>> {
     match adb.raw(&["devices"]).await {
-        Ok(out) => parse_device_list(&out.stdout)
-            .into_iter()
-            .filter(|entry| entry.status == DeviceStatus::Offline)
-            .map(|entry| entry.serial)
-            .collect(),
-        Err(_) => Vec::new(),
+        Ok(out) => Some(
+            parse_device_list(&out.stdout)
+                .into_iter()
+                .filter(|entry| entry.status == DeviceStatus::Offline)
+                .map(|entry| entry.serial)
+                .collect(),
+        ),
+        Err(_) => None,
     }
 }
 
@@ -321,7 +325,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let mut connected = held_ready;
     let mut unauthorized = held_unauthorized;
     let mut failed = Vec::new();
-    let offline = offline_serials(adb.as_ref()).await;
+    let offline = offline_serials(adb.as_ref()).await.unwrap_or_default();
     for target in &targets.connect {
         let stale = stale_aliases_for(target, &services, &offline);
         if !stale.is_empty() {
@@ -330,8 +334,11 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
             }
             // Only redial once the offline key is really gone; otherwise the
             // redial is exactly the duplicate this cleanup exists to prevent.
-            let still_offline = offline_serials(adb.as_ref()).await;
-            if stale.iter().any(|key| still_offline.contains(key)) {
+            let gone = match offline_serials(adb.as_ref()).await {
+                Some(still_offline) => !stale.iter().any(|key| still_offline.contains(key)),
+                None => false,
+            };
+            if !gone {
                 failed.push(target.clone());
                 continue;
             }

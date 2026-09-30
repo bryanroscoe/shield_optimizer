@@ -422,7 +422,14 @@
         const r = await api
           .connectPaired(probe.address, instance)
           .catch((e) => ({ ok: false, not_the_paired_device: false, message: String(e) }));
-        if (token !== pairWaitToken) return;
+        if (token !== pairWaitToken) {
+          // Cancelled while the dial was already in flight. The UI has said it
+          // stopped, so undo a connect that landed anyway rather than leave
+          // the device attached in the background.
+          if (r.ok) await api.disconnectDevice(probe.address).catch(() => {});
+          await refresh();
+          return;
+        }
         if (r.ok) {
           await refresh();
           if (token !== pairWaitToken) return;
