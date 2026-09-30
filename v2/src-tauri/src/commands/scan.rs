@@ -323,8 +323,18 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let mut failed = Vec::new();
     let offline = offline_serials(adb.as_ref()).await;
     for target in &targets.connect {
-        for stale in stale_aliases_for(target, &services, &offline) {
-            let _ = adb.raw(&["disconnect", &stale]).await;
+        let stale = stale_aliases_for(target, &services, &offline);
+        if !stale.is_empty() {
+            for key in &stale {
+                let _ = adb.raw(&["disconnect", key]).await;
+            }
+            // Only redial once the offline key is really gone; otherwise the
+            // redial is exactly the duplicate this cleanup exists to prevent.
+            let still_offline = offline_serials(adb.as_ref()).await;
+            if stale.iter().any(|key| still_offline.contains(key)) {
+                failed.push(target.clone());
+                continue;
+            }
         }
         let mut outcome = adb_connect(adb.as_ref(), target).await;
         // Only a hard failure is worth retrying — "unauthorized" means the
