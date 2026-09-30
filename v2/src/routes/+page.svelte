@@ -349,8 +349,17 @@
     pairMessage = "";
     pairDetail = "";
     pairNextStep = false;
+    // Closing the panel bumps pairWaitToken. Capture it before the request so
+    // a pair that finishes after the user cancelled never starts a wait that
+    // would connect the device in the background.
+    const requestToken = pairWaitToken;
     try {
       const r = await api.pairDevice(address, pairPin.trim());
+      const cancelled = requestToken !== pairWaitToken || !pairOpen;
+      if (r.ok && cancelled) {
+        await refresh();
+        return;
+      }
       if (r.ok) {
         const host = pairedHost(address);
         pairAddress = "";
