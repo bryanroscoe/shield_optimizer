@@ -367,6 +367,8 @@
         // different one from the pairing port, so only the host carries over.
         if (host) connectAddress = `${host}:`;
         await refresh();
+        // The refresh is another await the user can cancel during.
+        if (requestToken !== pairWaitToken || !pairOpen) return;
         void waitForConnect(address, host, r.instance);
       } else {
         showPairFailure(address, r.message);
