@@ -52,7 +52,13 @@ export async function startServer() {
   const child = spawn(serverBinary(), ["--port", "0"], { cwd: V2, stdio: ["ignore", "pipe", "pipe"] });
   const lines = [];
   const port = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`e2e_server did not start:\n${lines.join("")}`)), 30_000);
+    const timer = setTimeout(() => {
+      // Kill it, or its open pipes keep Node (and a CI job) alive forever.
+      child.kill("SIGKILL");
+      child.stdout.destroy();
+      child.stderr.destroy();
+      reject(new Error(`e2e_server did not start within 30s:\n${lines.join("")}`));
+    }, 30_000);
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString();
       lines.push(text);

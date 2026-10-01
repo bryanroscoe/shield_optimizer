@@ -187,11 +187,13 @@ impl World {
 
     fn answer(&mut self, args: &[&str]) -> Reply {
         if let Some(replay) = self.replay.as_mut() {
-            if let Some((out, timed_out)) = replay.answer(args) {
-                return if timed_out {
+            if let Some(recorded) = replay.answer(args) {
+                return if recorded.timed_out {
                     Reply::Timeout { delay_ms: 0 }
+                } else if recorded.bytes && recorded.out.code == 0 {
+                    Reply::Bytes(TINY_PNG.to_vec())
                 } else {
-                    Reply::Out(out)
+                    Reply::Out(recorded.out)
                 };
             }
         }

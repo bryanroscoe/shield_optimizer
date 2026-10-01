@@ -94,6 +94,14 @@ pub enum Divergence {
     NotReplayed { args: Vec<String> },
 }
 
+/// One recorded answer.
+pub struct Recorded {
+    pub out: Out,
+    pub timed_out: bool,
+    /// Binary stdout (a screenshot); only its size was recorded.
+    pub bytes: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Replay {
     calls: Vec<SessionLine>,
@@ -134,6 +142,17 @@ impl Replay {
         }
     }
 
+    fn recorded(line: &SessionLine) -> Recorded {
+        Recorded {
+            out: Self::reply(line),
+            timed_out: line
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("timed out")),
+            bytes: line.stream.as_deref() == Some("bytes"),
+        }
+    }
+
     fn reply(line: &SessionLine) -> Out {
         Out {
             stdout: line.stdout.clone().unwrap_or_default(),
@@ -145,21 +164,19 @@ impl Replay {
     }
 
     /// The recorded answer for `args`, or `None` when it was never recorded.
-    pub fn answer(&mut self, args: &[&str]) -> Option<(Out, bool)> {
+    pub fn answer(&mut self, args: &[&str]) -> Option<Recorded> {
         self.seq += 1;
         let want = normalise_args(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         let matches = |l: &SessionLine| normalise_args(&l.args) == want;
-        let timed_out =
-            |l: &SessionLine| l.error.as_deref().is_some_and(|e| e.contains("timed out"));
         if is_poll(&want) {
             let found = (0..self.calls.len()).find(|&i| !self.used[i] && matches(&self.calls[i]));
             if let Some(i) = found {
                 self.used[i] = true;
-                return Some((Self::reply(&self.calls[i]), timed_out(&self.calls[i])));
+                return Some(Self::recorded(&self.calls[i]));
             }
             let last = self.calls.iter().rev().find(|l| matches(l))?;
             self.repeats += 1;
-            return Some((Self::reply(last), timed_out(last)));
+            return Some(Self::recorded(last));
         }
         // Skip poll entries when deciding what "next" is.
         while self.cursor < self.calls.len()
@@ -171,7 +188,7 @@ impl Replay {
             let i = self.cursor;
             self.used[i] = true;
             self.cursor += 1;
-            return Some((Self::reply(&self.calls[i]), timed_out(&self.calls[i])));
+            return Some(Self::recorded(&self.calls[i]));
         }
         if let Some(i) = (0..self.calls.len()).find(|&i| !self.used[i] && matches(&self.calls[i])) {
             // The UI fires independent reads concurrently, so a short swap
@@ -182,7 +199,7 @@ impl Replay {
             if i > self.cursor && jumped <= REORDER_WINDOW {
                 self.used[i] = true;
                 self.reordered += 1;
-                return Some((Self::reply(&self.calls[i]), timed_out(&self.calls[i])));
+                return Some(Self::recorded(&self.calls[i]));
             }
             self.divergences.push(Divergence::OutOfOrder {
                 seq: self.seq,
@@ -194,11 +211,11 @@ impl Replay {
                     .unwrap_or_default(),
             });
             self.used[i] = true;
-            return Some((Self::reply(&self.calls[i]), timed_out(&self.calls[i])));
+            return Some(Self::recorded(&self.calls[i]));
         }
         if let Some(last) = self.calls.iter().rev().find(|l| matches(l)) {
             self.repeats += 1;
-            return Some((Self::reply(last), timed_out(last)));
+            return Some(Self::recorded(last));
         }
         self.divergences.push(Divergence::Unrecorded {
             seq: self.seq,
@@ -489,15 +506,15 @@ mod tests {
         ];
         let mut r = Replay::new(&lines);
         assert_eq!(
-            r.answer(&["devices"]).unwrap().0.stdout,
+            r.answer(&["devices"]).unwrap().out.stdout,
             "List of devices attached\nA\tdevice\n"
         );
-        assert_eq!(r.answer(&["devices"]).unwrap().0.code, 0);
+        assert_eq!(r.answer(&["devices"]).unwrap().out.code, 0);
         assert_eq!(r.repeats, 1);
         assert_eq!(
             r.answer(&["-s", "A", "shell", "pm enable x"])
                 .unwrap()
-                .0
+                .out
                 .stdout,
             "ok\n"
         );

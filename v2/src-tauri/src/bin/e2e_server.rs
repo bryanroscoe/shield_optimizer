@@ -56,6 +56,7 @@ struct Server {
     sim: SimulatedAdb,
     webview: tauri::WebviewWindow<tauri::test::MockRuntime>,
     fixtures: PathBuf,
+    data_dir: PathBuf,
     invokes: Mutex<Vec<Value>>,
 }
 
@@ -191,6 +192,24 @@ impl Server {
             }
         }
         world.faults = scenario.faults;
+        // Snapshots, the Home-handler tracker and anything else the app keeps
+        // on disk start empty too, so a scenario sees the same state alone
+        // or in the full suite. Logs are kept for the run.
+        for entry in std::fs::read_dir(&self.data_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            if entry.file_name() == "logs" {
+                continue;
+            }
+            let path = entry.path();
+            let _ = if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+        }
         *self.sim.world() = world;
         self.invokes.lock().unwrap().clear();
         Ok(self.state())
@@ -577,6 +596,7 @@ fn main() {
         sim,
         webview,
         fixtures,
+        data_dir: data_dir.clone(),
         invokes: Mutex::new(Vec::new()),
     });
 

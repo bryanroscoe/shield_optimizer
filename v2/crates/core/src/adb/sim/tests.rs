@@ -158,3 +158,16 @@ async fn unknown_commands_are_named() {
     assert!(err.to_string().contains("frobnicate --all"), "{err}");
     assert_eq!(sim.world().gaps, vec!["frobnicate --all".to_string()]);
 }
+
+#[tokio::test]
+async fn a_replayed_screenshot_is_a_png() {
+    let sim = shield_world();
+    let session = r#"{"v":1,"kind":"adb","args":["-s","192.0.2.1:5555","exec-out","screencap","-p"],"exit_code":0,"stdout":"<2048 bytes>","stderr":"","stream":"bytes"}"#;
+    sim.world().replay = Some(replay::Replay::new(&replay::parse_session(session)));
+    let png = sim
+        .raw_bytes(&["-s", "192.0.2.1:5555", "exec-out", "screencap", "-p"])
+        .await
+        .unwrap();
+    assert_eq!(&png[..4], b"\x89PNG");
+    assert!(sim.world().replay.as_ref().unwrap().report().is_empty());
+}
