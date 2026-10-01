@@ -4,7 +4,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::engine::{
-    is_last_enabled_home_handler, is_valid_package_name, launcher_rows, LauncherStatus,
+    is_last_enabled_home_handler, is_valid_package_name, launcher_rows, pick_current_home,
+    HomeReading, LauncherStatus,
 };
 use crate::license::Feature;
 
@@ -113,7 +114,7 @@ pub async fn disable_launcher(
             .await
             .map(|out| parse_home_handler_packages(&out.stdout))
             .map_err(|e| format!("query-activities: {e}"))?;
-        if is_last_enabled_home_handler(&package, &enabled_handlers) {
+        if is_last_enabled_home_handler(&package, &enabled_handlers, launchers()) {
             return Ok(crate::commands::apps::ActionResult {
                 ok: false,
                 message: format!(
@@ -336,7 +337,10 @@ pub async fn set_home_any_impl(
         });
     }
 
-    let current = active_launcher(&*adb, serial).await;
+    let current = read_current_home(&*adb, serial)
+        .await
+        .ok()
+        .and_then(|r| r.package);
     let now = current
         .as_deref()
         .map(|c| format!("Home is still {c}"))
@@ -457,6 +461,16 @@ pub async fn disable_stock_launcher_impl(
         ));
     }
 
+    if launchers().is_transient_home_holder(target) {
+        return Ok(refuse(
+            None,
+            format!(
+                "{target} is Google TV's setup helper, not a launcher; pick a real launcher to take over Home."
+            ),
+            diagnostics,
+        ));
+    }
+
     let adb = state.adb_snapshot().await;
     let handlers = match adb.shell(serial, HOME_HANDLER_QUERY).await {
         Ok(out) if out.success() && !out.shell_reported_failure() => {
@@ -505,7 +519,7 @@ pub async fn disable_stock_launcher_impl(
     // Disabling every stock launcher in turn must never take the last Home.
     let mut remaining = handlers.clone();
     for stock in &stocks {
-        if is_last_enabled_home_handler(stock, &remaining) {
+        if is_last_enabled_home_handler(stock, &remaining, launchers()) {
             return Ok(refuse(
                 None,
                 format!(
@@ -518,11 +532,13 @@ pub async fn disable_stock_launcher_impl(
         remaining.retain(|h| h != stock);
     }
 
-    let active = active_launcher(&*adb, serial).await;
-    diagnostics.push(match active.as_deref() {
-        Some(a) => format!("resolve-activity HOME -> {a}"),
-        None => "resolve-activity HOME -> unavailable".to_string(),
+    let reading = read_current_home(&*adb, serial).await.unwrap_or_default();
+    diagnostics.push(match reading.package.as_deref() {
+        Some(a) => format!("current Home -> {a}"),
+        None => "current Home -> unavailable".to_string(),
     });
+    diagnostics.extend(reading.note.clone());
+    let active = reading.package;
     match active.as_deref() {
         Some(a) if stocks.iter().any(|s| s == a) => {
             if let Some(result) =
@@ -579,7 +595,10 @@ pub async fn disable_stock_launcher_impl(
                     None => format!("pm enable {stock} (restore) -> ok"),
                 });
             }
-            let current = active_launcher(&*adb, serial).await;
+            let current = read_current_home(&*adb, serial)
+                .await
+                .ok()
+                .and_then(|r| r.package);
             Ok(refuse(
                 current,
                 format!(
@@ -606,6 +625,9 @@ pub async fn disable_stock_launcher_impl(
 pub struct CurrentLauncher {
     pub package: Option<String>,
     pub activity: Option<String>,
+    /// Why the answer differs from what `resolve-activity` said, when it does.
+    /// For the diagnostics transcript only.
+    pub note: Option<String>,
 }
 
 #[tauri::command]
@@ -614,26 +636,64 @@ pub async fn current_launcher(
     serial: String,
 ) -> Result<CurrentLauncher, String> {
     let adb = state.adb_snapshot().await;
-    let out = adb
-        .shell(
-            &serial,
-            "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME",
-        )
-        .await
-        .map_err(|e| format!("resolve-activity: {e}"))?;
+    let reading = read_current_home(&*adb, &serial).await?;
+    Ok(CurrentLauncher {
+        package: reading.package,
+        activity: reading.activity,
+        note: reading.note,
+    })
+}
 
-    // Output is two lines: a priority/info line then `pkg/activity`.
-    let component = out.stdout.lines().map(str::trim).find(|l| l.contains('/'));
+const RESOLVE_HOME: &str =
+    "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+const HOME_ROLE_HOLDERS: &str = "cmd role get-role-holders android.app.role.HOME";
 
-    let (package, activity) = match component {
-        Some(c) => {
-            let (p, a) = c.split_once('/').unwrap();
-            (Some(p.to_string()), Some(a.to_string()))
-        }
-        None => (None, None),
+/// The current Home app, read the one way every caller uses: the launcher
+/// rows' ACTIVE tag, snapshot capture and the restore plan, the disable-stock
+/// preconditions and the diagnostics bundle. The HOME role holder wins
+/// (Android 10+); `resolve-activity` is the fallback for builds without the
+/// role command. See `engine::pick_current_home` for why.
+///
+/// `Err` only when neither source could be read at all.
+pub async fn read_current_home(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> Result<HomeReading, String> {
+    let role = home_role_holders(adb, serial).await;
+    let component = match adb.shell(serial, RESOLVE_HOME).await {
+        Ok(out) if out.success() && !out.shell_reported_failure() => out
+            .stdout
+            .lines()
+            .map(str::trim)
+            .find(|l| l.contains('/'))
+            .map(str::to_string),
+        Ok(_) => None,
+        Err(e) if role.is_none() => return Err(format!("resolve-activity: {e}")),
+        Err(_) => None,
     };
+    let reading = pick_current_home(role.as_deref(), component.as_deref(), launchers());
+    if let Some(note) = &reading.note {
+        tracing::info!(serial, note = note.as_str(), "current Home read");
+    }
+    Ok(reading)
+}
 
-    Ok(CurrentLauncher { package, activity })
+/// `cmd role get-role-holders android.app.role.HOME`, or `None` when the
+/// build has no such command, it failed, or it named no one.
+async fn home_role_holders(adb: &dyn crate::adb::AdbDriver, serial: &str) -> Option<Vec<String>> {
+    let out = adb.shell(serial, HOME_ROLE_HOLDERS).await.ok()?;
+    if !out.success() || out.shell_reported_failure() {
+        return None;
+    }
+    let holders: Vec<String> = out
+        .stdout
+        .lines()
+        .flat_map(|l| l.split(','))
+        .map(str::trim)
+        .filter(|h| is_valid_package_name(h))
+        .map(str::to_string)
+        .collect();
+    (!holders.is_empty()).then_some(holders)
 }
 
 #[derive(Serialize)]
@@ -724,6 +784,21 @@ pub async fn set_default_launcher_impl(
             strategy: None,
             current_launcher: None,
             last_error: Some(format!("Invalid package name: {package:?}")),
+            stock_takeover_available: false,
+            diagnostics,
+        });
+    }
+
+    // Setup Wraith declares HOME, but it is the setup wizard. Handing Home to
+    // it, possibly with the stock launcher disabled, leaves no home screen.
+    if launchers().is_transient_home_holder(package) {
+        return Ok(SetLauncherResult {
+            ok: false,
+            strategy: None,
+            current_launcher: None,
+            last_error: Some(format!(
+                "{package} is Google TV's setup helper, not a launcher; it can't be the default."
+            )),
             stock_takeover_available: false,
             diagnostics,
         });
@@ -1247,9 +1322,7 @@ async fn role_names_target(
     package: &str,
     diagnostics: &mut Vec<String>,
 ) -> bool {
-    let out = adb
-        .shell(serial, "cmd role get-role-holders android.app.role.HOME")
-        .await;
+    let out = adb.shell(serial, HOME_ROLE_HOLDERS).await;
     match out {
         Ok(o) if o.success() && !o.shell_reported_failure() => {
             let holders = o.stdout.trim();
@@ -1279,18 +1352,12 @@ async fn role_names_target(
     }
 }
 
-/// The package HOME resolves to now, or `None` when the device couldn't say.
-pub(crate) async fn active_launcher(
-    adb: &dyn crate::adb::AdbDriver,
-    serial: &str,
-) -> Option<String> {
-    let out = adb
-        .shell(
-            serial,
-            "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME",
-        )
-        .await
-        .ok()?;
+/// The package `resolve-activity` names for HOME now, or `None` when the
+/// device couldn't say. Only the switch and verify logic reads the resolver
+/// alone, because an enabled stock launcher that overrides the role shows up
+/// there; anything reporting the current launcher uses `read_current_home`.
+async fn active_launcher(adb: &dyn crate::adb::AdbDriver, serial: &str) -> Option<String> {
+    let out = adb.shell(serial, RESOLVE_HOME).await.ok()?;
     if !out.success() || out.shell_reported_failure() {
         return None;
     }

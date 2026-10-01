@@ -41,6 +41,9 @@ pub struct DeviceDiagnostics<'a> {
     pub device_type: DeviceType,
     /// Component names that answered the HOME-handler query.
     pub home_handlers: &'a [String],
+    /// The current Home app as the Launcher tab reads it (`None` when it
+    /// could not be read), with the role/resolver disagreement note if any.
+    pub current_home: Option<&'a super::launcher::HomeReading>,
 }
 
 fn label(evidence: TvEvidence) -> &'static str {
@@ -151,6 +154,15 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
                 }
             }
 
+            out.push_str("\n#### Current Home\n\n");
+            match device.current_home.and_then(|h| h.package.as_deref()) {
+                Some(pkg) => out.push_str(&format!("- `{pkg}`\n")),
+                None => out.push_str("(unreadable)\n"),
+            }
+            if let Some(note) = device.current_home.and_then(|h| h.note.as_deref()) {
+                out.push_str(&format!("- Note: {note}\n"));
+            }
+
             out.push_str("\n#### HOME handlers\n\n");
             if device.home_handlers.is_empty() {
                 out.push_str("(none reported)\n");
@@ -252,6 +264,11 @@ mod tests {
                 tv_evidence: TvEvidence::Tv,
                 device_type: DeviceType::GoogleTv,
                 home_handlers: &handlers,
+                current_home: Some(&crate::engine::HomeReading {
+                    package: Some("com.klevico.monet".to_string()),
+                    activity: None,
+                    note: Some("resolve-activity HOME named a setup helper".to_string()),
+                }),
             }),
             unreadable_device: None,
             log_tail: &["first".to_string(), "second".to_string()],
@@ -269,6 +286,12 @@ mod tests {
         assert!(report.contains("- Transport: network"), "{report}");
         assert!(
             report.contains("`com.google.android.tvlauncher/.MainActivity`"),
+            "{report}"
+        );
+        assert!(
+            report.contains(
+                "#### Current Home\n\n- `com.klevico.monet`\n- Note: resolve-activity HOME named a setup helper\n"
+            ),
             "{report}"
         );
         // Only the first line of `adb version`; the rest is build noise.
@@ -294,6 +317,7 @@ mod tests {
                 tv_evidence: TvEvidence::Unknown,
                 device_type: DeviceType::Unknown,
                 home_handlers: &[],
+                current_home: None,
             }),
             unreadable_device: None,
             log_tail: &[],
@@ -302,6 +326,10 @@ mod tests {
         assert!(report.contains("Properties: unreadable"), "{report}");
         assert!(report.contains("- TV evidence: unknown —"), "{report}");
         assert!(report.contains("(none reported)"), "{report}");
+        assert!(
+            report.contains("#### Current Home\n\n(unreadable)\n"),
+            "{report}"
+        );
         // A whitespace-only `adb version` is no version at all.
         assert_eq!(
             report.contains("- adb version: (unavailable)"),

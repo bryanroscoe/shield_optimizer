@@ -171,3 +171,74 @@ async fn a_replayed_screenshot_is_a_png() {
     assert_eq!(&png[..4], b"\x89PNG");
     assert!(sim.world().replay.as_ref().unwrap().report().is_empty());
 }
+
+/// #122 on v2.3.0: stock disabled, Setup Wraith still enabled with a higher
+/// HOME filter priority, and Monet set as default. Monet holds the HOME role
+/// and the Home key opens it, but `resolve-activity` still names Setup
+/// Wraith. The current launcher is the role holder.
+#[tokio::test]
+async fn setup_wraith_outranking_the_role_holder_is_not_the_current_launcher() {
+    const WRAITH: &str = "com.google.android.tungsten.setupwraith";
+    const MONET: &str = "com.klevico.monet";
+    let sim = shield_world();
+    {
+        let mut w = sim.world();
+        let d = w.devices.get_mut("1324619053514").unwrap();
+        d.props.insert("ro.build.version.sdk".into(), "31".into());
+        d.home.policy = HomePolicy::PriorityResolver;
+        d.add_home_app(WRAITH, &format!("{WRAITH}.ui.MainActivity"), 3);
+        d.add_home_app(MONET, &format!("{MONET}.MainActivity"), 0);
+        assert!(!d.package("com.google.android.tvlauncher").unwrap().enabled);
+    }
+    let st = state(&sim);
+    let serial = "192.0.2.1:5555";
+
+    let res =
+        launcher::set_default_launcher_impl(&st, serial, MONET, false, &launcher::Progress::Silent)
+            .await
+            .unwrap();
+    assert!(res.ok, "{:?} {:?}", res.last_error, res.diagnostics);
+
+    let stock = super::stock_launchers();
+    {
+        let mut w = sim.world();
+        let d = w.devices.get_mut("1324619053514").unwrap();
+        assert_eq!(d.home.role_holder.as_deref(), Some(MONET));
+        // The resolver alone, which 2.3.0 displayed, still names Setup Wraith.
+        assert!(d.resolve_home(&stock).unwrap().starts_with(WRAITH));
+    }
+
+    let adb = st.adb_snapshot().await;
+    let reading = launcher::read_current_home(&*adb, serial).await.unwrap();
+    assert_eq!(reading.package.as_deref(), Some(MONET));
+    assert!(reading.note.unwrap().contains(WRAITH));
+
+    // With Projectivy gone, Monet is the last real launcher: Setup Wraith
+    // doesn't count as a Home.
+    sim.world()
+        .setup_shell(
+            "1324619053514",
+            "pm disable-user --user 0 com.spocky.projengmenu",
+        )
+        .unwrap();
+    let refused = crate::commands::apps::disable_package_impl(&st, serial, MONET)
+        .await
+        .unwrap();
+    assert!(!refused.ok, "{}", refused.message);
+    assert!(
+        sim.world()
+            .devices
+            .get("1324619053514")
+            .unwrap()
+            .package(MONET)
+            .unwrap()
+            .enabled
+    );
+
+    // The setup helper is never accepted as the default.
+    let wraith =
+        launcher::set_default_launcher_impl(&st, serial, WRAITH, true, &launcher::Progress::Silent)
+            .await
+            .unwrap();
+    assert!(!wraith.ok);
+}

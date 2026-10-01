@@ -56,6 +56,21 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- **The Launcher tab named Setup Wraith as the current launcher after a
+  successful switch** ([#122](https://github.com/bryanroscoe/shield_optimizer/issues/122)).
+  With the stock launcher disabled and Google TV's setup wizard (Setup Wraith)
+  still enabled, setting Monet as default worked, but the app kept showing
+  Setup Wraith. The app asked Android's intent resolver, which ranks Setup
+  Wraith's high-priority Home filter first. It now asks for the Home role
+  holder, which is what the Home button opens, and only falls back to the
+  resolver on builds without the role command. The ACTIVE tag, the current
+  Home app, snapshots, the restore preview, the stock-launcher step and the
+  bug-report bundle all use this one reading. When the two disagree, the
+  bug-report bundle says so. Setup Wraith's row now reads "Google TV setup
+  helper — not a launcher", has no Set as default button, and its Disable
+  button asks first and explains the risk. Setup Wraith also no longer counts
+  as a Home screen when the app checks whether disabling a launcher would
+  leave the TV with no Home screen.
 - **The "what's new" pop-up shows after an update again.** It read the new
   version's notes from GitHub on the first launch and marked the version as
   seen whether or not they arrived, so one slow or failed request (the 2.2.0 →

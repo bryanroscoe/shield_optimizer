@@ -312,12 +312,13 @@ const launchers: LauncherStatus[] = [
     enabled: true,
     stock: true,
     other: false,
+    setup_helper: false,
   },
-  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: playStore("com.spocky.projengmenu") }, installed: true, enabled: true, stock: false, other: false },
-  { entry: { name: "FLauncher", package: "me.efesser.flauncher", source_url: playStore("me.efesser.flauncher") }, installed: true, enabled: true, stock: false, other: false },
-  { entry: { name: "ATV Launcher", package: "com.sweech.launcher", source_url: playStore("com.sweech.launcher") }, installed: false, enabled: false, stock: false, other: false },
-  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher", source_url: playStore("com.wolf.firelauncher") }, installed: false, enabled: false, stock: false, other: false },
-  { entry: { name: "Monet Launcher", package: "com.klevico.monet", source_url: "https://github.com/Klevico/Monet-Launcher" }, installed: false, enabled: false, stock: false, other: false },
+  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: playStore("com.spocky.projengmenu") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
+  { entry: { name: "FLauncher", package: "me.efesser.flauncher", source_url: playStore("me.efesser.flauncher") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
+  { entry: { name: "ATV Launcher", package: "com.sweech.launcher", source_url: playStore("com.sweech.launcher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
+  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher", source_url: playStore("com.wolf.firelauncher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
+  { entry: { name: "Monet Launcher", package: "com.klevico.monet", source_url: "https://github.com/Klevico/Monet-Launcher" }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
 ];
 
 const tweaks: TweaksState = {
