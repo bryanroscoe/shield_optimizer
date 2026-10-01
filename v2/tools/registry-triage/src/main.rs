@@ -240,6 +240,12 @@ fn read_batch(dirs: &[PathBuf]) -> Result<Batch> {
         }
         collect_files(dir, 0, &mut files)?;
     }
+    // Overlapping arguments (a folder twice, or a folder and its child) must
+    // not count one report twice.
+    let files: BTreeSet<PathBuf> = files
+        .into_iter()
+        .map(|p| fs::canonicalize(&p).unwrap_or(p))
+        .collect();
     let mut batch = Batch::default();
     for path in files {
         let ext = path
@@ -548,6 +554,19 @@ mod tests {
             .find(|c| c.kind == "unresolved_process")
             .expect("process listed");
         assert_eq!(process.today, "process (not a package)");
+    }
+
+    #[test]
+    fn overlapping_folders_count_each_report_once() {
+        let bundle = load_embedded_app_lists().unwrap();
+        let reports = fixtures().join("reports");
+        let once = candidates(
+            &read_batch(std::slice::from_ref(&reports)).unwrap(),
+            &bundle,
+        );
+        let overlapping = read_batch(&[reports.clone(), reports.join("nested"), reports]).unwrap();
+        assert_eq!(overlapping.mobile_files, 2);
+        assert_eq!(candidates(&overlapping, &bundle), once);
     }
 
     #[test]
