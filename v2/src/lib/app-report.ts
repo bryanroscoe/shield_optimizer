@@ -28,6 +28,9 @@ export type ReportDeviceFamily = "shield" | "google_tv" | "android_tv" | "unknow
 export interface AppReportDevice {
   family: ReportDeviceFamily;
   androidVersion: string | null;
+  /// The device's adb serial and ro.serialno. Never written into a report:
+  /// they are only used to strip themselves out of the user's note.
+  redact: string[];
 }
 
 export interface AppReportState {
@@ -86,6 +89,26 @@ function clean(text: string, max: number, keepNewlines: boolean): string | null 
   return out.length > 0 ? out : null;
 }
 
+const REDACTED = "[redacted]";
+
+/// The note is the user's own text, but a pasted log line or address must not
+/// carry the identifiers the rest of the report leaves out. Addresses, MACs
+/// and this device's own serials are replaced, visibly, in the preview.
+export function redactNote(text: string, redact: string[]): string {
+  let out = text;
+  for (const id of redact) {
+    const v = id.trim();
+    if (v.length >= 4) out = out.split(v).join(REDACTED);
+  }
+  return out
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, REDACTED)
+    .replace(/\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, REDACTED)
+    .replace(/\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b/g, REDACTED)
+    .replace(/(?:\b[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*\b)?/g, (m) =>
+      m === "::" ? m : REDACTED,
+    );
+}
+
 function finiteOrNull(n: number | null | undefined): number | null {
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : null;
 }
@@ -110,7 +133,7 @@ export function buildAppReport(input: AppReportInput): Record<string, unknown> |
     app_name: input.appName ? clean(input.appName, NAME_MAX, false) : null,
     current_verdict: input.verdict ? input.verdict.kind : "unavailable",
     verdict_source: input.verdict ? input.verdict.source : null,
-    note: clean(input.note, APP_REPORT_NOTE_MAX, true),
+    note: clean(redactNote(input.note, input.device.redact), APP_REPORT_NOTE_MAX, true),
   };
   if (input.includeState) {
     const s = input.state;

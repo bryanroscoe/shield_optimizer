@@ -100,12 +100,18 @@
     }
   }
 
-  function openIssue() {
+  async function openIssue() {
     const { url, prefilled } = appReportIssueUrl(pkg, reason, text);
+    message = "";
+    try {
+      await openUrl(url);
+    } catch (e) {
+      message = `Couldn't open the browser (${e}). Click Copy, then open ${url.split("?")[0]} and paste it there.`;
+      return;
+    }
     message = prefilled
-      ? "The GitHub form opens with this report filled in. Review it there, then submit it yourself."
+      ? "The GitHub form opened with this report filled in. Review it there, then submit it yourself."
       : "This report is too long to fill in for you. Click Copy, then paste it into the Report field on GitHub.";
-    void openUrl(url);
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -156,7 +162,8 @@
     </label>
     <textarea class="preview mono" readonly aria-label="Report preview" value={text}></textarea>
     <p class="muted small">
-      It carries no serial number, no IP address and no other installed packages.
+      It carries no serial number, no IP address and no other installed packages. An address
+      or this TV's serial typed or pasted into the note is replaced with [redacted].
     </p>
   {/if}
   {#if message}

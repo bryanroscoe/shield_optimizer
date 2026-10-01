@@ -260,6 +260,7 @@
         ? {
             family: reportFamily(device.device_type, device.tv_evidence),
             androidVersion: device.properties?.android_release ?? null,
+            redact: [serial, device.serial, device.properties?.serial_number ?? ""].filter(Boolean),
           }
         : undefined,
     };

@@ -170,6 +170,17 @@ async function exercise({ browser, base }) {
   assert.equal(record.reason, "user_report_wrong_description");
   assert.equal(record.note, "The description says it is a launcher.");
 
+  // A pasted log line cannot smuggle the identifiers back in through the note.
+  await dialog
+    .getByLabel("Note (optional)")
+    .fill(`seen on ${DEVICE_SERIAL} (${HARDWARE_SERIAL}) mac aa:bb:cc:dd:ee:ff via fe80::1 at 20:10:00`);
+  const redacted = JSON.parse(await preview(dialog)).records[0].note;
+  assertNothingIdentifying(redacted, "a pasted note");
+  assert.ok(!redacted.includes("fe80::1"), redacted);
+  assert.match(redacted, /\[redacted\]/);
+  assert.match(redacted, /at 20:10:00$/, "ordinary text is left alone");
+  await dialog.getByLabel("Note (optional)").fill("The description says it is a launcher.");
+
   // Copy and Save carry the preview byte for byte.
   await dialog.getByRole("button", { name: "Copy" }).click();
   await page.waitForFunction(() => window.__COPIED__.length > 0);
