@@ -65,6 +65,11 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- **`registry-triage` says when a mobile export was truncated** (#135). The
+  mobile collector drops its oldest records once it reaches its cap and marks
+  the export `truncated`. The tool ignored that flag. It now names each
+  truncated export in its summary and in `--json` output, and marks counts
+  drawn from one as lower bounds.
 - **The "what's new" pop-up shows after an update again.** It read the new
   version's notes from GitHub on the first launch and marked the version as
   seen whether or not they arrived, so one slow or failed request (the 2.2.0 →
