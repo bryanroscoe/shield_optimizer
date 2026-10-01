@@ -6,6 +6,7 @@ members = [
     "mobile/src-tauri",
     "mobile/tauri-plugin-atv-adb",
     "tools/atvopt-license",
+    "tools/registry-triage",
 ]
 exclude = ["vendor/adb_client"]
 

@@ -55,6 +55,12 @@ export interface AppEntry {
   defunct?: boolean;
   /// "Remove if unused" tier — surfaced as a candidate with a usage signal.
   review?: boolean;
+  /// When a person last reviewed this classification, `YYYY-MM-DD`.
+  reviewed_at?: string;
+  /// Short evidence notes or URLs behind the classification.
+  sources?: string[];
+  /// Device families the entry applies to; absent means the list decides.
+  device_scope?: string[];
 }
 
 /// When an app was last opened (from dumpsys usagestats).

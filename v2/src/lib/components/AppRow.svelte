@@ -25,6 +25,7 @@
     description,
     package: pkg,
     review = false,
+    reviewedAt,
     extraTag,
     extraTagKind = "neutral",
     userInstalled = false,
@@ -46,6 +47,9 @@
     description?: string;
     package: string;
     review?: boolean;
+    /// The catalog entry's `reviewed_at`. Shown only beside a verdict that
+    /// came from the catalog, since a protected-list verdict was not that review.
+    reviewedAt?: string;
     /// One extra tag beside the name — "SYSTEM" / "3RD-PARTY" for the
     /// non-catalog table. Kept generic so the row does not learn about
     /// package inventories.
@@ -258,6 +262,9 @@
         kindClass={safetyClass()}
         reason={safetyReason()}
         {description}
+        reviewedAt={lookup.status === "ready" && lookup.verdict.source === "reviewed_catalog"
+          ? reviewedAt
+          : undefined}
         serial={details?.serial}
         measures={details?.measures}
         memoryMb={details?.memoryMb}

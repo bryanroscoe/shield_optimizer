@@ -2750,6 +2750,7 @@
                 description={a.optimize_description}
                 package={a.package}
                 review={a.review}
+                reviewedAt={a.reviewed_at}
                 {state}
                 mb={appMemory[a.package]}
                 usage={appUsage[a.package]}

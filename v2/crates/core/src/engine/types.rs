@@ -175,6 +175,19 @@ pub struct AppEntry {
     /// candidates with a usage signal but defaults them to Skip.
     #[serde(default)]
     pub review: bool,
+    /// When a person last reviewed this entry's classification, `YYYY-MM-DD`.
+    /// Provenance for the reader only: no verdict or action reads it, so an
+    /// old or missing date never changes what the app does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewed_at: Option<String>,
+    /// Short evidence notes or URLs behind the classification.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
+    /// Device families this entry applies to (`shield`, `googletv`). Records
+    /// the list it lives in, which is what `for_device` selects on; the loader
+    /// tests reject a scope that disagrees with that list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub device_scope: Vec<String>,
 }
 
 impl AppEntry {

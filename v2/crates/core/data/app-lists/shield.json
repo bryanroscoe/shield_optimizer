@@ -8,7 +8,14 @@
     "restore_description": "Lets the Shield send anonymous usage statistics to Nvidia again.",
     "default_optimize": true,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.diagtools",
@@ -19,7 +26,14 @@
     "restore_description": "Puts Nvidia's diagnostic log collector back for support tickets.",
     "default_optimize": true,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.feedback",
@@ -30,7 +44,14 @@
     "restore_description": "Restores Nvidia's crash-report and feedback collection.",
     "default_optimize": true,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.google.android.tvrecommendations",
@@ -41,7 +62,14 @@
     "restore_description": "Restores sponsored and Watch Next rows on stock launcher.",
     "default_optimize": true,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-05-29",
+    "sources": [
+      "git history (6d8106f)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.osc",
@@ -52,7 +80,14 @@
     "restore_description": "Brings back Nvidia's on-screen game overlay.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.shieldtech.hooks",
@@ -63,7 +98,14 @@
     "restore_description": "Restores Shield system hooks (Xbox Guide → Home remapping).",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-06-14",
+    "sources": [
+      "git history (1a82eec)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.tegrazone3",
@@ -74,7 +116,14 @@
     "restore_description": "Brings back the Nvidia Games app and its home-screen row.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.nvgamecast",
@@ -85,7 +134,14 @@
     "restore_description": "Re-enables the retired GameStream service.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.nvidia.ota",
@@ -96,7 +152,14 @@
     "restore_description": "Lets the Shield download and install system updates again.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.google.android.speech.pumpkin",
@@ -107,7 +170,14 @@
     "restore_description": "Restores on-device speech recognition and the mic buttons that use it.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.plexapp.mediaserver.smb",
@@ -118,7 +188,14 @@
     "restore_description": "Re-enables the Shield's built-in Plex media server.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   },
   {
     "package": "com.google.android.tvlauncher",
@@ -129,6 +206,13 @@
     "restore_description": "Restores the stock Android TV home screen.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
   }
 ]

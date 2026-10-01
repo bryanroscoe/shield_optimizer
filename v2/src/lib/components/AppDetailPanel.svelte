@@ -22,6 +22,7 @@
     kindClass,
     reason,
     description,
+    reviewedAt,
     serial,
     measures,
     memoryMb,
@@ -34,6 +35,8 @@
     kindClass: string;
     reason: string;
     description?: string;
+    /// The catalog entry's review date, passed only for a catalog verdict.
+    reviewedAt?: string;
     serial?: string;
     measures?: AppMeasurements;
     memoryMb?: number;
@@ -182,7 +185,9 @@
   {#if description && !reason.includes(description.trim())}
     <p class="muted small safety-detail-desc">{description}</p>
   {/if}
-  <p class="muted small safety-detail-source mono">{pkg}</p>
+  <p class="muted small safety-detail-source mono">
+    {pkg}{#if reviewedAt}<span class="safety-detail-reviewed">{` · Reviewed ${reviewedAt}`}</span>{/if}
+  </p>
 
   {#if measures}
     <dl class="measures" aria-label="Measurements">

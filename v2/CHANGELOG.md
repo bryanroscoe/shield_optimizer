@@ -22,6 +22,21 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+### Added
+
+- **Each catalog entry now records when it was reviewed and why** (#101).
+  Entries carry a `reviewed_at` date and their `sources`, plus a
+  `device_scope` on the Shield and Google TV lists. All 89 entries were dated
+  from git history. Tests reject malformed or future dates, and they reject any
+  scope that disagrees with the list the entry lives in. They also require
+  every Safe entry to carry a date. The app detail panel shows "Reviewed
+  <date>" beside a catalog verdict.
+- **A local triage tool for user reports** (#101). `tools/registry-triage`
+  reads a folder of mobile diagnostics exports and desktop bug-report
+  bundles. It prints the packages they mention, with report counts, device
+  scope and today's verdict, for a person to review. It never writes the
+  catalog, and a report never makes an app Safe.
+
 ### App details
 
 - **Installed storage, separate from RAM.** Opening any app row now shows the

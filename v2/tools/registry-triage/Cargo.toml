@@ -1,0 +1,21 @@
+[package]
+name = "registry-triage"
+version = "0.1.0"
+description = "Summarise exported diagnostics into a candidate list for catalog review"
+authors = ["Bryan Roscoe"]
+edition = "2021"
+rust-version = "1.81"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[[bin]]
+name = "registry-triage"
+path = "src/main.rs"
+
+[dependencies]
+shield-optimizer-core = { path = "../../crates/core" }
+anyhow = "1"
+chrono = "0.4"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

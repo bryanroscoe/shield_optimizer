@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-10T12:00:00.000Z",
+  "truncated": false,
+  "records": [
+    {
+      "kind": "installed_package",
+      "token": "com.example.unknown",
+      "reason": "uncatalogued_package",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-09-01T08:00:00.000Z",
+      "last_seen": "2026-09-10T08:00:00.000Z",
+      "count": 3
+    },
+    {
+      "kind": "installed_package",
+      "token": "com.android.systemui",
+      "reason": "unknown_safety_classification",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-09-01T08:00:00.000Z",
+      "last_seen": "2026-09-01T08:00:00.000Z",
+      "count": 1
+    },
+    {
+      "kind": "installed_package",
+      "token": "com.netflix.ninja",
+      "reason": "safety_lookup_unavailable",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-09-02T08:00:00.000Z",
+      "last_seen": "2026-09-02T08:00:00.000Z",
+      "count": 1
+    },
+    {
+      "kind": "unresolved_process",
+      "token": "vendor.media.omx",
+      "reason": "process_not_resolved",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-09-03T08:00:00.000Z",
+      "last_seen": "2026-09-04T08:00:00.000Z",
+      "count": 4
+    }
+  ]
+}

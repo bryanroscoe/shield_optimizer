@@ -704,6 +704,7 @@
             description={item.entry.optimize_description}
             package={item.entry.package}
             review={item.entry.review}
+            reviewedAt={item.entry.reviewed_at}
             state={rowState(item)}
             mb={(() => {
               const d = appDetails(item.entry.package);
