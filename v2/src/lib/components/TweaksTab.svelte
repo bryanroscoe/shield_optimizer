@@ -134,7 +134,7 @@
       return;
     }
     dnsBusy = true;
-    dnsMessage = mode === "hostname" ? "Applying and verifying resolution…" : "";
+    dnsMessage = mode === "hostname" ? "Applying and running a test lookup…" : "";
     try {
       const r = await api.setPrivateDns(serial, mode, mode === "hostname" ? dnsHostInput.trim() : null);
       dnsMessage = r.message;
@@ -216,10 +216,6 @@
     );
   }
 
-  function bgLimitLabel(v: string | null): string {
-    if (!v) return "Standard";
-    return v === "0" ? "None" : `At most ${v}`;
-  }
   function longPressLabel(v: string | null): string {
     return v ? `${v} ms` : "Unset (default 400 ms)";
   }
@@ -331,7 +327,7 @@
       : preset === "fhd_1080p" ? "1080p (1920x1080, density 320)"
       : preset === "hd_720p" ? "720p (1280x720, density 213)"
       : "device defaults";
-    if (!confirm(`Apply display scaling: ${label}? The screen will reflow.`)) return;
+    if (!confirm(`Change display scaling to ${label}? The screen will redraw.`)) return;
     displayScaleBusy = preset;
     displayScaleMessage = "";
     try {
@@ -357,8 +353,8 @@
     </button>
   </div>
   <p class="muted small">
-    Flip device behaviors from v1's Display/Input Tuning menu. Most run
-    <code>settings put</code> (empty value resets to default).
+    Change TV settings that Android hides or buries. Reset puts a setting back
+    to the TV's default.
   </p>
   {#if tweaksErr}
     <div class="error">{tweaksErr}</div>
@@ -372,12 +368,13 @@
     {#if netflixHooksState && netflixHooksState !== "missing"}
       <h3>Nvidia System Hooks</h3>
       <p class="muted small">
-        Controls Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>) which
-        remap the Xbox controller's Guide button to Home. Disabling fixes Guide
-        button conflicts in Steam Link and Moonlight. <strong>Note:</strong> the
-        Shield remote's dedicated Netflix button is hardwired at the firmware level
-        and cannot be disabled via ADB — use a button remapper app for that.
-        Reversible any time.
+        Controls Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>), which
+        turn the Xbox controller's Guide button into Home. Turning them off can
+        fix Guide button conflicts in Steam Link and Moonlight.
+        <strong>Note:</strong> this does not change the Netflix button on the
+        Shield remote. That button is handled in firmware and can't be changed
+        over ADB, so use a button remapper app for it. You can turn this back on
+        at any time.
       </p>
       <div class="tweak-row">
         <div>
@@ -404,12 +401,11 @@
     {#if assistantState && assistantState !== "missing"}
       <h3>Remote Assistant Button</h3>
       <p class="muted small">
-        Turning this off revokes the microphone permission from Google's search
-        app (<code>{ASSISTANT_PKG}</code>), so the remote's dedicated
-        Assistant/mic button stops listening. The button may still open the
-        assistant UI briefly, but it won't be able to hear you.
-        <strong>Trade-off:</strong> this also disables voice search in the
-        Play Store. Reversible any time.
+        Turning this off removes the microphone permission from Google's search
+        app (<code>{ASSISTANT_PKG}</code>), so the remote's Assistant button
+        can't hear you. The button may still open the assistant for a moment.
+        <strong>Trade-off:</strong> this also turns off voice search in the Play
+        Store. You can turn it back on at any time.
       </p>
       <div class="tweak-row">
         <div>
@@ -436,10 +432,11 @@
     {#if privateDns}
       <h3>Private DNS (DNS-over-TLS)</h3>
       <p class="muted small">
-        Encrypt DNS lookups. <strong>Automatic</strong> uses the network's DoT if
-        offered; <strong>Custom</strong> routes through a host you pick (AdGuard,
-        NextDNS, Cloudflare…). A bad custom host is auto-reverted to Automatic so
-        the device never loses DNS.
+        Encrypts the TV's DNS lookups. <strong>Automatic</strong> uses encrypted
+        DNS when the network offers it. <strong>Custom</strong> sends lookups to a
+        server you choose, such as AdGuard, NextDNS or Cloudflare. If a test
+        lookup through a custom server fails, the app switches back to Automatic
+        so the TV stays online.
       </p>
       <div class="tweak-row">
         <div>
@@ -483,12 +480,12 @@
 
     <h3>HDMI-CEC</h3>
     <p class="muted small">
-      Master switch plus three sub-toggles. Disabling the master typically also
-      turns off the sub-controls.
+      Lets the TV and this box control each other over HDMI. Turning off the
+      main switch usually turns off the other three as well.
     </p>
     <div class="tweak-grid">
       {#each [
-        { key: "hdmi_control_enabled", label: "Master (control on/off)", value: tweaks.hdmi_control_enabled },
+        { key: "hdmi_control_enabled", label: "Main switch", value: tweaks.hdmi_control_enabled },
         { key: "hdmi_control_auto_wakeup_enabled", label: "Auto wake on TV power", value: tweaks.hdmi_control_auto_wakeup_enabled },
         { key: "hdmi_control_auto_device_off_enabled", label: "Auto sleep when TV off", value: tweaks.hdmi_control_auto_device_off_enabled },
         { key: "hdmi_system_audio_control_enabled", label: "System audio control", value: tweaks.hdmi_system_audio_control_enabled },
@@ -524,8 +521,9 @@
 
     <h3>Match Content Frame Rate</h3>
     <p class="muted small">
-      Lets apps switch refresh rate to match video content (24/25/30/60 Hz). Seamless
-      only avoids visible black flashes during the switch.
+      Lets apps change the TV's refresh rate to match the video, such as 24 Hz
+      for films. Seamless only switches when the TV can do it without a black
+      screen. The app and the TV both have to support it.
     </p>
     <div class="tweak-row">
       <div>
@@ -613,44 +611,46 @@
 
     <h3>Background Process Limit</h3>
     <p class="muted small">
-      Caps how many apps stay alive in the background — frees RAM and can make the
-      Shield feel snappier (2 is a good balance). <strong>Heads up:</strong> Android
-      resets this to Standard on every reboot (a platform limitation, not a bug), so
-      you'll need to re-apply it after a restart.
+      Android keeps recently used apps in memory so they open faster. This shows
+      how many it will keep. This app can't change that number. Earlier versions
+      wrote a setting for it, but a Shield TV ignored that setting and kept its
+      limit at 32.
+    </p>
+    <p class="muted small">
+      To set a limit, open Developer options on the TV and use Background process
+      limit. In standard Android, that choice is cleared when the TV restarts.
     </p>
     <div class="tweak-row">
       <div>
-        <div class="current">Current: <strong>{bgLimitLabel(tweaks.background_process_limit)}</strong></div>
-        <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit ?? "(Standard)"}</div>
+        <div class="current">
+          Current limit:
+          <strong>
+            {tweaks.cached_process_limit !== null
+              ? `Up to ${tweaks.cached_process_limit} cached apps`
+              : "Not reported by this TV"}
+          </strong>
+        </div>
+        <div class="muted small mono">CUR_MAX_CACHED_PROCESSES = {tweaks.cached_process_limit ?? "(not reported)"}</div>
+        {#if tweaks.background_process_limit !== null}
+          <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit} (ignored by Android)</div>
+        {/if}
       </div>
-      <div class="row-actions">
-        <button
-          class="small-action"
-          class:active={!tweaks.background_process_limit}
-          disabled={tweaksActionBusy === "background_process_limit"}
-          onclick={() => writeTweak("global", "background_process_limit", "", "background_process_limit")}
-        >Standard</button>
-        {#each [
-          { v: "0", label: "None" },
-          { v: "1", label: "≤ 1" },
-          { v: "2", label: "≤ 2" },
-          { v: "3", label: "≤ 3" },
-          { v: "4", label: "≤ 4" },
-        ] as opt (opt.v)}
+      {#if tweaks.background_process_limit !== null}
+        <div class="row-actions">
           <button
             class="small-action"
-            class:active={tweaks.background_process_limit === opt.v}
             disabled={tweaksActionBusy === "background_process_limit"}
-            onclick={() => writeTweak("global", "background_process_limit", opt.v, "background_process_limit")}
-          >{opt.label}</button>
-        {/each}
-      </div>
+            onclick={() => writeTweak("global", "background_process_limit", "", "background_process_limit")}
+          >Remove old setting</button>
+        </div>
+      {/if}
     </div>
 
     <h3>Long Press Timeout</h3>
     <p class="muted small">
-      How long the remote OK button has to be held to register a long-press. Default
-      is 400ms; 300ms feels snappier.
+      How long you hold OK on the remote before it counts as a long press. The
+      default is 400 ms. 300 ms reacts sooner but makes accidental long presses
+      more likely.
     </p>
     <div class="tweak-row">
       <div>
@@ -676,11 +676,10 @@
 
     <h3>Screensaver</h3>
     <p class="muted small">
-      Which Daydream takes over when the TV sits idle. Basic Daydream is
-      AOSP's own screensaver, present on every Android TV build. "Restore
-      previous" puts back whatever was configured when this tab first loaded —
-      useful for undoing this without having to know a vendor screensaver's
-      component name (Glance's isn't guessed here).
+      Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is
+      the plain screensaver built into Android. Restore previous puts back the
+      screensaver that was set when this tab opened, including a vendor one this
+      app can't name.
     </p>
     <div class="tweak-row">
       <div>
@@ -710,8 +709,8 @@
 
     <h3>UI Animations</h3>
     <p class="muted small">
-      Sets all three animation scales (window / transition / animator) at once.
-      0.5× is a noticeable speedup; 0× disables them entirely.
+      Sets Android's three animation speeds together. 0.5× makes menus feel
+      quicker. Off removes the animations.
     </p>
     <div class="tweak-row">
       <div>
@@ -745,20 +744,18 @@
 
     <h3>Display Scaling</h3>
     <p class="muted small">
-      Tells Android to render the whole UI at a different resolution than the
-      panel, via <code>wm size</code> and <code>wm density</code>. The TV still
-      outputs at its native resolution — it just upscales what Android drew.
+      Changes the resolution Android draws its menus at, using
+      <code>wm size</code> and <code>wm density</code>. The TV still gets its
+      usual output resolution, and the menus are scaled up to fit.
     </p>
     <p class="muted small">
-      <strong>Why you'd drop it:</strong> a 4K Shield renders four times the
-      pixels of a 1080p one for the same launcher. Rendering at 1080p makes the
-      UI and app menus noticeably lighter on GPU and RAM, at the cost of
-      sharpness in text and icons. Video is unaffected — players decode at the
-      source resolution regardless. <strong>Why you'd raise it:</strong> to put
-      it back, or to check how something looks at a size you don't own.
-      Density is how large UI elements are drawn; the presets pair each
-      resolution with a density that keeps things roughly the same physical
-      size.
+      <strong>Why lower it:</strong> at 4K, Android draws four times as many
+      pixels as at 1080p. Drawing menus at 1080p puts less load on the graphics
+      chip and memory, but text and icons look softer. Video players decode at
+      the video's own resolution, so playback should look the same.
+      <strong>Why raise it:</strong> to put it back. Density sets how large
+      things are drawn. Each preset pairs a resolution with a density that keeps
+      things about the same size.
     </p>
     {#if currentDisplayScaling}
       <div class="current-scaling muted small mono">
@@ -774,7 +771,7 @@
         onclick={() => applyDisplayScaling("uhd_4k")}
       >
         <span class="scale-title">{displayScaleBusy === "uhd_4k" ? "Applying…" : "4K"}</span>
-        <span class="muted small">3839×2160, density 640 — Shield rejects 3840</span>
+        <span class="muted small">3839×2160, density 640. Shield rejects 3840.</span>
       </button>
       <button
         class="scale-option"
@@ -782,7 +779,7 @@
         onclick={() => applyDisplayScaling("fhd_1080p")}
       >
         <span class="scale-title">{displayScaleBusy === "fhd_1080p" ? "Applying…" : "1080p"}</span>
-        <span class="muted small">1920×1080, density 320 — a quarter of 4K's pixels</span>
+        <span class="muted small">1920×1080, density 320. A quarter of 4K's pixels.</span>
       </button>
       <button
         class="scale-option"
@@ -790,7 +787,7 @@
         onclick={() => applyDisplayScaling("hd_720p")}
       >
         <span class="scale-title">{displayScaleBusy === "hd_720p" ? "Applying…" : "720p"}</span>
-        <span class="muted small">1280×720, density 213 — lightest; UI gets soft</span>
+        <span class="muted small">1280×720, density 213. Lightest, but menus look soft.</span>
       </button>
       <button
         class="scale-option"
@@ -807,10 +804,9 @@
     <div class="callout callout-warn scale-note">
       <Icon name="warning" size={16} />
       <span>
-        A size or density the TV dislikes can leave the UI unreadable or the
-        launcher off-screen. Reset puts both back; if you cannot see well enough
-        to click it, rebooting the TV does not clear an override, so use Reset
-        from here or <code>wm size reset</code> from the Shell tab.
+        A size or density the TV doesn't handle well can make menus unreadable
+        or push the launcher off screen. Restarting the TV does not undo it. Use
+        Reset here, or run <code>wm size reset</code> in the Shell tab.
       </span>
     </div>
   {/if}

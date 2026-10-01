@@ -452,8 +452,12 @@ export interface TweaksState {
   window_animation_scale: string | null;
   transition_animation_scale: string | null;
   animator_duration_scale: string | null;
-  /// Background process limit: null = Standard, "0" = none, "1"–"4" = at most N.
+  /// global.background_process_limit, written by earlier versions. Android
+  /// ignores it (#99); read only so a leftover value can be removed.
   background_process_limit: string | null;
+  /// The cached background process limit Android is applying
+  /// (CUR_MAX_CACHED_PROCESSES), or null when the device did not report it.
+  cached_process_limit: number | null;
   /// Encoded audio passthrough: "0" Auto, "1" Never, "2" Always, "3" Manual.
   encoded_surround_output: string | null;
   /// Comma-separated AudioFormat encodings; applies only in Manual mode.

@@ -73,6 +73,13 @@ this file and shows the newest few sections, dated, from its version button.
   Open (or Open anyway), Copy IP, Copy serial, Copy diagnostics and Forget. App
   rows get Copy package name. Text fields, the Shell output and selected text
   keep Copy, and the menu works from the keyboard (arrow keys, Escape to close).
+- **The Background Process Limit tweak didn't do anything, so it's gone**
+  (#99). It wrote a setting that Android doesn't read. On a Shield TV Pro
+  (Android 11), setting it to 1 left Android's limit at 32 cached apps. Tweaks
+  now shows the limit Android is actually using and explains how to change it
+  in the TV's Developer options. If an earlier version left the setting behind,
+  a Remove old setting button deletes it. The rest of the Tweaks text was also
+  rewritten in plainer words.
 
 ### Added
 
