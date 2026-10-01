@@ -58,7 +58,7 @@
     "com.google.android.tungsten.setupwraith"
   ],
   "home_handler_names": {
-    "com.google.android.tungsten.setupwraith": "Setup Wraith (HOME)",
+    "com.google.android.tungsten.setupwraith": "Google TV setup helper — not a launcher",
     "com.droidlogic.launcher.provider": "Droidlogic Launcher Provider"
   }
 }

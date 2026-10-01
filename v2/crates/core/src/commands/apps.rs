@@ -472,12 +472,14 @@ async fn refuse_last_home_handler(
         .await
         .ok()
         .map(|out| super::launcher::parse_home_handler_packages(&out.stdout))?;
-    is_last_enabled_home_handler(package, &handlers).then(|| ActionResult {
-        ok: false,
-        message: format!(
-            "Refusing to disable {package}: it's the only enabled launcher left on this \
+    is_last_enabled_home_handler(package, &handlers, super::loader::launchers()).then(|| {
+        ActionResult {
+            ok: false,
+            message: format!(
+                "Refusing to disable {package}: it's the only enabled launcher left on this \
              device. Enable another launcher first."
-        ),
+            ),
+        }
     })
 }
 

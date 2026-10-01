@@ -398,9 +398,11 @@ mod tests {
             cat.custom.iter().any(|e| e.package == "com.klevico.monet"),
             "Monet Launcher is missing"
         );
-        assert!(cat
-            .home_handler_name("com.google.android.tungsten.setupwraith")
-            .is_some());
+        assert_eq!(
+            cat.home_handler_name("com.google.android.tungsten.setupwraith"),
+            Some("Google TV setup helper — not a launcher")
+        );
+        assert!(cat.is_transient_home_holder("com.google.android.tungsten.setupwraith"));
     }
 
     /// A custom launcher with no source is a row whose "Get" link cannot be

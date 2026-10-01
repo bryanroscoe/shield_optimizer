@@ -95,6 +95,9 @@ struct DeviceSpec {
     wireless: Option<Wireless>,
     #[serde(default)]
     home_policy: Option<HomePolicy>,
+    /// Extra apps that declare HOME: `{ package, class, priority }`.
+    #[serde(default)]
+    home_apps: Vec<HomeAppSpec>,
     #[serde(default)]
     auto_attach: Option<bool>,
     #[serde(default)]
@@ -104,6 +107,14 @@ struct DeviceSpec {
     /// Shell commands run on the device first, unlogged and fault-free.
     #[serde(default)]
     setup: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct HomeAppSpec {
+    package: String,
+    class: String,
+    #[serde(default)]
+    priority: i32,
 }
 
 fn some_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
@@ -158,6 +169,9 @@ impl Server {
         }
         if let Some(p) = spec.home_policy {
             d.home.policy = p;
+        }
+        for app in &spec.home_apps {
+            d.add_home_app(&app.package, &app.class, app.priority);
         }
         if let Some(a) = spec.auto_attach {
             d.auto_attach = a;
