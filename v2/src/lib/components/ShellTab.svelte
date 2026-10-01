@@ -206,10 +206,10 @@
           {/if}
           <div class="shell-pane">
             {#if result.stdout.trim()}
-              <pre class="output">{result.stdout}</pre>
+              <pre class="output" data-native-contextmenu>{result.stdout}</pre>
             {/if}
             {#if result.stderr.trim()}
-              <pre class="output stderr">{result.stderr}</pre>
+              <pre class="output stderr" data-native-contextmenu>{result.stderr}</pre>
             {/if}
             {#if !result.stdout.trim() && !result.stderr.trim()}
               <p class="muted small no-output">The command produced no output.</p>

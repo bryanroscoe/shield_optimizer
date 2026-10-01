@@ -57,7 +57,13 @@ export interface DisplayMode {
 }
 
 export interface MemoryEntry {
-  package: string;
+  /// The full process name the device reported (`com.foo:remote`,
+  /// `/system/bin/surfaceflinger`, `foo@2.1-service`).
+  process: string;
+  pid: number | null;
+  /// The package this process name would belong to, or null when it has no
+  /// package shape. Unverified until matched against the installed list.
+  package: string | null;
   mb: number;
 }
 

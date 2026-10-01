@@ -262,16 +262,53 @@ pub fn parse_disabled_packages_output(output: &str) -> Vec<String> {
     parse_installed_packages_output(output)
 }
 
-/// Parse the `Total PSS by process:` section of `dumpsys meminfo` into a
-/// package → MB map. Sums multiple processes that share a base package.
+/// One row of the `Total PSS by process:` section of `dumpsys meminfo`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProcessMemory {
+    /// The process name exactly as the device reported it: `com.foo:remote`,
+    /// `android.hardware.audio@6.0-service-msd`, `/system/bin/surfaceflinger`.
+    pub process: String,
+    /// `None` when the row carried no `(pid N …)` suffix.
+    pub pid: Option<u32>,
+    pub kb: u64,
+}
+
+/// The package id a process name could belong to, if it has the shape of one.
+///
+/// Android names an app's processes `<package>` or `<package>:<suffix>`, so a
+/// `:suffix` is stripped to find the owner. Anything else — a path, a HAL
+/// (`foo@2.1-service`), a bare word like `system` or `zygote` — has no package
+/// and gets `None`; it is never trimmed until something package-shaped is left.
+///
+/// This is only a candidate. A process can be named anything, so the caller
+/// must still confirm the candidate against the installed package list before
+/// treating the row as that app.
+pub fn package_for_process(process: &str) -> Option<&str> {
+    static PACKAGE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$").unwrap()
+    });
+    static SUFFIX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.]+$").unwrap());
+
+    let owner = match process.split_once(':') {
+        Some((owner, suffix)) if SUFFIX.is_match(suffix) => owner,
+        Some(_) => return None,
+        None => process,
+    };
+    PACKAGE.is_match(owner).then_some(owner)
+}
+
+/// Parse every row of the `Total PSS by process:` section of `dumpsys meminfo`,
+/// one entry per process, keeping the full name and PID.
 ///
 /// Per v1's Get-AppMemoryMap learnings: per-process query (`dumpsys meminfo <pkg>`)
 /// is unreliable across Android versions; the system-wide section is robust.
-pub fn parse_dumpsys_meminfo(meminfo: &str) -> HashMap<String, f64> {
-    static ROW: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^\s*([\d,]+)K:\s+([a-zA-Z0-9_.]+)").unwrap());
+pub fn parse_pss_by_process(meminfo: &str) -> Vec<ProcessMemory> {
+    // `   85,413K: com.google.android.katniss:interactor (pid 15826 state 5 oom 150)`
+    static ROW: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^\s*([\d,]+)K:\s+(\S.*?)(?:\s+\(pid\s+(\d+)[^)]*\))?\s*$").unwrap()
+    });
 
-    let mut totals_kb: HashMap<String, u64> = HashMap::new();
+    let mut rows = Vec::new();
     let mut in_section = false;
     for line in meminfo.lines() {
         if line.contains("Total PSS by process:") {
@@ -282,19 +319,42 @@ pub fn parse_dumpsys_meminfo(meminfo: &str) -> HashMap<String, f64> {
             continue;
         }
         if line.trim().is_empty() {
-            // Empty line ends the section.
             break;
         }
-        if let Some(caps) = ROW.captures(line) {
-            let kb: u64 = caps[1].replace(',', "").parse().unwrap_or(0);
-            let pkg = caps[2].to_string();
-            *totals_kb.entry(pkg).or_insert(0) += kb;
+        let Some(caps) = ROW.captures(line) else {
+            continue;
+        };
+        let Ok(kb) = caps[1].replace(',', "").parse::<u64>() else {
+            continue;
+        };
+        rows.push(ProcessMemory {
+            process: caps[2].to_string(),
+            pid: caps.get(3).and_then(|m| m.as_str().parse().ok()),
+            kb,
+        });
+    }
+    rows
+}
+
+/// Package → MB, from the `Total PSS by process:` section. A package's
+/// `:subprocess` rows are summed into it; rows with no package-shaped name
+/// (native daemons, HALs, `system`) are left out rather than trimmed into one.
+pub fn parse_dumpsys_meminfo(meminfo: &str) -> HashMap<String, f64> {
+    let mut totals_kb: HashMap<String, u64> = HashMap::new();
+    for row in parse_pss_by_process(meminfo) {
+        if let Some(pkg) = package_for_process(&row.process) {
+            *totals_kb.entry(pkg.to_string()).or_insert(0) += row.kb;
         }
     }
     totals_kb
         .into_iter()
-        .map(|(pkg, kb)| (pkg, (kb as f64 / 1024.0 * 10.0).round() / 10.0))
+        .map(|(pkg, kb)| (pkg, kb_to_mb(kb)))
         .collect()
+}
+
+/// Kilobytes to megabytes, rounded to one decimal place.
+pub fn kb_to_mb(kb: u64) -> f64 {
+    (kb as f64 / 1024.0 * 10.0).round() / 10.0
 }
 
 /// Stable alias for callers that want to be explicit about what they're getting.
@@ -1021,6 +1081,154 @@ mod tests {
     #[test]
     fn meminfo_returns_empty_when_section_missing() {
         assert!(parse_dumpsys_meminfo("nothing useful here").is_empty());
+    }
+
+    /// `dumpsys meminfo` from a Shield TV Pro (mdarcy, Android 11).
+    const SHIELD_MEMINFO: &str = include_str!("../../tests/fixtures/shield-mdarcy-meminfo.txt");
+    /// `top -b -n 1` from the same Shield, same session.
+    const SHIELD_TOP: &str = include_str!("../../tests/fixtures/shield-mdarcy-top.txt");
+
+    fn row<'a>(rows: &'a [ProcessMemory], process: &str) -> &'a ProcessMemory {
+        rows.iter()
+            .find(|r| r.process == process)
+            .unwrap_or_else(|| panic!("no row for {process}"))
+    }
+
+    #[test]
+    fn real_meminfo_keeps_every_row_with_its_full_name_and_pid() {
+        let rows = parse_pss_by_process(SHIELD_MEMINFO);
+        // Every line of the PSS section, and none from the RSS section above it.
+        assert_eq!(rows.len(), 125);
+        assert_eq!(
+            rows[0].process,
+            "vendor.nvidia.hardware.graphics.composer@2.0-service"
+        );
+        assert_eq!(rows[0].pid, Some(3405));
+        assert_eq!(rows[0].kb, 251_612);
+
+        let katniss = row(&rows, "com.google.android.katniss:interactor");
+        assert_eq!(katniss.pid, Some(15826));
+        // `(pid … / activities)` is metadata, not part of the name.
+        assert_eq!(row(&rows, "com.android.vending").pid, Some(2110));
+        assert_eq!(row(&rows, "system").pid, Some(3739));
+        assert_eq!(
+            row(&rows, "android.hardware.audio@6.0-service-msd").pid,
+            Some(3376)
+        );
+        assert!(
+            rows.iter().all(|r| r.pid.is_some()),
+            "every Shield row has a pid"
+        );
+        // Both smbserver processes survive as separate rows.
+        assert_eq!(row(&rows, "com.nvidia.shield.smbserver").pid, Some(15529));
+        assert_eq!(
+            row(&rows, "com.nvidia.shield.smbserver:sambaserver").pid,
+            Some(28576)
+        );
+    }
+
+    #[test]
+    fn real_meminfo_package_map_never_trims_a_hal_into_a_package() {
+        let map = parse_dumpsys_meminfo(SHIELD_MEMINFO);
+        // `foo@2.0-service` used to be cut at the `@` and filed as `foo`.
+        assert!(!map.contains_key("vendor.nvidia.hardware.graphics.composer"));
+        assert!(!map.contains_key("android.hardware.audio"));
+        assert!(!map.keys().any(|k| k.contains('@') || k.contains(':')));
+        // A `:subprocess` still counts towards the app that owns it.
+        assert_eq!(map["com.nvidia.shield.smbserver"], kb_to_mb(8_434 + 6_491));
+        assert_eq!(map["com.google.android.katniss"], kb_to_mb(85_413));
+        assert!(!map.contains_key("system"));
+    }
+
+    #[test]
+    fn path_named_processes_are_kept_not_dropped() {
+        // Older builds name native daemons by path. The old pattern needed the
+        // name to start with a package character, so these rows vanished.
+        let input = "Total PSS by process:\n\
+                         40,112K: /system/bin/surfaceflinger (pid 312)\n\
+                          1,234K: /vendor/bin/hw/android.hardware.audio@2.0-service (pid 400)\n\
+                            512K: /init\n\n";
+        let rows = parse_pss_by_process(input);
+        assert_eq!(
+            rows,
+            vec![
+                ProcessMemory {
+                    process: "/system/bin/surfaceflinger".into(),
+                    pid: Some(312),
+                    kb: 40_112,
+                },
+                ProcessMemory {
+                    process: "/vendor/bin/hw/android.hardware.audio@2.0-service".into(),
+                    pid: Some(400),
+                    kb: 1_234,
+                },
+                ProcessMemory {
+                    process: "/init".into(),
+                    pid: None,
+                    kb: 512,
+                },
+            ]
+        );
+        assert!(rows
+            .iter()
+            .all(|r| package_for_process(&r.process).is_none()));
+        assert!(parse_dumpsys_meminfo(input).is_empty());
+    }
+
+    #[test]
+    fn package_for_process_strips_only_a_subprocess_suffix() {
+        assert_eq!(
+            package_for_process("com.netflix.ninja"),
+            Some("com.netflix.ninja")
+        );
+        assert_eq!(
+            package_for_process("com.google.android.katniss:interactor"),
+            Some("com.google.android.katniss")
+        );
+        assert_eq!(package_for_process("com.foo:remote"), Some("com.foo"));
+        for name in [
+            "system",
+            "zygote64",
+            "surfaceflinger",
+            "/system/bin/surfaceflinger",
+            "android.hardware.audio@6.0-service-msd",
+            "vendor.nvidia.hardware.graphics.composer@2.0-service",
+            "android.hardware.drm@1.3-service.clearkey",
+            "[kworker/u8:0]",
+            ":remote",
+            "com.foo:",
+            "com.foo:bar baz",
+            "1com.foo",
+            "com..foo",
+            "",
+        ] {
+            assert_eq!(package_for_process(name), None, "{name:?} is not a package");
+        }
+    }
+
+    #[test]
+    fn real_top_names_only_yield_candidates_of_package_shape() {
+        // ARGS is the 12th column; its first word is the process name.
+        let names: Vec<&str> = SHIELD_TOP
+            .lines()
+            .skip_while(|l| !l.trim_start().starts_with("PID "))
+            .skip(1)
+            .filter_map(|l| l.split_whitespace().nth(11))
+            .collect();
+        assert!(names.len() > 250, "top fixture rows: {}", names.len());
+        for name in &names {
+            if let Some(pkg) = package_for_process(name) {
+                assert!(!pkg.contains(['@', '/', ':', '[', ']']), "{name} -> {pkg}");
+                assert!(name.starts_with(pkg), "{name} -> {pkg}");
+            }
+        }
+        assert!(names.contains(&"com.nvidia.irtuner:irtuner_service"));
+        assert_eq!(
+            package_for_process("com.nvidia.irtuner:irtuner_service"),
+            Some("com.nvidia.irtuner")
+        );
+        assert!(names.contains(&"android.hardware.audio@6.0-service-msd"));
+        assert!(names.iter().any(|n| n.starts_with("[kworker/")));
     }
 
     #[test]

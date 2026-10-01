@@ -2,6 +2,7 @@
   import "../app.css";
   import Icon from "$lib/components/Icon.svelte";
   import BrandMark from "$lib/components/BrandMark.svelte";
+  import ContextMenu from "$lib/components/ContextMenu.svelte";
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -343,6 +344,7 @@
   <main>
     {@render children?.()}
   </main>
+  <ContextMenu />
   <footer>
     <button class="kofi" onclick={() => openUrl("https://ko-fi.com/bryanroscoe")}>
       <Icon name="local_cafe" size={16} /> Enjoying ATV Optimizer? Support it on Ko-fi

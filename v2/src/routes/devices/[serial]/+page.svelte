@@ -23,6 +23,7 @@
     Safety,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import type { MemoryEntry } from "$lib/types";
   import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import {
@@ -78,8 +79,9 @@
   const LIVE_REFRESH_INTERVAL_MS = 3000;
   type PackageState = "enabled" | "disabled" | "missing";
   type PageContext = { serial: string; epoch: number };
+  /// Keyed by the full process name.
   let memorySafety = $state<Record<string, SafetyStatus>>({});
-  /// Process names confirmed to be installed packages on this device.
+  /// Installed packages on this device, for confirming a memory row's package.
   let memoryConfirmed = $state<Set<string>>(new Set());
   /// Package whose safety detail is expanded in the App List, or null. One at a
   /// time: the verdict is a single line, and the reasoning behind it is worth
@@ -150,8 +152,16 @@
   /// stays a process: catalog-free classification only, and it is shown as
   /// "Not an app" rather than as a verdict. tests/memory-safety.mjs pins that
   /// an unverified name never reads as Safe to remove.
-  async function memorySafetyFor(pkg: string, installed: Set<string>): Promise<Safety> {
-    return installed.has(pkg) ? api.safetyInfo(pkg) : api.processSafetyInfo(pkg);
+  async function memorySafetyFor(m: MemoryEntry, installed: Set<string>): Promise<Safety> {
+    const pkg = confirmedPackage(m, installed);
+    return pkg ? api.safetyInfo(pkg) : api.processSafetyInfo(m.process);
+  }
+
+  /// The row's package, only once the device has confirmed it is installed.
+  /// `com.foo:remote` is com.foo's process; `media.codec` only looks like a
+  /// package, and stays a process because nothing by that name is installed.
+  function confirmedPackage(m: MemoryEntry, installed: Set<string>): string | null {
+    return m.package !== null && installed.has(m.package) ? m.package : null;
   }
 
   function capturePageContext(): PageContext {
@@ -472,8 +482,10 @@
       if (!pageContextIsCurrent(context) || request !== healthRequest) return;
       report = nextReport;
       reportLastRefreshed = new Date();
-      const pkgs = nextReport.top_memory.map((m) => m.package);
-      memorySafety = Object.fromEntries(pkgs.map((pkg) => [pkg, { status: "checking" }]));
+      const rows = [
+        ...new Map(nextReport.top_memory.map((m) => [m.process, m])).values(),
+      ];
+      memorySafety = Object.fromEntries(rows.map((m) => [m.process, { status: "checking" }]));
       // These are process names from `dumpsys meminfo`, and a process can be
       // named anything, so a bare name must not inherit a curated verdict.
       // But a name that matches a package the device reports as installed IS
@@ -494,7 +506,7 @@
       if (!pageContextIsCurrent(context) || request !== healthRequest) return;
       memoryConfirmed = installed;
       const results = await Promise.allSettled(
-        pkgs.map((pkg) => memorySafetyFor(pkg, installed)),
+        rows.map((m) => memorySafetyFor(m, installed)),
       );
       // Deliberately not comparing `report` to `nextReport`: `report` is
       // $state, so assigning an object stores a deep proxy and the identity
@@ -502,11 +514,11 @@
       // row stuck on "Checking". The request token already proves this load is
       // the current one.
       if (!pageContextIsCurrent(context) || request !== healthRequest) return;
-      memorySafety = Object.fromEntries(pkgs.map((pkg, index) => {
+      memorySafety = Object.fromEntries(rows.map((m, index) => {
         const result = results[index];
         return result.status === "fulfilled"
-          ? [pkg, { status: "ready", verdict: result.value } satisfies SafetyStatus]
-          : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
+          ? [m.process, { status: "ready", verdict: result.value } satisfies SafetyStatus]
+          : [m.process, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
       }));
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== healthRequest) return;
@@ -1066,8 +1078,9 @@
     | { kind: "verdict"; status: SafetyStatus | undefined }
     | { kind: "process"; status: SafetyStatus | undefined };
 
-  function memorySuggestion(pkg: string): MemorySuggestion {
-    if (!memoryConfirmed.has(pkg)) return { kind: "process", status: memorySafety[pkg] };
+  function memorySuggestion(m: MemoryEntry): MemorySuggestion {
+    const pkg = confirmedPackage(m, memoryConfirmed);
+    if (pkg === null) return { kind: "process", status: memorySafety[m.process] };
     // Until the catalog lands we cannot tell a catalog app from any other
     // package, and a verdict that flips to a recommendation a second later
     // is a column that cannot be trusted at a glance.
@@ -1079,7 +1092,7 @@
         rec: recommendation(entry, appStates[pkg] ?? null, packageSafety[pkg]),
       };
     }
-    return { kind: "verdict", status: memorySafety[pkg] };
+    return { kind: "verdict", status: memorySafety[m.process] };
   }
 
   /// Open the App List on exactly this package.
@@ -2277,17 +2290,18 @@
             </thead>
             <tbody>
               {#each report.top_memory as m}
-                {@const suggestion = memorySuggestion(m.package)}
-                {@const lookup = suggestion.kind === "recommendation" ? packageSafety[m.package] : suggestion.status}
-                {@const isApp = suggestion.kind !== "process"}
+                {@const suggestion = memorySuggestion(m)}
+                {@const appPkg = suggestion.kind === "process" ? null : m.package}
+                {@const lookup = suggestion.kind === "recommendation" ? (appPkg ? packageSafety[appPkg] : undefined) : suggestion.status}
                 <!-- The package name is the keyboard target; the row click is a
                      larger mouse target for the same thing. -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
                 <tr
-                  class:mem-row-link={isApp}
-                  data-package={m.package}
-                  onclick={isApp ? () => openInAppList(m.package) : undefined}
+                  class:mem-row-link={appPkg !== null}
+                  data-process={m.process}
+                  data-package={appPkg ?? ""}
+                  onclick={appPkg ? () => openInAppList(appPkg) : undefined}
                 >
                   <td
                     class="num"
@@ -2297,18 +2311,21 @@
                     {m.mb.toFixed(1)} MB
                   </td>
                   <td class="pkg">
-                    {#if isApp}
+                    {#if appPkg}
                       <button
                         class="mem-open"
-                        onclick={(e) => { e.stopPropagation(); openInAppList(m.package); }}
-                        data-tip="Open in the App List"
-                      >{m.package}</button>
+                        onclick={(e) => { e.stopPropagation(); openInAppList(appPkg); }}
+                        data-tip={appPkg === m.process ? "Open in the App List" : `Open ${appPkg} in the App List`}
+                      >{m.process}</button>
                     {:else}
-                      {m.package}
+                      {m.process}
                       <span
                         class="unconfirmed"
                         title="No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."
                       >not a package</span>
+                    {/if}
+                    {#if m.pid !== null}
+                      <span class="mem-pid">pid {m.pid}</span>
                     {/if}
                   </td>
                   <td
@@ -2318,7 +2335,7 @@
                     title={safetyReason(lookup)}
                   >
                     {#if suggestion.kind === "recommendation"}
-                      {@const kept = keptPackages.has(m.package) && suggestion.rec.kind !== "restore"}
+                      {@const kept = appPkg !== null && keptPackages.has(appPkg) && suggestion.rec.kind !== "restore"}
                       <span class={`suggestion suggestion--${kept ? "keep" : suggestion.rec.kind}`}>{kept ? "Kept" : suggestion.rec.label}</span>
                     {:else if suggestion.kind === "process"}
                       <span class="suggestion suggestion--keep">Not an app</span>
@@ -3674,6 +3691,12 @@
     text-align: left;
     overflow-wrap: anywhere;
     cursor: pointer;
+  }
+  .mem-pid {
+    margin-left: 0.45rem;
+    color: var(--fg-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
   }
   .mem-open:hover {
     background: none;

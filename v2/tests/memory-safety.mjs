@@ -57,7 +57,10 @@ async function exercise({ browser, base }) {
 
   const rows = await page.$$eval(cells, (all) =>
     all.map((c) => ({
+      process: c.closest("tr")?.dataset.process ?? "",
       pkg: c.closest("tr")?.dataset.package ?? "",
+      shown: c.closest("tr")?.querySelector("td.pkg")?.innerText ?? "",
+      opens: c.closest("tr")?.querySelector("button.mem-open") !== null,
       suggestion: c.dataset.suggestion,
       verdict: c.dataset.verdict,
       text: c.innerText.trim(),
@@ -79,8 +82,33 @@ async function exercise({ browser, base }) {
   // It never inherits a catalog verdict and never reads as removable.
   const processes = rows.filter((r) => r.suggestion === "process");
   for (const r of processes) {
-    assert.notEqual(r.verdict, "safe", `unverified process ${r.pkg} must never be Safe: ${JSON.stringify(r)}`);
-    assert.equal(r.text, "Not an app", `process ${r.pkg} reads as a process: ${JSON.stringify(r)}`);
+    assert.notEqual(r.verdict, "safe", `unverified process ${r.process} must never be Safe: ${JSON.stringify(r)}`);
+    assert.equal(r.text, "Not an app", `process ${r.process} reads as a process: ${JSON.stringify(r)}`);
+    assert.equal(r.pkg, "", `process ${r.process} is not tied to a package: ${JSON.stringify(r)}`);
+    assert.ok(!r.opens, `process ${r.process} offers no way into the App List: ${JSON.stringify(r)}`);
+  }
+
+  // Issue #97: rows keep the full process name and PID. A HAL is not cut at
+  // its `@`, a package-shaped name nothing installed carries stays a process,
+  // and a `:subprocess` of an installed app is that app's row.
+  const byProcess = new Map(rows.map((r) => [r.process, r]));
+  for (const name of [
+    "vendor.nvidia.hardware.graphics.composer@2.0-service",
+    "system",
+    "surfaceflinger",
+    "com.google.process.gservices",
+  ]) {
+    const r = byProcess.get(name);
+    assert.ok(r, `${name} keeps its own row under its full name: ${JSON.stringify(rows)}`);
+    assert.equal(r.suggestion, "process", `${name} is not an app: ${JSON.stringify(r)}`);
+  }
+  const sub = byProcess.get("com.android.vending:background");
+  assert.ok(sub, `the subprocess keeps its full name: ${JSON.stringify(rows)}`);
+  assert.notEqual(sub.suggestion, "process", `an installed app's subprocess is that app: ${JSON.stringify(sub)}`);
+  assert.equal(sub.pkg, "com.android.vending", `the subprocess opens its owning package: ${JSON.stringify(sub)}`);
+  for (const r of rows) {
+    assert.ok(r.shown.includes(r.process), `row shows the full process name: ${JSON.stringify(r)}`);
+    assert.match(r.shown, /pid \d+/, `row shows its PID: ${JSON.stringify(r)}`);
   }
 
   // An installed catalog app carries a recommendation, and the reviewed

@@ -214,19 +214,28 @@ const health: HealthReport = {
   // fixture never renders them.
   temperature_c: 78,
   audio_device: "Dolby Atmos over HDMI (eARC)",
+  // Full process names as `dumpsys meminfo` reports them, from a real Shield.
+  // The native rows, the `:background` subprocess and the package-shaped
+  // `com.google.process.gservices` (nothing installed by that name) are the
+  // cases the memory table has to keep apart from apps.
   top_memory: [
-    { package: "com.netflix.ninja", mb: 312 },
-    { package: "com.amazon.amazonvideo.livingroom", mb: 268 },
-    { package: "com.google.android.youtube.tv", mb: 241 },
-    { package: "com.plexapp.android", mb: 198 },
-    { package: "com.google.android.tvlauncher", mb: 176 },
-    { package: "com.nvidia.tegrazone3", mb: 154 },
-    { package: "com.google.android.gms", mb: 142 },
-    { package: "com.disney.disneyplus", mb: 131 },
-    { package: "com.spotify.tv.android", mb: 118 },
-    { package: "tv.twitch.android.app", mb: 104 },
-    { package: "com.android.systemui", mb: 96 },
-    { package: "com.nvidia.shield.remote.server", mb: 71 },
+    { process: "com.netflix.ninja", pid: 2201, package: "com.netflix.ninja", mb: 312 },
+    { process: "com.amazon.amazonvideo.livingroom", pid: 2410, package: "com.amazon.amazonvideo.livingroom", mb: 268 },
+    { process: "vendor.nvidia.hardware.graphics.composer@2.0-service", pid: 3405, package: null, mb: 245.7 },
+    { process: "com.google.android.youtube.tv", pid: 2533, package: "com.google.android.youtube.tv", mb: 241 },
+    { process: "com.plexapp.android", pid: 27976, package: "com.plexapp.android", mb: 198 },
+    { process: "com.google.android.tvlauncher", pid: 4012, package: "com.google.android.tvlauncher", mb: 176 },
+    { process: "system", pid: 3739, package: null, mb: 171.3 },
+    { process: "com.nvidia.tegrazone3", pid: 4977, package: "com.nvidia.tegrazone3", mb: 154 },
+    { process: "com.google.android.gms", pid: 32081, package: "com.google.android.gms", mb: 142 },
+    { process: "com.disney.disneyplus", pid: 5120, package: "com.disney.disneyplus", mb: 131 },
+    { process: "com.spotify.tv.android", pid: 5388, package: "com.spotify.tv.android", mb: 118 },
+    { process: "tv.twitch.android.app", pid: 5671, package: "tv.twitch.android.app", mb: 104 },
+    { process: "com.android.systemui", pid: 3918, package: "com.android.systemui", mb: 96 },
+    { process: "surfaceflinger", pid: 3443, package: null, mb: 77.5 },
+    { process: "com.nvidia.shield.remote.server", pid: 4734, package: "com.nvidia.shield.remote.server", mb: 71 },
+    { process: "com.android.vending:background", pid: 2188, package: "com.android.vending", mb: 24.6 },
+    { process: "com.google.process.gservices", pid: 18105, package: "com.google.process.gservices", mb: 10.1 },
   ],
 };
 
@@ -375,9 +384,10 @@ function packageStates(packages: string[]): Record<string, "enabled" | "disabled
 }
 
 function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
-  const memoryByPkg: Record<string, number> = Object.fromEntries(
-    health.top_memory.map((m) => [m.package, m.mb]),
-  );
+  const memoryByPkg: Record<string, number> = {};
+  for (const m of health.top_memory) {
+    if (m.package) memoryByPkg[m.package] = (memoryByPkg[m.package] ?? 0) + m.mb;
+  }
   // Mirror the real backend (engine::compute_plan): include every installed
   // catalog app with its natural action, regardless of default_optimize. The
   // wizard UI is what applies the per-app default (non-default apps default to
