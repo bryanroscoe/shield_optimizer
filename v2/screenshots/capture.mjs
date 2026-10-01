@@ -104,6 +104,7 @@ async function captureScreens(page, shot) {
     // with their source and read time, not just the collapsed table.
     await page.locator(".app-table .row-caret").first().click();
     await page.locator(".measures [data-measure='storage']").first().waitFor();
+    await page.mouse.move(0, 0);
     await shot("app-list");
 
     // 8. Optimize wizard — needs a click to load the plan.
