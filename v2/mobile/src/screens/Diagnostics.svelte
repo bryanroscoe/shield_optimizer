@@ -94,9 +94,10 @@
   let liveTimer: ReturnType<typeof setInterval> | undefined;
 
   const health = $derived(session.health);
-  const topPackages = $derived(
-    (health?.top_memory ?? []).slice(0, 8).map((m) => m.package),
-  );
+  // Full process names, deduplicated: the safety lookup is per name.
+  const topPackages = $derived([
+    ...new Set((health?.top_memory ?? []).slice(0, 8).map((m) => m.process)),
+  ]);
   // Stable dependency for the safety effect: refetch when the *set* of top
   // packages changes, not on every 3-second refresh of the same set.
   const topKey = $derived(topPackages.join(","));
@@ -438,13 +439,16 @@
           <p class="lede empty">No process memory data available.</p>
         {:else}
           <div class="consumers-list">
-            {#each health.top_memory.slice(0, 8) as consumer (consumer.package)}
-              {@const tier = tierOf(safetyMap[consumer.package])}
+            {#each health.top_memory.slice(0, 8) as consumer, index (`${consumer.process}#${consumer.pid ?? index}`)}
+              {@const tier = tierOf(safetyMap[consumer.process])}
               <div class="consumer-row">
                 <div class="consumer-details">
-                  <span class="mono consumer-name">{consumer.package}</span>
-                  {#if catalogNames[consumer.package]}
-                    <span class="consumer-pkg">Looks like {catalogNames[consumer.package]}</span>
+                  <span class="mono consumer-name">{consumer.process}</span>
+                  {#if consumer.pid !== null}
+                    <span class="consumer-pkg">pid {consumer.pid}</span>
+                  {/if}
+                  {#if catalogNames[consumer.process]}
+                    <span class="consumer-pkg">Looks like {catalogNames[consumer.process]}</span>
                   {/if}
                 </div>
                 {#if tier}
