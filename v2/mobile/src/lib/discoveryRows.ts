@@ -127,6 +127,14 @@ export function buildDiscoveryRows(
   // on their discovery row, so they must not also appear as a saved-endpoint
   // row further down -- that is what produced duplicate reconnect entries.
   const verified = new Set<SavedDevice>();
+  // mDNS entries can outlive the TV that published them (the Android side
+  // ignores onServiceLost), so the connected TV's own reported id outranks
+  // any advert: it names the live row, and an advert for that same TV at any
+  // other host is stale and is not offered at all.
+  const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
+  const liveSaved = liveId
+    ? savedDevices.find((saved) => normalizeHardwareId(saved.hardwareId) === liveId)
+    : undefined;
   for (const group of hosts.values()) {
     const connectPorts = [...group.connectPorts].sort((a, b) => a - b);
     const isLive =
@@ -140,14 +148,8 @@ export function buildDiscoveryRows(
       savedDevices.find(
         (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "suffixed",
       );
-    // mDNS entries can outlive the TV that published them, so on the live row
-    // the connected TV's own reported id outranks whatever was advertised.
-    const liveId = isLive ? normalizeHardwareId(live.hardwareId) : undefined;
-    if (liveId) {
-      savedMatch = savedDevices.find(
-        (saved) => normalizeHardwareId(saved.hardwareId) === liveId,
-      );
-    }
+    if (isLive && liveId) savedMatch = liveSaved;
+    else if (liveId && advertisedMatch(group.instanceNames, liveId)) continue;
     if (savedMatch) verified.add(savedMatch);
     rows.push({
       key: `discovery:${group.host}`,

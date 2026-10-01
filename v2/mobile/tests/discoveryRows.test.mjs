@@ -175,6 +175,37 @@ test("a stale advert never names the live row after a different saved TV (#115)"
   assert.equal(rows[0].savedTarget, googleB);
 });
 
+test("a stale advert at an old host never shows the live TV a second time (#115)", () => {
+  const shieldA = saved({ host: "192.168.1.20", hardwareId: "shield-a", name: "Shield A" });
+
+  // A is live on a new host whose advert does not identify it, while its old
+  // advert lingers because the Android side ignores onServiceLost.
+  const advertised = buildDiscoveryRows(
+    [
+      advert("192.168.1.10", 5555, LEGACY, "adb-shield-a"),
+      advert("192.168.1.20", 5555, LEGACY, "Android TV"),
+    ],
+    [shieldA],
+    liveAt("192.168.1.20", 5555, "shield-a"),
+  );
+  assert.deepEqual(
+    advertised.map((row) => [row.key, row.name, row.status]),
+    [["discovery:192.168.1.20", "Shield A", "connected"]],
+  );
+  assert.equal(advertised[0].savedTarget, shieldA);
+
+  // The same holds when the live endpoint does not advertise at all.
+  const silent = buildDiscoveryRows(
+    [advert("192.168.1.10", 5555, LEGACY, "adb-shield-a")],
+    [shieldA],
+    liveAt("192.168.1.20", 5555, "shield-a"),
+  );
+  assert.deepEqual(
+    silent.map((row) => [row.key, row.name, row.status]),
+    [["saved:hardware:shield-a", "Shield A", "connected"]],
+  );
+});
+
 test("saved TVs sharing an endpoint that answers unverified each keep their row (#115)", () => {
   const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
   const googleB = saved({ hardwareId: "google-b", name: "Google B", lastUsed: "2026-08-01T00:00:00.000Z" });
