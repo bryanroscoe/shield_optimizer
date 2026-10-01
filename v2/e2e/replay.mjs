@@ -61,7 +61,7 @@ try {
   const report = await ctx.replayReport();
   writeFileSync(join(ctx.dir, "divergences.json"), JSON.stringify(report, null, 2));
   const divergences = report?.divergences ?? [];
-  console.log(`\n[replay] ${divergences.length} divergence(s), ${report?.repeats ?? 0} repeated poll(s), ${skipped} breadcrumb(s) not replayable`);
+  console.log(`\n[replay] ${divergences.length} divergence(s), ${report?.repeats ?? 0} repeated poll(s), ${report?.reordered ?? 0} concurrent reorder(s), ${skipped} breadcrumb(s) not replayable`);
   for (const d of divergences.slice(0, 50)) {
     console.log(`  ${d.kind}: ${d.args.join(" ")}${d.expected ? `  (expected next: ${d.expected.join(" ")})` : ""}`);
   }

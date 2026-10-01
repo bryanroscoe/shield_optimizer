@@ -285,4 +285,4 @@ if [[ $fail -ne 0 ]]; then
   exit 1
 fi
 
-echo "captured $model ($serial) via $transport -> $out"
+if [[ $scrub_only -eq 1 ]]; then echo "scrubbed $out ($model, $serial)"; else echo "captured $model ($serial) via $transport -> $out"; fi

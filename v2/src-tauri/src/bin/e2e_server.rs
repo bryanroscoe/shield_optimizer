@@ -238,10 +238,9 @@ impl Server {
                 })
             })
             .collect();
-        let replay = w
-            .replay
-            .as_ref()
-            .map(|r| json!({"divergences": r.report(), "repeats": r.repeats}));
+        let replay = w.replay.as_ref().map(
+            |r| json!({"divergences": r.report(), "repeats": r.repeats, "reordered": r.reordered}),
+        );
         let out = json!({
             "devices": devices,
             "transports": w.transports,
@@ -435,7 +434,7 @@ impl Server {
                 let w = self.sim.world();
                 Ok(w.replay
                     .as_ref()
-                    .map(|r| json!({"divergences": r.report(), "repeats": r.repeats}))
+                    .map(|r| json!({"divergences": r.report(), "repeats": r.repeats, "reordered": r.reordered}))
                     .unwrap_or(Value::Null))
             }
             _ => Err(format!("no route {method} {path}")),

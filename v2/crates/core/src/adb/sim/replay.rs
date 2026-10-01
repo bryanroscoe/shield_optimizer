@@ -104,7 +104,13 @@ pub struct Replay {
     /// Calls answered by re-using the last response for identical args
     /// (polling ran more often than in the recording) — expected, not a diff.
     pub repeats: usize,
+    /// Calls answered a few places early (concurrent reads), not reported.
+    pub reordered: usize,
 }
+
+/// How far ahead of the replay position a call may be matched before it
+/// counts as out of order.
+const REORDER_WINDOW: usize = 4;
 
 /// Calls whose number legitimately varies with timing (pollers). They are
 /// matched by args alone and never reported as out of order.
@@ -168,6 +174,16 @@ impl Replay {
             return Some((Self::reply(&self.calls[i]), timed_out(&self.calls[i])));
         }
         if let Some(i) = (0..self.calls.len()).find(|&i| !self.used[i] && matches(&self.calls[i])) {
+            // The UI fires independent reads concurrently, so a short swap
+            // against the recording is scheduling, not a behaviour change.
+            let jumped = (self.cursor..i)
+                .filter(|&j| !self.used[j] && !is_poll(&normalise_args(&self.calls[j].args)))
+                .count();
+            if i > self.cursor && jumped <= REORDER_WINDOW {
+                self.used[i] = true;
+                self.reordered += 1;
+                return Some((Self::reply(&self.calls[i]), timed_out(&self.calls[i])));
+            }
             self.divergences.push(Divergence::OutOfOrder {
                 seq: self.seq,
                 args: want,
@@ -465,6 +481,10 @@ mod tests {
         let lines = vec![
             line(&["devices"], "List of devices attached\nA\tdevice\n"),
             line(&["-s", "A", "shell", "getprop ro.serialno"], "SER\n"),
+            line(&["-s", "A", "shell", "getprop a"], "\n"),
+            line(&["-s", "A", "shell", "getprop b"], "\n"),
+            line(&["-s", "A", "shell", "getprop c"], "\n"),
+            line(&["-s", "A", "shell", "getprop d"], "\n"),
             line(&["-s", "A", "shell", "pm enable x"], "ok\n"),
         ];
         let mut r = Replay::new(&lines);
