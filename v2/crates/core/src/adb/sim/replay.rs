@@ -80,6 +80,53 @@ pub fn normalise_args(args: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// True when every device command in the call only reads state, so its
+/// position relative to other reads does not matter.
+fn is_read(args: &[String]) -> bool {
+    const READS: &[&str] = &[
+        "getprop",
+        "pm list",
+        "pm path",
+        "pm has-feature",
+        "dumpsys",
+        "settings get",
+        "settings list",
+        "cmd package query-activities",
+        "cmd package resolve-activity",
+        "cmd role get-role-holders",
+        "cmd appops get",
+        "wm size",
+        "wm density",
+        "cat ",
+        "top",
+        "df",
+        "ls",
+        "stat",
+        "find",
+        "sleep",
+        "echo",
+        "printf",
+        "true",
+        ":",
+        "exit",
+    ];
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let command = match words.as_slice() {
+        ["-s", _, "shell", cmd] => *cmd,
+        ["devices", ..] | ["mdns", ..] | ["version"] => return true,
+        _ => return false,
+    };
+    let is_write_wm = |c: &str| {
+        (c.starts_with("wm size ") || c.starts_with("wm density "))
+            && c.split_whitespace().count() > 2
+    };
+    command
+        .split([';', '|', '&', '(', ')'])
+        .map(|c| c.trim().trim_end_matches("2>/dev/null").trim())
+        .filter(|c| !c.is_empty())
+        .all(|c| READS.iter().any(|r| c.starts_with(r)) && !is_write_wm(c))
+}
+
 /// The Remote's scrcpy session picks a fresh local port and session id every
 /// time, so those values are matched by shape, not by value.
 fn ephemeral(arg: &str) -> String {
@@ -223,10 +270,14 @@ impl Replay {
         if let Some(i) = (0..self.calls.len()).find(|&i| !self.used[i] && matches(&self.calls[i])) {
             // The UI fires independent reads concurrently, so a short swap
             // against the recording is scheduling, not a behaviour change.
-            let jumped = (self.cursor..i)
+            // Writes keep their order: swapping two mutations, or a read
+            // and a mutation, can change what the device ends up in.
+            let skipped: Vec<usize> = (self.cursor..i)
                 .filter(|&j| !self.used[j] && !is_poll(&normalise_args(&self.calls[j].args)))
-                .count();
-            if i > self.cursor && jumped <= REORDER_WINDOW {
+                .collect();
+            let all_reads = is_read(&self.calls[i].args)
+                && skipped.iter().all(|&j| is_read(&self.calls[j].args));
+            if i > self.cursor && skipped.len() <= REORDER_WINDOW && all_reads {
                 self.used[i] = true;
                 self.reordered += 1;
                 return Some(Self::recorded(&self.calls[i]));
@@ -244,12 +295,17 @@ impl Replay {
             return Some(Self::recorded(&self.calls[i]));
         }
         if let Some(last) = self.calls.iter().rev().find(|l| matches(l)) {
-            // More copies of a non-poll call than the recording holds is a
-            // behaviour change (a duplicated disable, say), not timing.
-            self.divergences.push(Divergence::Unrecorded {
-                seq: self.seq,
-                args: want,
-            });
+            // An extra copy of a read is a refresh that ran once more; an
+            // extra copy of a write (a duplicated disable, say) is a
+            // behaviour change.
+            if is_read(&last.args) {
+                self.repeats += 1;
+            } else {
+                self.divergences.push(Divergence::Unrecorded {
+                    seq: self.seq,
+                    args: want,
+                });
+            }
             return Some(Self::recorded(last));
         }
         self.divergences.push(Divergence::Unrecorded {
@@ -629,6 +685,23 @@ mod tests {
         let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
         assert!(!d.package("gone").unwrap().installed);
         assert!(d.package("a").unwrap().installed);
+    }
+
+    #[test]
+    fn reads_may_swap_but_writes_keep_their_order() {
+        let lines = vec![
+            line(&["-s", "A", "shell", "dumpsys meminfo"], "m"),
+            line(&["-s", "A", "shell", "getprop ro.serialno"], "S"),
+            line(&["-s", "A", "shell", "pm disable-user --user 0 a"], "ok"),
+            line(&["-s", "A", "shell", "pm enable b"], "ok"),
+        ];
+        let mut r = Replay::new(&lines);
+        r.answer(&["-s", "A", "shell", "getprop ro.serialno"]);
+        r.answer(&["-s", "A", "shell", "dumpsys meminfo"]);
+        assert!(r.divergences.is_empty());
+        assert_eq!(r.reordered, 1);
+        r.answer(&["-s", "A", "shell", "pm enable b"]);
+        assert!(matches!(r.divergences[0], Divergence::OutOfOrder { .. }));
     }
 
     #[test]

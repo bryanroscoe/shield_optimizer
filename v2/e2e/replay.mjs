@@ -67,7 +67,8 @@ try {
   }
   console.log(`Screenshots and divergences.json: ${ctx.dir}`);
   await ctx.close();
-  if (divergences.some((d) => d.kind !== "not_replayed")) exitCode = 1;
+  // A recorded call the app no longer makes is as much a change as a new one.
+  if (divergences.length) exitCode = 1;
 } finally {
   await browser?.close().catch(() => {});
   await vite?.vite.close().catch(() => {});
