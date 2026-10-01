@@ -14,14 +14,8 @@ Tag conventions:
   workflow.
 
 When you add a new section, put it at the top; older releases go below.
-Give the heading its release date (`### Added
-
-- **Patch notes are always one click away.** Click the version next to the app
-  name to see the last few releases, newest first, with the installed one
-  open and older ones collapsed, plus a link to every release on GitHub. They
-  are bundled with the app, so this works offline.
-
-## v2-2.3.0 — 2026-09-30`): the app bundles
+Put the release date after the version in each section heading, separated by
+an em dash (for 2.3.0 that reads `v2-2.3.0 — 2026-09-30`): the app bundles
 this file and shows the newest few sections, dated, from its version button.
 
 ---
@@ -47,6 +41,13 @@ this file and shows the newest few sections, dated, from its version button.
   Open (or Open anyway), Copy IP, Copy serial, Copy diagnostics and Forget. App
   rows get Copy package name. Text fields, the Shell output and selected text
   keep Copy, and the menu works from the keyboard (arrow keys, Escape to close).
+
+### Added
+
+- **Patch notes are always one click away.** Click the version next to the app
+  name to see the last few releases, newest first, with the installed one
+  open and older ones collapsed, plus a link to every release on GitHub. They
+  are bundled with the app, so this works offline.
 
 ## v2-2.3.0 — 2026-09-30
 
@@ -225,7 +226,7 @@ this file and shows the newest few sections, dated, from its version button.
   explains in one line what a restore does and doesn't do, and "Package states" is
   "Disabled apps".
 
-## v2-2.2.0 — 2026-09-17
+## v2-2.2.0 — 2026-09-16
 
 Five reported bugs reach users for the first time, plus a Playback tab, an
 expert shell, and a companion-app overhaul. Three of those fixes were written
@@ -406,7 +407,7 @@ whether this build works for you.
   not used. An address that answers on a different port is reported as such
   rather than as offline.
 
-## v2-2.1.0 — 2026-06-22
+## v2-2.1.0 — 2026-06-21
 
 Launcher switching is now fast and reliable, with much clearer feedback across
 the app.
@@ -491,7 +492,7 @@ PowerShell required. Everything from the beta line, now stable:
 - **Google Pixel phones are no longer mislabeled as Google TV** — device type is
   detected from the actual TV build characteristic, not brand alone.
 
-## v2-2.0.0-beta.14 — 2026-06-15
+## v2-2.0.0-beta.14 — 2026-06-14
 
 ### Added
 

@@ -31,6 +31,10 @@ const text = (block) => block.spans.map((s) => s.text).join("");
 
 // --- the bundled changelog --------------------------------------------------
 assert.equal(changelog.some((e) => /unreleased/i.test(e.version)), false, "Unreleased is not a release");
+// The authoring preamble must not contain anything that reads as a release
+// heading — the release workflow would pull it into that release's notes.
+const raw = readFileSync(join(v2Root, "CHANGELOG.md"), "utf8");
+assert.deepEqual(parseChangelog(raw.slice(0, raw.indexOf("## Unreleased"))), [], "the preamble holds no release");
 for (const v of ["2.3.0", "2.2.0", "2.1.0"]) {
   assert.ok(notesFor(changelog, v), `CHANGELOG.md carries notes for ${v}`);
 }
