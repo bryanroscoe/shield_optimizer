@@ -31,6 +31,31 @@ export function savedDeviceMatchesConnection(
   );
 }
 
+/// Whether a saved row can be told apart as *the specific TV* live on this
+/// connection, not just a row that matches the bare address. A verified
+/// hardware id is always unambiguous -- ids are unique by construction. An
+/// id-less match is only unambiguous when it is the single id-less row saved
+/// at that exact endpoint; when another id-less TV shares it, the address
+/// alone cannot say which of them answered, so neither counts as the live
+/// row here.
+export function savedDeviceIsLiveConnection(
+  device: SavedDevice,
+  allSaved: SavedDevice[],
+  host: string,
+  connectPort: number,
+  hardwareId?: string | null,
+): boolean {
+  if (!savedDeviceMatchesConnection(device, host, connectPort, hardwareId)) return false;
+  if (normalizeHardwareId(hardwareId)) return true;
+  const idlessAtEndpoint = allSaved.filter(
+    (other) =>
+      normalizeHardwareId(other.hardwareId) === undefined &&
+      other.host === host &&
+      other.connectPort === connectPort,
+  ).length;
+  return idlessAtEndpoint <= 1;
+}
+
 export function savedDeviceKey(device: SavedDevice): string {
   const hardwareId = normalizeHardwareId(device.hardwareId);
   if (hardwareId) return `hardware:${hardwareId}`;

@@ -1,6 +1,7 @@
 import type { Discovery, SavedDevice } from "./types";
 import {
   normalizeHardwareId,
+  savedDeviceIsLiveConnection,
   savedDeviceKey,
   savedDeviceMatchesConnection,
 } from "./identity";
@@ -114,21 +115,6 @@ export function buildDiscoveryRows(
   // other host is stale. Only that advert is dropped, never the other
   // devices answering from the same address.
   const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
-  const liveSaved = liveId
-    ? savedDevices.find((saved) => normalizeHardwareId(saved.hardwareId) === liveId)
-    : undefined;
-  // How many id-less saved rows claim a given endpoint. More than one means
-  // an id-less live connection there cannot be attributed to either of
-  // them -- the bare address is all any id-less row has, and both have it
-  // equally, so neither may be shown as the one that is connected.
-  const idlessCountAt = new Map<string, number>();
-  for (const saved of savedDevices) {
-    if (normalizeHardwareId(saved.hardwareId) !== undefined) continue;
-    const endpoint = `${saved.host}:${saved.connectPort}`;
-    idlessCountAt.set(endpoint, (idlessCountAt.get(endpoint) ?? 0) + 1);
-  }
-  const idlessAmbiguousAt = (host: string, port: number): boolean =>
-    (idlessCountAt.get(`${host}:${port}`) ?? 0) > 1;
   const hosts = new Map<string, HostGroup>();
   for (const discovery of discoveries) {
     const host = discovery.host.trim();
@@ -188,17 +174,9 @@ export function buildDiscoveryRows(
     // id-less saved TV at this exact endpoint -- and only when that endpoint
     // has exactly one such TV saved, never a guess between several.
     if (isLive) {
-      if (liveId) {
-        savedMatch = liveSaved;
-      } else if (!idlessAmbiguousAt(live.host, live.connectPort)) {
-        savedMatch = savedDevices.find(
-          (saved) =>
-            normalizeHardwareId(saved.hardwareId) === undefined &&
-            savedDeviceMatchesConnection(saved, live.host, live.connectPort),
-        );
-      } else {
-        savedMatch = undefined;
-      }
+      savedMatch = savedDevices.find((saved) =>
+        savedDeviceIsLiveConnection(saved, savedDevices, live.host, live.connectPort, live.hardwareId),
+      );
     }
     if (savedMatch) verified.add(savedMatch);
     rows.push({
@@ -265,10 +243,7 @@ export function buildDiscoveryRows(
       pairingPorts: [],
       legacyConnectPorts: [],
       status: atLiveEndpoint
-        ? savedDeviceMatchesConnection(saved, live.host, live.connectPort, live.hardwareId) &&
-          // An id-less match at an endpoint shared by another id-less saved
-          // TV is not evidence this particular row is the live one.
-          !(normalizeHardwareId(saved.hardwareId) === undefined && idlessAmbiguousAt(saved.host, saved.connectPort))
+        ? savedDeviceIsLiveConnection(saved, savedDevices, live.host, live.connectPort, live.hardwareId)
           ? "connected"
           // Something answers at this saved address, but nothing shows it is
           // this TV, so the row claims the address and not the connection.

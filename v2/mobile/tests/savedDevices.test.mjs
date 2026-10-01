@@ -393,17 +393,28 @@ test("never guesses which of two id-less TVs at one endpoint just reconnected (#
   // An id-less connection lands on the one shared endpoint of two already
   // distinct saved TVs. Which one it is cannot be told from the address
   // alone, so neither existing row is claimed (and so overwritten with a
-  // possibly-wrong identity) -- a third, honestly unidentified row is saved.
+  // possibly-wrong identity) -- and nothing new is persisted either, since a
+  // fresh unidentified row on every repeat reconnect would eventually evict a
+  // genuine saved TV once MAX is reached. The connection is simply not
+  // recorded against any saved identity.
   savedDevices.rememberDevice("192.168.1.10", 5555, device(undefined, {
     name: "Just reported",
     properties: { friendly_name: null, serial_number: undefined },
   }));
 
+  // Repeating the ambiguous reconnect many times still does not grow storage.
+  for (let i = 0; i < 20; i++) {
+    savedDevices.rememberDevice("192.168.1.10", 5555, device(undefined, {
+      name: "Just reported",
+      properties: { friendly_name: null, serial_number: undefined },
+    }));
+  }
+
   const rows = savedDevices.listSavedDevices();
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 2);
   assert.deepEqual(
     new Set(rows.map((row) => row.name)),
-    new Set(["First TV", "Second TV", "Just reported"]),
+    new Set(["First TV", "Second TV"]),
   );
   // Both original rows are untouched -- neither lost its name nor its key.
   assert.equal(rows.some((row) => row.name === "First TV" && savedDevices.savedDeviceKey(row) === "local:first-tv"), true);
@@ -561,6 +572,39 @@ test("matches the current TV by verified id or an exact id-less endpoint", () =>
       "192.168.1.10",
       5555,
     ),
+    false,
+  );
+});
+
+test("only an unambiguous match counts as the live connection (#146)", () => {
+  const shieldA = saved({ hardwareId: "shield-a" });
+  const lone = saved({ hardwareId: undefined, localId: "lone-tv" });
+  const first = saved({ hardwareId: undefined, localId: "first-tv" });
+  const second = saved({ hardwareId: undefined, localId: "second-tv", name: "Second TV" });
+
+  // A verified hardware id is unambiguous regardless of what else is saved.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(shieldA, [shieldA, first, second], "192.168.1.10", 5555, "shield-a"),
+    true,
+  );
+  // A single id-less row at the endpoint is as good as this app's identity
+  // story gets, so it counts.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(lone, [lone], "192.168.1.10", 5555, undefined),
+    true,
+  );
+  // Two id-less rows sharing the endpoint: neither may claim the connection.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(first, [first, second], "192.168.1.10", 5555, undefined),
+    false,
+  );
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(second, [first, second], "192.168.1.10", 5555, undefined),
+    false,
+  );
+  // A row that does not even match the endpoint is never live, ambiguous or not.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(first, [first, second], "192.168.1.99", 5555, undefined),
     false,
   );
 });

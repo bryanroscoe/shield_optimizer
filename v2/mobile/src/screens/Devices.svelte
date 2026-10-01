@@ -6,8 +6,8 @@
     forgetSavedDevice,
     lastUsedLabel,
     listSavedDevices,
+    savedDeviceIsLiveConnection,
     savedDeviceKey,
-    savedDeviceMatchesConnection,
     savedHostHasMultipleIdentities,
   } from "../lib/savedDevices";
   import { deviceTypeLabel } from "../lib/types";
@@ -75,8 +75,13 @@
     saved.filter(
       (device) =>
         !session.connectedDevice ||
-        !savedDeviceMatchesConnection(
+        // An id-less row at the live endpoint is only "the current TV" when
+        // it is the only id-less row saved there -- otherwise which one is
+        // actually connected cannot be told, so none of them is hidden from
+        // this list (and its Forget control stays reachable).
+        !savedDeviceIsLiveConnection(
           device,
+          saved,
           session.host,
           session.connectPort,
           currentHardwareId,

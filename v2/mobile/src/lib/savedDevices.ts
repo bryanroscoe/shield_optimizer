@@ -11,11 +11,12 @@ import type { Device, SavedDevice } from "./types";
 import { deviceLabelOf } from "./types";
 import {
   normalizeHardwareId,
+  savedDeviceIsLiveConnection,
   savedDeviceKey,
   savedDeviceMatchesConnection,
 } from "./identity";
 
-export { savedDeviceKey, savedDeviceMatchesConnection };
+export { savedDeviceIsLiveConnection, savedDeviceKey, savedDeviceMatchesConnection };
 
 const KEY = "atv.savedDevices.v1";
 const AUTO_KEY = "atv.autoConnect.v1";
@@ -200,9 +201,11 @@ export function rememberDevice(
   const matches = current.filter((d) => sameTv(d, host, connectPort, hardwareId));
   // An id-less connection can match more than one saved row only when several
   // id-less TVs have shared this exact endpoint over time. Which one just
-  // answered is not knowable from the endpoint alone, so none of them is
-  // claimed -- a new row is saved rather than overwriting a guess.
-  const existing = matches.length === 1 ? matches[0] : undefined;
+  // answered is not knowable from the endpoint alone, so nothing is written:
+  // claiming one would be a guess, and saving a fresh row on every repeat
+  // reconnect would eventually evict a genuine saved TV once MAX is reached.
+  if (matches.length > 1) return;
+  const existing = matches[0];
   const combinedHardwareId = hardwareId ?? existing?.hardwareId;
   const reportedFriendlyName = device?.properties?.friendly_name?.trim();
   const name = reportedFriendlyName || existing?.name || deviceLabelOf(device);
