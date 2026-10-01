@@ -102,6 +102,15 @@ fn valid_version(value: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '_' | '-'))
 }
 
+fn valid_device_os(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 32
+        && value.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ' ' | '-'))
+}
+
 fn timestamp(value: Option<&Value>) -> Option<Option<DateTime<Utc>>> {
     let raw = value?.as_str()?;
     Some(Some(
@@ -129,6 +138,17 @@ fn mobile_record(value: &Value) -> Option<Sighting> {
         .get("app_version")?
         .as_str()
         .filter(|v| valid_version(v))?;
+    // Required fields this tool does not print are still checked, so a record
+    // the collector would have rejected never adds to a count.
+    for (field, valid) in [
+        ("registry_version", valid_version as fn(&str) -> bool),
+        ("device_os", valid_device_os),
+    ] {
+        let value = obj.get(field)?;
+        if !value.is_null() && !value.as_str().is_some_and(valid) {
+            return None;
+        }
+    }
     // The field is required in the export; only an explicit null means unknown.
     let family = match obj.get("device_family")? {
         Value::Null => "unknown",
@@ -499,11 +519,13 @@ mod tests {
               {"kind":"installed_package","token":"com.a.d","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":"phone","device_os":"11","first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1},
               {"kind":"installed_package","token":"com.a.e","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":null,"device_os":null,"first_seen":"yesterday","last_seen":"2026-09-02T00:00:00Z","count":1},
               {"kind":"installed_package","token":"com.a.f","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":0},
-              {"kind":"installed_package","token":"com.a.g","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1}
+              {"kind":"installed_package","token":"com.a.g","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1},
+              {"kind":"installed_package","token":"com.a.h","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1},
+              {"kind":"installed_package","token":"com.a.i","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":"bad/version","device_family":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1}
             ]}"#,
         )
         .expect("a mobile export");
-        assert_eq!(rejected, 5);
+        assert_eq!(rejected, 7);
         assert_eq!(good.len(), 1);
         assert_eq!(good[0].token, "com.a.b");
         assert_eq!(good[0].count, 2);

@@ -186,7 +186,7 @@
     <p class="muted small safety-detail-desc">{description}</p>
   {/if}
   <p class="muted small safety-detail-source mono">
-    {pkg}{#if reviewedAt}<span class="safety-detail-reviewed"> · Reviewed {reviewedAt}</span>{/if}
+    {pkg}{#if reviewedAt}<span class="safety-detail-reviewed">{` · Reviewed ${reviewedAt}`}</span>{/if}
   </p>
 
   {#if measures}
