@@ -141,6 +141,8 @@ pub fn run() {
             apps::list_installed_packages,
             apps::app_memory_map,
             apps::app_usage_map,
+            apps::app_storage_map,
+            apps::app_apk_size,
             apps::safety_info,
             apps::process_safety_info,
             apps::trim_caches,

@@ -4,6 +4,7 @@
   import { api } from "$lib/api";
   import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage, Safety } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
+  import type { AppDetailInputs } from "$lib/app-details";
   import { isStaleUsage, usageLabel } from "$lib/usage";
   import {
     CHECKING_LABEL,
@@ -25,6 +26,7 @@
     serial,
     deviceType,
     appUsage,
+    appDetails,
     keptPackages,
     resetToken,
     pageEpoch,
@@ -34,6 +36,9 @@
     serial: string;
     deviceType: DeviceType;
     appUsage: Record<string, AppUsage>;
+    /// The page's shared measurements for one package, so a row opened here
+    /// shows the same RAM, storage and last-used figures as the App List.
+    appDetails: (pkg: string) => AppDetailInputs;
     /// Packages the user marked "keep" in the App List. The wizard must not
     /// recommend removing something they already said they use.
     keptPackages: Set<string>;
@@ -700,7 +705,10 @@
             package={item.entry.package}
             review={item.entry.review}
             state={rowState(item)}
-            mb={item.memory_mb ?? undefined}
+            mb={(() => {
+              const d = appDetails(item.entry.package);
+              return d.measures.memory.status === "ready" ? d.memoryMb : (item.memory_mb ?? undefined);
+            })()}
             usage={appUsage[item.entry.package]}
             showUsage={naturalAction(item) !== null}
             safety={readySafety(item.entry.package)}
@@ -714,6 +722,7 @@
             onToggleDetail={() =>
               (expandedSafety =
                 expandedSafety === item.entry.package ? null : item.entry.package)}
+            details={appDetails(item.entry.package)}
             rowClass={!skip && isReviewRow(item)
               ? eff === "skip" ? "review-flag" : "review-flag acting"
               : eff === "skip"

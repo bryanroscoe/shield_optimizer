@@ -19,6 +19,23 @@ When you add a new section, put it at the top; older releases go below.
 
 ## Unreleased
 
+### App details
+
+- **Installed storage, separate from RAM.** Opening any app row now shows the
+  app's installed size, its data and its cache, read in one batch from
+  Android's `dumpsys diskstats`. Data includes cache, so the two are never
+  added together. When diskstats has no row for an app, the panel falls back to
+  the size of its APK files and says that data and cache are unavailable.
+- **Every figure says where it came from and when.** RAM is PSS from
+  `dumpsys meminfo`, storage is from `diskstats`, and last used is from
+  `usagestats`, which keeps roughly a year of history. Each one shows the time
+  it was read. A read that failed shows "Unavailable" with the reason, never a
+  zero. A **Re-measure** button reads all three again.
+- **One detail panel everywhere.** The App List, "Everything else" and the
+  Optimize wizard all open the same panel with the same numbers. The panel is
+  read-only: removing or restoring an app still goes through the row's
+  existing, safety-checked buttons.
+
 ### Fixed
 
 - **Right-click no longer shows the webview's own menu** (#129). It offered
