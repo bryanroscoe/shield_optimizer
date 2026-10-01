@@ -52,8 +52,9 @@ try {
     try {
       await scenario.run(ctx);
       const state = await ctx.state();
-      if (state.gaps.length) {
-        console.log(`    ! unsimulated commands: ${[...new Set(state.gaps)].join(" | ")}`);
+      if (state.gaps.length && !scenario.allowGaps) {
+        // A flow that reached an unsimulated command was never really tested.
+        throw new Error(`unsimulated commands: ${[...new Set(state.gaps)].join(" | ")}`);
       }
       results.push({ name: scenario.name, ok: true, ms: Date.now() - started, gaps: state.gaps });
       console.log(`  ✓ ${scenario.name} (${((Date.now() - started) / 1000).toFixed(1)}s)`);

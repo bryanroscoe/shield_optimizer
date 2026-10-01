@@ -171,7 +171,7 @@ can be toggled in Report a bug. The files are written to:
 | Windows | `%LOCALAPPDATA%\ShieldOptimizer\logs\sessions\` |
 | Linux | `~/.local/share/ShieldOptimizer/logs/sessions/` |
 
-Each run gets one file, `<startup UTC time>.jsonl`. A file stops at 20 MB, and
+Each run gets one file, `<startup UTC time>-<pid>.jsonl`. A file stops at 20 MB, and
 the newest 10 files are kept. The pairing PIN, typed Remote text and
 expert-shell commands and output are redacted. Package lists are kept in full,
 which is why these files **never leave the machine**: nothing uploads them,
@@ -181,7 +181,7 @@ never `logs/sessions/`.
 Replay one:
 
 ```sh
-npm run e2e:replay -- ~/Library/Application\ Support/ShieldOptimizer/logs/sessions/2026-09-30T14-03-22Z.jsonl
+npm run e2e:replay -- ~/Library/Application\ Support/ShieldOptimizer/logs/sessions/2026-09-30T14-03-22.123Z-4242.jsonl
 ```
 
 The server answers every adb call with what the device said at the time, in order. The

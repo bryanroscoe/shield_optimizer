@@ -82,9 +82,15 @@ pub fn record_ui(event: &str, label: &str, path: Option<&str>) {
     }));
 }
 
-/// `2026-09-30T14-03-22Z.jsonl` — colons are not legal in Windows file names.
+/// `2026-09-30T14-03-22.123Z-4242.jsonl` — colons are not legal in Windows
+/// file names. Milliseconds and the process id keep two launches in the same
+/// second (or two instances) from appending to one file.
 fn session_file_name(at: DateTime<Utc>) -> String {
-    format!("{}{SESSION_FILE_SUFFIX}", at.format("%Y-%m-%dT%H-%M-%SZ"))
+    format!(
+        "{}-{}{SESSION_FILE_SUFFIX}",
+        at.format("%Y-%m-%dT%H-%M-%S%.3fZ"),
+        std::process::id()
+    )
 }
 
 pub struct Recorder {
@@ -323,7 +329,10 @@ mod tests {
         let at = DateTime::parse_from_rfc3339("2026-09-30T14:03:22.456Z")
             .unwrap()
             .with_timezone(&Utc);
-        assert_eq!(session_file_name(at), "2026-09-30T14-03-22Z.jsonl");
+        assert_eq!(
+            session_file_name(at),
+            format!("2026-09-30T14-03-22.456Z-{}.jsonl", std::process::id())
+        );
     }
 
     #[test]

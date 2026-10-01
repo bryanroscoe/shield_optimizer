@@ -930,10 +930,7 @@ impl DeviceShell<'_> {
                 dev.input_log.push(args.join(" "));
                 Out::ok("")
             }
-            "top" => match dev.texts.get("top -b -n 1") {
-                Some(t) => Out::ok(t.clone()),
-                None => return None,
-            },
+            "top" => Out::ok(dev.texts.get("top -b -n 1")?.clone()),
             "df" => Out::ok(
                 dev.texts
                     .get("df -h /data")

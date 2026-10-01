@@ -71,12 +71,32 @@ pub fn normalise_args(args: &[String]) -> Vec<String> {
             if pair_at.is_some_and(|p| i > p + 1) {
                 return "<redacted pin>".to_string();
             }
-            match a.find("input text") {
+            let a = match a.find("input text") {
                 Some(at) => format!("{}input text <redacted text>", &a[..at]),
                 None => a.clone(),
-            }
+            };
+            ephemeral(&a)
         })
         .collect()
+}
+
+/// The Remote's scrcpy session picks a fresh local port and session id every
+/// time, so those values are matched by shape, not by value.
+fn ephemeral(arg: &str) -> String {
+    static PATTERNS: std::sync::LazyLock<[(regex::Regex, &str); 3]> =
+        std::sync::LazyLock::new(|| {
+            [
+                (regex::Regex::new(r"^tcp:\d+$").unwrap(), "tcp:<port>"),
+                (
+                    regex::Regex::new(r"scrcpy_[0-9a-f]+").unwrap(),
+                    "scrcpy_<scid>",
+                ),
+                (regex::Regex::new(r"scid=[0-9a-f]+").unwrap(), "scid=<scid>"),
+            ]
+        });
+    PATTERNS.iter().fold(arg.to_string(), |acc, (re, with)| {
+        re.replace_all(&acc, *with).into_owned()
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -214,7 +234,12 @@ impl Replay {
             return Some(Self::recorded(&self.calls[i]));
         }
         if let Some(last) = self.calls.iter().rev().find(|l| matches(l)) {
-            self.repeats += 1;
+            // More copies of a non-poll call than the recording holds is a
+            // behaviour change (a duplicated disable, say), not timing.
+            self.divergences.push(Divergence::Unrecorded {
+                seq: self.seq,
+                args: want,
+            });
             return Some(Self::recorded(last));
         }
         self.divergences.push(Divergence::Unrecorded {
@@ -529,6 +554,42 @@ mod tests {
         assert!(report
             .iter()
             .any(|d| matches!(d, Divergence::NotReplayed { .. })));
+    }
+
+    #[test]
+    fn remote_ports_and_scids_match_by_shape_and_extra_calls_diverge() {
+        let lines = vec![
+            line(
+                &[
+                    "-s",
+                    "A",
+                    "forward",
+                    "tcp:40001",
+                    "localabstract:scrcpy_1a2b3c4d",
+                ],
+                "",
+            ),
+            line(&["-s", "A", "shell", "pm disable-user --user 0 x"], "ok\n"),
+        ];
+        let mut r = Replay::new(&lines);
+        assert!(r
+            .answer(&[
+                "-s",
+                "A",
+                "forward",
+                "tcp:51515",
+                "localabstract:scrcpy_0badf00d"
+            ])
+            .is_some());
+        assert!(r.divergences.is_empty());
+        assert!(r
+            .answer(&["-s", "A", "shell", "pm disable-user --user 0 x"])
+            .is_some());
+        assert!(r.divergences.is_empty());
+        assert!(r
+            .answer(&["-s", "A", "shell", "pm disable-user --user 0 x"])
+            .is_some());
+        assert!(matches!(r.divergences[0], Divergence::Unrecorded { .. }));
     }
 
     #[test]
