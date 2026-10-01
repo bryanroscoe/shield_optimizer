@@ -23,6 +23,7 @@
     description,
     package: pkg,
     review = false,
+    reviewedAt,
     extraTag,
     extraTagKind = "neutral",
     userInstalled = false,
@@ -43,6 +44,9 @@
     description?: string;
     package: string;
     review?: boolean;
+    /// The catalog entry's `reviewed_at`. Shown only beside a verdict that
+    /// came from the catalog, since a protected-list verdict was not that review.
+    reviewedAt?: string;
     /// One extra tag beside the name — "SYSTEM" / "3RD-PARTY" for the
     /// non-catalog table. Kept generic so the row does not learn about
     /// package inventories.
@@ -254,7 +258,9 @@
         {#if description && !safetyReason().includes(description.trim())}
           <p class="muted small safety-detail-desc">{description}</p>
         {/if}
-        <p class="muted small safety-detail-source mono">{pkg}</p>
+        <p class="muted small safety-detail-source mono">
+          {pkg}{#if reviewedAt && lookup.status === "ready" && lookup.verdict.source === "reviewed_catalog"}<span class="safety-detail-reviewed"> · Reviewed {reviewedAt}</span>{/if}
+        </p>
       </div>
     </td>
   </tr>

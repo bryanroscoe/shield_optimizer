@@ -8,7 +8,11 @@
     "restore_description": "Lets Android send crash and feedback reports to Google again.",
     "default_optimize": true,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.android.printspooler",
@@ -19,7 +23,11 @@
     "restore_description": "Puts Android's print queue back.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.android.gallery3d",
@@ -30,7 +38,11 @@
     "restore_description": "Restores the stock photo viewer for opening images on the TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.videos",
@@ -42,7 +54,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": true,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-05-29",
+    "sources": [
+      "git history (6d8106f)"
+    ]
   },
   {
     "package": "com.google.android.music",
@@ -54,7 +70,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": false,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-05-29",
+    "sources": [
+      "git history (6d8106f)"
+    ]
   },
   {
     "package": "com.Funimation.FunimationNow.androidtv",
@@ -66,7 +86,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": false,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-05-29",
+    "sources": [
+      "git history (6d8106f)"
+    ]
   },
   {
     "package": "com.google.stadia.android",
@@ -78,7 +102,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": false,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-05-29",
+    "sources": [
+      "git history (6d8106f)"
+    ]
   },
   {
     "package": "com.google.stadia.androidtv",
@@ -90,7 +118,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": false,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (22a52df)"
+    ]
   },
   {
     "package": "com.quibi.qlient",
@@ -102,7 +134,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": false,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (22a52df)"
+    ]
   },
   {
     "package": "com.hbo.hbonow",
@@ -114,7 +150,11 @@
     "default_optimize": true,
     "default_restore": false,
     "play_store": false,
-    "defunct": true
+    "defunct": true,
+    "reviewed_at": "2026-09-17",
+    "sources": [
+      "git history (dfd77df)"
+    ]
   },
   {
     "package": "com.netflix.ninja",
@@ -126,7 +166,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.amazon.amazonvideo.livingroom",
@@ -138,7 +182,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.wbd.stream",
@@ -150,7 +198,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.disney.disneyplus",
@@ -162,7 +214,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.hulu.livingroomplus",
@@ -174,7 +230,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.spotify.tv.android",
@@ -186,7 +246,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.apple.atve.androidtv.appletv",
@@ -198,7 +262,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.crunchyroll.crunchyroid",
@@ -210,7 +278,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.youtube.tv",
@@ -222,7 +294,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.youtube.tvmusic",
@@ -234,7 +310,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.peacocktv.peacockandroid",
@@ -246,7 +326,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.plexapp.android",
@@ -258,7 +342,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.cbs.ott",
@@ -270,7 +358,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "tv.twitch.android.app",
@@ -282,7 +374,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.tv.remote.service",
@@ -293,7 +389,11 @@
     "restore_description": "Restores virtual remote keyboard.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-09",
+    "sources": [
+      "git history (d0eb294)"
+    ]
   },
   {
     "package": "com.android.providers.tv",
@@ -304,7 +404,11 @@
     "restore_description": "Restores Watch Next channel support and the Live Channels app.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.android.dreams.basic",
@@ -315,7 +419,11 @@
     "restore_description": "Restores the basic built-in screensaver.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.katniss",
@@ -326,7 +434,11 @@
     "restore_description": "Brings back Google Assistant, “Hey Google” and the in-app mic buttons.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.amazon.amazonvideo.livingroom.nvidia",
@@ -338,7 +450,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.discovery.discoveryplus.androidtv",
@@ -350,7 +466,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.disney.disneyplus.prod",
@@ -362,7 +482,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.youtube.tvkids",
@@ -375,7 +499,11 @@
     "default_restore": false,
     "play_store": false,
     "defunct": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-06-09",
+    "sources": [
+      "git history (7e6d286)"
+    ]
   },
   {
     "package": "ca.bellmedia.crave",
@@ -387,7 +515,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "ca.bell.tv",
@@ -399,7 +531,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.sling",
@@ -411,7 +547,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.philo.philo",
@@ -423,7 +563,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.fubo.firetv.screen",
@@ -435,7 +579,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.haystack.android",
@@ -447,7 +595,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "air.com.vudu.air.DownloaderTablet",
@@ -459,7 +611,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.starz.starzplay.android",
@@ -471,7 +627,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.showtime.standalone",
@@ -484,7 +644,11 @@
     "default_restore": false,
     "play_store": false,
     "defunct": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-06-09",
+    "sources": [
+      "git history (7e6d286)"
+    ]
   },
   {
     "package": "com.amcplus.amcfiretv",
@@ -496,7 +660,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.britbox.us",
@@ -508,7 +676,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.epix.epixnow.google",
@@ -521,7 +693,11 @@
     "default_restore": false,
     "play_store": false,
     "defunct": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-06-09",
+    "sources": [
+      "git history (7e6d286)"
+    ]
   },
   {
     "package": "com.google.android.apps.mediashell",
@@ -532,7 +708,11 @@
     "restore_description": "Makes the TV a Chromecast target again.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.tts",
@@ -543,7 +723,11 @@
     "restore_description": "Restores Google's spoken-text voice for TalkBack and audio description.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.play.games",
@@ -554,7 +738,11 @@
     "restore_description": "Restores Play Games sign-in, achievements and cloud saves.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "com.google.android.tungsten.setupwraith",
@@ -565,7 +753,11 @@
     "restore_description": "Restores the setup wizard's HOME handler.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ]
   },
   {
     "package": "org.smarttube.stable",
@@ -576,7 +768,11 @@
     "restore_description": "Re-enables SmartTube.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-17",
+    "sources": [
+      "git history (dfd77df)"
+    ]
   },
   {
     "package": "io.gh.reisxd.tizentube.cobalt",
@@ -587,7 +783,11 @@
     "restore_description": "Re-enables TizenTube Cobalt.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "org.xbmc.kodi",
@@ -598,7 +798,11 @@
     "restore_description": "Re-enables Kodi.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "org.videolan.vlc",
@@ -609,7 +813,11 @@
     "restore_description": "Re-enables VLC.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "com.limelight",
@@ -620,7 +828,11 @@
     "restore_description": "Re-enables Moonlight.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "com.limelight.noir",
@@ -631,7 +843,11 @@
     "restore_description": "Re-enables Artemis (Moonlight Noir).",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-17",
+    "sources": [
+      "git history (dfd77df)"
+    ]
   },
   {
     "package": "com.valvesoftware.steamlink",
@@ -642,7 +858,11 @@
     "restore_description": "Re-enables Steam Link.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "com.codingbuffalo.aerialdream",
@@ -653,7 +873,11 @@
     "restore_description": "Re-enables Aerial Dream.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "com.cybercat.adbappcontrol.tv",
@@ -664,7 +888,11 @@
     "restore_description": "Re-enables ADB TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-17",
+    "sources": [
+      "git history (dfd77df)"
+    ]
   },
   {
     "package": "com.lonelycatgames.Xplore",
@@ -675,7 +903,11 @@
     "restore_description": "Re-enables X-plore.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "com.yablio.sendfilestotv",
@@ -686,7 +918,11 @@
     "restore_description": "Re-enables Send Files to TV.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "flar2.homebutton",
@@ -697,7 +933,11 @@
     "restore_description": "Re-enables Button Mapper.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (6dc8f2c)"
+    ]
   },
   {
     "package": "org.jellyfin.androidtv",
@@ -708,7 +948,11 @@
     "restore_description": "Re-enables Jellyfin.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.esaba.downloader",
@@ -719,7 +963,11 @@
     "restore_description": "Re-enables Downloader.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-17",
+    "sources": [
+      "git history (dfd77df)"
+    ]
   },
   {
     "package": "com.retroarch",
@@ -730,7 +978,11 @@
     "restore_description": "Re-enables RetroArch.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.tubitv",
@@ -742,7 +994,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "tv.pluto.android",
@@ -754,7 +1010,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": true
+    "review": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.mxtech.videoplayer.ad",
@@ -765,7 +1025,11 @@
     "restore_description": "Re-enables MX Player.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.tailscale.ipn",
@@ -776,7 +1040,11 @@
     "restore_description": "Re-enables Tailscale.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.wireguard.android",
@@ -787,7 +1055,11 @@
     "restore_description": "Re-enables WireGuard.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "pl.solidexplorer2",
@@ -798,7 +1070,11 @@
     "restore_description": "Re-enables Solid Explorer.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.phlox.tvwebbrowser",
@@ -809,7 +1085,11 @@
     "restore_description": "Re-enables TV Bro.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-06-04",
+    "sources": [
+      "git history (dd402c1)"
+    ]
   },
   {
     "package": "com.stremio.one",
@@ -820,7 +1100,11 @@
     "restore_description": "Re-enables Stremio.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-17",
+    "sources": [
+      "git history (dfd77df)"
+    ]
   },
   {
     "package": "com.google.android.backdrop",
@@ -831,6 +1115,10 @@
     "restore_description": "Brings back the Ambient Mode photo and artwork slideshow.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-28",
+    "sources": [
+      "git history (b929e15)"
+    ]
   }
 ]

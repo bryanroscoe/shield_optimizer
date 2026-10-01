@@ -232,6 +232,116 @@ mod tests {
         assert!(bundle.find("com.definitely.not.here").is_none());
         let _ = SafetySource::NoRecord;
     }
+
+    /// Device families a catalog entry may scope itself to — the per-device
+    /// lists `AppListBundle::for_device` knows about.
+    const DEVICE_SCOPES: &[&str] = &["shield", "googletv"];
+
+    /// Safe entries with no `reviewed_at`. Every entry was dated from git
+    /// history when the field was introduced (#101), so this is empty; a new
+    /// safe entry goes in with a date, not on this list.
+    const SAFE_WITHOUT_REVIEW_DATE: &[&str] = &[];
+
+    fn named_lists(bundle: &AppListBundle) -> [(&'static str, &[crate::engine::AppEntry]); 3] {
+        [
+            ("common", &bundle.common),
+            ("shield", &bundle.shield),
+            ("googletv", &bundle.googletv),
+        ]
+    }
+
+    #[test]
+    fn review_dates_parse_and_are_not_in_the_future() {
+        let bundle = load_embedded_app_lists().expect("parse");
+        // Dates come from local commit dates, which can run a day ahead of UTC.
+        let latest = chrono::Utc::now().date_naive() + chrono::Days::new(1);
+        for (list, entries) in named_lists(&bundle) {
+            for e in entries {
+                if let Some(raw) = &e.reviewed_at {
+                    let date =
+                        chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").unwrap_or_else(|err| {
+                            panic!(
+                                "{} in {list}.json: bad reviewed_at {raw:?}: {err}",
+                                e.package
+                            )
+                        });
+                    assert_eq!(
+                        date.format("%Y-%m-%d").to_string(),
+                        *raw,
+                        "{} in {list}.json: reviewed_at must be zero-padded YYYY-MM-DD",
+                        e.package
+                    );
+                    assert!(
+                        date <= latest,
+                        "{} in {list}.json: reviewed_at {raw} is in the future",
+                        e.package
+                    );
+                }
+                for source in &e.sources {
+                    assert!(
+                        !source.trim().is_empty(),
+                        "{} in {list}.json has an empty source",
+                        e.package
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn device_scope_uses_known_families_and_agrees_with_its_list() {
+        let bundle = load_embedded_app_lists().expect("parse");
+        for (list, entries) in named_lists(&bundle) {
+            for e in entries {
+                let mut seen = std::collections::HashSet::new();
+                for scope in &e.device_scope {
+                    assert!(
+                        DEVICE_SCOPES.contains(&scope.as_str()),
+                        "{} in {list}.json: unknown device_scope {scope:?} (known: {DEVICE_SCOPES:?})",
+                        e.package
+                    );
+                    assert!(
+                        seen.insert(scope.as_str()),
+                        "{} in {list}.json repeats device_scope {scope:?}",
+                        e.package
+                    );
+                }
+                // A per-device list only reaches its own family, so a scope
+                // naming any other one would be a claim the app never acts on.
+                if list != "common" {
+                    assert!(
+                        e.device_scope.iter().all(|s| s == list),
+                        "{} in {list}.json is scoped to {:?}",
+                        e.package,
+                        e.device_scope
+                    );
+                }
+            }
+        }
+    }
+
+    /// A Safe verdict is the strongest claim the catalog makes, so it must say
+    /// when it was made. Gaps are listed here rather than hidden: the list has
+    /// to match exactly, so a newly undated entry fails and so does a gap that
+    /// got fixed without being removed from the allowlist.
+    #[test]
+    fn safe_entries_carry_a_review_date_or_are_listed_as_gaps() {
+        use crate::engine::types::RiskTier;
+        let bundle = load_embedded_app_lists().expect("parse");
+        let mut gaps: Vec<&str> = named_lists(&bundle)
+            .into_iter()
+            .flat_map(|(_, entries)| entries.iter())
+            .filter(|e| e.risk == RiskTier::Safe && e.reviewed_at.is_none())
+            .map(|e| e.package.as_str())
+            .collect();
+        gaps.sort_unstable();
+        let mut allowed = SAFE_WITHOUT_REVIEW_DATE.to_vec();
+        allowed.sort_unstable();
+        assert_eq!(
+            gaps, allowed,
+            "safe entries without reviewed_at must match SAFE_WITHOUT_REVIEW_DATE"
+        );
+    }
     use pretty_assertions::assert_eq;
 
     #[test]

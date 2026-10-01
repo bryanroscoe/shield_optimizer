@@ -1048,6 +1048,9 @@ mod tests {
                 play_store: false,
                 defunct: false,
                 review: false,
+                reviewed_at: None,
+                sources: Vec::new(),
+                device_scope: Vec::new(),
             }
         }
 

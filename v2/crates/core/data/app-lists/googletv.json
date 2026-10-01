@@ -8,7 +8,14 @@
     "restore_description": "Restores the preinstalled Walmart app.",
     "default_optimize": true,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "googletv"
+    ]
   },
   {
     "package": "com.google.android.leanbacklauncher.recommendations",
@@ -19,7 +26,14 @@
     "restore_description": "Restores home recommendations.",
     "default_optimize": true,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-05-29",
+    "sources": [
+      "git history (6d8106f)"
+    ],
+    "device_scope": [
+      "googletv"
+    ]
   },
   {
     "package": "com.google.android.tungsten.overscan",
@@ -30,7 +44,14 @@
     "restore_description": "Brings back the overscan calibration tool.",
     "default_optimize": false,
     "default_restore": false,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "googletv"
+    ]
   },
   {
     "package": "com.droidlogic.launcher.provider",
@@ -41,7 +62,14 @@
     "restore_description": "Restores the data feed the stock Amlogic launcher's home screen reads.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": false
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "googletv"
+    ]
   },
   {
     "package": "com.google.android.apps.tv.launcherx",
@@ -52,6 +80,13 @@
     "restore_description": "Restores the Google TV home screen.",
     "default_optimize": false,
     "default_restore": true,
-    "play_store": true
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "googletv"
+    ]
   }
 ]
