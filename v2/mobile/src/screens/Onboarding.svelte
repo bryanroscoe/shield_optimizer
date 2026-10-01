@@ -90,8 +90,12 @@
   function cancelReconnect() {
     ++connectionAttempt;
     reconnectPending = false;
-    void session.cancelConnect().catch((e) => { reconnectError = String(e); });
+    // The user ended this attempt, so nothing here is a reconnect failure. A
+    // failed cancel is already in the debug log via api.ts, and the session's
+    // generation guard ignores the abandoned connect if it lands anyway.
+    void session.cancelConnect().catch(() => {});
     connectingKey = "";
+    connectingName = "";
     reconnectError = "";
     reconnectErrorKey = "";
   }

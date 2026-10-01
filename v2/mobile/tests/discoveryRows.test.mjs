@@ -13,7 +13,16 @@ const source = await readFile(
   new URL("../src/lib/discoveryRows.ts", import.meta.url),
   "utf8",
 );
-const compiled = ts.transpileModule(source, { compilerOptions }).outputText;
+const identitySource = await readFile(
+  new URL("../src/lib/identity.ts", import.meta.url),
+  "utf8",
+);
+const identityCompiled = ts.transpileModule(identitySource, { compilerOptions }).outputText;
+const identityUrl = `data:text/javascript;base64,${Buffer.from(identityCompiled).toString("base64")}`;
+const compiled = ts.transpileModule(
+  source.replaceAll('"./identity"', `"${identityUrl}"`),
+  { compilerOptions },
+).outputText;
 const { buildDiscoveryRows } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
 );
@@ -96,7 +105,7 @@ test("the live endpoint is the only connected row", () => {
     [
       ["discovery:192.168.1.10", "connected"],
       ["discovery:192.168.1.55", "found"],
-      ["saved:192.168.1.77:5555", "saved-missing"],
+      ["saved:hardware:shield-b", "saved-missing"],
     ],
   );
 });
@@ -108,7 +117,7 @@ test("a connected TV that does not advertise stays one connected saved row", () 
 
   assert.deepEqual(summarize(rows), [
     {
-      key: "saved:192.168.1.10:5555",
+      key: "saved:hardware:shield-a",
       name: "Living room",
       status: "connected",
       connectPorts: [5555],
@@ -131,7 +140,7 @@ test("an address change reports a new host and a saved endpoint that is absent",
       // No identity evidence ties the new address to the saved TV, so the
       // cached name must not travel to it.
       ["discovery:192.168.1.42", "Android TV", "found"],
-      ["saved:192.168.1.10:5555", "Living room", "saved-missing"],
+      ["saved:hardware:shield-a", "Living room", "saved-missing"],
     ],
   );
 });
@@ -150,7 +159,7 @@ test("a rotated port keeps the saved endpoint truthful instead of calling it off
     rows.map((row) => [row.key, row.status, row.connectPorts]),
     [
       ["discovery:192.168.1.10", "saved-address", [41234]],
-      ["saved:192.168.1.10:5555", "saved-other-port", [5555]],
+      ["saved:hardware:shield-a", "saved-other-port", [5555]],
     ],
   );
   assert.equal(rows[1].savedTarget?.hardwareId, "shield-a");
@@ -167,36 +176,94 @@ test("a host advertising only a pairing service is not treated as answering", ()
     rows.map((row) => [row.key, row.status]),
     [
       ["discovery:192.168.1.10", "saved-address"],
-      ["saved:192.168.1.10:5555", "saved-missing"],
+      ["saved:hardware:shield-a", "saved-missing"],
     ],
   );
 });
 
-test("two saved identities at one endpoint collapse without borrowing a name", () => {
-  const rows = buildDiscoveryRows(
-    [],
+test("two saved identities at one endpoint stay two real rows (#115)", () => {
+  const livingRoom = saved({ name: "Living room", lastUsed: "2026-09-01T00:00:00.000Z" });
+  const bedroom = saved({
+    hardwareId: "google-b",
+    name: "Bedroom",
+    deviceType: "google_tv",
+    lastUsed: "2026-09-06T00:00:00.000Z",
+  });
+  const rows = buildDiscoveryRows([], [livingRoom, bedroom], offline);
+
+  // Each row carries the stored entry itself, so reconnect and Forget act on
+  // a TV that exists rather than on a synthesized "Saved TV".
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.name, row.status]),
     [
-      saved({ name: "Living room", lastUsed: "2026-09-01T00:00:00.000Z" }),
-      saved({
-        hardwareId: "google-b",
-        name: "Bedroom",
-        deviceType: "google_tv",
-        lastUsed: "2026-09-06T00:00:00.000Z",
-      }),
+      ["saved:hardware:google-b", "Bedroom", "saved-missing"],
+      ["saved:hardware:shield-a", "Living room", "saved-missing"],
     ],
+  );
+  assert.equal(rows[0].savedTarget, bedroom);
+  assert.equal(rows[1].savedTarget, livingRoom);
+});
+
+test("a saved TV that shared an address with one that moved stays in the scan (#115)", () => {
+  const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
+  const googleB = saved({ hardwareId: "google-b", name: "Google B", deviceType: "google_tv" });
+  const rows = buildDiscoveryRows(
+    [advert("192.168.5.5", 5555, LEGACY, "adb-shield-a")],
+    [shieldA, googleB],
     offline,
   );
 
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].key, "saved:192.168.1.10:5555");
-  assert.equal(rows[0].name, "Saved TV");
-  assert.deepEqual(rows[0].savedTarget, {
-    host: "192.168.1.10",
-    connectPort: 5555,
-    name: "Saved TV",
-    deviceType: "unknown",
-    lastUsed: "2026-09-06T00:00:00.000Z",
-  });
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.name, row.status]),
+    [
+      ["discovery:192.168.5.5", "Shield A", "saved-verified"],
+      ["saved:hardware:google-b", "Google B", "saved-missing"],
+    ],
+  );
+  assert.equal(rows[1].savedTarget, googleB);
+});
+
+test("a stored placeholder id is not a wildcard for serial-less adbd (#116)", () => {
+  const rows = buildDiscoveryRows(
+    [advert("192.168.1.77", 5555, LEGACY, "adb-unknown-AbC123")],
+    [saved({ host: "192.168.1.10", hardwareId: "unknown", name: "Living room" })],
+    offline,
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.name, row.status]),
+    [
+      ["discovery:192.168.1.77", "Android TV", "found"],
+      ["saved:idless:192.168.1.10:5555", "Living room", "saved-missing"],
+    ],
+  );
+});
+
+test("a saved id only matches its own advertised serial, not a longer one (#117)", () => {
+  const rows = buildDiscoveryRows(
+    [
+      advert("192.168.1.80", 5555, LEGACY, "adb-shield-a"),
+      advert("192.168.1.81", 5555, LEGACY, "adb-shield-a-jBeCEe"),
+    ],
+    [saved({ host: "192.168.1.10", hardwareId: "shield", name: "Living room" })],
+    offline,
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.host, row.status]),
+    [
+      ["192.168.1.80", "found"],
+      ["192.168.1.81", "found"],
+      ["192.168.1.10", "saved-missing"],
+    ],
+  );
+
+  const own = buildDiscoveryRows(
+    [advert("192.168.1.82", 5555, LEGACY, "adb-shield-jBeCEe")],
+    [saved({ host: "192.168.1.10", hardwareId: "shield", name: "Living room" })],
+    offline,
+  );
+  assert.deepEqual(own.map((row) => [row.host, row.status]), [["192.168.1.82", "saved-verified"]]);
 });
 
 test("distinct saved endpoints on one host stay distinct rows", () => {
@@ -209,8 +276,8 @@ test("distinct saved endpoints on one host stay distinct rows", () => {
   assert.deepEqual(
     rows.map((row) => [row.key, row.name]),
     [
-      ["saved:192.168.1.10:5555", "Living room"],
-      ["saved:192.168.1.10:41234", "Bedroom"],
+      ["saved:hardware:shield-a", "Living room"],
+      ["saved:hardware:google-b", "Bedroom"],
     ],
   );
 });
@@ -319,7 +386,7 @@ test("a serial that matches no saved TV leaves the row unclaimed", () => {
     rows.map((row) => [row.key, row.name, row.status]),
     [
       ["discovery:192.168.1.42", "Android TV", "found"],
-      ["saved:192.168.1.10:5555", "Living room", "saved-missing"],
+      ["saved:hardware:shield-a", "Living room", "saved-missing"],
     ],
   );
 });
