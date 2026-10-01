@@ -156,6 +156,25 @@ test("only the saved TV whose id is live claims a shared live endpoint (#115)", 
   assert.deepEqual(idless.map((row) => [row.name, row.status]), [["No id", "connected"]]);
 });
 
+test("a stale advert never names the live row after a different saved TV (#115)", () => {
+  const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
+  const googleB = saved({ hardwareId: "google-b", name: "Google B", lastUsed: "2026-08-01T00:00:00.000Z" });
+  const rows = buildDiscoveryRows(
+    [advert("192.168.1.10", 5555, LEGACY, "adb-shield-a")],
+    [shieldA, googleB],
+    liveAt("192.168.1.10", 5555, "google-b"),
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.name, row.status]),
+    [
+      ["discovery:192.168.1.10", "Google B", "connected"],
+      ["saved:hardware:shield-a", "Shield A", "saved-address"],
+    ],
+  );
+  assert.equal(rows[0].savedTarget, googleB);
+});
+
 test("saved TVs sharing an endpoint that answers unverified each keep their row (#115)", () => {
   const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
   const googleB = saved({ hardwareId: "google-b", name: "Google B", lastUsed: "2026-08-01T00:00:00.000Z" });

@@ -133,13 +133,21 @@ export function buildDiscoveryRows(
       live.connected &&
       live.host === group.host &&
       connectPorts.includes(live.connectPort);
-    const savedMatch =
+    let savedMatch =
       savedDevices.find(
         (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "exact",
       ) ??
       savedDevices.find(
         (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "suffixed",
       );
+    // mDNS entries can outlive the TV that published them, so on the live row
+    // the connected TV's own reported id outranks whatever was advertised.
+    const liveId = isLive ? normalizeHardwareId(live.hardwareId) : undefined;
+    if (liveId) {
+      savedMatch = savedDevices.find(
+        (saved) => normalizeHardwareId(saved.hardwareId) === liveId,
+      );
+    }
     if (savedMatch) verified.add(savedMatch);
     rows.push({
       key: `discovery:${group.host}`,
