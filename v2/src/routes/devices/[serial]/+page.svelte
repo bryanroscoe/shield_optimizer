@@ -1519,6 +1519,7 @@
     optimizeResetToken++;
     launchersLoaded = false;
     healthStale = true;
+    refreshMeasurements();
     if (apps.length === 0) return;
     const context = capturePageContext();
     try {
