@@ -33,7 +33,12 @@ export function savedDeviceMatchesConnection(
 
 export function savedDeviceKey(device: SavedDevice): string {
   const hardwareId = normalizeHardwareId(device.hardwareId);
-  return hardwareId
-    ? `hardware:${hardwareId}`
+  if (hardwareId) return `hardware:${hardwareId}`;
+  // An id-less row is keyed by its own stable local id once it has one
+  // (assigned by savedDevices.ts the first time it is persisted), so two
+  // id-less TVs that share an endpoint stay distinct rows. The bare endpoint
+  // is only a fallback for a row that has not gone through that migration.
+  return device.localId
+    ? `local:${device.localId}`
     : `idless:${device.host}:${device.connectPort}`;
 }

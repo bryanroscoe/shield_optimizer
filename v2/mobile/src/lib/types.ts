@@ -391,6 +391,11 @@ export interface SavedDevice {
   /// Hardware serial when the TV reported one. Lets a TV keep its row and
   /// name across an IP change, and stops a reused IP from inheriting a name.
   hardwareId?: string;
+  /// Stable random id assigned the first time a row with no hardware id is
+  /// saved. Two TVs that never reported a serial and happened to share a
+  /// host:port are still distinct rows -- the address alone cannot tell them
+  /// apart, so each gets its own key instead of collapsing into one.
+  localId?: string;
   /// ISO timestamp of the last successful connect, for "last used" copy.
   lastUsed: string;
 }

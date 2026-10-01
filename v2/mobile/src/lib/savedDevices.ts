@@ -22,6 +22,12 @@ const AUTO_KEY = "atv.autoConnect.v1";
 const MAX = 16;
 const EPOCH = new Date(0).toISOString();
 
+/// Not a security identifier -- just random enough that two rows saved in the
+/// same process tick never collide.
+function randomLocalId(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function normalizeSavedDevice(value: unknown): SavedDevice | null {
   if (!value || typeof value !== "object") return null;
   const d = value as Record<string, unknown>;
@@ -48,10 +54,20 @@ function normalizeSavedDevice(value: unknown): SavedDevice | null {
   const hardwareId = normalizeHardwareId(
     typeof d.hardwareId === "string" ? d.hardwareId : undefined,
   );
+  // Every id-less row needs a stable key of its own (see identity.ts); carry
+  // an existing one over, or mint one now if this row has never had one (an
+  // older record, or one whose only id was a placeholder that just migrated
+  // away above).
+  const localId = hardwareId
+    ? undefined
+    : typeof d.localId === "string" && d.localId.trim() !== ""
+      ? d.localId.trim()
+      : randomLocalId();
   return {
     host: d.host.trim(),
     connectPort: d.connectPort,
     ...(hardwareId ? { hardwareId } : {}),
+    ...(localId ? { localId } : {}),
     name:
       typeof d.name === "string" && d.name.trim() !== ""
         ? d.name.trim()
@@ -61,6 +77,19 @@ function normalizeSavedDevice(value: unknown): SavedDevice | null {
       ? EPOCH
       : parsedLastUsed.toISOString(),
   };
+}
+
+/// Whether a raw stored record will come out of `normalizeSavedDevice` as
+/// id-less and without an existing local key -- i.e. it is about to be
+/// assigned a fresh one, which must be persisted so it stays stable.
+function rawNeedsLocalId(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const d = raw as Record<string, unknown>;
+  const hardwareId = normalizeHardwareId(
+    typeof d.hardwareId === "string" ? d.hardwareId : undefined,
+  );
+  if (hardwareId) return false;
+  return typeof d.localId !== "string" || d.localId.trim() === "";
 }
 
 function read(): SavedDevice[] {
@@ -90,7 +119,10 @@ function read(): SavedDevice[] {
       const stored = d.hardwareId;
       return normalizeHardwareId(typeof stored === "string" ? stored : undefined) !== stored;
     });
-    if (unnormalizedId || unique.length !== normalized.length) write(unique);
+    const needsLocalIdMigration = parsed.some(rawNeedsLocalId);
+    if (unnormalizedId || needsLocalIdMigration || unique.length !== normalized.length) {
+      write(unique);
+    }
     return unique;
   } catch {
     return [];
@@ -165,9 +197,13 @@ export function rememberDevice(
 ): void {
   const current = read();
   const hardwareId = hardwareIdOf(device);
-  const existing = current.find((d) =>
-    sameTv(d, host, connectPort, hardwareId),
-  );
+  const matches = current.filter((d) => sameTv(d, host, connectPort, hardwareId));
+  // An id-less connection can match more than one saved row only when several
+  // id-less TVs have shared this exact endpoint over time. Which one just
+  // answered is not knowable from the endpoint alone, so none of them is
+  // claimed -- a new row is saved rather than overwriting a guess.
+  const existing = matches.length === 1 ? matches[0] : undefined;
+  const combinedHardwareId = hardwareId ?? existing?.hardwareId;
   const reportedFriendlyName = device?.properties?.friendly_name?.trim();
   const name = reportedFriendlyName || existing?.name || deviceLabelOf(device);
   const list = current.filter((d) => d !== existing);
@@ -176,9 +212,8 @@ export function rememberDevice(
     connectPort,
     name,
     deviceType: device?.device_type ?? existing?.deviceType ?? "unknown",
-    ...(hardwareId || existing?.hardwareId
-      ? { hardwareId: hardwareId ?? existing?.hardwareId }
-      : {}),
+    ...(combinedHardwareId ? { hardwareId: combinedHardwareId } : {}),
+    ...(combinedHardwareId ? {} : { localId: existing?.localId ?? randomLocalId() }),
     lastUsed: new Date().toISOString(),
   });
   write(list);

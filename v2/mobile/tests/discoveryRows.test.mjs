@@ -156,6 +156,51 @@ test("only the saved TV whose id is live claims a shared live endpoint (#115)", 
   assert.deepEqual(idless.map((row) => [row.name, row.status]), [["No id", "connected"]]);
 });
 
+test("two id-less saved TVs sharing the live endpoint never both claim connected (#146)", () => {
+  const first = saved({
+    hardwareId: undefined,
+    localId: "guest-a",
+    name: "Guest A",
+    lastUsed: "2026-09-01T00:00:00.000Z",
+  });
+  const second = saved({
+    hardwareId: undefined,
+    localId: "guest-b",
+    name: "Guest B",
+    lastUsed: "2026-09-02T00:00:00.000Z",
+  });
+
+  // With an advert, the live address still gets a generic connected row, but
+  // neither saved TV's name is attached to it -- the address cannot say which
+  // of them answered.
+  const withAdvert = buildDiscoveryRows(
+    [advert("192.168.1.10", 5555, LEGACY, "Android TV")],
+    [first, second],
+    liveAt("192.168.1.10", 5555),
+  );
+  assert.deepEqual(
+    withAdvert.map((row) => [row.key, row.name, row.status]),
+    [
+      ["discovery:192.168.1.10", "Android TV", "connected"],
+      ["saved:local:guest-b", "Guest B", "saved-address"],
+      ["saved:local:guest-a", "Guest A", "saved-address"],
+    ],
+  );
+  assert.equal(withAdvert[0].savedTarget, undefined);
+
+  // With no advert at all, the live endpoint has no discovery row to stand
+  // in as an honest "connected, but unidentified" placeholder, so neither
+  // saved row may claim it -- both report the address as previously used.
+  const silent = buildDiscoveryRows([], [first, second], liveAt("192.168.1.10", 5555));
+  assert.deepEqual(
+    silent.map((row) => [row.key, row.status]),
+    [
+      ["saved:local:guest-b", "saved-address"],
+      ["saved:local:guest-a", "saved-address"],
+    ],
+  );
+});
+
 test("a stale advert never names the live row after a different saved TV (#115)", () => {
   const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
   const googleB = saved({ hardwareId: "google-b", name: "Google B", lastUsed: "2026-08-01T00:00:00.000Z" });
