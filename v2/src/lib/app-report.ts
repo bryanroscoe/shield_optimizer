@@ -112,8 +112,9 @@ function escapeRegExp(text: string): string {
 }
 
 /// Anything shaped like an Android package id (two or more dot-joined
-/// segments, each starting with a letter).
-const PACKAGE_SHAPED = /(?<![A-Za-z0-9_.])[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+(?![A-Za-z0-9_])/g;
+/// segments, each starting with a letter). The leading boundary is captured
+/// rather than a lookbehind, which older macOS WebViews cannot parse.
+const PACKAGE_SHAPED = /(^|[^A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)(?![A-Za-z0-9_])/g;
 
 /// The note is the user's own text, but a pasted log line or address must not
 /// carry the identifiers the rest of the report leaves out. Addresses, MACs,
@@ -137,9 +138,10 @@ export function redactNote(text: string, redact: string[], reportedPackage?: str
     const v = idKey(id);
     if (!v) continue;
     const body = escapeRegExp(v);
-    const pattern =
-      v.length >= SERIAL_SUBSTRING_MIN ? body : `(?<![A-Za-z0-9])${body}(?![A-Za-z0-9])`;
-    out = out.replace(new RegExp(pattern, "gi"), REDACTED);
+    out =
+      v.length >= SERIAL_SUBSTRING_MIN
+        ? out.replace(new RegExp(body, "gi"), REDACTED)
+        : out.replace(new RegExp(`(^|[^A-Za-z0-9])${body}(?![A-Za-z0-9])`, "gi"), `$1${REDACTED}`);
   }
   const keep = reportedPackage?.toLowerCase();
   return out
@@ -149,10 +151,10 @@ export function redactNote(text: string, redact: string[], reportedPackage?: str
     .replace(/(?:\b[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*\b)?/g, (m) =>
       m === "::" ? m : REDACTED,
     )
-    .replace(PACKAGE_SHAPED, (m) => {
-      if (m.toLowerCase() === keep) return m;
-      if (m.split(".").every((segment) => segment.length === 1)) return m;
-      return REDACTED;
+    .replace(PACKAGE_SHAPED, (_m, before: string, token: string) => {
+      if (token.toLowerCase() === keep) return before + token;
+      if (token.split(".").every((segment) => segment.length === 1)) return before + token;
+      return before + REDACTED;
     });
 }
 

@@ -84,8 +84,9 @@ this file and shows the newest few sections, dated, from its version button.
 - **`registry-triage` says when a mobile export was truncated** (#135). The
   mobile collector drops its oldest records once it reaches its cap and marks
   the export `truncated`. The tool ignored that flag. It now names each
-  truncated export in its summary and in `--json` output, and marks counts
-  drawn from one as lower bounds.
+  truncated export in its summary and in `--json` output. While a batch holds
+  one, every count is marked as a lower bound, because the capped export
+  cannot say which packages it dropped.
 - **The Launcher tab named Setup Wraith as the current launcher after a
   successful switch** ([#122](https://github.com/bryanroscoe/shield_optimizer/issues/122)).
   With the stock launcher disabled and Google TV's setup wizard (Setup Wraith)

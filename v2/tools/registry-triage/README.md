@@ -42,8 +42,9 @@ today, with that entry's `reviewed_at` when it has one.
 
 The mobile collector caps itself (100 records, 64 KiB) and drops its oldest
 records when it hits the cap, exporting `truncated: true`. The summary line
-names every truncated export, and a row fed by one marks its report and
-sighting counts with `*`: they are lower bounds, not totals. An export whose
+names every truncated export. A capped export cannot say which records it
+dropped, so while a batch holds one, every row marks its report and sighting
+counts with `*`: they are lower bounds, not totals. An export whose
 `truncated` flag is missing or not a boolean is treated as truncated, since it
 does not vouch that nothing was dropped. In `--json` the same files are listed
 under `truncated_exports`, and each candidate carries `lower_bound`.

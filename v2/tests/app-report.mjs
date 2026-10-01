@@ -289,6 +289,11 @@ async function noteRedactionGaps(server) {
     now: new Date("2026-09-30T00:00:00Z"),
   });
   assert.equal(report.records[0].note, "also see [redacted] and org.fdroid.fdroid");
+  assert.equal(redactNote("x7 x7,x7", ["x7"]), "[redacted] [redacted],[redacted]", "adjacent short serials all go");
+  // The device page imports this module, and WebViews before Safari 16.4
+  // cannot parse a lookbehind: one would blank the page, not just the note.
+  const source = readFileSync(join(V2, "src/lib/app-report.ts"), "utf8");
+  assert.doesNotMatch(source, /\(\?<[!=]/, "app-report.ts uses no regex lookbehind");
   console.log("App report passed (note gaps): case-varied and short serials and other package ids are redacted.");
 }
 

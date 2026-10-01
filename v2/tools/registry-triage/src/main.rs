@@ -401,8 +401,9 @@ struct Candidate {
     token: String,
     reports: usize,
     count: u64,
-    /// True when a report behind this row was truncated, so `reports` and
-    /// `count` may be lower than what the devices actually saw.
+    /// True when any export in the batch was truncated. A capped export cannot
+    /// say which records it dropped, so `reports` and `count` may be lower than
+    /// what the devices saw for every row, including rows it never mentions.
     lower_bound: bool,
     device_scope: Vec<String>,
     reasons: Vec<String>,
@@ -413,12 +414,11 @@ struct Candidate {
 }
 
 fn candidates(batch: &Batch, bundle: &AppListBundle) -> Vec<Candidate> {
-    let truncated: BTreeSet<&str> = batch.truncated_files.iter().map(String::as_str).collect();
+    let lower_bound = !batch.truncated_files.is_empty();
     #[derive(Default)]
     struct Acc {
         files: BTreeSet<PathBuf>,
         count: u64,
-        lower_bound: bool,
         scope: BTreeSet<String>,
         reasons: BTreeSet<String>,
         versions: BTreeSet<String>,
@@ -430,7 +430,6 @@ fn candidates(batch: &Batch, bundle: &AppListBundle) -> Vec<Candidate> {
         let a = acc.entry((s.kind.clone(), s.token.clone())).or_default();
         a.files.insert(path.clone());
         a.count = a.count.saturating_add(s.count);
-        a.lower_bound |= truncated.contains(path.display().to_string().as_str());
         a.scope.insert(scope_name(&s.family).to_string());
         a.reasons.insert(s.reason.clone());
         a.versions.extend(s.app_version.clone());
@@ -445,7 +444,7 @@ fn candidates(batch: &Batch, bundle: &AppListBundle) -> Vec<Candidate> {
             token,
             reports: a.files.len(),
             count: a.count,
-            lower_bound: a.lower_bound,
+            lower_bound,
             device_scope: a.scope.into_iter().collect(),
             reasons: a.reasons.into_iter().collect(),
             app_versions: a.versions.into_iter().collect(),
@@ -640,10 +639,9 @@ mod tests {
         let list = candidates(&batch, &bundle);
         let capped = |t: &str| list.iter().find(|c| c.token == t).unwrap().lower_bound;
         assert!(capped("com.example.unknown"), "seen in the capped export");
-        assert!(
-            !capped("com.netflix.ninja"),
-            "seen only in complete exports"
-        );
+        // The capped export may have dropped any package, so one it no longer
+        // mentions still has counts that are only a lower bound.
+        assert!(capped("com.netflix.ninja"), "seen only in complete exports");
 
         // A missing or non-boolean flag does not vouch for completeness.
         let missing = parse_mobile(r#"{"schema_version":1,"records":[]}"#).unwrap();
