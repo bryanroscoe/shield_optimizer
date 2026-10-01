@@ -313,7 +313,7 @@ mod tests {
                 let ok = if list == "common" {
                     e.device_scope.is_empty()
                 } else {
-                    e.device_scope.iter().all(|s| s == list)
+                    e.device_scope == [list]
                 };
                 assert!(
                     ok,
