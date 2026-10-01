@@ -555,7 +555,7 @@
     <p class="muted small">
       Controls Android's encoded surround format policy. Auto uses the connected
       equipment's advertised formats. Manual overrides can cause silence on
-      unsupported equipment; actual playback also depends on the app and audio path.
+      unsupported equipment. Playback also depends on the app and the audio path.
     </p>
     <div class="tweak-row">
       <div>
