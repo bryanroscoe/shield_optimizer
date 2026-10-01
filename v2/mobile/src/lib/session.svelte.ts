@@ -47,6 +47,11 @@ class Session {
   /// True while Optimize is applying a plan; tabs lock so the loop can't be
   /// orphaned by navigating away.
   applyInProgress = $state(false);
+  /// Set when the last `rememberCurrentDevice()` found a different device at
+  /// this row's address than the one saved (see savedDevices.ts). Screens
+  /// read and clear it once to show an honest "different device" note rather
+  /// than silently keeping the old TV's name.
+  identityNote = $state("");
 
   // Shared health cache. `healthLoaded` tracks a load *attempt* (an errored
   // load still counts as loaded so we render the error, not a spinner forever).
@@ -114,6 +119,7 @@ class Session {
     const generation = this.nextGeneration();
     this.recoveryAttempted = false;
     this.liveness = "connecting";
+    this.identityNote = "";
     try {
       const result = await api.wirelessConnect(host, port, generation);
       if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
@@ -194,7 +200,8 @@ class Session {
 
   rememberCurrentDevice(): void {
     if (!this.host) return;
-    rememberDevice(this.host, this.connectPort, this.connectedDevice);
+    const result = rememberDevice(this.host, this.connectPort, this.connectedDevice);
+    if (result.mismatch) this.identityNote = "A different device is now at this address.";
   }
 
   reset(): void {

@@ -97,7 +97,12 @@
     try {
       const r = await session.connect(d.host, d.connectPort);
       if (r.ok) {
-        showToast(`Connected to ${session.deviceLabel}.`, "success");
+        if (session.identityNote) {
+          showToast(session.identityNote, "info");
+          session.identityNote = "";
+        } else {
+          showToast(`Connected to ${session.deviceLabel}.`, "success");
+        }
         session.loadHealth(true);
         session.loadBloat(true);
         refreshSaved();
@@ -120,7 +125,12 @@
     connectingToken = "current";
     try {
       const r = await session.reconnect();
-      showToast(r.ok ? "Reconnected." : r.message || "Couldn't reconnect.", r.ok ? "success" : "error");
+      if (r.ok && session.identityNote) {
+        showToast(session.identityNote, "info");
+        session.identityNote = "";
+      } else {
+        showToast(r.ok ? "Reconnected." : r.message || "Couldn't reconnect.", r.ok ? "success" : "error");
+      }
     } catch (e) {
       showToast(String(e), "error");
     } finally {

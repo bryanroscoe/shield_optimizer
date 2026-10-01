@@ -388,6 +388,18 @@ export interface BackupEntry {
 /// A previously-paired TV remembered on this phone so the app can offer a
 /// one-tap reconnect on launch (design §1.0). The RSA pairing key is persisted
 /// Kotlin-side, so a reconnect is silent — this is just app-side bookkeeping.
+/// A soft identity hint captured from a device's reported properties. Never
+/// proof of identity -- see `deviceFingerprintOf`/`fingerprintMismatch` in
+/// `identity.ts` -- only ever used to rule an id-less match *out*.
+export interface DeviceFingerprint {
+  model?: string;
+  manufacturer?: string;
+  deviceCodename?: string;
+  /// The TV's own user-set device name (`friendly_name`), distinct from this
+  /// row's possibly-synthesized `name`.
+  name?: string;
+}
+
 export interface SavedDevice {
   host: string;
   connectPort: number;
@@ -401,6 +413,11 @@ export interface SavedDevice {
   /// host:port are still distinct rows -- the address alone cannot tell them
   /// apart, so each gets its own key instead of collapsing into one.
   localId?: string;
+  /// Soft fingerprint for an id-less row only (hardware-identified rows don't
+  /// need it). Lets a reconnect notice an obvious swap -- a different model
+  /// or manufacturer now answering at this row's address -- without ever
+  /// upgrading the match to "verified".
+  fingerprint?: DeviceFingerprint;
   /// ISO timestamp of the last successful connect, for "last used" copy.
   lastUsed: string;
 }

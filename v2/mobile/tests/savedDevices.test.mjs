@@ -648,3 +648,205 @@ test("auto-dials only when the saved list truly has one entry", () => {
     false,
   );
 });
+
+// #154: a lone id-less match used to be trusted on endpoint alone, so a
+// *different* id-less TV that later answers at the same address silently
+// inherited the saved row's name instead of being recognized as distinct.
+
+test("a lone id-less match stores a fingerprint from the live device's properties (#154)", () => {
+  seed([saved({ hardwareId: undefined, name: "Living room TV" })]);
+
+  savedDevices.rememberDevice(
+    "192.168.1.10",
+    5555,
+    device(undefined, {
+      properties: {
+        friendly_name: null,
+        serial_number: undefined,
+        model: "Shield TV Pro",
+        manufacturer: "NVIDIA",
+        device_codename: "mdarcy",
+      },
+    }),
+  );
+
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].fingerprint, {
+    model: "Shield TV Pro",
+    manufacturer: "NVIDIA",
+    deviceCodename: "mdarcy",
+  });
+});
+
+test("a different model or manufacturer at a saved id-less row's address is not silently inherited (#154)", () => {
+  seed([
+    saved({
+      hardwareId: undefined,
+      name: "Living room TV",
+      fingerprint: { model: "Shield TV Pro", manufacturer: "NVIDIA" },
+    }),
+  ]);
+
+  const result = savedDevices.rememberDevice(
+    "192.168.1.10",
+    5555,
+    device(undefined, {
+      name: "Reported device",
+      properties: {
+        friendly_name: null,
+        serial_number: undefined,
+        model: "Chromecast with Google TV",
+        manufacturer: "Google",
+      },
+    }),
+  );
+
+  assert.equal(result.mismatch, true);
+  const rows = savedDevices.listSavedDevices();
+  // The old row survives untouched -- it is not renamed or repurposed.
+  assert.equal(rows.length, 2);
+  const old = rows.find((row) => row.name === "Living room TV");
+  const fresh = rows.find((row) => row.name !== "Living room TV");
+  assert.deepEqual(old.fingerprint, { model: "Shield TV Pro", manufacturer: "NVIDIA" });
+  assert.equal(old.hardwareId, undefined);
+  assert.notEqual(fresh, undefined);
+  assert.deepEqual(fresh.fingerprint, { model: "Chromecast with Google TV", manufacturer: "Google" });
+
+  // Neither row can now be told apart as "the" live connection -- the address
+  // is ambiguous between two distinct saved TVs, so the UI must not claim
+  // either one is connected or let a reconnect silently refresh either.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(old, rows, "192.168.1.10", 5555, undefined),
+    false,
+  );
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(fresh, rows, "192.168.1.10", 5555, undefined),
+    false,
+  );
+});
+
+test("a manufacturer-only disagreement also counts as a mismatch (#154)", () => {
+  seed([
+    saved({
+      hardwareId: undefined,
+      name: "Living room TV",
+      fingerprint: { model: "ATV1000", manufacturer: "NVIDIA" },
+    }),
+  ]);
+
+  const result = savedDevices.rememberDevice(
+    "192.168.1.10",
+    5555,
+    device(undefined, {
+      properties: {
+        friendly_name: null,
+        serial_number: undefined,
+        model: "ATV1000",
+        manufacturer: "Some Other Vendor",
+      },
+    }),
+  );
+
+  assert.equal(result.mismatch, true);
+  assert.equal(savedDevices.listSavedDevices().length, 2);
+});
+
+test("an empty saved fingerprint (an older row, or a device that reported nothing) never blocks a match (#154)", () => {
+  seed([saved({ hardwareId: undefined, name: "Living room TV" })]);
+
+  // No fingerprint stored yet (row predates this feature) and the live
+  // device reports no model/manufacturer either -- unknown vs unknown must
+  // not be treated as a disagreement.
+  const result = savedDevices.rememberDevice(
+    "192.168.1.10",
+    5555,
+    device(undefined, {
+      name: "Generic report",
+      properties: { friendly_name: null, serial_number: undefined },
+    }),
+  );
+
+  assert.equal(result.mismatch, false);
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, "Living room TV");
+});
+
+test("a matching fingerprint still refreshes the row normally, and is never treated as proof (#154)", () => {
+  seed([
+    saved({
+      hardwareId: undefined,
+      name: "Living room TV",
+      fingerprint: { model: "Shield TV Pro", manufacturer: "NVIDIA" },
+    }),
+  ]);
+
+  const result = savedDevices.rememberDevice(
+    "192.168.1.10",
+    5555,
+    device(undefined, {
+      name: "Generic report",
+      properties: {
+        friendly_name: "Renamed on the TV",
+        serial_number: undefined,
+        model: "Shield TV Pro",
+        manufacturer: "NVIDIA",
+      },
+    }),
+  );
+
+  assert.equal(result.mismatch, false);
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 1);
+  // The row refreshed in place (still id-less, no hardwareId appeared out of
+  // a mere model/manufacturer agreement) and picked up the new friendly name.
+  assert.equal(rows[0].hardwareId, undefined);
+  assert.equal(rows[0].name, "Renamed on the TV");
+});
+
+test("a hardware-identified reconnect is never second-guessed by fingerprint (#154)", () => {
+  seed([saved({ fingerprint: undefined })]);
+
+  const result = savedDevices.rememberDevice(
+    "192.168.1.10",
+    5555,
+    device("shield-a", {
+      properties: {
+        friendly_name: null,
+        serial_number: "shield-a",
+        model: "Completely Different Model",
+        manufacturer: "Completely Different Vendor",
+      },
+    }),
+  );
+
+  assert.equal(result.mismatch, false);
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].hardwareId, "shield-a");
+  // Hardware-identified rows don't carry a fingerprint -- the id is already
+  // verified identity, so there is nothing for it to add.
+  assert.equal(rows[0].fingerprint, undefined);
+});
+
+test("a stored fingerprint survives a read/normalize round trip and sanitizes stray fields", () => {
+  seed([
+    saved({
+      hardwareId: undefined,
+      fingerprint: {
+        model: " Shield TV Pro ",
+        manufacturer: "NVIDIA",
+        deviceCodename: "",
+        extra: "should be dropped",
+      },
+    }),
+  ]);
+
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].fingerprint, {
+    model: "Shield TV Pro",
+    manufacturer: "NVIDIA",
+  });
+});

@@ -38,6 +38,10 @@
     session.loadHealth();
     session.loadBloat();
     session.checkLiveness();
+    if (session.identityNote) {
+      showToast(session.identityNote, "info");
+      session.identityNote = "";
+    }
   });
 
   const previousTvs = $derived(
@@ -79,7 +83,12 @@
       const result = await session.connect(device.host, device.connectPort);
       if (result.ok) {
         savedTvs = listSavedDevices();
-        showToast(`Connected to ${session.deviceLabel}.`, "success");
+        if (session.identityNote) {
+          showToast(session.identityNote, "info");
+          session.identityNote = "";
+        } else {
+          showToast(`Connected to ${session.deviceLabel}.`, "success");
+        }
         session.loadHealth(true);
         session.loadBloat(true);
       } else {

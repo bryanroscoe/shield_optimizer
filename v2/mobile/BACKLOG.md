@@ -112,6 +112,39 @@ row was keyed by its bare endpoint. Fixed in `savedDevices.ts`/`identity.ts`/`di
 Covered by new tests in `tests/savedDevices.test.mjs` and `tests/discoveryRows.test.mjs`; none has
 run on a device.
 
+## A different id-less device can no longer inherit a saved TV's row (2026-10-01)
+
+Fixed GitHub #154, raised by Codex on PR #152 (the #146 fix above) and deferred there as an edge
+case needing a product decision. #146 fixed the case where *two or more* id-less saved rows already
+shared an address; it did not change the original, more common case: when exactly **one** id-less
+row sits at an address, `rememberDevice` still trusted that lone match on endpoint alone, so a
+*different* id-less TV that later answers at the same address (DHCP reassignment, a replaced
+device) silently inherited the old row's name and `localId`.
+
+Without a hardware id the app still cannot prove identity, so the fix is a soft signal, never a
+promotion to "verified":
+
+- Every id-less saved row now carries an optional `fingerprint` (`model`, `manufacturer`,
+  `deviceCodename`, and the TV's own user-set `friendly_name`), captured from the live device's
+  reported properties (`identity.ts`: `deviceFingerprintOf`). Hardware-identified rows don't carry
+  one -- the id is already verified, so there's nothing for a fingerprint to add.
+- On a lone id-less match, `fingerprintMismatch` compares saved vs. live `model`/`manufacturer`.
+  A clear disagreement means `rememberDevice` sets the match aside and records the connection as a
+  new, distinct row instead of refreshing the old one (`savedDevices.ts`). The old row is left
+  untouched. A missing field on either side (an older row saved before this existed, or a device
+  that reported nothing) is unknown, never a mismatch -- it does not block the match, so existing
+  rows migrate for free with no separate migration step.
+- Once two id-less rows share an endpoint this way, the existing #146 ambiguity rule
+  (`savedDeviceIsLiveConnection`) already refuses to call either one "connected" or let a further
+  reconnect silently refresh either -- no new ambiguity-handling code was needed there.
+- `session.svelte.ts` surfaces the mismatch as `session.identityNote` ("A different device is now
+  at this address."), read and cleared once by whichever screen's connect flow notices it
+  (Dashboard's `onMount`/`switchDevice`, Devices' `reconnect`/`reconnectCurrent`) instead of silently
+  going unmentioned.
+
+Covered by new tests in `tests/savedDevices.test.mjs` (verified to fail before the fix); none has
+run on a device.
+
 ## Stability reset (2026-09-04)
 
 A four-track audit (feature parity vs v1/desktop, connection lifecycle, screen UX, Rust backend)

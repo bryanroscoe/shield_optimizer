@@ -7,16 +7,24 @@
 // This never holds secrets: no keys, no PINs. Just enough to re-open the ADB
 // socket to a TV the phone already trusts.
 
-import type { Device, SavedDevice } from "./types";
+import type { Device, DeviceFingerprint, SavedDevice } from "./types";
 import { deviceLabelOf } from "./types";
 import {
+  deviceFingerprintOf,
+  fingerprintMismatch,
   normalizeHardwareId,
   savedDeviceIsLiveConnection,
   savedDeviceKey,
   savedDeviceMatchesConnection,
 } from "./identity";
 
-export { savedDeviceIsLiveConnection, savedDeviceKey, savedDeviceMatchesConnection };
+export {
+  deviceFingerprintOf,
+  fingerprintMismatch,
+  savedDeviceIsLiveConnection,
+  savedDeviceKey,
+  savedDeviceMatchesConnection,
+};
 
 const KEY = "atv.savedDevices.v1";
 const AUTO_KEY = "atv.autoConnect.v1";
@@ -27,6 +35,29 @@ const EPOCH = new Date(0).toISOString();
 /// same process tick never collide.
 function randomLocalId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/// Sanitize a stored fingerprint back to known string fields only, trimmed,
+/// with blanks dropped -- the same "empty means unknown, never a mismatch"
+/// rule as a freshly captured one. A row saved before this field existed (or
+/// one stripped by corruption) normalizes to `undefined`, which is exactly
+/// the "nothing to compare" case `fingerprintMismatch` already treats as no
+/// disagreement, so older rows migrate for free: there is no separate
+/// migration step to run.
+function normalizeFingerprint(value: unknown): DeviceFingerprint | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Record<string, unknown>;
+  const fingerprint: DeviceFingerprint = {};
+  const take = (key: keyof DeviceFingerprint) => {
+    const v = raw[key];
+    const trimmed = typeof v === "string" ? v.trim() : "";
+    if (trimmed) fingerprint[key] = trimmed;
+  };
+  take("model");
+  take("manufacturer");
+  take("deviceCodename");
+  take("name");
+  return Object.keys(fingerprint).length > 0 ? fingerprint : undefined;
 }
 
 function normalizeSavedDevice(value: unknown): SavedDevice | null {
@@ -64,11 +95,16 @@ function normalizeSavedDevice(value: unknown): SavedDevice | null {
     : typeof d.localId === "string" && d.localId.trim() !== ""
       ? d.localId.trim()
       : randomLocalId();
+  // The fingerprint is only meaningful on an id-less row -- a hardware id is
+  // already verified identity, so a stale fingerprint from before the TV
+  // reported one is simply dropped rather than carried forward unused.
+  const fingerprint = hardwareId ? undefined : normalizeFingerprint(d.fingerprint);
   return {
     host: d.host.trim(),
     connectPort: d.connectPort,
     ...(hardwareId ? { hardwareId } : {}),
     ...(localId ? { localId } : {}),
+    ...(fingerprint ? { fingerprint } : {}),
     name:
       typeof d.name === "string" && d.name.trim() !== ""
         ? d.name.trim()
@@ -188,6 +224,14 @@ function sameTv(
   return row.host === host && row.connectPort === connectPort;
 }
 
+export interface RememberDeviceResult {
+  /// True when a lone id-less match was set aside because its saved
+  /// fingerprint clearly disagreed with the live device's -- a different TV
+  /// has very likely taken over this row's address. The connection was saved
+  /// as a new, distinct row instead of silently renaming the old one.
+  mismatch: boolean;
+}
+
 /// Record (or refresh) a successful connection. The hardware serial is the
 /// durable identity when the TV reports one (ports rotate and DHCP can hand a
 /// TV's old IP to another device); the host is the fallback.
@@ -195,7 +239,7 @@ export function rememberDevice(
   host: string,
   connectPort: number,
   device: Device | null,
-): void {
+): RememberDeviceResult {
   const current = read();
   const hardwareId = hardwareIdOf(device);
   const matches = current.filter((d) => sameTv(d, host, connectPort, hardwareId));
@@ -204,11 +248,27 @@ export function rememberDevice(
   // answered is not knowable from the endpoint alone, so nothing is written:
   // claiming one would be a guess, and saving a fresh row on every repeat
   // reconnect would eventually evict a genuine saved TV once MAX is reached.
-  if (matches.length > 1) return;
-  const existing = matches[0];
+  if (matches.length > 1) return { mismatch: false };
+  let existing: SavedDevice | undefined = matches[0];
+  const liveFingerprint = deviceFingerprintOf(device?.properties);
+  // A lone id-less match is only ever an address coincidence, never verified
+  // identity. If the live TV's soft fingerprint clearly disagrees with the
+  // saved row's -- a different model or manufacturer -- a different TV has
+  // taken over this address, and refreshing the row would silently hand it
+  // the old TV's name. Set the match aside and save this connection as a new
+  // row instead, same as if nothing had matched.
+  const mismatch =
+    existing !== undefined &&
+    !hardwareId &&
+    !existing.hardwareId &&
+    fingerprintMismatch(existing.fingerprint, liveFingerprint);
+  if (mismatch) existing = undefined;
   const combinedHardwareId = hardwareId ?? existing?.hardwareId;
   const reportedFriendlyName = device?.properties?.friendly_name?.trim();
   const name = reportedFriendlyName || existing?.name || deviceLabelOf(device);
+  const fingerprint = combinedHardwareId
+    ? undefined
+    : (liveFingerprint ?? existing?.fingerprint);
   const list = current.filter((d) => d !== existing);
   list.unshift({
     host,
@@ -217,9 +277,11 @@ export function rememberDevice(
     deviceType: device?.device_type ?? existing?.deviceType ?? "unknown",
     ...(combinedHardwareId ? { hardwareId: combinedHardwareId } : {}),
     ...(combinedHardwareId ? {} : { localId: existing?.localId ?? randomLocalId() }),
+    ...(fingerprint ? { fingerprint } : {}),
     lastUsed: new Date().toISOString(),
   });
   write(list);
+  return { mismatch };
 }
 
 export function forgetDevice(host: string, connectPort: number): void {
