@@ -76,11 +76,14 @@ export const scenarios = [
       ctx.assert.equal(await ctx.page.locator(".error").filter({ hasText: "not found" }).count(), 0);
       await ctx.step("the mDNS alias opened the collapsed row under its ip:port key");
       const resolved = await ctx.invoke("device_profile", { serial: PIXEL.key });
-      ctx.assert.equal(resolved.serial, "192.0.2.2:41235");
-      ctx.assert.equal(resolved.properties.serial_number, PIXEL.serial);
+      ctx.assert.equal(resolved.ok, true);
+      ctx.assert.equal(resolved.value.serial, "192.0.2.2:41235");
+      ctx.assert.equal(resolved.value.properties.serial_number, PIXEL.serial);
       // A key adb does not hold is still not found: nothing is guessed from
       // an address that merely shares the device's IP.
-      await ctx.assert.rejects(ctx.invoke("device_profile", { serial: "192.0.2.2:5555" }), /not found/);
+      const stranger = await ctx.invoke("device_profile", { serial: "192.0.2.2:5555" });
+      ctx.assert.equal(stranger.ok, false);
+      ctx.assert.match(String(stranger.error), /not found/);
     },
   },
   {
