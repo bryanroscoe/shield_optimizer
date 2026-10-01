@@ -49,7 +49,7 @@ const saved = (overrides = {}) => ({
 });
 
 const offline = { connected: false, host: "", connectPort: 0 };
-const liveAt = (host, connectPort) => ({ connected: true, host, connectPort });
+const liveAt = (host, connectPort, hardwareId) => ({ connected: true, host, connectPort, hardwareId });
 
 const summarize = (rows) =>
   rows.map(({ key, name, status, connectPorts, pairingPorts }) => ({
@@ -113,7 +113,7 @@ test("the live endpoint is the only connected row", () => {
 test("a connected TV that does not advertise stays one connected saved row", () => {
   // The Shield's Network debugging on :5555 publishes no mDNS record, so the
   // only evidence it exists is the live session plus its saved row.
-  const rows = buildDiscoveryRows([], [saved()], liveAt("192.168.1.10", 5555));
+  const rows = buildDiscoveryRows([], [saved()], liveAt("192.168.1.10", 5555, "shield-a"));
 
   assert.deepEqual(summarize(rows), [
     {
@@ -125,6 +125,35 @@ test("a connected TV that does not advertise stays one connected saved row", () 
     },
   ]);
   assert.equal(rows[0].savedTarget?.hardwareId, "shield-a");
+});
+
+test("only the saved TV whose id is live claims a shared live endpoint (#115)", () => {
+  const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
+  const googleB = saved({ hardwareId: "google-b", name: "Google B", lastUsed: "2026-08-01T00:00:00.000Z" });
+
+  const verified = buildDiscoveryRows([], [shieldA, googleB], liveAt("192.168.1.10", 5555, "google-b"));
+  assert.deepEqual(
+    verified.map((row) => [row.name, row.status]),
+    [["Google B", "connected"], ["Shield A", "saved-address"]],
+  );
+
+  // With no live id there is no evidence for either identity, so neither
+  // row claims the connection.
+  for (const liveId of [undefined, "unknown"]) {
+    const unverified = buildDiscoveryRows([], [shieldA, googleB], liveAt("192.168.1.10", 5555, liveId));
+    assert.deepEqual(
+      unverified.map((row) => [row.name, row.status]),
+      [["Shield A", "saved-address"], ["Google B", "saved-address"]],
+    );
+  }
+
+  // An id-less saved row is identified by its exact endpoint.
+  const idless = buildDiscoveryRows(
+    [],
+    [saved({ hardwareId: undefined, name: "No id" })],
+    liveAt("192.168.1.10", 5555),
+  );
+  assert.deepEqual(idless.map((row) => [row.name, row.status]), [["No id", "connected"]]);
 });
 
 test("an address change reports a new host and a saved endpoint that is absent", () => {

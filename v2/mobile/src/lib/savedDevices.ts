@@ -9,9 +9,13 @@
 
 import type { Device, SavedDevice } from "./types";
 import { deviceLabelOf } from "./types";
-import { normalizeHardwareId, savedDeviceKey } from "./identity";
+import {
+  normalizeHardwareId,
+  savedDeviceKey,
+  savedDeviceMatchesConnection,
+} from "./identity";
 
-export { savedDeviceKey };
+export { savedDeviceKey, savedDeviceMatchesConnection };
 
 const KEY = "atv.savedDevices.v1";
 const AUTO_KEY = "atv.autoConnect.v1";
@@ -129,21 +133,6 @@ export function savedHostHasMultipleIdentities(
   ).size > 1;
 }
 
-export function savedDeviceMatchesConnection(
-  device: SavedDevice,
-  host: string,
-  connectPort: number,
-  hardwareId?: string,
-): boolean {
-  const connectedHardwareId = normalizeHardwareId(hardwareId);
-  const savedHardwareId = normalizeHardwareId(device.hardwareId);
-  if (connectedHardwareId) return savedHardwareId === connectedHardwareId;
-  return (
-    savedHardwareId === undefined &&
-    device.host === host &&
-    device.connectPort === connectPort
-  );
-}
 
 export function shouldAutoDialSavedDevices(
   devices: SavedDevice[],

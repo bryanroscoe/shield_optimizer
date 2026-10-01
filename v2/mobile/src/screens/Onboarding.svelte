@@ -129,6 +129,7 @@
     connected: session.isConnected,
     host: session.host,
     connectPort: session.connectPort,
+    hardwareId: session.connectedDevice?.properties?.serial_number,
   }));
 
   // This screen is reached to find a TV the phone has not used yet, so the

@@ -12,6 +12,25 @@ export function normalizeHardwareId(
   return id && id.toLowerCase() !== "unknown" ? id : undefined;
 }
 
+/// Whether a saved row is the TV live on this connection: the same verified
+/// hardware id, or, when the live TV reports none, an id-less row at the exact
+/// endpoint. An identified row is never matched on its address alone.
+export function savedDeviceMatchesConnection(
+  device: SavedDevice,
+  host: string,
+  connectPort: number,
+  hardwareId?: string | null,
+): boolean {
+  const connectedHardwareId = normalizeHardwareId(hardwareId);
+  const savedHardwareId = normalizeHardwareId(device.hardwareId);
+  if (connectedHardwareId) return savedHardwareId === connectedHardwareId;
+  return (
+    savedHardwareId === undefined &&
+    device.host === host &&
+    device.connectPort === connectPort
+  );
+}
+
 export function savedDeviceKey(device: SavedDevice): string {
   const hardwareId = normalizeHardwareId(device.hardwareId);
   return hardwareId

@@ -1,5 +1,9 @@
 import type { Discovery, SavedDevice } from "./types";
-import { normalizeHardwareId, savedDeviceKey } from "./identity";
+import {
+  normalizeHardwareId,
+  savedDeviceKey,
+  savedDeviceMatchesConnection,
+} from "./identity";
 
 export type DiscoveryRowStatus =
   | "connected"
@@ -25,6 +29,9 @@ export interface LiveEndpoint {
   connected: boolean;
   host: string;
   connectPort: number;
+  /// The live TV's reported hardware id, if any. A saved row only claims the
+  /// live connection when this identity agrees with it.
+  hardwareId?: string | null;
 }
 
 type HostGroup = {
@@ -168,6 +175,10 @@ export function buildDiscoveryRows(
     if (verified.has(saved)) continue;
     const discovered = hosts.get(saved.host);
     if (discovered?.connectPorts.has(saved.connectPort)) continue;
+    const atLiveEndpoint =
+      live.connected &&
+      live.host === saved.host &&
+      live.connectPort === saved.connectPort;
     rows.push({
       key: `saved:${identity}`,
       source: "saved",
@@ -176,17 +187,18 @@ export function buildDiscoveryRows(
       connectPorts: [saved.connectPort],
       pairingPorts: [],
       legacyConnectPorts: [],
-      status:
-        live.connected &&
-        live.host === saved.host &&
-        live.connectPort === saved.connectPort
+      status: atLiveEndpoint
+        ? savedDeviceMatchesConnection(saved, live.host, live.connectPort, live.hardwareId)
           ? "connected"
-          // The address answered the scan on some other port. That is not the
-          // same claim as "offline", and it is the common case after a TV
-          // reboot rotates the wireless-debugging port.
-          : (discovered?.connectPorts.size ?? 0) > 0
-            ? "saved-other-port"
-            : "saved-missing",
+          // Something answers at this saved address, but nothing shows it is
+          // this TV, so the row claims the address and not the connection.
+          : "saved-address"
+        // The address answered the scan on some other port. That is not the
+        // same claim as "offline", and it is the common case after a TV
+        // reboot rotates the wireless-debugging port.
+        : (discovered?.connectPorts.size ?? 0) > 0
+          ? "saved-other-port"
+          : "saved-missing",
       savedTarget: saved,
     });
   }
