@@ -3,6 +3,7 @@
 // it was measured, and a failed read is "unavailable", never zero.
 
 import type { AppStorage, AppUsage } from "./types";
+import type { AppReportDevice } from "./app-report";
 
 export type MeasureStatus =
   | { status: "idle" }
@@ -27,6 +28,9 @@ export interface AppDetailInputs {
   usage?: AppUsage;
   storage?: AppStorage;
   onRemeasure?: () => void;
+  /// The device context "Report this app" may share. Absent, the panel
+  /// offers no report.
+  report?: AppReportDevice;
 }
 
 export function idleMeasurements(): AppMeasurements {

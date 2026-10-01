@@ -50,6 +50,7 @@
     type AppDetailInputs,
     type AppMeasurements,
   } from "$lib/app-details";
+  import { reportFamily } from "$lib/app-report";
   import FilesTab from "$lib/components/FilesTab.svelte";
   import TweaksTab from "$lib/components/TweaksTab.svelte";
   import SideloadTab from "$lib/components/SideloadTab.svelte";
@@ -255,6 +256,12 @@
       usage: appUsage[pkg],
       storage: appStorage[pkg],
       onRemeasure: () => void loadAppMemory(),
+      report: device
+        ? {
+            family: reportFamily(device.device_type, device.tv_evidence),
+            androidVersion: device.properties?.android_release ?? null,
+          }
+        : undefined,
     };
   }
 

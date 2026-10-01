@@ -222,6 +222,9 @@ export const api = {
   deleteSnapshot: (snapshotPath: string) =>
     invoke<void>("delete_snapshot", { snapshotPath }),
   snapshotDirPath: () => invoke<string>("snapshot_dir_path"),
+  /// Writes a "Report this app" file where the user chose in the save dialog.
+  saveAppReport: (path: string, contents: string) =>
+    invoke<void>("save_app_report", { path, contents }),
 
   panicRecovery: (serial: string) =>
     invoke<RecoveryResult>("panic_recovery", { serial }),

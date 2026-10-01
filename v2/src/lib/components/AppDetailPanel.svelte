@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api } from "$lib/api";
-  import type { AppStorage, AppUsage } from "$lib/types";
+  import type { AppStorage, AppUsage, Safety } from "$lib/types";
+  import type { AppReportDevice, AppReportState } from "$lib/app-report";
+  import AppReportDialog from "$lib/components/AppReportDialog.svelte";
   import {
     formatBytes,
     hasStorage,
@@ -16,6 +18,8 @@
   // read one way in one table and another way in the next. It is read-only:
   // the row's own verbs are the only per-app actions, and they keep their
   // existing guarded paths. "Re-measure" re-runs the same three reads.
+  // "Report this app" only builds text for the user to copy, save or paste;
+  // it changes nothing on the device and nothing about the verdict.
   let {
     package: pkg,
     kindLabel,
@@ -29,6 +33,10 @@
     usage,
     storage,
     onRemeasure,
+    appName,
+    appState = null,
+    verdict = null,
+    reportDevice,
   }: {
     package: string;
     kindLabel: string;
@@ -43,7 +51,24 @@
     usage?: AppUsage;
     storage?: AppStorage;
     onRemeasure?: () => void;
+    appName?: string;
+    appState?: "enabled" | "disabled" | "missing" | null;
+    /// The verdict the row shows, or null when the lookup did not complete.
+    verdict?: Safety | null;
+    /// Present when the page can say which device family this is.
+    reportDevice?: AppReportDevice;
   } = $props();
+
+  let reportOpen = $state(false);
+
+  /// Only measured figures: a read that failed or never ran is null, not zero.
+  function reportState(): AppReportState {
+    return {
+      status: appState,
+      ramMb: measures?.memory.status === "ready" && memoryMb !== undefined && memoryMb > 0 ? memoryMb : null,
+      storage: measures?.storage.status === "ready" && hasStorage(storage) ? storage : null,
+    };
+  }
 
   type ApkRead =
     | { status: "idle" }
@@ -207,13 +232,32 @@
         {/if}
       {/each}
     </dl>
-    {#if onRemeasure}
-      <button class="remeasure" onclick={() => onRemeasure?.()} disabled={busy}>
-        <Icon name="refresh" size={14} /> {busy ? "Measuring…" : "Re-measure"}
-      </button>
-    {/if}
+  {/if}
+  {#if (measures && onRemeasure) || reportDevice}
+    <div class="panel-actions">
+      {#if measures && onRemeasure}
+        <button class="remeasure" onclick={() => onRemeasure?.()} disabled={busy}>
+          <Icon name="refresh" size={14} /> {busy ? "Measuring…" : "Re-measure"}
+        </button>
+      {/if}
+      {#if reportDevice}
+        <button class="remeasure report-app" onclick={() => (reportOpen = true)}>
+          <Icon name="bug_report" size={14} /> Report this app
+        </button>
+      {/if}
+    </div>
   {/if}
 </div>
+{#if reportOpen && reportDevice}
+  <AppReportDialog
+    package={pkg}
+    appName={appName ?? null}
+    {verdict}
+    device={reportDevice}
+    appState={reportState()}
+    onClose={() => (reportOpen = false)}
+  />
+{/if}
 
 <style>
   .safety-detail {
@@ -288,6 +332,15 @@
     color: var(--fg-muted);
     line-height: 1.4;
     overflow-wrap: anywhere;
+  }
+  .panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+  }
+  .measures + .panel-actions {
+    margin-top: 0;
   }
   .remeasure {
     padding: 0.2rem 0.6rem;

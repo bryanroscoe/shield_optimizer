@@ -197,6 +197,12 @@ jobs:
         working-directory: v2
         run: npm run test:report-bug
 
+      # Report this app: the preview is what is shared, it never carries a
+      # serial or address, and the saved file is the registry-triage shape.
+      - name: Report this app
+        working-directory: v2
+        run: npm run test:app-report
+
       # Checks that icons sit on their label and that sibling controls in a
       # row share one centre line.
       - name: Icon and control alignment

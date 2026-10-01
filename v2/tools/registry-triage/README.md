@@ -19,6 +19,12 @@ folder is searched up to four levels deep, and symlinks are not followed.
   record is checked against the same rules the collector applies, including
   the token shape and the rejection of address-like tokens. A record that
   fails a check is counted as rejected and dropped. It is never repaired.
+- **Desktop app reports** (`*.json`): what "Report this app" in the desktop
+  app's detail panel saves (`src/lib/app-report.ts`). It is the same
+  `schema_version: 1` shape with one record, a `user_report_*` reason, and
+  extra fields this tool ignores (app name, the verdict shown, the user's
+  note, and optional state). A report is one user's claim, read like any
+  other sighting; it never changes the verdict printed beside it.
 - **Desktop bug-report bundles** (`*.md`, `*.txt`): the Markdown from Copy
   diagnostics. By design the bundle carries no package inventory, so the only
   packages taken from it are the HOME handlers. Device scope comes from its
