@@ -68,6 +68,23 @@ Implemented in the current checkpoint:
   guidance, and the used-RAM bar; the resulting `3eccc34` follow-up still needs installation and a
   focused physical UI spot-check.
 
+## Saved-TV identity audit fixes (2026-09-30)
+
+Fixed GitHub #115–#118, all found by a code-read audit. Each repro is now a test in
+`tests/savedDevices.test.mjs`, `tests/discoveryRows.test.mjs` and `tests/session.test.mjs`;
+**none has run on a phone or TV.**
+
+- One hardware-id rule (`lib/identity.ts`, matching desktop `idKey`): trim, and empty or any
+  casing of `unknown` is no id. Stored placeholder ids migrate to id-less rows, and rows that then
+  share one identity collapse to the newest, so saved-TV list keys are unique and Forget removes
+  exactly one TV (#116). A placeholder is no longer a wildcard for `adb-unknown-*` adverts.
+- `cachedDeviceName` matches on verified id, or an id-less row at the exact endpoint; an
+  identified row never names a TV that reports no id. Advertised serials match only exactly or
+  with adbd's six-character suffix, so `shield` no longer verifies `adb-shield-a` (#117).
+- Scan rows are built per stored TV, never per address; no synthesized "Saved TV" row (#115).
+- `loadHealth` cannot wedge after its device vanishes mid-load, Cancel no longer shows a
+  reconnect failure, and Diagnostics keys its safety lookup on the sorted package set (#118).
+
 ## Stability reset (2026-09-04)
 
 A four-track audit (feature parity vs v1/desktop, connection lifecycle, screen UX, Rust backend)

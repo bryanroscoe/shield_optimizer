@@ -23,6 +23,7 @@ export type Liveness = "idle" | "connecting" | "live" | "reconnecting" | "lost";
 class Session {
   private connectionGeneration = Date.now() * 1000;
   private healthGeneration = 0;
+  private healthLoadingSerial = "";
   private bloatGeneration = 0;
   private bloatConnectionGeneration = 0;
   private recovering: { generation: number; promise: Promise<boolean> } | null = null;
@@ -78,7 +79,8 @@ class Session {
     if (reported) return reported;
     const cached = cachedDeviceName(
       this.host,
-      this.connectedDevice?.properties?.serial_number?.trim() || undefined,
+      this.connectPort,
+      this.connectedDevice?.properties?.serial_number ?? undefined,
     );
     if (cached) return cached;
     return deviceLabelOf(this.connectedDevice);
@@ -312,11 +314,14 @@ class Session {
   // ---- Shared health cache ----
 
   async loadHealth(force = false): Promise<void> {
-    if (this.healthLoading) return;
+    // Only a load for the current device can make another one redundant. A
+    // load whose device vanished mid-flight is history and must not block.
+    if (this.healthLoading && this.healthLoadingSerial === this.serial) return;
     if (this.healthLoaded && !force && this.healthError === "") return;
     if (!this.serial) return;
     const serial = this.serial;
     const generation = ++this.healthGeneration;
+    this.healthLoadingSerial = serial;
     this.healthLoading = true;
     this.healthError = "";
     try {
@@ -327,9 +332,9 @@ class Session {
       if (generation !== this.healthGeneration || serial !== this.serial) return;
       this.healthError = String(e);
     } finally {
-      if (generation === this.healthGeneration && serial === this.serial) {
-        this.healthLoaded = true;
+      if (generation === this.healthGeneration) {
         this.healthLoading = false;
+        if (serial === this.serial) this.healthLoaded = true;
       }
     }
   }

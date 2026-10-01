@@ -459,3 +459,68 @@ test("a late transport error from A cannot start recovery on B", async (t) => {
     redials: window.calls.filter((c) => c.command === "wireless_connect").length,
   })), { serial: "B:5555", live: true, redials: 0 });
 });
+
+test("a health load that lands after its profile vanished cannot wedge later loads (#118)", async (t) => {
+  const page = await open(t);
+  const result = await page.evaluate(async () => {
+    window.handlers.health_report = () => new Promise((resolve) => { window.releaseHealth = resolve; });
+    const first = window.session.loadHealth(true);
+    window.profileMode = "missing";
+    await window.session.refreshDevices();
+    window.releaseHealth({ ram: { free_mb: 1 }, storage: {}, display: {}, top_memory: [] });
+    await first;
+    window.profileMode = "matching";
+    await window.session.refreshDevices();
+    delete window.handlers.health_report;
+    window.calls = [];
+    await window.session.loadHealth(true);
+    return {
+      requests: window.calls.filter((c) => c.command === "health_report").length,
+      loading: window.session.healthLoading,
+      loaded: window.session.healthLoaded,
+      free: window.session.health?.ram?.free_mb,
+    };
+  });
+  assert.deepEqual(result, { requests: 1, loading: false, loaded: true, free: 512 });
+});
+
+test("cancelling a saved-TV reconnect never reports a connection failure (#118)", async (t) => {
+  const page = await open(t);
+  await page.evaluate(() => {
+    window.pendingConnects = [];
+    window.handlers.wireless_connect = () => new Promise((resolve) => window.pendingConnects.push(resolve));
+    window.handlers.wireless_cancel_connect = () => { throw new Error("cancel transport hiccup"); };
+    window.router.reset("onboarding");
+  });
+  await page.waitForFunction(() => window.pendingConnects.length === 1);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(await page.getByText("Couldn't reconnect").count(), 0);
+  assert.equal(await page.getByText("cancel transport hiccup").count(), 0);
+  assert.equal(await page.getByRole("heading", { name: "Which TV?" }).count(), 1);
+});
+
+test("Diagnostics keeps its safety badges when two top apps swap rank (#118)", async (t) => {
+  const page = await createPage(t, { activeHost: "A" });
+  await page.evaluate(async () => {
+    const entry = (process, mb) => ({ process, pid: null, package: process, mb });
+    window.topMemory = [entry("com.example.big", 300), entry("com.example.small", 200)];
+    window.handlers.health_report = () => ({
+      ram: { free_mb: 512 }, storage: {}, display: {}, top_memory: window.topMemory,
+    });
+    await window.session.connect("A", 5555);
+    window.router.reset("dashboard");
+    window.router.navigate("diagnostics");
+  });
+  await page.waitForFunction(() => window.calls.filter((c) => c.command === "safety_info").length === 2);
+  await page.evaluate(async () => {
+    window.topMemory = [...window.topMemory].reverse();
+    await window.session.loadHealth(true);
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(
+    await page.evaluate(() => window.calls.filter((c) => c.command === "safety_info").length),
+    2,
+  );
+  assert.equal(await page.evaluate(() => window.session.health.top_memory[0].process), "com.example.small");
+});

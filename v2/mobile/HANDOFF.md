@@ -26,6 +26,17 @@ matrix and `evidence/lifecycle/reproduce.mjs` to regenerate it. Restart feedback
 physically unresolved. The navigation change that opens the Dashboard directly after a saved-TV
 connect is merged; its browser tests pass and it has never run on a device.
 
+**Saved-TV identity audit fixes (2026-09-30, GitHub #115–#118).** Hardware ids now go through one
+rule, `normalizeHardwareId` in `lib/identity.ts` (trim; empty or `unknown` in any casing is no id,
+the same as desktop's `idKey`), and stored placeholder ids migrate to id-less rows. Scan rows are
+one per stored TV rather than one per address, with no synthesized "Saved TV" row, and a saved row
+only shows "connected" when the live TV's id matches it (an id-less row matches by exact
+endpoint); otherwise it shows the address as previously used. The cached
+name follows the same identity rule as everything else, and advertised serials only match
+exactly or with adbd's 6-character suffix. `loadHealth` can no longer wedge, Cancel no longer
+reports a reconnect failure, and Diagnostics no longer blanks its safety badges when two apps
+swap rank. Every fix is covered by a test reproducing the issue; none has run on a device.
+
 ---
 
 ## 1. What this is

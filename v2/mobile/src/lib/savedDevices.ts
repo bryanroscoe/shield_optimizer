@@ -9,6 +9,13 @@
 
 import type { Device, SavedDevice } from "./types";
 import { deviceLabelOf } from "./types";
+import {
+  normalizeHardwareId,
+  savedDeviceKey,
+  savedDeviceMatchesConnection,
+} from "./identity";
+
+export { savedDeviceKey, savedDeviceMatchesConnection };
 
 const KEY = "atv.savedDevices.v1";
 const AUTO_KEY = "atv.autoConnect.v1";
@@ -38,10 +45,9 @@ function normalizeSavedDevice(value: unknown): SavedDevice | null {
         : "unknown";
   const parsedLastUsed =
     typeof d.lastUsed === "string" ? new Date(d.lastUsed) : new Date(NaN);
-  const hardwareId =
-    typeof d.hardwareId === "string" && d.hardwareId.trim() !== ""
-      ? d.hardwareId.trim()
-      : undefined;
+  const hardwareId = normalizeHardwareId(
+    typeof d.hardwareId === "string" ? d.hardwareId : undefined,
+  );
   return {
     host: d.host.trim(),
     connectPort: d.connectPort,
@@ -65,9 +71,27 @@ function read(): SavedDevice[] {
     if (!Array.isArray(parsed)) return [];
     // Normalize older or partially-corrupt records in memory. Invalid dates
     // sort to the end instead of throwing during reconnect-screen startup.
-    return parsed
+    const normalized = parsed
       .map(normalizeSavedDevice)
       .filter((d): d is SavedDevice => d !== null);
+    // A stored placeholder id normalizes to id-less, which can leave two rows
+    // with one identity. Keep the newest so every key is unique (the saved-TV
+    // lists key on it) and Forget removes exactly one TV, and persist the
+    // result so the placeholder is migrated rather than re-normalized forever.
+    const newest = new Map<string, SavedDevice>();
+    for (const device of normalized) {
+      const key = savedDeviceKey(device);
+      const kept = newest.get(key);
+      if (!kept || device.lastUsed > kept.lastUsed) newest.set(key, device);
+    }
+    const unique = normalized.filter((d) => newest.get(savedDeviceKey(d)) === d);
+    const unnormalizedId = parsed.some((d) => {
+      if (!d || typeof d !== "object" || !("hardwareId" in d)) return false;
+      const stored = d.hardwareId;
+      return normalizeHardwareId(typeof stored === "string" ? stored : undefined) !== stored;
+    });
+    if (unnormalizedId || unique.length !== normalized.length) write(unique);
+    return unique;
   } catch {
     return [];
   }
@@ -94,20 +118,8 @@ export function lastSavedDevice(): SavedDevice | null {
   return listSavedDevices()[0] ?? null;
 }
 
-function normalizedHardwareId(value: string | undefined): string | undefined {
-  const id = value?.trim();
-  return id && id !== "unknown" ? id : undefined;
-}
-
 function hardwareIdOf(device: Device | null): string | undefined {
-  return normalizedHardwareId(device?.properties?.serial_number);
-}
-
-export function savedDeviceKey(device: SavedDevice): string {
-  const hardwareId = normalizedHardwareId(device.hardwareId);
-  return hardwareId
-    ? `hardware:${hardwareId}`
-    : `idless:${device.host}:${device.connectPort}`;
+  return normalizeHardwareId(device?.properties?.serial_number);
 }
 
 export function savedHostHasMultipleIdentities(
@@ -121,21 +133,6 @@ export function savedHostHasMultipleIdentities(
   ).size > 1;
 }
 
-export function savedDeviceMatchesConnection(
-  device: SavedDevice,
-  host: string,
-  connectPort: number,
-  hardwareId?: string,
-): boolean {
-  const connectedHardwareId = normalizedHardwareId(hardwareId);
-  const savedHardwareId = normalizedHardwareId(device.hardwareId);
-  if (connectedHardwareId) return savedHardwareId === connectedHardwareId;
-  return (
-    savedHardwareId === undefined &&
-    device.host === host &&
-    device.connectPort === connectPort
-  );
-}
 
 export function shouldAutoDialSavedDevices(
   devices: SavedDevice[],
@@ -152,9 +149,9 @@ function sameTv(
   connectPort: number,
   hardwareId: string | undefined,
 ): boolean {
-  if (hardwareId || row.hardwareId) {
-    return hardwareId !== undefined && row.hardwareId === hardwareId;
-  }
+  const liveId = normalizeHardwareId(hardwareId);
+  const savedId = normalizeHardwareId(row.hardwareId);
+  if (liveId || savedId) return liveId !== undefined && savedId === liveId;
   return row.host === host && row.connectPort === connectPort;
 }
 
@@ -221,19 +218,20 @@ export function setAutoConnect(enabled: boolean): void {
   }
 }
 
-/// Cached friendly name for the TV at `host`. When the live TV reports a
-/// hardware id, a cached row for that host is only trusted if it agrees, so a
-/// reused IP can never show another TV's name.
-export function cachedDeviceName(host: string, hardwareId?: string): string | null {
+/// Cached friendly name for the live TV, under the same identity rule as
+/// everywhere else: its verified hardware id or, when it reports none, an
+/// id-less row at the exact endpoint. An identified row never lends its name
+/// to a TV that reports no id, so a reused IP can never show another TV's name.
+export function cachedDeviceName(
+  host: string,
+  connectPort: number,
+  hardwareId?: string,
+): string | null {
   if (!host) return null;
-  const rows = listSavedDevices().filter((d) => d.host === host);
-  const normalizedId = hardwareId?.trim();
-  if (normalizedId && normalizedId !== "unknown") {
-    return rows.find((d) => d.hardwareId === normalizedId)?.name ?? null;
-  }
-  if (rows.length === 0) return null;
-  const identities = new Set(rows.map((d) => d.hardwareId ?? ""));
-  return identities.size === 1 ? rows[0].name : null;
+  const rows = listSavedDevices().filter((d) =>
+    savedDeviceMatchesConnection(d, host, connectPort, hardwareId),
+  );
+  return rows.length === 1 ? rows[0].name : null;
 }
 
 /// Compact "last used" phrasing for the reconnect card (e.g. "2h ago").

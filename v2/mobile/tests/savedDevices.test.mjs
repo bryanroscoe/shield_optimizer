@@ -15,12 +15,20 @@ const typesSource = await readFile(
 );
 const typesCompiled = ts.transpileModule(typesSource, { compilerOptions }).outputText;
 const typesUrl = `data:text/javascript;base64,${Buffer.from(typesCompiled).toString("base64")}`;
+const identitySource = await readFile(
+  new URL("../src/lib/identity.ts", import.meta.url),
+  "utf8",
+);
+const identityCompiled = ts.transpileModule(identitySource, { compilerOptions }).outputText;
+const identityUrl = `data:text/javascript;base64,${Buffer.from(identityCompiled).toString("base64")}`;
 const savedDevicesSource = await readFile(
   new URL("../src/lib/savedDevices.ts", import.meta.url),
   "utf8",
 );
 const savedDevicesCompiled = ts.transpileModule(
-  savedDevicesSource.replaceAll('"./types"', `"${typesUrl}"`),
+  savedDevicesSource
+    .replaceAll('"./types"', `"${typesUrl}"`)
+    .replaceAll('"./identity"', `"${identityUrl}"`),
   { compilerOptions },
 ).outputText;
 const savedDevices = await import(
@@ -309,13 +317,60 @@ test("returns cached names only for an unambiguous or matching identity", () => 
     }),
   ]);
 
-  assert.equal(savedDevices.cachedDeviceName("192.168.1.10"), null);
-  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", "shield-a"), "Shield");
-  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", "google-b"), "Google TV");
-  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", "other-id"), null);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555), null);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, "shield-a"), "Shield");
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, "google-b"), "Google TV");
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, "other-id"), null);
 
   seed([saved({ hardwareId: undefined, name: "No id" })]);
-  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", "shield-a"), null);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, "shield-a"), null);
+});
+
+test("a reused address never lends an identified TV's name to a TV that reports no id (#117)", () => {
+  seed([saved({ hardwareId: "shield-a", name: "Living room" })]);
+
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555), null);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, "unknown"), null);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, " "), null);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555, "shield-a"), "Living room");
+
+  // An id-less row is identified by its exact endpoint and nothing looser.
+  seed([saved({ hardwareId: undefined, name: "No id" })]);
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 5555), "No id");
+  assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 41234), null);
+});
+
+test("a stored placeholder id becomes an id-less row with one key (#116)", () => {
+  seed([
+    saved({ hardwareId: undefined, name: "Real", lastUsed: "2026-09-02T00:00:00.000Z" }),
+    saved({ hardwareId: "unknown", name: "Ghost", lastUsed: "2026-09-01T00:00:00.000Z" }),
+    saved({ host: "192.168.1.20", hardwareId: " UNKNOWN ", name: "Other", lastUsed: "2026-08-01T00:00:00.000Z" }),
+  ]);
+
+  const rows = savedDevices.listSavedDevices();
+  const keys = rows.map(savedDevices.savedDeviceKey);
+  assert.equal(new Set(keys).size, keys.length);
+  assert.deepEqual(
+    rows.map((row) => [row.name, row.hardwareId]),
+    [["Real", undefined], ["Other", undefined]],
+  );
+  // The placeholder is migrated out of storage, not just hidden on read.
+  assert.equal(rawRows().some((row) => "hardwareId" in row), false);
+
+  savedDevices.forgetSavedDevice(rows[0]);
+  assert.deepEqual(savedDevices.listSavedDevices().map((row) => row.name), ["Other"]);
+});
+
+test("reconnecting a TV that reports a placeholder id refreshes its row instead of appending (#116)", () => {
+  seed([saved({ hardwareId: "unknown", name: "Ghost" })]);
+
+  savedDevices.rememberDevice("192.168.1.10", 5555, device("unknown"));
+  savedDevices.rememberDevice("192.168.1.10", 5555, device("unknown"));
+
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].hardwareId, undefined);
+  assert.equal(rows[0].name, "Ghost");
 });
 
 test("sorts by lastUsed and truncates the oldest saved rows", () => {

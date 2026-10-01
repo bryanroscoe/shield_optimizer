@@ -99,8 +99,9 @@
     ...new Set((health?.top_memory ?? []).slice(0, 8).map((m) => m.process)),
   ]);
   // Stable dependency for the safety effect: refetch when the *set* of top
-  // packages changes, not on every 3-second refresh of the same set.
-  const topKey = $derived(topPackages.join(","));
+  // packages changes, not on every 3-second refresh of the same set. Sorted,
+  // because top_memory is ranked by size and a rank swap is not a new set.
+  const topKey = $derived([...topPackages].sort().join(","));
 
   onMount(() => {
     void session.loadHealth();

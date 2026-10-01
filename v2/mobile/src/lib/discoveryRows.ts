@@ -1,4 +1,9 @@
 import type { Discovery, SavedDevice } from "./types";
+import {
+  normalizeHardwareId,
+  savedDeviceKey,
+  savedDeviceMatchesConnection,
+} from "./identity";
 
 export type DiscoveryRowStatus =
   | "connected"
@@ -24,6 +29,9 @@ export interface LiveEndpoint {
   connected: boolean;
   host: string;
   connectPort: number;
+  /// The live TV's reported hardware id, if any. A saved row only claims the
+  /// live connection when this identity agrees with it.
+  hardwareId?: string | null;
 }
 
 type HostGroup = {
@@ -53,26 +61,34 @@ function advertisedSerial(instanceName: string): string | null {
   return rest.length > 0 ? rest : null;
 }
 
-/// Whether this address advertises a saved TV's hardware id. Matching the
+/// adbd's own suffix is six random alphanumerics. Bounding it is what stops a
+/// saved id of `shield` from matching a stranger advertising `adb-shield-a`.
+const ADBD_SUFFIX = /^[a-z0-9]{6}$/;
+
+/// How this address advertises a saved TV's hardware id: as the whole
+/// advertised serial, with adbd's random suffix, or not at all. Matching the
 /// broadcast serial is real identity evidence, so a scan can recognize a TV it
 /// has connected to before without opening a connection -- and without falling
 /// back to the address, which DHCP can hand to a different device.
-function advertisesHardwareId(
+function advertisedMatch(
   instanceNames: Set<string>,
-  hardwareId: string,
-): boolean {
-  const wanted = hardwareId.trim().toLowerCase();
-  if (!wanted) return false;
+  hardwareId: string | undefined,
+): "exact" | "suffixed" | null {
+  const wanted = normalizeHardwareId(hardwareId)?.toLowerCase();
+  if (!wanted) return null;
+  let match: "suffixed" | null = null;
   for (const instance of instanceNames) {
     const serial = advertisedSerial(instance)?.toLowerCase();
     if (!serial) continue;
-    if (serial === wanted || serial.startsWith(`${wanted}-`)) return true;
+    if (serial === wanted) return "exact";
+    if (
+      serial.startsWith(`${wanted}-`) &&
+      ADBD_SUFFIX.test(serial.slice(wanted.length + 1))
+    ) {
+      match = "suffixed";
+    }
   }
-  return false;
-}
-
-function endpointKey(host: string, port: number): string {
-  return `${host}:${port}`;
+  return match;
 }
 
 export function buildDiscoveryRows(
@@ -80,10 +96,26 @@ export function buildDiscoveryRows(
   savedDevices: SavedDevice[],
   live: LiveEndpoint,
 ): DiscoveryRow[] {
+  // mDNS entries can outlive the TV that published them (the Android side
+  // ignores onServiceLost), so the connected TV's own reported id outranks
+  // any advert: it names the live row, and an advert for that same TV at any
+  // other host is stale. Only that advert is dropped, never the other
+  // devices answering from the same address.
+  const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
+  const liveSaved = liveId
+    ? savedDevices.find((saved) => normalizeHardwareId(saved.hardwareId) === liveId)
+    : undefined;
   const hosts = new Map<string, HostGroup>();
   for (const discovery of discoveries) {
     const host = discovery.host.trim();
     if (!host || !validPort(discovery.port)) continue;
+    if (
+      liveId &&
+      host !== live.host &&
+      advertisedMatch(new Set([discovery.name ?? ""]), liveId)
+    ) {
+      continue;
+    }
     const group = hosts.get(host) ?? {
       host,
       names: new Set<string>(),
@@ -117,11 +149,25 @@ export function buildDiscoveryRows(
       live.connected &&
       live.host === group.host &&
       connectPorts.includes(live.connectPort);
-    const savedMatch = savedDevices.find(
-      (saved) =>
-        saved.hardwareId &&
-        advertisesHardwareId(group.instanceNames, saved.hardwareId),
-    );
+    let savedMatch =
+      savedDevices.find(
+        (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "exact",
+      ) ??
+      savedDevices.find(
+        (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "suffixed",
+      );
+    // On the live row only the live TV's own identity counts. When it reports
+    // no id, an advert there may be stale, so the row is named only after an
+    // id-less saved TV at this exact endpoint, or after nothing.
+    if (isLive) {
+      savedMatch = liveId
+        ? liveSaved
+        : savedDevices.find(
+            (saved) =>
+              normalizeHardwareId(saved.hardwareId) === undefined &&
+              savedDeviceMatchesConnection(saved, live.host, live.connectPort),
+          );
+    }
     if (savedMatch) verified.add(savedMatch);
     rows.push({
       key: `discovery:${group.host}`,
@@ -145,51 +191,62 @@ export function buildDiscoveryRows(
     });
   }
 
-  const savedEndpoints = new Map<string, SavedDevice[]>();
+  // One row per stored TV, never per address: two saved TVs that once shared
+  // an address are still two TVs, and each row carries the real stored entry
+  // so reconnect and Forget act on something that exists.
+  const identitiesAt = new Map<string, Set<string>>();
   for (const saved of savedDevices) {
-    const key = endpointKey(saved.host, saved.connectPort);
-    const matches = savedEndpoints.get(key) ?? [];
-    matches.push(saved);
-    savedEndpoints.set(key, matches);
+    const endpoint = `${saved.host}:${saved.connectPort}`;
+    const identities = identitiesAt.get(endpoint) ?? new Set<string>();
+    identities.add(savedDeviceKey(saved));
+    identitiesAt.set(endpoint, identities);
   }
-  for (const [endpoint, matches] of savedEndpoints) {
-    const first = matches[0];
-    const discovered = hosts.get(first.host);
-    if (discovered?.connectPorts.has(first.connectPort)) continue;
+  const seen = new Set<string>();
+  for (const saved of savedDevices) {
+    const identity = savedDeviceKey(saved);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     // Already named on a discovery row via its advertised serial.
-    if (matches.some((saved) => verified.has(saved))) continue;
-    const savedTarget = matches.length === 1
-      ? first
-      : {
-          host: first.host,
-          connectPort: first.connectPort,
-          name: "Saved TV",
-          deviceType: "unknown" as const,
-          lastUsed: matches.reduce(
-            (latest, saved) => saved.lastUsed > latest ? saved.lastUsed : latest,
-            matches[0].lastUsed,
-          ),
-        };
+    if (verified.has(saved)) continue;
+    const discovered = hosts.get(saved.host);
+    const answered = discovered?.connectPorts.has(saved.connectPort) ?? false;
+    // The discovery row stands in for a lone saved TV at an endpoint that
+    // answered. When several saved TVs share it, the scan cannot say which one
+    // answered, so each keeps its own row rather than vanishing into one.
+    const shared = (identitiesAt.get(`${saved.host}:${saved.connectPort}`)?.size ?? 0) > 1;
+    const atLiveEndpoint =
+      live.connected &&
+      live.host === saved.host &&
+      live.connectPort === saved.connectPort;
+    // The live row never stands in for a saved TV the live identity does not
+    // match, so that TV keeps its own row instead of vanishing.
+    const liveRowIsOther =
+      atLiveEndpoint &&
+      !savedDeviceMatchesConnection(saved, live.host, live.connectPort, live.hardwareId);
+    if (answered && !shared && !liveRowIsOther) continue;
     rows.push({
-      key: `saved:${endpoint}`,
+      key: `saved:${identity}`,
       source: "saved",
-      host: first.host,
-      name: savedTarget.name,
-      connectPorts: [first.connectPort],
+      host: saved.host,
+      name: saved.name,
+      connectPorts: [saved.connectPort],
       pairingPorts: [],
       legacyConnectPorts: [],
-      status:
-        live.connected &&
-        live.host === first.host &&
-        live.connectPort === first.connectPort
+      status: atLiveEndpoint
+        ? savedDeviceMatchesConnection(saved, live.host, live.connectPort, live.hardwareId)
           ? "connected"
-          // The address answered the scan on some other port. That is not the
-          // same claim as "offline", and it is the common case after a TV
-          // reboot rotates the wireless-debugging port.
-          : (discovered?.connectPorts.size ?? 0) > 0
-            ? "saved-other-port"
-            : "saved-missing",
-      savedTarget,
+          // Something answers at this saved address, but nothing shows it is
+          // this TV, so the row claims the address and not the connection.
+          : "saved-address"
+        : answered
+          ? "saved-address"
+        // The address answered the scan on some other port. That is not the
+        // same claim as "offline", and it is the common case after a TV
+        // reboot rotates the wireless-debugging port.
+        : (discovered?.connectPorts.size ?? 0) > 0
+          ? "saved-other-port"
+          : "saved-missing",
+      savedTarget: saved,
     });
   }
 
