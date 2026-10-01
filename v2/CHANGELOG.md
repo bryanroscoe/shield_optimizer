@@ -63,8 +63,9 @@ this file and shows the newest few sections, dated, from its version button.
   Setup Wraith. The app asked Android's intent resolver, which ranks Setup
   Wraith's high-priority Home filter first. It now asks for the Home role
   holder, which is what the Home button opens, and only falls back to the
-  resolver on builds without the role command. The ACTIVE tag, the current
-  Home app, snapshots, the restore preview, the stock-launcher step and the
+  resolver on builds without the role command, or when the resolver names an
+  enabled stock launcher that overrides the role on that build. The ACTIVE
+  tag, the current Home app, snapshots, the restore preview, the stock-launcher step and the
   bug-report bundle all use this one reading. When the two disagree, the
   bug-report bundle says so. Setup Wraith's row now reads "Google TV setup
   helper — not a launcher", has no Set as default button, and its Disable

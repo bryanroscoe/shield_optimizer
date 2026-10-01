@@ -195,6 +195,10 @@ pub struct HomeReading {
 /// launcher the user chose (#122). The role holder is therefore the answer
 /// whenever there is one; the resolver is the fallback for builds without
 /// the role command.
+///
+/// One exception: an enabled stock launcher the resolver names stays the
+/// answer. Some builds accept a role change and keep opening stock on Home
+/// (Shield / Android 11); only the resolver shows that.
 pub fn pick_current_home(
     role_holders: Option<&[String]>,
     resolved: Option<&str>,
@@ -218,6 +222,14 @@ pub fn pick_current_home(
             package: Some(role.clone()),
             activity: None,
             note: None,
+        },
+        (Some(role), Some((pkg, activity))) if catalog.is_stock(pkg) => HomeReading {
+            package: Some(pkg.to_string()),
+            activity: Some(activity.to_string()),
+            note: Some(format!(
+                "the HOME role is held by {role} but resolve-activity HOME names the stock \
+                 launcher {pkg}, which overrides the role on this build; showing {pkg}"
+            )),
         },
         (Some(role), Some((pkg, _))) => HomeReading {
             package: Some(role.clone()),
@@ -515,6 +527,22 @@ mod tests {
             pick_current_home(None, None, &catalog()),
             HomeReading::default()
         );
+    }
+
+    #[test]
+    fn current_home_keeps_a_stock_launcher_that_overrides_the_role() {
+        // Accept-but-ignore builds: the role moved, Home still opens stock.
+        let reading = pick_current_home(
+            Some(&pkgs(&["com.spocky.projengmenu"])),
+            Some("com.google.android.tvlauncher/.MainActivity"),
+            &catalog(),
+        );
+        assert_eq!(
+            reading.package.as_deref(),
+            Some("com.google.android.tvlauncher")
+        );
+        assert_eq!(reading.activity.as_deref(), Some(".MainActivity"));
+        assert!(reading.note.unwrap().contains("overrides the role"));
     }
 
     #[test]

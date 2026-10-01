@@ -650,8 +650,9 @@ const HOME_ROLE_HOLDERS: &str = "cmd role get-role-holders android.app.role.HOME
 
 /// The current Home app, read the one way every caller uses: the launcher
 /// rows' ACTIVE tag, snapshot capture and the restore plan, the disable-stock
-/// preconditions and the diagnostics bundle. The HOME role holder wins
-/// (Android 10+); `resolve-activity` is the fallback for builds without the
+/// preconditions and the diagnostics bundle. The HOME role holder wins,
+/// unless the resolver names a stock launcher that overrides it (Android 10+);
+/// `resolve-activity` is the fallback for builds without the
 /// role command. See `engine::pick_current_home` for why.
 ///
 /// `Err` only when neither source could be read at all.
