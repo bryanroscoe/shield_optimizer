@@ -38,6 +38,19 @@ export interface AppDetailInputs {
   report?: AppReportDevice;
 }
 
+/// The state a report may carry for a row. A catalog row takes the page's
+/// current state, and none while that state is being re-read: an Optimize or
+/// bulk change has just run, so the cached value may predate it. A row outside
+/// the catalog (undefined) defers to its own state.
+export function reportLiveState(
+  inCatalog: boolean,
+  state: "enabled" | "disabled" | "missing" | undefined,
+  resyncing: boolean,
+): "enabled" | "disabled" | "missing" | null | undefined {
+  if (!inCatalog) return undefined;
+  return resyncing ? null : (state ?? null);
+}
+
 export function idleMeasurements(): AppMeasurements {
   return { memory: { status: "idle" }, usage: { status: "idle" }, storage: { status: "idle" } };
 }

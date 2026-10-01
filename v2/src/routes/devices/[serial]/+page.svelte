@@ -46,6 +46,7 @@
   import {
     idleMeasurements,
     loadingMeasurements,
+    reportLiveState,
     settled,
     type AppDetailInputs,
     type AppMeasurements,
@@ -221,6 +222,10 @@
   let appsErr = $state<string | null>(null);
   /// Missing or invalid entries stay absent: absence means inventory unavailable.
   let appStates = $state<Record<string, PackageState>>({});
+  /// True while appStates is being re-read after a run that changed the
+  /// device. The cached states may predate the run, so nothing reports them.
+  let appStatesResyncing = $state(false);
+  let appStatesResync = 0;
   let catalogInventoryVersion = 0;
   let appSearch = $state("");
   // Default on: the catalog lists ~70 known apps, most not present on any given
@@ -258,7 +263,11 @@
       onRemeasure: () => void loadAppMemory(),
       // A catalog package the page has no current state for is unknown, not
       // whatever an older row last said.
-      liveState: apps.some((a) => a.package === pkg) ? (appStates[pkg] ?? null) : undefined,
+      liveState: reportLiveState(
+        apps.some((a) => a.package === pkg),
+        appStates[pkg],
+        appStatesResyncing,
+      ),
       report: device
         ? {
             family: reportFamily(device.device_type, device.tv_evidence),
@@ -359,6 +368,13 @@
     try {
       const nextDevice = await api.deviceProfile(context.serial);
       if (!pageContextIsCurrent(context) || request !== deviceRequest) return;
+      // The key was a transport alias the device list collapsed into this row
+      // (matched on hardware id by the backend). Move to the row's own key so
+      // every later command, and the clone-target list, agree on one device.
+      if (nextDevice.serial !== context.serial) {
+        void goto(`/devices/${encodeURIComponent(nextDevice.serial)}`, { replaceState: true });
+        return;
+      }
       device = nextDevice;
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== deviceRequest) return;
@@ -841,10 +857,20 @@
 
   /// Re-sync the App List's cached states after the Optimize wizard runs —
   /// it cached states before the run, same as executeOptimize used to do inline.
+  function beginStatesResync(): number {
+    appStatesResyncing = true;
+    return ++appStatesResync;
+  }
+
+  function endStatesResync(token: number) {
+    if (token === appStatesResync) appStatesResyncing = false;
+  }
+
   async function resyncAppStates() {
     const context = capturePageContext();
     const request = ++appsRequest;
     if (apps.length > 0) {
+      const resync = beginStatesResync();
       try {
         const packages = apps.map((a) => a.package);
         const next = await fetchAppStates(context, packages);
@@ -858,6 +884,8 @@
         if (!pageContextIsCurrent(context) || request !== appsRequest) return;
         appStates = {};
         appsErr = `Inventory unavailable: ${e}. Refresh to retry.`;
+      } finally {
+        endStatesResync(resync);
       }
     }
     // The Optimize wizard can disable launchers and many packages — mark the
@@ -1537,6 +1565,7 @@
     refreshMeasurements();
     if (apps.length === 0) return;
     const context = capturePageContext();
+    const resync = beginStatesResync();
     try {
       appStates = await fetchAppStates(context, apps.map((a) => a.package));
       if (!pageContextIsCurrent(context)) return;
@@ -1545,6 +1574,8 @@
       if (!pageContextIsCurrent(context)) return;
       appStates = {};
       appsLoaded = false; // fall back to the lazy reload next tab visit
+    } finally {
+      endStatesResync(resync);
     }
   }
 
@@ -1765,6 +1796,7 @@
     stopStorePoll(); storeOpened = null;
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
+    appStatesResync++; appStatesResyncing = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
     otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
