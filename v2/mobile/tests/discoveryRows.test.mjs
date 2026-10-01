@@ -97,7 +97,7 @@ test("the live endpoint is the only connected row", () => {
       advert("192.168.1.55", 41234, TLS_CONNECT, "Bedroom"),
     ],
     [saved(), saved({ host: "192.168.1.77", hardwareId: "shield-b", name: "Den" })],
-    liveAt("192.168.1.10", 5555),
+    liveAt("192.168.1.10", 5555, "shield-a"),
   );
 
   assert.deepEqual(
@@ -203,6 +203,44 @@ test("a stale advert at an old host never shows the live TV a second time (#115)
   assert.deepEqual(
     silent.map((row) => [row.key, row.name, row.status]),
     [["saved:hardware:shield-a", "Shield A", "connected"]],
+  );
+});
+
+test("a live TV that reports no id is never named after a stale advert at its address (#115)", () => {
+  const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
+  const rows = buildDiscoveryRows(
+    [advert("192.168.1.10", 5555, LEGACY, "adb-shield-a")],
+    [shieldA],
+    liveAt("192.168.1.10", 5555),
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.name, row.status, row.savedTarget]),
+    [
+      ["discovery:192.168.1.10", "Android TV", "connected", undefined],
+      ["saved:hardware:shield-a", "Shield A", "saved-address", shieldA],
+    ],
+  );
+});
+
+test("dropping a stale advert keeps the TV now advertising from that address (#115)", () => {
+  const shieldA = saved({ host: "192.168.1.20", hardwareId: "shield-a", name: "Shield A" });
+  const googleB = saved({ hardwareId: "google-b", name: "Google B", lastUsed: "2026-08-01T00:00:00.000Z" });
+  const rows = buildDiscoveryRows(
+    [
+      advert("192.168.1.10", 5555, LEGACY, "adb-shield-a"),
+      advert("192.168.1.10", 5555, LEGACY, "adb-google-b"),
+    ],
+    [shieldA, googleB],
+    liveAt("192.168.1.20", 5555, "shield-a"),
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.name, row.status]),
+    [
+      ["saved:hardware:shield-a", "Shield A", "connected"],
+      ["discovery:192.168.1.10", "Google B", "saved-verified"],
+    ],
   );
 });
 

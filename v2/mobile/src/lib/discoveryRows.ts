@@ -96,10 +96,26 @@ export function buildDiscoveryRows(
   savedDevices: SavedDevice[],
   live: LiveEndpoint,
 ): DiscoveryRow[] {
+  // mDNS entries can outlive the TV that published them (the Android side
+  // ignores onServiceLost), so the connected TV's own reported id outranks
+  // any advert: it names the live row, and an advert for that same TV at any
+  // other host is stale. Only that advert is dropped, never the other
+  // devices answering from the same address.
+  const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
+  const liveSaved = liveId
+    ? savedDevices.find((saved) => normalizeHardwareId(saved.hardwareId) === liveId)
+    : undefined;
   const hosts = new Map<string, HostGroup>();
   for (const discovery of discoveries) {
     const host = discovery.host.trim();
     if (!host || !validPort(discovery.port)) continue;
+    if (
+      liveId &&
+      host !== live.host &&
+      advertisedMatch(new Set([discovery.name ?? ""]), liveId)
+    ) {
+      continue;
+    }
     const group = hosts.get(host) ?? {
       host,
       names: new Set<string>(),
@@ -127,14 +143,6 @@ export function buildDiscoveryRows(
   // on their discovery row, so they must not also appear as a saved-endpoint
   // row further down -- that is what produced duplicate reconnect entries.
   const verified = new Set<SavedDevice>();
-  // mDNS entries can outlive the TV that published them (the Android side
-  // ignores onServiceLost), so the connected TV's own reported id outranks
-  // any advert: it names the live row, and an advert for that same TV at any
-  // other host is stale and is not offered at all.
-  const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
-  const liveSaved = liveId
-    ? savedDevices.find((saved) => normalizeHardwareId(saved.hardwareId) === liveId)
-    : undefined;
   for (const group of hosts.values()) {
     const connectPorts = [...group.connectPorts].sort((a, b) => a - b);
     const isLive =
@@ -148,8 +156,18 @@ export function buildDiscoveryRows(
       savedDevices.find(
         (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "suffixed",
       );
-    if (isLive && liveId) savedMatch = liveSaved;
-    else if (liveId && advertisedMatch(group.instanceNames, liveId)) continue;
+    // On the live row only the live TV's own identity counts. When it reports
+    // no id, an advert there may be stale, so the row is named only after an
+    // id-less saved TV at this exact endpoint, or after nothing.
+    if (isLive) {
+      savedMatch = liveId
+        ? liveSaved
+        : savedDevices.find(
+            (saved) =>
+              normalizeHardwareId(saved.hardwareId) === undefined &&
+              savedDeviceMatchesConnection(saved, live.host, live.connectPort),
+          );
+    }
     if (savedMatch) verified.add(savedMatch);
     rows.push({
       key: `discovery:${group.host}`,
@@ -196,11 +214,16 @@ export function buildDiscoveryRows(
     // answered. When several saved TVs share it, the scan cannot say which one
     // answered, so each keeps its own row rather than vanishing into one.
     const shared = (identitiesAt.get(`${saved.host}:${saved.connectPort}`)?.size ?? 0) > 1;
-    if (answered && !shared) continue;
     const atLiveEndpoint =
       live.connected &&
       live.host === saved.host &&
       live.connectPort === saved.connectPort;
+    // The live row never stands in for a saved TV the live identity does not
+    // match, so that TV keeps its own row instead of vanishing.
+    const liveRowIsOther =
+      atLiveEndpoint &&
+      !savedDeviceMatchesConnection(saved, live.host, live.connectPort, live.hardwareId);
+    if (answered && !shared && !liveRowIsOther) continue;
     rows.push({
       key: `saved:${identity}`,
       source: "saved",
