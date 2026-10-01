@@ -1,6 +1,8 @@
 <script lang="ts">
   import { api } from "$lib/api";
-  import type { AppStorage, AppUsage } from "$lib/types";
+  import type { AppStorage, AppUsage, Safety } from "$lib/types";
+  import type { AppReportDevice, AppReportState } from "$lib/app-report";
+  import AppReportDialog from "$lib/components/AppReportDialog.svelte";
   import {
     formatBytes,
     hasStorage,
@@ -16,6 +18,8 @@
   // read one way in one table and another way in the next. It is read-only:
   // the row's own verbs are the only per-app actions, and they keep their
   // existing guarded paths. "Re-measure" re-runs the same three reads.
+  // "Report this app" only builds text for the user to copy, save or paste;
+  // it changes nothing on the device and nothing about the verdict.
   let {
     package: pkg,
     kindLabel,
@@ -29,6 +33,10 @@
     usage,
     storage,
     onRemeasure,
+    appName,
+    appState = null,
+    verdict = null,
+    reportDevice,
   }: {
     package: string;
     kindLabel: string;
@@ -43,7 +51,34 @@
     usage?: AppUsage;
     storage?: AppStorage;
     onRemeasure?: () => void;
+    appName?: string;
+    appState?: "enabled" | "disabled" | "missing" | null;
+    /// The verdict the row shows, or null when the lookup did not complete.
+    verdict?: Safety | null;
+    /// Present when the page can say which device family this is.
+    reportDevice?: AppReportDevice;
   } = $props();
+
+  let reportOpen = $state(false);
+
+  /// The figures the panel shows, and only those: a read that failed or never
+  /// ran is null, while a successful read with no process is "not running".
+  function reportState(): AppReportState {
+    const memRead = measures?.memory.status === "ready";
+    const running = memRead ? memoryMb !== undefined && memoryMb > 0 : null;
+    let reported: AppReportState["storage"] = null;
+    if (measures?.storage.status === "ready" && hasStorage(storage)) {
+      reported = { source: "diskstats", ...storage };
+    } else if (apk.status === "ready") {
+      reported = { source: "apk_files", app_bytes: apk.value.app_bytes, data_bytes: null, cache_bytes: null };
+    }
+    return {
+      status: appState,
+      running,
+      ramMb: running ? (memoryMb ?? null) : null,
+      storage: reported,
+    };
+  }
 
   type ApkRead =
     | { status: "idle" }
@@ -207,13 +242,32 @@
         {/if}
       {/each}
     </dl>
-    {#if onRemeasure}
-      <button class="remeasure" onclick={() => onRemeasure?.()} disabled={busy}>
-        <Icon name="refresh" size={14} /> {busy ? "Measuring…" : "Re-measure"}
-      </button>
-    {/if}
+  {/if}
+  {#if (measures && onRemeasure) || reportDevice}
+    <div class="panel-actions">
+      {#if measures && onRemeasure}
+        <button class="remeasure" onclick={() => onRemeasure?.()} disabled={busy}>
+          <Icon name="refresh" size={14} /> {busy ? "Measuring…" : "Re-measure"}
+        </button>
+      {/if}
+      {#if reportDevice}
+        <button class="remeasure report-app" onclick={() => (reportOpen = true)}>
+          <Icon name="bug_report" size={14} /> Report this app
+        </button>
+      {/if}
+    </div>
   {/if}
 </div>
+{#if reportOpen && reportDevice}
+  <AppReportDialog
+    package={pkg}
+    appName={appName ?? null}
+    {verdict}
+    device={reportDevice}
+    appState={reportState()}
+    onClose={() => (reportOpen = false)}
+  />
+{/if}
 
 <style>
   .safety-detail {
@@ -288,6 +342,15 @@
     color: var(--fg-muted);
     line-height: 1.4;
     overflow-wrap: anywhere;
+  }
+  .panel-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+  }
+  .measures + .panel-actions {
+    margin-top: 0;
   }
   .remeasure {
     padding: 0.2rem 0.6rem;

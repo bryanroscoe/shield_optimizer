@@ -849,6 +849,15 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         still_advertised: false,
         message: `Disconnected ${String(args.serial)}.`,
       };
+    case "plugin:dialog|save":
+      // The save dialog picks a fixed path; Cancel is a stored null.
+      return demoValue("savePath") ?? "/Users/demo/Downloads/app-report.json";
+    case "save_app_report": {
+      // Kept on the page so a test can read back exactly what would be written.
+      const w = window as unknown as { __SAVED_APP_REPORTS__?: { path: unknown; contents: unknown }[] };
+      (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
+      return null;
+    }
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

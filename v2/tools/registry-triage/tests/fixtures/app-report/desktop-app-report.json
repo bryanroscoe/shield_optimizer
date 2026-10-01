@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-30T12:00:00.000Z",
+  "truncated": false,
+  "source": "desktop_app_report",
+  "records": [
+    {
+      "kind": "installed_package",
+      "token": "com.example.reportme",
+      "reason": "user_report_not_listed",
+      "app_version": "2.3.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-09-30T12:00:00.000Z",
+      "last_seen": "2026-09-30T12:00:00.000Z",
+      "count": 1,
+      "app_name": "Report Me",
+      "current_verdict": "unknown",
+      "verdict_source": "no_record",
+      "note": "Shows up after the vendor update."
+    }
+  ]
+}

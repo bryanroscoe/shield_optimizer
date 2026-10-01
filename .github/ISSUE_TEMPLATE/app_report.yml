@@ -1,0 +1,40 @@
+name: App report
+description: An app that isn't in the list, or a list entry that looks wrong.
+title: "App report: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. In the app, open the app's details and click **Report this app**. When it fits, it fills in the fields below for you. Otherwise, use Copy in that dialog and paste it into Report.
+
+        A report asks for a review. It never changes how the app rates a package on its own, and nothing is sent until you submit this form.
+  - type: input
+    id: package
+    attributes:
+      label: Package
+      description: The package id, for example "com.example.app".
+    validations:
+      required: true
+  - type: input
+    id: reason
+    attributes:
+      label: What's wrong
+      description: Not in the list, Wrong verdict, Wrong description, or Other.
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What the app should say instead, and how you know. Links to the app's store page or vendor docs help.
+    validations:
+      required: false
+  - type: textarea
+    id: report
+    attributes:
+      label: Report
+      description: From Report this app. It names this one package, the device family and Android version, and what the app says about it today. No serial, IP address or list of other apps.
+      render: json
+    validations:
+      required: false

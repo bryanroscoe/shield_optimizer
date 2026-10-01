@@ -271,6 +271,10 @@
         usage={details?.usage}
         storage={details?.storage}
         onRemeasure={details?.onRemeasure}
+        appName={name}
+        appState={details?.liveState !== undefined ? details.liveState : pkgState}
+        verdict={lookup.status === "ready" ? lookup.verdict : null}
+        reportDevice={details?.report}
       />
     </td>
   </tr>

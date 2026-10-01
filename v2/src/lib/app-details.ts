@@ -3,6 +3,7 @@
 // it was measured, and a failed read is "unavailable", never zero.
 
 import type { AppStorage, AppUsage } from "./types";
+import type { AppReportDevice } from "./app-report";
 
 export type MeasureStatus =
   | { status: "idle" }
@@ -27,6 +28,14 @@ export interface AppDetailInputs {
   usage?: AppUsage;
   storage?: AppStorage;
   onRemeasure?: () => void;
+  /// The page's current package state, resynced after every action. A row
+  /// can carry an older one (the Optimize plan is not reloaded after a run),
+  /// so a report uses this for a catalog package: null means the page has no
+  /// current state, and undefined (a non-catalog row) defers to the row.
+  liveState?: "enabled" | "disabled" | "missing" | null;
+  /// The device context "Report this app" may share. Absent, the panel
+  /// offers no report.
+  report?: AppReportDevice;
 }
 
 export function idleMeasurements(): AppMeasurements {

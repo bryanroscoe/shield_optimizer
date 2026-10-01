@@ -19,6 +19,7 @@
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",
     "test:notes-seen": "node tests/notes-seen.mjs",
     "test:report-bug": "node tests/report-bug.mjs",
+    "test:app-report": "node tests/app-report.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
     "test:memory-safety": "node tests/memory-safety.mjs",
     "test:recommendation-labels": "node tests/recommendation-labels.mjs",

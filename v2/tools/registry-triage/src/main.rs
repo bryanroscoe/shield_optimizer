@@ -34,6 +34,12 @@ const REASONS: &[&str] = &[
     "unknown_safety_classification",
     "safety_lookup_unavailable",
     "process_not_resolved",
+    // Desktop "Report this app" (src/lib/app-report.ts): a user's claim about
+    // one package, in the same record shape.
+    "user_report_not_listed",
+    "user_report_wrong_verdict",
+    "user_report_wrong_description",
+    "user_report_other",
 ];
 const FAMILIES: &[&str] = &["shield", "google_tv", "android_tv", "unknown"];
 
@@ -530,6 +536,27 @@ mod tests {
         assert_eq!(good[0].token, "com.a.b");
         assert_eq!(good[0].count, 2);
         assert!(parse_mobile(r#"{"schema_version":2,"records":[]}"#).is_none());
+    }
+
+    #[test]
+    fn a_desktop_app_report_is_read_and_never_promotes_the_app() {
+        let bundle = load_embedded_app_lists().unwrap();
+        let dir = fixtures().join("app-report");
+        let text = fs::read_to_string(dir.join("desktop-app-report.json")).unwrap();
+        let (sightings, rejected) = parse_mobile(&text).expect("an app report");
+        assert_eq!(rejected, 0);
+        assert_eq!(sightings.len(), 1);
+        assert_eq!(sightings[0].token, "com.example.reportme");
+        assert_eq!(sightings[0].reason, "user_report_not_listed");
+        assert_eq!(sightings[0].family, "shield");
+
+        let batch = read_batch(&[dir]).unwrap();
+        assert_eq!(batch.mobile_files, 1);
+        let list = candidates(&batch, &bundle);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].reasons, ["user_report_not_listed"]);
+        // The user's claim is listed for review; the verdict stays the catalog's.
+        assert_eq!(list[0].today, "unknown");
     }
 
     #[test]

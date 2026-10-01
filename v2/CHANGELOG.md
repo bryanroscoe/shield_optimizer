@@ -36,6 +36,15 @@ this file and shows the newest few sections, dated, from its version button.
   bundles. It prints the packages they mention, with report counts, device
   scope and today's verdict, for a person to review. It never writes the
   catalog, and a report never makes an app Safe.
+- **Report this app** (#100). The app detail panel can report an app that is
+  missing from the list, or an entry that looks wrong. You pick a reason, add
+  an optional note, and see the exact report: the package and app name, the
+  device family and Android version, and the verdict shown with its source.
+  The installed and enabled state, RAM and storage go in only if you tick the
+  box. It never includes a serial, an IP address or any other app. Nothing is
+  sent automatically: you can copy it, save it as a file that `registry-triage`
+  reads, or open a prefilled GitHub issue that you submit yourself. A report
+  asks for a review and never changes an app's verdict.
 
 ### App details
 

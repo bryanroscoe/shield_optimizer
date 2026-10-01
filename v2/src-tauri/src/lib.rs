@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use adb::SubprocessAdb;
-use commands::{backup, diagnostics, files, install, scan, sideload, update, AppState};
+use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot, shell,
@@ -149,6 +149,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         optimize::prepare_optimize,
         optimize::apply_performance_settings,
         update::check_for_update,
+        app_report::save_app_report,
         diagnostics::collect_diagnostics,
         diagnostics::set_debug_logging,
         diagnostics::get_debug_logging,

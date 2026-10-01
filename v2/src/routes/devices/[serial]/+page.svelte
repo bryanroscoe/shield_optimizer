@@ -24,7 +24,7 @@
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
   import type { MemoryEntry } from "$lib/types";
-  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged } from "$lib/prefs";
+  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import {
     isBlocked,
@@ -50,6 +50,7 @@
     type AppDetailInputs,
     type AppMeasurements,
   } from "$lib/app-details";
+  import { reportFamily } from "$lib/app-report";
   import FilesTab from "$lib/components/FilesTab.svelte";
   import TweaksTab from "$lib/components/TweaksTab.svelte";
   import SideloadTab from "$lib/components/SideloadTab.svelte";
@@ -255,6 +256,20 @@
       usage: appUsage[pkg],
       storage: appStorage[pkg],
       onRemeasure: () => void loadAppMemory(),
+      // A catalog package the page has no current state for is unknown, not
+      // whatever an older row last said.
+      liveState: apps.some((a) => a.package === pkg) ? (appStates[pkg] ?? null) : undefined,
+      report: device
+        ? {
+            family: reportFamily(device.device_type, device.tv_evidence),
+            androidVersion: device.properties?.android_release ?? null,
+            // A placeholder ro.serialno ("unknown") identifies nothing, and
+            // scrubbing it would eat that word from the user's note.
+            redact: [serial, device.serial, idKey(device.properties?.serial_number)].filter(
+              (id): id is string => !!idKey(id),
+            ),
+          }
+        : undefined,
     };
   }
 
