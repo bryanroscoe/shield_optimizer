@@ -98,10 +98,16 @@ row was keyed by its bare endpoint. Fixed in `savedDevices.ts`/`identity.ts`/`di
   they shared. Existing stored rows are migrated on first read without losing any.
 - `rememberDevice` only refreshes an existing id-less row when exactly one saved row matches the
   connecting endpoint. When two or more already share it, which one just reconnected is unknowable,
-  so a new row is saved rather than silently overwriting one of the existing guesses.
-- `buildDiscoveryRows` never marks more than one id-less saved row "connected" at a shared live
-  endpoint: the discovery row falls back to a generic name and both saved rows report
-  "saved-address" instead of one of them claiming the connection.
+  so the connection is deliberately not persisted against any of them -- it writes nothing, rather
+  than either overwriting one of them with a guess or saving a new row on every repeat reconnect
+  (the latter would eventually evict a genuine saved TV once `MAX` is reached).
+- A shared `savedDeviceIsLiveConnection` check (`identity.ts`) is the one place that decides
+  whether a saved row is unambiguously the live connection: always true for a verified hardware id,
+  true for an id-less match only when it is the single id-less row at that endpoint. Both
+  `buildDiscoveryRows` and the Devices screen's "Other TVs" filter use it, so neither marks more
+  than one id-less saved row "connected" at a shared live endpoint, and neither hides an ambiguous
+  row (and its Forget control) from the list -- the discovery row falls back to a generic name and
+  both saved rows report "saved-address" instead of one of them claiming the connection.
 
 Covered by new tests in `tests/savedDevices.test.mjs` and `tests/discoveryRows.test.mjs`; none has
 run on a device.
