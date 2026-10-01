@@ -70,6 +70,15 @@ export interface AppUsage {
   launch_count: number;
 }
 
+/// Installed storage for one package, in bytes. Disk, never memory. A field
+/// the device did not report is null, which renders as unavailable — never 0.
+/// `data_bytes` includes the cache, so the two are never added together.
+export interface AppStorage {
+  app_bytes: number | null;
+  data_bytes: number | null;
+  cache_bytes: number | null;
+}
+
 export interface LauncherEntry {
   name: string;
   package: string;

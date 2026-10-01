@@ -3,8 +3,10 @@
   import Icon from "$lib/components/Icon.svelte";
   import BrandMark from "$lib/components/BrandMark.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
+  import ReleaseNotes from "$lib/components/ReleaseNotes.svelte";
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
@@ -16,24 +18,46 @@
   } from "$lib/theme";
   import {
     getAutoUpdate,
-    getLastSeenVersion,
+    getLegacyLastSeenVersion,
+    getNotesSeenVersion,
     setAutoUpdate,
-    setLastSeenVersion,
+    setNotesSeenVersion,
   } from "$lib/prefs";
   import { api } from "$lib/api";
   import { parseReleaseNotes, type NoteBlock } from "$lib/release-notes";
+  import { notesFor, parseChangelog, recentReleases } from "$lib/changelog";
+  import { decideArrival } from "$lib/notes-seen";
   import { isNewerVersion } from "$lib/version";
   import type { UpdateInfo } from "$lib/types";
+  // Bundled at build time, so the notes for the running version are always
+  // there — offline, rate-limited, or seconds after a relaunch.
+  import changelogSource from "../../CHANGELOG.md?raw";
 
   let { children } = $props();
+
+  const RELEASES_PAGE = "https://github.com/bryanroscoe/shield_optimizer/releases";
+  const changelog = parseChangelog(changelogSource);
 
   let theme = $state<ThemePref>("system");
   let autoUpdate = $state(true);
   let update = $state<UpdateInfo | null>(null);
+  /// The running version, read from the app itself rather than from the
+  /// GitHub API call, which can take seconds or fail outright.
+  let appVersion = $state<string | null>(null);
+  const currentVersion = $derived(appVersion ?? update?.current ?? null);
   let pendingUpdate = $state<Update | null>(null);
   let updateBusy = $state(false);
   let updateInstalled = $state(false);
   let updateProgress = $state("");
+  /// The "Restart now / Later" prompt that follows a finished install.
+  let restartPromptOpen = $state(false);
+  let restarting = $state(false);
+  let restartFailed = $state(false);
+  /// On Windows the updater hands off to the NSIS/MSI installer and exits the
+  /// app itself; the installer starts the new version. Offering Restart there
+  /// as well could launch it twice, so that path never shows the prompt.
+  const installerRelaunches =
+    typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
   /// Notes for the pending update, shown before it installs. This app disables
   /// packages on a user's TV and can update itself unattended, so "what does
   /// this change?" is a question worth answering before the answer arrives.
@@ -46,13 +70,20 @@
   /// two can disagree — showing one version's number above another's notes
   /// would be worse than showing neither.
   const pendingVersion = $derived(pendingUpdate?.version ?? update?.latest ?? "");
-  /// Set when this launch is the first on a newly-installed version. Someone
-  /// with auto-update on never sees the pre-install notes, so this is the only
-  /// point at which they learn what changed. Also covers an upgrade done
-  /// outside the app, via Homebrew or by replacing it by hand.
-  let arrivedOn = $state<string | null>(null);
-  const arrivedNotes = $derived<NoteBlock[]>(
-    update?.current_notes ? parseReleaseNotes(update.current_notes) : [],
+  /// Release history: opened by the version button at any time, and on its
+  /// own once after an upgrade (`arrived`). Someone with auto-update on never
+  /// sees the pre-install notes, so the arrival is the only point at which
+  /// they learn what changed. Also covers an upgrade done outside the app,
+  /// via Homebrew or by replacing it by hand.
+  let historyOpen = $state(false);
+  let arrived = $state(false);
+  const history = $derived(
+    currentVersion
+      ? recentReleases(changelog, currentVersion).map((entry) => ({
+          ...entry,
+          blocks: parseReleaseNotes(entry.body),
+        }))
+      : [],
   );
 
   /// GitHub has published a tag the updater manifest has not caught up with.
@@ -75,23 +106,51 @@
     // Keep Auto honest while the app is open, not just at launch.
     watchOsTheme();
 
+    getVersion()
+      .then((running) => {
+        appVersion = running;
+        announceArrival(running);
+      })
+      .catch(() => {});
+
     api
       .checkForUpdate()
       .then((u) => {
         update = u;
-        const lastSeen = getLastSeenVersion();
-        // A first run has nothing to compare against, and greeting a new user
-        // with "what's new" makes no sense — record the version and say
-        // nothing. Notes can also be absent for a dev build or while offline.
-        if (lastSeen && lastSeen !== u.current && u.current_notes) {
-          arrivedOn = u.current;
-        }
-        setLastSeenVersion(u.current);
       })
       .catch(() => {});
 
     checkForUpdate();
   });
+
+  function announceArrival(running: string) {
+    const decision = decideArrival({
+      running,
+      notesSeen: getNotesSeenVersion(),
+      legacyLastSeen: getLegacyLastSeenVersion(),
+      hasNotes: notesFor(changelog, running) !== null,
+      isNewer: isNewerVersion,
+    });
+    if (decision.show) {
+      arrived = true;
+      historyOpen = true;
+    } else if (decision.record) {
+      setNotesSeenVersion(decision.record);
+    }
+  }
+
+  function openHistory() {
+    arrived = false;
+    historyOpen = true;
+  }
+
+  function closeHistory() {
+    // Recorded on dismissal, not on display: a launch that never got as far
+    // as showing the notes leaves them owed.
+    if (arrived && appVersion) setNotesSeenVersion(appVersion);
+    historyOpen = false;
+    arrived = false;
+  }
 
   async function checkForUpdate() {
     try {
@@ -107,20 +166,42 @@
     }
   }
 
+  function megabytes(bytes: number): string {
+    return (bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0);
+  }
+
   async function installUpdate() {
     if (!pendingUpdate || updateBusy) return;
     updateBusy = true;
     updateProgress = "Downloading…";
+    let total = 0;
+    let received = 0;
     try {
       await pendingUpdate.downloadAndInstall((event) => {
-        if (event.event === "Started" && event.data.contentLength) {
-          updateProgress = `Downloading (${Math.round(event.data.contentLength / 1024 / 1024)} MB)…`;
+        if (event.event === "Started") {
+          total = event.data.contentLength ?? 0;
+          received = 0;
+          updateProgress = total ? `Downloading 0% of ${megabytes(total)} MB…` : "Downloading…";
+        } else if (event.event === "Progress") {
+          received += event.data.chunkLength;
+          updateProgress = total
+            ? `Downloading ${Math.min(100, Math.floor((received / total) * 100))}% of ${megabytes(total)} MB…`
+            : `Downloading ${megabytes(received)} MB…`;
         } else if (event.event === "Finished") {
-          updateProgress = "Installing…";
+          updateProgress = installerRelaunches
+            ? "Installing — the app will close and reopen on its own…"
+            : "Installing…";
         }
       });
+      if (installerRelaunches) {
+        // Normally unreachable: the installer has already exited the app. If
+        // it did not, say what is true rather than offering a second launch.
+        updateProgress = "Installed. Quit and reopen the app to finish.";
+        return;
+      }
       updateInstalled = true;
       updateBusy = false;
+      restartPromptOpen = true;
     } catch (e) {
       updateProgress = `Update failed: ${e}`;
       updateBusy = false;
@@ -128,12 +209,16 @@
   }
 
   async function restartApp() {
+    if (restarting) return;
+    restarting = true;
+    restartFailed = false;
     try {
       await relaunch();
-    } catch (e) {
-      updateProgress = `Couldn't restart automatically (${e}) — quit and reopen to finish updating.`;
-      updateInstalled = false;
-      updateBusy = true;
+    } catch {
+      restartFailed = true;
+      restartPromptOpen = true;
+    } finally {
+      restarting = false;
     }
   }
 
@@ -141,13 +226,19 @@
     notesOpen = true;
   }
 
-  function dismissArrived() {
-    arrivedOn = null;
-  }
-
   async function installFromNotes() {
     notesOpen = false;
     await installUpdate();
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (e.key !== "Escape") return;
+    if (bugOpen) bugOpen = false;
+    else if (restartPromptOpen) restartPromptOpen = false;
+    else if (notesOpen) notesOpen = false;
+    else if (historyOpen) closeHistory();
+    else return;
+    e.preventDefault();
   }
 
   // ---- Report a bug -------------------------------------------------
@@ -272,39 +363,55 @@
     <div class="brand">
       <BrandMark size={22} />
       <span class="title">ATV Optimizer</span>
-      {#if update}
+      {#if currentVersion}
         <button
           class="version"
-          onclick={() => openUrl(update!.url)}
-          title="Installed version — open the release history on GitHub"
+          onclick={openHistory}
+          aria-label={`v${currentVersion} — what's new`}
+          data-tip="What's new"
+          data-tip-side="bottom"
         >
-          v{update.current}
+          v{currentVersion}
         </button>
-        {#if pendingUpdate}
-          {#if updateInstalled}
-            <button class="update-badge installed" onclick={restartApp} title="Relaunch to finish updating">
-              Update installed — Restart now <Icon name="restart_alt" size={16} />
-            </button>
-          {:else if updateBusy}
-            <span class="update-badge updating">{updateProgress}</span>
-          {:else}
-            <button class="update-badge" onclick={openNotes} title="See what changed, then install">
-              Update now → v{pendingVersion}
-            </button>
-          {/if}
-        {/if}
-        {#if rollingOut}
-          <!-- Not a button: there is nothing useful to click yet. -->
-          <span
-            class="update-badge rolling"
-            data-tip="The in-app updater will offer it within a few minutes"
-            data-tip-side="bottom"
-          >
-            v{update.latest} rolling out
-          </span>
-        {/if}
       {:else}
         <span class="version">v2</span>
+      {/if}
+      <!-- Not gated on the GitHub API call: the updater is its own source, and
+           a slow or failed API read must never hide Restart. -->
+      {#if pendingUpdate}
+        {#if updateInstalled}
+          <button
+            class="update-badge installed"
+            onclick={restartApp}
+            disabled={restarting}
+            title="Relaunch to finish updating"
+          >
+            {#if restartFailed}
+              Quit and reopen the app to finish
+            {:else}
+              Update installed — Restart now <Icon name="restart_alt" size={16} />
+            {/if}
+          </button>
+        {:else if updateBusy}
+          <span class="update-badge updating" role="status">{updateProgress}</span>
+        {:else}
+          {#if updateProgress}
+            <span class="update-badge failed" role="status">{updateProgress}</span>
+          {/if}
+          <button class="update-badge" onclick={openNotes} title="See what changed, then install">
+            Update now → v{pendingVersion}
+          </button>
+        {/if}
+      {/if}
+      {#if update && rollingOut}
+        <!-- Not a button: there is nothing useful to click yet. -->
+        <span
+          class="update-badge rolling"
+          data-tip="The in-app updater will offer it within a few minutes"
+          data-tip-side="bottom"
+        >
+          v{update.latest} rolling out
+        </span>
       {/if}
     </div>
     <div class="header-right">
@@ -352,62 +459,103 @@
   </footer>
 </div>
 
-{#if (notesOpen || arrivedOn) && update}
-  {@const arrived = arrivedOn !== null && !notesOpen}
-  {@const blocks = arrived ? arrivedNotes : releaseNotes}
-  <!-- Blocks come from `parseReleaseNotes`, which returns data rather than
-       markup. Everything below is rendered through the template, so remote
-       text cannot become HTML. -->
-  <div
-    class="notes-backdrop"
-    role="presentation"
-    onclick={() => (arrived ? dismissArrived() : (notesOpen = false))}
-  ></div>
+<svelte:window onkeydown={onKeydown} />
+
+{#if notesOpen && pendingUpdate}
+  <div class="notes-backdrop" role="presentation" onclick={() => (notesOpen = false)}></div>
   <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="notes-title">
-    {#if arrived}
-      <h2 id="notes-title">Updated to v{update.current}</h2>
-      <p class="notes-current muted">Here's what changed.</p>
-    {:else}
-      <h2 id="notes-title">What's new in v{pendingVersion}</h2>
-      <p class="notes-current muted">You're on v{update.current}.</p>
+    <h2 id="notes-title">What's new in v{pendingVersion}</h2>
+    {#if currentVersion}
+      <p class="notes-current muted">You're on v{currentVersion}.</p>
     {/if}
     <div class="notes-body">
-      {#if blocks.length === 0}
+      {#if releaseNotes.length === 0}
         <p class="muted">
           This release didn't come with notes. The release history on GitHub has
           the details.
         </p>
       {:else}
-        {#each blocks as block, i (i)}
-          {#if block.kind === "heading"}
-            <h3>{#each block.spans as span}{span.text}{/each}</h3>
-          {:else}
-            <p class:notes-item={block.kind === "item"}>
-              {#if block.kind === "item"}<span class="notes-bullet">•</span>{/if}
-              <span>
-                {#each block.spans as span}
-                  {#if span.href}
-                    <button class="notes-link" onclick={() => openUrl(span.href!)}>{span.text}</button>
-                  {:else if span.bold}<strong>{span.text}</strong>
-                  {:else if span.code}<code>{span.text}</code>
-                  {:else}{span.text}{/if}
-                {/each}
-              </span>
-            </p>
-          {/if}
+        <ReleaseNotes blocks={releaseNotes} />
+      {/if}
+    </div>
+    <div class="notes-actions">
+      <button class="notes-history" onclick={() => openUrl(RELEASES_PAGE)}>
+        All releases <Icon name="open_in_new" size={14} />
+      </button>
+      <span class="spacer"></span>
+      <button onclick={() => (notesOpen = false)}>Not now</button>
+      <button class="primary" onclick={installFromNotes}>Install v{pendingVersion}</button>
+    </div>
+  </div>
+{:else if historyOpen}
+  <div class="notes-backdrop" role="presentation" onclick={closeHistory}></div>
+  <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="notes-title">
+    {#if arrived}
+      <h2 id="notes-title">Updated to v{currentVersion}</h2>
+      <p class="notes-current muted">Here's what changed.</p>
+    {:else}
+      <h2 id="notes-title">What's new</h2>
+      {#if currentVersion}
+        <p class="notes-current muted">You're on v{currentVersion}.</p>
+      {/if}
+    {/if}
+    <div class="notes-body">
+      {#if history.length === 0}
+        <p class="muted">
+          This build doesn't carry its release notes. The release history on GitHub
+          has the details.
+        </p>
+      {:else}
+        {#each history as entry, i (entry.version)}
+          <details class="release" open={i === 0} data-version={entry.version}>
+            <summary>
+              <span class="release-version">v{entry.version}</span>
+              {#if entry.date}<span class="release-date muted">{entry.date}</span>{/if}
+              {#if entry.version === currentVersion}<span class="release-current">Installed</span>{/if}
+            </summary>
+            {#if entry.blocks.length === 0}
+              <p class="muted">No notes for this release.</p>
+            {:else}
+              <ReleaseNotes blocks={entry.blocks} />
+            {/if}
+          </details>
         {/each}
       {/if}
     </div>
     <div class="notes-actions">
-      <button class="notes-history" onclick={() => openUrl(update!.url)}>
-        All releases <Icon name="open_in_new" size={14} />
+      <button class="notes-history" onclick={() => openUrl(RELEASES_PAGE)}>
+        See all releases on GitHub <Icon name="open_in_new" size={14} />
       </button>
       <span class="spacer"></span>
-      {#if arrived}
-        <button class="primary" onclick={dismissArrived}>Got it</button>
+      <button class="primary" onclick={closeHistory}>{arrived ? "Got it" : "Close"}</button>
+    </div>
+  </div>
+{/if}
+
+{#if restartPromptOpen}
+  <div class="notes-backdrop" role="presentation" onclick={() => (restartPromptOpen = false)}></div>
+  <div class="notes-dialog restart-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-title">
+    <h2 id="restart-title">Update installed</h2>
+    {#if restartFailed}
+      <p class="notes-current" role="alert">
+        The app couldn't restart itself. Quit and reopen the app to finish updating to
+        v{pendingVersion}.
+      </p>
+    {:else}
+      <p class="notes-current">
+        v{pendingVersion} is ready. Restart now to start using it, or carry on and it
+        will start the next time you open the app.
+      </p>
+    {/if}
+    <div class="notes-actions">
+      <span class="spacer"></span>
+      {#if restartFailed}
+        <button class="primary" onclick={() => (restartPromptOpen = false)}>OK</button>
       {:else}
-        <button onclick={() => (notesOpen = false)}>Not now</button>
-        <button class="primary" onclick={installFromNotes}>Install v{pendingVersion}</button>
+        <button onclick={() => (restartPromptOpen = false)}>Later</button>
+        <button class="primary" onclick={restartApp} disabled={restarting}>
+          {restarting ? "Restarting…" : "Restart now"}
+        </button>
       {/if}
     </div>
   </div>
@@ -529,48 +677,33 @@
     padding-right: 0.25rem;
     line-height: 1.5;
   }
-  .notes-body h3 {
-    font-size: 0.82rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--fg-muted);
-    margin: 1rem 0 0.35rem;
-  }
-  .notes-body h3:first-child {
-    margin-top: 0;
-  }
   .notes-body p {
     margin: 0 0 0.4rem;
   }
-  .notes-item {
+  .release {
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 0;
+  }
+  .release:last-child {
+    border-bottom: none;
+  }
+  .release summary {
     display: flex;
-    gap: 0.5rem;
     align-items: baseline;
-  }
-  .notes-bullet {
-    color: var(--fg-faint);
-    flex: none;
-  }
-  .notes-body code {
-    font-family: var(--mono);
-    font-size: 0.85em;
-    background: var(--bg-muted);
-    padding: 0.05rem 0.3rem;
-    border-radius: var(--radius-xs);
-  }
-  /* A button, not an anchor: these open in the system browser via the opener
-     plugin, and the href is remote text we only partly trust. */
-  .notes-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    background: none;
-    border: none;
-    padding: 0;
-    font: inherit;
-    color: var(--accent);
-    text-decoration: underline;
+    gap: 0.6rem;
     cursor: pointer;
+    padding: 0.15rem 0 0.4rem;
+  }
+  .release-version {
+    font-weight: 600;
+    font-family: var(--mono);
+  }
+  .release-date {
+    font-size: 0.85rem;
+  }
+  .release-current {
+    font-size: 0.75rem;
+    color: var(--accent);
   }
   .notes-actions {
     display: flex;
@@ -647,6 +780,13 @@
   .update-badge.updating {
     cursor: default;
     opacity: 0.8;
+  }
+  .update-badge.failed {
+    cursor: default;
+    white-space: normal;
+    border-color: var(--danger);
+    color: var(--danger);
+    background: transparent;
   }
   /* Muted and inert: it is news, not an action. */
   .update-badge.rolling {

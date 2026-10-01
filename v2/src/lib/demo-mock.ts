@@ -140,6 +140,14 @@ const phoneDevice: Device = {
 
 /// Opt-in demo switches, set from a test's init script. Off by default so the
 /// generated gallery keeps showing the ordinary state of the app.
+function demoValue(name: string): string | null {
+  try {
+    return localStorage.getItem(`shieldopt.demo.${name}`);
+  } catch {
+    return null;
+  }
+}
+
 function demoFlag(name: string): boolean {
   try {
     return localStorage.getItem(`shieldopt.demo.${name}`) === "1";
@@ -481,23 +489,24 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "plugin:app|version":
+      // Tests stand in for a specific installed build to walk an upgrade
+      // sequence; everything else sees the real version.
+      return demoValue("version") ?? pkg.version;
     case "check_for_update":
       // Real version so screenshots never show a stale header badge.
       return {
-        current: pkg.version,
+        current: demoValue("version") ?? pkg.version,
         // "API ahead of manifest": GitHub has published a tag that the
         // updater's latest.json has not caught up with yet. Opt-in, because
         // the ordinary state of the app is the one the gallery should show.
         latest: demoFlag("updateAhead") ? "2.9.9" : pkg.version,
         update_available: demoFlag("updateAhead"),
         url: "https://github.com/bryanroscoe/shield_optimizer/releases",
-        // The demo layer stands in for a real release, notes included, so the
-        // post-update "what's new" path is reachable without a GitHub call.
-        current_notes:
-          "Launcher switching is now fast and reliable.\n\n" +
-          "### Launchers\n\n" +
-          "- **Reliable switch away from the stock launcher.**\n" +
-          "- It opens the new launcher on the TV the moment the switch succeeds.",
+        // The app reads its own notes from the bundled CHANGELOG.md and never
+        // from here. Null is what a failed or timed-out GitHub call returns,
+        // which is the launch that used to lose the after-update pop-up.
+        current_notes: null,
       };
     case "list_devices":
       return demoDevices();
@@ -577,6 +586,25 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.google.android.music": 31.2,
         "com.Funimation.FunimationNow.androidtv": 142.6,
       };
+    // Installed storage (disk, not RAM). Shaped like a real `dumpsys
+    // diskstats` read: data includes cache. F-Droid is left out on purpose so
+    // its panel shows the APK-size fallback instead.
+    case "app_storage_map":
+      return {
+        "com.teamsmart.videomanager.tv": { app_bytes: 83_800_064, data_bytes: 360_448, cache_bytes: 40_960 },
+        "com.netflix.ninja": { app_bytes: 141_557_760, data_bytes: 96_206_848, cache_bytes: 61_865_984 },
+        "com.amazon.amazonvideo.livingroom.nvidia": { app_bytes: 77_824, data_bytes: 36_864, cache_bytes: 16_384 },
+        "com.spocky.projengmenu": { app_bytes: 24_862_720, data_bytes: 268_578_816, cache_bytes: 268_132_352 },
+        "com.google.android.feedback": { app_bytes: 122_880, data_bytes: 36_864, cache_bytes: 16_384 },
+        "com.google.android.videos": { app_bytes: 38_486_016, data_bytes: 2_179_072, cache_bytes: 405_504 },
+        "com.google.android.music": { app_bytes: 5_083_136, data_bytes: 36_864, cache_bytes: 16_384 },
+        "com.Funimation.FunimationNow.androidtv": { app_bytes: 61_276_160, data_bytes: 4_087_808, cache_bytes: 3_682_304 },
+        "com.hulu.plus": { app_bytes: 97_517_568, data_bytes: 12_574_720, cache_bytes: 233_472 },
+        "com.android.vending": { app_bytes: 99_647_488, data_bytes: 30_748_672, cache_bytes: 20_463_616 },
+        "ca.devmesh.overseerrtv": { app_bytes: 45_031_424, data_bytes: 89_952_256, cache_bytes: 89_919_488 },
+      };
+    case "app_apk_size":
+      return { app_bytes: 11_534_336, data_bytes: null, cache_bytes: null };
     case "app_usage_map":
       return {
         "com.netflix.ninja": { last_used: "2026-06-05 20:10:00", launch_count: 412 },
