@@ -6,6 +6,8 @@ import { SHIELD, shieldScenario, stockHomeShield } from "../lib/worlds.mjs";
 const PROJECTIVY = "com.spocky.projengmenu";
 const STOCK = "com.google.android.tvlauncher";
 const SETTINGS = "com.android.tv.settings";
+const WRAITH = "com.google.android.tungsten.setupwraith";
+const MONET = "com.klevico.monet";
 
 async function home(ctx) {
   return (await ctx.device(SHIELD.serial)).home;
@@ -63,6 +65,54 @@ export const scenarios = [
       await ctx.step("switch landed after the transient holder");
       ctx.assert.match((await home(ctx)).resolved, new RegExp(STOCK));
       ctx.assert.ok((await ctx.device(SHIELD.serial)).packages.enabled.includes(PROJECTIVY), "nothing was disabled");
+      await assertKeepsHome(ctx);
+    },
+  },
+  {
+    // #122 on 2.3.0: stock disabled, Setup Wraith still enabled with a higher
+    // HOME priority. Setting Monet works (it holds the HOME role and the Home
+    // key opens it) but resolve-activity keeps naming Setup Wraith.
+    name: "launcher-current-is-the-role-holder-not-setup-wraith",
+    async run(ctx) {
+      await ctx.reset(
+        shieldScenario({
+          props: { "ro.build.version.sdk": "31" },
+          home_policy: "priority_resolver",
+          home_apps: [
+            { package: WRAITH, class: `${WRAITH}.ui.MainActivity`, priority: 3 },
+            { package: MONET, class: `${MONET}.MainActivity`, priority: 0 },
+          ],
+        }),
+      );
+      await ctx.openDevice(SHIELD.key, "launcher");
+      const rows = ctx.page.locator("ul.launcher-list li");
+      const monet = rows.filter({ hasText: MONET });
+      const wraith = rows.filter({ hasText: WRAITH });
+      await monet.getByRole("button", { name: "Set as default" }).waitFor();
+      ctx.assert.match(await wraith.innerText(), /Google TV setup helper — not a launcher/);
+      ctx.assert.equal(await wraith.getByRole("button", { name: /set as default|set default/i }).count(), 0, "no Set as default on the setup helper");
+      await ctx.step("Setup Wraith is labelled a setup helper");
+
+      await monet.getByRole("button", { name: "Set as default" }).click();
+      await ctx.text("is now your default launcher", { exact: false }).waitFor({ timeout: 40_000 });
+      const d = await ctx.device(SHIELD.serial);
+      ctx.assert.equal(d.home.role_holder, MONET, "Monet holds the HOME role");
+      ctx.assert.match(d.home.resolved, new RegExp(WRAITH), "the resolver alone still names Setup Wraith");
+
+      await ctx.page.getByRole("button", { name: "Refresh" }).click();
+      await ctx.waitFor(async () => /ACTIVE/.test(await monet.innerText()), { message: "Monet tagged ACTIVE" });
+      ctx.assert.doesNotMatch(await wraith.innerText(), /ACTIVE/);
+      const current = await ctx.page.locator(".launcher-foot .foot-value").innerText();
+      ctx.assert.match(current, new RegExp(MONET), "Current home app is Monet");
+      ctx.assert.doesNotMatch(current, new RegExp(WRAITH));
+      await ctx.step("Monet is the current launcher after refresh");
+
+      await ctx.openDevice(SHIELD.key, "snapshot");
+      await ctx.page.getByRole("button", { name: "Save snapshot" }).first().click();
+      await ctx.page.getByRole("button", { name: "Preview restore" }).first().waitFor();
+      const snaps = (await ctx.invoke("list_snapshots", {})).value;
+      ctx.assert.equal(snaps[0].launcher, MONET, "the snapshot records Monet");
+      await ctx.step("snapshot records Monet");
       await assertKeepsHome(ctx);
     },
   },

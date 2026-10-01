@@ -24,7 +24,7 @@
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
   import type { MemoryEntry } from "$lib/types";
-  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged } from "$lib/prefs";
+  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import {
     isBlocked,
@@ -50,6 +50,7 @@
     type AppDetailInputs,
     type AppMeasurements,
   } from "$lib/app-details";
+  import { reportFamily } from "$lib/app-report";
   import FilesTab from "$lib/components/FilesTab.svelte";
   import TweaksTab from "$lib/components/TweaksTab.svelte";
   import SideloadTab from "$lib/components/SideloadTab.svelte";
@@ -255,6 +256,20 @@
       usage: appUsage[pkg],
       storage: appStorage[pkg],
       onRemeasure: () => void loadAppMemory(),
+      // A catalog package the page has no current state for is unknown, not
+      // whatever an older row last said.
+      liveState: apps.some((a) => a.package === pkg) ? (appStates[pkg] ?? null) : undefined,
+      report: device
+        ? {
+            family: reportFamily(device.device_type, device.tv_evidence),
+            androidVersion: device.properties?.android_release ?? null,
+            // A placeholder ro.serialno ("unknown") identifies nothing, and
+            // scrubbing it would eat that word from the user's note.
+            redact: [serial, device.serial, idKey(device.properties?.serial_number)].filter(
+              (id): id is string => !!idKey(id),
+            ),
+          }
+        : undefined,
     };
   }
 
@@ -1367,11 +1382,18 @@
   }
 
   async function disableLauncher(pkg: string) {
-    const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
-    const advice = launchers.find((l) => l.entry.package === pkg)?.other
+    const row = launchers.find((l) => l.entry.package === pkg);
+    const name = row?.entry.name ?? pkg;
+    const advice = row?.other
       ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
       : "";
-    if (!confirm(`Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`)) return;
+    // Setup Wraith is Google TV's setup wizard. Custom-launcher guides do
+    // disable it, but it is also where Home lands when no launcher is left,
+    // and it runs first-time setup after a factory reset.
+    const question = row?.setup_helper
+      ? `Disable ${pkg}?\n\nThis is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen.\n\nIt stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset.`
+      : `Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`;
+    if (!confirm(question)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     launcherProgress = "Disabling this launcher";
@@ -2435,6 +2457,8 @@
                 <div class="tags">
                   {#if l.stock}
                     <span class="tag stock">STOCK</span>
+                  {:else if l.setup_helper}
+                    <span class="tag stock">SETUP</span>
                   {:else if l.other}
                     <span class="tag stock">HOME APP</span>
                   {/if}
@@ -2482,7 +2506,7 @@
                         {busy ? "Enabling…" : "Enable"}
                       </button>
                     {/if}
-                    {#if !isCurrent}
+                    {#if !isCurrent && !l.setup_helper}
                       <button
                         class="small-action"
                         onclick={() => setDefaultLauncher(l.entry.package)}
@@ -2497,7 +2521,7 @@
                     {#if !isCurrent && l.enabled}
                       <button
                         class="small-action subtle"
-                        class:danger={l.stock}
+                        class:danger={l.stock || l.setup_helper}
                         onclick={() => disableLauncher(l.entry.package)}
                         disabled={launcherActionBusy !== null}
                         title={l.stock
@@ -2532,7 +2556,7 @@
             </button>
           </div>
           <div class="launcher-foot">
-            <div class="foot-card" data-tip="What the TV launches when you press Home">
+            <div class="foot-card" data-tip="What the TV launches when you press Home" title={currentLauncher?.note ?? undefined}>
               <span class="foot-label">Current home app</span>
               <!-- The device reports a `package/activity` component and the
                    command splits it; showing the activity alone (".MainActivity")

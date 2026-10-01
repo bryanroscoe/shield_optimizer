@@ -97,11 +97,16 @@ export interface LauncherStatus {
   /// HOME-capable app outside both catalogs (e.g. Setup Wraith, a sideloaded
   /// HOME app).
   other: boolean;
+  /// Google TV's Setup Wraith: declares HOME but is the setup wizard. Never
+  /// offered as the default.
+  setup_helper: boolean;
 }
 
 export interface CurrentLauncher {
   package: string | null;
   activity: string | null;
+  /// Set when Android's resolver named another app than the HOME role holder.
+  note?: string | null;
 }
 
 export interface ConnectResult {

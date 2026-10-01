@@ -4,6 +4,7 @@
 //! module keeps commands that depend on desktop filesystem paths, platform-tools
 //! installation, the desktop updater, or host-network scanning.
 
+pub mod app_report;
 pub mod backup;
 pub mod diagnostics;
 pub mod files;

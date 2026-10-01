@@ -191,21 +191,11 @@ pub async fn save_snapshot(
         .map_err(|e| format!("pm list packages -d: {e}"))?;
     let disabled_packages = parse_disabled_packages_output(&disabled_out.stdout);
 
-    // Current launcher.
-    let launcher_out = adb
-        .shell(
-            &serial,
-            "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME",
-        )
-        .await
-        .map_err(|e| format!("resolve-activity: {e}"))?;
-    let current_launcher = launcher_out
-        .stdout
-        .lines()
-        .map(str::trim)
-        .find(|l| l.contains('/'))
-        .and_then(|c| c.split_once('/'))
-        .map(|(p, _)| p.to_string());
+    // Current launcher: the HOME role holder, not a setup helper the
+    // resolver ranks higher (#122).
+    let current_launcher = crate::commands::launcher::read_current_home(adb.as_ref(), &serial)
+        .await?
+        .package;
 
     let settings = current_settings_map(adb.as_ref(), &serial).await?;
     let absent_settings = tracked_setting_keys()
@@ -323,7 +313,10 @@ pub async fn preview_apply(
 
     let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
     let current_settings = current_settings_map(adb.as_ref(), &serial).await?;
-    let current_launcher = crate::commands::launcher::active_launcher(adb.as_ref(), &serial).await;
+    let current_launcher = crate::commands::launcher::read_current_home(adb.as_ref(), &serial)
+        .await
+        .ok()
+        .and_then(|r| r.package);
 
     let plan = compute_apply_plan(
         &snap,
@@ -413,7 +406,10 @@ pub async fn apply_snapshot(
 
     let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
     let current_settings = current_settings_map(adb.as_ref(), &serial).await?;
-    let current_launcher = crate::commands::launcher::active_launcher(adb.as_ref(), &serial).await;
+    let current_launcher = crate::commands::launcher::read_current_home(adb.as_ref(), &serial)
+        .await
+        .ok()
+        .and_then(|r| r.package);
     let plan = compute_apply_plan(
         &snap,
         &ApplyPlanInputs {

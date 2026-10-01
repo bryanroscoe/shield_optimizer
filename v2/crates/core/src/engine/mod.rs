@@ -19,8 +19,8 @@ pub use app_lists::{AppList, AppListBundle};
 pub use detection::{detect_device_type, tv_evidence, DeviceType, TvEvidence};
 pub use diagnostics::{format_diagnostics, DeviceDiagnostics, DiagnosticsInput};
 pub use launcher::{
-    is_last_enabled_home_handler, is_valid_package_name, launcher_rows, LauncherCatalog,
-    LauncherEntry, LauncherStatus,
+    is_last_enabled_home_handler, is_valid_package_name, launcher_rows, pick_current_home,
+    HomeReading, LauncherCatalog, LauncherEntry, LauncherStatus,
 };
 pub use media::{
     build_capabilities, parse_media_codecs, surround_mode, video_formats, AudioPassthrough,

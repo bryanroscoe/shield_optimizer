@@ -312,12 +312,13 @@ const launchers: LauncherStatus[] = [
     enabled: true,
     stock: true,
     other: false,
+    setup_helper: false,
   },
-  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: playStore("com.spocky.projengmenu") }, installed: true, enabled: true, stock: false, other: false },
-  { entry: { name: "FLauncher", package: "me.efesser.flauncher", source_url: playStore("me.efesser.flauncher") }, installed: true, enabled: true, stock: false, other: false },
-  { entry: { name: "ATV Launcher", package: "com.sweech.launcher", source_url: playStore("com.sweech.launcher") }, installed: false, enabled: false, stock: false, other: false },
-  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher", source_url: playStore("com.wolf.firelauncher") }, installed: false, enabled: false, stock: false, other: false },
-  { entry: { name: "Monet Launcher", package: "com.klevico.monet", source_url: "https://github.com/Klevico/Monet-Launcher" }, installed: false, enabled: false, stock: false, other: false },
+  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: playStore("com.spocky.projengmenu") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
+  { entry: { name: "FLauncher", package: "me.efesser.flauncher", source_url: playStore("me.efesser.flauncher") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
+  { entry: { name: "ATV Launcher", package: "com.sweech.launcher", source_url: playStore("com.sweech.launcher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
+  { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher", source_url: playStore("com.wolf.firelauncher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
+  { entry: { name: "Monet Launcher", package: "com.klevico.monet", source_url: "https://github.com/Klevico/Monet-Launcher" }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
 ];
 
 const tweaks: TweaksState = {
@@ -850,6 +851,15 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         still_advertised: false,
         message: `Disconnected ${String(args.serial)}.`,
       };
+    case "plugin:dialog|save":
+      // The save dialog picks a fixed path; Cancel is a stored null.
+      return demoValue("savePath") ?? "/Users/demo/Downloads/app-report.json";
+    case "save_app_report": {
+      // Kept on the page so a test can read back exactly what would be written.
+      const w = window as unknown as { __SAVED_APP_REPORTS__?: { path: unknown; contents: unknown }[] };
+      (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
+      return null;
+    }
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

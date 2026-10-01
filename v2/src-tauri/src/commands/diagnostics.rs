@@ -302,7 +302,8 @@ pub async fn collect_diagnostics(
                     .ok()
                     .map(|out| home_handler_components(&out.stdout))
                     .unwrap_or_default();
-                Some((device, handlers))
+                let current_home = launcher::read_current_home(&*adb, serial).await.ok();
+                Some((device, handlers, current_home))
             }
             Err(e) => {
                 tracing::warn!(serial, error = %e, "diagnostics: device unavailable");
@@ -320,14 +321,17 @@ pub async fn collect_diagnostics(
         arch: std::env::consts::ARCH,
         adb_path: adb_path.as_deref(),
         adb_version: adb_version.as_deref(),
-        device: device.as_ref().map(|(device, handlers)| DeviceDiagnostics {
-            serial: &device.serial,
-            connection: device.connection,
-            properties: device.properties.as_ref(),
-            tv_evidence: device.tv_evidence,
-            device_type: device.device_type,
-            home_handlers: handlers,
-        }),
+        device: device
+            .as_ref()
+            .map(|(device, handlers, current_home)| DeviceDiagnostics {
+                serial: &device.serial,
+                connection: device.connection,
+                properties: device.properties.as_ref(),
+                tv_evidence: device.tv_evidence,
+                device_type: device.device_type,
+                home_handlers: handlers,
+                current_home: current_home.as_ref(),
+            }),
         unreadable_device: match (serial.as_deref(), unreadable.as_deref()) {
             (Some(serial), Some(error)) => Some((serial, error)),
             _ => None,

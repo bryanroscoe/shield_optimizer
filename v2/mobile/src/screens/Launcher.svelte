@@ -95,6 +95,7 @@
 
   function subtitle(l: LauncherStatus): string {
     if (l.stock) return l.enabled ? "Stock launcher" : "Disabled";
+    if (l.setup_helper) return l.enabled ? "Setup wizard, not a launcher" : "Setup wizard · disabled";
     if (l.other) return "Home-capable app";
     if (!l.installed) return "Not installed";
     return l.enabled ? "Installed" : "Installed · disabled";
@@ -253,6 +254,8 @@
                 <button class="l-btn install" disabled={busyPkg !== ""} onclick={() => install(l)}>
                   <span class="msr">download</span>Install
                 </button>
+              {:else if l.setup_helper}
+                <!-- Google TV's setup wizard declares Home but is never a default. -->
               {:else if l.stock && l.enabled}
                 <button class="l-btn" disabled={busyPkg !== ""} onclick={() => (disableConfirm = l)}>
                   Disable

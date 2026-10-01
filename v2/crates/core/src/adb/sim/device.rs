@@ -62,6 +62,11 @@ pub enum HomePolicy {
     /// 11 answers "Success" to set-home-activity and stays on stock). Only
     /// disabling stock hands Home over.
     StockOverrides,
+    /// `resolve-activity` ranks HOME filters by priority and ignores the
+    /// preferred activity and the role, while the Home key follows the HOME
+    /// role. Google TV with Setup Wraith enabled (#122): the resolver names
+    /// Setup Wraith even after the role, and Home, moved to Monet.
+    PriorityResolver,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -177,6 +182,24 @@ impl Device {
             .map(|(_, p)| p)
     }
 
+    /// Install a user app that declares HOME with `class` at `priority`.
+    pub fn add_home_app(&mut self, package: &str, class: &str, priority: i32) {
+        self.add_package(
+            package,
+            Package {
+                system: false,
+                enabled: true,
+                installed: true,
+            },
+        );
+        self.home.components.retain(|c| c.package != package);
+        self.home.components.push(HomeComponent {
+            package: package.to_string(),
+            class: class.to_string(),
+            priority,
+        });
+    }
+
     pub fn add_package(&mut self, name: &str, pkg: Package) {
         match self.package_mut(name) {
             Some(existing) => *existing = pkg,
@@ -219,6 +242,11 @@ impl Device {
         }
         let handlers: Vec<HomeComponent> = self.home_handlers().into_iter().cloned().collect();
         let real: Vec<&HomeComponent> = handlers.iter().filter(|c| c.priority > -1000).collect();
+        if self.home.policy == HomePolicy::PriorityResolver {
+            if let Some(top) = real.first() {
+                return Some(top.short());
+            }
+        }
         if self.home.policy == HomePolicy::StockOverrides {
             if let Some(s) = real.iter().find(|c| stock.contains(&c.package)) {
                 return Some(s.short());
