@@ -261,6 +261,48 @@ async function placeholderSerials(server) {
   console.log("App report passed (placeholder serial): a ro.serialno of \"unknown\" leaves the word in the note.");
 }
 
+/// #143: a serial pasted in another casing, a serial shorter than four
+/// characters, and package ids other than the reported one never survive.
+async function noteRedactionGaps(server) {
+  const { redactNote, buildAppReport } = await server.ssrLoadModule("/src/lib/app-report.ts");
+  assert.equal(
+    redactNote("box serial 0323ab0012345 and 0323AB0012345", ["0323AB0012345"]),
+    "box serial [redacted] and [redacted]",
+    "serials match whatever their casing",
+  );
+  assert.equal(redactNote("serial x7 on x7b, X7.", ["x7"]), "serial [redacted] on x7b, [redacted].");
+  assert.equal(
+    redactNote("conflicts with com.android.vending and Com.Example.Report:remote, e.g. on boot", [], "com.example.report"),
+    "conflicts with [redacted] and Com.Example.Report:remote, e.g. on boot",
+    "other package ids go, the reported one and e.g. stay",
+  );
+  const report = buildAppReport({
+    package: "org.fdroid.fdroid",
+    appName: "F-Droid",
+    reason: "other",
+    note: "also see ca.devmesh.overseerrtv and org.fdroid.fdroid",
+    appVersion: "2.3.0",
+    device: { family: "shield", androidVersion: "11", redact: [] },
+    verdict: null,
+    includeState: false,
+    state: { status: null, running: null, ramMb: null, storage: null },
+    now: new Date("2026-09-30T00:00:00Z"),
+  });
+  assert.equal(report.records[0].note, "also see [redacted] and org.fdroid.fdroid");
+  console.log("App report passed (note gaps): case-varied and short serials and other package ids are redacted.");
+}
+
+/// #138: while the page re-reads package states after a run, a report has no
+/// state to give for a catalog row.
+async function resyncingState(server) {
+  const { reportLiveState } = await server.ssrLoadModule("/src/lib/app-details.ts");
+  assert.equal(reportLiveState(true, "enabled", true), null, "a resync in flight reports unknown");
+  assert.equal(reportLiveState(true, "disabled", false), "disabled");
+  assert.equal(reportLiveState(true, undefined, false), null);
+  assert.equal(reportLiveState(false, "enabled", true), undefined, "a non-catalog row defers to its own state");
+  console.log("App report passed (resync): state read before an Optimize run is never reported during the re-read.");
+}
+
 async function main() {
   const restore = setHarnessEnvironment();
   let server, browser;
@@ -271,6 +313,8 @@ async function main() {
     await server.listen();
     browser = await chromium.launch();
     await placeholderSerials(server);
+    await noteRedactionGaps(server);
+    await resyncingState(server);
     await exercise({ browser, base: serverURL(server) });
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

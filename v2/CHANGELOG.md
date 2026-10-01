@@ -65,6 +65,22 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- **An app report no longer carries state from before an Optimize run**
+  (#138). Right after a run, the page re-reads package states in the
+  background. A report opened in that window with state included could carry
+  the pre-run state. It now reports the state as unknown until the re-read
+  lands, then shows the new state.
+- **A report's note redacts more** (#143). A serial is redacted whatever its
+  casing, and a serial shorter than four characters is redacted where it
+  stands as a whole word. Package ids other than the reported app are
+  replaced with `[redacted]` too, so a pasted package list cannot carry other
+  installed apps into the report.
+- **Opening a device by a second adb address works** (#139). adb can hold one
+  device under two keys (its wireless debugging name and `IP:port`), and the
+  device list shows it once. Opening the device page by the key the list did
+  not keep said "device not found". The key now resolves to that row through
+  the hardware id its own connection reported, never through its address, and
+  the page moves to the row's key.
 - **`registry-triage` says when a mobile export was truncated** (#135). The
   mobile collector drops its oldest records once it reaches its cap and marks
   the export `truncated`. The tool ignored that flag. It now names each
