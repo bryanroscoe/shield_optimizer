@@ -266,6 +266,7 @@
     tweaks?.long_press_timeout != null ? parseInt(tweaks.long_press_timeout, 10) : null,
   );
   const bgLimit = $derived(tweaks?.background_process_limit ?? null);
+  const cachedLimit = $derived(tweaks?.cached_process_limit ?? null);
   const dnsMode = $derived(dns?.mode ?? null);
 
   function wmValue(block: string | undefined, kind: "Physical" | "Override"): string | null {
@@ -304,12 +305,6 @@
     { label: "0.5×", value: "0.5" },
   ];
   const longPressPresets = [300, 400, 500, 750];
-  const bgPresets: { label: string; value: string }[] = [
-    { label: "Standard", value: "" },
-    { label: "≤4", value: "4" },
-    { label: "≤2", value: "2" },
-    { label: "None", value: "0" },
-  ];
   const scalePresets: { label: string; value: DisplayScalePreset }[] = [
     { label: "4K", value: "uhd_4k" },
     { label: "1080p", value: "fhd_1080p" },
@@ -395,11 +390,11 @@
       "Long-press timeout reset to the device default.",
     );
   }
-  function setBgLimit(value: string) {
+  function removeBgLimit() {
     apply(
-      `bg-${value}`,
-      (target) => api.writeSetting(target, "global", "background_process_limit", value),
-      "Background limit updated. Android resets it on the next reboot.",
+      "bg-remove",
+      (target) => api.writeSetting(target, "global", "background_process_limit", ""),
+      "Old setting removed.",
     );
   }
   function setScaling(preset: DisplayScalePreset) {
@@ -674,22 +669,24 @@
               <div class="t-info">
                 <span class="t-title">Background process limit</span>
                 <span class="t-desc">
-                  {bgLimit == null ? "Standard" : bgLimit === "0" ? "None" : `At most ${bgLimit}`} ·
-                  Android clears this on every reboot
+                  {cachedLimit != null ? `Up to ${cachedLimit} cached apps` : "Not reported by this TV"} ·
+                  change it in the TV's Developer options
                 </span>
               </div>
-            </div>
-            <div class="segmented">
-              {#each bgPresets as p (p.label)}
+              {#if bgLimit != null}
                 <button
-                  class="seg"
-                  class:active={(p.value === "" && bgLimit == null) || bgLimit === p.value}
-                  class:busy={busy === `bg-${p.value}`}
+                  class="reset-btn"
+                  class:busy={busy === "bg-remove"}
                   disabled={busy !== ""}
-                  onclick={() => setBgLimit(p.value)}>{p.label}</button
+                  onclick={removeBgLimit}
                 >
-              {/each}
+                  <span class="msr">delete</span>Remove old setting
+                </button>
+              {/if}
             </div>
+            {#if bgLimit != null}
+              <p class="t-desc">global.background_process_limit = {bgLimit} (ignored by Android)</p>
+            {/if}
           </div>
         {/if}
       </div>
