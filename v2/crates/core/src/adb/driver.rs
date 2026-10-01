@@ -88,6 +88,30 @@ impl AdbOutput {
     }
 }
 
+/// How an adb process's exit status becomes a driver result.
+///
+/// `adb shell` exits with the device-side status of the *last* command it ran,
+/// and any nonzero exit is an error before stdout is looked at. Shared by the
+/// desktop subprocess driver and the test-only simulator so a simulated device
+/// fails exactly where a real one would.
+pub fn process_output(
+    stdout: String,
+    stderr: String,
+    exit_code: Option<i32>,
+) -> AdbResult<AdbOutput> {
+    if exit_code != Some(0) {
+        return Err(AdbError::NonZeroExit {
+            code: exit_code,
+            stderr: if stderr.is_empty() { stdout } else { stderr },
+        });
+    }
+    Ok(AdbOutput {
+        stdout,
+        stderr,
+        exit_code,
+    })
+}
+
 /// The driver abstraction. Lets tests inject a mock; production uses
 /// `SubprocessAdb`.
 #[async_trait]

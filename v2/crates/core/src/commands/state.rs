@@ -229,7 +229,7 @@ fn entitlement_from_u8(value: u8) -> Entitlement {
 ///
 /// Phase 3: the remote-input command calls this with its `AppHandle` to get the
 /// jar path, then hands it to `AppState::ensure_remote_session`.
-pub fn resolve_scrcpy_server_jar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub fn resolve_scrcpy_server_jar<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     use tauri::Manager;
     #[cfg(target_os = "android")]
     {

@@ -1,0 +1,95 @@
+2 activities found:
+  Activity #0:
+    priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+    ActivityInfo:
+      name=com.google.android.apps.nexuslauncher.NexusLauncherActivity
+      packageName=com.google.android.apps.nexuslauncher
+      enabled=true exported=true directBootAware=true
+      taskAffinity=null targetActivity=null persistableMode=PERSIST_ROOT_ONLY
+      launchMode=LAUNCH_SINGLE_TASK flags=0x14214 privateFlags=0x2 theme=0x7f140026
+      screenOrientation=-1 configChanges=0x4ffb softInputMode=0x20
+      lockTaskLaunchMode=LOCK_TASK_LAUNCH_MODE_DEFAULT
+      resizeMode=RESIZE_MODE_RESIZEABLE
+      knownActivityEmbeddingCerts={}
+      requireContentUriPermissionFromCaller=CONTENT_URI_PERMISSION_NONE
+      ApplicationInfo:
+        name=com.android.launcher3.LauncherApplication
+        packageName=com.google.android.apps.nexuslauncher
+        labelRes=0x7f1300ac nonLocalizedLabel=null icon=0x7f080307 banner=0x0
+        className=com.android.launcher3.LauncherApplication
+        processName=com.google.android.apps.nexuslauncher
+        taskAffinity=com.google.android.apps.nexuslauncher
+        uid=10244 flags=0x34cbbe45 privateFlags=0x8c603108 theme=0x7f140026
+        requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+        sourceDir=/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk
+        resourceDirs=[/product/overlay/NavigationBarModeGestural/NavigationBarModeGesturalOverlay.apk, /product/overlay/AmbientCueOverlay.apk]
+        overlayPaths=[/product/overlay/NavigationBarModeGestural/NavigationBarModeGesturalOverlay.apk, /product/overlay/AmbientCueOverlay.apk, /data/resource-cache/com.android.systemui-neutral-htiP.frro, /data/resource-cache/com.android.systemui-accent-83r9.frro, /data/resource-cache/com.android.systemui-dynamic-JMQS.frro]
+        seinfo=default:privapp:targetSdkVersion=37:partition=system_ext
+        seinfoUser=:complete
+        dataDir=/data/user/0/com.google.android.apps.nexuslauncher
+        deviceProtectedDataDir=/data/user_de/0/com.google.android.apps.nexuslauncher
+        credentialProtectedDataDir=/data/user/0/com.google.android.apps.nexuslauncher
+        sharedLibraryFiles=[/system_ext/framework/androidx.window.extensions.jar, /system_ext/framework/androidx.window.sidecar.jar]
+        enabled=true minSdkVersion=37 targetSdkVersion=37 versionCode=907 targetSandboxVersion=1
+        supportsRtl=true
+        fullBackupContent=@xml/2132148225
+        crossProfile=false
+        HiddenApiEnforcementPolicy=0
+        usesNonSdkApi=true
+        allowsPlaybackCapture=true
+        nativeHeapZeroInitialized=0
+        enableOnBackInvokedCallback=true
+        allowCrossUidActivitySwitchFromBelow=true
+        mPageSizeAppCompatFlags=0
+        isAppLockSupported=false
+        isAppLockEnabled=false
+        createTimestamp=85715849
+  Activity #1:
+    priority=-1000 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+    ActivityInfo:
+      name=com.android.settings.FallbackHome
+      packageName=com.android.settings
+      labelRes=0x0 nonLocalizedLabel= icon=0x0 banner=0x0
+      enabled=true exported=true directBootAware=true
+      permission=android.permission.DEVICE_POWER
+      taskAffinity=com.android.settings.FallbackHome targetActivity=null persistableMode=PERSIST_ROOT_ONLY
+      launchMode=LAUNCH_MULTIPLE flags=0x10220 privateFlags=0x2 theme=0x7f1501c5
+      screenOrientation=-1 configChanges=0x407b softInputMode=0x0
+      lockTaskLaunchMode=LOCK_TASK_LAUNCH_MODE_DEFAULT
+      resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+      knownActivityEmbeddingCerts={}
+      requireContentUriPermissionFromCaller=CONTENT_URI_PERMISSION_NONE
+      ApplicationInfo:
+        name=com.google.android.settings.generalaccess.SettingsGoogleGeneralAccessApplication
+        packageName=com.android.settings
+        labelRes=0x7f141d80 nonLocalizedLabel=null icon=0x7f100000 banner=0x0
+        className=com.google.android.settings.generalaccess.SettingsGoogleGeneralAccessApplication
+        processName=com.android.settings
+        taskAffinity=com.android.settings
+        uid=1000 flags=0x38cbbe45 privateFlags=0x8c701168 theme=0x7f150636
+        requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+        sourceDir=/system_ext/priv-app/SettingsGoogle/SettingsGoogle.apk
+        resourceDirs=[/product/overlay/NavigationBarModeGestural/NavigationBarModeGesturalOverlay.apk, /product/overlay/AmbientCueOverlay.apk, /vendor/overlay/SettingsGoogle__blazer__auto_generated_rro_vendor.apk, /product/overlay/SettingsBlazerOverlay.apk, /product/overlay/GlanceableHubSettingsConfigOverlay.apk, /product/overlay/GlanceableHubSettingsConfigOverlay2022.apk, /product/overlay/ProactiveAssistOverlay2026.apk, /product/overlay/SettingsGoogle__blazer__auto_generated_rro_product.apk, /product/overlay/WildlifeSettingsVpnOverlay2022.apk, /product/overlay/GazeOverlay.apk, /product/overlay/UdfpsOverlay.apk, /product/overlay/SettingsGoogleBlazerOverlay.apk, /product/overlay/TrafficLightFaceOverlay.apk, /product/overlay/UltrasonicOverlay.apk]
+        overlayPaths=[/product/overlay/NavigationBarModeGestural/NavigationBarModeGesturalOverlay.apk, /product/overlay/AmbientCueOverlay.apk, /data/resource-cache/com.android.systemui-neutral-htiP.frro, /data/resource-cache/com.android.systemui-accent-83r9.frro, /data/resource-cache/com.android.systemui-dynamic-JMQS.frro, /vendor/overlay/SettingsGoogle__blazer__auto_generated_rro_vendor.apk, /product/overlay/SettingsBlazerOverlay.apk, /product/overlay/GlanceableHubSettingsConfigOverlay.apk, /product/overlay/GlanceableHubSettingsConfigOverlay2022.apk, /product/overlay/ProactiveAssistOverlay2026.apk, /product/overlay/SettingsGoogle__blazer__auto_generated_rro_product.apk, /product/overlay/WildlifeSettingsVpnOverlay2022.apk, /product/overlay/GazeOverlay.apk, /product/overlay/UdfpsOverlay.apk, /product/overlay/SettingsGoogleBlazerOverlay.apk, /product/overlay/TrafficLightFaceOverlay.apk, /product/overlay/UltrasonicOverlay.apk]
+        seinfo=platform:privapp:targetSdkVersion=37:partition=system_ext
+        seinfoUser=:complete
+        dataDir=/data/user_de/0/com.android.settings
+        deviceProtectedDataDir=/data/user_de/0/com.android.settings
+        credentialProtectedDataDir=/data/user/0/com.android.settings
+        sharedLibraryFiles=[/system/framework/org.apache.http.legacy.jar, /system_ext/framework/androidx.window.extensions.jar, /system_ext/framework/androidx.window.sidecar.jar]
+        enabled=true minSdkVersion=37 targetSdkVersion=37 versionCode=37 targetSandboxVersion=1
+        supportsRtl=true
+        fullBackupContent=true
+        crossProfile=false
+        networkSecurityConfigRes=0x7f1700e5
+        HiddenApiEnforcementPolicy=0
+        usesNonSdkApi=true
+        allowsPlaybackCapture=true
+        gwpAsanMode=1
+        nativeHeapZeroInitialized=0
+        enableOnBackInvokedCallback=true
+        allowCrossUidActivitySwitchFromBelow=true
+        mPageSizeAppCompatFlags=0
+        isAppLockSupported=false
+        isAppLockEnabled=false
+        createTimestamp=85715849

@@ -1,0 +1,15 @@
+package:com.nvidia.shieldtech.hooks
+package:com.nvidia.tegrazone3
+package:com.android.providers.tv
+package:com.google.android.tungsten.setupwraith
+package:com.amazon.amazonvideo.livingroom.nvidia
+package:com.nvidia.diagtools
+package:com.android.printspooler
+package:com.google.android.tvrecommendations
+package:com.nvidia.benchmarkblocker
+package:com.google.android.tvlauncher
+package:com.android.gallery3d
+package:com.google.android.feedback
+package:com.nvidia.stats
+package:com.nvidia.nvgamecast
+package:com.nvidia.feedback

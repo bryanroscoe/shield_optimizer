@@ -1,0 +1,120 @@
+Activity Resolver Table:
+  Non-Data Actions:
+      android.intent.action.MAIN:
+        ee6eea9 com.google.android.apps.nexuslauncher/.NexusLauncherActivity filter 4c14c2e
+          Action: "android.intent.action.MAIN"
+          Action: "android.intent.action.SHOW_WORK_APPS"
+          Action: "android.intent.action.ALL_APPS"
+          Action: "launcher.intent_action_smartspace_menu"
+          Category: "android.intent.category.HOME"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.MONKEY"
+          Category: "android.intent.category.LAUNCHER_APP"
+        c26ef63 com.google.android.apps.nexuslauncher/com.android.launcher3.secondarydisplay.SecondaryDisplayLauncher filter 3164760
+          Action: "android.intent.action.MAIN"
+          Category: "android.intent.category.SECONDARY_HOME"
+          Category: "android.intent.category.DEFAULT"
+      android.intent.action.PICK:
+        14adeb com.google.android.apps.nexuslauncher/com.android.launcher3.QuickstepWidgetPickerActivity filter 48dd748
+          Action: "android.intent.action.PICK"
+          Category: "android.intent.category.DEFAULT"
+      android.content.pm.action.CONFIRM_PIN_APPWIDGET:
+        1acc9e1 com.google.android.apps.nexuslauncher/com.android.launcher3.QuickstepAddItemActivity filter 11ab306
+          Action: "android.content.pm.action.CONFIRM_PIN_APPWIDGET"
+          Action: "android.content.pm.action.CONFIRM_PIN_SHORTCUT"
+        78e3dc7 com.google.android.apps.nexuslauncher/com.android.launcher3.dragndrop.AddItemActivity filter d4d1ff4
+          Action: "android.content.pm.action.CONFIRM_PIN_APPWIDGET"
+          Action: "android.content.pm.action.CONFIRM_PIN_SHORTCUT"
+      android.intent.action.APPLICATION_PREFERENCES:
+        44b231d com.google.android.apps.nexuslauncher/com.android.launcher3.settings.SettingsActivity filter e1ef992
+          Action: "android.intent.action.APPLICATION_PREFERENCES"
+          Category: "android.intent.category.DEFAULT"
+      android.intent.action.SHOW_WORK_APPS:
+        ee6eea9 com.google.android.apps.nexuslauncher/.NexusLauncherActivity filter 4c14c2e
+          Action: "android.intent.action.MAIN"
+          Action: "android.intent.action.SHOW_WORK_APPS"
+          Action: "android.intent.action.ALL_APPS"
+          Action: "launcher.intent_action_smartspace_menu"
+          Category: "android.intent.category.HOME"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.MONKEY"
+          Category: "android.intent.category.LAUNCHER_APP"
+      android.intent.action.ALL_APPS:
+        ee6eea9 com.google.android.apps.nexuslauncher/.NexusLauncherActivity filter 4c14c2e
+          Action: "android.intent.action.MAIN"
+          Action: "android.intent.action.SHOW_WORK_APPS"
+          Action: "android.intent.action.ALL_APPS"
+          Action: "launcher.intent_action_smartspace_menu"
+          Category: "android.intent.category.HOME"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.MONKEY"
+          Category: "android.intent.category.LAUNCHER_APP"
+      launcher.intent_action_smartspace_menu:
+        ee6eea9 com.google.android.apps.nexuslauncher/.NexusLauncherActivity filter 4c14c2e
+          Action: "android.intent.action.MAIN"
+          Action: "android.intent.action.SHOW_WORK_APPS"
+          Action: "android.intent.action.ALL_APPS"
+          Action: "launcher.intent_action_smartspace_menu"
+          Category: "android.intent.category.HOME"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.MONKEY"
+          Category: "android.intent.category.LAUNCHER_APP"
+      com.android.launcher3.FOLDER_CREATION:
+        c0f1ebf com.google.android.apps.nexuslauncher/com.android.launcher3.organizer.creation.screen.ui.foldercreator.FolderCreatorActivity filter 488798c
+          Action: "com.android.launcher3.FOLDER_CREATION"
+          Category: "android.intent.category.DEFAULT"
+      com.android.launcher3.ORGANIZER:
+        e7bd419 com.google.android.apps.nexuslauncher/com.android.launcher3.organizer.creation.screen.ui.OrganizerActivity filter 9af1cde
+          Action: "com.android.launcher3.ORGANIZER"
+          Category: "android.intent.category.DEFAULT"
+      com.android.quickstep.action.GESTURE_SANDBOX:
+        517a3cf com.google.android.apps.nexuslauncher/com.android.quickstep.interaction.GestureSandboxActivity filter 14015c
+          Action: "com.android.quickstep.action.GESTURE_SANDBOX"
+          Category: "android.intent.category.DEFAULT"
+      com.android.quickstep.action.GESTURE_ONBOARDING_ALL_SET:
+        a16cc65 com.google.android.apps.nexuslauncher/com.android.quickstep.interaction.AllSetActivity filter 919fd3a
+          Action: "com.android.quickstep.action.GESTURE_ONBOARDING_ALL_SET"
+          Category: "android.intent.category.DEFAULT"
+      android.content.pm.action.CONFIRM_PIN_SHORTCUT:
+        1acc9e1 com.google.android.apps.nexuslauncher/com.android.launcher3.QuickstepAddItemActivity filter 11ab306
+          Action: "android.content.pm.action.CONFIRM_PIN_APPWIDGET"
+          Action: "android.content.pm.action.CONFIRM_PIN_SHORTCUT"
+        78e3dc7 com.google.android.apps.nexuslauncher/com.android.launcher3.dragndrop.AddItemActivity filter d4d1ff4
+          Action: "android.content.pm.action.CONFIRM_PIN_APPWIDGET"
+          Action: "android.content.pm.action.CONFIRM_PIN_SHORTCUT"
+
+Receiver Resolver Table:
+  Non-Data Actions:
+      androidx.profileinstaller.action.SAVE_PROFILE:
+        2bc26b7 com.google.android.apps.nexuslauncher/androidx.profileinstaller.ProfileInstallReceiver filter 9d4eb42
+          Action: "androidx.profileinstaller.action.SAVE_PROFILE"
+      com.google.android.finsky.intent.action.UPDATE_BROWSER_SELECTION:
+        16c98d5 com.google.android.apps.nexuslauncher/.model.BrowserChoiceReceiver filter b8c28ea
+          Action: "com.google.android.finsky.intent.action.UPDATE_BROWSER_SELECTION"
+      android.content.pm.action.SESSION_COMMITTED:
+        e20e7db com.google.android.apps.nexuslauncher/com.android.launcher3.SessionCommitReceiver filter 909a278
+          Action: "android.content.pm.action.SESSION_COMMITTED"
+      androidx.profileinstaller.action.INSTALL_PROFILE:
+        2bc26b7 com.google.android.apps.nexuslauncher/androidx.profileinstaller.ProfileInstallReceiver filter 6726e24
+          Action: "androidx.profileinstaller.action.INSTALL_PROFILE"
+      androidx.profileinstaller.action.SKIP_FILE:
+        2bc26b7 com.google.android.apps.nexuslauncher/androidx.profileinstaller.ProfileInstallReceiver filter 200d8d
+          Action: "androidx.profileinstaller.action.SKIP_FILE"
+      androidx.profileinstaller.action.BENCHMARK_OPERATION:
+        2bc26b7 com.google.android.apps.nexuslauncher/androidx.profileinstaller.ProfileInstallReceiver filter 6627753
+          Action: "androidx.profileinstaller.action.BENCHMARK_OPERATION"
+      android.appwidget.action.APPWIDGET_HOST_RESTORED:
+        96aed51 com.google.android.apps.nexuslauncher/com.android.launcher3.AppWidgetsRestoredReceiver filter 47be9b6
+          Action: "android.appwidget.action.APPWIDGET_HOST_RESTORED"
+
+Service Resolver Table:
+  Non-Data Actions:
+      android.intent.action.QUICKSTEP_SERVICE:
+        78a09a com.google.android.apps.nexuslauncher/com.android.quickstep.TouchInteractionService filter 5677dcb permission android.permission.STATUS_BAR_SERVICE
+          Action: "android.intent.action.QUICKSTEP_SERVICE"
+      android.app.appfunctions.AppFunctionService:
+        85fa854 com.google.android.apps.nexuslauncher/androidx.appfunctions.service.PlatformAppFunctionService filter afc73fd permission android.permission.BIND_APP_FUNCTION_SERVICE
+          Action: "android.app.appfunctions.AppFunctionService"
+        b82a8f2 com.google.android.apps.nexuslauncher/androidx.appfunctions.service.ExtensionAppFunctionService filter 347db43 permission android.permission.BIND_APP_FUNCTION_SERVICE
+          Action: "android.app.appfunctions.AppFunctionService"
+      android.service.notification.NotificationListenerService:

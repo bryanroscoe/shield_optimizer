@@ -1,0 +1,7 @@
+package:com.google.android.devicelockcontroller
+package:com.google.android.retaildemo
+package:com.google.android.gms.supervision
+package:com.google.android.glasses.core
+package:com.android.virtualization.terminal
+package:com.verizon.mips.services
+package:com.verizon.services
