@@ -1055,6 +1055,7 @@
       if (r.ok) {
         appActionBusy = null;
         setCatalogState(pkg, "enabled");
+        invalidateDeviceCaches();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
@@ -1335,6 +1336,7 @@
         launcherActionMessage = `Couldn't enable ${name}: ${r.message.trim() || "failed"}`;
         return;
       }
+      refreshMeasurements();
       launcherProgress = "Refreshing the launcher list";
       await loadLauncher();
       // Android clears its preferred-HOME record when a launcher package's
