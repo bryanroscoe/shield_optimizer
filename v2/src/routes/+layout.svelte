@@ -21,11 +21,14 @@
     setLastSeenVersion,
   } from "$lib/prefs";
   import { api } from "$lib/api";
+  import { installBreadcrumbs, setBreadcrumbsEnabled } from "$lib/breadcrumbs";
   import { parseReleaseNotes, type NoteBlock } from "$lib/release-notes";
   import { isNewerVersion } from "$lib/version";
   import type { UpdateInfo } from "$lib/types";
 
   let { children } = $props();
+
+  installBreadcrumbs();
 
   let theme = $state<ThemePref>("system");
   let autoUpdate = $state(true);
@@ -230,6 +233,7 @@
       bugMessage = String(err);
       debugLogging = await api.getDebugLogging().catch(() => debugLogging);
     }
+    setBreadcrumbsEnabled(debugLogging);
   }
 
   async function copyBugBundle() {
@@ -425,6 +429,11 @@
       <input type="checkbox" checked={debugLogging} onchange={toggleDebugLogging} />
       Debug logging
     </label>
+    <p class="bug-path muted">
+      While it's on, this session is also recorded (adb calls and the buttons you press) to
+      <span class="mono">logs/sessions</span>. That recording stays on this computer and is never
+      part of this report.
+    </p>
     <p class="bug-path muted mono">
       {logPath ? `Logs: ${logPath}` : "Logs: (no log folder)"}
     </p>

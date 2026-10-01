@@ -164,7 +164,10 @@ impl Device {
     }
 
     pub fn package(&self, name: &str) -> Option<&Package> {
-        self.packages.iter().find(|(n, _)| n == name).map(|(_, p)| p)
+        self.packages
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, p)| p)
     }
 
     pub fn package_mut(&mut self, name: &str) -> Option<&mut Package> {
@@ -201,7 +204,7 @@ impl Device {
             .iter()
             .filter(|c| self.usable(&c.package))
             .collect();
-        out.sort_by(|a, b| b.priority.cmp(&a.priority));
+        out.sort_by_key(|c| std::cmp::Reverse(c.priority));
         out
     }
 
@@ -330,8 +333,7 @@ impl Device {
         let rest = &args[1..];
         let target = |rest: &[String]| -> Option<String> {
             rest.iter()
-                .filter(|a| !a.starts_with('-') && *a != "0")
-                .next_back()
+                .rfind(|a| !a.starts_with('-') && *a != "0")
                 .cloned()
         };
         Some(match sub {
@@ -360,10 +362,7 @@ impl Device {
                         }
                         Out::ok("Success\n")
                     }
-                    _ => Out::with_code(
-                        "Failure [DELETE_FAILED_INTERNAL_ERROR]\n".to_string(),
-                        1,
-                    ),
+                    _ => Out::with_code("Failure [DELETE_FAILED_INTERNAL_ERROR]\n".to_string(), 1),
                 },
                 None => Out::err("Error: no package specified\n", 1),
             },
@@ -519,7 +518,10 @@ impl Device {
             "get" => match args.get(2) {
                 Some(k) => Out::ok(format!(
                     "{}\n",
-                    table.get(k.as_str()).cloned().unwrap_or_else(|| "null".into())
+                    table
+                        .get(k.as_str())
+                        .cloned()
+                        .unwrap_or_else(|| "null".into())
                 )),
                 None => usage(),
             },
@@ -591,7 +593,11 @@ impl Device {
         let key = format!("{pkg}|{op}");
         Some(match sub {
             "get" => {
-                let mode = self.appops.get(&key).cloned().unwrap_or_else(|| "allow".into());
+                let mode = self
+                    .appops
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| "allow".into());
                 Out::ok(format!("{op}: {mode}\n"))
             }
             "set" => {
@@ -663,7 +669,9 @@ impl Device {
         if !perms.is_empty() {
             out.push_str("      runtime permissions:\n");
             for (perm, granted) in perms {
-                out.push_str(&format!("        {perm}: granted={granted}, flags=[ USER_SET ]\n"));
+                out.push_str(&format!(
+                    "        {perm}: granted={granted}, flags=[ USER_SET ]\n"
+                ));
             }
         }
         out
@@ -735,7 +743,10 @@ impl Device {
                 }
                 continue;
             }
-            if let Some(body) = self.proc_file(path, clock).or_else(|| self.files.get(path).cloned()) {
+            if let Some(body) = self
+                .proc_file(path, clock)
+                .or_else(|| self.files.get(path).cloned())
+            {
                 out.stdout.push_str(&body);
             } else {
                 out.stderr
@@ -796,7 +807,9 @@ impl Device {
                 let wait = args.iter().any(|a| a == "-W");
                 let mut out = format!("Starting: Intent {{ {intent} }}\n");
                 if wait {
-                    out.push_str("Status: ok\nLaunchState: WARM\nTotalTime: 120\nWaitTime: 130\nComplete\n");
+                    out.push_str(
+                        "Status: ok\nLaunchState: WARM\nTotalTime: 120\nWaitTime: 130\nComplete\n",
+                    );
                 }
                 Out::ok(out)
             }
@@ -882,7 +895,12 @@ impl Exec for DeviceShell<'_> {
 }
 
 impl DeviceShell<'_> {
-    fn exec_inner(&mut self, argv: &[String], globbed: &[bool], stdin: Option<&str>) -> Option<Out> {
+    fn exec_inner(
+        &mut self,
+        argv: &[String],
+        globbed: &[bool],
+        stdin: Option<&str>,
+    ) -> Option<Out> {
         let args = &argv[1..];
         let dev = &mut *self.dev;
         Some(match argv[0].as_str() {

@@ -66,15 +66,47 @@ fn package_names(text: &str) -> Vec<String> {
 /// Packages the catalog knows declare HOME, with their launch class, for
 /// profiles where the capture saw them disabled.
 const KNOWN_HOME: &[(&str, &str, i32)] = &[
-    ("com.google.android.tvlauncher", "com.google.android.tvlauncher.MainActivity", 0),
-    ("com.google.android.apps.tv.launcherx", "com.google.android.apps.tv.launcherx.home.HomeActivity", 0),
-    ("com.google.android.leanbacklauncher", "com.google.android.leanbacklauncher.MainActivity", 0),
-    ("com.google.android.tungsten.setupwraith", "com.google.android.tungsten.setupwraith.ui.MainActivity", 3),
-    ("com.amazon.tv.launcher", "com.amazon.tv.launcher.ui.HomeActivity_vNext", 0),
-    ("com.spocky.projengmenu", "com.spocky.projengmenu.ui.home.MainActivity", 0),
-    ("me.efesser.flauncher", "me.efesser.flauncher.MainActivity", 0),
+    (
+        "com.google.android.tvlauncher",
+        "com.google.android.tvlauncher.MainActivity",
+        0,
+    ),
+    (
+        "com.google.android.apps.tv.launcherx",
+        "com.google.android.apps.tv.launcherx.home.HomeActivity",
+        0,
+    ),
+    (
+        "com.google.android.leanbacklauncher",
+        "com.google.android.leanbacklauncher.MainActivity",
+        0,
+    ),
+    (
+        "com.google.android.tungsten.setupwraith",
+        "com.google.android.tungsten.setupwraith.ui.MainActivity",
+        3,
+    ),
+    (
+        "com.amazon.tv.launcher",
+        "com.amazon.tv.launcher.ui.HomeActivity_vNext",
+        0,
+    ),
+    (
+        "com.spocky.projengmenu",
+        "com.spocky.projengmenu.ui.home.MainActivity",
+        0,
+    ),
+    (
+        "me.efesser.flauncher",
+        "me.efesser.flauncher.MainActivity",
+        0,
+    ),
     ("com.sweech.launcher", "com.sweech.launcher.MainActivity", 0),
-    ("com.wolf.firelauncher", "com.wolf.firelauncher.MainActivity", 0),
+    (
+        "com.wolf.firelauncher",
+        "com.wolf.firelauncher.MainActivity",
+        0,
+    ),
     ("com.overdevs.at4k", "com.overdevs.at4k.MainActivity", 0),
 ];
 
@@ -157,7 +189,11 @@ pub fn load_profile(dir: &Path) -> Result<Device, String> {
     let installed = package_names(&read(dir, "pm-list-packages.txt").unwrap_or_default());
     let disabled = package_names(&read(dir, "pm-list-packages-d.txt").unwrap_or_default());
     let system = package_names(&read(dir, "pm-list-packages-s.txt").unwrap_or_default());
-    let names = if all.is_empty() { installed.clone() } else { all };
+    let names = if all.is_empty() {
+        installed.clone()
+    } else {
+        all
+    };
     for name in names {
         d.packages.push((
             name.clone(),
@@ -174,11 +210,14 @@ pub fn load_profile(dir: &Path) -> Result<Device, String> {
         ("secure", "settings-secure.txt"),
         ("system", "settings-system.txt"),
     ] {
-        d.settings
-            .insert(ns.into(), parse_settings(&read(dir, file).unwrap_or_default()));
+        d.settings.insert(
+            ns.into(),
+            parse_settings(&read(dir, file).unwrap_or_default()),
+        );
     }
 
-    let mut components = parse_home_components(&read(dir, "home-query-activities.txt").unwrap_or_default());
+    let mut components =
+        parse_home_components(&read(dir, "home-query-activities.txt").unwrap_or_default());
     for short in &meta.home_components {
         if let Some(c) = component_from(short, 0) {
             if !components.iter().any(|h| h.package == c.package) {
@@ -323,8 +362,7 @@ pub fn captured_transports(dir: &Path) -> Vec<String> {
 /// Fill everything a capture is not allowed to read with generic, parseable
 /// output. Values are deliberately unremarkable.
 pub fn synthesize(d: &mut Device) {
-    let is_tv = d.leanback == Some(true)
-        || d.prop("ro.build.characteristics").contains("tv");
+    let is_tv = d.leanback == Some(true) || d.prop("ro.build.characteristics").contains("tv");
     let (w, h) = d
         .wm_size
         .0
@@ -341,7 +379,7 @@ pub fn synthesize(d: &mut Device) {
     });
     d.texts.entry("dumpsys audio".into()).or_insert_with(|| {
         if is_tv {
-            "Audio event log:\n  Devices:\n    mDevice=0x400(HDMI) mDeviceName= mDeviceAddress=\n- STREAM_MUSIC:\n   Devices: hdmi\n".into()
+            "Audio event log:\n- STREAM_MUSIC:\n   Devices: hdmi\n".into()
         } else {
             "Audio event log:\n- STREAM_MUSIC:\n   Devices: speaker\n".into()
         }
@@ -353,7 +391,9 @@ pub fn synthesize(d: &mut Device) {
         "MemTotal:        3000000 kB\nMemFree:          400000 kB\nMemAvailable:    1500000 kB\n".into()
     });
     if is_tv {
-        d.files.entry("/vendor/etc/media_codecs.xml".into()).or_insert_with(|| MEDIA_CODECS.into());
+        d.files
+            .entry("/vendor/etc/media_codecs.xml".into())
+            .or_insert_with(|| MEDIA_CODECS.into());
     }
     d.files
         .entry("/sdcard/Download/notes.txt".into())
@@ -365,7 +405,12 @@ pub fn synthesize(d: &mut Device) {
         .entry("global".into())
         .or_default()
         .entry("device_name".into())
-        .or_insert_with(|| format!("Test {}", d.props.get("ro.product.model").cloned().unwrap_or_default()));
+        .or_insert_with(|| {
+            format!(
+                "Test {}",
+                d.props.get("ro.product.model").cloned().unwrap_or_default()
+            )
+        });
 }
 
 const MEDIA_CODECS: &str = r#"<?xml version="1.0" encoding="utf-8" ?>

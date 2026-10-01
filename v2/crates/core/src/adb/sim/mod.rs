@@ -96,9 +96,11 @@ impl AdbDriver for SimulatedAdb {
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match settle(self.handle(args)).await? {
             world::ReplyOut::Text(o) => process_output(o.stdout, o.stderr, Some(o.code)),
-            world::ReplyOut::Bytes(b) => {
-                process_output(String::from_utf8_lossy(&b).into_owned(), String::new(), Some(0))
-            }
+            world::ReplyOut::Bytes(b) => process_output(
+                String::from_utf8_lossy(&b).into_owned(),
+                String::new(),
+                Some(0),
+            ),
         }
     }
 

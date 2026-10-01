@@ -57,7 +57,9 @@ pub(crate) enum ReplyOut {
 /// What one adb call produced.
 pub(crate) enum Reply {
     Out(Out),
-    Timeout { delay_ms: u64 },
+    Timeout {
+        delay_ms: u64,
+    },
     Bytes(Vec<u8>),
     /// Answered, but `ms` of real time later.
     Delayed(Out, u64),
@@ -134,35 +136,40 @@ impl World {
                 .unwrap_or_default(),
             _ => String::new(),
         };
-        let reply = match super::faults::take(&mut self.faults, FaultScope::Adb, &target_serial, &joined)
-        {
-            Some(FaultEffect::Fail {
-                stdout,
-                stderr,
-                exit_code,
-            }) => Reply::Out(Out {
-                stdout,
-                stderr,
-                code: exit_code,
-            }),
-            Some(FaultEffect::Output { stdout, exit_code }) => {
-                Reply::Out(Out::with_code(stdout, exit_code))
-            }
-            Some(FaultEffect::Ignore { stdout }) => Reply::Out(Out::ok(stdout)),
-            Some(FaultEffect::Timeout { delay_ms }) => Reply::Timeout { delay_ms },
-            Some(FaultEffect::Delay { ms }) => match self.answer(args) {
-                Reply::Out(o) => Reply::Delayed(o, ms),
-                Reply::Delayed(o, more) => Reply::Delayed(o, ms + more),
-                other => other,
-            },
-            None => self.answer(args),
-        };
+        let reply =
+            match super::faults::take(&mut self.faults, FaultScope::Adb, &target_serial, &joined) {
+                Some(FaultEffect::Fail {
+                    stdout,
+                    stderr,
+                    exit_code,
+                }) => Reply::Out(Out {
+                    stdout,
+                    stderr,
+                    code: exit_code,
+                }),
+                Some(FaultEffect::Output { stdout, exit_code }) => {
+                    Reply::Out(Out::with_code(stdout, exit_code))
+                }
+                Some(FaultEffect::Ignore { stdout }) => Reply::Out(Out::ok(stdout)),
+                Some(FaultEffect::Timeout { delay_ms }) => Reply::Timeout { delay_ms },
+                Some(FaultEffect::Delay { ms }) => match self.answer(args) {
+                    Reply::Out(o) => Reply::Delayed(o, ms),
+                    Reply::Delayed(o, more) => Reply::Delayed(o, ms + more),
+                    other => other,
+                },
+                None => self.answer(args),
+            };
         let (stdout, stderr, exit_code, timed_out) = match &reply {
             Reply::Out(o) | Reply::Delayed(o, _) => {
                 (o.stdout.clone(), o.stderr.clone(), Some(o.code), false)
             }
             Reply::Timeout { .. } => (String::new(), String::new(), None, true),
-            Reply::Bytes(b) => (format!("<{} bytes>", b.len()), String::new(), Some(0), false),
+            Reply::Bytes(b) => (
+                format!("<{} bytes>", b.len()),
+                String::new(),
+                Some(0),
+                false,
+            ),
         };
         self.log.push(Invocation {
             seq: self.seq,
@@ -340,8 +347,7 @@ impl World {
             if d.auto_attach && self.paired.contains(&d.serial) {
                 if let Some(mdns_key) = mdns_key(d) {
                     let polls = d.reattach_after_polls.unwrap_or(1);
-                    self.pending_reattach
-                        .retain(|(k, _, _)| k != &mdns_key);
+                    self.pending_reattach.retain(|(k, _, _)| k != &mdns_key);
                     self.pending_reattach
                         .push((mdns_key, d.serial.clone(), polls.max(1)));
                 }
@@ -491,7 +497,10 @@ impl World {
             _ => {
                 self.gaps.push(format!("adb -s {key} {}", rest.join(" ")));
                 Reply::Out(Out::err(
-                    format!("simulated adb has no handler for: adb -s {key} {}\n", rest.join(" ")),
+                    format!(
+                        "simulated adb has no handler for: adb -s {key} {}\n",
+                        rest.join(" ")
+                    ),
                     1,
                 ))
             }

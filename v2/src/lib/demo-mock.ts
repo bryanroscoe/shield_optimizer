@@ -514,6 +514,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return LOG_DIR;
     case "open_log_dir":
       return null;
+    case "log_ui_event":
+      return null;
     case "health_report":
       return health;
     case "app_list_for_device":

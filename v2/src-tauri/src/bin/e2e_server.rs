@@ -44,7 +44,9 @@ fn intercepted(cmd: &str) -> Option<Value> {
             "url": "https://github.com/bryanroscoe/shield_optimizer/releases",
             "current_notes": null,
         }),
-        "install_adb" => json!({"ok": true, "path": "/simulated/platform-tools/adb", "message": "Simulated install."}),
+        "install_adb" => {
+            json!({"ok": true, "path": "/simulated/platform-tools/adb", "message": "Simulated install."})
+        }
         "open_log_dir" => Value::Null,
         _ => return None,
     })
@@ -201,13 +203,14 @@ impl Server {
             .map(|d| {
                 let mut probe = d.clone();
                 probe.home.transient_polls = 0;
-                let pick = |f: &dyn Fn(&shield_optimizer_core::adb::sim::Package) -> bool| -> Vec<String> {
-                    d.packages
-                        .iter()
-                        .filter(|(_, p)| f(p))
-                        .map(|(n, _)| n.clone())
-                        .collect()
-                };
+                let pick =
+                    |f: &dyn Fn(&shield_optimizer_core::adb::sim::Package) -> bool| -> Vec<String> {
+                        d.packages
+                            .iter()
+                            .filter(|(_, p)| f(p))
+                            .map(|(n, _)| n.clone())
+                            .collect()
+                    };
                 json!({
                     "serial": d.serial,
                     "model": d.prop("ro.product.model"),
@@ -233,7 +236,10 @@ impl Server {
                 })
             })
             .collect();
-        let replay = w.replay.as_ref().map(|r| json!({"divergences": r.report(), "repeats": r.repeats}));
+        let replay = w
+            .replay
+            .as_ref()
+            .map(|r| json!({"divergences": r.report(), "repeats": r.repeats}));
         let out = json!({
             "devices": devices,
             "transports": w.transports,
@@ -269,7 +275,9 @@ impl Server {
             .await
             .map_err(|e| json!(format!("dispatch panicked: {e}")));
         let result = match response {
-            Ok(Ok(body)) => json!({"ok": true, "value": body.deserialize::<Value>().unwrap_or(Value::Null)}),
+            Ok(Ok(body)) => {
+                json!({"ok": true, "value": body.deserialize::<Value>().unwrap_or(Value::Null)})
+            }
             Ok(Err(error)) | Err(error) => json!({"ok": false, "error": error}),
         };
         self.invokes.lock().unwrap().push(json!({
@@ -281,14 +289,21 @@ impl Server {
         result
     }
 
-    async fn route(self: &Arc<Self>, method: &str, path: &str, body: Value) -> Result<Value, String> {
+    async fn route(
+        self: &Arc<Self>,
+        method: &str,
+        path: &str,
+        body: Value,
+    ) -> Result<Value, String> {
         let (path, query) = path.split_once('?').unwrap_or((path, ""));
         let field = |k: &str| body.get(k).and_then(Value::as_str).map(str::to_string);
         match (method, path) {
             ("GET", "/health") => Ok(json!("ok")),
             ("POST", "/invoke") => {
                 let cmd = field("cmd").ok_or("missing cmd")?;
-                Ok(self.invoke(cmd, body.get("args").cloned().unwrap_or(json!({}))).await)
+                Ok(self
+                    .invoke(cmd, body.get("args").cloned().unwrap_or(json!({})))
+                    .await)
             }
             ("POST", "/control/reset") => {
                 let scenario: Scenario = serde_json::from_value(body).map_err(|e| e.to_string())?;
@@ -308,7 +323,10 @@ impl Server {
             ("POST", "/control/shell") => {
                 let serial = field("serial").ok_or("missing serial")?;
                 let command = field("command").ok_or("missing command")?;
-                self.sim.world().setup_shell(&serial, &command).map(Value::from)
+                self.sim
+                    .world()
+                    .setup_shell(&serial, &command)
+                    .map(Value::from)
             }
             ("POST", "/control/attach") => {
                 let key = field("key").ok_or("missing key")?;
@@ -341,13 +359,23 @@ impl Server {
                     d.home.policy = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
                 }
                 if let Some(t) = body.get("transient_home") {
-                    d.home.transient_holder = t.get("holder").and_then(Value::as_str).map(str::to_string);
-                    d.home.transient_polls = t.get("polls").and_then(Value::as_u64).unwrap_or(1) as u32;
+                    d.home.transient_holder =
+                        t.get("holder").and_then(Value::as_str).map(str::to_string);
+                    d.home.transient_polls =
+                        t.get("polls").and_then(Value::as_u64).unwrap_or(1) as u32;
                 }
                 if let Some(p) = body.get("pairing") {
-                    let instance = p.get("instance").and_then(Value::as_str).unwrap_or_default().to_string();
+                    let instance = p
+                        .get("instance")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
                     let port = p.get("port").and_then(Value::as_u64).unwrap_or(37_123) as u16;
-                    let pin = p.get("pin").and_then(Value::as_str).unwrap_or("123456").to_string();
+                    let pin = p
+                        .get("pin")
+                        .and_then(Value::as_str)
+                        .unwrap_or("123456")
+                        .to_string();
                     if let Some(w) = d.network.as_mut().and_then(|n| n.wireless.as_mut()) {
                         w.pairing = Some((instance, port, pin));
                     } else {
@@ -363,7 +391,11 @@ impl Server {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(0);
                 let w = self.sim.world();
-                Ok(json!(w.log.iter().filter(|i| i.seq > since).collect::<Vec<_>>()))
+                Ok(json!(w
+                    .log
+                    .iter()
+                    .filter(|i| i.seq > since)
+                    .collect::<Vec<_>>()))
             }
             ("GET", "/control/invokes") => Ok(json!(*self.invokes.lock().unwrap())),
             ("POST", "/control/replay") => {
@@ -391,7 +423,9 @@ impl Server {
                 let ui: Vec<Value> = lines
                     .iter()
                     .filter(|l| l.kind == "ui")
-                    .map(|l| json!({"event": l.event, "label": l.label, "path": l.path, "ts": l.ts}))
+                    .map(
+                        |l| json!({"event": l.event, "label": l.label, "path": l.path, "ts": l.ts}),
+                    )
                     .collect();
                 Ok(json!({"adb_calls": lines.iter().filter(|l| l.kind == "adb").count(), "ui": ui}))
             }
@@ -511,16 +545,17 @@ fn main() {
     let sim = SimulatedAdb::empty();
     {
         let sweep_sim = sim.clone();
-        *shield_optimizer_v2_lib::adb::scan::SWEEP_OVERRIDE.write().unwrap() =
-            Some(Box::new(move |prefix: [u8; 3]| {
-                let net = format!("{}.{}.{}.", prefix[0], prefix[1], prefix[2]);
-                sweep_sim
-                    .world()
-                    .legacy_listeners()
-                    .into_iter()
-                    .filter(|ip| ip.starts_with(&net))
-                    .collect()
-            }));
+        *shield_optimizer_v2_lib::adb::scan::SWEEP_OVERRIDE
+            .write()
+            .unwrap() = Some(Box::new(move |prefix: [u8; 3]| {
+            let net = format!("{}.{}.{}.", prefix[0], prefix[1], prefix[2]);
+            sweep_sim
+                .world()
+                .legacy_listeners()
+                .into_iter()
+                .filter(|ip| ip.starts_with(&net))
+                .collect()
+        }));
     }
     let app_lists = loader::load_embedded_app_lists().expect("embedded app lists");
     let state = AppState::new(Arc::new(sim.clone()), app_lists, data_dir.clone())
@@ -547,7 +582,10 @@ fn main() {
     tauri::async_runtime::block_on(async move {
         let listener = TcpListener::bind(("127.0.0.1", port)).await.expect("bind");
         let bound = listener.local_addr().expect("local addr").port();
-        println!("E2E_SERVER_LISTENING port={bound} data_dir={}", data_dir.display());
+        println!(
+            "E2E_SERVER_LISTENING port={bound} data_dir={}",
+            data_dir.display()
+        );
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 continue;

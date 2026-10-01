@@ -6,6 +6,7 @@
 
 pub mod adb;
 pub mod commands;
+pub mod session;
 pub use shield_optimizer_core::engine;
 
 use std::path::PathBuf;
@@ -63,6 +64,98 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
     AppState::new(adb, app_lists, data_dir).with_entitlement(Entitlement::Pro)
 }
 
+/// Every command the desktop frontend can invoke. One list, shared by the app
+/// and the dev-only E2E server (`src/bin/e2e_server.rs`), so the harness
+/// dispatches through exactly the handler table the shipped app uses.
+pub fn invoke_handler<R: tauri::Runtime>(
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        devices::list_devices,
+        devices::device_profile,
+        devices::connect_device,
+        devices::disconnect_device,
+        devices::pair_device,
+        devices::forget_device,
+        devices::probe_paired_connect,
+        devices::connect_paired,
+        scan::local_address_for,
+        devices::rename_device,
+        health::health_report,
+        health::media_report,
+        health::resource_sample,
+        health::app_list_for_device,
+        health::report_all,
+        install::adb_status,
+        install::install_adb,
+        install::restart_adb,
+        scan::scan_network,
+        launcher::list_launchers,
+        launcher::current_launcher,
+        launcher::channel_provider_disabled,
+        launcher::set_default_launcher,
+        launcher::disable_launcher,
+        launcher::set_home_any,
+        launcher::disable_stock_launcher,
+        apps::disable_package,
+        apps::enable_package,
+        apps::force_stop,
+        screenshot::take_screenshot,
+        apps::uninstall_package,
+        apps::reinstall_existing,
+        apps::open_play_store,
+        apps::package_states,
+        apps::list_other_packages,
+        apps::list_installed_packages,
+        apps::app_memory_map,
+        apps::app_usage_map,
+        apps::safety_info,
+        apps::process_safety_info,
+        apps::trim_caches,
+        apps::app_permission_state,
+        apps::set_app_permission,
+        apps::set_app_op,
+        apps::get_app_op,
+        input::send_text,
+        input::send_key,
+        input::open_settings,
+        sideload::install_apk,
+        sideload::list_apks_in_folder,
+        sideload::inspect_apk,
+        backup::backup_apk,
+        backup::clone_app,
+        files::list_dir,
+        files::pull_file,
+        files::push_file,
+        files::delete_path,
+        files::find_files,
+        files::copy_file_to_device,
+        snapshot::list_snapshots,
+        snapshot::save_snapshot,
+        snapshot::preview_apply,
+        snapshot::apply_snapshot,
+        snapshot::delete_snapshot,
+        snapshot::snapshot_dir_path,
+        recovery::panic_recovery,
+        reboot::reboot_device,
+        shell::run_shell,
+        tuning::get_tweaks,
+        tuning::write_setting,
+        tuning::set_display_scaling,
+        tuning::get_display_scaling,
+        tuning::get_private_dns,
+        tuning::set_private_dns,
+        optimize::prepare_optimize,
+        optimize::apply_performance_settings,
+        update::check_for_update,
+        diagnostics::collect_diagnostics,
+        diagnostics::set_debug_logging,
+        diagnostics::get_debug_logging,
+        diagnostics::log_dir_path,
+        diagnostics::open_log_dir,
+        diagnostics::log_ui_event,
+    ]
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Some Wayland/Mesa setups crash WebKitGTK's DMABUF renderer on startup
@@ -79,6 +172,7 @@ pub fn run() {
     // the machines where a bug actually happens.
     let data_dir = default_data_dir();
     let log_control = diagnostics::init_logging(&data_dir);
+    session::install(log_control.dir(), log_control.debug_enabled());
 
     let app_lists = match loader::load_embedded_app_lists() {
         Ok(lists) => {
@@ -102,90 +196,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(state)
         .manage(log_control)
-        .invoke_handler(tauri::generate_handler![
-            devices::list_devices,
-            devices::device_profile,
-            devices::connect_device,
-            devices::disconnect_device,
-            devices::pair_device,
-            devices::forget_device,
-            devices::probe_paired_connect,
-            devices::connect_paired,
-            scan::local_address_for,
-            devices::rename_device,
-            health::health_report,
-            health::media_report,
-            health::resource_sample,
-            health::app_list_for_device,
-            health::report_all,
-            install::adb_status,
-            install::install_adb,
-            install::restart_adb,
-            scan::scan_network,
-            launcher::list_launchers,
-            launcher::current_launcher,
-            launcher::channel_provider_disabled,
-            launcher::set_default_launcher,
-            launcher::disable_launcher,
-            launcher::set_home_any,
-            launcher::disable_stock_launcher,
-            apps::disable_package,
-            apps::enable_package,
-            apps::force_stop,
-            screenshot::take_screenshot,
-            apps::uninstall_package,
-            apps::reinstall_existing,
-            apps::open_play_store,
-            apps::package_states,
-            apps::list_other_packages,
-            apps::list_installed_packages,
-            apps::app_memory_map,
-            apps::app_usage_map,
-            apps::safety_info,
-            apps::process_safety_info,
-            apps::trim_caches,
-            apps::app_permission_state,
-            apps::set_app_permission,
-            apps::set_app_op,
-            apps::get_app_op,
-            input::send_text,
-            input::send_key,
-            input::open_settings,
-            sideload::install_apk,
-            sideload::list_apks_in_folder,
-            sideload::inspect_apk,
-            backup::backup_apk,
-            backup::clone_app,
-            files::list_dir,
-            files::pull_file,
-            files::push_file,
-            files::delete_path,
-            files::find_files,
-            files::copy_file_to_device,
-            snapshot::list_snapshots,
-            snapshot::save_snapshot,
-            snapshot::preview_apply,
-            snapshot::apply_snapshot,
-            snapshot::delete_snapshot,
-            snapshot::snapshot_dir_path,
-            recovery::panic_recovery,
-            reboot::reboot_device,
-            shell::run_shell,
-            tuning::get_tweaks,
-            tuning::write_setting,
-            tuning::set_display_scaling,
-            tuning::get_display_scaling,
-            tuning::get_private_dns,
-            tuning::set_private_dns,
-            optimize::prepare_optimize,
-            optimize::apply_performance_settings,
-            update::check_for_update,
-            diagnostics::collect_diagnostics,
-            diagnostics::set_debug_logging,
-            diagnostics::get_debug_logging,
-            diagnostics::log_dir_path,
-            diagnostics::open_log_dir,
-        ])
+        .invoke_handler(invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

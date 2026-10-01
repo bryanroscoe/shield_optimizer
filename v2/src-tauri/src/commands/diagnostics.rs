@@ -57,6 +57,22 @@ impl LogControl {
     pub fn dir(&self) -> &Path {
         &self.dir
     }
+
+    pub fn debug_enabled(&self) -> bool {
+        self.debug.load(Ordering::Relaxed)
+    }
+}
+
+/// Debug logging starts on in dev builds (`tauri dev`), where the person
+/// running the app is the one testing it, and off in release builds.
+const DEBUG_BY_DEFAULT: bool = cfg!(debug_assertions);
+
+fn file_filter(debug: bool) -> EnvFilter {
+    if debug {
+        EnvFilter::new(DEBUG_FILTER)
+    } else {
+        base_filter()
+    }
 }
 
 fn base_filter() -> EnvFilter {
@@ -79,8 +95,9 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
     }) {
         Some(appender) => appender,
         None => {
-            let _ = tracing_subscriber::fmt()
-                .with_env_filter(base_filter())
+            let _ = tracing_subscriber::registry()
+                .with(fmt::layer().with_filter(base_filter()))
+                .with(crate::session::event_layer())
                 .try_init();
             return LogControl {
                 dir,
@@ -92,7 +109,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
     };
 
     let (writer, guard) = tracing_appender::non_blocking(appender);
-    let (file_filter, handle) = reload::Layer::new(base_filter());
+    let (file_filter, handle) = reload::Layer::new(file_filter(DEBUG_BY_DEFAULT));
     let file_layer = fmt::layer()
         .with_ansi(false)
         .with_writer(writer)
@@ -102,11 +119,12 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
     let _ = tracing_subscriber::registry()
         .with(stdout_layer)
         .with(file_layer)
+        .with(crate::session::event_layer())
         .try_init();
 
     LogControl {
         dir,
-        debug: AtomicBool::new(false),
+        debug: AtomicBool::new(DEBUG_BY_DEFAULT),
         apply: Some(Box::new(move |debug: bool| {
             let filter = EnvFilter::new(if debug { DEBUG_FILTER } else { INFO_FILTER });
             handle.reload(filter).is_ok()
@@ -130,6 +148,7 @@ pub fn set_debug_logging(logs: State<'_, LogControl>, enabled: bool) -> Result<b
         return Err("The log filter could not be changed.".to_string());
     }
     logs.debug.store(enabled, Ordering::Relaxed);
+    crate::session::set_recording(enabled);
     tracing::info!(debug_logging = enabled, "debug logging toggled");
     Ok(enabled)
 }
@@ -140,6 +159,40 @@ pub fn get_debug_logging(logs: State<'_, LogControl>) -> bool {
     logs.debug.load(Ordering::Relaxed)
 }
 
+const UI_LABEL_LIMIT: usize = 120;
+const UI_PATH_LIMIT: usize = 200;
+
+/// Drop control characters and cap the length, so a breadcrumb is always one
+/// readable JSON field.
+fn clean_ui_text(text: &str, limit: usize) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(limit)
+        .collect()
+}
+
+fn valid_ui_event(event: &str) -> bool {
+    (1..=24).contains(&event.len()) && event.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+}
+
+/// `log_ui_event` — a UI breadcrumb (route change, tab switch, button label)
+/// for the session recording. A no-op while recording is off.
+#[tauri::command]
+pub fn log_ui_event(event: String, label: String, path: Option<String>) -> Result<(), String> {
+    if !valid_ui_event(&event) {
+        return Err(format!("unknown UI event {event:?}"));
+    }
+    let label = clean_ui_text(&label, UI_LABEL_LIMIT);
+    let path = path.map(|p| clean_ui_text(&p, UI_PATH_LIMIT));
+    crate::session::record_ui(&event, &label, path.as_deref());
+    Ok(())
+}
+
 /// `log_dir_path` — where the rolling log files live, for the UI to show.
 #[tauri::command]
 pub fn log_dir_path(logs: State<'_, LogControl>) -> String {
@@ -148,7 +201,10 @@ pub fn log_dir_path(logs: State<'_, LogControl>) -> String {
 
 /// `open_log_dir` — reveal the log folder in the system file manager.
 #[tauri::command]
-pub fn open_log_dir(app: AppHandle, logs: State<'_, LogControl>) -> Result<(), String> {
+pub fn open_log_dir<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    logs: State<'_, LogControl>,
+) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     let dir = logs.dir().to_path_buf();
     // A folder that was never created cannot be opened; make it rather than
@@ -160,6 +216,9 @@ pub fn open_log_dir(app: AppHandle, logs: State<'_, LogControl>) -> Result<(), S
 }
 
 /// The most recently written log file in `dir`.
+///
+/// Only files directly in `dir`: the `sessions/` recordings below it are
+/// local-only and must never reach the bug-report bundle.
 ///
 /// Picked by modification time rather than by formatting today's date:
 /// `tracing-appender` names files by UTC day, so a machine west of Greenwich
@@ -304,6 +363,46 @@ mod tests {
                 "com.google.android.tvlauncher".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn session_recordings_never_reach_the_bug_report_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let sessions = dir.path().join(crate::session::SESSION_DIR_NAME);
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("2026-09-30T14-03-22Z.jsonl"),
+            "session line\n",
+        )
+        .unwrap();
+        assert!(log_tail(dir.path(), 200).is_empty());
+
+        std::fs::write(
+            dir.path().join("shield-optimizer.2026-09-30.log"),
+            "log line\n",
+        )
+        .unwrap();
+        // Written after the log file, so it would win on modification time if
+        // the directory walk ever descended into `sessions/`.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(
+            sessions.join("2026-09-30T15-00-00Z.jsonl"),
+            "newer session\n",
+        )
+        .unwrap();
+        assert_eq!(log_tail(dir.path(), 200), vec!["log line".to_string()]);
+    }
+
+    #[test]
+    fn ui_breadcrumbs_are_one_clean_bounded_line() {
+        assert_eq!(clean_ui_text("Save\n  snapshot\t", 120), "Save snapshot");
+        assert_eq!(clean_ui_text(&"a".repeat(300), 120).len(), 120);
+        assert!(valid_ui_event("route"));
+        assert!(valid_ui_event("click"));
+        assert!(!valid_ui_event(""));
+        assert!(!valid_ui_event("Route\n"));
+        assert!(log_ui_event("bad event".into(), "x".into(), None).is_err());
+        assert!(log_ui_event("tab".into(), "Apps".into(), Some("/devices/x".into())).is_ok());
     }
 
     #[test]

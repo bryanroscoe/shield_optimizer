@@ -571,8 +571,14 @@ mod tests {
 
     #[test]
     fn globs() {
-        assert!(glob_match("/vendor/etc/media_codecs*.xml", "/vendor/etc/media_codecs.xml"));
-        assert!(!glob_match("/odm/etc/media_codecs*.xml", "/vendor/etc/media_codecs.xml"));
+        assert!(glob_match(
+            "/vendor/etc/media_codecs*.xml",
+            "/vendor/etc/media_codecs.xml"
+        ));
+        assert!(!glob_match(
+            "/odm/etc/media_codecs*.xml",
+            "/vendor/etc/media_codecs.xml"
+        ));
         assert!(glob_match("a*b*c", "aXXbYYc"));
     }
 }

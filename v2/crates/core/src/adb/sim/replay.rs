@@ -110,7 +110,10 @@ pub struct Replay {
 /// matched by args alone and never reported as out of order.
 fn is_poll(args: &[String]) -> bool {
     matches!(
-        args.iter().map(String::as_str).collect::<Vec<_>>().as_slice(),
+        args.iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .as_slice(),
         ["devices"] | ["devices", "-l"] | ["mdns", "services"] | ["version"]
     )
 }
@@ -129,7 +132,9 @@ impl Replay {
         Out {
             stdout: line.stdout.clone().unwrap_or_default(),
             stderr: line.stderr.clone().unwrap_or_default(),
-            code: line.exit_code.unwrap_or(if line.error.is_some() { 1 } else { 0 }),
+            code: line
+                .exit_code
+                .unwrap_or(if line.error.is_some() { 1 } else { 0 }),
         }
     }
 
@@ -138,7 +143,8 @@ impl Replay {
         self.seq += 1;
         let want = normalise_args(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         let matches = |l: &SessionLine| normalise_args(&l.args) == want;
-        let timed_out = |l: &SessionLine| l.error.as_deref().is_some_and(|e| e.contains("timed out"));
+        let timed_out =
+            |l: &SessionLine| l.error.as_deref().is_some_and(|e| e.contains("timed out"));
         if is_poll(&want) {
             let found = (0..self.calls.len()).find(|&i| !self.used[i] && matches(&self.calls[i]));
             if let Some(i) = found {
@@ -303,7 +309,11 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
                     } else if let Some(p) = t.strip_prefix("packageName=") {
                         if let Some(c) = class.take() {
                             if !d.home.components.iter().any(|h| h.package == p) {
-                                let priority = if c.ends_with("FallbackHome") { -1000 } else { 0 };
+                                let priority = if c.ends_with("FallbackHome") {
+                                    -1000
+                                } else {
+                                    0
+                                };
                                 d.home.components.push(HomeComponent {
                                     package: p.into(),
                                     class: c,
@@ -362,8 +372,15 @@ pub fn write_profile(d: &Device, name: &str, dir: &std::path::Path) -> std::io::
         "notes": "Built from a recorded session (e2e_server profile-from-session).",
         "home_components": d.home.components.iter().map(|c| c.short()).collect::<Vec<_>>(),
     });
-    std::fs::write(dir.join("device.json"), serde_json::to_string_pretty(&meta)? + "\n")?;
-    let props: String = d.props.iter().map(|(k, v)| format!("[{k}]: [{v}]\n")).collect();
+    std::fs::write(
+        dir.join("device.json"),
+        serde_json::to_string_pretty(&meta)? + "\n",
+    )?;
+    let props: String = d
+        .props
+        .iter()
+        .map(|(k, v)| format!("[{k}]: [{v}]\n"))
+        .collect();
     std::fs::write(dir.join("getprop.txt"), props)?;
     let list = |f: &dyn Fn(&Package) -> bool| -> String {
         d.packages
@@ -374,10 +391,22 @@ pub fn write_profile(d: &Device, name: &str, dir: &std::path::Path) -> std::io::
     };
     std::fs::write(dir.join("pm-list-packages.txt"), list(&|p| p.installed))?;
     std::fs::write(dir.join("pm-list-packages-u.txt"), list(&|_| true))?;
-    std::fs::write(dir.join("pm-list-packages-d.txt"), list(&|p| p.installed && !p.enabled))?;
-    std::fs::write(dir.join("pm-list-packages-e.txt"), list(&|p| p.installed && p.enabled))?;
-    std::fs::write(dir.join("pm-list-packages-s.txt"), list(&|p| p.installed && p.system))?;
-    std::fs::write(dir.join("pm-list-packages-3.txt"), list(&|p| p.installed && !p.system))?;
+    std::fs::write(
+        dir.join("pm-list-packages-d.txt"),
+        list(&|p| p.installed && !p.enabled),
+    )?;
+    std::fs::write(
+        dir.join("pm-list-packages-e.txt"),
+        list(&|p| p.installed && p.enabled),
+    )?;
+    std::fs::write(
+        dir.join("pm-list-packages-s.txt"),
+        list(&|p| p.installed && p.system),
+    )?;
+    std::fs::write(
+        dir.join("pm-list-packages-3.txt"),
+        list(&|p| p.installed && !p.system),
+    )?;
     for ns in super::device::NS {
         let body: String = d
             .settings
@@ -397,7 +426,9 @@ pub fn write_profile(d: &Device, name: &str, dir: &std::path::Path) -> std::io::
     if let Some(p) = &d.home.preferred {
         std::fs::write(
             dir.join("home-resolve-activity.txt"),
-            format!("priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true\n{p}\n"),
+            format!(
+                "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true\n{p}\n"
+            ),
         )?;
     }
     for (cmd, file) in [
@@ -437,20 +468,38 @@ mod tests {
             line(&["-s", "A", "shell", "pm enable x"], "ok\n"),
         ];
         let mut r = Replay::new(&lines);
-        assert_eq!(r.answer(&["devices"]).unwrap().0.stdout, "List of devices attached\nA\tdevice\n");
+        assert_eq!(
+            r.answer(&["devices"]).unwrap().0.stdout,
+            "List of devices attached\nA\tdevice\n"
+        );
         assert_eq!(r.answer(&["devices"]).unwrap().0.code, 0);
         assert_eq!(r.repeats, 1);
-        assert_eq!(r.answer(&["-s", "A", "shell", "pm enable x"]).unwrap().0.stdout, "ok\n");
+        assert_eq!(
+            r.answer(&["-s", "A", "shell", "pm enable x"])
+                .unwrap()
+                .0
+                .stdout,
+            "ok\n"
+        );
         assert!(matches!(r.divergences[0], Divergence::OutOfOrder { .. }));
-        assert!(r.answer(&["-s", "A", "shell", "pm disable-user y"]).is_none());
+        assert!(r
+            .answer(&["-s", "A", "shell", "pm disable-user y"])
+            .is_none());
         let report = r.report();
-        assert!(report.iter().any(|d| matches!(d, Divergence::Unrecorded { .. })));
-        assert!(report.iter().any(|d| matches!(d, Divergence::NotReplayed { .. })));
+        assert!(report
+            .iter()
+            .any(|d| matches!(d, Divergence::Unrecorded { .. })));
+        assert!(report
+            .iter()
+            .any(|d| matches!(d, Divergence::NotReplayed { .. })));
     }
 
     #[test]
     fn pins_compare_redacted() {
-        let lines = vec![line(&["pair", "1.2.3.4:5", "<redacted pin>"], "Successfully paired")];
+        let lines = vec![line(
+            &["pair", "1.2.3.4:5", "<redacted pin>"],
+            "Successfully paired",
+        )];
         let mut r = Replay::new(&lines);
         assert!(r.answer(&["pair", "1.2.3.4:5", "123456"]).is_some());
         assert!(r.divergences.is_empty());
@@ -458,15 +507,27 @@ mod tests {
 
     #[test]
     fn batches_split_back_into_reads() {
-        let cmd = format!("{}; true", batch_command(&["getprop ro.serialno", "pm has-feature android.software.leanback"]));
+        let cmd = format!(
+            "{}; true",
+            batch_command(&[
+                "getprop ro.serialno",
+                "pm has-feature android.software.leanback"
+            ])
+        );
         let pairs = split_recorded(&cmd, &format!("SER\n{BATCH_SEPARATOR}\ntrue\n"));
-        assert_eq!(pairs[0], ("getprop ro.serialno".to_string(), "SER".to_string()));
+        assert_eq!(
+            pairs[0],
+            ("getprop ro.serialno".to_string(), "SER".to_string())
+        );
         assert_eq!(pairs[1].1, "true");
         let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
         let out = format!("package:a\npackage:b\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:b\n{BATCH_STATUS}0\n");
         let pairs = split_recorded(&cmd, &out);
         assert_eq!(pairs[0].0, "pm list packages");
-        assert_eq!(pairs[1], ("pm list packages -d".to_string(), "package:b".to_string()));
+        assert_eq!(
+            pairs[1],
+            ("pm list packages -d".to_string(), "package:b".to_string())
+        );
         let lines = vec![line(&["-s", "K", "shell", &cmd], &out)];
         let d = device_from_session(&lines, None).unwrap();
         assert_eq!(d.serial, "K");
