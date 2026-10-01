@@ -166,6 +166,13 @@ export function buildDiscoveryRows(
   // One row per stored TV, never per address: two saved TVs that once shared
   // an address are still two TVs, and each row carries the real stored entry
   // so reconnect and Forget act on something that exists.
+  const identitiesAt = new Map<string, Set<string>>();
+  for (const saved of savedDevices) {
+    const endpoint = `${saved.host}:${saved.connectPort}`;
+    const identities = identitiesAt.get(endpoint) ?? new Set<string>();
+    identities.add(savedDeviceKey(saved));
+    identitiesAt.set(endpoint, identities);
+  }
   const seen = new Set<string>();
   for (const saved of savedDevices) {
     const identity = savedDeviceKey(saved);
@@ -174,7 +181,12 @@ export function buildDiscoveryRows(
     // Already named on a discovery row via its advertised serial.
     if (verified.has(saved)) continue;
     const discovered = hosts.get(saved.host);
-    if (discovered?.connectPorts.has(saved.connectPort)) continue;
+    const answered = discovered?.connectPorts.has(saved.connectPort) ?? false;
+    // The discovery row stands in for a lone saved TV at an endpoint that
+    // answered. When several saved TVs share it, the scan cannot say which one
+    // answered, so each keeps its own row rather than vanishing into one.
+    const shared = (identitiesAt.get(`${saved.host}:${saved.connectPort}`)?.size ?? 0) > 1;
+    if (answered && !shared) continue;
     const atLiveEndpoint =
       live.connected &&
       live.host === saved.host &&
@@ -193,6 +205,8 @@ export function buildDiscoveryRows(
           // Something answers at this saved address, but nothing shows it is
           // this TV, so the row claims the address and not the connection.
           : "saved-address"
+        : answered
+          ? "saved-address"
         // The address answered the scan on some other port. That is not the
         // same claim as "offline", and it is the common case after a TV
         // reboot rotates the wireless-debugging port.
