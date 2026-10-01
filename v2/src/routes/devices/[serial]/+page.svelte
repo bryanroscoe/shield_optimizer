@@ -347,7 +347,10 @@
     try {
       const r = await api.trimCaches(serial);
       trimMessage = r.ok ? "App caches cleared." : r.message.trim();
-      if (r.ok) await loadHealth();
+      if (r.ok) {
+        refreshMeasurements();
+        await loadHealth();
+      }
     } catch (e) {
       trimMessage = String(e);
     } finally {
@@ -1666,6 +1669,14 @@
     if (activeTab !== "launcher") launchersLoaded = false;
     if (activeTab !== "health") healthStale = true;
     mediaResetToken++;
+    refreshMeasurements();
+  }
+
+  /// RAM, storage and last-used figures read before a change on the device
+  /// no longer describe it, so a mutation re-reads them rather than leaving an
+  /// open panel reporting a removed app's footprint as current.
+  function refreshMeasurements() {
+    if (appMeasures.memory.status !== "idle") void loadAppMemory();
   }
 
   function shellExecuted() {
@@ -1673,6 +1684,10 @@
     appsRequest++;
     otherRequest++;
     enrichmentRequest++;
+    appMemory = {};
+    appUsage = {};
+    appStorage = {};
+    appMeasures = idleMeasurements();
     appsLoaded = false;
     appsLoading = false;
     othersLoaded = false;

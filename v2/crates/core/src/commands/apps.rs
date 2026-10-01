@@ -320,7 +320,13 @@ pub async fn app_usage_map_impl(
         .shell(serial, "dumpsys usagestats")
         .await
         .map_err(|e| format!("dumpsys usagestats: {e}"))?;
-    Ok(parse_usage_stats(&out.stdout))
+    let map = parse_usage_stats(&out.stdout);
+    // The launcher and system UI alone always leave rows. No rows at all is an
+    // unreadable report, which must not read as "no app was ever used".
+    if map.is_empty() {
+        return Err("dumpsys usagestats reported no usage rows".to_string());
+    }
+    Ok(map)
 }
 
 /// `app_storage_map` — package → installed storage, from one `dumpsys
@@ -1302,6 +1308,19 @@ mod tests {
             .await
             .expect_err("an empty read must not say no app is running");
         assert!(err.contains("meminfo"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn app_usage_map_without_rows_is_an_error_not_empty() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let state = state_with(
+            MockAdb::default().on_shell("dumpsys usagestats", "Can't find service: usagestats\n"),
+        );
+        let err = app_usage_map_impl(&state, "serial")
+            .await
+            .expect_err("an unreadable report must not say nothing was used");
+        assert!(err.contains("usagestats"), "unhelpful error: {err}");
     }
 
     #[tokio::test]
