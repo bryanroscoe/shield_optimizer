@@ -75,15 +75,42 @@ Fixed GitHub #115–#118, all found by a code-read audit. Each repro is now a te
 **none has run on a phone or TV.**
 
 - One hardware-id rule (`lib/identity.ts`, matching desktop `idKey`): trim, and empty or any
-  casing of `unknown` is no id. Stored placeholder ids migrate to id-less rows, and rows that then
-  share one identity collapse to the newest, so saved-TV list keys are unique and Forget removes
-  exactly one TV (#116). A placeholder is no longer a wildcard for `adb-unknown-*` adverts.
+  casing of `unknown` is no id. Stored placeholder ids migrate to id-less rows, each keyed by its
+  own stable random local id rather than its bare endpoint (see #146 below), so saved-TV list keys
+  are unique and Forget removes exactly one TV (#116). A placeholder is no longer a wildcard for
+  `adb-unknown-*` adverts.
 - `cachedDeviceName` matches on verified id, or an id-less row at the exact endpoint; an
   identified row never names a TV that reports no id. Advertised serials match only exactly or
   with adbd's six-character suffix, so `shield` no longer verifies `adb-shield-a` (#117).
 - Scan rows are built per stored TV, never per address; no synthesized "Saved TV" row (#115).
 - `loadHealth` cannot wedge after its device vanishes mid-load, Cancel no longer shows a
   reconnect failure, and Diagnostics keys its safety lookup on the sorted package set (#118).
+
+## Id-less saved TVs stay distinct (2026-10-01)
+
+Fixed GitHub #146, raised by Codex on PR #144 and declined there as an edge case at the time.
+Two id-less saved TVs (no hardware id) that had shared one `host:port` used to collapse into a
+single storage row on migration/read -- the older one silently discarded -- because every id-less
+row was keyed by its bare endpoint. Fixed in `savedDevices.ts`/`identity.ts`/`discoveryRows.ts`:
+
+- Every id-less row gets a stable random `localId` the first time it is persisted; `savedDeviceKey`
+  keys on that instead of the endpoint, so two id-less TVs stay two rows no matter what address
+  they shared. Existing stored rows are migrated on first read without losing any.
+- `rememberDevice` only refreshes an existing id-less row when exactly one saved row matches the
+  connecting endpoint. When two or more already share it, which one just reconnected is unknowable,
+  so the connection is deliberately not persisted against any of them -- it writes nothing, rather
+  than either overwriting one of them with a guess or saving a new row on every repeat reconnect
+  (the latter would eventually evict a genuine saved TV once `MAX` is reached).
+- A shared `savedDeviceIsLiveConnection` check (`identity.ts`) is the one place that decides
+  whether a saved row is unambiguously the live connection: always true for a verified hardware id,
+  true for an id-less match only when it is the single id-less row at that endpoint. Both
+  `buildDiscoveryRows` and the Devices screen's "Other TVs" filter use it, so neither marks more
+  than one id-less saved row "connected" at a shared live endpoint, and neither hides an ambiguous
+  row (and its Forget control) from the list -- the discovery row falls back to a generic name and
+  both saved rows report "saved-address" instead of one of them claiming the connection.
+
+Covered by new tests in `tests/savedDevices.test.mjs` and `tests/discoveryRows.test.mjs`; none has
+run on a device.
 
 ## Stability reset (2026-09-04)
 

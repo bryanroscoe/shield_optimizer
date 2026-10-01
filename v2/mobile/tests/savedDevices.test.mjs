@@ -340,9 +340,11 @@ test("a reused address never lends an identified TV's name to a TV that reports 
   assert.equal(savedDevices.cachedDeviceName("192.168.1.10", 41234), null);
 });
 
-test("a stored placeholder id becomes an id-less row with one key (#116)", () => {
+test("a stored placeholder id becomes an id-less row with its own stable key, never merged with another (#116, #146)", () => {
   seed([
     saved({ hardwareId: undefined, name: "Real", lastUsed: "2026-09-02T00:00:00.000Z" }),
+    // Shares "Real"'s exact host:port once its placeholder id normalizes
+    // away -- a genuinely different TV, not a duplicate of "Real".
     saved({ hardwareId: "unknown", name: "Ghost", lastUsed: "2026-09-01T00:00:00.000Z" }),
     saved({ host: "192.168.1.20", hardwareId: " UNKNOWN ", name: "Other", lastUsed: "2026-08-01T00:00:00.000Z" }),
   ]);
@@ -350,15 +352,24 @@ test("a stored placeholder id becomes an id-less row with one key (#116)", () =>
   const rows = savedDevices.listSavedDevices();
   const keys = rows.map(savedDevices.savedDeviceKey);
   assert.equal(new Set(keys).size, keys.length);
+  // All three survive -- the placeholder migration must not discard a TV
+  // just because it now shares an address with another id-less row.
   assert.deepEqual(
-    rows.map((row) => [row.name, row.hardwareId]),
-    [["Real", undefined], ["Other", undefined]],
+    new Set(rows.map((row) => `${row.name}:${row.hardwareId}`)),
+    new Set(["Real:undefined", "Ghost:undefined", "Other:undefined"]),
   );
   // The placeholder is migrated out of storage, not just hidden on read.
   assert.equal(rawRows().some((row) => "hardwareId" in row), false);
+  // Each row's freshly-minted local key is itself persisted, so it stays
+  // stable across reads instead of being re-rolled every time.
+  assert.deepEqual(savedDevices.listSavedDevices().map(savedDevices.savedDeviceKey), keys);
 
-  savedDevices.forgetSavedDevice(rows[0]);
-  assert.deepEqual(savedDevices.listSavedDevices().map((row) => row.name), ["Other"]);
+  const ghost = rows.find((row) => row.name === "Ghost");
+  savedDevices.forgetSavedDevice(ghost);
+  assert.deepEqual(
+    new Set(savedDevices.listSavedDevices().map((row) => row.name)),
+    new Set(["Real", "Other"]),
+  );
 });
 
 test("reconnecting a TV that reports a placeholder id refreshes its row instead of appending (#116)", () => {
@@ -371,6 +382,43 @@ test("reconnecting a TV that reports a placeholder id refreshes its row instead 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].hardwareId, undefined);
   assert.equal(rows[0].name, "Ghost");
+});
+
+test("never guesses which of two id-less TVs at one endpoint just reconnected (#146)", () => {
+  seed([
+    saved({ hardwareId: undefined, localId: "first-tv", name: "First TV", lastUsed: "2026-09-01T00:00:00.000Z" }),
+    saved({ hardwareId: undefined, localId: "second-tv", name: "Second TV", lastUsed: "2026-09-02T00:00:00.000Z" }),
+  ]);
+
+  // An id-less connection lands on the one shared endpoint of two already
+  // distinct saved TVs. Which one it is cannot be told from the address
+  // alone, so neither existing row is claimed (and so overwritten with a
+  // possibly-wrong identity) -- and nothing new is persisted either, since a
+  // fresh unidentified row on every repeat reconnect would eventually evict a
+  // genuine saved TV once MAX is reached. The connection is simply not
+  // recorded against any saved identity.
+  savedDevices.rememberDevice("192.168.1.10", 5555, device(undefined, {
+    name: "Just reported",
+    properties: { friendly_name: null, serial_number: undefined },
+  }));
+
+  // Repeating the ambiguous reconnect many times still does not grow storage.
+  for (let i = 0; i < 20; i++) {
+    savedDevices.rememberDevice("192.168.1.10", 5555, device(undefined, {
+      name: "Just reported",
+      properties: { friendly_name: null, serial_number: undefined },
+    }));
+  }
+
+  const rows = savedDevices.listSavedDevices();
+  assert.equal(rows.length, 2);
+  assert.deepEqual(
+    new Set(rows.map((row) => row.name)),
+    new Set(["First TV", "Second TV"]),
+  );
+  // Both original rows are untouched -- neither lost its name nor its key.
+  assert.equal(rows.some((row) => row.name === "First TV" && savedDevices.savedDeviceKey(row) === "local:first-tv"), true);
+  assert.equal(rows.some((row) => row.name === "Second TV" && savedDevices.savedDeviceKey(row) === "local:second-tv"), true);
 });
 
 test("sorts by lastUsed and truncates the oldest saved rows", () => {
@@ -524,6 +572,39 @@ test("matches the current TV by verified id or an exact id-less endpoint", () =>
       "192.168.1.10",
       5555,
     ),
+    false,
+  );
+});
+
+test("only an unambiguous match counts as the live connection (#146)", () => {
+  const shieldA = saved({ hardwareId: "shield-a" });
+  const lone = saved({ hardwareId: undefined, localId: "lone-tv" });
+  const first = saved({ hardwareId: undefined, localId: "first-tv" });
+  const second = saved({ hardwareId: undefined, localId: "second-tv", name: "Second TV" });
+
+  // A verified hardware id is unambiguous regardless of what else is saved.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(shieldA, [shieldA, first, second], "192.168.1.10", 5555, "shield-a"),
+    true,
+  );
+  // A single id-less row at the endpoint is as good as this app's identity
+  // story gets, so it counts.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(lone, [lone], "192.168.1.10", 5555, undefined),
+    true,
+  );
+  // Two id-less rows sharing the endpoint: neither may claim the connection.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(first, [first, second], "192.168.1.10", 5555, undefined),
+    false,
+  );
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(second, [first, second], "192.168.1.10", 5555, undefined),
+    false,
+  );
+  // A row that does not even match the endpoint is never live, ambiguous or not.
+  assert.equal(
+    savedDevices.savedDeviceIsLiveConnection(first, [first, second], "192.168.1.99", 5555, undefined),
     false,
   );
 });

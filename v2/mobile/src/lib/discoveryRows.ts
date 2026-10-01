@@ -1,6 +1,7 @@
 import type { Discovery, SavedDevice } from "./types";
 import {
   normalizeHardwareId,
+  savedDeviceIsLiveConnection,
   savedDeviceKey,
   savedDeviceMatchesConnection,
 } from "./identity";
@@ -114,9 +115,6 @@ export function buildDiscoveryRows(
   // other host is stale. Only that advert is dropped, never the other
   // devices answering from the same address.
   const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
-  const liveSaved = liveId
-    ? savedDevices.find((saved) => normalizeHardwareId(saved.hardwareId) === liveId)
-    : undefined;
   const hosts = new Map<string, HostGroup>();
   for (const discovery of discoveries) {
     const host = discovery.host.trim();
@@ -173,15 +171,12 @@ export function buildDiscoveryRows(
       );
     // On the live row only the live TV's own identity counts. When it reports
     // no id, an advert there may be stale, so the row is named only after an
-    // id-less saved TV at this exact endpoint, or after nothing.
+    // id-less saved TV at this exact endpoint -- and only when that endpoint
+    // has exactly one such TV saved, never a guess between several.
     if (isLive) {
-      savedMatch = liveId
-        ? liveSaved
-        : savedDevices.find(
-            (saved) =>
-              normalizeHardwareId(saved.hardwareId) === undefined &&
-              savedDeviceMatchesConnection(saved, live.host, live.connectPort),
-          );
+      savedMatch = savedDevices.find((saved) =>
+        savedDeviceIsLiveConnection(saved, savedDevices, live.host, live.connectPort, live.hardwareId),
+      );
     }
     if (savedMatch) verified.add(savedMatch);
     rows.push({
@@ -248,7 +243,7 @@ export function buildDiscoveryRows(
       pairingPorts: [],
       legacyConnectPorts: [],
       status: atLiveEndpoint
-        ? savedDeviceMatchesConnection(saved, live.host, live.connectPort, live.hardwareId)
+        ? savedDeviceIsLiveConnection(saved, savedDevices, live.host, live.connectPort, live.hardwareId)
           ? "connected"
           // Something answers at this saved address, but nothing shows it is
           // this TV, so the row claims the address and not the connection.

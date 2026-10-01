@@ -37,6 +37,23 @@ exactly or with adbd's 6-character suffix. `loadHealth` can no longer wedge, Can
 reports a reconnect failure, and Diagnostics no longer blanks its safety badges when two apps
 swap rank. Every fix is covered by a test reproducing the issue; none has run on a device.
 
+**Id-less saved rows stay distinct (2026-10-01, GitHub #146).** An id-less row (no hardware id)
+used to be keyed everywhere by its bare `host:port`, so two genuinely different TVs that had
+shared an endpoint at different times collapsed into one storage slot — the older one silently
+lost. Every id-less row now gets its own random `localId` the first time it is persisted
+(`savedDevices.ts`), and `savedDeviceKey`/`identity.ts` key id-less rows on that instead of the
+endpoint; existing stored rows are migrated in place on first read, losing nothing.
+`rememberDevice` only refreshes an existing id-less row when exactly one saved row matches the
+connecting endpoint — when two or more already share it, which one just reconnected is not
+knowable, so the connection is deliberately not persisted against any of them (writing nothing,
+not a new row every time, is what stops repeat reconnects from eventually evicting a genuine saved
+TV once `MAX` is reached). `discoveryRows.ts` and the Devices screen's "Other TVs" filter both go
+through one shared `savedDeviceIsLiveConnection` check (`identity.ts`) so neither ever marks more
+than one id-less saved row "connected" at a shared live endpoint, or hides an ambiguous row from
+the list; the discovery row shows a generic name and both saved rows report "saved-address"
+instead. Covered by new tests in `savedDevices.test.mjs` and `discoveryRows.test.mjs`; unverified
+on a device.
+
 ---
 
 ## 1. What this is
