@@ -97,10 +97,11 @@
     try {
       const r = await session.connect(d.host, d.connectPort);
       if (r.ok) {
-        if (session.identityNote) {
-          showToast(session.identityNote, "info");
-          session.identityNote = "";
-        } else {
+        // This navigates to Dashboard immediately below, so a toast shown
+        // here never survives to be seen. Leave `session.identityNote`
+        // unread for Dashboard's own `onMount` to show -- it must not be
+        // cleared here only to be silently lost (#154 follow-up).
+        if (!session.identityNote) {
           showToast(`Connected to ${session.deviceLabel}.`, "success");
         }
         session.loadHealth(true);

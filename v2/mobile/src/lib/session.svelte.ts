@@ -279,6 +279,13 @@ class Session {
           await this.refreshDevices(generation);
           if (generation !== this.connectionGeneration) return false;
           const live = this.connectedDevice != null;
+          // A silent recovery redials the same host:port, exactly like an
+          // explicit reconnect -- so it needs the same identity check before
+          // being trusted as live. Without it, a different id-less TV that
+          // took over this address mid-session would be silently treated as
+          // "the" saved TV reconnecting, the same bug #154 fixed for an
+          // explicit connect.
+          if (live) this.rememberCurrentDevice();
           this.liveness = live ? "live" : "lost";
           if (live) this.recoveryAttempted = false;
           return live;

@@ -145,6 +145,20 @@ promotion to "verified":
 Covered by new tests in `tests/savedDevices.test.mjs` (verified to fail before the fix); none has
 run on a device.
 
+**Codex review follow-up on PR #155 (same day):** two valid findings, both fixed:
+
+- `recoverOrMarkLost()` (the silent one-shot reconnect `checkLiveness()` triggers when the cheap
+  liveness probe fails) redialed the same host:port directly and never ran the identity check
+  above, so a different id-less TV that took over mid-session during a silent recovery was
+  trusted without comparison. It now calls `rememberCurrentDevice()` on a successful recovery,
+  before flipping liveness to `"live"` -- the same check an explicit reconnect gets. Covered by a
+  new Playwright case in `tests/session.test.mjs`, verified to fail before the fix.
+- Devices' `reconnect(d)` cleared `session.identityNote` and showed its toast locally, then
+  immediately navigated to Dashboard -- the toast never had a chance to be seen. It now leaves the
+  note unread when connecting a saved row so Dashboard's own `onMount` can show it instead (that
+  path already existed and is exercised, so there was nothing else to change there). Covered by a
+  new Playwright case in `tests/session.test.mjs`, verified to fail before the fix.
+
 ## Stability reset (2026-09-04)
 
 A four-track audit (feature parity vs v1/desktop, connection lifecycle, screen UX, Rust backend)
