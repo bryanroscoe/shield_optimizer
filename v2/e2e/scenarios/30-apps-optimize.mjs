@@ -147,6 +147,53 @@ export const scenarios = [
     },
   },
   {
+    name: "app-report-state-during-optimize-run",
+    async run(ctx) {
+      await ctx.reset(shieldScenario());
+      const before = (await ctx.device(SHIELD.serial)).packages;
+      await ctx.openDevice(SHIELD.key, "apps");
+      const page = ctx.page;
+      await page.getByRole("button", { name: "Keep", exact: true }).first().waitFor();
+      await ctx.tab("optimize");
+      await page.getByRole("button", { name: "Optimize", exact: true }).click();
+      await page.getByRole("button", { name: "Select all safe" }).waitFor();
+      await page.waitForLoadState("networkidle");
+      await page.getByRole("button", { name: "Select all safe" }).click();
+      // Let the first removal land, then hold the second one open: the run is
+      // still in progress while a report is opened for the finished package.
+      await ctx.fault({ matches: "pm disable-user", after: 1, times: 1, effect: { type: "delay", ms: 8000 } });
+      await page.getByRole("button", { name: /^Run plan/ }).click();
+      let pkg;
+      await ctx.waitFor(async () => {
+        const now = (await ctx.device(SHIELD.serial)).packages;
+        pkg = now.disabled.find((p) => !before.disabled.includes(p));
+        return !!pkg;
+      }, { message: "the run's first removal lands", timeout: 20_000 });
+      ctx.assert.equal(await page.getByText(/Optimize complete:/).count(), 0, "the run is still going");
+
+      await page.locator("#tab-apps").click();
+      const row = page.locator("tr", { has: page.locator(".pkg-id", { hasText: pkg }) }).first();
+      await row.scrollIntoViewIfNeeded();
+      await row.locator(".row-caret").click();
+      await page.getByRole("button", { name: "Report this app" }).click();
+      const dialog = page.getByRole("dialog", { name: "Report this app" });
+      await dialog.waitFor();
+      await dialog.getByRole("checkbox").check();
+      const stateNow = async () =>
+        JSON.parse(await dialog.getByLabel("Report preview").inputValue()).records[0].state;
+      const state = await stateNow();
+      ctx.assert.equal(state.installed, null, "no pre-run installed state mid-run");
+      ctx.assert.equal(state.enabled, null, "no pre-run enabled state mid-run");
+      await ctx.step("report state is unknown while the run is in progress");
+
+      await ctx.waitFor(async () => (await stateNow()).enabled === false, {
+        message: "state arrives once the run and its re-read finish",
+        timeout: 40_000,
+      });
+      await ctx.step("report state is the post-run state once the run finishes");
+    },
+  },
+  {
     name: "app-list-keep-per-hardware-id",
     async run(ctx) {
       await ctx.reset({

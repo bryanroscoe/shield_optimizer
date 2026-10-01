@@ -70,6 +70,9 @@ this file and shows the newest few sections, dated, from its version button.
   background. A report opened in that window with state included could carry
   the pre-run state. It now reports the state as unknown until the re-read
   lands, then shows the new state.
+- **Or from during one** (#147). A report opened while an Optimize run is
+  still working through its plan now gives every app's state as unknown, from
+  the run's first change until the post-run re-read lands.
 - **A report's note redacts more** (#143). A serial is redacted whatever its
   casing, and a serial shorter than four characters is redacted where it
   stands as a whole word. Package ids other than the reported app are
