@@ -378,9 +378,6 @@ pub fn synthesize(d: &mut Device) {
     d.texts.entry("dumpsys thermalservice".into()).or_insert_with(|| {
         "IsStatusOverride: false\nThermalEventListeners:\nCurrent temperatures from HAL:\n\tTemperature{mValue=46.5, mType=0, mName=CPU, mStatus=0}\n\tTemperature{mValue=41.0, mType=3, mName=SKIN, mStatus=0}\n".into()
     });
-    d.texts
-        .entry("dumpsys activity settings".into())
-        .or_insert_with(|| "ACTIVITY MANAGER SETTINGS (dumpsys activity settings) activity_manager_constants:\n  max_cached_processes=32\n\n  CUR_MAX_CACHED_PROCESSES=32\n  CUR_MAX_EMPTY_PROCESSES=16\n  CUR_TRIM_EMPTY_PROCESSES=8\n".into());
     d.texts.entry("dumpsys audio".into()).or_insert_with(|| {
         if is_tv {
             "Audio event log:\n- STREAM_MUSIC:\n   Devices: hdmi\n".into()

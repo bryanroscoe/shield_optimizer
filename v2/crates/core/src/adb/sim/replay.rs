@@ -457,6 +457,13 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
                         .map(str::to_string);
                 }
             }
+            // Tweaks greps this down to one line, which is all the
+            // simulator ever serves from it, so the line stands in for the dump.
+            ["dumpsys", "activity", "settings", "|", "grep", "CUR_MAX_CACHED_PROCESSES"] => {
+                d.texts
+                    .entry("dumpsys activity settings".into())
+                    .or_insert_with(|| format!("{out}\n"));
+            }
             ["dumpsys", ..] | ["top", ..] | ["df", ..] => {
                 d.texts.entry(cmd.clone()).or_insert_with(|| out.clone());
             }
@@ -565,6 +572,7 @@ pub fn write_profile(d: &Device, name: &str, dir: &std::path::Path) -> std::io::
     for (cmd, file) in [
         ("dumpsys meminfo", "dumpsys-meminfo.txt"),
         ("dumpsys diskstats", "dumpsys-diskstats.txt"),
+        ("dumpsys activity settings", "dumpsys-activity-settings.txt"),
         ("top -b -n 1", "top.txt"),
         ("wm size", "wm-size.txt"),
         ("wm density", "wm-density.txt"),
@@ -685,6 +693,35 @@ mod tests {
         let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
         assert!(!d.package("gone").unwrap().installed);
         assert!(d.package("a").unwrap().installed);
+    }
+
+    #[test]
+    fn a_recorded_cached_limit_survives_a_generated_profile() {
+        let cmd = checked_batch_command(&[
+            "getprop ro.serialno",
+            "dumpsys activity settings | grep CUR_MAX_CACHED_PROCESSES",
+        ]);
+        let out = format!(
+            "SER\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n  CUR_MAX_CACHED_PROCESSES=4\n{BATCH_STATUS}0\n"
+        );
+        let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        write_profile(&d, "t", dir.path()).unwrap();
+        let mut loaded = super::super::profile::load_profile(dir.path()).unwrap();
+        let shown = loaded
+            .dumpsys(&["activity".into(), "settings".into()], 0.0)
+            .unwrap()
+            .stdout;
+        assert!(shown.contains("CUR_MAX_CACHED_PROCESSES=4"), "{shown}");
+
+        let none = device_from_session(
+            &[line(&["-s", "K", "shell", "getprop ro.serialno"], "SER\n")],
+            None,
+        )
+        .unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        write_profile(&none, "t", dir.path()).unwrap();
+        assert!(!dir.path().join("dumpsys-activity-settings.txt").exists());
     }
 
     #[test]
