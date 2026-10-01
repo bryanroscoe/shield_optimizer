@@ -206,6 +206,29 @@ test("a stale advert at an old host never shows the live TV a second time (#115)
   );
 });
 
+test("a legacy advert sharing the live TV's serial prefix is not dropped as stale (#149)", () => {
+  // adbd's random suffix is a TLS-service-only convention; a legacy `_adb._tcp`
+  // advert carries the bare serial with no suffix, so a different TV whose
+  // serial happens to start with the live TV's id plus six more characters is
+  // not a stale advert of the live TV -- it is a different TV entirely.
+  const rows = buildDiscoveryRows(
+    [
+      advert("192.168.1.10", 5555, TLS_CONNECT, "adb-shield-jBeCEe"),
+      advert("192.168.1.20", 5555, LEGACY, "adb-shield-AbC123"),
+    ],
+    [],
+    liveAt("192.168.1.10", 5555, "shield"),
+  );
+
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.status]),
+    [
+      ["discovery:192.168.1.10", "connected"],
+      ["discovery:192.168.1.20", "found"],
+    ],
+  );
+});
+
 test("a live TV that reports no id is never named after a stale advert at its address (#115)", () => {
   const shieldA = saved({ hardwareId: "shield-a", name: "Shield A" });
   const rows = buildDiscoveryRows(
@@ -397,7 +420,7 @@ test("a saved id only matches its own advertised serial, not a longer one (#117)
   );
 
   const own = buildDiscoveryRows(
-    [advert("192.168.1.82", 5555, LEGACY, "adb-shield-jBeCEe")],
+    [advert("192.168.1.82", 5555, TLS_CONNECT, "adb-shield-jBeCEe")],
     [saved({ host: "192.168.1.10", hardwareId: "shield", name: "Living room" })],
     offline,
   );
@@ -500,7 +523,7 @@ test("an advertised serial verifies a saved TV and names it", () => {
 
 test("a verified serial recognizes a saved TV that moved to a new address", () => {
   const rows = buildDiscoveryRows(
-    [advert("192.168.1.99", 5555, LEGACY, "adb-shield-a-jBeCEe")],
+    [advert("192.168.1.99", 5555, TLS_CONNECT, "adb-shield-a-jBeCEe")],
     [saved()],
     offline,
   );

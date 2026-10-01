@@ -34,10 +34,14 @@ export interface LiveEndpoint {
   hardwareId?: string | null;
 }
 
+/// An advertised instance name plus the mDNS service type it arrived on.
+/// The service type gates suffix matching in `advertisedMatch` below.
+type AdvertisedInstance = { name: string; service: string };
+
 type HostGroup = {
   host: string;
   names: Set<string>;
-  instanceNames: Set<string>;
+  instances: AdvertisedInstance[];
   connectPorts: Set<number>;
   pairingPorts: Set<number>;
   legacyConnectPorts: Set<number>;
@@ -70,18 +74,26 @@ const ADBD_SUFFIX = /^[a-z0-9]{6}$/;
 /// broadcast serial is real identity evidence, so a scan can recognize a TV it
 /// has connected to before without opening a connection -- and without falling
 /// back to the address, which DHCP can hand to a different device.
+///
+/// The random suffix is only something adbd's TLS services append (RFC 6763
+/// instance-name disambiguation on `_adb-tls-connect`/`_adb-tls-pairing`).
+/// Legacy `_adb._tcp` adverts carry the bare serial with no suffix, so a
+/// legacy serial that happens to start with a saved id plus six more
+/// characters is a different TV, not the same one with a suffix -- suffix
+/// matching is only trusted on the TLS services that actually produce it.
 function advertisedMatch(
-  instanceNames: Set<string>,
+  instances: AdvertisedInstance[],
   hardwareId: string | undefined,
 ): "exact" | "suffixed" | null {
   const wanted = normalizeHardwareId(hardwareId)?.toLowerCase();
   if (!wanted) return null;
   let match: "suffixed" | null = null;
-  for (const instance of instanceNames) {
-    const serial = advertisedSerial(instance)?.toLowerCase();
+  for (const { name, service } of instances) {
+    const serial = advertisedSerial(name)?.toLowerCase();
     if (!serial) continue;
     if (serial === wanted) return "exact";
     if (
+      service.includes("tls") &&
       serial.startsWith(`${wanted}-`) &&
       ADBD_SUFFIX.test(serial.slice(wanted.length + 1))
     ) {
@@ -112,20 +124,23 @@ export function buildDiscoveryRows(
     if (
       liveId &&
       host !== live.host &&
-      advertisedMatch(new Set([discovery.name ?? ""]), liveId)
+      advertisedMatch(
+        [{ name: discovery.name ?? "", service: discovery.service }],
+        liveId,
+      )
     ) {
       continue;
     }
     const group = hosts.get(host) ?? {
       host,
       names: new Set<string>(),
-      instanceNames: new Set<string>(),
+      instances: [],
       connectPorts: new Set<number>(),
       pairingPorts: new Set<number>(),
       legacyConnectPorts: new Set<number>(),
     };
     const name = discovery.name?.trim();
-    if (name) group.instanceNames.add(name);
+    if (name) group.instances.push({ name, service: discovery.service });
     if (name && !name.startsWith("adb-")) group.names.add(name);
     if (discovery.service.includes("pairing")) {
       group.pairingPorts.add(discovery.port);
@@ -151,10 +166,10 @@ export function buildDiscoveryRows(
       connectPorts.includes(live.connectPort);
     let savedMatch =
       savedDevices.find(
-        (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "exact",
+        (saved) => advertisedMatch(group.instances, saved.hardwareId) === "exact",
       ) ??
       savedDevices.find(
-        (saved) => advertisedMatch(group.instanceNames, saved.hardwareId) === "suffixed",
+        (saved) => advertisedMatch(group.instances, saved.hardwareId) === "suffixed",
       );
     // On the live row only the live TV's own identity counts. When it reports
     // no id, an advert there may be stale, so the row is named only after an
