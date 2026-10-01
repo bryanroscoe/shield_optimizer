@@ -4,6 +4,7 @@ pub mod batch;
 pub mod driver;
 pub mod parse;
 pub mod remote_input;
+pub mod storage;
 
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch};
@@ -20,3 +21,6 @@ pub use parse::{
     RamInfo, StorageInfo, MDNS_SERVICE_CONNECT, MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
 };
 pub use remote_input::RemoteInputSession;
+pub use storage::{
+    parse_diskstats_package_sizes, parse_pm_path_apks, parse_stat_sizes_total, AppStorage,
+};

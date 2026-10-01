@@ -42,6 +42,13 @@
     type Recommendation,
   } from "$lib/recommendation";
   import AppRow from "$lib/components/AppRow.svelte";
+  import {
+    idleMeasurements,
+    loadingMeasurements,
+    settled,
+    type AppDetailInputs,
+    type AppMeasurements,
+  } from "$lib/app-details";
   import FilesTab from "$lib/components/FilesTab.svelte";
   import TweaksTab from "$lib/components/TweaksTab.svelte";
   import SideloadTab from "$lib/components/SideloadTab.svelte";
@@ -224,6 +231,22 @@
   /// package → last-used / launch count, lazy-loaded alongside RAM. Powers the
   /// "remove if unused" signal (never opened / months idle).
   let appUsage = $state<Record<string, import("$lib/types").AppUsage>>({});
+  /// package → installed storage (disk, not RAM), from one `dumpsys diskstats`.
+  let appStorage = $state<Record<string, import("$lib/types").AppStorage>>({});
+  /// Whether each of the three reads above landed, and when. An empty map
+  /// beside an unavailable read means "we don't know", never "nothing".
+  let appMeasures = $state<AppMeasurements>(idleMeasurements());
+
+  function appDetails(pkg: string): AppDetailInputs {
+    return {
+      serial,
+      measures: appMeasures,
+      memoryMb: appMemory[pkg],
+      usage: appUsage[pkg],
+      storage: appStorage[pkg],
+      onRemeasure: () => void loadAppMemory(),
+    };
+  }
 
   function matchesSearch(name: string, pkg: string): boolean {
     const q = appSearch.trim().toLowerCase();
@@ -587,6 +610,8 @@
     othersErr = null;
     appMemory = {};
     appUsage = {};
+    appStorage = {};
+    appMeasures = idleMeasurements();
     if (appMutationInFlight) appActionBusy = null;
     appActionMessage = "";
     try {
@@ -636,19 +661,30 @@
     }
   }
 
-  /// Lazy RAM + last-used annotations: one `dumpsys meminfo` and one
-  /// `dumpsys usagestats`, mapped onto the rows. Run after the list paints and
-  /// never block it — a failure just leaves those cues off.
+  /// Lazy RAM, last-used and storage annotations: one `dumpsys meminfo`, one
+  /// `dumpsys usagestats` and one `dumpsys diskstats`, mapped onto the rows.
+  /// Run after the list paints and never block it. Each read records when it
+  /// landed or why it failed, so the detail panel can say "unavailable" rather
+  /// than let an empty map read as zero.
   async function loadAppMemory() {
     const context = capturePageContext();
     const request = ++enrichmentRequest;
-    const [mem, usage] = await Promise.allSettled([
+    appMeasures = loadingMeasurements();
+    const [mem, usage, storage] = await Promise.allSettled([
       api.appMemoryMap(context.serial),
       api.appUsageMap(context.serial),
+      api.appStorageMap(context.serial),
     ]);
     if (!pageContextIsCurrent(context) || request !== enrichmentRequest) return;
+    const at = Date.now();
     appMemory = mem.status === "fulfilled" ? mem.value : {};
     appUsage = usage.status === "fulfilled" ? usage.value : {};
+    appStorage = storage.status === "fulfilled" ? storage.value : {};
+    appMeasures = {
+      memory: settled(mem, at),
+      usage: settled(usage, at),
+      storage: settled(storage, at),
+    };
   }
 
   // Everything installed that isn't in the curated catalog — sideloaded apps
@@ -1684,7 +1720,7 @@
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
-    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
+    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
@@ -2690,6 +2726,7 @@
                 detailOpen={expandedSafety === a.package}
                 onToggleDetail={() =>
                   (expandedSafety = expandedSafety === a.package ? null : a.package)}
+                details={appDetails(a.package)}
               >
                 {#snippet actions()}
                 <td class="rec-cell controls-start">
@@ -2906,6 +2943,7 @@
                     detailOpen={expandedSafety === o.package}
                     onToggleDetail={() =>
                       (expandedSafety = expandedSafety === o.package ? null : o.package)}
+                    details={appDetails(o.package)}
                   >
                     {#snippet actions()}
                     <td class="rec-cell controls-start">
@@ -3223,6 +3261,7 @@
         {serial}
         deviceType={device.device_type}
         {appUsage}
+        {appDetails}
         {keptPackages}
         resetToken={optimizeResetToken}
         {pageEpoch}

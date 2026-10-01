@@ -167,6 +167,13 @@ export const api = {
     invoke<Record<string, number>>("app_memory_map", { serial }),
   appUsageMap: (serial: string) =>
     invoke<Record<string, import("$lib/types").AppUsage>>("app_usage_map", { serial }),
+  /// Installed storage per package from one `dumpsys diskstats`.
+  appStorageMap: (serial: string) =>
+    invoke<Record<string, import("$lib/types").AppStorage>>("app_storage_map", { serial }),
+  /// One package's APK size (`pm path` + `stat`), for a package diskstats has
+  /// no row for. Data and cache come back null.
+  appApkSize: (serial: string, pkg: string) =>
+    invoke<import("$lib/types").AppStorage>("app_apk_size", { serial, package: pkg }),
   safetyInfo: async (pkg: string): Promise<Safety> =>
     parseSafety(await invoke<unknown>("safety_info", { package: pkg })),
   /// Classify a *process* name from a memory report. Catalog-free on purpose —

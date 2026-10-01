@@ -12,8 +12,9 @@ use tauri::State;
 
 use crate::adb::{
     checked_batch_command, parse_checked_batch, parse_disabled_packages_output,
-    parse_installed_packages_output, parse_permission_granted, parse_total_pss_by_process,
-    parse_usage_stats, AppUsage,
+    parse_diskstats_package_sizes, parse_installed_packages_output, parse_permission_granted,
+    parse_pm_path_apks, parse_stat_sizes_total, parse_total_pss_by_process, parse_usage_stats,
+    AppStorage, AppUsage,
 };
 use crate::engine::{
     classify_safety, classify_with_catalog, is_last_enabled_home_handler, is_valid_package_name,
@@ -290,7 +291,13 @@ pub async fn app_memory_map_impl(
         .shell(serial, "dumpsys meminfo")
         .await
         .map_err(|e| format!("dumpsys meminfo: {e}"))?;
-    Ok(parse_total_pss_by_process(&out.stdout))
+    let map = parse_total_pss_by_process(&out.stdout);
+    // A running device always has processes. An empty table is a failed read,
+    // and returning it as Ok would read as "no app is running".
+    if map.is_empty() {
+        return Err("dumpsys meminfo reported no processes".to_string());
+    }
+    Ok(map)
 }
 
 /// `app_usage_map` — package → last-used + launch count, from a single
@@ -314,6 +321,79 @@ pub async fn app_usage_map_impl(
         .await
         .map_err(|e| format!("dumpsys usagestats: {e}"))?;
     Ok(parse_usage_stats(&out.stdout))
+}
+
+/// `app_storage_map` — package → installed storage, from one `dumpsys
+/// diskstats`. These are disk figures, not memory, and they come from the
+/// cache Android refreshes on its own schedule. An output with no package
+/// table is an error so the UI can say "unavailable" instead of showing
+/// every app as taking no space.
+#[tauri::command]
+pub async fn app_storage_map(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HashMap<String, AppStorage>, String> {
+    app_storage_map_impl(state.inner(), &serial).await
+}
+
+pub async fn app_storage_map_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<HashMap<String, AppStorage>, String> {
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    let adb = state.adb_snapshot().await;
+    let out = timeout(
+        Duration::from_secs(15),
+        adb.shell(serial, "dumpsys diskstats"),
+    )
+    .await
+    .map_err(|_| "dumpsys diskstats timed out".to_string())?
+    .map_err(|e| format!("dumpsys diskstats: {e}"))?;
+    parse_diskstats_package_sizes(&out.stdout)
+        .ok_or_else(|| "dumpsys diskstats reported no per-app sizes".to_string())
+}
+
+/// `app_apk_size` — fallback for one package diskstats has no row for: the
+/// summed size of its APK files from `pm path` + `stat`. Read-only. It covers
+/// the APKs only — not compiled code, data or cache — and the caller labels it
+/// that way.
+#[tauri::command]
+pub async fn app_apk_size(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<AppStorage, String> {
+    app_apk_size_impl(state.inner(), &serial, &package).await
+}
+
+pub async fn app_apk_size_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<AppStorage, String> {
+    if let Some(rejected) = reject_invalid_package(package) {
+        return Err(rejected.message);
+    }
+    let adb = state.adb_snapshot().await;
+    let path_out = adb
+        .shell(serial, &format!("pm path {package}"))
+        .await
+        .map_err(|e| format!("pm path: {e}"))?;
+    let paths = parse_pm_path_apks(&path_out.stdout)
+        .ok_or_else(|| format!("pm path reported no readable APK for {package}"))?;
+    let stat_out = adb
+        .shell(serial, &format!("stat -c %s {}", paths.join(" ")))
+        .await
+        .map_err(|e| format!("stat: {e}"))?;
+    let total = parse_stat_sizes_total(&stat_out.stdout, paths.len())
+        .ok_or_else(|| "stat could not size every APK".to_string())?;
+    Ok(AppStorage {
+        app_bytes: Some(total),
+        data_bytes: None,
+        cache_bytes: None,
+    })
 }
 
 #[derive(Serialize)]
@@ -1211,6 +1291,79 @@ mod tests {
         );
         assert!(map.contains_key("com.teamsmart.videomanager.tv"));
         assert!(!map.contains_key("com.not.running"));
+    }
+
+    #[tokio::test]
+    async fn app_memory_map_without_a_pss_table_is_an_error_not_empty() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let state = state_with(MockAdb::default().on_shell("dumpsys meminfo", ""));
+        let err = app_memory_map_impl(&state, "serial")
+            .await
+            .expect_err("an empty read must not say no app is running");
+        assert!(err.contains("meminfo"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn app_storage_map_reads_diskstats() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let state = state_with(MockAdb::default().on_shell(
+            "dumpsys diskstats",
+            include_str!("../adb/fixtures/diskstats-shield-android11.txt"),
+        ));
+        let map = app_storage_map_impl(&state, "serial").await.unwrap();
+        assert_eq!(map["com.android.vending"].app_bytes, Some(99_647_488));
+    }
+
+    #[tokio::test]
+    async fn app_storage_map_without_a_table_is_an_error_not_empty() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let state = state_with(MockAdb::default().on_shell(
+            "dumpsys diskstats",
+            include_str!("../adb/fixtures/diskstats-no-package-cache.txt"),
+        ));
+        let err = app_storage_map_impl(&state, "serial")
+            .await
+            .expect_err("no table must not read as every app taking no space");
+        assert!(err.contains("diskstats"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn app_apk_size_sums_the_split_apks() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let state = state_with(
+            MockAdb::default()
+                .on_shell(
+                    "pm path com.google.android.youtube.tv",
+                    include_str!("../adb/fixtures/pm-path-youtube-tv-split.txt"),
+                )
+                .on_shell(
+                    "stat -c %s",
+                    include_str!("../adb/fixtures/stat-youtube-tv-split.txt"),
+                ),
+        );
+        let size = app_apk_size_impl(&state, "serial", "com.google.android.youtube.tv")
+            .await
+            .unwrap();
+        assert_eq!(size.app_bytes, Some(57_071_676));
+        assert_eq!(size.data_bytes, None, "APK size says nothing about data");
+        assert_eq!(size.cache_bytes, None);
+    }
+
+    #[tokio::test]
+    async fn app_apk_size_refuses_an_invalid_package() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        assert!(app_apk_size_impl(&state, "serial", "a; reboot")
+            .await
+            .is_err());
+        assert!(log.lock().unwrap().is_empty(), "nothing reaches the device");
     }
 
     #[tokio::test]

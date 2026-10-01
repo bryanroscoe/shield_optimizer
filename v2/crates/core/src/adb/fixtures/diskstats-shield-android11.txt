@@ -1,0 +1,18 @@
+Latency: 0ms [512B Data Write]
+Recent Disk Write Speed (kB/s) = 22671
+Data-Free: 7981492K / 12203000K total = 65% free
+Cache-Free: 7981492K / 12203000K total = 65% free
+System-Free: 162004K / 2031548K total = 7% free
+App Size: 4410757120
+App Data Size: 1047908352
+App Cache Size: 689598464
+Photos Size: 21843968
+Videos Size: 0
+Audio Size: 0
+Downloads Size: 0
+System Size: 16000000000
+Other Size: 409600
+Package Names: ["android","com.android.vending","com.google.android.gms","com.google.android.youtube.tv","com.google.android.tvlauncher","com.google.android.katniss","com.google.android.webview","com.android.tv.settings","com.google.android.backdrop","com.amazon.amazonvideo.livingroom","com.nvidia.ota","org.videolan.vlc"]
+App Sizes: [34562048,99647488,502648832,63782912,31072256,65699840,259817472,34570240,29114368,31739904,626688,100474880]
+App Data Sizes: [40960,30748672,79872000,11202560,12918784,11264000,196608,389120,55246848,12574720,5619712,1216512]
+Cache Sizes: [16384,20463616,3022848,9244672,585728,3854336,81920,339968,50569216,233472,1015808,16384]
