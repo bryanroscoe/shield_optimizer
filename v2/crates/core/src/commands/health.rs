@@ -4,10 +4,10 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    batch_command, parse_active_audio_device, parse_display_mode, parse_display_modes,
-    parse_hardware_properties_temp, parse_meminfo_summary, parse_net_dev, parse_proc_stat,
-    parse_storage_info, parse_thermal_max_celsius, parse_total_pss_by_process, split_batch,
-    DisplayMode, RamInfo, StorageInfo,
+    batch_command, kb_to_mb, package_for_process, parse_active_audio_device, parse_display_mode,
+    parse_display_modes, parse_hardware_properties_temp, parse_meminfo_summary, parse_net_dev,
+    parse_proc_stat, parse_pss_by_process, parse_storage_info, parse_thermal_max_celsius,
+    split_batch, DisplayMode, RamInfo, StorageInfo,
 };
 use crate::engine::media::{
     build_capabilities, parse_media_codecs, surround_mode, MediaCapabilities,
@@ -15,10 +15,16 @@ use crate::engine::media::{
 
 use super::AppState;
 
-/// Top-N memory consumer entry.
+/// One process among the top memory consumers.
 #[derive(Serialize)]
 pub struct MemoryEntry {
-    pub package: String,
+    /// The full process name the device reported.
+    pub process: String,
+    pub pid: Option<u32>,
+    /// The package this process name would belong to, if it has the shape of
+    /// one. Unverified: the UI only treats the row as that app once the
+    /// package is confirmed installed on the device.
+    pub package: Option<String>,
     pub mb: f64,
 }
 
@@ -344,12 +350,18 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
         .or_else(|| parse_hardware_properties_temp(hwprops_text));
     let audio_device = parse_active_audio_device(audio_text);
 
-    let mut top_memory: Vec<MemoryEntry> = parse_total_pss_by_process(mem_text)
+    let mut processes = parse_pss_by_process(mem_text);
+    processes.sort_by_key(|p| std::cmp::Reverse(p.kb));
+    processes.truncate(20);
+    let top_memory: Vec<MemoryEntry> = processes
         .into_iter()
-        .map(|(package, mb)| MemoryEntry { package, mb })
+        .map(|p| MemoryEntry {
+            package: package_for_process(&p.process).map(str::to_string),
+            mb: kb_to_mb(p.kb),
+            pid: p.pid,
+            process: p.process,
+        })
         .collect();
-    top_memory.sort_by(|a, b| b.mb.partial_cmp(&a.mb).unwrap_or(std::cmp::Ordering::Equal));
-    top_memory.truncate(20);
 
     Ok(HealthReport {
         display,
@@ -406,7 +418,12 @@ mod tests {
         assert_eq!(report.temperature_c, Some(42.0));
         assert_eq!(report.audio_device.as_deref(), Some("HDMI"));
         assert_eq!(report.top_memory.len(), 1);
-        assert_eq!(report.top_memory[0].package, "com.netflix.ninja");
+        assert_eq!(report.top_memory[0].process, "com.netflix.ninja");
+        assert_eq!(report.top_memory[0].pid, Some(2201));
+        assert_eq!(
+            report.top_memory[0].package.as_deref(),
+            Some("com.netflix.ninja")
+        );
 
         let calls = log.lock().unwrap();
         assert_eq!(
@@ -423,6 +440,53 @@ mod tests {
             !calls[0].contains("&&"),
             "sub-commands must run even if an earlier one fails"
         );
+    }
+
+    #[tokio::test]
+    async fn top_memory_keeps_each_process_whole() {
+        let meminfo = "Total PSS by process:\n\
+                       251,612K: vendor.nvidia.hardware.graphics.composer@2.0-service (pid 3405)\n\
+                       175,433K: system (pid 3739 state 0 oom -900)\n\
+                        85,413K: com.google.android.katniss:interactor (pid 15826 state 5 oom 150)\n\
+                        40,112K: /system/bin/surfaceflinger (pid 312)\n\
+                        33,000K: com.google.android.katniss (pid 15000 state 19 oom 900)\n";
+        let state = state_with(MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", meminfo, THERMAL, DF, AUDIO, "", PROC_MEMINFO]),
+        ));
+
+        let report = health_report_for(&state, "serial")
+            .await
+            .unwrap_or_else(|e| panic!("report: {e}"));
+
+        let rows: Vec<(&str, Option<u32>, Option<&str>)> = report
+            .top_memory
+            .iter()
+            .map(|m| (m.process.as_str(), m.pid, m.package.as_deref()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "vendor.nvidia.hardware.graphics.composer@2.0-service",
+                    Some(3405),
+                    None
+                ),
+                ("system", Some(3739), None),
+                (
+                    "com.google.android.katniss:interactor",
+                    Some(15826),
+                    Some("com.google.android.katniss")
+                ),
+                ("/system/bin/surfaceflinger", Some(312), None),
+                (
+                    "com.google.android.katniss",
+                    Some(15000),
+                    Some("com.google.android.katniss")
+                ),
+            ]
+        );
+        assert_eq!(report.top_memory[0].mb, 245.7);
     }
 
     #[tokio::test]
