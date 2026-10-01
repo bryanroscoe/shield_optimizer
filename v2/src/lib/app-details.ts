@@ -28,6 +28,10 @@ export interface AppDetailInputs {
   usage?: AppUsage;
   storage?: AppStorage;
   onRemeasure?: () => void;
+  /// The page's current package state, resynced after every action. A row
+  /// can carry an older one (the Optimize plan is not reloaded after a run),
+  /// so a report prefers this when the page has it.
+  liveState?: "enabled" | "disabled" | "missing";
   /// The device context "Report this app" may share. Absent, the panel
   /// offers no report.
   report?: AppReportDevice;

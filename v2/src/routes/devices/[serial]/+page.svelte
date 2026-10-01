@@ -256,6 +256,7 @@
       usage: appUsage[pkg],
       storage: appStorage[pkg],
       onRemeasure: () => void loadAppMemory(),
+      liveState: appStates[pkg],
       report: device
         ? {
             family: reportFamily(device.device_type, device.tv_evidence),

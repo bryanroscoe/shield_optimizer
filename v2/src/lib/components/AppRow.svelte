@@ -272,7 +272,7 @@
         storage={details?.storage}
         onRemeasure={details?.onRemeasure}
         appName={name}
-        appState={pkgState}
+        appState={details?.liveState ?? pkgState}
         verdict={lookup.status === "ready" ? lookup.verdict : null}
         reportDevice={details?.report}
       />
