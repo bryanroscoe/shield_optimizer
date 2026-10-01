@@ -306,16 +306,20 @@ mod tests {
                         e.package
                     );
                 }
-                // A per-device list only reaches its own family, so a scope
-                // naming any other one would be a claim the app never acts on.
-                if list != "common" {
-                    assert!(
-                        e.device_scope.iter().all(|s| s == list),
-                        "{} in {list}.json is scoped to {:?}",
-                        e.package,
-                        e.device_scope
-                    );
-                }
+                // The field records applicability; it does not decide it.
+                // `for_device` picks entries by list, so a scope must name the
+                // list the entry is in. A common entry that only applies to one
+                // family belongs in that family's list instead.
+                let ok = if list == "common" {
+                    e.device_scope.is_empty()
+                } else {
+                    e.device_scope.iter().all(|s| s == list)
+                };
+                assert!(
+                    ok,
+                    "{} in {list}.json is scoped to {:?}; move it to that list instead",
+                    e.package, e.device_scope
+                );
             }
         }
     }

@@ -183,8 +183,9 @@ pub struct AppEntry {
     /// Short evidence notes or URLs behind the classification.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sources: Vec<String>,
-    /// Device families this entry applies to (`shield`, `googletv`). Empty
-    /// means the list it lives in decides, as before.
+    /// Device families this entry applies to (`shield`, `googletv`). Records
+    /// the list it lives in, which is what `for_device` selects on; the loader
+    /// tests reject a scope that disagrees with that list.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub device_scope: Vec<String>,
 }
