@@ -38,9 +38,11 @@
   } = $props();
 
   /// A package the lists know is most likely reported for its verdict; one
-  /// they don't, for being missing. The user can pick anything.
+  /// they don't, for being missing. Without a verdict we don't know which, so
+  /// the default claims neither. The user can pick anything.
   function defaultReason(): AppReportReason {
-    return verdict && verdict.source !== "no_record" ? "wrong_verdict" : "not_listed";
+    if (!verdict) return "other";
+    return verdict.source !== "no_record" ? "wrong_verdict" : "not_listed";
   }
   let reason = $state<AppReportReason>(defaultReason());
   let note = $state("");

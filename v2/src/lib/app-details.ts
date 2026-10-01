@@ -30,8 +30,9 @@ export interface AppDetailInputs {
   onRemeasure?: () => void;
   /// The page's current package state, resynced after every action. A row
   /// can carry an older one (the Optimize plan is not reloaded after a run),
-  /// so a report prefers this when the page has it.
-  liveState?: "enabled" | "disabled" | "missing";
+  /// so a report uses this for a catalog package: null means the page has no
+  /// current state, and undefined (a non-catalog row) defers to the row.
+  liveState?: "enabled" | "disabled" | "missing" | null;
   /// The device context "Report this app" may share. Absent, the panel
   /// offers no report.
   report?: AppReportDevice;

@@ -256,7 +256,9 @@
       usage: appUsage[pkg],
       storage: appStorage[pkg],
       onRemeasure: () => void loadAppMemory(),
-      liveState: appStates[pkg],
+      // A catalog package the page has no current state for is unknown, not
+      // whatever an older row last said.
+      liveState: apps.some((a) => a.package === pkg) ? (appStates[pkg] ?? null) : undefined,
       report: device
         ? {
             family: reportFamily(device.device_type, device.tv_evidence),
