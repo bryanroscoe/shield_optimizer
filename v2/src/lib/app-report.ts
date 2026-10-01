@@ -35,9 +35,19 @@ export interface AppReportDevice {
 
 export interface AppReportState {
   status: "enabled" | "disabled" | "missing" | null;
-  /// Only a measured figure: null when RAM was not read or the read failed.
+  /// Whether meminfo showed a process for the package: null when RAM was not
+  /// read or the read failed, false for a successful read with no process.
+  running: boolean | null;
+  /// PSS when running; null otherwise.
   ramMb: number | null;
-  storage: { app_bytes: number | null; data_bytes: number | null; cache_bytes: number | null } | null;
+  /// `diskstats` is the full app/data/cache row; `apk_files` is the fallback
+  /// that only knows the APK size.
+  storage: {
+    source: "diskstats" | "apk_files";
+    app_bytes: number | null;
+    data_bytes: number | null;
+    cache_bytes: number | null;
+  } | null;
 }
 
 export interface AppReportInput {
@@ -140,9 +150,11 @@ export function buildAppReport(input: AppReportInput): Record<string, unknown> |
     record.state = {
       installed: s.status === null ? null : s.status !== "missing",
       enabled: s.status === "enabled" ? true : s.status === "disabled" ? false : null,
-      ram_mb: finiteOrNull(s.ramMb),
+      running: s.running,
+      ram_mb: s.running ? finiteOrNull(s.ramMb) : null,
       storage: s.storage
         ? {
+            source: s.storage.source,
             app_bytes: finiteOrNull(s.storage.app_bytes),
             data_bytes: finiteOrNull(s.storage.data_bytes),
             cache_bytes: finiteOrNull(s.storage.cache_bytes),

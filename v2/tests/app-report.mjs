@@ -155,7 +155,18 @@ async function exercise({ browser, base }) {
 
   // Ticking the box adds the state, and still nothing identifying.
   await checkbox.check();
+  // F-Droid has no diskstats row in the demo, so storage is the APK fallback
+  // the panel shows, and no meminfo process means a measured "not running".
+  await page.waitForFunction(() =>
+    (document.querySelector('textarea[aria-label="Report preview"]')?.value ?? "").includes('"apk_files"'),
+  );
   text = await preview(dialog);
+  {
+    const st = JSON.parse(text).records[0].state;
+    assert.equal(st.running, false, "a successful read with no process is not running");
+    assert.equal(st.ram_mb, null);
+    assert.deepEqual(st.storage, { source: "apk_files", app_bytes: 11534336, data_bytes: null, cache_bytes: null });
+  }
   assertNothingIdentifying(text, "the preview with state");
   record = JSON.parse(text).records[0];
   assert.equal(record.state.installed, true);

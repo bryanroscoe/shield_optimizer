@@ -61,12 +61,22 @@
 
   let reportOpen = $state(false);
 
-  /// Only measured figures: a read that failed or never ran is null, not zero.
+  /// The figures the panel shows, and only those: a read that failed or never
+  /// ran is null, while a successful read with no process is "not running".
   function reportState(): AppReportState {
+    const memRead = measures?.memory.status === "ready";
+    const running = memRead ? memoryMb !== undefined && memoryMb > 0 : null;
+    let reported: AppReportState["storage"] = null;
+    if (measures?.storage.status === "ready" && hasStorage(storage)) {
+      reported = { source: "diskstats", ...storage };
+    } else if (apk.status === "ready") {
+      reported = { source: "apk_files", app_bytes: apk.value.app_bytes, data_bytes: null, cache_bytes: null };
+    }
     return {
       status: appState,
-      ramMb: measures?.memory.status === "ready" && memoryMb !== undefined && memoryMb > 0 ? memoryMb : null,
-      storage: measures?.storage.status === "ready" && hasStorage(storage) ? storage : null,
+      running,
+      ramMb: running ? (memoryMb ?? null) : null,
+      storage: reported,
     };
   }
 
