@@ -210,6 +210,12 @@ jobs:
         working-directory: v2
         run: npm run test:launcher-rows
 
+      # Right-click shows the app menu, not the webview's link menu (#129),
+      # while text fields keep their native Cut / Copy / Paste.
+      - name: Context menu
+        working-directory: v2
+        run: npm run test:context-menu
+
   frontend-mobile:
     name: Mobile frontend type check
     runs-on: ubuntu-latest

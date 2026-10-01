@@ -28,6 +28,7 @@
     "test:icon-alignment": "node tests/icon-alignment.mjs",
     "test:launcher-rows": "node tests/launcher-rows.mjs",
     "test:files-drop": "node tests/files-drop.mjs",
+    "test:context-menu": "node tests/context-menu.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
     "tauri": "tauri",
     "subset-icons": "python3 scripts/subset-material-symbols.py"

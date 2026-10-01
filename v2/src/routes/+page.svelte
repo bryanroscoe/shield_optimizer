@@ -8,6 +8,7 @@
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
+  import { openContextMenu, type MenuItem } from "$lib/contextmenu";
 
   let devices = $state<Device[]>([]);
 
@@ -277,6 +278,68 @@
     e.preventDefault();
     e.stopPropagation();
     run();
+  }
+
+  /// The IP address a network row is reached at, read from its adb key. A
+  /// Wireless debugging key is an mDNS service name, not an address, and a USB
+  /// key is a serial number, so neither offers one.
+  function ipOf(d: Device): string | null {
+    if (d.connection !== "network") return null;
+    const host = hostOf(d.serial).replace(/^\[|\]$/g, "");
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (host.includes(":") && /^[0-9a-f:.]+$/i.test(host))) {
+      return host;
+    }
+    return null;
+  }
+
+  /// The device's own serial number (`ro.serialno`), which is what identifies
+  /// it. Over USB the adb key is that serial; over the network it is not, so
+  /// an unreadable network device has none to offer.
+  function hardwareSerialOf(d: Device): string | null {
+    return d.properties?.serial_number || (d.connection === "usb" ? d.serial : null);
+  }
+
+  async function copyText(text: string, what: string): Promise<string> {
+    await navigator.clipboard.writeText(text);
+    return `Copied ${what}`;
+  }
+
+  function deviceMenu(d: Device): MenuItem[] {
+    const href = deviceHref(d);
+    const ip = ipOf(d);
+    const serial = hardwareSerialOf(d);
+    const items: MenuItem[] = [];
+    if (href) {
+      items.push({ label: "Open", run: () => void goto(href) });
+    } else if (isNotATv(d) && d.status === "device") {
+      items.push({ label: "Open anyway…", run: () => void (confirmOpenSerial = d.serial) });
+    } else {
+      items.push({ label: "Open", run: () => {}, disabled: true });
+    }
+    items.push(
+      { label: "Copy IP", run: () => copyText(ip ?? "", "IP address"), disabled: !ip },
+      { label: "Copy serial", run: () => copyText(serial ?? "", "serial"), disabled: !serial },
+      {
+        label: "Copy diagnostics",
+        disabled: diagnosticsBusy === d.serial,
+        run: async () => {
+          await copyDiagnostics(d);
+          return diagnosticsCopied === d.serial ? "Copied diagnostics" : null;
+        },
+      },
+    );
+    // Forget goes through the same backend call as the row's button: it drops
+    // every adb key with this device's verified hardware id, never a match on
+    // address. A USB row has nothing to forget.
+    if (d.connection === "network") {
+      items.push({
+        label: "Forget",
+        danger: true,
+        disabled: forgetBusy === d.serial,
+        run: () => forgetDevice(d),
+      });
+    }
+    return items;
   }
 
   let diagnosticsBusy = $state<string | null>(null);
@@ -829,6 +892,7 @@
             class:flash={flashSerial === d.serial}
             href={href}
             data-serial={d.serial}
+            oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
           >
             <span class="device-icon" aria-hidden="true">
               <Icon name={d.connection === "network" ? "cast_connected" : "tv"} size={20} />
@@ -900,11 +964,15 @@
             <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={28} /></span>
           </a>
         {:else}
+          <!-- The right-click menu only repeats this row's own buttons, which
+               are the keyboard route to the same actions. -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="device-row not-clickable"
             class:unauthorized={d.status === "unauthorized"}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
+            oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
           >
             <span class="device-icon" aria-hidden="true">
               <Icon name={d.status === "offline" ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
