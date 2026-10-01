@@ -4,6 +4,10 @@
 //! This crate keeps the desktop-only subprocess ADB driver, installer/updater,
 //! host-network scan, and file-path based commands.
 
+// clippy 1.99 added `double_must_use`, which fires on the futures that
+// `#[async_trait]` generates for every trait method. The attribute is the
+// macro's, not ours, so there is nothing to change at the call sites.
+#![allow(clippy::double_must_use)]
 pub mod adb;
 pub mod commands;
 pub mod session;
