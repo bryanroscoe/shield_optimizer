@@ -9,6 +9,7 @@
 
 import type { DeviceType, TvEvidence } from "./types";
 import type { Safety } from "../../shared/safety";
+import { idKey } from "./prefs";
 
 export type AppReportReason = "not_listed" | "wrong_verdict" | "wrong_description" | "other";
 
@@ -107,8 +108,10 @@ const REDACTED = "[redacted]";
 export function redactNote(text: string, redact: string[]): string {
   let out = text;
   for (const id of redact) {
-    const v = id.trim();
-    if (v.length >= 4) out = out.split(v).join(REDACTED);
+    // Same placeholder rule as everywhere else a hardware id is used: a
+    // ro.serialno of "unknown" is no id, and scrubbing it would eat the word.
+    const v = idKey(id);
+    if (v && v.length >= 4) out = out.split(v).join(REDACTED);
   }
   return out
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, REDACTED)

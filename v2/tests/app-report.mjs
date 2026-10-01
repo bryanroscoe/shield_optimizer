@@ -245,6 +245,22 @@ async function exercise({ browser, base }) {
   );
 }
 
+/// A box whose ro.serialno reads "unknown" has no hardware id. Redacting that
+/// placeholder would rewrite the user's own words, so it must pass through.
+async function placeholderSerials(server) {
+  const { redactNote } = await server.ssrLoadModule("/src/lib/app-report.ts");
+  const note = "the verdict is unknown, and Unknown elsewhere";
+  for (const placeholder of ["unknown", "UNKNOWN", " unknown "]) {
+    assert.equal(redactNote(note, [placeholder]), note, `placeholder ${JSON.stringify(placeholder)}`);
+  }
+  assert.equal(
+    redactNote("the verdict is unknown on 0323220012345", ["unknown", "0323220012345"]),
+    "the verdict is unknown on [redacted]",
+    "a real serial beside a placeholder is still redacted",
+  );
+  console.log("App report passed (placeholder serial): a ro.serialno of \"unknown\" leaves the word in the note.");
+}
+
 async function main() {
   const restore = setHarnessEnvironment();
   let server, browser;
@@ -254,6 +270,7 @@ async function main() {
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
+    await placeholderSerials(server);
     await exercise({ browser, base: serverURL(server) });
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

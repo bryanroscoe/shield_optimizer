@@ -24,7 +24,7 @@
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
   import type { MemoryEntry } from "$lib/types";
-  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged } from "$lib/prefs";
+  import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
   import {
     isBlocked,
@@ -263,7 +263,11 @@
         ? {
             family: reportFamily(device.device_type, device.tv_evidence),
             androidVersion: device.properties?.android_release ?? null,
-            redact: [serial, device.serial, device.properties?.serial_number ?? ""].filter(Boolean),
+            // A placeholder ro.serialno ("unknown") identifies nothing, and
+            // scrubbing it would eat that word from the user's note.
+            redact: [serial, device.serial, idKey(device.properties?.serial_number)].filter(
+              (id): id is string => !!idKey(id),
+            ),
           }
         : undefined,
     };
