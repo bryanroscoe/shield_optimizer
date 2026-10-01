@@ -140,6 +140,14 @@ const phoneDevice: Device = {
 
 /// Opt-in demo switches, set from a test's init script. Off by default so the
 /// generated gallery keeps showing the ordinary state of the app.
+function demoValue(name: string): string | null {
+  try {
+    return localStorage.getItem(`shieldopt.demo.${name}`);
+  } catch {
+    return null;
+  }
+}
+
 function demoFlag(name: string): boolean {
   try {
     return localStorage.getItem(`shieldopt.demo.${name}`) === "1";
@@ -481,23 +489,24 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "plugin:app|version":
+      // Tests stand in for a specific installed build to walk an upgrade
+      // sequence; everything else sees the real version.
+      return demoValue("version") ?? pkg.version;
     case "check_for_update":
       // Real version so screenshots never show a stale header badge.
       return {
-        current: pkg.version,
+        current: demoValue("version") ?? pkg.version,
         // "API ahead of manifest": GitHub has published a tag that the
         // updater's latest.json has not caught up with yet. Opt-in, because
         // the ordinary state of the app is the one the gallery should show.
         latest: demoFlag("updateAhead") ? "2.9.9" : pkg.version,
         update_available: demoFlag("updateAhead"),
         url: "https://github.com/bryanroscoe/shield_optimizer/releases",
-        // The demo layer stands in for a real release, notes included, so the
-        // post-update "what's new" path is reachable without a GitHub call.
-        current_notes:
-          "Launcher switching is now fast and reliable.\n\n" +
-          "### Launchers\n\n" +
-          "- **Reliable switch away from the stock launcher.**\n" +
-          "- It opens the new launcher on the TV the moment the switch succeeds.",
+        // The app reads its own notes from the bundled CHANGELOG.md and never
+        // from here. Null is what a failed or timed-out GitHub call returns,
+        // which is the launch that used to lose the after-update pop-up.
+        current_notes: null,
       };
     case "list_devices":
       return demoDevices();

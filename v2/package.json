@@ -17,6 +17,7 @@
     "test:release-notes": "node tests/release-notes.mjs",
     "test:version-compare": "node tests/version-compare.mjs",
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",
+    "test:notes-seen": "node tests/notes-seen.mjs",
     "test:report-bug": "node tests/report-bug.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
     "test:memory-safety": "node tests/memory-safety.mjs",
