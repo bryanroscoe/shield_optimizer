@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-21T12:00:00.000Z",
+  "truncated": true,
+  "records": [
+    {
+      "kind": "installed_package",
+      "token": "com.example.unknown",
+      "reason": "uncatalogued_package",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "android_tv",
+      "device_os": "12",
+      "first_seen": "2026-09-15T08:00:00.000Z",
+      "last_seen": "2026-09-21T08:00:00.000Z",
+      "count": 1
+    }
+  ]
+}

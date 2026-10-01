@@ -25,6 +25,13 @@ pub async fn list_devices(state: State<'_, AppState>) -> Result<Vec<Device>, Str
 /// Reusable implementation — callable from inside other commands without
 /// the `State<'_, T>` lifetime constraint getting in the way.
 pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> {
+    Ok(renumber(collapse_duplicate_transports(
+        list_transports(state).await?,
+    )))
+}
+
+/// One row per adb transport, before duplicates of one device are collapsed.
+async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     let adb = state.adb_snapshot().await;
     let raw = adb
         .raw(&["devices"])
@@ -87,7 +94,7 @@ pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> 
         });
     }
 
-    Ok(renumber(collapse_duplicate_transports(out)))
+    Ok(out)
 }
 
 /// `ro.serialno`, or `None` when the device gave us nothing to identify it by.
@@ -171,11 +178,26 @@ pub async fn device_profile(state: State<'_, AppState>, serial: String) -> Resul
 }
 
 pub async fn device_profile_impl(state: &AppState, serial: &str) -> Result<Device, String> {
-    let devices = list_devices_impl(state).await?;
+    let transports = list_transports(state).await?;
+    let devices = renumber(collapse_duplicate_transports(transports.clone()));
+    resolve_profile(&transports, devices, serial)
+        .ok_or_else(|| format!("device {serial} not found"))
+}
+
+/// The collapsed row for `serial`, which may be a transport alias the list
+/// folded into another row. An alias resolves only through the verified
+/// hardware id its own transport reported, never through its address, so a
+/// key with no id (unauthorized, offline, or a placeholder serial) resolves to
+/// nothing but its own row.
+fn resolve_profile(transports: &[Device], devices: Vec<Device>, serial: &str) -> Option<Device> {
+    if let Some(found) = devices.iter().position(|d| d.serial == serial) {
+        return devices.into_iter().nth(found);
+    }
+    let alias = transports.iter().find(|t| t.serial == serial)?;
+    let id = hardware_id(alias)?;
     devices
         .into_iter()
-        .find(|d| d.serial == serial)
-        .ok_or_else(|| format!("device {serial} not found"))
+        .find(|d| hardware_id(d) == Some(id) && d.status == alias.status)
 }
 
 /// `connect_device` — `adb connect <ip>:<port>`. Returns ADB's stdout/stderr
@@ -1383,6 +1405,81 @@ mod tests {
         let collapsed = collapse_duplicate_transports(devices);
 
         assert_eq!(collapsed.len(), 2);
+    }
+
+    #[test]
+    fn a_collapsed_alias_resolves_to_its_row_by_hardware_id() {
+        let mdns = "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp";
+        let transports = vec![
+            row(mdns, "58040DLCH005YV"),
+            row("192.168.42.211:34083", "58040DLCH005YV"),
+        ];
+        let devices = renumber(collapse_duplicate_transports(transports.clone()));
+
+        let found = resolve_profile(&transports, devices.clone(), mdns).expect("alias resolves");
+        assert_eq!(found.serial, "192.168.42.211:34083");
+        let direct = resolve_profile(&transports, devices, "192.168.42.211:34083").unwrap();
+        assert_eq!(direct.serial, "192.168.42.211:34083");
+    }
+
+    #[test]
+    fn an_alias_without_a_verified_id_resolves_to_nothing() {
+        // The unauthorized transport shares the address of a listed device,
+        // but there is no evidence it is that device.
+        let transports = vec![
+            row("192.168.42.211:34083", "58040DLCH005YV"),
+            row("192.168.42.211:5555", "unknown"),
+        ];
+        let mut devices = renumber(collapse_duplicate_transports(transports.clone()));
+        // Simulate the placeholder row having been dropped from the list, so a
+        // lookup can only succeed by guessing.
+        devices.retain(|d| d.serial != "192.168.42.211:5555");
+        assert!(resolve_profile(&transports, devices.clone(), "192.168.42.211:5555").is_none());
+        assert!(resolve_profile(&transports, devices, "192.168.42.99:5555").is_none());
+    }
+
+    #[test]
+    fn an_offline_alias_does_not_resolve_to_a_live_twin() {
+        let mut offline = row("adb-x._adb-tls-connect._tcp", "58040DLCH005YV");
+        offline.status = DeviceStatus::Offline;
+        let transports = vec![row("192.168.42.211:34083", "58040DLCH005YV"), offline];
+        let mut devices = renumber(collapse_duplicate_transports(transports.clone()));
+        devices.retain(|d| d.status == DeviceStatus::Device);
+        assert!(resolve_profile(&transports, devices, "adb-x._adb-tls-connect._tcp").is_none());
+    }
+
+    #[tokio::test]
+    async fn device_profile_answers_for_a_collapsed_alias() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                "List of devices attached\n\
+                 adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\tdevice\n\
+                 192.168.42.211:34083\tdevice\n",
+            )
+            .on_shell(
+                "settings get global device_name",
+                &batched_props(&[
+                    "Living Room",
+                    "NVIDIA",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "58040DLCH005YV",
+                ]),
+            );
+        let state = state_with(mock);
+        let listed = list_devices_impl(&state).await.unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        let device = device_profile_impl(&state, "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp")
+            .await
+            .expect("an alias of a listed device is found");
+        assert_eq!(device.serial, listed[0].serial);
     }
 
     #[tokio::test]

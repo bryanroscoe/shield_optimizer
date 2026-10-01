@@ -164,8 +164,9 @@
     </label>
     <textarea class="preview mono" readonly aria-label="Report preview" value={text}></textarea>
     <p class="muted small">
-      It carries no serial number, no IP address and no other installed packages. An address
-      or this TV's serial typed or pasted into the note is replaced with [redacted].
+      It carries no serial number, no IP address and no other installed packages. An address,
+      this TV's serial or another app's package id typed or pasted into the note is replaced
+      with [redacted].
     </p>
   {/if}
   {#if message}

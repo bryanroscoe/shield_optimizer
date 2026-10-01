@@ -6,7 +6,7 @@ writes the catalog or any other file.
 
 ```
 cargo run -p registry-triage -- path/to/reports            # table
-cargo run -p registry-triage -- --json path/to/reports     # same rows as JSON
+cargo run -p registry-triage -- --json path/to/reports     # {truncated_exports, candidates}
 ```
 
 Run it from `v2/` or `v2/src-tauri/`. Several folders may be given. Each
@@ -39,6 +39,15 @@ names). Each row shows how many report files mention it, the summed sighting
 count, the device scope it was seen on (`shield`, `googletv`, `android_tv`,
 `unknown`), the reasons the app gave, and the verdict the shipped catalog gives
 today, with that entry's `reviewed_at` when it has one.
+
+The mobile collector caps itself (100 records, 64 KiB) and drops its oldest
+records when it hits the cap, exporting `truncated: true`. The summary line
+names every truncated export. A capped export cannot say which records it
+dropped, so while a batch holds one, every row marks its report and sighting
+counts with `*`: they are lower bounds, not totals. An export whose
+`truncated` flag is missing or not a boolean is treated as truncated, since it
+does not vouch that nothing was dropped. In `--json` the same files are listed
+under `truncated_exports`, and each candidate carries `lower_bound`.
 
 ## Rules for using the output
 

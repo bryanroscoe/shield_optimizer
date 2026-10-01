@@ -72,7 +72,18 @@ struct Batch {
     desktop_files: usize,
     skipped_files: Vec<String>,
     rejected_records: usize,
+    /// Mobile exports whose collector hit its record or byte cap and dropped
+    /// older records. Counts drawn from them are lower bounds.
+    truncated_files: Vec<String>,
     sightings: Vec<(PathBuf, Sighting)>,
+}
+
+/// What one report file yielded.
+#[derive(Debug, Default)]
+struct Parsed {
+    sightings: Vec<Sighting>,
+    rejected: usize,
+    truncated: bool,
 }
 
 /// Same rules as the mobile collector's `isValidDiagnosticToken`, so a token
@@ -177,7 +188,7 @@ fn mobile_record(value: &Value) -> Option<Sighting> {
 }
 
 /// Parse a mobile export. Returns `None` when the file is not one.
-fn parse_mobile(text: &str) -> Option<(Vec<Sighting>, usize)> {
+fn parse_mobile(text: &str) -> Option<Parsed> {
     let root: Value = serde_json::from_str(text).ok()?;
     if root.get("schema_version")?.as_u64()? != 1 {
         return None;
@@ -185,13 +196,19 @@ fn parse_mobile(text: &str) -> Option<(Vec<Sighting>, usize)> {
     let records = root.get("records")?.as_array()?;
     let parsed: Vec<Sighting> = records.iter().filter_map(mobile_record).collect();
     let rejected = records.len() - parsed.len();
-    Some((parsed, rejected))
+    // Only an explicit `false` vouches that nothing was dropped.
+    let truncated = root.get("truncated").and_then(Value::as_bool) != Some(false);
+    Some(Parsed {
+        sightings: parsed,
+        rejected,
+        truncated,
+    })
 }
 
 /// Parse a desktop bug-report bundle (`engine::diagnostics::format_diagnostics`).
 /// It deliberately carries no package inventory, so the only packages in it are
 /// the HOME handlers. The serial and properties are never read.
-fn parse_desktop(text: &str) -> Option<(Vec<Sighting>, usize)> {
+fn parse_desktop(text: &str) -> Option<Parsed> {
     if !text.contains("## ATV Optimizer diagnostics") {
         return None;
     }
@@ -241,7 +258,11 @@ fn parse_desktop(text: &str) -> Option<(Vec<Sighting>, usize)> {
     for s in &mut out {
         s.app_version.clone_from(&app_version);
     }
-    Some((out, rejected))
+    Some(Parsed {
+        sightings: out,
+        rejected,
+        truncated: false,
+    })
 }
 
 fn collect_files(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -297,16 +318,19 @@ fn read_batch(dirs: &[PathBuf]) -> Result<Batch> {
             }
         });
         match parsed {
-            Some((mobile, (sightings, rejected))) => {
+            Some((mobile, parsed)) => {
                 if mobile {
                     batch.mobile_files += 1;
                 } else {
                     batch.desktop_files += 1;
                 }
-                batch.rejected_records += rejected;
+                if parsed.truncated {
+                    batch.truncated_files.push(path.display().to_string());
+                }
+                batch.rejected_records += parsed.rejected;
                 batch
                     .sightings
-                    .extend(sightings.into_iter().map(|s| (path.clone(), s)));
+                    .extend(parsed.sightings.into_iter().map(|s| (path.clone(), s)));
             }
             None => batch.skipped_files.push(path.display().to_string()),
         }
@@ -365,12 +389,22 @@ fn scope_name(family: &str) -> &str {
     }
 }
 
+#[derive(Debug, Serialize)]
+struct JsonOutput<'a> {
+    truncated_exports: &'a [String],
+    candidates: &'a [Candidate],
+}
+
 #[derive(Debug, Serialize, PartialEq)]
 struct Candidate {
     kind: String,
     token: String,
     reports: usize,
     count: u64,
+    /// True when any export in the batch was truncated. A capped export cannot
+    /// say which records it dropped, so `reports` and `count` may be lower than
+    /// what the devices saw for every row, including rows it never mentions.
+    lower_bound: bool,
     device_scope: Vec<String>,
     reasons: Vec<String>,
     app_versions: Vec<String>,
@@ -380,6 +414,7 @@ struct Candidate {
 }
 
 fn candidates(batch: &Batch, bundle: &AppListBundle) -> Vec<Candidate> {
+    let lower_bound = !batch.truncated_files.is_empty();
     #[derive(Default)]
     struct Acc {
         files: BTreeSet<PathBuf>,
@@ -409,6 +444,7 @@ fn candidates(batch: &Batch, bundle: &AppListBundle) -> Vec<Candidate> {
             token,
             reports: a.files.len(),
             count: a.count,
+            lower_bound,
             device_scope: a.scope.into_iter().collect(),
             reasons: a.reasons.into_iter().collect(),
             app_versions: a.versions.into_iter().collect(),
@@ -437,6 +473,15 @@ fn print_table(batch: &Batch, list: &[Candidate]) {
     for file in &batch.skipped_files {
         println!("  skipped: {file}");
     }
+    if !batch.truncated_files.is_empty() {
+        println!(
+            "{} export(s) were truncated by the collector's cap; counts marked * are lower bounds.",
+            batch.truncated_files.len()
+        );
+        for file in &batch.truncated_files {
+            println!("  truncated: {file}");
+        }
+    }
     println!();
     println!("Candidates for review only. Reports are untrusted; a sighting is not a verdict,");
     println!("and nothing here is a reason to mark an app Safe. This tool wrote nothing.");
@@ -455,11 +500,12 @@ fn print_table(batch: &Batch, list: &[Candidate]) {
             "token", "reports", "count", "device scope", "reasons"
         );
         for c in rows {
+            let mark = if c.lower_bound { "*" } else { "" };
             println!(
                 "  {:<48} {:>7} {:>6}  {:<24} {:<30} {}",
                 c.token,
-                c.reports,
-                c.count,
+                format!("{}{mark}", c.reports),
+                format!("{}{mark}", c.count),
                 c.device_scope.join(", "),
                 c.reasons.join(", "),
                 c.today
@@ -489,7 +535,11 @@ fn main() -> Result<()> {
     let batch = read_batch(&dirs)?;
     let list = candidates(&batch, &bundle);
     if json {
-        println!("{}", serde_json::to_string_pretty(&list)?);
+        let out = JsonOutput {
+            truncated_exports: &batch.truncated_files,
+            candidates: &list,
+        };
+        println!("{}", serde_json::to_string_pretty(&out)?);
     } else {
         print_table(&batch, &list);
     }
@@ -518,7 +568,11 @@ mod tests {
 
     #[test]
     fn mobile_records_that_break_the_contract_are_rejected() {
-        let (good, rejected) = parse_mobile(
+        let Parsed {
+            sightings: good,
+            rejected,
+            truncated,
+        } = parse_mobile(
             r#"{"schema_version":1,"generated_at":"2026-09-20T00:00:00Z","truncated":false,"records":[
               {"kind":"installed_package","token":"com.a.b","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":"shield","device_os":"11","first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":2},
               {"kind":"installed_package","token":"com.a.c","reason":"process_not_resolved","app_version":"0.1.0","registry_version":null,"device_family":"shield","device_os":"11","first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1},
@@ -532,6 +586,7 @@ mod tests {
         )
         .expect("a mobile export");
         assert_eq!(rejected, 7);
+        assert!(!truncated);
         assert_eq!(good.len(), 1);
         assert_eq!(good[0].token, "com.a.b");
         assert_eq!(good[0].count, 2);
@@ -543,7 +598,11 @@ mod tests {
         let bundle = load_embedded_app_lists().unwrap();
         let dir = fixtures().join("app-report");
         let text = fs::read_to_string(dir.join("desktop-app-report.json")).unwrap();
-        let (sightings, rejected) = parse_mobile(&text).expect("an app report");
+        let Parsed {
+            sightings,
+            rejected,
+            ..
+        } = parse_mobile(&text).expect("an app report");
         assert_eq!(rejected, 0);
         assert_eq!(sightings.len(), 1);
         assert_eq!(sightings[0].token, "com.example.reportme");
@@ -560,9 +619,45 @@ mod tests {
     }
 
     #[test]
+    fn a_truncated_export_is_named_and_its_counts_are_lower_bounds() {
+        let bundle = load_embedded_app_lists().unwrap();
+        let reports = fixtures().join("reports");
+        let complete = read_batch(std::slice::from_ref(&reports)).unwrap();
+        assert!(complete.truncated_files.is_empty());
+        assert!(candidates(&complete, &bundle)
+            .iter()
+            .all(|c| !c.lower_bound));
+
+        let batch = read_batch(&[reports, fixtures().join("truncated")]).unwrap();
+        assert_eq!(
+            batch.truncated_files.len(),
+            1,
+            "{:?}",
+            batch.truncated_files
+        );
+        assert!(batch.truncated_files[0].ends_with("mobile-capped.json"));
+        let list = candidates(&batch, &bundle);
+        let capped = |t: &str| list.iter().find(|c| c.token == t).unwrap().lower_bound;
+        assert!(capped("com.example.unknown"), "seen in the capped export");
+        // The capped export may have dropped any package, so one it no longer
+        // mentions still has counts that are only a lower bound.
+        assert!(capped("com.netflix.ninja"), "seen only in complete exports");
+
+        // A missing or non-boolean flag does not vouch for completeness.
+        let missing = parse_mobile(r#"{"schema_version":1,"records":[]}"#).unwrap();
+        assert!(missing.truncated);
+        let odd = parse_mobile(r#"{"schema_version":1,"truncated":"no","records":[]}"#).unwrap();
+        assert!(odd.truncated);
+    }
+
+    #[test]
     fn desktop_bundles_yield_home_handlers_and_never_the_serial() {
         let text = fs::read_to_string(fixtures().join("reports/desktop-bundle.md")).unwrap();
-        let (sightings, rejected) = parse_desktop(&text).expect("a desktop bundle");
+        let Parsed {
+            sightings,
+            rejected,
+            ..
+        } = parse_desktop(&text).expect("a desktop bundle");
         assert_eq!(rejected, 0);
         let tokens: Vec<&str> = sightings.iter().map(|s| s.token.as_str()).collect();
         assert_eq!(

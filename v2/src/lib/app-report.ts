@@ -102,24 +102,60 @@ function clean(text: string, max: number, keepNewlines: boolean): string | null 
 
 const REDACTED = "[redacted]";
 
+/// Shorter than this, a serial is only redacted where it stands as a whole
+/// token: "A1" must not eat the middle of "A1B2", let alone every word that
+/// happens to contain those letters.
+const SERIAL_SUBSTRING_MIN = 4;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/// Anything shaped like an Android package id (two or more dot-joined
+/// segments, each starting with a letter). The leading boundary is captured
+/// rather than a lookbehind, which older macOS WebViews cannot parse.
+const PACKAGE_SHAPED = /(^|[^A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)(?![A-Za-z0-9_])/g;
+
 /// The note is the user's own text, but a pasted log line or address must not
-/// carry the identifiers the rest of the report leaves out. Addresses, MACs
-/// and this device's own serials are replaced, visibly, in the preview.
-export function redactNote(text: string, redact: string[]): string {
+/// carry the identifiers the rest of the report leaves out. Addresses, MACs,
+/// this device's own serials, and package ids other than the reported one are
+/// replaced, visibly, in the preview.
+///
+/// Serials match whatever their casing. One of four characters or more is
+/// redacted wherever it appears; a shorter one only as a whole token. Either
+/// way, over-redacting a word costs the reviewer a word, while missing an id
+/// would ship it.
+///
+/// Other package ids are redacted rather than warned about: the dialog
+/// promises no other installed app leaves the machine, and a warning only
+/// holds that promise if the user reads it. A token made only of one-letter
+/// segments ("e.g", "i.e") is left alone; no real package looks like that.
+export function redactNote(text: string, redact: string[], reportedPackage?: string): string {
   let out = text;
   for (const id of redact) {
     // Same placeholder rule as everywhere else a hardware id is used: a
     // ro.serialno of "unknown" is no id, and scrubbing it would eat the word.
     const v = idKey(id);
-    if (v && v.length >= 4) out = out.split(v).join(REDACTED);
+    if (!v) continue;
+    const body = escapeRegExp(v);
+    out =
+      v.length >= SERIAL_SUBSTRING_MIN
+        ? out.replace(new RegExp(body, "gi"), REDACTED)
+        : out.replace(new RegExp(`(^|[^A-Za-z0-9])${body}(?![A-Za-z0-9])`, "gi"), `$1${REDACTED}`);
   }
+  const keep = reportedPackage?.toLowerCase();
   return out
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, REDACTED)
     .replace(/\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, REDACTED)
     .replace(/\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b/g, REDACTED)
     .replace(/(?:\b[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*\b)?/g, (m) =>
       m === "::" ? m : REDACTED,
-    );
+    )
+    .replace(PACKAGE_SHAPED, (_m, before: string, token: string) => {
+      if (token.toLowerCase() === keep) return before + token;
+      if (token.split(".").every((segment) => segment.length === 1)) return before + token;
+      return before + REDACTED;
+    });
 }
 
 function finiteOrNull(n: number | null | undefined): number | null {
@@ -146,7 +182,7 @@ export function buildAppReport(input: AppReportInput): Record<string, unknown> |
     app_name: input.appName ? clean(input.appName, NAME_MAX, false) : null,
     current_verdict: input.verdict ? input.verdict.kind : "unavailable",
     verdict_source: input.verdict ? input.verdict.source : null,
-    note: clean(redactNote(input.note, input.device.redact), APP_REPORT_NOTE_MAX, true),
+    note: clean(redactNote(input.note, input.device.redact, input.package), APP_REPORT_NOTE_MAX, true),
   };
   if (input.includeState) {
     const s = input.state;
