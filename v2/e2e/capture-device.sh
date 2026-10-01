@@ -19,7 +19,17 @@ usage() {
   exit 2
 }
 [[ $# -ge 2 ]] || usage
-transport="$1"; name="$2"; shift 2
+# `--scrub-only <profile-dir>` scrubs an existing profile in place (one built
+# from a recorded session by `e2e_server profile-from-session`) and runs the
+# same leak checks, without touching any device.
+scrub_only=0
+if [[ "$1" == "--scrub-only" ]]; then
+  scrub_only=1
+  transport=""; name="$(basename "$2")"
+  scrub_dir="$(cd "$2" && pwd)"; shift 2
+else
+  transport="$1"; name="$2"; shift 2
+fi
 leanback=null; notes=""; anonymize=0; keep_pkgs=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -33,13 +43,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "profile name must be [A-Za-z0-9._-]+" >&2; exit 2; }
-[[ -x "$ADB" ]] || { echo "adb not found at $ADB" >&2; exit 1; }
+[[ $scrub_only -eq 1 || -x "$ADB" ]] || { echo "adb not found at $ADB" >&2; exit 1; }
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out="$here/../crates/core/tests/fixtures/devices/$name"
 raw="$(mktemp -d)"
 trap 'rm -rf "$raw"' EXIT
 
+if [[ $scrub_only -eq 1 ]]; then
+  out="$scrub_dir"
+  cp -R "$out/." "$raw/"
+  rm -f "$raw/device.json"
+  serial="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["serial"])' "$out/device.json")"
+  model="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("model",""))' "$out/device.json")"
+else
 host_devices="$("$ADB" devices -l | tr -d '\r')"
 state="$(awk -v t="$transport" '$1 == t { print $2 }' <<<"$host_devices")"
 if [[ "$state" != "device" ]]; then
@@ -88,6 +105,7 @@ done
 
 rm -rf "$out"
 mkdir -p "$out"
+fi
 
 CAPTURE_ANONYMIZE="$anonymize" CAPTURE_KEEP_PKGS="$keep_pkgs" python3 - "$raw" "$out" "$model" <<'PY'
 import ipaddress, os, re, sys
@@ -243,7 +261,7 @@ for rel in sorted(files):
         fh.write(text)
 PY
 
-python3 - "$out/device.json" "$name" "$serial" "$model" "$(date +%Y-%m-%d)" "$leanback" "$notes" <<'PY'
+[[ $scrub_only -eq 1 ]] || python3 - "$out/device.json" "$name" "$serial" "$model" "$(date +%Y-%m-%d)" "$leanback" "$notes" <<'PY'
 import json, sys
 path, name, serial, model, captured, leanback, notes = sys.argv[1:]
 doc = {"name": name, "serial": serial, "model": model, "captured": captured,

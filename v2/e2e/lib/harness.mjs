@@ -143,6 +143,7 @@ export async function scenarioContext({ browser, base, serverUrl, name, colorSch
   mkdirSync(dir, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, colorScheme });
   const page = await context.newPage();
+  page.setDefaultTimeout(20_000);
   const consoleErrors = [];
   page.on("pageerror", (e) => consoleErrors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {

@@ -88,7 +88,7 @@ struct DeviceSpec {
     transports: Option<Vec<TransportSpec>>,
     #[serde(default)]
     ip: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "some_option")]
     legacy_port: Option<Option<u16>>,
     #[serde(default)]
     wireless: Option<Wireless>,
@@ -105,7 +105,9 @@ struct DeviceSpec {
     setup: Vec<String>,
 }
 
-fn some_option<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<bool>>, D::Error> {
+fn some_option<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<Option<T>>, D::Error> {
     Ok(Some(Option::deserialize(d)?))
 }
 

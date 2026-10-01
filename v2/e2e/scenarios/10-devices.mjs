@@ -107,7 +107,7 @@ export const scenarios = [
       await ctx.step("unconfirmed TV opens, not-a-TV is labelled");
       await phone.getByRole("button", { name: "Open anyway" }).first().click();
       await ctx.step("open anyway asks first");
-      await ctx.page.locator(".open-anyway-confirm").getByRole("button", { name: /Open anyway/ }).click();
+      await ctx.page.locator(".open-anyway-confirm").getByRole("button", { name: "Open tools" }).click();
       await ctx.page.waitForURL(/\/devices\//);
       await ctx.page.locator("#tab-overview").waitFor();
       await ctx.text("Pixel 10 Pro").first().waitFor();
@@ -155,12 +155,12 @@ export const scenarios = [
       await ctx.open("/");
       const box = ctx.page.getByPlaceholder("IP[:port] — e.g. 192.168.42.71");
       await box.fill("192.0.2.999");
-      await ctx.page.getByRole("button", { name: "Add by IP" }).click();
+      await ctx.page.locator(".connect-form").getByRole("button", { name: "Add by IP" }).click();
       await ctx.text("not an IP address", { exact: false }).waitFor();
       await ctx.step("a typo'd IP is rejected before adb runs");
       ctx.assert.ok(!(await ctx.log()).some((i) => i.args[0] === "connect"), "adb connect never ran");
       await box.fill("192.0.2.123");
-      await ctx.page.getByRole("button", { name: "Add by IP" }).click();
+      await ctx.page.locator(".connect-form").getByRole("button", { name: "Add by IP" }).click();
       await ctx.page.locator(".connect-message").first().waitFor();
       const message = await ctx.page.locator(".connect-message").first().innerText();
       ctx.assert.doesNotMatch(message, /adb process failed/, "the raw driver error is explained, not dumped");
