@@ -24,9 +24,9 @@ pub struct SendTextResult {
 }
 
 /// Make sure the scrcpy session for `serial` is up (starting it if needed).
-async fn channel_ready(
+async fn channel_ready<R: tauri::Runtime>(
     state: &AppState,
-    app: &tauri::AppHandle,
+    app: &tauri::AppHandle<R>,
     serial: &str,
 ) -> Result<(), String> {
     let jar = resolve_scrcpy_server_jar(app)?;
@@ -53,8 +53,8 @@ pub struct RemoteWarmResult {
 /// the next press would fall back to anyway. Idempotent — an already-running
 /// session returns immediately.
 #[tauri::command]
-pub async fn remote_warm(
-    app: tauri::AppHandle,
+pub async fn remote_warm<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<RemoteWarmResult, String> {
@@ -105,8 +105,8 @@ fn encode_input_text(text: &str) -> Result<String, String> {
 /// `send_text` — type `text` into whatever input field has focus on the TV.
 /// Channel first (full UTF-8, instant); `input text` (ASCII-only) fallback.
 #[tauri::command]
-pub async fn send_text(
-    app: tauri::AppHandle,
+pub async fn send_text<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     serial: String,
     text: String,
@@ -216,8 +216,8 @@ fn keycode_for(key: &str) -> Option<u32> {
 /// down/up); `input keyevent` fallback. Used by the Remote panel's D-pad and
 /// by live typing for Backspace/Enter.
 #[tauri::command]
-pub async fn send_key(
-    app: tauri::AppHandle,
+pub async fn send_key<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     serial: String,
     key: String,

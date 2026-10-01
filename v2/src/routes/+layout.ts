@@ -11,3 +11,10 @@ if (import.meta.env.VITE_DEMO === "1" && typeof window !== "undefined") {
   const { installDemoMock } = await import("$lib/demo-mock");
   installDemoMock();
 }
+
+// End-to-end harness mode: invoke() goes to the E2E server, which runs the
+// real command layer against a simulated device. See v2/e2e/README.md.
+if (import.meta.env.VITE_E2E === "1" && typeof window !== "undefined") {
+  const { installE2EBridge } = await import("$lib/e2e-bridge");
+  installE2EBridge();
+}

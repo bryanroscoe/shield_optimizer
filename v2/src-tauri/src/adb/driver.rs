@@ -9,8 +9,11 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
+use shield_optimizer_core::adb::driver::process_output;
 use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+
+use crate::session;
 
 /// The standard subprocess-backed driver. Wraps `tokio::process::Command`.
 #[derive(Debug, Clone)]
@@ -54,15 +57,17 @@ impl SubprocessAdb {
     }
 
     async fn run_with_timeout(&self, args: &[&str], dur: Duration) -> AdbResult<AdbOutput> {
+        let started = Instant::now();
         if !self.binary.exists() {
-            return Err(AdbError::BinaryMissing {
+            let e = AdbError::BinaryMissing {
                 path: self.binary.display().to_string(),
-            });
+            };
+            record_failure(args, started, &e, "text");
+            return Err(e);
         }
 
         let safe_args = redact_args(args);
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke");
-        let started = Instant::now();
 
         let mut cmd = Command::new(&self.binary);
         cmd.args(args).kill_on_drop(true);
@@ -71,18 +76,37 @@ impl SubprocessAdb {
         let fut = cmd.output();
 
         let output = match timeout(dur, fut).await {
-            Ok(r) => r?,
+            Ok(Ok(output)) => output,
+            Ok(Err(io)) => {
+                let e = AdbError::from(io);
+                record_failure(args, started, &e, "text");
+                return Err(e);
+            }
             Err(_) => {
                 warn!(args = ?safe_args, ms = started.elapsed().as_millis(), "adb timeout");
-                return Err(AdbError::Timeout {
+                let e = AdbError::Timeout {
                     seconds: dur.as_secs(),
-                });
+                };
+                record_failure(args, started, &e, "text");
+                return Err(e);
             }
         };
 
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         let exit_code = output.status.code();
+        if session::is_recording() {
+            session::record(adb_session_line(
+                args,
+                started.elapsed().as_millis(),
+                SessionResult::Output {
+                    exit_code,
+                    stdout: &stdout,
+                    stderr: &stderr,
+                },
+                "text",
+            ));
+        }
 
         // The whole invocation, at debug: what a bug report needs and what an
         // ordinary run must not carry. Args are redacted (pairing PINs), and
@@ -105,21 +129,8 @@ impl SubprocessAdb {
         // actually went wrong.
         if !output.status.success() {
             warn!(args = ?safe_args, ?exit_code, %stderr, "adb exited nonzero");
-            return Err(AdbError::NonZeroExit {
-                code: exit_code,
-                stderr: if stderr.is_empty() {
-                    stdout.clone()
-                } else {
-                    stderr
-                },
-            });
         }
-
-        Ok(AdbOutput {
-            stdout,
-            stderr,
-            exit_code,
-        })
+        process_output(stdout, stderr, exit_code)
     }
 }
 
@@ -205,6 +216,117 @@ fn redact_args(args: &[&str]) -> Vec<String> {
             }
         })
         .collect()
+}
+
+/// What an adb call produced, as the session recorder sees it.
+enum SessionResult<'a> {
+    Output {
+        exit_code: Option<i32>,
+        stdout: &'a str,
+        stderr: &'a str,
+    },
+    Bytes {
+        exit_code: Option<i32>,
+        len: usize,
+        stderr: &'a str,
+    },
+    /// The call failed before producing any output (timeout, missing binary).
+    Failed(String),
+}
+
+fn record_failure(args: &[&str], started: Instant, error: &AdbError, stream: &'static str) {
+    if session::is_recording() {
+        session::record(adb_session_line(
+            args,
+            started.elapsed().as_millis(),
+            SessionResult::Failed(error.to_string()),
+            stream,
+        ));
+    }
+}
+
+/// One `kind:"adb"` session line, redacted the same way as the debug log:
+/// no pairing PIN and no typed Remote text, in the args or echoed back.
+fn adb_session_line(
+    args: &[&str],
+    ms: u128,
+    result: SessionResult<'_>,
+    stream: &'static str,
+) -> serde_json::Value {
+    let serial = args
+        .iter()
+        .position(|a| *a == "-s")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.to_string());
+    let pin_args: Vec<&str> = match args.iter().position(|a| *a == "pair") {
+        Some(at) => args.iter().skip(at + 2).copied().collect(),
+        None => Vec::new(),
+    };
+    let types_text = args.iter().any(|a| a.contains("input text"));
+    let scrub = |text: &str| -> String {
+        if types_text && !text.is_empty() {
+            return "<redacted text>".to_string();
+        }
+        pin_args
+            .iter()
+            .filter(|pin| !pin.is_empty())
+            .fold(text.to_string(), |acc, pin| {
+                acc.replace(pin, "<redacted pin>")
+            })
+    };
+    let (exit_code, stdout, stderr, error) = match result {
+        SessionResult::Output {
+            exit_code,
+            stdout,
+            stderr,
+        } => (exit_code, scrub(stdout), scrub(stderr), None),
+        SessionResult::Bytes {
+            exit_code,
+            len,
+            stderr,
+        } => (exit_code, format!("<{len} bytes>"), scrub(stderr), None),
+        SessionResult::Failed(error) => (None, String::new(), String::new(), Some(scrub(&error))),
+    };
+    serde_json::json!({
+        "v": 1,
+        "kind": "adb",
+        "ts": session::now_ts(),
+        "serial": serial,
+        "args": redact_args(args),
+        "ms": ms,
+        "exit_code": exit_code,
+        "stdout": stdout,
+        "stderr": stderr,
+        "error": error,
+        "stream": stream,
+    })
+}
+
+/// The expert shell runs whatever the user typed, so neither the command nor
+/// its output is recorded — only that it ran and how it ended.
+fn bounded_session_line(
+    serial: &str,
+    ms: u128,
+    result: &AdbResult<BoundedShellOutput>,
+) -> serde_json::Value {
+    let (exit_code, termination, error) = match result {
+        Ok(out) => (out.exit_code, Some(out.termination), None),
+        Err(e) => (None, None, Some(e.to_string())),
+    };
+    serde_json::json!({
+        "v": 1,
+        "kind": "adb",
+        "ts": session::now_ts(),
+        "serial": serial,
+        "args": ["-s", serial, "shell", "<expert shell command redacted>"],
+        "ms": ms,
+        "exit_code": exit_code,
+        "stdout": "",
+        "stderr": "",
+        "error": error,
+        "stream": "bounded",
+        "termination": termination,
+    })
 }
 
 /// Ceiling for file transfers: long enough for multi-GB pulls over slow Wi-Fi,
@@ -302,6 +424,13 @@ impl AdbDriver for SubprocessAdb {
         super::pin_working_directory(&mut cmd);
         let started = Instant::now();
         let result = collect_bounded_shell(cmd, SHELL_TIMEOUT).await;
+        if session::is_recording() {
+            session::record(bounded_session_line(
+                serial,
+                started.elapsed().as_millis(),
+                &result,
+            ));
+        }
         match &result {
             // Only the expert shell uses this path. Its command and output
             // are whatever the user chose to run, so neither is logged: the
@@ -328,15 +457,17 @@ impl AdbDriver for SubprocessAdb {
     }
 
     async fn raw_bytes(&self, args: &[&str]) -> AdbResult<Vec<u8>> {
+        let started = Instant::now();
         if !self.binary.exists() {
-            return Err(AdbError::BinaryMissing {
+            let e = AdbError::BinaryMissing {
                 path: self.binary.display().to_string(),
-            });
+            };
+            record_failure(args, started, &e, "bytes");
+            return Err(e);
         }
 
         let safe_args = redact_args(args);
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke (binary)");
-        let started = Instant::now();
 
         let mut cmd = Command::new(&self.binary);
         cmd.args(args).kill_on_drop(true);
@@ -344,14 +475,33 @@ impl AdbDriver for SubprocessAdb {
         super::pin_working_directory(&mut cmd);
 
         let output = match timeout(self.command_timeout, cmd.output()).await {
-            Ok(r) => r?,
+            Ok(Ok(output)) => output,
+            Ok(Err(io)) => {
+                let e = AdbError::from(io);
+                record_failure(args, started, &e, "bytes");
+                return Err(e);
+            }
             Err(_) => {
                 warn!(args = ?safe_args, ms = started.elapsed().as_millis(), "adb timeout");
-                return Err(AdbError::Timeout {
+                let e = AdbError::Timeout {
                     seconds: self.command_timeout.as_secs(),
-                });
+                };
+                record_failure(args, started, &e, "bytes");
+                return Err(e);
             }
         };
+        if session::is_recording() {
+            session::record(adb_session_line(
+                args,
+                started.elapsed().as_millis(),
+                SessionResult::Bytes {
+                    exit_code: output.status.code(),
+                    len: output.stdout.len(),
+                    stderr: &String::from_utf8_lossy(&output.stderr),
+                },
+                "bytes",
+            ));
+        }
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -615,6 +765,106 @@ fn which_in_path(bin: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn output<'a>(exit_code: i32, stdout: &'a str, stderr: &'a str) -> SessionResult<'a> {
+        SessionResult::Output {
+            exit_code: Some(exit_code),
+            stdout,
+            stderr,
+        }
+    }
+
+    #[test]
+    fn a_session_line_carries_the_schema_the_replay_parser_reads() {
+        let line = adb_session_line(
+            &["-s", "tv:5555", "shell", "pm list packages"],
+            12,
+            output(0, "package:com.a\npackage:com.b\n", ""),
+            "text",
+        );
+        assert_eq!(line["v"], 1);
+        assert_eq!(line["kind"], "adb");
+        assert_eq!(line["serial"], "tv:5555");
+        assert_eq!(
+            line["args"],
+            serde_json::json!(["-s", "tv:5555", "shell", "pm list packages"])
+        );
+        assert_eq!(line["ms"], 12);
+        assert_eq!(line["exit_code"], 0);
+        // Session files are local and never bundled, so inventories stay whole.
+        assert_eq!(line["stdout"], "package:com.a\npackage:com.b\n");
+        assert_eq!(line["error"], serde_json::Value::Null);
+        assert_eq!(line["stream"], "text");
+
+        let line = adb_session_line(&["devices"], 1, output(0, "", ""), "text");
+        assert_eq!(line["serial"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn a_session_line_never_carries_the_pin_or_typed_text() {
+        let line = adb_session_line(
+            &["pair", "192.168.1.9:37421", "314159"],
+            5,
+            output(1, "", "failed: wrong code 314159"),
+            "text",
+        );
+        assert!(!line.to_string().contains("314159"));
+        assert_eq!(line["args"][2], "<redacted pin>");
+
+        let line = adb_session_line(
+            &["-s", "tv:5555", "shell", "input text 'hunter2'"],
+            5,
+            output(1, "hunter2", "Error typing hunter2"),
+            "text",
+        );
+        assert!(!line.to_string().contains("hunter2"));
+        assert_eq!(line["args"][3], "input text <redacted text>");
+    }
+
+    #[test]
+    fn a_timeout_is_recorded_as_an_error_without_an_exit_code() {
+        let line = adb_session_line(
+            &["-s", "tv:5555", "shell", "getprop"],
+            30000,
+            SessionResult::Failed(AdbError::Timeout { seconds: 30 }.to_string()),
+            "text",
+        );
+        assert_eq!(line["exit_code"], serde_json::Value::Null);
+        assert!(line["error"].as_str().unwrap().contains("timed out"));
+    }
+
+    #[test]
+    fn binary_output_is_recorded_as_its_size() {
+        let line = adb_session_line(
+            &["-s", "tv:5555", "exec-out", "screencap", "-p"],
+            40,
+            SessionResult::Bytes {
+                exit_code: Some(0),
+                len: 2048,
+                stderr: "",
+            },
+            "bytes",
+        );
+        assert_eq!(line["stdout"], "<2048 bytes>");
+        assert_eq!(line["stream"], "bytes");
+    }
+
+    #[test]
+    fn the_expert_shell_is_recorded_without_its_command_or_output() {
+        let result = Ok(BoundedShellOutput {
+            stdout: "secret output".into(),
+            stderr: "secret error".into(),
+            exit_code: Some(0),
+            termination: ShellTermination::Completed,
+        });
+        let line = bounded_session_line("tv:5555", 9, &result);
+        let text = line.to_string();
+        assert!(!text.contains("secret"));
+        assert_eq!(line["args"][3], "<expert shell command redacted>");
+        assert_eq!(line["exit_code"], 0);
+        assert_eq!(line["termination"], "completed");
+        assert_eq!(line["stream"], "bounded");
+    }
 
     /// Debug logging is written to be pasted into a public issue. The pairing
     /// PIN the user read off their TV must not be in it.

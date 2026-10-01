@@ -274,6 +274,7 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
 #[tauri::command]
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
     let Some(prefix) = local_subnet_prefix().await else {
+        tracing::info!(subnet = "unknown", found = 0, "scan finished");
         return Ok(ScanResult {
             subnet: None,
             found: vec![],
@@ -363,6 +364,15 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
         &connected,
         &unauthorized,
         &targets.needs_pairing,
+    );
+    tracing::info!(
+        subnet = %subnet_label,
+        found = found.len(),
+        connected = connected.len(),
+        unauthorized = unauthorized.len(),
+        failed = failed.len(),
+        needs_pairing = targets.needs_pairing.len(),
+        "scan finished"
     );
 
     Ok(ScanResult {

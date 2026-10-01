@@ -86,6 +86,10 @@ npm run check    # svelte-check must be 0 errors / 0 warnings
 npm run build    # vite build must succeed
 ```
 
+Before a release, also run `npm run e2e` from `v2/`. It drives the real UI through the real Rust
+command layer against simulated devices built from scrubbed captures of real hardware, and leaves
+a screenshot of every step in `v2/e2e/artifacts/`. See `v2/e2e/README.md`.
+
 The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf` — the workflow installs these; if you're reproducing CI failures locally on Linux, install them too.
 
 ## Keep the screenshots in sync

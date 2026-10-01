@@ -261,6 +261,10 @@ export const api = {
     invoke<boolean>("set_debug_logging", { enabled }),
   logDirPath: () => invoke<string>("log_dir_path"),
   openLogDir: () => invoke<void>("open_log_dir"),
+  /// A UI breadcrumb for the local session recording; a no-op unless debug
+  /// logging is on.
+  logUiEvent: (event: string, label: string, path: string | null = null) =>
+    invoke<void>("log_ui_event", { event, label, path }),
 
   prepareOptimize: (serial: string, deviceType: DeviceType, mode: OptimizeMode) =>
     invoke<OptimizePlan>("prepare_optimize", { serial, deviceType, mode }),

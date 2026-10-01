@@ -228,6 +228,70 @@ jobs:
         working-directory: v2
         run: npm run test:context-menu
 
+  # The real Rust command layer against simulated devices, with Playwright
+  # driving the real UI. See v2/e2e/README.md.
+  e2e:
+    name: End-to-end (simulated devices)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/target
+          key: ${{ runner.os }}-cargo-v2-e2e-${{ hashFiles('v2/Cargo.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - name: Install dependencies
+        working-directory: v2
+        run: npm ci
+
+      - name: Install test browser
+        working-directory: v2
+        run: npx playwright install --with-deps chromium
+
+      # The e2e feature is off in every other job, so lint it here.
+      - name: Clippy (e2e feature)
+        working-directory: v2
+        run: cargo clippy -p shield-optimizer-v2 --features e2e --all-targets -- -D warnings
+
+      - name: npm run e2e
+        working-directory: v2
+        run: npm run e2e
+
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: v2/e2e/artifacts/
+          retention-days: 14
+
   frontend-mobile:
     name: Mobile frontend type check
     runs-on: ubuntu-latest

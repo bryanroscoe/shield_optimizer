@@ -1,0 +1,2 @@
+com.spocky.projengmenu/.ui.home.MainActivity
+com.android.tv.settings/.system.FallbackHome

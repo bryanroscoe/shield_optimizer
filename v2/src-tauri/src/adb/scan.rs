@@ -178,10 +178,26 @@ pub struct ScanHit {
     pub ip: String,
 }
 
+/// The E2E harness answers the port sweep from its simulated network rather
+/// than opening sockets on the host's LAN. Compiled only with `e2e`.
+#[cfg(feature = "e2e")]
+#[allow(clippy::type_complexity)]
+pub static SWEEP_OVERRIDE: std::sync::RwLock<
+    Option<Box<dyn Fn([u8; 3]) -> Vec<String> + Send + Sync>>,
+> = std::sync::RwLock::new(None);
+
 /// Probe all 254 addresses in the given /24 in parallel. Returns IPs that
 /// answered on the ADB port. Honors a global concurrency cap so we don't
 /// flood the user's network stack.
 pub async fn scan_subnet(prefix: [u8; 3]) -> Vec<ScanHit> {
+    #[cfg(feature = "e2e")]
+    if let Some(ips) = SWEEP_OVERRIDE
+        .read()
+        .ok()
+        .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
+    {
+        return ips.into_iter().map(|ip| ScanHit { ip }).collect();
+    }
     // Priority sweep mirroring v1: common DHCP range first, then the rest.
     let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
 
