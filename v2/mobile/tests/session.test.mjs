@@ -95,8 +95,10 @@ async function createPage(t, options = {}) {
   await page.evaluate(async () => {
     const { session } = await import("/src/lib/session.svelte.ts");
     const { router } = await import("/src/lib/router.svelte.ts");
+    const savedDevices = await import("/src/lib/savedDevices.ts");
     window.session = session;
     window.router = router;
+    window.savedDevices = savedDevices;
     session.entitlement = "pro";
   });
   return page;
@@ -222,6 +224,168 @@ test("one failed recovery stays lost until an explicit retry", async (t) => {
     return { automatic, lost, retried: window.session.isConnected };
   });
   assert.deepEqual(result, { automatic: 1, lost: "lost", retried: true });
+});
+
+test("a silent recovery onto a different device does not inherit the old saved row or its name (#154 follow-up)", async (t) => {
+  const page = await createPage(t, {
+    savedDevices: [{ ...savedA, fingerprint: { model: "Shield TV Pro", manufacturer: "NVIDIA" } }],
+    activeHost: "A",
+  });
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.router.reset("dashboard");
+  });
+  const result = await page.evaluate(async () => {
+    window.calls = [];
+    window.handlers.wireless_status = () => ({ connected: false });
+    window.handlers.wireless_connect = () => ({ ok: true });
+    // A different, id-less TV now answers at the same address: same serial
+    // string (adb has no hardware id for it either), but a disagreeing
+    // model/manufacturer and its own reported name.
+    window.handlers.list_devices = () => [{
+      id: 2,
+      serial: "A:5555",
+      name: "Reported device",
+      model: "Chromecast with Google TV",
+      status: "device",
+      connection: "network",
+      device_type: "google_tv",
+      properties: {
+        friendly_name: null,
+        brand: "google",
+        model: "Chromecast with Google TV",
+        device_codename: "",
+        manufacturer: "Google",
+        android_release: "",
+        sdk_level: "",
+        build_id: "",
+        board_platform: "",
+      },
+    }];
+    // The cheap probe finds the TV unreachable and triggers one silent
+    // recovery attempt -- the path under test.
+    await window.session.checkLiveness();
+    const rows = window.savedDevices.listSavedDevices();
+    return {
+      liveness: window.session.liveness,
+      identityNote: window.session.identityNote,
+      deviceLabel: window.session.deviceLabel,
+      rowCount: rows.length,
+      oldRowIntact: rows.some(
+        (r) => r.name === "Living Room" && r.fingerprint?.model === "Shield TV Pro",
+      ),
+    };
+  });
+  assert.equal(result.liveness, "live");
+  assert.match(result.identityNote, /different device/i);
+  assert.notEqual(result.deviceLabel, "Living Room");
+  assert.equal(result.rowCount, 2);
+  assert.equal(result.oldRowIntact, true);
+});
+
+test("a silent recovery's different-device note shows immediately on whatever screen is already open, and clears itself (#154 follow-up)", async (t) => {
+  // The user never leaves Remote, so no screen's onMount ever runs again --
+  // only a global, reactive consumer can show this.
+  const page = await open(t, "remote");
+  // Give the already-connected row A a fingerprint to disagree with. Seeded
+  // directly in storage since this TV connected before the test installed a
+  // custom list_devices handler.
+  await page.evaluate(() => {
+    const rows = JSON.parse(localStorage.getItem("atv.savedDevices.v1"));
+    for (const row of rows) {
+      if (row.host === "A") row.fingerprint = { model: "Shield TV Pro", manufacturer: "NVIDIA" };
+    }
+    localStorage.setItem("atv.savedDevices.v1", JSON.stringify(rows));
+  });
+  await page.evaluate(() => {
+    window.handlers.wireless_status = () => ({ connected: false });
+    window.handlers.wireless_connect = () => ({ ok: true });
+    window.handlers.list_devices = () => [{
+      id: 2,
+      serial: "A:5555",
+      name: "Reported device",
+      model: "Chromecast with Google TV",
+      status: "device",
+      connection: "network",
+      device_type: "google_tv",
+      properties: {
+        friendly_name: null,
+        brand: "google",
+        model: "Chromecast with Google TV",
+        device_codename: "",
+        manufacturer: "Google",
+        android_release: "",
+        sdk_level: "",
+        build_id: "",
+        board_platform: "",
+      },
+    }];
+    void window.session.checkLiveness();
+  });
+  await page.waitForFunction(() => !!document.querySelector(".toast"));
+  assert.equal(await page.evaluate(() => window.router.current), "remote");
+  const toastText = await page.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
+  assert.match(toastText, /different device/i);
+  await page.waitForFunction(() => window.session.identityNote === "", { timeout: 6000 });
+  assert.equal(await page.evaluate(() => !!document.querySelector(".toast")), false);
+});
+
+test("the Devices screen hands its different-device note on to Dashboard instead of losing it on navigate (#154 follow-up)", async (t) => {
+  const page = await createPage(t, {
+    savedDevices: [
+      { ...savedA, hardwareId: "shield-a" },
+      { ...savedB, fingerprint: { model: "Shield TV Pro", manufacturer: "NVIDIA" } },
+    ],
+    activeHost: "A",
+  });
+  await page.evaluate(() => {
+    // A reports its saved hardware id, so it never shows up in "Other TVs"
+    // once connected. Connecting to the saved Bedroom row (B) instead lands
+    // on a different, id-less TV that disagrees with its stored fingerprint.
+    window.handlers.list_devices = () => {
+      if (window.activeHost === "A") {
+        return [{
+          ...window.device("A"),
+          properties: { friendly_name: null, serial_number: "shield-a" },
+        }];
+      }
+      if (window.activeHost !== "B") return [window.device(window.activeHost)];
+      return [{
+        id: 3,
+        serial: "B:5555",
+        name: "Reported device",
+        model: "Chromecast with Google TV",
+        status: "device",
+        connection: "network",
+        device_type: "google_tv",
+        properties: {
+          friendly_name: null,
+          brand: "google",
+          model: "Chromecast with Google TV",
+          device_codename: "",
+          manufacturer: "Google",
+          android_release: "",
+          sdk_level: "",
+          build_id: "",
+          board_platform: "",
+        },
+      }];
+    };
+  });
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.router.reset("dashboard");
+    window.router.navigate("devices");
+  });
+  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.waitForFunction(() => window.router.current === "dashboard");
+  // The global identity-note banner (App.svelte) is what must still be
+  // showing here -- it survived the navigate that unmounted Devices and its
+  // own local toast.
+  const toastText = await page.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
+  assert.match(toastText, /different device/i);
+  // It clears itself on its own timeout rather than lingering forever.
+  await page.waitForFunction(() => window.session.identityNote === "", { timeout: 6000 });
 });
 
 test("canceled connect cannot update the session when its old reply arrives", async (t) => {

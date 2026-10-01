@@ -54,6 +54,20 @@ the list; the discovery row shows a generic name and both saved rows report "sav
 instead. Covered by new tests in `savedDevices.test.mjs` and `discoveryRows.test.mjs`; unverified
 on a device.
 
+**A different id-less device can no longer inherit the one saved row at its address (2026-10-01,
+GitHub #154).** The above fixed the two-or-more-id-less-rows case; it left the original, more
+common one: a lone id-less saved row at an address was still trusted on endpoint alone, so a
+*different* id-less TV that later answered there silently took over that row's name. Id-less rows
+now carry an optional soft `fingerprint` (model/manufacturer/codename/user-set name) captured from
+the live device's properties; `rememberDevice` only refreshes a lone match when the saved and live
+fingerprints don't clearly disagree (different model or manufacturer). A disagreement is never
+proof either way, so it never upgrades a match to "verified" -- it only ever rules one *out*,
+recording the connection as a new row and leaving the old one untouched. A missing field on either
+side is unknown, not a disagreement, so older rows migrate for free. `session.identityNote` ("A
+different device is now at this address.") surfaces the mismatch once in whichever screen's
+connect flow notices it. Covered by new tests in `savedDevices.test.mjs`, verified to fail before
+the fix; unverified on a device.
+
 ---
 
 ## 1. What this is

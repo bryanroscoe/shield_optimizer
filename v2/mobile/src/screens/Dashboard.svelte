@@ -79,7 +79,11 @@
       const result = await session.connect(device.host, device.connectPort);
       if (result.ok) {
         savedTvs = listSavedDevices();
-        showToast(`Connected to ${session.deviceLabel}.`, "success");
+        // The global identity-note banner in App.svelte owns showing a
+        // mismatch; suppress only the now-misleading success toast here.
+        if (!session.identityNote) {
+          showToast(`Connected to ${session.deviceLabel}.`, "success");
+        }
         session.loadHealth(true);
         session.loadBloat(true);
       } else {

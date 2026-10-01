@@ -17,6 +17,7 @@
   import Files from "./screens/Files.svelte";
   import Backups from "./screens/Backups.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
+  import Toast from "./components/Toast.svelte";
 
   function navigate(screen: Screen) {
     router.navigate(screen);
@@ -56,10 +57,27 @@
       document.removeEventListener("visibilitychange", probe);
     };
   });
+
+  // Global and reactive on purpose: a silent recovery (the heartbeat above,
+  // or a connection-lost redial) can set `session.identityNote` while the
+  // user is already sitting on any screen, with no mount event to hang a
+  // per-screen consumer off of. Watching it here means the note is shown the
+  // moment it is set no matter what screen is open, instead of waiting for
+  // the user to happen to leave and revisit Dashboard (#154 follow-up).
+  $effect(() => {
+    if (!session.identityNote) return;
+    const timer = setTimeout(() => {
+      session.identityNote = "";
+    }, 4000);
+    return () => clearTimeout(timer);
+  });
 </script>
 
 {#if router.current !== "onboarding" && router.current !== "addtv"}
   <ConnectionBanner onSwitch={() => navigate("devices")} />
+{/if}
+{#if session.identityNote}
+  <Toast message={session.identityNote} type="info" />
 {/if}
 
 {#if router.current === "onboarding"}

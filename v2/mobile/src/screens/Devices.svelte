@@ -97,7 +97,12 @@
     try {
       const r = await session.connect(d.host, d.connectPort);
       if (r.ok) {
-        showToast(`Connected to ${session.deviceLabel}.`, "success");
+        // The global identity-note banner in App.svelte owns showing a
+        // mismatch (it survives this navigate; a toast shown here would not
+        // -- #154 follow-up). Suppress only the now-misleading success toast.
+        if (!session.identityNote) {
+          showToast(`Connected to ${session.deviceLabel}.`, "success");
+        }
         session.loadHealth(true);
         session.loadBloat(true);
         refreshSaved();
@@ -120,7 +125,13 @@
     connectingToken = "current";
     try {
       const r = await session.reconnect();
-      showToast(r.ok ? "Reconnected." : r.message || "Couldn't reconnect.", r.ok ? "success" : "error");
+      if (!r.ok) {
+        showToast(r.message || "Couldn't reconnect.", "error");
+      } else if (!session.identityNote) {
+        // The global identity-note banner in App.svelte owns showing a
+        // mismatch; suppress only the now-misleading success toast here.
+        showToast("Reconnected.", "success");
+      }
     } catch (e) {
       showToast(String(e), "error");
     } finally {
