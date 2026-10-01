@@ -189,14 +189,24 @@ impl Replay {
         let want = normalise_args(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         let matches = |l: &SessionLine| normalise_args(&l.args) == want;
         if is_poll(&want) {
-            let found = (0..self.calls.len()).find(|&i| !self.used[i] && matches(&self.calls[i]));
+            // A poll answers from the current phase only: never with a
+            // response recorded after the next state-changing call.
+            let boundary = (self.cursor..self.calls.len())
+                .find(|&j| !self.used[j] && !is_poll(&normalise_args(&self.calls[j].args)))
+                .unwrap_or(self.calls.len());
+            let found = (0..boundary).find(|&i| !self.used[i] && matches(&self.calls[i]));
             if let Some(i) = found {
                 self.used[i] = true;
                 return Some(Self::recorded(&self.calls[i]));
             }
-            let last = self.calls.iter().rev().find(|l| matches(l))?;
+            if let Some(i) = (0..boundary).rev().find(|&i| matches(&self.calls[i])) {
+                self.repeats += 1;
+                return Some(Self::recorded(&self.calls[i]));
+            }
+            // Nothing earlier at all: the session's first such poll.
+            let i = (boundary..self.calls.len()).find(|&i| matches(&self.calls[i]))?;
             self.repeats += 1;
-            return Some(Self::recorded(last));
+            return Some(Self::recorded(&self.calls[i]));
         }
         // Skip poll entries when deciding what "next" is.
         while self.cursor < self.calls.len()
@@ -403,13 +413,20 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
     let installed = lists.get("").cloned().unwrap_or_default();
     let disabled = lists.get("-d").cloned().unwrap_or_default();
     let third = lists.get("-3").cloned().unwrap_or_default();
-    for name in &installed {
+    // `-u` also lists system apps uninstalled for the user, which
+    // `install-existing` can bring back; the plain list says which are in use.
+    let all = lists
+        .get("-u")
+        .cloned()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| installed.clone());
+    for name in &all {
         d.packages.push((
             name.clone(),
             Package {
                 system: !third.contains(name),
                 enabled: !disabled.contains(name),
-                installed: true,
+                installed: installed.is_empty() || installed.contains(name),
             },
         ));
     }
@@ -590,6 +607,28 @@ mod tests {
             .answer(&["-s", "A", "shell", "pm disable-user --user 0 x"])
             .is_some());
         assert!(matches!(r.divergences[0], Divergence::Unrecorded { .. }));
+    }
+
+    #[test]
+    fn polls_stay_in_their_phase_and_u_packages_survive() {
+        let lines = vec![
+            line(&["devices"], "A\tdevice\n"),
+            line(&["disconnect", "A"], "disconnected A\n"),
+            line(&["devices"], "\n"),
+        ];
+        let mut r = Replay::new(&lines);
+        assert_eq!(r.answer(&["devices"]).unwrap().out.stdout, "A\tdevice\n");
+        assert_eq!(r.answer(&["devices"]).unwrap().out.stdout, "A\tdevice\n");
+        assert!(r.answer(&["disconnect", "A"]).is_some());
+        assert_eq!(r.answer(&["devices"]).unwrap().out.stdout, "\n");
+
+        let out = format!(
+            "package:a\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:a\npackage:gone\n{BATCH_STATUS}0\n"
+        );
+        let cmd = checked_batch_command(&["pm list packages", "pm list packages -u"]);
+        let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
+        assert!(!d.package("gone").unwrap().installed);
+        assert!(d.package("a").unwrap().installed);
     }
 
     #[test]
