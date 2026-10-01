@@ -229,6 +229,16 @@
   /// True after a run changed the device while the App List inventory was not
   /// loaded, so there was nothing to re-read. Cleared when it next loads.
   let statesUnreadAfterRun = $state(false);
+  /// True after a run changed the device since "Everything else" was read.
+  /// Only the catalog is re-read after a run, so those rows' states may
+  /// predate it until that list is loaded again.
+  let othersStaleAfterRun = $state(false);
+  let deviceRuns = 0;
+
+  function noteDeviceRun() {
+    deviceRuns++;
+    othersStaleAfterRun = true;
+  }
   let catalogInventoryVersion = 0;
   let appSearch = $state("");
   // Default on: the catalog lists ~70 known apps, most not present on any given
@@ -271,6 +281,7 @@
         appStates[pkg],
         appStatesResyncing,
         statesUnreadAfterRun,
+        othersStaleAfterRun,
       ),
       report: device
         ? {
@@ -744,6 +755,7 @@
   async function loadOtherPackages() {
     const context = capturePageContext();
     const request = ++otherRequest;
+    const runsAtStart = deviceRuns;
     mutationRequest++;
     otherInventoryVersion++;
     if (appMutationInFlight) appActionBusy = null;
@@ -757,6 +769,7 @@
       if (!pageContextIsCurrent(context) || request !== otherRequest) return;
       otherPackages = list;
       othersLoaded = true;
+      if (runsAtStart === deviceRuns) othersStaleAfterRun = false;
       otherInventoryVersion++;
       const packages = list.map((entry) => entry.package);
       const next = { ...packageSafety };
@@ -874,6 +887,7 @@
   async function resyncAppStates() {
     const context = capturePageContext();
     const request = ++appsRequest;
+    noteDeviceRun();
     if (apps.length === 0) statesUnreadAfterRun = true;
     if (apps.length > 0) {
       const resync = beginStatesResync();
@@ -1576,6 +1590,7 @@
     launchersLoaded = false;
     healthStale = true;
     refreshMeasurements();
+    noteDeviceRun();
     if (apps.length === 0) {
       statesUnreadAfterRun = true;
       return;
@@ -1812,7 +1827,7 @@
     stopStorePoll(); storeOpened = null;
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
-    appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false;
+    appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
     otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
