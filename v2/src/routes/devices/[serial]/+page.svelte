@@ -239,6 +239,25 @@
     deviceRuns++;
     othersStaleAfterRun = true;
   }
+
+  /// True from the moment an Optimize run starts until the page takes over
+  /// with its post-run re-read. Packages change one by one during the run, so
+  /// no cached state is reported for any of them until then.
+  let optimizeRunActive = $state(false);
+
+  function optimizeRunStarted() {
+    noteDeviceRun();
+    optimizeRunActive = true;
+  }
+
+  /// Hand the run's guard to the post-run flags. A run that ended without
+  /// its own re-read leaves every state unread until the inventory is.
+  function endOptimizeRun(reRead: boolean) {
+    if (!optimizeRunActive) return;
+    optimizeRunActive = false;
+    noteDeviceRun();
+    if (!reRead) statesUnreadAfterRun = true;
+  }
   let catalogInventoryVersion = 0;
   let appSearch = $state("");
   // Default on: the catalog lists ~70 known apps, most not present on any given
@@ -280,7 +299,7 @@
         apps.some((a) => a.package === pkg),
         appStates[pkg],
         appStatesResyncing,
-        statesUnreadAfterRun,
+        statesUnreadAfterRun || optimizeRunActive,
         othersStaleAfterRun,
       ),
       report: device
@@ -889,8 +908,9 @@
     const request = ++appsRequest;
     noteDeviceRun();
     if (apps.length === 0) statesUnreadAfterRun = true;
-    if (apps.length > 0) {
-      const resync = beginStatesResync();
+    const resync = apps.length > 0 ? beginStatesResync() : null;
+    optimizeRunActive = false;
+    if (resync !== null) {
       try {
         const packages = apps.map((a) => a.package);
         const next = await fetchAppStates(context, packages);
@@ -1050,6 +1070,7 @@
   /// parity: the Optimize plan baked in the old installed/disabled sets, so drop
   /// it — it reloads fresh next time the Optimize tab is opened.
   function setCatalogState(pkg: string, state: "enabled" | "disabled" | "missing") {
+    endOptimizeRun(false);
     appStates[pkg] = state;
     catalogInventoryVersion++;
     optimizeResetToken++;
@@ -1590,6 +1611,7 @@
     launchersLoaded = false;
     healthStale = true;
     refreshMeasurements();
+    endOptimizeRun(true);
     noteDeviceRun();
     if (apps.length === 0) {
       statesUnreadAfterRun = true;
@@ -1773,6 +1795,7 @@
   }
 
   function shellExecuted() {
+    endOptimizeRun(false);
     invalidateDeviceCaches();
     appsRequest++;
     otherRequest++;
@@ -1827,7 +1850,7 @@
     stopStorePoll(); storeOpened = null;
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
-    appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false;
+    appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
     otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
@@ -3381,6 +3404,7 @@
         {keptPackages}
         resetToken={optimizeResetToken}
         {pageEpoch}
+        onRunStarted={optimizeRunStarted}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
       />

@@ -30,6 +30,7 @@
     keptPackages,
     resetToken,
     pageEpoch,
+    onRunStarted,
     onStatesChanged,
     onPlanLoaded,
   }: {
@@ -44,6 +45,9 @@
     keptPackages: Set<string>;
     resetToken: number;
     pageEpoch: number;
+    /// Called before the run's first mutation, so the page reports no
+    /// cached state while packages change under it.
+    onRunStarted: () => void;
     onStatesChanged: () => void;
     onPlanLoaded: () => void;
   } = $props();
@@ -365,6 +369,7 @@
     optimizeAbort = false;
     optimizeProgress = {};
     optimizeFailureMessages = {};
+    onRunStarted();
 
     let done = 0, skipped = 0, failed = 0;
     let safetyStopped = false;
