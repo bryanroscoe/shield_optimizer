@@ -625,15 +625,25 @@ mod tests {
         let reports = fixtures().join("reports");
         let complete = read_batch(std::slice::from_ref(&reports)).unwrap();
         assert!(complete.truncated_files.is_empty());
-        assert!(candidates(&complete, &bundle).iter().all(|c| !c.lower_bound));
+        assert!(candidates(&complete, &bundle)
+            .iter()
+            .all(|c| !c.lower_bound));
 
         let batch = read_batch(&[reports, fixtures().join("truncated")]).unwrap();
-        assert_eq!(batch.truncated_files.len(), 1, "{:?}", batch.truncated_files);
+        assert_eq!(
+            batch.truncated_files.len(),
+            1,
+            "{:?}",
+            batch.truncated_files
+        );
         assert!(batch.truncated_files[0].ends_with("mobile-capped.json"));
         let list = candidates(&batch, &bundle);
         let capped = |t: &str| list.iter().find(|c| c.token == t).unwrap().lower_bound;
         assert!(capped("com.example.unknown"), "seen in the capped export");
-        assert!(!capped("com.netflix.ninja"), "seen only in complete exports");
+        assert!(
+            !capped("com.netflix.ninja"),
+            "seen only in complete exports"
+        );
 
         // A missing or non-boolean flag does not vouch for completeness.
         let missing = parse_mobile(r#"{"schema_version":1,"records":[]}"#).unwrap();
