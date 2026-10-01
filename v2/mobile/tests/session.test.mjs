@@ -283,6 +283,53 @@ test("a silent recovery onto a different device does not inherit the old saved r
   assert.equal(result.oldRowIntact, true);
 });
 
+test("a silent recovery's different-device note shows immediately on whatever screen is already open, and clears itself (#154 follow-up)", async (t) => {
+  // The user never leaves Remote, so no screen's onMount ever runs again --
+  // only a global, reactive consumer can show this.
+  const page = await open(t, "remote");
+  // Give the already-connected row A a fingerprint to disagree with. Seeded
+  // directly in storage since this TV connected before the test installed a
+  // custom list_devices handler.
+  await page.evaluate(() => {
+    const rows = JSON.parse(localStorage.getItem("atv.savedDevices.v1"));
+    for (const row of rows) {
+      if (row.host === "A") row.fingerprint = { model: "Shield TV Pro", manufacturer: "NVIDIA" };
+    }
+    localStorage.setItem("atv.savedDevices.v1", JSON.stringify(rows));
+  });
+  await page.evaluate(() => {
+    window.handlers.wireless_status = () => ({ connected: false });
+    window.handlers.wireless_connect = () => ({ ok: true });
+    window.handlers.list_devices = () => [{
+      id: 2,
+      serial: "A:5555",
+      name: "Reported device",
+      model: "Chromecast with Google TV",
+      status: "device",
+      connection: "network",
+      device_type: "google_tv",
+      properties: {
+        friendly_name: null,
+        brand: "google",
+        model: "Chromecast with Google TV",
+        device_codename: "",
+        manufacturer: "Google",
+        android_release: "",
+        sdk_level: "",
+        build_id: "",
+        board_platform: "",
+      },
+    }];
+    void window.session.checkLiveness();
+  });
+  await page.waitForFunction(() => !!document.querySelector(".toast"));
+  assert.equal(await page.evaluate(() => window.router.current), "remote");
+  const toastText = await page.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
+  assert.match(toastText, /different device/i);
+  await page.waitForFunction(() => window.session.identityNote === "", { timeout: 6000 });
+  assert.equal(await page.evaluate(() => !!document.querySelector(".toast")), false);
+});
+
 test("the Devices screen hands its different-device note on to Dashboard instead of losing it on navigate (#154 follow-up)", async (t) => {
   const page = await createPage(t, {
     savedDevices: [
@@ -332,11 +379,13 @@ test("the Devices screen hands its different-device note on to Dashboard instead
   });
   await page.getByRole("button", { name: "Connect", exact: true }).click();
   await page.waitForFunction(() => window.router.current === "dashboard");
+  // The global identity-note banner (App.svelte) is what must still be
+  // showing here -- it survived the navigate that unmounted Devices and its
+  // own local toast.
   const toastText = await page.evaluate(() => document.querySelector(".toast")?.textContent ?? "");
   assert.match(toastText, /different device/i);
-  // Dashboard's own onMount consumed and cleared it -- it is shown exactly
-  // once, not left to reappear on a later visit.
-  assert.equal(await page.evaluate(() => window.session.identityNote), "");
+  // It clears itself on its own timeout rather than lingering forever.
+  await page.waitForFunction(() => window.session.identityNote === "", { timeout: 6000 });
 });
 
 test("canceled connect cannot update the session when its old reply arrives", async (t) => {

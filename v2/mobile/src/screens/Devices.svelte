@@ -97,10 +97,9 @@
     try {
       const r = await session.connect(d.host, d.connectPort);
       if (r.ok) {
-        // This navigates to Dashboard immediately below, so a toast shown
-        // here never survives to be seen. Leave `session.identityNote`
-        // unread for Dashboard's own `onMount` to show -- it must not be
-        // cleared here only to be silently lost (#154 follow-up).
+        // The global identity-note banner in App.svelte owns showing a
+        // mismatch (it survives this navigate; a toast shown here would not
+        // -- #154 follow-up). Suppress only the now-misleading success toast.
         if (!session.identityNote) {
           showToast(`Connected to ${session.deviceLabel}.`, "success");
         }
@@ -126,11 +125,12 @@
     connectingToken = "current";
     try {
       const r = await session.reconnect();
-      if (r.ok && session.identityNote) {
-        showToast(session.identityNote, "info");
-        session.identityNote = "";
-      } else {
-        showToast(r.ok ? "Reconnected." : r.message || "Couldn't reconnect.", r.ok ? "success" : "error");
+      if (!r.ok) {
+        showToast(r.message || "Couldn't reconnect.", "error");
+      } else if (!session.identityNote) {
+        // The global identity-note banner in App.svelte owns showing a
+        // mismatch; suppress only the now-misleading success toast here.
+        showToast("Reconnected.", "success");
       }
     } catch (e) {
       showToast(String(e), "error");

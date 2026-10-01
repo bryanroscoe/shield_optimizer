@@ -145,19 +145,31 @@ promotion to "verified":
 Covered by new tests in `tests/savedDevices.test.mjs` (verified to fail before the fix); none has
 run on a device.
 
-**Codex review follow-up on PR #155 (same day):** two valid findings, both fixed:
+**Codex review follow-up on PR #155 (same day, two rounds):** three valid findings, all fixed.
+
+Round 1:
 
 - `recoverOrMarkLost()` (the silent one-shot reconnect `checkLiveness()` triggers when the cheap
   liveness probe fails) redialed the same host:port directly and never ran the identity check
   above, so a different id-less TV that took over mid-session during a silent recovery was
   trusted without comparison. It now calls `rememberCurrentDevice()` on a successful recovery,
-  before flipping liveness to `"live"` -- the same check an explicit reconnect gets. Covered by a
-  new Playwright case in `tests/session.test.mjs`, verified to fail before the fix.
+  before flipping liveness to `"live"` -- the same check an explicit reconnect gets.
 - Devices' `reconnect(d)` cleared `session.identityNote` and showed its toast locally, then
-  immediately navigated to Dashboard -- the toast never had a chance to be seen. It now leaves the
-  note unread when connecting a saved row so Dashboard's own `onMount` can show it instead (that
-  path already existed and is exercised, so there was nothing else to change there). Covered by a
-  new Playwright case in `tests/session.test.mjs`, verified to fail before the fix.
+  immediately navigated to Dashboard -- the toast never had a chance to be seen.
+
+Round 2 (a sharper version of the same finding): the round-1 fix for the second point routed the
+note through Dashboard's `onMount`, but a silent recovery can land while the user is already
+sitting on Dashboard (or any other screen) with no mount event to trigger it -- the note would set
+but nothing displayed it until the user happened to leave and come back. Fixed by making the
+display global instead of per-screen: `App.svelte` now renders `session.identityNote` directly in
+a `Toast` at the root (reactive to the runes store from wherever it's set, with its own 4-second
+self-clearing `$effect`), and Dashboard/Devices no longer read or clear `identityNote` themselves
+-- they only suppress their own misleading "Connected"/"Reconnected" success toast when a note is
+pending, matching the existing `savedHostHasMultipleIdentities` ambiguity-messaging pattern.
+
+Covered by Playwright cases in `tests/session.test.mjs`, each verified to fail before its fix,
+including one that stays on a non-Dashboard screen throughout to prove the note still surfaces
+without any navigation or remount.
 
 ## Stability reset (2026-09-04)
 
