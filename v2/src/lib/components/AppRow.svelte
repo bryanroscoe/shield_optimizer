@@ -11,6 +11,7 @@
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import { openContextMenu } from "$lib/contextmenu";
 
   // One catalog-app table row, shared by the App List and the Optimize wizard.
   // Dumb on purpose: data in, an `actions` snippet for the per-tab buttons —
@@ -122,6 +123,11 @@
 
   let pkgCopied = $state(false);
 
+  async function copyPkgFromMenu(): Promise<string> {
+    await navigator.clipboard.writeText(pkg);
+    return "Copied package name";
+  }
+
   async function copyPkg() {
     try {
       await navigator.clipboard.writeText(pkg);
@@ -138,7 +144,12 @@
      needs no key handler of its own. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-<tr class={rowClass} class:row-open={detailOpen} onclick={onRowClick}>
+<tr
+  class={rowClass}
+  class:row-open={detailOpen}
+  onclick={onRowClick}
+  oncontextmenu={(e) => openContextMenu(e, [{ label: "Copy package name", run: copyPkgFromMenu }])}
+>
   <!-- A disclosure looks like one: a caret in its own narrow column, pointing
        right when closed and down when open. It used to sit inside the verdict
        chip, where it read as decoration on the verdict rather than as the

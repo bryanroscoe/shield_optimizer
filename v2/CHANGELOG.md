@@ -17,6 +17,17 @@ When you add a new section, put it at the top; older releases go below.
 
 ---
 
+## Unreleased
+
+### Fixed
+
+- **Right-click no longer shows the webview's own menu** (#129). It offered
+  Open Link in New Window, Download Linked File and Share on a device row, none
+  of which mean anything here. Device rows now get a small app menu instead:
+  Open (or Open anyway), Copy IP, Copy serial, Copy diagnostics and Forget. App
+  rows get Copy package name. Text fields, the Shell output and selected text
+  keep Copy, and the menu works from the keyboard (arrow keys, Escape to close).
+
 ## v2-2.3.0
 
 ### Renamed to ATV Optimizer
