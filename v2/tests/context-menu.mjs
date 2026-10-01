@@ -58,6 +58,11 @@ const ROWS = [
   { id: 3, serial: "adb-9XK2-abc._adb-tls-connect._tcp", name: "adb-9XK2-abc._adb-tls-connect._tcp",
     model: "", device_type: "unknown", tv_evidence: "unknown",
     status: "unauthorized", connection: "network", properties: null },
+  // Link-local IPv6 keeps its zone id: without it the address is unusable.
+  { id: 4, serial: "[fe80::1%en0]:41541", name: "Den TV",
+    model: "Shield TV Pro (2019)", device_type: "shield", tv_evidence: "tv",
+    status: "device", connection: "network",
+    properties: { ...tvProperties, friendly_name: "Den TV", serial_number: "1324619099999" } },
 ];
 
 const INIT = () => {
@@ -133,6 +138,10 @@ async function exercise({ browser, base }) {
   await menu.waitFor({ state: "detached" });
   assert.equal(await lastCopied(page), "192.168.42.196");
   await page.getByRole("status").filter({ hasText: "Copied IP address" }).waitFor();
+
+  await rowFor(page, "Den TV").locator(".device-name").click({ button: "right" });
+  await menu.getByRole("menuitem", { name: "Copy IP" }).click();
+  assert.equal(await lastCopied(page), "fe80::1%en0", "a scoped IPv6 address keeps its zone id");
 
   // Copy serial is the hardware serial, never the address.
   await tv.locator(".device-name").click({ button: "right" });

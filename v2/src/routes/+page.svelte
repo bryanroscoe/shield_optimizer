@@ -286,7 +286,7 @@
   function ipOf(d: Device): string | null {
     if (d.connection !== "network") return null;
     const host = hostOf(d.serial).replace(/^\[|\]$/g, "");
-    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (host.includes(":") && /^[0-9a-f:.]+$/i.test(host))) {
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || (host.includes(":") && /^[0-9a-f:.]+(%[\w.-]+)?$/i.test(host))) {
       return host;
     }
     return null;
