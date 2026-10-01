@@ -115,6 +115,38 @@ export const scenarios = [
     },
   },
   {
+    name: "app-report-state-after-direct-optimize",
+    async run(ctx) {
+      // Straight to Optimize: the App List inventory was never loaded, so
+      // there is nothing to re-read after the run.
+      await ctx.reset(shieldScenario());
+      const before = (await ctx.device(SHIELD.serial)).packages;
+      await ctx.openDevice(SHIELD.key, "optimize");
+      const page = ctx.page;
+      await page.getByRole("button", { name: "Optimize", exact: true }).click();
+      await page.getByRole("button", { name: "Select all safe" }).waitFor();
+      await page.waitForLoadState("networkidle");
+      await page.getByRole("button", { name: "Select all safe" }).click();
+      await page.getByRole("button", { name: /^Run plan/ }).click();
+      await page.getByText(/Optimize complete:/).waitFor({ timeout: 60_000 });
+      const after = (await ctx.device(SHIELD.serial)).packages;
+      const pkg = after.disabled.find((p) => !before.disabled.includes(p));
+      ctx.assert.ok(pkg, "the run disabled something");
+
+      const row = page.locator("tr", { has: page.locator(".pkg-id", { hasText: pkg }) }).first();
+      await row.scrollIntoViewIfNeeded();
+      await row.locator(".row-caret").click();
+      await page.getByRole("button", { name: "Report this app" }).click();
+      const dialog = page.getByRole("dialog", { name: "Report this app" });
+      await dialog.waitFor();
+      await dialog.getByRole("checkbox").check();
+      const state = JSON.parse(await dialog.getByLabel("Report preview").inputValue()).records[0].state;
+      ctx.assert.equal(state.installed, null, "no pre-run installed state from the plan row");
+      ctx.assert.equal(state.enabled, null, "no pre-run enabled state from the plan row");
+      await ctx.step("report state is unknown after a run with no inventory to re-read");
+    },
+  },
+  {
     name: "app-list-keep-per-hardware-id",
     async run(ctx) {
       await ctx.reset({

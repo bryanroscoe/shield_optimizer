@@ -300,6 +300,8 @@ async function resyncingState(server) {
   assert.equal(reportLiveState(true, "disabled", false), "disabled");
   assert.equal(reportLiveState(true, undefined, false), null);
   assert.equal(reportLiveState(false, "enabled", true), undefined, "a non-catalog row defers to its own state");
+  assert.equal(reportLiveState(false, undefined, false, true), null, "a run with no inventory to re-read leaves every row unknown");
+  assert.equal(reportLiveState(true, "enabled", false, true), null);
   console.log("App report passed (resync): state read before an Optimize run is never reported during the re-read.");
 }
 

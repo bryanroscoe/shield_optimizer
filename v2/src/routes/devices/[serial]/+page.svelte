@@ -226,6 +226,9 @@
   /// device. The cached states may predate the run, so nothing reports them.
   let appStatesResyncing = $state(false);
   let appStatesResync = 0;
+  /// True after a run changed the device while the App List inventory was not
+  /// loaded, so there was nothing to re-read. Cleared when it next loads.
+  let statesUnreadAfterRun = $state(false);
   let catalogInventoryVersion = 0;
   let appSearch = $state("");
   // Default on: the catalog lists ~70 known apps, most not present on any given
@@ -267,6 +270,7 @@
         apps.some((a) => a.package === pkg),
         appStates[pkg],
         appStatesResyncing,
+        statesUnreadAfterRun,
       ),
       report: device
         ? {
@@ -680,6 +684,7 @@
       ]);
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
       appStates = validatedPackageStates(packages, stateResult);
+      statesUnreadAfterRun = false;
       keptPackages = getKeptPackages(hardwareId);
       catalogInventoryVersion++;
       const unavailableCount = packages.length - Object.keys(appStates).length;
@@ -869,6 +874,7 @@
   async function resyncAppStates() {
     const context = capturePageContext();
     const request = ++appsRequest;
+    if (apps.length === 0) statesUnreadAfterRun = true;
     if (apps.length > 0) {
       const resync = beginStatesResync();
       try {
@@ -1570,7 +1576,10 @@
     launchersLoaded = false;
     healthStale = true;
     refreshMeasurements();
-    if (apps.length === 0) return;
+    if (apps.length === 0) {
+      statesUnreadAfterRun = true;
+      return;
+    }
     const context = capturePageContext();
     const resync = beginStatesResync();
     try {
@@ -1803,7 +1812,7 @@
     stopStorePoll(); storeOpened = null;
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
-    appStatesResync++; appStatesResyncing = false;
+    appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
     otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];

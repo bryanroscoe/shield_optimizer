@@ -41,12 +41,16 @@ export interface AppDetailInputs {
 /// The state a report may carry for a row. A catalog row takes the page's
 /// current state, and none while that state is being re-read: an Optimize or
 /// bulk change has just run, so the cached value may predate it. A row outside
-/// the catalog (undefined) defers to its own state.
+/// the catalog (undefined) defers to its own state, unless such a run changed
+/// the device while the page had no inventory to re-read: then every row's
+/// state may predate it, and none is reported until the inventory is read.
 export function reportLiveState(
   inCatalog: boolean,
   state: "enabled" | "disabled" | "missing" | undefined,
   resyncing: boolean,
+  unreadAfterRun = false,
 ): "enabled" | "disabled" | "missing" | null | undefined {
+  if (unreadAfterRun) return null;
   if (!inCatalog) return undefined;
   return resyncing ? null : (state ?? null);
 }
