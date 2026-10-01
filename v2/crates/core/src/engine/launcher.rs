@@ -72,6 +72,11 @@ pub struct LauncherStatus {
     /// True for HOME-capable apps outside both catalogs (e.g. Setup Wraith,
     /// a sideloaded HOME app) — rendered with a HOME APP badge.
     pub other: bool,
+    /// A catalog transient HOME holder (Google TV's Setup Wraith): it declares
+    /// HOME but is the setup wizard, not a launcher. Never offered as the
+    /// default, and disabling it is behind a confirm that explains the risk.
+    #[serde(default)]
+    pub setup_helper: bool,
 }
 
 /// Build the Launchers list: stock launchers actually present on the device
@@ -104,6 +109,7 @@ pub fn launcher_rows(
             installed: true,
             stock: true,
             other: false,
+            setup_helper: false,
             entry: entry.clone(),
         });
 
@@ -114,6 +120,7 @@ pub fn launcher_rows(
             enabled: installed && !is_disabled(&entry.package),
             stock: false,
             other: false,
+            setup_helper: false,
             entry: entry.clone(),
         }
     });
@@ -137,6 +144,7 @@ pub fn launcher_rows(
             enabled: !is_disabled(pkg),
             stock: false,
             other: true,
+            setup_helper: catalog.is_transient_home_holder(pkg),
         });
 
     stock.chain(custom).chain(other).collect()
@@ -144,14 +152,101 @@ pub fn launcher_rows(
 
 /// True when disabling `target` would leave the device without a single
 /// enabled HOME handler the user can actually land on. Safe fallbacks
-/// (Settings) don't count — they're a recovery hatch, not a launcher.
-pub fn is_last_enabled_home_handler(target: &str, enabled_handler_pkgs: &[String]) -> bool {
+/// (Settings) don't count — they're a recovery hatch, not a launcher — and
+/// neither do transient holders (Setup Wraith): with only it left, Home lands
+/// on the setup wizard or a black screen, not a home screen.
+pub fn is_last_enabled_home_handler(
+    target: &str,
+    enabled_handler_pkgs: &[String],
+    catalog: &LauncherCatalog,
+) -> bool {
     let target_is_enabled = enabled_handler_pkgs.iter().any(|h| h == target);
     let remaining = enabled_handler_pkgs
         .iter()
-        .filter(|h| h.as_str() != target && !safe_home_handlers().contains(&h.as_str()))
+        .filter(|h| {
+            h.as_str() != target
+                && !safe_home_handlers().contains(&h.as_str())
+                && !catalog.is_transient_home_holder(h)
+        })
         .count();
     target_is_enabled && remaining == 0
+}
+
+/// Which package holds Home, and how sure the reading is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct HomeReading {
+    pub package: Option<String>,
+    /// The activity, only when the resolver named the same package.
+    pub activity: Option<String>,
+    /// Set when the role holder and the resolver disagreed, for the
+    /// diagnostics transcript. Never shown as a headline.
+    pub note: Option<String>,
+}
+
+/// Decide the current Home app from the two things Android will tell us.
+///
+/// `role_holders` is `cmd role get-role-holders android.app.role.HOME`
+/// (`None` when the build has no such command or it failed); `resolved` is
+/// the `pkg/activity` component `resolve-activity` named.
+///
+/// On Android 10+ the HOME role holder is what the Home key opens. The
+/// resolver ranks intent filters, so a high-priority HOME filter such as
+/// Setup Wraith's can win it while the role, and the Home key, belong to the
+/// launcher the user chose (#122). The role holder is therefore the answer
+/// whenever there is one; the resolver is the fallback for builds without
+/// the role command.
+///
+/// One exception: an enabled stock launcher the resolver names stays the
+/// answer. Some builds accept a role change and keep opening stock on Home
+/// (Shield / Android 11); only the resolver shows that.
+pub fn pick_current_home(
+    role_holders: Option<&[String]>,
+    resolved: Option<&str>,
+    catalog: &LauncherCatalog,
+) -> HomeReading {
+    let resolved = resolved.and_then(|c| c.split_once('/'));
+    let role = role_holders.and_then(|r| r.iter().find(|p| is_valid_package_name(p)));
+    match (role, resolved) {
+        (None, Some((pkg, activity))) => HomeReading {
+            package: Some(pkg.to_string()),
+            activity: Some(activity.to_string()),
+            note: None,
+        },
+        (None, None) => HomeReading::default(),
+        (Some(role), Some((pkg, activity))) if pkg == role => HomeReading {
+            package: Some(role.clone()),
+            activity: Some(activity.to_string()),
+            note: None,
+        },
+        (Some(role), None) => HomeReading {
+            package: Some(role.clone()),
+            activity: None,
+            note: None,
+        },
+        (Some(role), Some((pkg, activity))) if catalog.is_stock(pkg) => HomeReading {
+            package: Some(pkg.to_string()),
+            activity: Some(activity.to_string()),
+            note: Some(format!(
+                "the HOME role is held by {role} but resolve-activity HOME names the stock \
+                 launcher {pkg}, which overrides the role on this build; showing {pkg}"
+            )),
+        },
+        (Some(role), Some((pkg, _))) => HomeReading {
+            package: Some(role.clone()),
+            activity: None,
+            note: Some(if catalog.is_transient_home_holder(pkg) {
+                format!(
+                    "resolve-activity HOME named {pkg}, a setup helper with a high-priority \
+                     HOME filter; the HOME role holder {role} is what the Home key opens"
+                )
+            } else {
+                format!(
+                    "resolve-activity HOME named {pkg} but the HOME role is held by {role}; \
+                     showing the role holder"
+                )
+            }),
+        },
+    }
 }
 
 /// HOME-capable packages that we must NEVER disable — fallback safety net.
@@ -341,20 +436,146 @@ mod tests {
         // Projectivy is the only real launcher left — Settings doesn't count.
         assert!(is_last_enabled_home_handler(
             "com.spocky.projengmenu",
-            &enabled
+            &enabled,
+            &catalog()
         ));
 
         let two = pkgs(&["com.spocky.projengmenu", "com.google.android.tvlauncher"]);
         assert!(!is_last_enabled_home_handler(
             "com.spocky.projengmenu",
-            &two
+            &two,
+            &catalog()
         ));
 
         // Target already disabled (absent from the enabled list) — nothing to guard.
         assert!(!is_last_enabled_home_handler(
             "com.example.gone",
-            &pkgs(&["com.spocky.projengmenu"])
+            &pkgs(&["com.spocky.projengmenu"]),
+            &catalog()
         ));
+
+        // Setup Wraith left alone is no home screen (#122).
+        let with_wraith = pkgs(&["com.spocky.projengmenu", WRAITH]);
+        assert!(is_last_enabled_home_handler(
+            "com.spocky.projengmenu",
+            &with_wraith,
+            &catalog()
+        ));
+        // Disabling Wraith itself never takes the last launcher.
+        assert!(!is_last_enabled_home_handler(
+            WRAITH,
+            &with_wraith,
+            &catalog()
+        ));
+    }
+
+    const WRAITH: &str = "com.google.android.tungsten.setupwraith";
+    const MONET: &str = "com.klevico.monet";
+
+    #[test]
+    fn current_home_prefers_the_role_holder_over_a_transient_resolver_answer() {
+        // The #122 state: stock disabled, Setup Wraith wins the resolver on
+        // filter priority, Monet holds the HOME role and the Home key.
+        let reading = pick_current_home(
+            Some(&pkgs(&[MONET])),
+            Some(&format!("{WRAITH}/.ui.MainActivity")),
+            &catalog(),
+        );
+        assert_eq!(reading.package.as_deref(), Some(MONET));
+        assert_eq!(reading.activity, None);
+        assert!(reading.note.unwrap().contains("setup helper"));
+    }
+
+    #[test]
+    fn current_home_agreeing_sources_keep_the_activity() {
+        let reading = pick_current_home(
+            Some(&pkgs(&[MONET])),
+            Some(&format!("{MONET}/.MainActivity")),
+            &catalog(),
+        );
+        assert_eq!(
+            reading,
+            HomeReading {
+                package: Some(MONET.to_string()),
+                activity: Some(".MainActivity".to_string()),
+                note: None,
+            }
+        );
+    }
+
+    #[test]
+    fn current_home_falls_back_to_the_resolver_without_a_role() {
+        // Older SDK: no role command, or it printed nothing usable.
+        for role in [
+            None,
+            Some(Vec::new()),
+            Some(pkgs(&["Unknown command: get-role-holders"])),
+        ] {
+            let reading = pick_current_home(
+                role.as_deref(),
+                Some("com.google.android.tvlauncher/.MainActivity"),
+                &catalog(),
+            );
+            assert_eq!(
+                reading.package.as_deref(),
+                Some("com.google.android.tvlauncher")
+            );
+            assert_eq!(reading.activity.as_deref(), Some(".MainActivity"));
+            assert_eq!(reading.note, None);
+        }
+        assert_eq!(
+            pick_current_home(None, None, &catalog()),
+            HomeReading::default()
+        );
+    }
+
+    #[test]
+    fn current_home_keeps_a_stock_launcher_that_overrides_the_role() {
+        // Accept-but-ignore builds: the role moved, Home still opens stock.
+        let reading = pick_current_home(
+            Some(&pkgs(&["com.spocky.projengmenu"])),
+            Some("com.google.android.tvlauncher/.MainActivity"),
+            &catalog(),
+        );
+        assert_eq!(
+            reading.package.as_deref(),
+            Some("com.google.android.tvlauncher")
+        );
+        assert_eq!(reading.activity.as_deref(), Some(".MainActivity"));
+        assert!(reading.note.unwrap().contains("overrides the role"));
+    }
+
+    #[test]
+    fn current_home_role_without_a_resolver_answer_is_the_role() {
+        let reading = pick_current_home(Some(&pkgs(&[MONET])), None, &catalog());
+        assert_eq!(reading.package.as_deref(), Some(MONET));
+        assert_eq!(reading.note, None);
+    }
+
+    #[test]
+    fn current_home_disagreement_shows_the_role_holder_with_a_note() {
+        let reading = pick_current_home(
+            Some(&pkgs(&[MONET])),
+            Some("com.spocky.projengmenu/.ui.home.MainActivity"),
+            &catalog(),
+        );
+        assert_eq!(reading.package.as_deref(), Some(MONET));
+        let note = reading.note.unwrap();
+        assert!(
+            note.contains("com.spocky.projengmenu") && note.contains(MONET),
+            "{note}"
+        );
+    }
+
+    #[test]
+    fn launcher_rows_mark_setup_wraith_as_a_setup_helper() {
+        let rows = launcher_rows(&catalog(), &pkgs(&[MONET]), &[], &pkgs(&[WRAITH]), &[]);
+        let row = rows.iter().find(|r| r.entry.package == WRAITH).unwrap();
+        assert!(row.other && row.setup_helper);
+        assert!(rows
+            .iter()
+            .filter(|r| r.entry.package != WRAITH)
+            .all(|r| !r.setup_helper));
     }
 
     #[test]
