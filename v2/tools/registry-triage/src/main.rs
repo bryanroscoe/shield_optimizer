@@ -18,7 +18,9 @@ use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
 use shield_optimizer_core::commands::loader::{launchers, load_embedded_app_lists};
-use shield_optimizer_core::engine::{classify_with_catalog, AppListBundle, CatalogVerdict, Safety};
+use shield_optimizer_core::engine::{
+    classify_with_catalog, AppListBundle, CatalogVerdict, Safety, SafetySource,
+};
 
 /// Larger than any real export: the mobile collector caps itself at 64 KiB and
 /// a desktop bundle is a page of Markdown plus a log tail.
@@ -127,9 +129,10 @@ fn mobile_record(value: &Value) -> Option<Sighting> {
         .get("app_version")?
         .as_str()
         .filter(|v| valid_version(v))?;
-    let family = match obj.get("device_family") {
-        None | Some(Value::Null) => "unknown",
-        Some(v) => v.as_str().filter(|f| FAMILIES.contains(f))?,
+    // The field is required in the export; only an explicit null means unknown.
+    let family = match obj.get("device_family")? {
+        Value::Null => "unknown",
+        v => v.as_str().filter(|f| FAMILIES.contains(f))?,
     };
     let count = obj
         .get("count")?
@@ -299,17 +302,23 @@ fn current_verdict(bundle: &AppListBundle, kind: &str, token: &str) -> String {
             description: &e.optimize_description,
         }),
     );
-    let mut label = match verdict {
-        Safety::NeverDisable { .. } => "protected".to_string(),
-        Safety::Caution { .. } => "caution".to_string(),
-        Safety::Safe { .. } => "safe".to_string(),
-        Safety::Unknown { .. } => "unknown".to_string(),
+    let (kind, source) = match verdict {
+        Safety::NeverDisable { source, .. } => ("protected", source),
+        Safety::Caution { source, .. } => ("caution", source),
+        Safety::Safe { source, .. } => ("safe", source),
+        Safety::Unknown { source, .. } => ("unknown", source),
     };
-    if let Some(e) = entry {
-        label.push_str(&format!(
-            " (catalog, reviewed {})",
-            e.reviewed_at.as_deref().unwrap_or("never")
-        ));
+    let reviewed = entry.map(|e| e.reviewed_at.as_deref().unwrap_or("never"));
+    // Name the source that actually decided: a protected or caution list
+    // outranks the catalog, and its entry's review date did not set that verdict.
+    let mut label = match (source, reviewed) {
+        (SafetySource::ReviewedCatalog, Some(date)) => format!("{kind} (catalog, reviewed {date})"),
+        (SafetySource::ProtectedList, _) => format!("{kind} (protected list)"),
+        (SafetySource::CautionList, _) => format!("{kind} (caution list)"),
+        _ => kind.to_string(),
+    };
+    if let (false, Some(date)) = (source == SafetySource::ReviewedCatalog, reviewed) {
+        label.push_str(&format!(" (catalog entry overridden, reviewed {date})"));
     }
     let cat = launchers();
     if cat
@@ -489,11 +498,12 @@ mod tests {
               {"kind":"installed_package","token":"com.a.c","reason":"process_not_resolved","app_version":"0.1.0","registry_version":null,"device_family":"shield","device_os":"11","first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1},
               {"kind":"installed_package","token":"com.a.d","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":"phone","device_os":"11","first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1},
               {"kind":"installed_package","token":"com.a.e","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":null,"device_os":null,"first_seen":"yesterday","last_seen":"2026-09-02T00:00:00Z","count":1},
-              {"kind":"installed_package","token":"com.a.f","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":0}
+              {"kind":"installed_package","token":"com.a.f","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_family":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":0},
+              {"kind":"installed_package","token":"com.a.g","reason":"uncatalogued_package","app_version":"0.1.0","registry_version":null,"device_os":null,"first_seen":"2026-09-01T00:00:00Z","last_seen":"2026-09-02T00:00:00Z","count":1}
             ]}"#,
         )
         .expect("a mobile export");
-        assert_eq!(rejected, 4);
+        assert_eq!(rejected, 5);
         assert_eq!(good.len(), 1);
         assert_eq!(good[0].token, "com.a.b");
         assert_eq!(good[0].count, 2);
@@ -554,6 +564,26 @@ mod tests {
             .find(|c| c.kind == "unresolved_process")
             .expect("process listed");
         assert_eq!(process.today, "process (not a package)");
+    }
+
+    #[test]
+    fn the_verdict_names_the_source_that_decided_it() {
+        let bundle = load_embedded_app_lists().unwrap();
+        // Catalogued Safe, but the caution list outranks the catalog.
+        let feedback = current_verdict(&bundle, "installed_package", "com.google.android.feedback");
+        assert!(
+            feedback.starts_with("caution (caution list) (catalog entry overridden, reviewed 20"),
+            "{feedback}"
+        );
+        let netflix = current_verdict(&bundle, "installed_package", "com.netflix.ninja");
+        assert!(
+            netflix.starts_with("safe (catalog, reviewed 20"),
+            "{netflix}"
+        );
+        assert_eq!(
+            current_verdict(&bundle, "installed_package", "com.example.unknown"),
+            "unknown"
+        );
     }
 
     #[test]
