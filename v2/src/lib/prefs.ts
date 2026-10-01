@@ -64,17 +64,38 @@ export function setShellBookmarks(bookmarks: ShellBookmark[]): void {
 
 const LAST_SEEN_VERSION_KEY = "shieldopt.lastSeenVersion";
 
-/// Version this machine last had a look at. Used to notice that an update
-/// landed since the last launch, which is the only way someone with
-/// auto-update on ever finds out what changed.
-export function getLastSeenVersion(): string | null {
+/// The pre-2.3.1 key, written on every launch whether or not any notes were
+/// shown. Read only to tell an existing install from a first run; see
+/// `decideArrival` in `notes-seen.ts`.
+export function getLegacyLastSeenVersion(): string | null {
   if (typeof localStorage === "undefined") return null;
-  return localStorage.getItem(LAST_SEEN_VERSION_KEY);
+  try {
+    return localStorage.getItem(LAST_SEEN_VERSION_KEY);
+  } catch {
+    return null;
+  }
 }
 
-export function setLastSeenVersion(version: string): void {
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(LAST_SEEN_VERSION_KEY, version);
+const NOTES_SEEN_VERSION_KEY = "shieldopt.notesSeenVersion";
+
+/// The last version whose "what's new" pop-up the user actually saw. Written
+/// only after it has been shown, so a launch that could not show it leaves the
+/// pop-up owed rather than spent.
+export function getNotesSeenVersion(): string | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(NOTES_SEEN_VERSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setNotesSeenVersion(version: string): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(NOTES_SEEN_VERSION_KEY, version);
+  } catch {
+    /* a blocked store only means the pop-up may show again */
   }
 }
 

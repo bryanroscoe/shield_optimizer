@@ -14,6 +14,9 @@ Tag conventions:
   workflow.
 
 When you add a new section, put it at the top; older releases go below.
+Put the release date after the version in each section heading, separated by
+an em dash (for 2.3.0 that reads `v2-2.3.0 — 2026-09-30`): the app bundles
+this file and shows the newest few sections, dated, from its version button.
 
 ---
 
@@ -38,6 +41,17 @@ When you add a new section, put it at the top; older releases go below.
 
 ### Fixed
 
+- **The "what's new" pop-up shows after an update again.** It read the new
+  version's notes from GitHub on the first launch and marked the version as
+  seen whether or not they arrived, so one slow or failed request (the 2.2.0 →
+  2.3.0 update hit exactly that) lost the pop-up for good. The notes now ship
+  inside the app, and a version only counts as seen once its pop-up has been
+  closed. Anyone the bug skipped sees the 2.3.0 notes on their next launch.
+- **Restart after an update.** When an update finishes installing, a prompt
+  offers Restart now or Later, and the header keeps a Restart button. Download
+  progress is shown as a percentage. If the app can't restart itself it says
+  to quit and reopen instead of doing nothing. On Windows the installer closes
+  and reopens the app itself, so no second launch is offered there.
 - **Right-click no longer shows the webview's own menu** (#129). It offered
   Open Link in New Window, Download Linked File and Share on a device row, none
   of which mean anything here. Device rows now get a small app menu instead:
@@ -45,7 +59,14 @@ When you add a new section, put it at the top; older releases go below.
   rows get Copy package name. Text fields, the Shell output and selected text
   keep Copy, and the menu works from the keyboard (arrow keys, Escape to close).
 
-## v2-2.3.0
+### Added
+
+- **Patch notes are always one click away.** Click the version next to the app
+  name to see the last few releases, newest first, with the installed one
+  open and older ones collapsed, plus a link to every release on GitHub. They
+  are bundled with the app, so this works offline.
+
+## v2-2.3.0 — 2026-09-30
 
 ### Renamed to ATV Optimizer
 
@@ -222,7 +243,7 @@ When you add a new section, put it at the top; older releases go below.
   explains in one line what a restore does and doesn't do, and "Package states" is
   "Disabled apps".
 
-## v2-2.2.0
+## v2-2.2.0 — 2026-09-16
 
 Five reported bugs reach users for the first time, plus a Playback tab, an
 expert shell, and a companion-app overhaul. Three of those fixes were written
@@ -403,7 +424,7 @@ whether this build works for you.
   not used. An address that answers on a different port is reported as such
   rather than as offline.
 
-## v2-2.1.0
+## v2-2.1.0 — 2026-06-21
 
 Launcher switching is now fast and reliable, with much clearer feedback across
 the app.
@@ -440,7 +461,7 @@ the app.
 
 ---
 
-## v2-2.0.0
+## v2-2.0.0 — 2026-06-15
 
 The first stable release of the v2 rewrite — Shield Optimizer is a full
 Rust/Tauri desktop app for debloating and tuning Android TV devices, no
@@ -467,7 +488,7 @@ PowerShell required. Everything from the beta line, now stable:
 - Cross-platform: macOS (universal .dmg + Homebrew tap), Windows (.msi/.exe),
   Linux (.deb/.AppImage/.rpm).
 
-## v2-2.0.0-beta.15
+## v2-2.0.0-beta.15 — 2026-06-15
 
 ### Added
 
@@ -488,7 +509,7 @@ PowerShell required. Everything from the beta line, now stable:
 - **Google Pixel phones are no longer mislabeled as Google TV** — device type is
   detected from the actual TV build characteristic, not brand alone.
 
-## v2-2.0.0-beta.14
+## v2-2.0.0-beta.14 — 2026-06-14
 
 ### Added
 
