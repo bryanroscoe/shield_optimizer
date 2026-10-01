@@ -4,10 +4,12 @@ pub mod batch;
 pub mod driver;
 pub mod parse;
 pub mod remote_input;
+#[cfg(any(test, feature = "test-support"))]
+pub mod sim;
 pub mod storage;
 
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
-pub use batch::{checked_batch_command, parse_checked_batch};
+pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};
 pub use driver::{
     AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ShellTermination,
 };

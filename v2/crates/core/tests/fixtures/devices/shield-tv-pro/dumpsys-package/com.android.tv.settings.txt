@@ -1,0 +1,120 @@
+Activity Resolver Table:
+  Schemes:
+      package:
+        58d3c3b com.android.tv.settings/.device.apps.specialaccess.SystemAlertActivity filter 45b48b1
+          Action: "android.settings.action.MANAGE_OVERLAY_PERMISSION"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        4ea1196 com.android.tv.settings/.device.apps.AppManagementActivity filter 9096117
+          Action: "android.intent.action.AUTO_REVOKE_PERMISSIONS"
+          Action: "android.settings.APPLICATION_DETAILS_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        4b48ace com.android.tv.settings/.autofill.AutofillPickerTrampolineActivity filter c7e0def
+          Action: "android.settings.REQUEST_SET_AUTOFILL_SERVICE"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        252bb63 com.android.tv.settings/.device.apps.specialaccess.ExternalSourcesActivity filter 72a8019
+          Action: "android.settings.MANAGE_UNKNOWN_APP_SOURCES"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        c7658de com.android.tv.settings/.EmptyStubActivity filter a58158c
+          Action: "android.settings.IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        ac9e866 com.android.tv.settings/.device.apps.specialaccess.RequestIgnoreBatteryOptimizations filter 1ab37a7
+          Action: "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        f6549ec com.android.tv.settings/.applications.AppManageExternalStorageActivity filter 32e91b5
+          Action: "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+
+  Non-Data Actions:
+      com.android.tv.settings.action.CREATE_RESTRICTED_PROFILE:
+        3772490 com.android.tv.settings/.system.CreateRestrictedProfileActivity filter e3ea189
+          Action: "com.android.tv.settings.action.CREATE_RESTRICTED_PROFILE"
+          Category: "android.intent.category.DEFAULT"
+      android.settings.HOME_SETTINGS:
+        c7658de com.android.tv.settings/.EmptyStubActivity filter 45a04d5
+          Action: "android.settings.MANAGE_DEFAULT_APPS_SETTINGS"
+          Action: "android.settings.HOME_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      android.settings.DATA_SAVER_SETTINGS:
+        fb8f7b3 com.android.tv.settings/.connectivity.NetworkActivity filter cc15c0f
+          Action: "android.settings.DATA_SAVER_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+      com.android.tv.settings.action.NEW_STORAGE:
+        e28ce30 com.android.tv.settings/.device.storage.NewStorageActivity filter f529aa9
+          Action: "com.android.tv.settings.action.NEW_STORAGE"
+          Category: "android.intent.category.DEFAULT"
+      com.android.tv.settings.quicksettings.SubFragmentActivity:
+        ca39e3e com.android.tv.settings/.quicksettings.SubFragmentActivity filter dd5749f
+          Action: "com.android.tv.settings.quicksettings.SubFragmentActivity"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      com.nvidia.shieldtech.action.POST_CORE_SETUP:
+        8a2f5a8 com.android.tv.settings/.system.OobeAppOptimizationBlockActivity filter c2bf8c1
+          Action: "com.nvidia.shieldtech.action.POST_CORE_SETUP"
+          Category: "android.intent.category.DEFAULT"
+      android.settings.LOCATION_SOURCE_SETTINGS:
+        868bb15 com.android.tv.settings/.system.LocationActivity filter 4d63e2a
+          Action: "android.intent.action.MAIN"
+          Action: "android.settings.LOCATION_SOURCE_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.VOICE_LAUNCH"
+          Category: "com.android.settings.SHORTCUT"
+      com.android.settings.DOVI_ASKMODE:
+        6c63d5d com.android.tv.settings/.device.displaysound.DoViConfirmModeActivity filter c08a6d2
+          Action: "android.settings.DOVI_ASKMODE"
+          Action: "com.android.settings.DOVI_ASKMODE"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.LEANBACK_SETTINGS"
+          Category: "com.android.settings.SHORTCUT"
+      android.settings.WAKEUP_INFORMATION:
+        cbf437e com.android.tv.settings/.about.WakeupStatusActivity filter 57450df
+          Action: "android.settings.WAKEUP_INFORMATION"
+      android.settings.APPLICATION_DEVELOPMENT_SETTINGS:
+        4a5741b com.android.tv.settings/.system.development.DevelopmentActivity filter bb4d9b8
+          Action: "android.intent.action.MAIN"
+          Action: "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
+          Action: "com.android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+        2a6f391 com.android.tv.settings/.system.development.NvDevelopmentActivity filter 27212f6
+          Action: "android.intent.action.MAIN"
+          Action: "android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
+          Action: "com.android.settings.APPLICATION_DEVELOPMENT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+      android.settings.SETTINGS:
+        959200e com.android.tv.settings/.MainSettings filter b8b1a2f
+          Action: "android.intent.action.MAIN"
+          Action: "android.settings.SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+      android.settings.HARD_KEYBOARD_SETTINGS:
+        6e44b93 com.android.tv.settings/.inputmethod.PhysicalKeyboardActivity filter 4ed27d0
+          Action: "android.settings.HARD_KEYBOARD_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      android.settings.ADD_ACCOUNT_SETTINGS:
+        cbc7d com.android.tv.settings/.accounts.AddAccountWithTypeActivity filter c888772
+          Action: "android.settings.ADD_ACCOUNT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+      com.android.tv.settings.action.ENTER_RESTRICTED_PROFILE:
+        ed8b58e com.android.tv.settings/.system.EnterRestrictedProfileActivity filter 36ac1af
+          Action: "com.android.tv.settings.action.ENTER_RESTRICTED_PROFILE"
+          Category: "android.intent.category.DEFAULT"
+      android.settings.USAGE_ACCESS_SETTINGS:
+        4fced1f com.android.tv.settings/.device.apps.specialaccess.AppUsageAccessActivity filter 4ea986c
+          Action: "android.settings.USAGE_ACCESS_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      android.app.action.ADD_DEVICE_ADMIN:

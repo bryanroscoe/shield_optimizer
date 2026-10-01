@@ -1,0 +1,70 @@
+2 activities found:
+  Activity #0:
+    priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+    ActivityInfo:
+      name=com.spocky.projengmenu.ui.home.MainActivity
+      packageName=com.spocky.projengmenu
+      enabled=true exported=true directBootAware=false
+      taskAffinity=null targetActivity=null persistableMode=PERSIST_ROOT_ONLY
+      launchMode=2 flags=0x6234 privateFlags=0x0 theme=0x7f160260
+      screenOrientation=6 configChanges=0x3 softInputMode=0x0
+      lockTaskLaunchMode=LOCK_TASK_LAUNCH_MODE_DEFAULT
+      resizeMode=RESIZE_MODE_RESIZEABLE
+      ApplicationInfo:
+        name=com.spocky.projengmenu.PTApplication
+        packageName=com.spocky.projengmenu
+        labelRes=0x7f15006b nonLocalizedLabel=null icon=0x7f110003 banner=0x7f110000
+        className=com.spocky.projengmenu.PTApplication
+        processName=com.spocky.projengmenu
+        taskAffinity=com.spocky.projengmenu
+        uid=10094 flags=0x28c8be44 privateFlags=0x8c800500 theme=0x7f16000e
+        requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+        sourceDir=/data/app/~~K-5oYP1TJyqSnL2c9hDEJg==/com.spocky.projengmenu-Jlv2Vhkz4_1o8T1lBOJ40w==/base.apk
+        splitSourceDirs=[/data/app/~~K-5oYP1TJyqSnL2c9hDEJg==/com.spocky.projengmenu-Jlv2Vhkz4_1o8T1lBOJ40w==/split_config.arm64_v8a.apk, /data/app/~~K-5oYP1TJyqSnL2c9hDEJg==/com.spocky.projengmenu-Jlv2Vhkz4_1o8T1lBOJ40w==/split_config.xhdpi.apk]
+        seinfo=default:targetSdkVersion=30
+        seinfoUser=:complete
+        dataDir=/data/user/0/com.spocky.projengmenu
+        deviceProtectedDataDir=/data/user_de/0/com.spocky.projengmenu
+        credentialProtectedDataDir=/data/user/0/com.spocky.projengmenu
+        splitClassLoaderNames=[null, null]
+        enabled=true minSdkVersion=29 targetSdkVersion=37 versionCode=95 targetSandboxVersion=1
+        supportsRtl=true
+        fullBackupContent=true
+        crossProfile=false
+        networkSecurityConfigRes=0x7f190008
+        HiddenApiEnforcementPolicy=2
+        usesNonSdkApi=false
+        allowsPlaybackCapture=true
+  Activity #1:
+    priority=-1000 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true
+    ActivityInfo:
+      name=com.android.tv.settings.system.FallbackHome
+      packageName=com.android.tv.settings
+      enabled=true exported=true directBootAware=true
+      taskAffinity=com.android.tv.settings targetActivity=null persistableMode=PERSIST_ROOT_ONLY
+      launchMode=0 flags=0x220 privateFlags=0x0 theme=0x7f1100c4
+      screenOrientation=-1 configChanges=0x40002ff7 softInputMode=0x0
+      lockTaskLaunchMode=LOCK_TASK_LAUNCH_MODE_DEFAULT
+      resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+      ApplicationInfo:
+        name=com.android.tv.settings.TvSettingsApplication
+        packageName=com.android.tv.settings
+        labelRes=0x7f100623 nonLocalizedLabel=null icon=0x7f0801dc banner=0x7f0800c7
+        className=com.android.tv.settings.TvSettingsApplication
+        processName=com.android.tv.settings
+        taskAffinity=com.android.tv.settings
+        uid=1000 flags=0x38c8be0d privateFlags=0x8c701068 theme=0x7f1101d8
+        requiresSmallestWidthDp=0 compatibleWidthLimitDp=0 largestWidthLimitDp=0
+        sourceDir=/system/system_ext/priv-app/TvSettings/TvSettings.apk
+        seinfo=platform:privapp:targetSdkVersion=23
+        seinfoUser=:complete
+        dataDir=/data/user_de/0/com.android.tv.settings
+        deviceProtectedDataDir=/data/user_de/0/com.android.tv.settings
+        credentialProtectedDataDir=/data/user/0/com.android.tv.settings
+        enabled=true minSdkVersion=30 targetSdkVersion=30 versionCode=1 targetSandboxVersion=1
+        supportsRtl=true
+        fullBackupContent=true
+        crossProfile=false
+        HiddenApiEnforcementPolicy=0
+        usesNonSdkApi=true
+        allowsPlaybackCapture=true

@@ -5,12 +5,23 @@ description = "Shield Optimizer v2 — Tauri/Rust rewrite of the Android TV debl
 authors = ["Bryan Roscoe"]
 edition = "2021"
 rust-version = "1.81"
+default-run = "shield-optimizer-v2"
 
 [lib]
 # The `_lib` suffix is necessary to keep the lib name unique vs. the bin name
 # on Windows (see https://github.com/rust-lang/cargo/issues/8519).
 name = "shield_optimizer_v2_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# Dev-only: the E2E server (src/bin/e2e_server.rs) runs the real command
+# layer against the simulated adb. Never enabled in a release build.
+e2e = ["shield-optimizer-core/test-support", "tauri/test"]
+
+[[bin]]
+name = "e2e_server"
+path = "src/bin/e2e_server.rs"
+required-features = ["e2e"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -185,7 +185,12 @@ pub async fn connect_device(
     state: State<'_, AppState>,
     address: String,
 ) -> Result<ConnectResult, String> {
-    connect_device_impl(state.inner(), &address).await
+    let result = connect_device_impl(state.inner(), &address).await;
+    match &result {
+        Ok(r) => tracing::info!(%address, ok = r.ok, "connect finished"),
+        Err(e) => tracing::info!(%address, ok = false, error = %e, "connect finished"),
+    }
+    result
 }
 
 pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
@@ -242,10 +247,14 @@ pub async fn disconnect_device(
     // device — tear it down before dropping the connection.
     state.drop_remote_session(&serial).await;
     let adb = state.adb_snapshot().await;
-    let out = adb
-        .raw(&["disconnect", &serial])
-        .await
-        .map_err(|e| format!("adb disconnect: {e}"))?;
+    let out = match adb.raw(&["disconnect", &serial]).await {
+        Ok(out) => out,
+        Err(e) => {
+            tracing::info!(%serial, ok = false, error = %e, "disconnect finished");
+            return Err(format!("adb disconnect: {e}"));
+        }
+    };
+    tracing::info!(%serial, ok = out.success(), "disconnect finished");
     Ok(ConnectResult {
         ok: out.success(),
         message: if out.stdout.is_empty() {
@@ -281,7 +290,18 @@ pub async fn forget_device(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ForgetResult, String> {
-    forget_device_impl(state.inner(), &serial).await
+    let result = forget_device_impl(state.inner(), &serial).await;
+    match &result {
+        Ok(r) => tracing::info!(
+            %serial,
+            ok = r.ok,
+            disconnected = r.disconnected.len(),
+            still_advertised = r.still_advertised,
+            "forget finished"
+        ),
+        Err(e) => tracing::info!(%serial, ok = false, error = %e, "forget finished"),
+    }
+    result
 }
 
 pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<ForgetResult, String> {
@@ -575,7 +595,17 @@ pub async fn connect_paired(
     address: String,
     instance: String,
 ) -> Result<PairedConnectResult, String> {
-    connect_paired_impl(state.inner(), &address, &instance).await
+    let result = connect_paired_impl(state.inner(), &address, &instance).await;
+    match &result {
+        Ok(r) => tracing::info!(
+            %address,
+            ok = r.ok,
+            not_the_paired_device = r.not_the_paired_device,
+            "paired connect finished"
+        ),
+        Err(e) => tracing::info!(%address, ok = false, error = %e, "paired connect finished"),
+    }
+    result
 }
 
 pub async fn connect_paired_impl(
@@ -646,7 +676,18 @@ pub async fn pair_device(
     pair_address: String,
     pin: String,
 ) -> Result<PairResult, String> {
-    pair_device_impl(state.inner(), &pair_address, &pin).await
+    let result = pair_device_impl(state.inner(), &pair_address, &pin).await;
+    // Never the PIN: this line reaches the log file and the session recording.
+    match &result {
+        Ok(r) => tracing::info!(
+            %pair_address,
+            ok = r.ok,
+            instance_found = r.instance.is_some(),
+            "pair finished"
+        ),
+        Err(e) => tracing::info!(%pair_address, ok = false, error = %e, "pair finished"),
+    }
+    result
 }
 
 #[derive(Serialize, Debug)]

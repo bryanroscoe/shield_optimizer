@@ -24,6 +24,7 @@
     setNotesSeenVersion,
   } from "$lib/prefs";
   import { api } from "$lib/api";
+  import { installBreadcrumbs, setBreadcrumbsEnabled } from "$lib/breadcrumbs";
   import { parseReleaseNotes, type NoteBlock } from "$lib/release-notes";
   import { notesFor, parseChangelog, recentReleases } from "$lib/changelog";
   import { decideArrival } from "$lib/notes-seen";
@@ -35,6 +36,7 @@
 
   let { children } = $props();
 
+  installBreadcrumbs();
   const RELEASES_PAGE = "https://github.com/bryanroscoe/shield_optimizer/releases";
   const changelog = parseChangelog(changelogSource);
 
@@ -321,6 +323,7 @@
       bugMessage = String(err);
       debugLogging = await api.getDebugLogging().catch(() => debugLogging);
     }
+    setBreadcrumbsEnabled(debugLogging);
   }
 
   async function copyBugBundle() {
@@ -573,6 +576,11 @@
       <input type="checkbox" checked={debugLogging} onchange={toggleDebugLogging} />
       Debug logging
     </label>
+    <p class="bug-path muted">
+      While it's on, this session is also recorded (adb calls and the buttons you press) to
+      <span class="mono">logs/sessions</span>. That recording stays on this computer and is never
+      part of this report.
+    </p>
     <p class="bug-path muted mono">
       {logPath ? `Logs: ${logPath}` : "Logs: (no log folder)"}
     </p>

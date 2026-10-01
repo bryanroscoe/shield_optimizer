@@ -106,30 +106,40 @@ pub async fn disable_launcher(
     serial: String,
     package: String,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let adb = state.adb_snapshot().await;
-    let enabled_handlers = adb
-        .shell(&serial, HOME_HANDLER_QUERY)
-        .await
-        .map(|out| parse_home_handler_packages(&out.stdout))
-        .map_err(|e| format!("query-activities: {e}"))?;
-    if is_last_enabled_home_handler(&package, &enabled_handlers) {
-        return Ok(crate::commands::apps::ActionResult {
-            ok: false,
-            message: format!(
-                "Refusing to disable {package}: it's the only enabled launcher left on this \
-                 device. Enable another launcher first."
-            ),
-        });
-    }
+    let outcome = async {
+        let adb = state.adb_snapshot().await;
+        let enabled_handlers = adb
+            .shell(&serial, HOME_HANDLER_QUERY)
+            .await
+            .map(|out| parse_home_handler_packages(&out.stdout))
+            .map_err(|e| format!("query-activities: {e}"))?;
+        if is_last_enabled_home_handler(&package, &enabled_handlers) {
+            return Ok(crate::commands::apps::ActionResult {
+                ok: false,
+                message: format!(
+                    "Refusing to disable {package}: it's the only enabled launcher left on this \
+                     device. Enable another launcher first."
+                ),
+            });
+        }
 
-    let data_dir = state.data_dir.clone();
-    let result =
-        crate::commands::apps::disable_package(state, serial.clone(), package.clone()).await?;
+        let data_dir = state.data_dir.clone();
+        let result =
+            crate::commands::apps::disable_package(state, serial.clone(), package.clone()).await?;
 
-    if result.ok && !launchers().contains(&package) {
-        home_tracking::record(&data_dir, &serial, &package).await;
+        if result.ok && !launchers().contains(&package) {
+            home_tracking::record(&data_dir, &serial, &package).await;
+        }
+        Ok(result)
     }
-    Ok(result)
+    .await;
+    match &outcome {
+        Ok(r) => tracing::info!(%serial, %package, ok = r.ok, "disable launcher finished"),
+        Err(e) => {
+            tracing::info!(%serial, %package, ok = false, error = %e, "disable launcher finished")
+        }
+    }
+    outcome
 }
 
 /// What `set_home_any` observed. It never disables anything, so a refusal
@@ -164,7 +174,26 @@ pub async fn set_home_any(
     activity: Option<String>,
 ) -> Result<SetHomeAnyResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
-    set_home_any_impl(state.inner(), &serial, &package, activity.as_deref()).await
+    let result = set_home_any_impl(state.inner(), &serial, &package, activity.as_deref()).await;
+    match &result {
+        Ok(r) => tracing::info!(
+            %serial,
+            %package,
+            ok = r.ok,
+            current_launcher = r.current_launcher.as_deref().unwrap_or("unknown"),
+            declares_home = ?r.declares_home,
+            stock_holds_home = r.stock_holds_home,
+            "set home (any app) finished"
+        ),
+        Err(e) => tracing::info!(
+            %serial,
+            %package,
+            ok = false,
+            error = %e,
+            "set home (any app) finished"
+        ),
+    }
+    result
 }
 
 /// An activity name as the picker may pass it: `.Main`, `Main` or a fully
@@ -359,7 +388,31 @@ pub async fn disable_stock_launcher(
     target: String,
 ) -> Result<SetLauncherResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
-    disable_stock_launcher_impl(state.inner(), &serial, &target, &Progress::Silent).await
+    let result =
+        disable_stock_launcher_impl(state.inner(), &serial, &target, &Progress::Silent).await;
+    log_launcher_result("disable stock launcher finished", &serial, &target, &result);
+    result
+}
+
+/// One info line per launcher switch, where the outcome is final.
+fn log_launcher_result(
+    what: &'static str,
+    serial: &str,
+    package: &str,
+    result: &Result<SetLauncherResult, String>,
+) {
+    match result {
+        Ok(r) => tracing::info!(
+            serial,
+            package,
+            ok = r.ok,
+            strategy = r.strategy.as_deref().unwrap_or("none"),
+            current_launcher = r.current_launcher.as_deref().unwrap_or("unknown"),
+            stock_takeover_available = r.stock_takeover_available,
+            "{what}"
+        ),
+        Err(e) => tracing::info!(serial, package, ok = false, error = %e, "{what}"),
+    }
 }
 
 pub async fn disable_stock_launcher_impl(
@@ -634,14 +687,16 @@ pub async fn set_default_launcher(
     on_progress: tauri::ipc::Channel<String>,
 ) -> Result<SetLauncherResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
-    set_default_launcher_impl(
+    let result = set_default_launcher_impl(
         state.inner(),
         &serial,
         &package,
         allow_stock_disable.unwrap_or(false),
         &Progress::Channel(on_progress),
     )
-    .await
+    .await;
+    log_launcher_result("set default launcher finished", &serial, &package, &result);
+    result
 }
 
 /// Reusable implementation — callable from inside other commands without

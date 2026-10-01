@@ -1,0 +1,120 @@
+Activity Resolver Table:
+  Full MIME Types:
+      vnd.android.cursor.item/telephony-carrier:
+        a3877ae com.android.settings/.Settings$ApnEditorActivity filter d16294f
+          Action: "android.intent.action.EDIT"
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          StaticType: "vnd.android.cursor.item/telephony-carrier"
+      vnd.android.document/root:
+        91f51b0 com.android.settings/.Settings$PublicVolumeSettingsActivity filter b599829
+          Action: "android.provider.action.DOCUMENT_ROOT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "content"
+          Authority: "com.android.externalstorage.documents": -1
+          StaticType: "vnd.android.document/root"
+      vnd.android.cursor.dir/telephony-carrier:
+        a3877ae com.android.settings/.Settings$ApnEditorActivity filter 51fd8dc
+          Action: "android.intent.action.INSERT"
+          Category: "android.intent.category.DEFAULT"
+          StaticType: "vnd.android.cursor.dir/telephony-carrier"
+
+  Base MIME Types:
+      vnd.android.document:
+        91f51b0 com.android.settings/.Settings$PublicVolumeSettingsActivity filter b599829
+          Action: "android.provider.action.DOCUMENT_ROOT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "content"
+          Authority: "com.android.externalstorage.documents": -1
+          StaticType: "vnd.android.document/root"
+      vnd.android.cursor.dir:
+        a3877ae com.android.settings/.Settings$ApnEditorActivity filter 51fd8dc
+          Action: "android.intent.action.INSERT"
+          Category: "android.intent.category.DEFAULT"
+          StaticType: "vnd.android.cursor.dir/telephony-carrier"
+      vnd.android.cursor.item:
+        a3877ae com.android.settings/.Settings$ApnEditorActivity filter d16294f
+          Action: "android.intent.action.EDIT"
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          StaticType: "vnd.android.cursor.item/telephony-carrier"
+
+  Schemes:
+      transparency:
+        9e547c3 com.android.settings/.binarytransparency.VerifyAnotherDeviceActivity filter 64f2840
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "transparency"
+          Authority: "challenge": -1
+      printjob:
+        1dbce86 com.android.settings/.Settings$PrintJobSettingsActivity filter 527f347
+          Action: "android.settings.ACTION_PRINT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "printjob"
+          Path: "PatternMatcher{GLOB: *}"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+      mfg-sp:
+        f672a48 com.android.settings/com.google.android.settings.biometrics.usudfps.ui.view.SpApplyActivity filter 97f20e1
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "mfg-sp"
+          Authority: "pixel": -1
+      package:
+        8c6d2b2 com.android.settings/.Settings$LongBackgroundTasksAppActivity filter 8862203
+          Action: "android.settings.MANAGE_APP_LONG_RUNNING_JOBS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        1f2060a com.android.settings/.Settings$AppLanguageSettingsActivity filter 79fce7b
+          Action: "android.settings.APP_LOCALE_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        e169498 com.android.settings/.localepicker.AppLocalePickerActivity filter 673c4f1
+          Action: "android.settings.APP_LOCALE_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+        9623d93 com.android.settings/.Settings$UserAspectRatioAppActivity filter 4931d0
+          Action: "android.settings.MANAGE_USER_ASPECT_RATIO_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+        b51cc0b com.android.settings/.datausage.AppDataUsageActivity filter 9816ae8
+          Action: "android.settings.IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        21d6501 com.android.settings/.fuelgauge.RequestIgnoreBatteryOptimizations filter b107fa6
+          Action: "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        b7a503d com.android.settings/.applications.InstalledAppDetails filter 3b4f032
+          Action: "android.intent.action.AUTO_REVOKE_PERMISSIONS"
+          Action: "android.settings.APPLICATION_DETAILS_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        de5b183 com.android.settings/.Settings$AppStorageSettingsActivity filter 534af00
+          Action: "com.android.settings.APP_STORAGE_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        ec0b339 com.android.settings/.applications.InstalledAppOpenByDefaultActivity filter 5bddd7e
+          Action: "android.settings.APP_OPEN_BY_DEFAULT_SETTINGS"
+          Action: "com.android.settings.APP_OPEN_BY_DEFAULT_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        3c889a7 com.android.settings/.Settings$AppUsageAccessSettingsActivity filter 47dae54
+          Action: "android.settings.USAGE_ACCESS_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+          mPriority=1, mOrder=0, mHasStaticPartialTypes=false, mHasDynamicPartialTypes=false
+        bd7932a com.android.settings/.Settings$AppPictureInPictureSettingsActivity filter 61ca51b
+          Action: "android.settings.PICTURE_IN_PICTURE_SETTINGS"
+          Category: "android.intent.category.DEFAULT"
+          Scheme: "package"
+        44be0cd com.android.settings/.Settings$AppTurnScreenOnSettingsActivity filter e5b5d82
+          Action: "android.settings.TURN_SCREEN_ON_SETTINGS"
+          Category: "android.intent.category.DEFAULT"

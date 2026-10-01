@@ -1,0 +1,120 @@
+Activity Resolver Table:
+  Full MIME Types:
+      audio/*:
+        a21166b com.spocky.projengmenu/androidx.media3.session.BluetoothValidationActivity filter 6ad55c8
+          Action: "android.intent.action.VIEW"
+          Scheme: "content"
+          Authority: "media": -1
+          Path: "PatternMatcher{PREFIX: /internal/audio/media/}"
+          StaticType: "audio"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+      */*:
+        94af067 com.spocky.projengmenu/.ui.launcherActivities.ImportSettingsActivity filter d1ee14
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "file"
+          Scheme: "content"
+          Authority: "": -1 WILD
+          Path: "PatternMatcher{GLOB: .*\.plbackup}"
+          StaticType: "*"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+        60c2c03 com.spocky.projengmenu/.ui.launcherActivities.ImportThemeActivity filter 5e9d780
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "file"
+          Scheme: "content"
+          Authority: "": -1 WILD
+          Path: "PatternMatcher{GLOB: .*\.pltheme}"
+          StaticType: "*"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+      video/*:
+        78c0368 com.spocky.projengmenu/.ui.launcherActivities.SetBackgroundActivity filter a175381
+          Action: "android.intent.action.VIEW"
+          Action: "android.intent.action.SEND"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "file"
+          Scheme: "content"
+          Authority: "": -1 WILD
+          StaticType: "image"
+          StaticType: "video"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+        78c0368 com.spocky.projengmenu/.ui.launcherActivities.SetBackgroundActivity filter e260c26
+          Action: "android.intent.action.SEND"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image"
+          StaticType: "video"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+      application/octet-stream:
+        94af067 com.spocky.projengmenu/.ui.launcherActivities.ImportSettingsActivity filter 3d6c4b2
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          Path: "PatternMatcher{GLOB: .*\.plbackup}"
+          StaticType: "application/octet-stream"
+        60c2c03 com.spocky.projengmenu/.ui.launcherActivities.ImportThemeActivity filter b6879fe
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          Path: "PatternMatcher{GLOB: .*\.pltheme}"
+          StaticType: "application/octet-stream"
+      image/*:
+        78c0368 com.spocky.projengmenu/.ui.launcherActivities.SetBackgroundActivity filter a175381
+          Action: "android.intent.action.VIEW"
+          Action: "android.intent.action.SEND"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "file"
+          Scheme: "content"
+          Authority: "": -1 WILD
+          StaticType: "image"
+          StaticType: "video"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+        78c0368 com.spocky.projengmenu/.ui.launcherActivities.SetBackgroundActivity filter e260c26
+          Action: "android.intent.action.SEND"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          StaticType: "image"
+          StaticType: "video"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+
+  Base MIME Types:
+      application:
+        94af067 com.spocky.projengmenu/.ui.launcherActivities.ImportSettingsActivity filter 3d6c4b2
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          Path: "PatternMatcher{GLOB: .*\.plbackup}"
+          StaticType: "application/octet-stream"
+        60c2c03 com.spocky.projengmenu/.ui.launcherActivities.ImportThemeActivity filter b6879fe
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "content"
+          Path: "PatternMatcher{GLOB: .*\.pltheme}"
+          StaticType: "application/octet-stream"
+
+  Wild MIME Types:
+      *:
+        94af067 com.spocky.projengmenu/.ui.launcherActivities.ImportSettingsActivity filter d1ee14
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "file"
+          Scheme: "content"
+          Authority: "": -1 WILD
+          Path: "PatternMatcher{GLOB: .*\.plbackup}"
+          StaticType: "*"
+          mPriority=0, mOrder=0, mHasStaticPartialTypes=true, mHasDynamicPartialTypes=false
+        60c2c03 com.spocky.projengmenu/.ui.launcherActivities.ImportThemeActivity filter 5e9d780
+          Action: "android.intent.action.VIEW"
+          Category: "android.intent.category.DEFAULT"
+          Category: "android.intent.category.BROWSABLE"
+          Scheme: "file"
+          Scheme: "content"

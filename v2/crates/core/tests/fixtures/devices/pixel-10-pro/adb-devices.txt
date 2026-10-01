@@ -1,0 +1,1 @@
+adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp device product:blazer model:Pixel_10_Pro device:blazer transport_id:1239
