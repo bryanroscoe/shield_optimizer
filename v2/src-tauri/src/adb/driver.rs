@@ -165,6 +165,14 @@ fn mentions_package_listing(command_text: &str) -> bool {
 /// with just its entry count, everything else goes through the ordinary
 /// truncation.
 fn redact_stdout_for_log(command_text: &str, stdout: &str) -> String {
+    // `dumpsys diskstats` carries the same inventory as a JSON `Package Names`
+    // array rather than `package:` lines, so it is withheld whole.
+    if command_text
+        .to_ascii_lowercase()
+        .contains("dumpsys diskstats")
+    {
+        return "<redacted: diskstats package sizes>".to_string();
+    }
     if mentions_package_listing(command_text) {
         let count = stdout
             .lines()
@@ -902,6 +910,14 @@ mod tests {
                 "package:com.a\npackage:com.b\n"
             ),
             "<redacted: package inventory, 2 entries>"
+        );
+        // diskstats lists every installed package in its size table.
+        assert_eq!(
+            redact_stdout_for_log(
+                "-s 192.168.1.9:5555 shell dumpsys diskstats",
+                "Package Names: [\"com.netflix.ninja\"]\nApp Sizes: [1]\n"
+            ),
+            "<redacted: diskstats package sizes>"
         );
         // An unrelated command still goes through ordinary truncation.
         assert_eq!(

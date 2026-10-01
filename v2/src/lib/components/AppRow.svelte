@@ -11,6 +11,8 @@
   import RamBadge from "$lib/components/RamBadge.svelte";
   import UsageBadge from "$lib/components/UsageBadge.svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import AppDetailPanel from "$lib/components/AppDetailPanel.svelte";
+  import type { AppDetailInputs } from "$lib/app-details";
   import { openContextMenu } from "$lib/contextmenu";
 
   // One catalog-app table row, shared by the App List and the Optimize wizard.
@@ -23,6 +25,7 @@
     description,
     package: pkg,
     review = false,
+    reviewedAt,
     extraTag,
     extraTagKind = "neutral",
     userInstalled = false,
@@ -37,12 +40,16 @@
     onToggleDetail,
     columns = 6,
     rowClass,
+    details,
     actions,
   }: {
     name: string;
     description?: string;
     package: string;
     review?: boolean;
+    /// The catalog entry's `reviewed_at`. Shown only beside a verdict that
+    /// came from the catalog, since a protected-list verdict was not that review.
+    reviewedAt?: string;
     /// One extra tag beside the name — "SYSTEM" / "3RD-PARTY" for the
     /// non-catalog table. Kept generic so the row does not learn about
     /// package inventories.
@@ -73,6 +80,10 @@
     /// actions); the Optimize wizard adds a Result column and passes seven.
     columns?: number;
     rowClass?: string;
+    /// What the shared detail panel shows under the verdict: the page's one
+    /// set of measurements, each with when it was read. Every table passes the
+    /// same object so the panel reads the same everywhere.
+    details?: AppDetailInputs;
     actions: Snippet;
   } = $props();
 
@@ -245,17 +256,22 @@
 {#if detailOpen}
   <tr class="safety-detail-row">
     <td colspan={columns}>
-      <div class="safety-detail">
-        <span class={`safety-detail-kind safety-${safetyClass()}`}>{safetyLabel()}</span>
-        <p class="safety-detail-reason">{safetyReason()}</p>
-        <!-- Only when the reason does not already contain it: a catalog verdict
-             appends the app's own description to its sentence, so printing the
-             description again underneath said the same thing twice. -->
-        {#if description && !safetyReason().includes(description.trim())}
-          <p class="muted small safety-detail-desc">{description}</p>
-        {/if}
-        <p class="muted small safety-detail-source mono">{pkg}</p>
-      </div>
+      <AppDetailPanel
+        package={pkg}
+        kindLabel={safetyLabel()}
+        kindClass={safetyClass()}
+        reason={safetyReason()}
+        {description}
+        reviewedAt={lookup.status === "ready" && lookup.verdict.source === "reviewed_catalog"
+          ? reviewedAt
+          : undefined}
+        serial={details?.serial}
+        measures={details?.measures}
+        memoryMb={details?.memoryMb}
+        usage={details?.usage}
+        storage={details?.storage}
+        onRemeasure={details?.onRemeasure}
+      />
     </td>
   </tr>
 {/if}
@@ -421,9 +437,6 @@
     color: var(--accent);
     background: none;
   }
-  .safety-detail-desc {
-    margin: 0 0 0.3rem;
-  }
   /* RAM and Last used get their own columns, as on board 11.5 — a number
      buried under a pill is a number nobody scans down. */
   .num-cell {
@@ -518,25 +531,6 @@
   .safety-detail-row td {
     padding-top: 0;
   }
-  .safety-detail {
-    margin: 0 0 0.5rem;
-    padding: 0.6rem 0.8rem;
-    background: var(--bg-inset);
-    border-left: 3px solid var(--border);
-    border-radius: 0 4px 4px 0;
-  }
-  .safety-detail-kind {
-    font-size: 0.72rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .safety-detail-reason {
-    margin: 0.25rem 0 0.35rem;
-    line-height: 1.45;
-  }
-  .safety-detail-source {
-    margin: 0;
-  }
   .tag {
     /* `.app-cell` sets `overflow-wrap: anywhere` so long package ids can break,
        and that inherits. In a flex row it let REVIEW break between every
@@ -562,9 +556,6 @@
   .tag-ok {
     background: var(--ok-surface);
     color: var(--ok);
-  }
-  .small {
-    font-size: 0.82rem;
   }
   .mono {
     font-family: var(--mono);

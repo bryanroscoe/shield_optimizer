@@ -55,6 +55,12 @@ export interface AppEntry {
   defunct?: boolean;
   /// "Remove if unused" tier — surfaced as a candidate with a usage signal.
   review?: boolean;
+  /// When a person last reviewed this classification, `YYYY-MM-DD`.
+  reviewed_at?: string;
+  /// Short evidence notes or URLs behind the classification.
+  sources?: string[];
+  /// Device families the entry applies to; absent means the list decides.
+  device_scope?: string[];
 }
 
 /// When an app was last opened (from dumpsys usagestats).
@@ -62,6 +68,15 @@ export interface AppUsage {
   /// "YYYY-MM-DD HH:MM:SS" of last use, or null if never opened.
   last_used: string | null;
   launch_count: number;
+}
+
+/// Installed storage for one package, in bytes. Disk, never memory. A field
+/// the device did not report is null, which renders as unavailable — never 0.
+/// `data_bytes` includes the cache, so the two are never added together.
+export interface AppStorage {
+  app_bytes: number | null;
+  data_bytes: number | null;
+  cache_bytes: number | null;
 }
 
 export interface LauncherEntry {

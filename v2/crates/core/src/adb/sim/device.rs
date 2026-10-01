@@ -993,6 +993,12 @@ impl DeviceShell<'_> {
                 Out::with_code(hits, code)
             }
             "wc" => Out::ok(format!("{}\n", stdin.unwrap_or("").lines().count())),
+            "stat" if args.first().map(String::as_str) == Some("-c") => Out::ok(
+                args.iter()
+                    .skip(2)
+                    .map(|p| format!("{}\n", 4_000_000 + p.len() as u64 * 131_072))
+                    .collect::<String>(),
+            ),
             "id" => Out::ok("uid=2000(shell) gid=2000(shell)\n"),
             "reboot" => Out::ok(""),
             "screencap" => Out::ok(""),

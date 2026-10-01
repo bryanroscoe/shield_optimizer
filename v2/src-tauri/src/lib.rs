@@ -107,6 +107,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         apps::list_other_packages,
         apps::list_installed_packages,
         apps::app_memory_map,
+        apps::app_storage_map,
+        apps::app_apk_size,
         apps::app_usage_map,
         apps::safety_info,
         apps::process_safety_info,
