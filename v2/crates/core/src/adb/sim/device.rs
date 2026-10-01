@@ -637,7 +637,7 @@ impl Device {
         })
     }
 
-    fn dumpsys(&mut self, args: &[String], clock: f64) -> Option<Out> {
+    pub(super) fn dumpsys(&mut self, args: &[String], clock: f64) -> Option<Out> {
         let key = format!("dumpsys {}", args.join(" "));
         if let Some(text) = self.texts.get(&key) {
             let text = text.clone();
@@ -650,6 +650,11 @@ impl Device {
         Some(Out::ok(match first {
             "package" if args.len() == 2 => self.dumpsys_package(&args[1]),
             "usagestats" => self.usagestats(clock),
+            // AOSP's default, served only for a profile with no capture, so a
+            // generated profile never writes it out as if the device said it.
+            "activity" if args.len() == 2 && args[1] == "settings" => {
+                "ACTIVITY MANAGER SETTINGS (dumpsys activity settings) activity_manager_constants:\n  max_cached_processes=32\n\n  CUR_MAX_CACHED_PROCESSES=32\n  CUR_MAX_EMPTY_PROCESSES=16\n".into()
+            }
             _ => return None,
         }))
     }

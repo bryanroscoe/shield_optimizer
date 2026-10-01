@@ -53,6 +53,29 @@ export const scenarios = [
     },
   },
   {
+    // #99: on a real Shield the global key changed nothing, so the tab reports
+    // Android's own limit and only offers to remove a leftover key.
+    name: "tweaks-background-limit",
+    async run(ctx) {
+      await ctx.reset(shieldScenario());
+      await ctx.openDevice(SHIELD.key, "tweaks");
+      const page = ctx.page;
+      const row = page.locator(".tweak-row").filter({ hasText: "CUR_MAX_CACHED_PROCESSES" }).first();
+      await row.getByText("Up to 32 cached apps").waitFor();
+      await row.getByText("global.background_process_limit = 2 (ignored by Android)").waitFor();
+      ctx.assert.equal(await row.getByRole("button", { name: /≤/ }).count(), 0, "no limit presets are offered");
+      await ctx.step("Android's limit and the leftover key");
+
+      await row.getByRole("button", { name: "Remove old setting" }).click();
+      await ctx.waitFor(async () => (await ctx.device(SHIELD.serial)).settings.global.background_process_limit === undefined, {
+        message: "leftover key deleted",
+      });
+      await row.getByRole("button", { name: "Remove old setting" }).waitFor({ state: "detached" });
+      await row.getByText("Up to 32 cached apps").waitFor();
+      await ctx.step("leftover key removed, limit unchanged");
+    },
+  },
+  {
     name: "shell-acknowledgement-gate",
     async run(ctx) {
       await ctx.reset(shieldScenario());

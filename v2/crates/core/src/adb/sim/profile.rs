@@ -246,6 +246,7 @@ pub fn load_profile(dir: &Path) -> Result<Device, String> {
     for (key, file) in [
         ("dumpsys meminfo", "dumpsys-meminfo.txt"),
         ("dumpsys diskstats", "dumpsys-diskstats.txt"),
+        ("dumpsys activity settings", "dumpsys-activity-settings.txt"),
         ("top -b -n 1", "top.txt"),
     ] {
         if let Some(text) = read(dir, file) {

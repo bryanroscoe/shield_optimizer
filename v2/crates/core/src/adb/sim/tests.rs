@@ -148,6 +148,27 @@ async fn faults_fire_on_one_batched_section() {
     assert_eq!(d[0].properties.as_ref().unwrap().sdk_level, "30");
 }
 
+// Measured on a Shield TV Pro (Android 11) for #99: writing the global key
+// left Android's cached-process limit at 32.
+#[tokio::test]
+async fn the_background_process_limit_key_does_not_move_the_real_limit() {
+    use crate::commands::tuning::get_tweaks_for;
+    let sim = shield_world();
+    let before = get_tweaks_for(&sim, "192.0.2.1:5555").await.unwrap();
+    assert_eq!(before.background_process_limit.as_deref(), Some("2"));
+    assert_eq!(before.cached_process_limit, Some(32));
+    sim.shell(
+        "192.0.2.1:5555",
+        "settings put global background_process_limit 1",
+    )
+    .await
+    .unwrap();
+    let after = get_tweaks_for(&sim, "192.0.2.1:5555").await.unwrap();
+    assert_eq!(after.background_process_limit.as_deref(), Some("1"));
+    assert_eq!(after.cached_process_limit, Some(32));
+    assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
+}
+
 #[tokio::test]
 async fn unknown_commands_are_named() {
     let sim = shield_world();

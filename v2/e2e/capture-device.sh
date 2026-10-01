@@ -75,6 +75,7 @@ for f in d e 3 s u; do dev "pm list packages -$f" >"$raw/pm-list-packages-$f.txt
 for ns in global secure system; do dev "settings list $ns" >"$raw/settings-$ns.txt"; done
 dev 'dumpsys meminfo' >"$raw/dumpsys-meminfo.txt"
 dev 'dumpsys diskstats' >"$raw/dumpsys-diskstats.txt"
+dev 'dumpsys activity settings' >"$raw/dumpsys-activity-settings.txt"
 dev 'cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME' >"$raw/home-query-activities.txt"
 dev 'cmd package query-activities --components -a android.intent.action.MAIN -c android.intent.category.HOME' >"$raw/home-query-activities-components.txt"
 dev 'cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME' >"$raw/home-resolve-activity.txt"

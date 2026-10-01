@@ -25,10 +25,16 @@ pub struct TweaksState {
     pub window_animation_scale: Option<String>,
     pub transition_animation_scale: Option<String>,
     pub animator_duration_scale: Option<String>,
-    /// Developer-options "Background process limit". `null`/absent = Standard,
-    /// `0` = none, `1`–`4` = at most N. Frees RAM, but Android resets it on
-    /// reboot (see issue #11) — the UI says so.
+    /// `global.background_process_limit`, which earlier versions wrote. Android
+    /// does not read this key: on a Shield TV (Android 11) setting it to 1
+    /// left the cached-process limit at 32 (#99). Read only so the UI can
+    /// offer to remove a leftover value.
     pub background_process_limit: Option<String>,
+    /// The limit Android is actually applying to cached background processes,
+    /// `CUR_MAX_CACHED_PROCESSES` from `dumpsys activity settings`. Developer
+    /// options' "Background process limit" sets this in memory. `None` when
+    /// the device did not report it.
+    pub cached_process_limit: Option<u32>,
     /// Encoded-audio passthrough: `0` Auto, `1` Never, `2` Always, `3` Manual.
     /// Decides whether TrueHD / DTS-HD reach the receiver untouched or get
     /// decoded to PCM on the device first.
@@ -60,7 +66,7 @@ pub async fn get_tweaks(state: State<'_, AppState>, serial: String) -> Result<Tw
     get_tweaks_for(adb.as_ref(), &serial).await
 }
 
-async fn get_tweaks_for(
+pub(crate) async fn get_tweaks_for(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
 ) -> Result<TweaksState, String> {
@@ -79,14 +85,18 @@ async fn get_tweaks_for(
         "settings get global encoded_surround_output_enabled_formats",
         "settings get secure screensaver_components",
         "settings get secure screensaver_enabled",
+        CACHED_LIMIT_READ,
     ];
     let cmd = crate::adb::checked_batch_command(&commands);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("settings get: {e}"))?;
-    let required = (0..commands.len()).collect::<Vec<_>>();
-    let sections = crate::adb::parse_checked_batch(&out.stdout, commands.len(), &required)?;
+    // The cached-limit read is optional: a device that hides it still gets its
+    // settings, and the UI shows the limit as unknown.
+    let required = (0..commands.len() - 1).collect::<Vec<_>>();
+    let mut sections = crate::adb::parse_checked_batch(&out.stdout, commands.len(), &required)?;
+    let cached_process_limit = sections.pop().as_deref().and_then(parse_cached_limit);
     let mut values = sections
         .into_iter()
         .map(|value| (value != "null").then_some(value));
@@ -105,7 +115,16 @@ async fn get_tweaks_for(
         encoded_surround_output_enabled_formats: values.next().flatten(),
         screensaver_components: values.next().flatten(),
         screensaver_enabled: values.next().flatten(),
+        cached_process_limit,
     })
+}
+
+const CACHED_LIMIT_READ: &str = "dumpsys activity settings | grep CUR_MAX_CACHED_PROCESSES";
+
+fn parse_cached_limit(text: &str) -> Option<u32> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("CUR_MAX_CACHED_PROCESSES="))
+        .and_then(|v| v.trim().parse().ok())
 }
 
 #[derive(Serialize)]
@@ -374,7 +393,7 @@ pub async fn set_private_dns(
                 return Ok(PrivateDnsResult {
                     ok: false,
                     message: format!(
-                        "Invalid hostname {host:?}. Expected something like 'dns.adguard.com'."
+                        "{host:?} is not a valid hostname. Use one like dns.adguard.com."
                     ),
                     reverted: false,
                 });
@@ -407,7 +426,7 @@ pub async fn set_private_dns(
             if resolved {
                 Ok(PrivateDnsResult {
                     ok: true,
-                    message: format!("Private DNS set to {host}; resolution verified."),
+                    message: format!("Private DNS set to {host}. A test lookup worked."),
                     reverted: false,
                 })
             } else {
@@ -420,8 +439,8 @@ pub async fn set_private_dns(
                 Ok(PrivateDnsResult {
                     ok: false,
                     message: format!(
-                        "No DNS resolution via {host} — reverted to automatic to keep the device \
-                         online. Check the hostname."
+                        "A test lookup through {host} failed, so Private DNS was set back to \
+                         Automatic to keep the TV online. Check the hostname."
                     ),
                     reverted: true,
                 })
@@ -438,7 +457,8 @@ pub async fn set_private_dns(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_setting_command, get_tweaks_for, is_valid_dns_hostname, BASIC_DAYDREAM_COMPONENT,
+        build_setting_command, get_tweaks_for, is_valid_dns_hostname, parse_cached_limit,
+        BASIC_DAYDREAM_COMPONENT,
     };
     use crate::adb::{batch::BATCH_STATUS, BATCH_SEPARATOR};
     use crate::commands::test_support::MockAdb;
@@ -468,9 +488,12 @@ mod tests {
             "5,6,99",
             "com.android.dreams.basic/com.android.dreams.basic.BasicDream",
             "1",
+            "  CUR_MAX_CACHED_PROCESSES=32",
         ]);
         let adb = MockAdb::default().on_shell("settings get", &output);
         let tweaks = get_tweaks_for(&adb, "serial").await.unwrap();
+        assert_eq!(tweaks.background_process_limit, None);
+        assert_eq!(tweaks.cached_process_limit, Some(32));
         assert_eq!(tweaks.hdmi_control_enabled.as_deref(), Some(""));
         assert_eq!(
             tweaks.hdmi_control_auto_wakeup_enabled.as_deref(),
@@ -491,15 +514,40 @@ mod tests {
 
     #[tokio::test]
     async fn tweaks_reject_failed_or_truncated_readback() {
-        let output = settings_output(&["null"; 14]);
+        let output = settings_output(&["null"; 15]);
         let failed = output.replacen(&format!("{BATCH_STATUS}0"), &format!("{BATCH_STATUS}1"), 1);
-        let truncated = settings_output(&["null"; 13]);
+        let truncated = settings_output(&["null"; 14]);
         for output in [failed, truncated, "null\n".into()] {
             let adb = MockAdb::default().on_shell("settings get", &output);
             assert!(get_tweaks_for(&adb, "serial").await.is_err());
         }
         let adb = MockAdb::default().on_shell_err("settings get", "device offline");
         assert!(get_tweaks_for(&adb, "serial").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_cached_limit_is_unknown_not_fatal() {
+        let mut values = vec!["null"; 14];
+        values.push("");
+        let output = settings_output(&values);
+        let failed_last = {
+            let at = output.rfind(&format!("{BATCH_STATUS}0")).unwrap();
+            format!("{}{BATCH_STATUS}1\n", &output[..at])
+        };
+        let adb = MockAdb::default().on_shell("settings get", &failed_last);
+        let tweaks = get_tweaks_for(&adb, "serial").await.unwrap();
+        assert_eq!(tweaks.cached_process_limit, None);
+    }
+
+    #[test]
+    fn cached_limit_parses_only_the_current_value() {
+        assert_eq!(
+            parse_cached_limit("  CUR_MAX_CACHED_PROCESSES=32\n"),
+            Some(32)
+        );
+        assert_eq!(parse_cached_limit("  max_cached_processes=32\n"), None);
+        assert_eq!(parse_cached_limit("CUR_MAX_CACHED_PROCESSES=abc"), None);
+        assert_eq!(parse_cached_limit(""), None);
     }
 
     #[test]
