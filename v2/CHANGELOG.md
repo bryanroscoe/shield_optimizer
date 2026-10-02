@@ -71,7 +71,7 @@ this file and shows the newest few sections, dated, from its version button.
   the stock launcher gone it became the fallback Home. The takeover now
   disables it together with stock, only after your launcher is confirmed as
   Home, and checks again afterwards. If anything fails, stock and Setup Wraith
-  are both re-enabled. The pairing lives in `launchers.json`, so a Shield, which
+  are both re-enabled, as is re-enabling stock from the Launcher tab. The pairing lives in `launchers.json`, so a Shield, which
   has no Setup Wraith, behaves exactly as before. Emergency Recovery re-enables
   both. The Launcher tab now always says whether Setup Wraith is on or off, warns
   when it is on with stock off, offers a one-click **Turn it off** (guarded and
