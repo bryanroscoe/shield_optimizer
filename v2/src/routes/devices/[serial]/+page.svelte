@@ -1467,21 +1467,16 @@
   /// from the package lists and it stays a row either way.
   const setupHelper = $derived(launchers.find((l) => l.setup_helper && l.installed) ?? null);
   const stockEnabled = $derived(launchers.some((l) => l.stock && l.enabled));
-  const customIsCurrent = $derived(
-    currentLauncher?.package != null &&
-      !launchers.some(
-        (l) => l.entry.package === currentLauncher?.package && (l.stock || l.setup_helper),
-      ),
-  );
   /// "off": disabled. "on": enabled, with something else holding or able to
-  /// hold Home. "risk": enabled while stock is off and no custom launcher is
-  /// current, which is the state where it takes the Home button.
+  /// hold Home. "risk": enabled while stock is off. The role can still name a
+  /// custom launcher while the helper's higher priority wins Home, so the
+  /// role-derived current launcher does not clear it.
   const setupHelperState = $derived<"off" | "on" | "risk" | null>(
     !setupHelper
       ? null
       : !setupHelper.enabled
         ? "off"
-        : stockEnabled || customIsCurrent
+        : stockEnabled
           ? "on"
           : "risk",
   );

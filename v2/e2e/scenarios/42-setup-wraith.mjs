@@ -75,7 +75,7 @@ export const scenarios = [
 
       await callout(ctx).getByRole("button", { name: "Re-enable Setup Wraith" }).click();
       await ctx.waitFor(async () => (await device(ctx)).packages.enabled.includes(WRAITH), { message: "Setup Wraith re-enabled" });
-      await ctx.waitFor(async () => (await callout(ctx).getAttribute("data-setup-helper")) === "on", { message: "callout says it is on" });
+      await ctx.waitFor(async () => (await callout(ctx).getAttribute("data-setup-helper")) === "risk", { message: "callout warns it is on with stock off" });
       await ctx.step("Re-enable Setup Wraith works");
 
       // Emergency Recovery re-enables everything disabled, stock and helper alike.
@@ -203,11 +203,9 @@ export const scenarios = [
   {
     name: "setup-wraith-shield-is-unchanged",
     async run(ctx) {
-      // The captured Shield carries a disabled Setup Wraith; a real Shield
-      // without one is the case under test.
-      const world = stockHomeShield();
-      world.devices[0].setup.push(`pm uninstall --user 0 ${WRAITH}`);
-      await ctx.reset(world);
+      // The captured Shield ships Setup Wraith installed but disabled; it must
+      // get no row and no callout.
+      await ctx.reset(stockHomeShield());
       await ctx.openDevice(SHIELD.key, "launcher");
       await ctx.page.locator("ul.launcher-list").getByText("Projectivy Launcher").waitFor();
       ctx.assert.equal(await callout(ctx).count(), 0, "no setup-helper callout on a Shield");

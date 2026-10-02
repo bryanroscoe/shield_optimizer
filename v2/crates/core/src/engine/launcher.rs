@@ -148,6 +148,14 @@ pub fn launcher_rows(
         .transient_home_holders
         .iter()
         .filter(|pkg| installed_pkgs.iter().any(|p| p == *pkg))
+        // Only on Google TV, where a paired stock launcher is installed: a
+        // Shield ships the package disabled and has no use for the row.
+        .filter(|pkg| {
+            catalog.stock.iter().any(|e| {
+                e.disable_with.iter().any(|h| h == *pkg)
+                    && installed_pkgs.iter().any(|p| p == &e.package)
+            })
+        })
         .cloned()
         .collect();
     let other = home_handler_pkgs
@@ -696,15 +704,24 @@ mod tests {
         // A disabled package no longer answers the HOME query and a takeover
         // does not track it, so the package state alone has to surface it.
         let rows = launcher_rows(
-            &catalog(),
-            &pkgs(&[MONET, WRAITH]),
+            &google_tv_catalog(),
+            &pkgs(&[MONET, GTV_HOME, WRAITH]),
             &pkgs(&[WRAITH]),
             &[],
             &[],
         );
         let row = rows.iter().find(|r| r.entry.package == WRAITH).unwrap();
         assert!(row.installed && !row.enabled && row.setup_helper && row.other);
-        // Not installed (a Shield): no row at all.
+        // Installed but disabled with no Google TV stock (a Shield): no row.
+        let rows = launcher_rows(
+            &google_tv_catalog(),
+            &pkgs(&[MONET, WRAITH]),
+            &pkgs(&[WRAITH]),
+            &[],
+            &[],
+        );
+        assert!(!rows.iter().any(|r| r.entry.package == WRAITH));
+        // Not installed: no row at all.
         let rows = launcher_rows(&catalog(), &pkgs(&[MONET]), &[], &[], &[]);
         assert!(!rows.iter().any(|r| r.entry.package == WRAITH));
         // Enabled and answering the query: still one row.
