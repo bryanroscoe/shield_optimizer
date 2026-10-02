@@ -17,6 +17,11 @@ pub struct LauncherEntry {
     /// HOME handlers discovered on the device rather than read from the file.
     #[serde(default)]
     pub source_url: Option<String>,
+    /// Transient HOME holders (see `transient_home_holders`) that a takeover
+    /// disables together with this stock launcher, because with stock gone
+    /// they take the Home button back (#122). Stock entries only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disable_with: Vec<String>,
 }
 
 /// The launcher catalog, as loaded from `launchers.json`.
@@ -52,6 +57,16 @@ impl LauncherCatalog {
     /// True when `pkg` only ever holds Home in passing.
     pub fn is_transient_home_holder(&self, pkg: &str) -> bool {
         self.transient_home_holders.iter().any(|p| p == pkg)
+    }
+
+    /// Transient holders to disable together with `stock_pkg`. Empty for a
+    /// package that isn't a stock launcher or has no pairing.
+    pub fn disable_with_for(&self, stock_pkg: &str) -> &[String] {
+        self.stock
+            .iter()
+            .find(|e| e.package == stock_pkg)
+            .map(|e| e.disable_with.as_slice())
+            .unwrap_or(&[])
     }
 
     /// True when `pkg` appears in either catalog list.
@@ -126,9 +141,19 @@ pub fn launcher_rows(
     });
 
     let mut seen_other = std::collections::HashSet::new();
+    // A disabled transient holder no longer answers the HOME query, and a
+    // takeover disables it without tracking it, so it is read from the package
+    // state instead: it keeps its row (and its re-enable path) while installed.
+    let transient_installed: Vec<String> = catalog
+        .transient_home_holders
+        .iter()
+        .filter(|pkg| installed_pkgs.iter().any(|p| p == *pkg))
+        .cloned()
+        .collect();
     let other = home_handler_pkgs
         .iter()
         .chain(tracked_disabled_pkgs.iter())
+        .chain(transient_installed.iter())
         .filter(|pkg| {
             !catalog.contains(pkg)
                 && !safe_home_handlers().contains(&pkg.as_str())
@@ -139,6 +164,7 @@ pub fn launcher_rows(
                 name: catalog.home_handler_name(pkg).unwrap_or(pkg).to_string(),
                 package: pkg.clone(),
                 source_url: None,
+                disable_with: Vec::new(),
             },
             installed: true,
             enabled: !is_disabled(pkg),
@@ -148,6 +174,27 @@ pub fn launcher_rows(
         });
 
     stock.chain(custom).chain(other).collect()
+}
+
+/// The transient HOME holders to disable together with `stocks`, deduplicated
+/// and limited to the ones the catalog knows as transient and `enabled` lists.
+pub fn paired_transient_holders(
+    catalog: &LauncherCatalog,
+    stocks: &[String],
+    enabled: &[String],
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for stock in stocks {
+        for holder in catalog.disable_with_for(stock) {
+            if catalog.is_transient_home_holder(holder)
+                && enabled.iter().any(|e| e == holder)
+                && !out.contains(holder)
+            {
+                out.push(holder.clone());
+            }
+        }
+    }
+    out
 }
 
 /// True when disabling `target` would leave the device without a single
@@ -287,6 +334,7 @@ mod tests {
             name: name.to_string(),
             package: package.to_string(),
             source_url: source_url.map(str::to_string),
+            disable_with: Vec::new(),
         };
         LauncherCatalog {
             custom: vec![

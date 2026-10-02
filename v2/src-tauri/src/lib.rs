@@ -100,6 +100,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         launcher::disable_launcher,
         launcher::set_home_any,
         launcher::disable_stock_launcher,
+        launcher::disable_setup_helper,
         apps::disable_package,
         apps::enable_package,
         apps::force_stop,
