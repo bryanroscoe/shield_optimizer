@@ -810,6 +810,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
             diagnostics: [],
           };
     }
+    case "disable_setup_helper":
+      return { ok: true, message: "Setup Wraith is off." };
     case "disable_stock_launcher":
       return {
         ok: true,

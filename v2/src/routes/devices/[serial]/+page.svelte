@@ -1388,10 +1388,13 @@
     homePickerBusy = "stock";
     homePickerMessage = "";
     try {
+      const wraithNote = takeoverTurnsOffSetupHelper
+        ? " Google TV's setup helper (Setup Wraith) was turned off too."
+        : "";
       const r = await api.disableStockLauncher(serial, pkg);
       homePickerOk = r.ok;
       homePickerMessage = r.ok
-        ? `The stock launcher is disabled and ${pkg} is Home. Re-enable stock from the list above any time.`
+        ? `The stock launcher is disabled and ${pkg} is Home.${wraithNote} Re-enable stock from the list above any time.`
         : (r.last_error ?? "The stock launcher was left alone.");
       launcherDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
       stockHoldsHomeFor = null;
@@ -1441,6 +1444,60 @@
         launcherActionMessage = `${name} enabled.`;
       }
       // A launcher's enabled state changed — the Memory tab's report is now stale.
+      invalidateDeviceCaches();
+    } catch (e) {
+      launcherActionMessage = String(e);
+    } finally {
+      launcherActionBusy = null;
+      launcherProgress = "";
+    }
+  }
+
+  /// Google TV's setup helper (Setup Wraith), whenever it is installed. A
+  /// disabled one no longer answers the HOME query, so the backend reads it
+  /// from the package lists and it stays a row either way.
+  const setupHelper = $derived(launchers.find((l) => l.setup_helper && l.installed) ?? null);
+  const stockEnabled = $derived(launchers.some((l) => l.stock && l.enabled));
+  const customIsCurrent = $derived(
+    currentLauncher?.package != null &&
+      !launchers.some(
+        (l) => l.entry.package === currentLauncher?.package && (l.stock || l.setup_helper),
+      ),
+  );
+  /// "off": disabled. "on": enabled, with something else holding or able to
+  /// hold Home. "risk": enabled while stock is off and no custom launcher is
+  /// current, which is the state where it takes the Home button.
+  const setupHelperState = $derived<"off" | "on" | "risk" | null>(
+    !setupHelper
+      ? null
+      : !setupHelper.enabled
+        ? "off"
+        : stockEnabled || customIsCurrent
+          ? "on"
+          : "risk",
+  );
+  /// A takeover will also turn the setup helper off: it is enabled and an
+  /// enabled stock launcher names it in the catalog.
+  const takeoverTurnsOffSetupHelper = $derived(
+    !!setupHelper?.enabled &&
+      launchers.some(
+        (l) => l.stock && l.enabled && (l.entry.disable_with ?? []).includes(setupHelper.entry.package),
+      ),
+  );
+
+  async function turnOffSetupHelper() {
+    const row = setupHelper;
+    if (!row) return;
+    const pkg = row.entry.package;
+    launcherActionBusy = pkg;
+    launcherActionMessage = "";
+    launcherProgress = "Turning off Google TV's setup helper";
+    try {
+      const r = await api.disableSetupHelper(serial, pkg);
+      launcherActionMessage = r.ok
+        ? "Setup Wraith is off. Press Home on the TV to check it lands on your launcher."
+        : `Couldn't turn off Setup Wraith: ${r.message.trim() || "failed"}`;
+      await loadLauncher();
       invalidateDeviceCaches();
     } catch (e) {
       launcherActionMessage = String(e);
@@ -2621,6 +2678,43 @@
               </li>
             {/each}
           </ul>
+          {#if setupHelper && setupHelperState}
+            <div
+              class="callout setup-helper-callout"
+              class:callout-warn={setupHelperState === "risk"}
+              role="status"
+              data-setup-helper={setupHelperState}
+            >
+              <Icon name={setupHelperState === "risk" ? "warning" : "info"} size={16} />
+              <span>
+                {#if setupHelperState === "off"}
+                  Setup Wraith is off. Turn this back on if Google asks you to sign in again or you
+                  need to pair a remote; turn it off again after.
+                {:else if setupHelperState === "on"}
+                  Google TV's setup helper (Setup Wraith) is on. It can take the Home button back
+                  after you switch launchers. Disable stock launcher turns it off too.
+                {:else}
+                  Google TV's setup helper (Setup Wraith) is on while the stock launcher is off. It
+                  will likely grab the Home button.
+                {/if}
+              </span>
+              {#if setupHelperState === "off"}
+                <button
+                  class="small-action"
+                  onclick={() => enableLauncher(setupHelper.entry.package)}
+                  disabled={launcherActionBusy !== null}
+                  title="pm enable {setupHelper.entry.package}"
+                >Re-enable Setup Wraith</button>
+              {:else if setupHelperState === "risk"}
+                <button
+                  class="small-action"
+                  onclick={turnOffSetupHelper}
+                  disabled={launcherActionBusy !== null}
+                  title="Turns it off only if a real launcher is still enabled, then checks Home still lands there"
+                >Turn it off</button>
+              {/if}
+            </div>
+          {/if}
           <!-- The board also promises an automatic snapshot here. This app does
                not take one, so the callout says what is true and points at the
                tab that does it. -->
@@ -2731,6 +2825,11 @@
                     Disable the stock launcher and hand Home to <span class="mono">{homePickerChoice}</span>?
                     If Home doesn't land on it, the stock launcher is re-enabled straight away. You can
                     re-enable it from the list above at any time.
+                    {#if takeoverTurnsOffSetupHelper}
+                      Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home
+                      button back. You may need to turn it back on briefly to sign in to Google again
+                      or pair a remote.
+                    {/if}
                   </span>
                   <span class="home-picker-confirm-actions">
                     <button class="small-action" onclick={() => disableStockFromPicker(true)}>Save snapshot first</button>

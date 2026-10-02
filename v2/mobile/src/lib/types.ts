@@ -198,6 +198,7 @@ export type Entitlement = "free" | "pro";
 export interface LauncherEntry {
   name: string;
   package: string;
+  disable_with?: string[];
 }
 
 export interface LauncherStatus {
