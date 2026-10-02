@@ -44,6 +44,11 @@ pub struct DeviceDiagnostics<'a> {
     /// The current Home app as the Launcher tab reads it (`None` when it
     /// could not be read), with the role/resolver disagreement note if any.
     pub current_home: Option<&'a super::launcher::HomeReading>,
+    /// Catalogued setup helpers (Setup Wraith) installed on the device, as
+    /// `(package, enabled)`. `None` when the package state could not be read.
+    /// A disabled one never answers the HOME query, so this is read from the
+    /// package lists.
+    pub setup_helpers: Option<&'a [(String, bool)]>,
 }
 
 fn label(evidence: TvEvidence) -> &'static str {
@@ -162,6 +167,18 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
             if let Some(note) = device.current_home.and_then(|h| h.note.as_deref()) {
                 out.push_str(&format!("- Note: {note}\n"));
             }
+            match device.setup_helpers {
+                None => out.push_str("- Setup helper: unknown (package state unreadable)\n"),
+                Some([]) => out.push_str("- Setup helper: not installed\n"),
+                Some(helpers) => {
+                    for (package, enabled) in helpers {
+                        out.push_str(&format!(
+                            "- Setup helper `{package}`: {}\n",
+                            if *enabled { "enabled" } else { "disabled" }
+                        ));
+                    }
+                }
+            }
 
             out.push_str("\n#### HOME handlers\n\n");
             if device.home_handlers.is_empty() {
@@ -248,6 +265,34 @@ mod tests {
     /// The whole point of #120's bundle: the two signals that decide whether
     /// the tools open have to be in what the user pastes, verbatim.
     #[test]
+    fn setup_helper_state_says_not_installed_or_unknown_without_guessing() {
+        let render = |helpers: Option<&[(String, bool)]>| {
+            format_diagnostics(&DiagnosticsInput {
+                app_version: "2.3.0",
+                os: "linux",
+                arch: "x86_64",
+                adb_path: None,
+                adb_version: None,
+                device: Some(DeviceDiagnostics {
+                    serial: "s",
+                    connection: ConnectionType::Usb,
+                    properties: None,
+                    tv_evidence: TvEvidence::Unknown,
+                    device_type: DeviceType::Unknown,
+                    home_handlers: &[],
+                    current_home: None,
+                    setup_helpers: helpers,
+                }),
+                unreadable_device: None,
+                log_tail: &[],
+            })
+        };
+        assert!(render(Some(&[])).contains("- Setup helper: not installed"));
+        assert!(render(None).contains("- Setup helper: unknown"));
+        assert!(render(Some(&[("a.b.c".to_string(), true)])).contains("`a.b.c`: enabled"));
+    }
+
+    #[test]
     fn the_device_section_carries_both_tv_signals_and_the_verdict() {
         let props = props();
         let handlers = vec!["com.google.android.tvlauncher/.MainActivity".to_string()];
@@ -269,11 +314,19 @@ mod tests {
                     activity: None,
                     note: Some("resolve-activity HOME named a setup helper".to_string()),
                 }),
+                setup_helpers: Some(&[(
+                    "com.google.android.tungsten.setupwraith".to_string(),
+                    false,
+                )]),
             }),
             unreadable_device: None,
             log_tail: &["first".to_string(), "second".to_string()],
         });
 
+        assert!(
+            report.contains("- Setup helper `com.google.android.tungsten.setupwraith`: disabled"),
+            "{report}"
+        );
         assert!(
             report.contains("- ro.build.characteristics: `nosdcard`"),
             "{report}"
@@ -318,6 +371,7 @@ mod tests {
                 device_type: DeviceType::Unknown,
                 home_handlers: &[],
                 current_home: None,
+                setup_helpers: None,
             }),
             unreadable_device: None,
             log_tail: &[],

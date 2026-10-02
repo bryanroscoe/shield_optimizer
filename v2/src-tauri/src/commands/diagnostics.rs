@@ -268,6 +268,31 @@ fn home_handler_components(stdout: &str) -> Vec<String> {
     launcher::parse_home_handler_packages(stdout)
 }
 
+/// `(package, enabled)` for each catalogued setup helper that is installed.
+/// Read from the package lists because a disabled one never answers the HOME
+/// query; `None` when they could not be read.
+async fn setup_helper_states(
+    adb: &dyn shield_optimizer_core::adb::AdbDriver,
+    serial: &str,
+) -> Option<Vec<(String, bool)>> {
+    let cmd = shield_optimizer_core::adb::checked_batch_command(&[
+        "pm list packages",
+        "pm list packages -d",
+    ]);
+    let out = adb.shell(serial, &cmd).await.ok()?;
+    let sections = shield_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
+    let installed = shield_optimizer_core::adb::parse_installed_packages_output(&sections[0]);
+    let disabled = shield_optimizer_core::adb::parse_disabled_packages_output(&sections[1]);
+    Some(
+        shield_optimizer_core::commands::loader::launchers()
+            .transient_home_holders
+            .iter()
+            .filter(|p| installed.contains(p))
+            .map(|p| (p.clone(), !disabled.contains(p)))
+            .collect(),
+    )
+}
+
 /// `collect_diagnostics` — the text a user pastes into a bug report.
 ///
 /// Nothing is sent anywhere: this command returns a string and the UI puts it
@@ -303,7 +328,8 @@ pub async fn collect_diagnostics(
                     .map(|out| home_handler_components(&out.stdout))
                     .unwrap_or_default();
                 let current_home = launcher::read_current_home(&*adb, serial).await.ok();
-                Some((device, handlers, current_home))
+                let helpers = setup_helper_states(&*adb, serial).await;
+                Some((device, handlers, current_home, helpers))
             }
             Err(e) => {
                 tracing::warn!(serial, error = %e, "diagnostics: device unavailable");
@@ -323,15 +349,18 @@ pub async fn collect_diagnostics(
         adb_version: adb_version.as_deref(),
         device: device
             .as_ref()
-            .map(|(device, handlers, current_home)| DeviceDiagnostics {
-                serial: &device.serial,
-                connection: device.connection,
-                properties: device.properties.as_ref(),
-                tv_evidence: device.tv_evidence,
-                device_type: device.device_type,
-                home_handlers: handlers,
-                current_home: current_home.as_ref(),
-            }),
+            .map(
+                |(device, handlers, current_home, helpers)| DeviceDiagnostics {
+                    serial: &device.serial,
+                    connection: device.connection,
+                    properties: device.properties.as_ref(),
+                    tv_evidence: device.tv_evidence,
+                    device_type: device.device_type,
+                    home_handlers: handlers,
+                    current_home: current_home.as_ref(),
+                    setup_helpers: helpers.as_deref(),
+                },
+            ),
         unreadable_device: match (serial.as_deref(), unreadable.as_deref()) {
             (Some(serial), Some(error)) => Some((serial, error)),
             _ => None,
