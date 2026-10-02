@@ -89,6 +89,26 @@ export const scenarios = [
     },
   },
   {
+    name: "setup-wraith-re-enabling-stock-re-enables-the-helper",
+    async run(ctx) {
+      await ctx.reset(googleTv());
+      const res = await takeOver(ctx);
+      ctx.assert.equal(res.value.ok, true, JSON.stringify(res.value.diagnostics));
+      await ctx.openDevice(SHIELD.key, "launcher");
+      await callout(ctx).waitFor();
+      const stockRow = ctx.page.locator("ul.launcher-list li", { hasText: "Google TV Home (Stock)" });
+      await stockRow.getByRole("button", { name: "Enable", exact: true }).click();
+      await ctx.waitFor(
+        async () => {
+          const p = (await device(ctx)).packages.enabled;
+          return p.includes(GTV_HOME) && p.includes(WRAITH);
+        },
+        { message: "stock and Setup Wraith both re-enabled" },
+      );
+      await assertKeepsHome(ctx);
+    },
+  },
+  {
     name: "setup-wraith-takeover-failure-restores-stock-and-the-helper",
     async run(ctx) {
       await ctx.reset({

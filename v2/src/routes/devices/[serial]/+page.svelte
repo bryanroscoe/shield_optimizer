@@ -1423,6 +1423,15 @@
         launcherActionMessage = `Couldn't enable ${name}: ${r.message.trim() || "failed"}`;
         return;
       }
+      // Re-enabling a stock launcher undoes its takeover, which also turned
+      // off the setup helpers it is paired with (#122).
+      const pairedOff = (launchers.find((l) => l.entry.package === pkg && l.stock)?.entry.disable_with ?? []).filter(
+        (h) => launchers.some((l) => l.entry.package === h && l.installed && !l.enabled),
+      );
+      for (const helper of pairedOff) {
+        launcherProgress = "Re-enabling Google TV's setup helper";
+        await api.enablePackage(serial, helper);
+      }
       refreshMeasurements();
       launcherProgress = "Refreshing the launcher list";
       await loadLauncher();
