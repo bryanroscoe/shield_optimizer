@@ -263,3 +263,176 @@ async fn setup_wraith_outranking_the_role_holder_is_not_the_current_launcher() {
             .unwrap();
     assert!(!wraith.ok);
 }
+
+const WRAITH_PKG: &str = "com.google.android.tungsten.setupwraith";
+const GTV_HOME: &str = "com.google.android.apps.tv.launcherx";
+const PROJECTIVY_PKG: &str = "com.spocky.projengmenu";
+const SHIELD_SERIAL: &str = "1324619053514";
+
+/// The reporter's onn 4K Pro (#122): stock Google TV Home enabled, Setup
+/// Wraith enabled with the highest HOME priority, and Projectivy installed.
+fn google_tv_world(with_wraith: bool) -> SimulatedAdb {
+    let sim = shield_world();
+    {
+        let mut w = sim.world();
+        let d = w.devices.get_mut(SHIELD_SERIAL).unwrap();
+        d.props.insert("ro.build.version.sdk".into(), "31".into());
+        d.home.policy = HomePolicy::StockThenPriority;
+        d.add_home_app(GTV_HOME, &format!("{GTV_HOME}.home.HomeActivity"), 0);
+        if with_wraith {
+            d.add_home_app(WRAITH_PKG, &format!("{WRAITH_PKG}.ui.MainActivity"), 3);
+        }
+        d.add_home_app(
+            PROJECTIVY_PKG,
+            &format!("{PROJECTIVY_PKG}.ui.home.MainActivity"),
+            0,
+        );
+    }
+    sim
+}
+
+async fn pick_projectivy_and_disable_stock(sim: &SimulatedAdb) -> launcher::SetLauncherResult {
+    let st = state(sim);
+    let serial = "192.0.2.1:5555";
+    launcher::set_home_any_impl(&st, serial, PROJECTIVY_PKG, None)
+        .await
+        .unwrap();
+    launcher::disable_stock_launcher_impl(&st, serial, PROJECTIVY_PKG, &launcher::Progress::Silent)
+        .await
+        .unwrap()
+}
+
+fn enabled(sim: &SimulatedAdb, pkg: &str) -> bool {
+    sim.world()
+        .devices
+        .get(SHIELD_SERIAL)
+        .unwrap()
+        .package(pkg)
+        .unwrap()
+        .enabled
+}
+
+/// #122: with stock disabled, Setup Wraith takes the Home key back unless the
+/// takeover turns it off too.
+#[tokio::test]
+async fn google_tv_takeover_disables_setup_wraith_with_stock() {
+    let sim = google_tv_world(true);
+    let res = pick_projectivy_and_disable_stock(&sim).await;
+    assert!(res.ok, "{:?} {:?}", res.last_error, res.diagnostics);
+    assert!(!enabled(&sim, GTV_HOME));
+    assert!(!enabled(&sim, WRAITH_PKG));
+    let stock = super::stock_launchers();
+    let mut w = sim.world();
+    let d = w.devices.get_mut(SHIELD_SERIAL).unwrap();
+    assert!(d.resolve_home(&stock).unwrap().starts_with(PROJECTIVY_PKG));
+}
+
+/// The simulator models the reporter's failure: without the paired disable,
+/// Setup Wraith wins the resolver once stock is gone.
+#[tokio::test]
+async fn google_tv_without_the_paired_disable_wraith_takes_home_back() {
+    let sim = google_tv_world(true);
+    sim.world()
+        .setup_shell(
+            SHIELD_SERIAL,
+            &format!("pm disable-user --user 0 {GTV_HOME}"),
+        )
+        .unwrap();
+    let stock = super::stock_launchers();
+    let mut w = sim.world();
+    let d = w.devices.get_mut(SHIELD_SERIAL).unwrap();
+    assert!(d.resolve_home(&stock).unwrap().starts_with(WRAITH_PKG));
+}
+
+/// A failure while turning Setup Wraith off re-enables stock and Setup Wraith.
+#[tokio::test]
+async fn google_tv_takeover_failure_re_enables_stock_and_wraith() {
+    let sim = google_tv_world(true);
+    sim.world().faults.push(FaultRule {
+        serial: None,
+        scope: FaultScope::Shell,
+        matches: format!("pm disable-user --user 0 {WRAITH_PKG}"),
+        effect: FaultEffect::Fail {
+            stdout: String::new(),
+            stderr: "java.lang.SecurityException: Permission denial\n".into(),
+            exit_code: 255,
+        },
+        times: None,
+        after: 0,
+        fired: 0,
+    });
+    let res = pick_projectivy_and_disable_stock(&sim).await;
+    assert!(!res.ok);
+    assert!(enabled(&sim, GTV_HOME), "stock re-enabled");
+    assert!(enabled(&sim, WRAITH_PKG), "Setup Wraith re-enabled");
+}
+
+/// A device without Setup Wraith behaves exactly as before: no command ever
+/// names the setup helper.
+#[tokio::test]
+async fn takeover_without_setup_wraith_never_touches_it() {
+    let sim = google_tv_world(false);
+    let res = pick_projectivy_and_disable_stock(&sim).await;
+    assert!(res.ok, "{:?} {:?}", res.last_error, res.diagnostics);
+    assert!(!format!("{:?}", sim.world().log).contains("setupwraith"));
+    assert!(!res.diagnostics.iter().any(|l| l.contains("setupwraith")));
+}
+
+/// Shield path: stock is `com.google.android.tvlauncher`, which pairs with
+/// nothing, so the takeover never names the setup helper.
+#[tokio::test]
+async fn shield_takeover_is_unchanged() {
+    let sim = shield_world();
+    {
+        let mut w = sim.world();
+        let d = w.devices.get_mut(SHIELD_SERIAL).unwrap();
+        d.home.policy = HomePolicy::StockOverrides;
+    }
+    sim.world()
+        .setup_shell(SHIELD_SERIAL, "pm enable com.google.android.tvlauncher")
+        .unwrap();
+    let res = pick_projectivy_and_disable_stock(&sim).await;
+    assert!(res.ok, "{:?} {:?}", res.last_error, res.diagnostics);
+    assert!(!format!("{:?}", sim.world().log).contains("setupwraith"));
+}
+
+/// The one-click fix: refuses when no real launcher is left, otherwise
+/// disables Setup Wraith and keeps Home on a launcher.
+#[tokio::test]
+async fn disable_setup_helper_is_guarded_and_verified() {
+    let sim = google_tv_world(true);
+    let st = state(&sim);
+    let serial = "192.0.2.1:5555";
+    sim.world()
+        .setup_shell(
+            SHIELD_SERIAL,
+            &format!("pm disable-user --user 0 {GTV_HOME}"),
+        )
+        .unwrap();
+    sim.world()
+        .setup_shell(
+            SHIELD_SERIAL,
+            &format!("pm disable-user --user 0 {PROJECTIVY_PKG}"),
+        )
+        .unwrap();
+    let refused = launcher::disable_setup_helper_impl(&st, serial, WRAITH_PKG)
+        .await
+        .unwrap();
+    assert!(!refused.ok, "{}", refused.message);
+    assert!(enabled(&sim, WRAITH_PKG));
+
+    sim.world()
+        .setup_shell(SHIELD_SERIAL, &format!("pm enable {PROJECTIVY_PKG}"))
+        .unwrap();
+    let ok = launcher::disable_setup_helper_impl(&st, serial, WRAITH_PKG)
+        .await
+        .unwrap();
+    assert!(ok.ok, "{}", ok.message);
+    assert!(!enabled(&sim, WRAITH_PKG));
+
+    let not_helper = launcher::disable_setup_helper_impl(&st, serial, PROJECTIVY_PKG)
+        .await
+        .unwrap();
+    assert!(!not_helper.ok);
+    assert!(enabled(&sim, PROJECTIVY_PKG));
+}

@@ -403,6 +403,18 @@ mod tests {
             Some("Google TV setup helper — not a launcher")
         );
         assert!(cat.is_transient_home_holder("com.google.android.tungsten.setupwraith"));
+        // #122: only Google TV Home pairs with Setup Wraith; Shield stock pairs with nothing.
+        assert_eq!(
+            cat.disable_with_for("com.google.android.apps.tv.launcherx"),
+            ["com.google.android.tungsten.setupwraith".to_string()]
+        );
+        for entry in cat.stock.iter().filter(|e| !e.disable_with.is_empty()) {
+            assert_eq!(entry.package, "com.google.android.apps.tv.launcherx");
+            assert!(entry
+                .disable_with
+                .iter()
+                .all(|p| cat.is_transient_home_holder(p)));
+        }
     }
 
     /// A custom launcher with no source is a row whose "Get" link cannot be

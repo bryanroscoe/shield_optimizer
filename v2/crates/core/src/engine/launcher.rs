@@ -626,6 +626,98 @@ mod tests {
             .all(|r| !r.setup_helper));
     }
 
+    const GTV_HOME: &str = "com.google.android.apps.tv.launcherx";
+
+    fn google_tv_catalog() -> LauncherCatalog {
+        let mut cat = catalog();
+        cat.stock.push(LauncherEntry {
+            name: "Google TV Home (Stock)".to_string(),
+            package: GTV_HOME.to_string(),
+            source_url: None,
+            disable_with: vec![WRAITH.to_string()],
+        });
+        cat
+    }
+
+    #[test]
+    fn paired_holders_come_only_from_the_stock_being_disabled() {
+        let cat = google_tv_catalog();
+        let enabled = pkgs(&[MONET, GTV_HOME, WRAITH]);
+        assert_eq!(
+            paired_transient_holders(&cat, &pkgs(&[GTV_HOME]), &enabled),
+            pkgs(&[WRAITH])
+        );
+        // Shield stock pairs with nothing, even with Setup Wraith enabled.
+        assert!(paired_transient_holders(
+            &cat,
+            &pkgs(&["com.google.android.tvlauncher"]),
+            &enabled
+        )
+        .is_empty());
+        // Already disabled (absent from the enabled list): nothing to do.
+        assert!(
+            paired_transient_holders(&cat, &pkgs(&[GTV_HOME]), &pkgs(&[MONET, GTV_HOME]))
+                .is_empty()
+        );
+        // Two stocks naming one holder disable it once.
+        assert_eq!(
+            paired_transient_holders(&cat, &pkgs(&[GTV_HOME, GTV_HOME]), &enabled),
+            pkgs(&[WRAITH])
+        );
+    }
+
+    #[test]
+    fn a_pairing_must_name_a_catalogued_transient_holder() {
+        let mut cat = google_tv_catalog();
+        cat.stock.last_mut().unwrap().disable_with = pkgs(&["com.android.tv.settings"]);
+        assert!(paired_transient_holders(
+            &cat,
+            &pkgs(&[GTV_HOME]),
+            &pkgs(&["com.android.tv.settings"])
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn wraith_alone_is_not_a_home_so_it_is_never_the_survivor() {
+        // Stock gone, Wraith the only other handler: disabling Wraith would
+        // leave nothing, and stock disabling would leave only Wraith.
+        let cat = google_tv_catalog();
+        assert!(is_last_enabled_home_handler(
+            GTV_HOME,
+            &pkgs(&[GTV_HOME, WRAITH]),
+            &cat
+        ));
+        assert!(is_last_enabled_home_handler(WRAITH, &pkgs(&[WRAITH]), &cat));
+    }
+
+    #[test]
+    fn disabled_setup_wraith_keeps_its_row_without_being_tracked() {
+        // A disabled package no longer answers the HOME query and a takeover
+        // does not track it, so the package state alone has to surface it.
+        let rows = launcher_rows(
+            &catalog(),
+            &pkgs(&[MONET, WRAITH]),
+            &pkgs(&[WRAITH]),
+            &[],
+            &[],
+        );
+        let row = rows.iter().find(|r| r.entry.package == WRAITH).unwrap();
+        assert!(row.installed && !row.enabled && row.setup_helper && row.other);
+        // Not installed (a Shield): no row at all.
+        let rows = launcher_rows(&catalog(), &pkgs(&[MONET]), &[], &[], &[]);
+        assert!(!rows.iter().any(|r| r.entry.package == WRAITH));
+        // Enabled and answering the query: still one row.
+        let rows = launcher_rows(
+            &catalog(),
+            &pkgs(&[MONET, WRAITH]),
+            &[],
+            &pkgs(&[WRAITH]),
+            &[],
+        );
+        assert_eq!(rows.iter().filter(|r| r.entry.package == WRAITH).count(), 1);
+    }
+
     #[test]
     fn package_name_validation_accepts_valid() {
         for valid in &[

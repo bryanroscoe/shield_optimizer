@@ -67,6 +67,11 @@ pub enum HomePolicy {
     /// role. Google TV with Setup Wraith enabled (#122): the resolver names
     /// Setup Wraith even after the role, and Home, moved to Monet.
     PriorityResolver,
+    /// Google TV with Setup Wraith enabled (#122): an enabled stock launcher
+    /// overrides every preference, and once stock is disabled the highest
+    /// priority HOME filter (Setup Wraith) takes Home back from the app that
+    /// holds the role, until Setup Wraith is disabled too.
+    StockThenPriority,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -242,14 +247,21 @@ impl Device {
         }
         let handlers: Vec<HomeComponent> = self.home_handlers().into_iter().cloned().collect();
         let real: Vec<&HomeComponent> = handlers.iter().filter(|c| c.priority > -1000).collect();
-        if self.home.policy == HomePolicy::PriorityResolver {
-            if let Some(top) = real.first() {
-                return Some(top.short());
-            }
-        }
-        if self.home.policy == HomePolicy::StockOverrides {
+        let policy = self.home.policy;
+        if matches!(
+            policy,
+            HomePolicy::StockOverrides | HomePolicy::StockThenPriority
+        ) {
             if let Some(s) = real.iter().find(|c| stock.contains(&c.package)) {
                 return Some(s.short());
+            }
+        }
+        if matches!(
+            policy,
+            HomePolicy::PriorityResolver | HomePolicy::StockThenPriority
+        ) {
+            if let Some(top) = real.first() {
+                return Some(top.short());
             }
         }
         if let Some(pref) = &self.home.preferred {
