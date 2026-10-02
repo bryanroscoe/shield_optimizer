@@ -1428,9 +1428,11 @@
       const pairedOff = (launchers.find((l) => l.entry.package === pkg && l.stock)?.entry.disable_with ?? []).filter(
         (h) => launchers.some((l) => l.entry.package === h && l.installed && !l.enabled),
       );
+      const helperFailures: string[] = [];
       for (const helper of pairedOff) {
         launcherProgress = "Re-enabling Google TV's setup helper";
-        await api.enablePackage(serial, helper);
+        const hr = await api.enablePackage(serial, helper);
+        if (!hr.ok) helperFailures.push(`${helper}: ${hr.message.trim() || "failed"}`);
       }
       refreshMeasurements();
       launcherProgress = "Refreshing the launcher list";
@@ -1451,6 +1453,9 @@
               `${back.last_error ? `: ${back.last_error}` : ""}. Use "Set as default" on your preferred launcher.`;
       } else {
         launcherActionMessage = `${name} enabled.`;
+      }
+      if (helperFailures.length > 0) {
+        launcherActionMessage += ` Couldn't re-enable Google TV's setup helper (${helperFailures.join("; ")}). Use Re-enable Setup Wraith to retry.`;
       }
       // A launcher's enabled state changed — the Memory tab's report is now stale.
       invalidateDeviceCaches();

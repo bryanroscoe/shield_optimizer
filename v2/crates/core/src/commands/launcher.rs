@@ -1170,6 +1170,7 @@ pub async fn disable_setup_helper(
     serial: String,
     package: String,
 ) -> Result<crate::commands::apps::ActionResult, String> {
+    state.require_pro(Feature::LauncherTakeover)?;
     let result = disable_setup_helper_impl(state.inner(), &serial, &package).await;
     match &result {
         Ok(r) => tracing::info!(%serial, %package, ok = r.ok, "disable setup helper finished"),
