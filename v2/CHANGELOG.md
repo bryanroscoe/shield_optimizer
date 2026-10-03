@@ -65,6 +65,20 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- **Disabling the stock launcher on Google TV now turns off Setup Wraith too, so
+  it can't take the Home button back** (#122). Google TV's setup helper
+  (`com.google.android.tungsten.setupwraith`) declares a Home screen, and with
+  the stock launcher gone it became the fallback Home. The takeover now
+  disables it together with stock, only after your launcher is confirmed as
+  Home, and checks again afterwards. If anything fails, stock and Setup Wraith
+  are both re-enabled, as is re-enabling stock from the Launcher tab. The pairing lives in `launchers.json`, so a Shield, which
+  has no Setup Wraith, behaves exactly as before. Emergency Recovery re-enables
+  both. The Launcher tab now always says whether Setup Wraith is on or off, warns
+  when it is on with stock off, offers a one-click **Turn it off** (guarded and
+  verified like the takeover) and a **Re-enable Setup Wraith** button for when
+  Google asks you to sign in again or you need to pair a remote. The confirm
+  names both effects, and the bug-report bundle records its state.
+
 - **An app report no longer carries state from before an Optimize run**
   (#138). Right after a run, the page re-reads package states in the
   background. A report opened in that window with state included could carry

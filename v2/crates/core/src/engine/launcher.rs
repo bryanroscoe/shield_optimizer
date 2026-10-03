@@ -17,6 +17,11 @@ pub struct LauncherEntry {
     /// HOME handlers discovered on the device rather than read from the file.
     #[serde(default)]
     pub source_url: Option<String>,
+    /// Transient HOME holders (see `transient_home_holders`) that a takeover
+    /// disables together with this stock launcher, because with stock gone
+    /// they take the Home button back (#122). Stock entries only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disable_with: Vec<String>,
 }
 
 /// The launcher catalog, as loaded from `launchers.json`.
@@ -52,6 +57,16 @@ impl LauncherCatalog {
     /// True when `pkg` only ever holds Home in passing.
     pub fn is_transient_home_holder(&self, pkg: &str) -> bool {
         self.transient_home_holders.iter().any(|p| p == pkg)
+    }
+
+    /// Transient holders to disable together with `stock_pkg`. Empty for a
+    /// package that isn't a stock launcher or has no pairing.
+    pub fn disable_with_for(&self, stock_pkg: &str) -> &[String] {
+        self.stock
+            .iter()
+            .find(|e| e.package == stock_pkg)
+            .map(|e| e.disable_with.as_slice())
+            .unwrap_or(&[])
     }
 
     /// True when `pkg` appears in either catalog list.
@@ -126,9 +141,27 @@ pub fn launcher_rows(
     });
 
     let mut seen_other = std::collections::HashSet::new();
+    // A disabled transient holder no longer answers the HOME query, and a
+    // takeover disables it without tracking it, so it is read from the package
+    // state instead: it keeps its row (and its re-enable path) while installed.
+    let transient_installed: Vec<String> = catalog
+        .transient_home_holders
+        .iter()
+        .filter(|pkg| installed_pkgs.iter().any(|p| p == *pkg))
+        // Only on Google TV, where a paired stock launcher is installed: a
+        // Shield ships the package disabled and has no use for the row.
+        .filter(|pkg| {
+            catalog.stock.iter().any(|e| {
+                e.disable_with.iter().any(|h| h == *pkg)
+                    && installed_pkgs.iter().any(|p| p == &e.package)
+            })
+        })
+        .cloned()
+        .collect();
     let other = home_handler_pkgs
         .iter()
         .chain(tracked_disabled_pkgs.iter())
+        .chain(transient_installed.iter())
         .filter(|pkg| {
             !catalog.contains(pkg)
                 && !safe_home_handlers().contains(&pkg.as_str())
@@ -139,6 +172,7 @@ pub fn launcher_rows(
                 name: catalog.home_handler_name(pkg).unwrap_or(pkg).to_string(),
                 package: pkg.clone(),
                 source_url: None,
+                disable_with: Vec::new(),
             },
             installed: true,
             enabled: !is_disabled(pkg),
@@ -148,6 +182,27 @@ pub fn launcher_rows(
         });
 
     stock.chain(custom).chain(other).collect()
+}
+
+/// The transient HOME holders to disable together with `stocks`, deduplicated
+/// and limited to the ones the catalog knows as transient and `enabled` lists.
+pub fn paired_transient_holders(
+    catalog: &LauncherCatalog,
+    stocks: &[String],
+    enabled: &[String],
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for stock in stocks {
+        for holder in catalog.disable_with_for(stock) {
+            if catalog.is_transient_home_holder(holder)
+                && enabled.iter().any(|e| e == holder)
+                && !out.contains(holder)
+            {
+                out.push(holder.clone());
+            }
+        }
+    }
+    out
 }
 
 /// True when disabling `target` would leave the device without a single
@@ -287,6 +342,7 @@ mod tests {
             name: name.to_string(),
             package: package.to_string(),
             source_url: source_url.map(str::to_string),
+            disable_with: Vec::new(),
         };
         LauncherCatalog {
             custom: vec![
@@ -576,6 +632,107 @@ mod tests {
             .iter()
             .filter(|r| r.entry.package != WRAITH)
             .all(|r| !r.setup_helper));
+    }
+
+    const GTV_HOME: &str = "com.google.android.apps.tv.launcherx";
+
+    fn google_tv_catalog() -> LauncherCatalog {
+        let mut cat = catalog();
+        cat.stock.push(LauncherEntry {
+            name: "Google TV Home (Stock)".to_string(),
+            package: GTV_HOME.to_string(),
+            source_url: None,
+            disable_with: vec![WRAITH.to_string()],
+        });
+        cat
+    }
+
+    #[test]
+    fn paired_holders_come_only_from_the_stock_being_disabled() {
+        let cat = google_tv_catalog();
+        let enabled = pkgs(&[MONET, GTV_HOME, WRAITH]);
+        assert_eq!(
+            paired_transient_holders(&cat, &pkgs(&[GTV_HOME]), &enabled),
+            pkgs(&[WRAITH])
+        );
+        // Shield stock pairs with nothing, even with Setup Wraith enabled.
+        assert!(paired_transient_holders(
+            &cat,
+            &pkgs(&["com.google.android.tvlauncher"]),
+            &enabled
+        )
+        .is_empty());
+        // Already disabled (absent from the enabled list): nothing to do.
+        assert!(
+            paired_transient_holders(&cat, &pkgs(&[GTV_HOME]), &pkgs(&[MONET, GTV_HOME]))
+                .is_empty()
+        );
+        // Two stocks naming one holder disable it once.
+        assert_eq!(
+            paired_transient_holders(&cat, &pkgs(&[GTV_HOME, GTV_HOME]), &enabled),
+            pkgs(&[WRAITH])
+        );
+    }
+
+    #[test]
+    fn a_pairing_must_name_a_catalogued_transient_holder() {
+        let mut cat = google_tv_catalog();
+        cat.stock.last_mut().unwrap().disable_with = pkgs(&["com.android.tv.settings"]);
+        assert!(paired_transient_holders(
+            &cat,
+            &pkgs(&[GTV_HOME]),
+            &pkgs(&["com.android.tv.settings"])
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn wraith_alone_is_not_a_home_so_it_is_never_the_survivor() {
+        // Stock gone, Wraith the only other handler: disabling Wraith would
+        // leave nothing, and stock disabling would leave only Wraith.
+        let cat = google_tv_catalog();
+        assert!(is_last_enabled_home_handler(
+            GTV_HOME,
+            &pkgs(&[GTV_HOME, WRAITH]),
+            &cat
+        ));
+        assert!(is_last_enabled_home_handler(WRAITH, &pkgs(&[WRAITH]), &cat));
+    }
+
+    #[test]
+    fn disabled_setup_wraith_keeps_its_row_without_being_tracked() {
+        // A disabled package no longer answers the HOME query and a takeover
+        // does not track it, so the package state alone has to surface it.
+        let rows = launcher_rows(
+            &google_tv_catalog(),
+            &pkgs(&[MONET, GTV_HOME, WRAITH]),
+            &pkgs(&[WRAITH]),
+            &[],
+            &[],
+        );
+        let row = rows.iter().find(|r| r.entry.package == WRAITH).unwrap();
+        assert!(row.installed && !row.enabled && row.setup_helper && row.other);
+        // Installed but disabled with no Google TV stock (a Shield): no row.
+        let rows = launcher_rows(
+            &google_tv_catalog(),
+            &pkgs(&[MONET, WRAITH]),
+            &pkgs(&[WRAITH]),
+            &[],
+            &[],
+        );
+        assert!(!rows.iter().any(|r| r.entry.package == WRAITH));
+        // Not installed: no row at all.
+        let rows = launcher_rows(&catalog(), &pkgs(&[MONET]), &[], &[], &[]);
+        assert!(!rows.iter().any(|r| r.entry.package == WRAITH));
+        // Enabled and answering the query: still one row.
+        let rows = launcher_rows(
+            &catalog(),
+            &pkgs(&[MONET, WRAITH]),
+            &[],
+            &pkgs(&[WRAITH]),
+            &[],
+        );
+        assert_eq!(rows.iter().filter(|r| r.entry.package == WRAITH).count(), 1);
     }
 
     #[test]
