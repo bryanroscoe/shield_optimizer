@@ -799,6 +799,33 @@ pub async fn set_default_launcher_impl(
     allow_stock_disable: bool,
     progress: &Progress,
 ) -> Result<SetLauncherResult, String> {
+    let mut result =
+        set_default_launcher_core(state, serial, package, allow_stock_disable, progress).await?;
+    if result
+        .diagnostics
+        .iter()
+        .any(|l| l == &format!("pm enable {package} -> ok"))
+    {
+        let adb = state.adb_snapshot().await;
+        if let Some(warning) =
+            reenable_paired_helpers(&*adb, serial, package, &mut result.diagnostics).await
+        {
+            result.last_error = Some(match result.last_error.take() {
+                Some(e) => format!("{e} {warning}"),
+                None => warning,
+            });
+        }
+    }
+    Ok(result)
+}
+
+async fn set_default_launcher_core(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    allow_stock_disable: bool,
+    progress: &Progress,
+) -> Result<SetLauncherResult, String> {
     // Per-stage record of what was issued and what came back. A launcher
     // failure is only diagnosable with this: the same sequence succeeds on one
     // build and is silently ignored on another, and the difference is only
@@ -1082,7 +1109,7 @@ pub async fn set_default_launcher_impl(
 /// Home. On any failure the holders disabled here are re-enabled before this
 /// returns `Err`, and the caller re-enables stock, so the TV is never left
 /// switched halfway.
-async fn disable_paired_holders(
+pub(crate) async fn disable_paired_holders(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
     target: &str,
