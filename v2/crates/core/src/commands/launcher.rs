@@ -603,10 +603,14 @@ pub async fn disable_stock_launcher_impl(
                     Err(reason) => failure = Some(reason),
                 }
             }
+            let mut unrestored: Vec<String> = Vec::new();
             for stock in &disabled {
                 let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
                 diagnostics.push(match command_failure(&restore) {
-                    Some(f) => format!("pm enable {stock} (restore) -> {f}"),
+                    Some(f) => {
+                        unrestored.push(stock.clone());
+                        format!("pm enable {stock} (restore) -> {f}")
+                    }
                     None => format!("pm enable {stock} (restore) -> ok"),
                 });
             }
@@ -617,10 +621,19 @@ pub async fn disable_stock_launcher_impl(
             Ok(refuse(
                 current,
                 format!(
-                    "{}. The stock launcher was re-enabled.",
+                    "{}. {}",
                     failure.unwrap_or_else(|| format!(
                         "Home moved away from {target} after the stock launcher was disabled"
-                    ))
+                    )),
+                    if unrestored.is_empty() {
+                        "The stock launcher was re-enabled.".to_string()
+                    } else {
+                        format!(
+                            "Re-enabling the stock launcher failed ({}); it may still be off. \
+                             Use Emergency Recovery or re-enable it from the launcher list.",
+                            unrestored.join(", ")
+                        )
+                    }
                 ),
                 diagnostics,
             ))
@@ -1312,8 +1325,10 @@ async fn stock_takeover(
         Some(Vec::new())
     } else {
         match adb.shell(serial, HOME_HANDLER_QUERY).await {
+            // A device with a stock launcher always has Home handlers, so an
+            // empty list is an unreadable answer, not an inventory.
             Ok(out) if out.success() && !out.shell_reported_failure() => {
-                Some(parse_home_handler_packages(&out.stdout))
+                Some(parse_home_handler_packages(&out.stdout)).filter(|h| !h.is_empty())
             }
             _ => None,
         }
@@ -2658,6 +2673,75 @@ mod tests {
                 "stock off with the helper unchecked: {calls:?} {:?}",
                 res.last_error
             );
+        }
+
+        #[tokio::test]
+        async fn an_empty_home_inventory_never_leaves_stock_off_with_the_helper_on() {
+            let mock = MockAdb::default()
+                .on_shell("add-role-holder", "Unknown command")
+                .on_shell_failure("set-home-activity", "Error: no such activity")
+                .on_shell("query-activities", "")
+                .on_shell_seq(
+                    "resolve-activity",
+                    &[
+                        &format!("{GTV_STOCK}/.Home"),
+                        &format!("{GTV_STOCK}/.Home"),
+                        "com.example.launcher/.MainActivity",
+                    ],
+                );
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let res = set_default_launcher_impl(
+                &state,
+                "serial",
+                "com.example.launcher",
+                true,
+                &Progress::Silent,
+            )
+            .await
+            .unwrap();
+
+            let calls = log.lock().unwrap();
+            let stock_off = calls
+                .iter()
+                .any(|c| c == &format!("pm disable-user --user 0 {GTV_STOCK}"));
+            let stock_back = calls.iter().any(|c| c == &format!("pm enable {GTV_STOCK}"));
+            assert!(
+                !res.ok && (!stock_off || stock_back),
+                "stock off with the helper unchecked: {calls:?} {:?}",
+                res.last_error
+            );
+        }
+
+        #[tokio::test]
+        async fn a_failed_stock_restore_after_a_helper_error_is_reported() {
+            let query = format!(
+                "    packageName={GTV_STOCK}\n    packageName={WRAITH}\n    packageName=com.example.launcher\n"
+            );
+            let mock = MockAdb::default()
+                .on_shell("query-activities", &query)
+                .on_shell("resolve-activity", "com.example.launcher/.MainActivity")
+                .on_shell_failure(
+                    "disable-user --user 0 com.google.android.tungsten",
+                    "Failure: no",
+                )
+                .on_shell_failure(&format!("pm enable {GTV_STOCK}"), "Failure: no");
+            let state = state_with(mock);
+
+            let res = disable_stock_launcher_impl(
+                &state,
+                "serial",
+                "com.example.launcher",
+                &Progress::Silent,
+            )
+            .await
+            .unwrap();
+
+            let error = res.last_error.unwrap_or_default();
+            assert!(!res.ok);
+            assert!(error.contains("may still be off"), "{error}");
+            assert!(!error.contains("was re-enabled"), "{error}");
         }
 
         #[tokio::test]
