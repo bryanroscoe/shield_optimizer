@@ -281,8 +281,17 @@ async fn setup_helper_states(
     ]);
     let out = adb.shell(serial, &cmd).await.ok()?;
     let sections = shield_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
-    let installed = shield_optimizer_core::adb::parse_installed_packages_output(&sections[0]);
-    let disabled = shield_optimizer_core::adb::parse_disabled_packages_output(&sections[1]);
+    setup_helper_states_from(&sections[0], &sections[1])
+}
+
+/// An Android device always has packages, so an empty installed list is an
+/// unreadable answer, not proof the helper is absent.
+fn setup_helper_states_from(installed: &str, disabled: &str) -> Option<Vec<(String, bool)>> {
+    let installed = shield_optimizer_core::adb::parse_installed_packages_output(installed);
+    if installed.is_empty() {
+        return None;
+    }
+    let disabled = shield_optimizer_core::adb::parse_disabled_packages_output(disabled);
     Some(
         shield_optimizer_core::commands::loader::launchers()
             .transient_home_holders
@@ -372,6 +381,14 @@ pub async fn collect_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_installed_list_is_unknown_not_absent() {
+        assert_eq!(setup_helper_states_from("", ""), None);
+        assert_eq!(setup_helper_states_from("\n", "package:a\n"), None);
+        let some = setup_helper_states_from("package:com.android.settings\n", "");
+        assert_eq!(some, Some(vec![]));
+    }
 
     #[test]
     fn home_handlers_are_read_from_the_real_resolveinfo_shape() {
