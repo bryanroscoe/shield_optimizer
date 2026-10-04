@@ -1591,6 +1591,9 @@
           r.strategy === "disable_stock_takeover"
             ? `${name} is now your default launcher — the stock launcher was disabled to hand it over. Re-enable it from this list any time.`
             : `${name} is now your default launcher.`;
+        // A successful switch only carries `last_error` as a follow-up note
+        // (e.g. the setup helper couldn't be re-enabled).
+        if (r.last_error) launcherActionMessage += ` ${r.last_error}`;
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than

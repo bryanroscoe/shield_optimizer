@@ -113,7 +113,13 @@
         (msg) => (progress = msg),
       );
       if (res.ok) {
-        showToast(`${l.entry.name} is now the default launcher.`, "success");
+        // A successful switch only carries `last_error` as a follow-up note.
+        showToast(
+          res.last_error
+            ? `${l.entry.name} is now the default launcher. ${res.last_error}`
+            : `${l.entry.name} is now the default launcher.`,
+          res.last_error ? "info" : "success",
+        );
         session.invalidateAll();
         await load();
       } else if (res.stock_takeover_available) {

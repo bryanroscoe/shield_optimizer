@@ -817,9 +817,33 @@ pub async fn set_default_launcher_impl(
         set_default_launcher_core(state, serial, package, allow_stock_disable, progress).await?;
     if stock_was_disabled {
         let adb = state.adb_snapshot().await;
-        if let Some(warning) =
-            reenable_paired_helpers(&*adb, serial, package, &mut result.diagnostics).await
+        // Only once stock is confirmed back on: the helper on with stock off
+        // is the state that takes the Home button away.
+        let stock_now_enabled = match adb
+            .shell(serial, &format!("pm list packages -d {package}"))
+            .await
         {
+            Ok(out) if out.success() && !out.shell_reported_failure() => Some(
+                !out.stdout
+                    .lines()
+                    .any(|l| l.trim() == format!("package:{package}")),
+            ),
+            _ => None,
+        };
+        let warning = match stock_now_enabled {
+            Some(true) => {
+                reenable_paired_helpers(&*adb, serial, package, &mut result.diagnostics).await
+            }
+            Some(false) => None,
+            None => Some(
+                "Couldn't confirm the stock launcher is back on, so Google TV's setup helper \
+                 was left off. Use Re-enable Setup Wraith once it is."
+                    .to_string(),
+            ),
+        };
+        // On a successful switch `last_error` is otherwise empty, so the UI
+        // shows this as a note beside the success message.
+        if let Some(warning) = warning {
             result.last_error = Some(match result.last_error.take() {
                 Some(e) => format!("{e} {warning}"),
                 None => warning,
@@ -2846,9 +2870,13 @@ mod tests {
         #[tokio::test]
         async fn enable_and_set_default_on_stock_re_enables_the_paired_helper() {
             let mock = MockAdb::default()
-                .on_shell(
+                .on_shell_seq(
                     "pm list packages -d",
-                    &format!("package:{GTV_STOCK}\npackage:{WRAITH}\n"),
+                    &[
+                        &format!("package:{GTV_STOCK}\npackage:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                    ],
                 )
                 .on_shell("query-activities", &gtv_home_query())
                 .on_shell("get-role-holders", GTV_STOCK)
@@ -2865,6 +2893,89 @@ mod tests {
             assert!(
                 calls.iter().any(|c| c == &format!("pm enable {WRAITH}")),
                 "stock re-enabled but its helper left off: {calls:?}"
+            );
+        }
+
+        /// #158: App List / Optimize Restore re-enable stock through the
+        /// shared enable command, and the helper follows.
+        #[tokio::test]
+        async fn the_shared_enable_command_restores_the_paired_helper() {
+            let mock =
+                MockAdb::default().on_shell("pm list packages -d", &format!("package:{WRAITH}\n"));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let res = crate::commands::apps::enable_package_impl(&state, "serial", GTV_STOCK)
+                .await
+                .unwrap();
+
+            let calls = log.lock().unwrap();
+            assert!(res.ok, "{}", res.message);
+            assert!(
+                calls.iter().any(|c| c == &format!("pm enable {WRAITH}")),
+                "stock back on but its helper left off: {calls:?}"
+            );
+        }
+
+        /// The helper is never turned on while stock is still off: that is
+        /// the state that takes the Home button away.
+        #[tokio::test]
+        async fn a_failed_stock_enable_never_turns_the_helper_on() {
+            let mock = MockAdb::default()
+                .on_shell(
+                    "pm list packages -d",
+                    &format!("package:{GTV_STOCK}\npackage:{WRAITH}\n"),
+                )
+                .on_shell_failure(&format!("pm enable {GTV_STOCK}"), "Error: denied")
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", "com.example.launcher")
+                .on_shell("resolve-activity", "com.example.launcher/.MainActivity");
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let _ =
+                set_default_launcher_impl(&state, "serial", GTV_STOCK, false, &Progress::Silent)
+                    .await
+                    .unwrap();
+
+            let calls = log.lock().unwrap();
+            assert!(
+                !calls.iter().any(|c| c == &format!("pm enable {WRAITH}")),
+                "helper turned on while stock stayed off: {calls:?}"
+            );
+        }
+
+        /// A helper that can't be re-enabled is reported even when the
+        /// switch itself succeeded, so the UI can show it.
+        #[tokio::test]
+        async fn a_failed_helper_re_enable_is_visible_on_a_successful_switch() {
+            let mock = MockAdb::default()
+                .on_shell_seq(
+                    "pm list packages -d",
+                    &[
+                        &format!("package:{GTV_STOCK}\npackage:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                    ],
+                )
+                .on_shell_failure(&format!("pm enable {WRAITH}"), "Error: denied")
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", GTV_STOCK)
+                .on_shell("resolve-activity", &format!("{GTV_STOCK}/.Home"));
+            let state = state_with(mock);
+
+            let res =
+                set_default_launcher_impl(&state, "serial", GTV_STOCK, false, &Progress::Silent)
+                    .await
+                    .unwrap();
+
+            assert!(res.ok, "{:?}", res.last_error);
+            assert!(
+                res.last_error
+                    .as_deref()
+                    .is_some_and(|e| e.contains("Re-enable Setup Wraith")),
+                "{:?}",
+                res.last_error
             );
         }
 

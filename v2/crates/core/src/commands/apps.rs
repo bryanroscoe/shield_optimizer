@@ -538,10 +538,35 @@ pub async fn enable_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
-    if let Some(rejection) = reject_invalid_package(&package) {
+    enable_package_impl(&state, &serial, &package).await
+}
+
+pub(crate) async fn enable_package_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(package) {
         return Ok(rejection);
     }
-    run(&state, &serial, &format!("pm enable {package}")).await
+    let mut result = run(state, serial, &format!("pm enable {package}")).await?;
+    // App List and Optimize Restore bring a disabled stock launcher back
+    // through here, so its paired setup helper (Setup Wraith) follows (#158).
+    if result.ok
+        && !super::loader::launchers()
+            .disable_with_for(package)
+            .is_empty()
+    {
+        let adb = state.adb_snapshot().await;
+        let mut diagnostics = Vec::new();
+        if let Some(warning) =
+            super::launcher::reenable_paired_helpers(&*adb, serial, package, &mut diagnostics).await
+        {
+            result.message.push_str(&format!(" {warning}"));
+        }
+        tracing::info!(serial, package, diagnostics = ?diagnostics, "stock enable: paired helper");
+    }
+    Ok(result)
 }
 
 /// `trim_caches` — ask the package manager to clear app caches device-wide.
