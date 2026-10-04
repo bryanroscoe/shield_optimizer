@@ -65,6 +65,15 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- **Disabling the stock launcher from the App List or Optimize left Setup Wraith on**
+  ([#157](https://github.com/bryanroscoe/shield_optimizer/issues/157)). Every way of
+  disabling Google TV's stock launcher now turns Setup Wraith off with it, once another
+  launcher holds Home, using the same checks as Disable stock launcher. If no other
+  launcher holds Home yet, Setup Wraith is left on and the app says how to finish.
+- **"Enable & set default" on the stock launcher left Setup Wraith off**
+  ([#158](https://github.com/bryanroscoe/shield_optimizer/issues/158)). Turning the stock
+  launcher back on by any route now turns Setup Wraith back on too, on desktop and mobile.
+
 - **Disabling the stock launcher on Google TV now turns off Setup Wraith too, so
   it can't take the Home button back** (#122). Google TV's setup helper
   (`com.google.android.tungsten.setupwraith`) declares a Home screen, and with
