@@ -466,13 +466,42 @@ pub(crate) async fn disable_package_impl(
     } else {
         None
     };
-    let mut result = run(
+    let outcome = run(
         state,
         serial,
         &format!("pm disable-user --user 0 {package}"),
     )
-    .await?;
-    if pairs_helper && result.ok {
+    .await;
+    if !pairs_helper {
+        return outcome;
+    }
+    // An errored or failure-marked disable may still have landed (the
+    // takeover path assumes the same), and stock off with its helper on is
+    // the unsafe state, so ask the device rather than trust the reply.
+    let landed = match &outcome {
+        Ok(r) if r.ok => true,
+        _ => {
+            let adb = state.adb_snapshot().await;
+            matches!(
+                adb.shell(serial, &format!("pm list packages -d {package}")).await,
+                Ok(out) if out.success()
+                    && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
+            )
+        }
+    };
+    let mut result = match outcome {
+        Ok(r) if r.ok => r,
+        Ok(r) if landed => ActionResult {
+            ok: true,
+            message: r.message,
+        },
+        Err(_) if landed => ActionResult {
+            ok: true,
+            message: format!("{package} was disabled (the device's reply was lost)."),
+        },
+        other => return other,
+    };
+    if result.ok {
         let adb = state.adb_snapshot().await;
         let mut diagnostics = Vec::new();
         use super::launcher::PairedHelperOutcome as Outcome;

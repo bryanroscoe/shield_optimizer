@@ -517,11 +517,31 @@ pub async fn apply_snapshot(
                 packages_disabled.retain(|p| p != stock);
                 packages_failed.push(format!("{stock} (setup helper: {reason})"));
             }
-            Outcome::LeftOn => helper_notes.push(format!(
-                "{stock} is off but Google TV's setup helper (Setup Wraith) is still on and can \
-                 take the Home button. Set another launcher as Home, then use Turn it off on the \
-                 Launcher tab."
-            )),
+            Outcome::LeftOn => {
+                let helper_also_off = crate::commands::loader::launchers()
+                    .disable_with_for(stock)
+                    .iter()
+                    .any(|h| packages_disabled.contains(h));
+                if helper_also_off {
+                    // The snapshot turned the helper off too, and no other
+                    // launcher took Home: the TV may have no Home screen.
+                    // Bring stock back rather than report the opposite state.
+                    let restore = adb.shell(&serial, &format!("pm enable {stock}")).await;
+                    let restored = matches!(&restore, Ok(out) if out.success() && !out.shell_reported_failure());
+                    packages_disabled.retain(|p| p != stock);
+                    packages_failed.push(if restored {
+                        format!("{stock} (turned back on: no other launcher took Home)")
+                    } else {
+                        format!("{stock} (no other launcher took Home and turning it back on failed; use Emergency Recovery)")
+                    });
+                } else {
+                    helper_notes.push(format!(
+                        "{stock} is off but Google TV's setup helper (Setup Wraith) is still on and \
+                         can take the Home button. Set another launcher as Home, then use Turn it \
+                         off on the Launcher tab."
+                    ));
+                }
+            }
         }
         tracing::info!(serial = %serial, stock = %stock, diagnostics = ?diagnostics, "snapshot: paired helper");
     }

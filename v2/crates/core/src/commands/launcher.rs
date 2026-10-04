@@ -3103,6 +3103,33 @@ mod tests {
             );
         }
 
+        /// A disable whose reply was lost may still have landed: the device
+        /// is asked, and the helper follows if stock is off.
+        #[tokio::test]
+        async fn a_landed_disable_with_a_lost_reply_still_settles_the_helper() {
+            let mock = MockAdb::default()
+                .on_shell_err(
+                    &format!("pm disable-user --user 0 {GTV_STOCK}"),
+                    "device offline",
+                )
+                .on_shell("pm list packages -d", &format!("package:{GTV_STOCK}\n"))
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", "com.example.launcher")
+                .on_shell("resolve-activity", "com.example.launcher/.MainActivity");
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let _ = crate::commands::apps::disable_package_impl(&state, "serial", GTV_STOCK).await;
+
+            let calls = log.lock().unwrap();
+            assert!(
+                calls
+                    .iter()
+                    .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")),
+                "stock off with the helper left on after a lost reply: {calls:?}"
+            );
+        }
+
         #[tokio::test]
         async fn unreadable_home_apps_never_leave_stock_off_with_the_helper_on() {
             let mock = MockAdb::default()
