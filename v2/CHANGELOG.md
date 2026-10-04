@@ -31,6 +31,9 @@ details, restart after updating, patch notes on demand, and a proper right-click
 
 ### Fixed
 
+- **The Memory table cut off long process names and dropped PIDs**
+  ([#97](https://github.com/bryanroscoe/shield_optimizer/issues/97)). Health's Memory
+  table now shows each process's full name and its PID.
 - **Disabling the stock launcher from the App List or Optimize left Setup Wraith on**
   ([#157](https://github.com/bryanroscoe/shield_optimizer/issues/157)). Every way of
   disabling Google TV's stock launcher now turns Setup Wraith off with it, once another
