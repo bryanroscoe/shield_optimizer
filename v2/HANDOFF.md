@@ -1,21 +1,21 @@
 # v2 — current state
 
-v2 is a shipping desktop app. Last **published** version: **2.1.0** (2026-06-22).
+v2 is a shipping desktop app. Last **published** version: **2.3.0** (2026-09-30).
 
 Full release pipeline live: installers built for macOS/Linux/Windows on every `v2-*` tag push via `.github/workflows/v2-release.yml`; macOS also distributed via Homebrew tap (`bryanroscoe/homebrew-shield-optimizer`).
 
 ## Unreleased on `main`
 
-`v2-2.2.0` shipped 2026-09-16. Everything after it — the design-system port, the
-ATV Optimizer rename, and fixes for #88, #119, #120, #121, #122, #123 and #124 — is
-prepared as `v2-2.3.0` in `v2/CHANGELOG.md` (release-prep branch, not yet tagged).
+`v2-2.3.0` shipped 2026-09-30 (the ATV Optimizer rename plus #88, #119–#124).
+`v2-2.3.1` is prepared in `v2/CHANGELOG.md` (Setup Wraith fixes #122/#157/#158, #97,
+#98, #100, #129 and the rest listed there) and waits on the owner's go to tag.
 Things the next reader needs that the code does not say:
 
 - **The app is now ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and
   the updater channel are unchanged on purpose; the WiX UpgradeCode is pinned in
-  `tauri.conf.json` to the value the old name derived. The Homebrew tap change is a
-  draft PR (`homebrew-shield-optimizer#2`) that must merge right before the
-  `v2-2.3.0` tag, not earlier — its `url` names the renamed DMG.
+  `tauri.conf.json` to the value the old name derived. The Homebrew tap change
+  (`homebrew-shield-optimizer#2`) merged with the `v2-2.3.0` release; its `url` names
+  the renamed DMG.
 - **Launchers are data**: `crates/core/data/app-lists/launchers.json`, parsed once in
   `loader.rs`. The Launcher list shows HOME handlers only. An earlier `LEANBACK_LAUNCHER`
   union listed every TV app as a Home app (every TV launch activity carries that
