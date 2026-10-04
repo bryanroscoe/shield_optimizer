@@ -429,6 +429,9 @@ pub async fn apply_snapshot(
     // `None` skips the whole switch ladder.
     let mut launcher_set = false;
     let mut launcher_message = None;
+    // A follow-up from a successful launcher switch (the setup helper couldn't
+    // be re-enabled); the summary carries it so every caller shows it.
+    let mut launcher_note: Option<String> = None;
     if let Some(launcher_pkg) = &plan.launcher_to_set {
         // Reuse the multi-strategy set-default helper from the launcher module.
         // No stock takeover here: a snapshot that had stock disabled carries
@@ -447,6 +450,7 @@ pub async fn apply_snapshot(
             launcher_message = if r.ok {
                 // A successful switch only carries `last_error` as a follow-up
                 // (the setup helper couldn't be re-enabled); keep it visible.
+                launcher_note = r.last_error.clone();
                 Some(match r.last_error {
                     Some(note) => format!(
                         "{launcher_pkg} via {}. {note}",
@@ -463,7 +467,7 @@ pub async fn apply_snapshot(
     let (settings_written, settings_deleted, settings_failed) =
         apply_settings_from_plan(adb.as_ref(), &serial, &plan).await;
 
-    let summary = format!(
+    let mut summary = format!(
         "Disabled {} packages ({} failed). Launcher: {}. {} settings written, {} reset ({} failed).",
         packages_disabled.len(),
         packages_failed.len(),
@@ -472,6 +476,10 @@ pub async fn apply_snapshot(
         settings_deleted.len(),
         settings_failed.len()
     );
+    if let Some(note) = &launcher_note {
+        summary.push(' ');
+        summary.push_str(note);
+    }
 
     Ok(ApplyResult {
         packages_disabled,

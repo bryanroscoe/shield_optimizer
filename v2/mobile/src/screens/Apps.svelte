@@ -435,8 +435,12 @@
         showToast(`${intent.action === "disable" ? "Disabled" : "Uninstalled"} ${label(intent.app)}.`, "success");
         session.invalidateAll();
       } else {
-        if (intent.action === "disable") patch(intent.app.package, true, intent);
+        // A not-ok result can still have landed (stock disabled with its
+        // setup helper left on), so reload the real state instead of
+        // assuming nothing changed.
         showToast(r.message || `${intent.action === "disable" ? "Disable" : "Uninstall"} failed.`, "error");
+        session.invalidateAll();
+        await loadApps(true);
       }
     } catch (e) {
       if (!actionCurrent(request, intent)) return;

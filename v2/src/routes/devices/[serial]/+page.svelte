@@ -1047,7 +1047,13 @@
         || request !== mutationRequest
         || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
       appActionMessage = `${pkg}: ${result.message.trim() || (result.ok ? action === "disable" ? "disabled" : "uninstalled" : "failed")}`;
-      if (!result.ok) return;
+      // A not-ok result can still have landed (stock disabled but its setup
+      // helper left on), so re-read the device rather than guess.
+      if (!result.ok) {
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
+        return;
+      }
       appActionBusy = null;
       if (source === "catalog") setCatalogState(pkg, action === "disable" ? "disabled" : "missing");
       else patchOtherState(pkg, action === "disable" ? false : "removed");
