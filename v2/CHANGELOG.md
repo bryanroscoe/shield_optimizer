@@ -22,46 +22,12 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
-### Added
+## v2-2.3.1 — 2026-10-04
 
-- **Each catalog entry now records when it was reviewed and why** (#101).
-  Entries carry a `reviewed_at` date and their `sources`, plus a
-  `device_scope` on the Shield and Google TV lists. All 89 entries were dated
-  from git history. Tests reject malformed or future dates, and they reject any
-  scope that disagrees with the list the entry lives in. They also require
-  every Safe entry to carry a date. The app detail panel shows "Reviewed
-  <date>" beside a catalog verdict.
-- **A local triage tool for user reports** (#101). `tools/registry-triage`
-  reads a folder of mobile diagnostics exports and desktop bug-report
-  bundles. It prints the packages they mention, with report counts, device
-  scope and today's verdict, for a person to review. It never writes the
-  catalog, and a report never makes an app Safe.
-- **Report this app** (#100). The app detail panel can report an app that is
-  missing from the list, or an entry that looks wrong. You pick a reason, add
-  an optional note, and see the exact report: the package and app name, the
-  device family and Android version, and the verdict shown with its source.
-  The installed and enabled state, RAM and storage go in only if you tick the
-  box. It never includes a serial, an IP address or any other app. Nothing is
-  sent automatically: you can copy it, save it as a file that `registry-triage`
-  reads, or open a prefilled GitHub issue that you submit yourself. A report
-  asks for a review and never changes an app's verdict.
-
-### App details
-
-- **Installed storage, separate from RAM.** Opening any app row now shows the
-  app's installed size, its data and its cache, read in one batch from
-  Android's `dumpsys diskstats`. Data includes cache, so the two are never
-  added together. When diskstats has no row for an app, the panel falls back to
-  the size of its APK files and says that data and cache are unavailable.
-- **Every figure says where it came from and when.** RAM is PSS from
-  `dumpsys meminfo`, storage is from `diskstats`, and last used is from
-  `usagestats`, which keeps roughly a year of history. Each one shows the time
-  it was read. A read that failed shows "Unavailable" with the reason, never a
-  zero. A **Re-measure** button reads all three again.
-- **One detail panel everywhere.** The App List, "Everything else" and the
-  Optimize wizard all open the same panel with the same numbers. The panel is
-  read-only: removing or restoring an app still goes through the row's
-  existing, safety-checked buttons.
+Fixes for Google TV launcher switching (#122, #157, #158): Setup Wraith, Google TV's setup
+helper, no longer takes the Home button back after you change launchers, and every way of
+turning the stock launcher off or on now handles it. Also: Report this app, app storage
+details, restart after updating, patch notes on demand, and a proper right-click menu.
 
 ### Fixed
 
@@ -156,10 +122,49 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Added
 
+- **Each catalog entry now records when it was reviewed and why** (#101).
+  Entries carry a `reviewed_at` date and their `sources`, plus a
+  `device_scope` on the Shield and Google TV lists. All 89 entries were dated
+  from git history. Tests reject malformed or future dates, and they reject any
+  scope that disagrees with the list the entry lives in. They also require
+  every Safe entry to carry a date. The app detail panel shows "Reviewed
+  <date>" beside a catalog verdict.
+- **A local triage tool for user reports** (#101). `tools/registry-triage`
+  reads a folder of mobile diagnostics exports and desktop bug-report
+  bundles. It prints the packages they mention, with report counts, device
+  scope and today's verdict, for a person to review. It never writes the
+  catalog, and a report never makes an app Safe.
+- **Report this app** (#100). The app detail panel can report an app that is
+  missing from the list, or an entry that looks wrong. You pick a reason, add
+  an optional note, and see the exact report: the package and app name, the
+  device family and Android version, and the verdict shown with its source.
+  The installed and enabled state, RAM and storage go in only if you tick the
+  box. It never includes a serial, an IP address or any other app. Nothing is
+  sent automatically: you can copy it, save it as a file that `registry-triage`
+  reads, or open a prefilled GitHub issue that you submit yourself. A report
+  asks for a review and never changes an app's verdict.
+
 - **Patch notes are always one click away.** Click the version next to the app
   name to see the last few releases, newest first, with the installed one
   open and older ones collapsed, plus a link to every release on GitHub. They
   are bundled with the app, so this works offline.
+
+### App details
+
+- **Installed storage, separate from RAM.** Opening any app row now shows the
+  app's installed size, its data and its cache, read in one batch from
+  Android's `dumpsys diskstats`. Data includes cache, so the two are never
+  added together. When diskstats has no row for an app, the panel falls back to
+  the size of its APK files and says that data and cache are unavailable.
+- **Every figure says where it came from and when.** RAM is PSS from
+  `dumpsys meminfo`, storage is from `diskstats`, and last used is from
+  `usagestats`, which keeps roughly a year of history. Each one shows the time
+  it was read. A read that failed shows "Unavailable" with the reason, never a
+  zero. A **Re-measure** button reads all three again.
+- **One detail panel everywhere.** The App List, "Everything else" and the
+  Optimize wizard all open the same panel with the same numbers. The panel is
+  read-only: removing or restoring an app still goes through the row's
+  existing, safety-checked buttons.
 
 ## v2-2.3.0 — 2026-09-30
 

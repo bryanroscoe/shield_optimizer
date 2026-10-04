@@ -23,24 +23,17 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
 - **[`docs/ARCHIVE-INDEX.md`](docs/ARCHIVE-INDEX.md)** points at bulk working material kept outside
   this repo on Bryan's machine.
 
-### What is in flight right now (2026-09-29)
+### What is in flight right now (2026-10-04)
 
-`v2-2.2.0` shipped 2026-09-16, carrying all five user reports: #86 SmartTube backups, #87 Sony
-launcher, #88 TCL discovery (partial), #89 macOS volume prompts, #91 Remote paste. Only #91 has
-been seen working by anyone; #87 and #89 are still unconfirmed on the reporters' hardware.
+`v2-2.3.0` shipped 2026-09-30 (the ATV Optimizer rename plus #88, #119–#124). `v2-2.3.1` is
+prepared on `release-prep-2.3.1`: the Google TV Setup Wraith fixes (#122, #157, #158), Report this
+app (#100), app storage details (#98), restart after updating and patch notes on demand, the
+right-click menu (#129), and the #97/#99/#135/#138/#139/#143/#147 fixes. It waits on the owner's
+go before `v2/release.sh --set 2.3.1`.
 
-`v2-2.3.0` is prepared but not tagged: the ATV Optimizer rename plus fixes for #88 (pairing
-dead-end), #119 (dead-end update badge), #120 (real TVs refused as "not an Android TV"), #121
-(Monet Launcher), #122 (launcher-switch false failure), #123 (Screensaver tweak) and #124 (license).
-It is on the `release-prep-2.3.0` branch/PR, gated on CI, a Codex review pass and the device script
-below before the owner cuts the `v2-2.3.0` tag. The Homebrew tap PR
-(`bryanroscoe/homebrew-shield-optimizer#2`) must merge right before that tag, not earlier.
-
-The remaining gate before tagging is the device script in
-[`docs/RELEASE-DECISION-2026-09-09.md`](docs/RELEASE-DECISION-2026-09-09.md), including its
-`v2-2.3.0` addendum (section 7) covering the Windows in-place upgrade, the macOS DMG install over
-the old app name, the launcher Advanced picker, and the other new risk areas. `v2/CHANGELOG.md`
-already has the `v2-2.3.0` section the release workflow will read.
+Still open and not code work: #122 needs a reporter on Google TV to confirm the Setup Wraith fix
+once 2.3.1 ships; #123 needs Glance's package id from its reporter; #93 and #105 need a real
+phone and TV.
 
 The mobile companion app (`v2/mobile/`) has its own authoritative handoff at
 [`v2/mobile/HANDOFF.md`](v2/mobile/HANDOFF.md). Its safety story depends on never claiming more
