@@ -151,10 +151,10 @@
     try {
       const res = await api.disableLauncher(session.serial, l.entry.package);
       showToast(res.message || (res.ok ? "Disabled." : "Couldn't disable."), res.ok ? "success" : "error");
-      if (res.ok) {
-        session.invalidateAll();
-        await load();
-      }
+      // Reload on not-ok too: stock can be disabled with its setup helper
+      // left on, and the row must show the TV's real state.
+      session.invalidateAll();
+      await load();
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
       else showToast(String(e), "error");

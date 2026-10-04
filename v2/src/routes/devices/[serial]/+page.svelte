@@ -857,6 +857,10 @@
         appActionBusy = null;
         patchOtherState(pkg, true);
         invalidateDeviceCaches();
+      } else {
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
@@ -1106,6 +1110,10 @@
         appActionBusy = null;
         setCatalogState(pkg, "enabled");
         invalidateDeviceCaches();
+      } else {
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
@@ -1146,6 +1154,10 @@
         appActionBusy = null;
         setCatalogState(pkg, "enabled");
         invalidateDeviceCaches();
+      } else {
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
@@ -1426,7 +1438,10 @@
     try {
       const r = await api.enablePackage(serial, pkg);
       if (!r.ok) {
-        launcherActionMessage = `Couldn't enable ${name}: ${r.message.trim() || "failed"}`;
+        launcherActionMessage = `Couldn't fully enable ${name}: ${r.message.trim() || "failed"}`;
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        await loadLauncher();
+        invalidateDeviceCaches();
         return;
       }
       // Re-enabling a stock launcher undoes its takeover, which also turned
@@ -1546,7 +1561,10 @@
         invalidateDeviceCaches();
         launcherActionMessage = `${name} disabled.`;
       } else {
-        launcherActionMessage = `Couldn't disable ${name}: ${r.message.trim() || "failed"}`;
+        launcherActionMessage = `Couldn't fully disable ${name}: ${r.message.trim() || "failed"}`;
+        // Not-ok can still have landed (stock disabled, its setup helper left on).
+        await loadLauncher();
+        invalidateDeviceCaches();
       }
     } catch (e) {
       launcherActionMessage = String(e);

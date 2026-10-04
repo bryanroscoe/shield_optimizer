@@ -299,8 +299,11 @@
         showToast(`Enabled ${label(app)}`, "success");
         session.invalidateAll();
       } else {
-        patch(app.package, false, identity);
+        // Not-ok can still have landed (stock enabled, its setup helper not),
+        // so reload the real state instead of reverting the row.
         showToast(r.message || "Action failed.", "error");
+        session.invalidateAll();
+        await loadApps(true);
       }
     } catch (e) {
       if (!actionCurrent(request, identity)) return;
