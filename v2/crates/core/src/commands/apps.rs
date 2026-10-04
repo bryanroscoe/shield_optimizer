@@ -449,12 +449,60 @@ pub(crate) async fn disable_package_impl(
         return Ok(refusal);
     }
     state.require_pro(Feature::CuratedDebloat)?;
-    run(
+    // A stock launcher with a paired setup helper (Google TV's Setup Wraith):
+    // read the Home apps before disabling it, so the helper can follow (#157).
+    let pairs_helper = !super::loader::launchers()
+        .disable_with_for(package)
+        .is_empty();
+    let inventory = if pairs_helper {
+        let adb = state.adb_snapshot().await;
+        match adb.shell(serial, super::launcher::HOME_HANDLER_QUERY).await {
+            Ok(out) if out.success() && !out.shell_reported_failure() => {
+                Some(super::launcher::parse_home_handler_packages(&out.stdout))
+                    .filter(|h| !h.is_empty())
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let mut result = run(
         state,
         serial,
         &format!("pm disable-user --user 0 {package}"),
     )
-    .await
+    .await?;
+    if pairs_helper && result.ok {
+        let adb = state.adb_snapshot().await;
+        let mut diagnostics = Vec::new();
+        use super::launcher::PairedHelperOutcome as Outcome;
+        match super::launcher::settle_paired_helpers_after_stock_disable(
+            &*adb,
+            serial,
+            package,
+            inventory.as_deref(),
+            &mut diagnostics,
+        )
+        .await
+        {
+            Outcome::Untouched => {}
+            Outcome::Disabled { target } => result.message.push_str(&format!(
+                " Google TV's setup helper (Setup Wraith) was turned off too, so {target} keeps the Home button."
+            )),
+            Outcome::RolledBack { reason } => {
+                result.ok = false;
+                result.message = format!(
+                    "Couldn't turn off Google TV's setup helper after disabling {package}: {reason}."
+                );
+            }
+            Outcome::LeftOn => result.message.push_str(
+                " Google TV's setup helper (Setup Wraith) is still on and can take the Home button. \
+                 Set another launcher as Home, then use Turn it off on the Launcher tab.",
+            ),
+        }
+        tracing::info!(serial, package, diagnostics = ?diagnostics, "stock disable: paired helper");
+    }
+    Ok(result)
 }
 
 /// `Some(refusal)` when disabling `package` would leave the device without an
