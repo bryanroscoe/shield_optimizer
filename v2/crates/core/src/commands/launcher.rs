@@ -218,6 +218,70 @@ pub async fn set_home_any_impl(
     package: &str,
     activity: Option<&str>,
 ) -> Result<SetHomeAnyResult, String> {
+    // Picking a disabled stock launcher here enables it, so its paired setup
+    // helper follows, once stock is confirmed back on (#158).
+    let stock_was_disabled = stock_is_disabled_with_helper(state, serial, package).await;
+    let mut result = set_home_any_core(state, serial, package, activity).await?;
+    if stock_was_disabled {
+        if let Some(warning) =
+            restore_helper_if_stock_enabled(state, serial, package, &mut result.diagnostics).await
+        {
+            result.message = format!("{} {warning}", result.message);
+        }
+    }
+    Ok(result)
+}
+
+/// A stock launcher with a paired setup helper, currently disabled.
+async fn stock_is_disabled_with_helper(state: &AppState, serial: &str, package: &str) -> bool {
+    if !launchers().is_stock(package) || launchers().disable_with_for(package).is_empty() {
+        return false;
+    }
+    let adb = state.adb_snapshot().await;
+    matches!(
+        adb.shell(serial, &format!("pm list packages -d {package}")).await,
+        Ok(out) if out.success()
+            && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
+    )
+}
+
+/// Re-enable `stock`'s paired helpers only once stock is confirmed enabled;
+/// the helper on with stock off is the state that takes the Home button.
+async fn restore_helper_if_stock_enabled(
+    state: &AppState,
+    serial: &str,
+    stock: &str,
+    diagnostics: &mut Vec<String>,
+) -> Option<String> {
+    let adb = state.adb_snapshot().await;
+    let stock_now_enabled = match adb
+        .shell(serial, &format!("pm list packages -d {stock}"))
+        .await
+    {
+        Ok(out) if out.success() && !out.shell_reported_failure() => Some(
+            !out.stdout
+                .lines()
+                .any(|l| l.trim() == format!("package:{stock}")),
+        ),
+        _ => None,
+    };
+    match stock_now_enabled {
+        Some(true) => reenable_paired_helpers(&*adb, serial, stock, diagnostics).await,
+        Some(false) => None,
+        None => Some(
+            "Couldn't confirm the stock launcher is back on, so Google TV's setup helper \
+             was left off. Use Re-enable Setup Wraith once it is."
+                .to_string(),
+        ),
+    }
+}
+
+async fn set_home_any_core(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    activity: Option<&str>,
+) -> Result<SetHomeAnyResult, String> {
     let mut diagnostics = Vec::new();
     let refuse = |message: String, diagnostics: Vec<String>| SetHomeAnyResult {
         ok: false,
@@ -802,48 +866,15 @@ pub async fn set_default_launcher_impl(
     // "Enable & set default" on a disabled stock launcher: once stock is back
     // on, its paired setup helper comes back too (#158). Decided from the
     // package state before the switch, not from the switch's transcript.
-    let stock_was_disabled =
-        if launchers().is_stock(package) && !launchers().disable_with_for(package).is_empty() {
-            let adb = state.adb_snapshot().await;
-            matches!(
-                adb.shell(serial, &format!("pm list packages -d {package}")).await,
-                Ok(out) if out.success()
-                    && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
-            )
-        } else {
-            false
-        };
+    let stock_was_disabled = stock_is_disabled_with_helper(state, serial, package).await;
     let mut result =
         set_default_launcher_core(state, serial, package, allow_stock_disable, progress).await?;
     if stock_was_disabled {
-        let adb = state.adb_snapshot().await;
-        // Only once stock is confirmed back on: the helper on with stock off
-        // is the state that takes the Home button away.
-        let stock_now_enabled = match adb
-            .shell(serial, &format!("pm list packages -d {package}"))
-            .await
-        {
-            Ok(out) if out.success() && !out.shell_reported_failure() => Some(
-                !out.stdout
-                    .lines()
-                    .any(|l| l.trim() == format!("package:{package}")),
-            ),
-            _ => None,
-        };
-        let warning = match stock_now_enabled {
-            Some(true) => {
-                reenable_paired_helpers(&*adb, serial, package, &mut result.diagnostics).await
-            }
-            Some(false) => None,
-            None => Some(
-                "Couldn't confirm the stock launcher is back on, so Google TV's setup helper \
-                 was left off. Use Re-enable Setup Wraith once it is."
-                    .to_string(),
-            ),
-        };
         // On a successful switch `last_error` is otherwise empty, so the UI
         // shows this as a note beside the success message.
-        if let Some(warning) = warning {
+        if let Some(warning) =
+            restore_helper_if_stock_enabled(state, serial, package, &mut result.diagnostics).await
+        {
             result.last_error = Some(match result.last_error.take() {
                 Some(e) => format!("{e} {warning}"),
                 None => warning,
@@ -2862,7 +2893,11 @@ mod tests {
                     .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")),
                 "helper disabled with no launcher to take Home: {calls:?}"
             );
-            assert!(res.message.contains("still on"), "{}", res.message);
+            assert!(
+                !res.ok && res.message.contains("still on"),
+                "{}",
+                res.message
+            );
         }
 
         /// #158: "Enable & set default" on a disabled stock launcher brings
@@ -2976,6 +3011,57 @@ mod tests {
                     .is_some_and(|e| e.contains("Re-enable Setup Wraith")),
                 "{:?}",
                 res.last_error
+            );
+        }
+
+        /// #158: the Advanced picker enables a disabled stock launcher itself,
+        /// so the helper must follow there too.
+        #[tokio::test]
+        async fn the_advanced_picker_restores_the_paired_helper_with_stock() {
+            let mock = MockAdb::default()
+                .on_shell_seq(
+                    "pm list packages -d",
+                    &[
+                        &format!("package:{GTV_STOCK}\npackage:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                    ],
+                )
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", GTV_STOCK)
+                .on_shell("resolve-activity", &format!("{GTV_STOCK}/.Home"));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let _ = set_home_any_impl(&state, "serial", GTV_STOCK, None)
+                .await
+                .unwrap();
+
+            let calls = log.lock().unwrap();
+            assert!(
+                calls.iter().any(|c| c == &format!("pm enable {WRAITH}")),
+                "stock enabled by the picker but its helper left off: {calls:?}"
+            );
+        }
+
+        /// A stock enable whose helper can't follow is reported as not-ok, so
+        /// Optimize and the App List show it instead of "Enabled".
+        #[tokio::test]
+        async fn a_shared_enable_with_a_failed_helper_restore_is_not_reported_as_done() {
+            let mock = MockAdb::default()
+                .on_shell("pm list packages -d", &format!("package:{WRAITH}\n"))
+                .on_shell_failure(&format!("pm enable {WRAITH}"), "Error: denied");
+            let state = state_with(mock);
+
+            let res = crate::commands::apps::enable_package_impl(&state, "serial", GTV_STOCK)
+                .await
+                .unwrap();
+
+            assert!(!res.ok, "{}", res.message);
+            assert!(
+                res.message.contains("Re-enable Setup Wraith"),
+                "{}",
+                res.message
             );
         }
 

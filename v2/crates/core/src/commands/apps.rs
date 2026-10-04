@@ -495,10 +495,16 @@ pub(crate) async fn disable_package_impl(
                     "Couldn't turn off Google TV's setup helper after disabling {package}: {reason}."
                 );
             }
-            Outcome::LeftOn => result.message.push_str(
-                " Google TV's setup helper (Setup Wraith) is still on and can take the Home button. \
-                 Set another launcher as Home, then use Turn it off on the Launcher tab.",
-            ),
+            // Reported as not-ok so every caller shows it: a success toast
+            // would hide that the helper can still take the Home button.
+            Outcome::LeftOn => {
+                result.ok = false;
+                result.message = format!(
+                    "{package} was disabled, but Google TV's setup helper (Setup Wraith) is still \
+                     on and can take the Home button. Set another launcher as Home, then use Turn \
+                     it off on the Launcher tab."
+                );
+            }
         }
         tracing::info!(serial, package, diagnostics = ?diagnostics, "stock disable: paired helper");
     }
@@ -562,7 +568,10 @@ pub(crate) async fn enable_package_impl(
         if let Some(warning) =
             super::launcher::reenable_paired_helpers(&*adb, serial, package, &mut diagnostics).await
         {
-            result.message.push_str(&format!(" {warning}"));
+            // Not-ok so Optimize and the App List show it rather than a plain
+            // "Enabled": stock is back, the helper is not.
+            result.ok = false;
+            result.message = format!("{package} was enabled. {warning}");
         }
         tracing::info!(serial, package, diagnostics = ?diagnostics, "stock enable: paired helper");
     }
