@@ -857,6 +857,10 @@
         appActionBusy = null;
         patchOtherState(pkg, true);
         invalidateDeviceCaches();
+      } else {
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
@@ -1047,7 +1051,13 @@
         || request !== mutationRequest
         || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
       appActionMessage = `${pkg}: ${result.message.trim() || (result.ok ? action === "disable" ? "disabled" : "uninstalled" : "failed")}`;
-      if (!result.ok) return;
+      // A not-ok result can still have landed (stock disabled but its setup
+      // helper left on), so re-read the device rather than guess.
+      if (!result.ok) {
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
+        return;
+      }
       appActionBusy = null;
       if (source === "catalog") setCatalogState(pkg, action === "disable" ? "disabled" : "missing");
       else patchOtherState(pkg, action === "disable" ? false : "removed");
@@ -1100,6 +1110,10 @@
         appActionBusy = null;
         setCatalogState(pkg, "enabled");
         invalidateDeviceCaches();
+      } else {
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
@@ -1140,6 +1154,10 @@
         appActionBusy = null;
         setCatalogState(pkg, "enabled");
         invalidateDeviceCaches();
+      } else {
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        invalidateDeviceCaches();
+        void resyncAfterBulkChange();
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
@@ -1420,7 +1438,10 @@
     try {
       const r = await api.enablePackage(serial, pkg);
       if (!r.ok) {
-        launcherActionMessage = `Couldn't enable ${name}: ${r.message.trim() || "failed"}`;
+        launcherActionMessage = `Couldn't fully enable ${name}: ${r.message.trim() || "failed"}`;
+        // Not-ok can still have landed (stock enabled, its setup helper not).
+        await loadLauncher();
+        invalidateDeviceCaches();
         return;
       }
       // Re-enabling a stock launcher undoes its takeover, which also turned
@@ -1540,7 +1561,10 @@
         invalidateDeviceCaches();
         launcherActionMessage = `${name} disabled.`;
       } else {
-        launcherActionMessage = `Couldn't disable ${name}: ${r.message.trim() || "failed"}`;
+        launcherActionMessage = `Couldn't fully disable ${name}: ${r.message.trim() || "failed"}`;
+        // Not-ok can still have landed (stock disabled, its setup helper left on).
+        await loadLauncher();
+        invalidateDeviceCaches();
       }
     } catch (e) {
       launcherActionMessage = String(e);
@@ -1591,6 +1615,9 @@
           r.strategy === "disable_stock_takeover"
             ? `${name} is now your default launcher — the stock launcher was disabled to hand it over. Re-enable it from this list any time.`
             : `${name} is now your default launcher.`;
+        // A successful switch only carries `last_error` as a follow-up note
+        // (e.g. the setup helper couldn't be re-enabled).
+        if (r.last_error) launcherActionMessage += ` ${r.last_error}`;
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than

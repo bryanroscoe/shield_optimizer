@@ -299,8 +299,11 @@
         showToast(`Enabled ${label(app)}`, "success");
         session.invalidateAll();
       } else {
-        patch(app.package, false, identity);
+        // Not-ok can still have landed (stock enabled, its setup helper not),
+        // so reload the real state instead of reverting the row.
         showToast(r.message || "Action failed.", "error");
+        session.invalidateAll();
+        await loadApps(true);
       }
     } catch (e) {
       if (!actionCurrent(request, identity)) return;
@@ -435,8 +438,12 @@
         showToast(`${intent.action === "disable" ? "Disabled" : "Uninstalled"} ${label(intent.app)}.`, "success");
         session.invalidateAll();
       } else {
-        if (intent.action === "disable") patch(intent.app.package, true, intent);
+        // A not-ok result can still have landed (stock disabled with its
+        // setup helper left on), so reload the real state instead of
+        // assuming nothing changed.
         showToast(r.message || `${intent.action === "disable" ? "Disable" : "Uninstall"} failed.`, "error");
+        session.invalidateAll();
+        await loadApps(true);
       }
     } catch (e) {
       if (!actionCurrent(request, intent)) return;

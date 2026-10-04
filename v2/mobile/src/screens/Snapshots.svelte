@@ -119,7 +119,13 @@
     busyPath = p.snap.path;
     try {
       const res = await api.applySnapshot(p.serial, p.snap.path);
-      showToast(res.summary || "Snapshot applied.", res.packages_failed.length || res.settings_failed.length ? "info" : "success");
+      // The summary carries any launcher follow-up (a setup helper that
+      // couldn't be re-enabled); that is not a clean success either.
+      const followUp = res.summary?.includes("Re-enable Setup Wraith");
+      showToast(
+        res.summary || "Snapshot applied.",
+        res.packages_failed.length || res.settings_failed.length || followUp ? "info" : "success",
+      );
       session.invalidateAll();
     } catch (e) {
       if (isLocked(e)) showPaywall = true;

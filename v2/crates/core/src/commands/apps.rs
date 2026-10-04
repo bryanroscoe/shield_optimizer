@@ -449,12 +449,95 @@ pub(crate) async fn disable_package_impl(
         return Ok(refusal);
     }
     state.require_pro(Feature::CuratedDebloat)?;
-    run(
+    // A stock launcher with a paired setup helper (Google TV's Setup Wraith):
+    // read the Home apps before disabling it, so the helper can follow (#157).
+    let pairs_helper = !super::loader::launchers()
+        .disable_with_for(package)
+        .is_empty();
+    let inventory = if pairs_helper {
+        let adb = state.adb_snapshot().await;
+        match adb.shell(serial, super::launcher::HOME_HANDLER_QUERY).await {
+            Ok(out) if out.success() && !out.shell_reported_failure() => {
+                Some(super::launcher::parse_home_handler_packages(&out.stdout))
+                    .filter(|h| !h.is_empty())
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let outcome = run(
         state,
         serial,
         &format!("pm disable-user --user 0 {package}"),
     )
-    .await
+    .await;
+    if !pairs_helper {
+        return outcome;
+    }
+    // An errored or failure-marked disable may still have landed (the
+    // takeover path assumes the same), and stock off with its helper on is
+    // the unsafe state, so ask the device rather than trust the reply.
+    let landed = match &outcome {
+        Ok(r) if r.ok => true,
+        _ => {
+            let adb = state.adb_snapshot().await;
+            matches!(
+                adb.shell(serial, &format!("pm list packages -d {package}")).await,
+                Ok(out) if out.success()
+                    && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
+            )
+        }
+    };
+    let mut result = match outcome {
+        Ok(r) if r.ok => r,
+        Ok(r) if landed => ActionResult {
+            ok: true,
+            message: r.message,
+        },
+        Err(_) if landed => ActionResult {
+            ok: true,
+            message: format!("{package} was disabled (the device's reply was lost)."),
+        },
+        other => return other,
+    };
+    if result.ok {
+        let adb = state.adb_snapshot().await;
+        let mut diagnostics = Vec::new();
+        use super::launcher::PairedHelperOutcome as Outcome;
+        match super::launcher::settle_paired_helpers_after_stock_disable(
+            &*adb,
+            serial,
+            package,
+            inventory.as_deref(),
+            &mut diagnostics,
+        )
+        .await
+        {
+            Outcome::Untouched => {}
+            Outcome::Disabled { target } => result.message.push_str(&format!(
+                " Google TV's setup helper (Setup Wraith) was turned off too, so {target} keeps the Home button."
+            )),
+            Outcome::RolledBack { reason } => {
+                result.ok = false;
+                result.message = format!(
+                    "Couldn't turn off Google TV's setup helper after disabling {package}: {reason}."
+                );
+            }
+            // Reported as not-ok so every caller shows it: a success toast
+            // would hide that the helper can still take the Home button.
+            Outcome::LeftOn => {
+                result.ok = false;
+                result.message = format!(
+                    "{package} was disabled, but Google TV's setup helper (Setup Wraith) is still \
+                     on and can take the Home button. Set another launcher as Home, then use Turn \
+                     it off on the Launcher tab."
+                );
+            }
+        }
+        tracing::info!(serial, package, diagnostics = ?diagnostics, "stock disable: paired helper");
+    }
+    Ok(result)
 }
 
 /// `Some(refusal)` when disabling `package` would leave the device without an
@@ -490,10 +573,38 @@ pub async fn enable_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
-    if let Some(rejection) = reject_invalid_package(&package) {
+    enable_package_impl(&state, &serial, &package).await
+}
+
+pub(crate) async fn enable_package_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(package) {
         return Ok(rejection);
     }
-    run(&state, &serial, &format!("pm enable {package}")).await
+    let mut result = run(state, serial, &format!("pm enable {package}")).await?;
+    // App List and Optimize Restore bring a disabled stock launcher back
+    // through here, so its paired setup helper (Setup Wraith) follows (#158).
+    if result.ok
+        && !super::loader::launchers()
+            .disable_with_for(package)
+            .is_empty()
+    {
+        let adb = state.adb_snapshot().await;
+        let mut diagnostics = Vec::new();
+        if let Some(warning) =
+            super::launcher::reenable_paired_helpers(&*adb, serial, package, &mut diagnostics).await
+        {
+            // Not-ok so Optimize and the App List show it rather than a plain
+            // "Enabled": stock is back, the helper is not.
+            result.ok = false;
+            result.message = format!("{package} was enabled. {warning}");
+        }
+        tracing::info!(serial, package, diagnostics = ?diagnostics, "stock enable: paired helper");
+    }
+    Ok(result)
 }
 
 /// `trim_caches` — ask the package manager to clear app caches device-wide.

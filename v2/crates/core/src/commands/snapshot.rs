@@ -422,13 +422,44 @@ pub async fn apply_snapshot(
     );
 
     // 1. Disable packages from the plan (additive only — never re-enable).
-    let (packages_disabled, packages_failed) =
+    // A stock launcher with a paired setup helper (Google TV's Setup Wraith)
+    // needs the Home apps read before it goes off, so the helper can follow
+    // once Home is settled (#159). Snapshots taken before that fix list stock
+    // without its helper.
+    let paired_stocks: Vec<String> = plan
+        .packages_to_disable
+        .iter()
+        .filter(|p| {
+            !crate::commands::loader::launchers()
+                .disable_with_for(p)
+                .is_empty()
+        })
+        .cloned()
+        .collect();
+    let home_inventory = if paired_stocks.is_empty() {
+        None
+    } else {
+        match adb
+            .shell(&serial, crate::commands::launcher::HOME_HANDLER_QUERY)
+            .await
+        {
+            Ok(out) if out.success() && !out.shell_reported_failure() => Some(
+                crate::commands::launcher::parse_home_handler_packages(&out.stdout),
+            )
+            .filter(|h| !h.is_empty()),
+            _ => None,
+        }
+    };
+    let (mut packages_disabled, mut packages_failed) =
         disable_from_plan(adb.as_ref(), &serial, &plan.packages_to_disable).await;
 
     // 2. Set launcher only when the plan says Home differs from the snapshot's;
     // `None` skips the whole switch ladder.
     let mut launcher_set = false;
     let mut launcher_message = None;
+    // A follow-up from a successful launcher switch (the setup helper couldn't
+    // be re-enabled); the summary carries it so every caller shows it.
+    let mut launcher_note: Option<String> = None;
     if let Some(launcher_pkg) = &plan.launcher_to_set {
         // Reuse the multi-strategy set-default helper from the launcher module.
         // No stock takeover here: a snapshot that had stock disabled carries
@@ -445,20 +476,80 @@ pub async fn apply_snapshot(
         if let Ok(r) = result {
             launcher_set = r.ok;
             launcher_message = if r.ok {
-                Some(format!(
-                    "{launcher_pkg} via {}",
-                    r.strategy.unwrap_or_default()
-                ))
+                // A successful switch only carries `last_error` as a follow-up
+                // (the setup helper couldn't be re-enabled); keep it visible.
+                launcher_note = r.last_error.clone();
+                Some(match r.last_error {
+                    Some(note) => format!(
+                        "{launcher_pkg} via {}. {note}",
+                        r.strategy.unwrap_or_default()
+                    ),
+                    None => format!("{launcher_pkg} via {}", r.strategy.unwrap_or_default()),
+                })
             } else {
                 r.last_error
             };
         }
     }
 
+    // 3. Settle each disabled stock launcher's setup helper now that Home is
+    // where the snapshot wants it.
+    let mut helper_notes: Vec<String> = Vec::new();
+    let landed_stocks: Vec<String> = paired_stocks
+        .iter()
+        .filter(|s| packages_disabled.contains(s))
+        .cloned()
+        .collect();
+    for stock in &landed_stocks {
+        let mut diagnostics = Vec::new();
+        use crate::commands::launcher::PairedHelperOutcome as Outcome;
+        match crate::commands::launcher::settle_paired_helpers_after_stock_disable(
+            adb.as_ref(),
+            &serial,
+            stock,
+            home_inventory.as_deref(),
+            &mut diagnostics,
+        )
+        .await
+        {
+            Outcome::Untouched | Outcome::Disabled { .. } => {}
+            Outcome::RolledBack { reason } => {
+                packages_disabled.retain(|p| p != stock);
+                packages_failed.push(format!("{stock} (setup helper: {reason})"));
+            }
+            Outcome::LeftOn => {
+                let helper_also_off = crate::commands::loader::launchers()
+                    .disable_with_for(stock)
+                    .iter()
+                    .any(|h| packages_disabled.contains(h));
+                if helper_also_off {
+                    // The snapshot turned the helper off too, and no other
+                    // launcher took Home: the TV may have no Home screen.
+                    // Bring stock back rather than report the opposite state.
+                    let restore = adb.shell(&serial, &format!("pm enable {stock}")).await;
+                    let restored = matches!(&restore, Ok(out) if out.success() && !out.shell_reported_failure());
+                    packages_disabled.retain(|p| p != stock);
+                    packages_failed.push(if restored {
+                        format!("{stock} (turned back on: no other launcher took Home)")
+                    } else {
+                        format!("{stock} (no other launcher took Home and turning it back on failed; use Emergency Recovery)")
+                    });
+                } else {
+                    helper_notes.push(format!(
+                        "{stock} is off but Google TV's setup helper (Setup Wraith) is still on and \
+                         can take the Home button. Set another launcher as Home, then use Turn it \
+                         off on the Launcher tab."
+                    ));
+                }
+            }
+        }
+        tracing::info!(serial = %serial, stock = %stock, diagnostics = ?diagnostics, "snapshot: paired helper");
+    }
+
     let (settings_written, settings_deleted, settings_failed) =
         apply_settings_from_plan(adb.as_ref(), &serial, &plan).await;
 
-    let summary = format!(
+    let mut summary = format!(
         "Disabled {} packages ({} failed). Launcher: {}. {} settings written, {} reset ({} failed).",
         packages_disabled.len(),
         packages_failed.len(),
@@ -467,6 +558,14 @@ pub async fn apply_snapshot(
         settings_deleted.len(),
         settings_failed.len()
     );
+    if let Some(note) = &launcher_note {
+        summary.push(' ');
+        summary.push_str(note);
+    }
+    for note in &helper_notes {
+        summary.push(' ');
+        summary.push_str(note);
+    }
 
     Ok(ApplyResult {
         packages_disabled,
