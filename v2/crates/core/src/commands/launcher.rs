@@ -232,17 +232,24 @@ pub async fn set_home_any_impl(
     Ok(result)
 }
 
-/// A stock launcher with a paired setup helper, currently disabled.
+/// Whether the helper may need restoring after this operation: a stock
+/// launcher with a paired setup helper that is disabled, or whose state
+/// couldn't be read (unknown is treated as "may need it", never as "no").
 async fn stock_is_disabled_with_helper(state: &AppState, serial: &str, package: &str) -> bool {
     if !launchers().is_stock(package) || launchers().disable_with_for(package).is_empty() {
         return false;
     }
     let adb = state.adb_snapshot().await;
-    matches!(
-        adb.shell(serial, &format!("pm list packages -d {package}")).await,
-        Ok(out) if out.success()
-            && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
-    )
+    match adb
+        .shell(serial, &format!("pm list packages -d {package}"))
+        .await
+    {
+        Ok(out) if out.success() && !out.shell_reported_failure() => out
+            .stdout
+            .lines()
+            .any(|l| l.trim() == format!("package:{package}")),
+        _ => true,
+    }
 }
 
 /// Re-enable `stock`'s paired helpers only once stock is confirmed enabled;
@@ -3062,6 +3069,37 @@ mod tests {
                 res.message.contains("Re-enable Setup Wraith"),
                 "{}",
                 res.message
+            );
+        }
+
+        /// An unreadable "was stock disabled?" read is unknown, not "no": the
+        /// helper is still restored once stock is confirmed enabled.
+        #[tokio::test]
+        async fn an_unreadable_stock_preflight_still_restores_the_helper() {
+            let mock = MockAdb::default()
+                .on_shell_seq(
+                    "pm list packages -d",
+                    &[
+                        "Error: transient",
+                        &format!("package:{WRAITH}\n"),
+                        &format!("package:{WRAITH}\n"),
+                    ],
+                )
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", GTV_STOCK)
+                .on_shell("resolve-activity", &format!("{GTV_STOCK}/.Home"));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let _ =
+                set_default_launcher_impl(&state, "serial", GTV_STOCK, false, &Progress::Silent)
+                    .await
+                    .unwrap();
+
+            let calls = log.lock().unwrap();
+            assert!(
+                calls.iter().any(|c| c == &format!("pm enable {WRAITH}")),
+                "unknown preflight skipped the helper: {calls:?}"
             );
         }
 

@@ -445,10 +445,15 @@ pub async fn apply_snapshot(
         if let Ok(r) = result {
             launcher_set = r.ok;
             launcher_message = if r.ok {
-                Some(format!(
-                    "{launcher_pkg} via {}",
-                    r.strategy.unwrap_or_default()
-                ))
+                // A successful switch only carries `last_error` as a follow-up
+                // (the setup helper couldn't be re-enabled); keep it visible.
+                Some(match r.last_error {
+                    Some(note) => format!(
+                        "{launcher_pkg} via {}. {note}",
+                        r.strategy.unwrap_or_default()
+                    ),
+                    None => format!("{launcher_pkg} via {}", r.strategy.unwrap_or_default()),
+                })
             } else {
                 r.last_error
             };
