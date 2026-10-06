@@ -53,6 +53,10 @@ async function openApps(t, fixture = packages) {
             return { connected: true, serial: "TV:5555", host: "TV" };
           case "list_other_packages":
             return fixture.map((app) => ({ ...app }));
+          case "app_list_for_device":
+            return [];
+          case "package_states":
+            return {};
           case "app_memory_map":
           case "app_usage_map":
             return {};
@@ -125,7 +129,7 @@ test("search reports empty results and can reveal or clear them", async (t) => {
 
   await page.getByRole("button", { name: "Clear search" }).click();
   await page.getByText("0 of 2 visible", { exact: true }).waitFor();
-  await page.getByText("No enabled apps are available in this non-curated list.", { exact: true }).waitFor();
+  await page.getByText("No enabled apps are available in this view.", { exact: true }).waitFor();
   assert.equal(await page.getByText(/user-installed/).count(), 0);
   assert.deepEqual(await rowNames(page), []);
 });
