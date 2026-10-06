@@ -212,6 +212,47 @@
       <span class="statuspill live"><span class="pdot blink"></span>Loading stats…</span>
     </div>
   {:else}
+    <!-- Optimize call to action. Its count comes from the recommended-app
+         read, not from health, so it stays usable when health fails. -->
+    <div class="health-card">
+      <div class="cta-top">
+        <div class="review-count">
+          <span class="mono count-value">{session.bloatLoading ? "…" : bloatKnown ? session.bloatCount : "—"}</span>
+          <span class="count-label">Enabled</span>
+        </div>
+
+        <div class="health-details">
+          <span class="cta-eyebrow">Optimize</span>
+          <span class="health-title">Recommended app review</span>
+          <span class="health-desc">
+            {#if session.bloatLoading}
+              Checking installed recommended apps…
+            {:else if !bloatKnown}
+              {session.bloatError || "App status unavailable."}
+            {:else if session.bloatCount > 0}
+              {session.bloatCount} of {session.bloatTotal} installed recommended apps are enabled.
+            {:else if session.bloatTotal > 0}
+              No recommended apps are enabled. You can still review optional apps.
+            {:else}
+              No apps from the recommended list are installed. You can still review optional apps.
+            {/if}
+          </span>
+          {#if !session.bloatLoading && !bloatKnown}
+            <button class="optimize-link" onclick={retryBloat}>
+              Retry<span class="msr" aria-hidden="true">refresh</span>
+            </button>
+          {/if}
+        </div>
+      </div>
+
+      <button class="cta-btn" onclick={() => navigate("optimize")}>
+        <span class="msr" aria-hidden="true">auto_fix_high</span>
+        <span class="cta-label">Review app choices</span>
+        {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
+        <span class="msr cta-arrow" aria-hidden="true">arrow_forward</span>
+      </button>
+    </div>
+
     {#if session.healthError}
       <div class="error-card">
         <span class="msr">error</span>
@@ -222,49 +263,6 @@
         <button class="rb-btn" onclick={retryHealth}>Retry</button>
       </div>
     {:else}
-      <!-- Recommended review card -->
-      <div class="health-card">
-        <div class="review-count">
-          <span class="mono count-value">{session.bloatLoading ? "…" : bloatKnown ? session.bloatCount : "—"}</span>
-          <span class="count-label">Enabled</span>
-        </div>
-
-        <div class="health-details">
-          <span class="health-title">Recommended app review</span>
-          {#if session.bloatLoading}
-            <span class="health-desc">Checking installed recommended apps…</span>
-          {:else if !bloatKnown}
-            <span class="health-desc">{session.bloatError || "App status unavailable."}</span>
-            <button class="optimize-link" onclick={retryBloat}>
-              Retry<span class="msr">refresh</span>
-            </button>
-          {:else if session.bloatCount > 0}
-            <span class="health-desc">
-              {session.bloatCount} of {session.bloatTotal} installed recommended apps are enabled.
-            </span>
-            <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Review app choices
-              {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
-              <span class="msr">arrow_forward</span>
-            </button>
-          {:else if session.bloatTotal > 0}
-            <span class="health-desc">No recommended apps are enabled. You can still review optional apps.</span>
-            <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Review app choices
-              {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
-              <span class="msr">arrow_forward</span>
-            </button>
-          {:else}
-            <span class="health-desc">No apps from the recommended list are installed. You can still review optional apps.</span>
-            <button class="optimize-link" onclick={() => navigate("optimize")}>
-              Review app choices
-              {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
-              <span class="msr">arrow_forward</span>
-            </button>
-          {/if}
-        </div>
-      </div>
-
       <!-- Stat Tiles -->
       <div class="stats-grid">
         <button class="stat-tile" onclick={() => navigate("diagnostics")}>
@@ -285,15 +283,27 @@
       </div>
     {/if}
 
+    <span class="section-label">Tune</span>
+    <div class="tune-grid">
+      <button class="tune-tile" onclick={() => navigate("tweaks")}>
+        <span class="msr tune-icon" aria-hidden="true">tune</span>
+        <span class="tune-title">Tweaks</span>
+        <span class="tune-desc">CEC, frame rate, audio, screensaver, DNS</span>
+      </button>
+      <button class="tune-tile" onclick={() => navigate("launcher")}>
+        <span class="msr tune-icon" aria-hidden="true">home</span>
+        <span class="tune-title">
+          Launcher
+          {#if !session.isPro}<span class="pro-marker">PRO</span>{/if}
+        </span>
+        <span class="tune-desc">Set a custom home screen</span>
+      </button>
+    </div>
+
     <!-- Quick Actions -->
     <div class="quick-actions-section">
       <span class="section-label">Quick actions</span>
       <div class="actions-grid">
-        <button class="action-btn" onclick={() => navigate("optimize")}>
-          <span class="msr action-icon primary-color">auto_fix_high</span>
-          <span class="action-text">Optimize</span>
-        </button>
-
         <button class="action-btn" disabled={busyAction !== ""} onclick={handleTrimCaches}>
           {#if busyAction === "trim_caches"}
             <span class="pdot blink"></span><span class="action-text">Trimming…</span>
@@ -580,20 +590,25 @@
     word-break: break-word;
   }
 
-  /* Health Card */
+  /* Optimize CTA card */
   .health-card {
     display: flex;
-    gap: 18px;
-    align-items: center;
-    padding: 20px;
+    flex-direction: column;
+    gap: 16px;
+    padding: 18px;
     border-radius: 22px;
     background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 10%, #141519), #141519);
     border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
     margin-bottom: 8px;
   }
+  .cta-top {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
   .review-count {
-    width: 86px;
-    min-height: 86px;
+    width: 80px;
+    min-height: 80px;
     flex: none;
     display: flex;
     flex-direction: column;
@@ -619,8 +634,16 @@
   .health-details {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 5px;
     min-width: 0;
+  }
+  .cta-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
   }
   .health-title {
     font-size: 17px;
@@ -650,13 +673,85 @@
   .optimize-link .msr {
     font-size: 15px;
   }
+  .cta-btn {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    width: 100%;
+    min-height: 50px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 14px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+  }
+  .cta-btn:active {
+    opacity: 0.9;
+  }
+  .cta-btn .msr {
+    font-size: 20px;
+  }
+  .cta-label {
+    flex: 1;
+  }
+  .cta-btn .pro-marker {
+    background: color-mix(in srgb, var(--accent-ink) 14%, transparent);
+    color: var(--accent-ink);
+  }
   .pro-marker {
     padding: 2px 5px;
     border-radius: 5px;
     background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--accent);
     font-family: var(--mono);
     font-size: 8px;
+    font-weight: 700;
     letter-spacing: 0.06em;
+  }
+
+  /* Tune tiles */
+  .tune-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .tune-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 14px;
+    border-radius: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--sans);
+    color: var(--text);
+  }
+  .tune-tile:active {
+    background: var(--surface-2);
+  }
+  .tune-icon {
+    font-size: 22px;
+    color: var(--accent);
+  }
+  .tune-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .tune-desc {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--muted);
   }
 
   /* Stats Grid */
@@ -700,24 +795,28 @@
   .quick-actions-section {
     display: flex;
     flex-direction: column;
-    gap: 11px;
-    margin-top: 12px;
+  }
+  .quick-actions-section .section-label {
+    margin-bottom: 12px;
   }
   .actions-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 10px;
   }
   .action-btn {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 11px;
-    padding: 14px;
+    justify-content: center;
+    gap: 7px;
+    min-height: 74px;
+    padding: 12px 6px;
+    text-align: center;
     border-radius: 15px;
     background: var(--surface);
     border: 1px solid var(--line);
     cursor: pointer;
-    text-align: left;
     font-family: var(--sans);
     font-size: 13px;
     font-weight: 600;
@@ -734,11 +833,8 @@
     font-size: 22px;
     color: var(--text-soft);
   }
-  .action-icon.primary-color {
-    color: var(--accent);
-  }
   .action-text {
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
   }
   .bottom-callout {
