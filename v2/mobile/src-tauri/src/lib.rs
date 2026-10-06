@@ -277,6 +277,8 @@ pub fn run() {
             file_commands::restore_apk_backup,
             file_commands::list_backups,
             file_commands::delete_backup,
+            file_commands::find_files,
+            file_commands::delete_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ATV Optimizer mobile application")

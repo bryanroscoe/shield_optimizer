@@ -515,3 +515,11 @@ export interface LicenseInfo {
   expires: string | null;
   key_id: number;
 }
+
+/// Result of `find_files` (crates/core commands::files::FindResult).
+/// `unsearched` lists directories the search could not run against at all —
+/// never to be shown as "no matches" (GitHub #86).
+export interface FindResult {
+  hits: string[];
+  unsearched: string[];
+}

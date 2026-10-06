@@ -283,7 +283,8 @@ aarch64-Android; the clean APK has **zero GPL native libs** (only our `libatv_op
   `screens/*.svelte` (14), `components/*.svelte` (8), `app.css` (design tokens + offline @font-face).
 - `v2/mobile/src-tauri/src/` — mobile Tauri app: `lib.rs` (builder + `generate_handler!`),
   `wireless_adb.rs` (adb_client transport = `AdbDriver`), `wireless_commands.rs` (wireless_*),
-  `file_commands.rs` (list_remote_dir/pull_file/backup_apk/list_backups/restore_apk_backup/delete_backup).
+  `file_commands.rs` (list_remote_dir/pull_file/find_files/delete_path/backup_apk/list_backups/
+  restore_apk_backup/delete_backup; find/delete wrap the shared `crates/core` `commands::files`).
 - `v2/mobile/tauri-plugin-atv-adb/` — mDNS discovery plugin (Kotlin NsdManager + thin Rust).
 - `v2/vendor/adb_client/` — vendored MIT transport; `SHIELD-OPTIMIZER-PATCH.md` lists every local
   change (raw service stream, finite timeouts, stray-stream tolerance, `tcp/pairing/`).

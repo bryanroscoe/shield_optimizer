@@ -57,6 +57,7 @@ import type {
   TweaksState,
   WirelessStatus,
   WriteResult,
+  FindResult,
 } from "./types";
 
 type PackageState = "enabled" | "disabled" | "missing";
@@ -290,4 +291,12 @@ export const api = {
   /// the transport the next press will actually use.
   remoteWarm: (serial: string) =>
     call<RemoteWarmResult>("remote_warm", { serial }),
+
+  /// App-files catalog search under /sdcard. Directories that could not be
+  /// searched come back in `unsearched`, distinct from no matches.
+  findFiles: (serial: string, dirs: string[], pattern: string) =>
+    call<FindResult>("find_files", { serial, dirs, pattern }),
+  /// Delete a file or folder on the TV. /sdcard-confined backend-side.
+  deletePath: (serial: string, path: string) =>
+    call<ActionResult>("delete_path", { serial, path }),
 };

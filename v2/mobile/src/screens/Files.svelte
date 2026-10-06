@@ -2,7 +2,18 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
-  import type { FileEntry, PulledFile } from "../lib/types";
+  import type { FileEntry, FindResult, PulledFile } from "../lib/types";
+  import {
+    NO_MATCHES_MESSAGE,
+    appFilesCatalog,
+    baseName,
+    canDeleteOnTv,
+    parentDir,
+    summarizeFind,
+    unsearchedMessage,
+    type AppFilesEntry,
+  } from "../lib/appFiles";
+  import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -28,6 +39,19 @@
   let pulled = $state<PulledFile[]>([]);
   let pulledRemotes = $state<Set<string>>(new Set());
   let busyName = $state("");
+
+  // App-files catalog (#86): per-entry search results for the current TV, and
+  // which entry or found path is busy.
+  let appResults = $state<Record<string, FindResult>>({});
+  let appBusy = $state("");
+
+  // A delete waiting on the confirmation dialog. Carries its own serial so a
+  // TV switch while the dialog is open can't redirect it.
+  let pendingDelete = $state<{ serial: string; path: string; name: string; isDir: boolean } | null>(
+    null,
+  );
+  let deleting = $state(false);
+  let showCatalog = $state(false);
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -78,6 +102,9 @@
     pulled = [];
     pulledRemotes = new Set();
     busyName = "";
+    appResults = {};
+    appBusy = "";
+    pendingDelete = null;
     void load(ROOT);
   });
 
@@ -113,12 +140,83 @@
     busyName = e.name;
     try {
       const file = await api.pullFile(session.serial, remote);
-      pulled = [file, ...pulled.filter((f) => f.path !== file.path)];
-      pulledRemotes = new Set([...pulledRemotes, remote]);
+      recordPulled(file, remote);
       showToast(`Copied ${file.name} into this app's storage.`, "success");
     } catch (err) {
       showToast(String(err), "error");
     } finally {
+      busyName = "";
+    }
+  }
+
+  function recordPulled(file: PulledFile, remote: string) {
+    pulled = [file, ...pulled.filter((f) => f.path !== file.path)];
+    pulledRemotes = new Set([...pulledRemotes, remote]);
+  }
+
+  async function findAppFiles(entry: AppFilesEntry) {
+    const serial = session.serial;
+    if (appBusy || !serial) return;
+    appBusy = entry.id;
+    try {
+      const result = await api.findFiles(serial, entry.search_dirs, entry.pattern);
+      if (serial !== session.serial) return;
+      appResults = { ...appResults, [entry.id]: result };
+    } catch (err) {
+      if (serial !== session.serial) return;
+      // A refused request (or a lost connection) is not a search result — drop
+      // any older answer rather than leave it looking current.
+      const { [entry.id]: _dropped, ...rest } = appResults;
+      appResults = rest;
+      showToast(String(err), "error");
+    } finally {
+      if (serial === session.serial) appBusy = "";
+    }
+  }
+
+  async function pullFound(remote: string) {
+    const serial = session.serial;
+    if (appBusy || busyName || !serial) return;
+    appBusy = remote;
+    try {
+      const file = await api.pullFile(serial, remote);
+      if (serial !== session.serial) return;
+      recordPulled(file, remote);
+      showToast(`Copied ${file.name} into this app's storage.`, "success");
+    } catch (err) {
+      if (serial === session.serial) showToast(String(err), "error");
+    } finally {
+      if (serial === session.serial) appBusy = "";
+    }
+  }
+
+  function askDelete(remote: string, isDir: boolean) {
+    const serial = session.serial;
+    if (!serial || deleting || !canDeleteOnTv(remote)) return;
+    pendingDelete = { serial, path: remote, name: baseName(remote), isDir };
+  }
+
+  async function confirmDelete() {
+    const target = pendingDelete;
+    pendingDelete = null;
+    if (!target || deleting) return;
+    if (target.serial !== session.serial) {
+      showToast("The TV changed before the delete was confirmed. Nothing was deleted.", "error");
+      return;
+    }
+    deleting = true;
+    busyName = target.name;
+    try {
+      const r = await api.deletePath(target.serial, target.path);
+      if (target.serial !== session.serial) return;
+      showToast(r.message, r.ok ? "success" : "error");
+      // Found-file lists may now point at a file that is gone.
+      appResults = {};
+      if (r.ok) await load(loadedPath);
+    } catch (err) {
+      if (target.serial === session.serial) showToast(String(err), "error");
+    } finally {
+      deleting = false;
       busyName = "";
     }
   }
@@ -173,6 +271,88 @@
     </div>
   </div>
 
+  <!-- App-files catalog (#86) -->
+  <div class="catalog">
+    <button
+      class="catalog-toggle"
+      aria-expanded={showCatalog}
+      onclick={() => (showCatalog = !showCatalog)}
+    >
+      <span class="msr">backup</span>
+      <span class="catalog-title">Find app backups</span>
+      <span class="msr">{showCatalog ? "expand_less" : "expand_more"}</span>
+    </button>
+    {#if showCatalog}
+      <p class="catalog-lede">
+        Most apps can export their settings to the TV's storage. Export in the app first, then
+        find the file here and copy it to this phone.
+      </p>
+      {#each appFilesCatalog as entry (entry.id)}
+        {@const result = appResults[entry.id]}
+        {@const summary = result ? summarizeFind(result) : null}
+        <div class="app-entry">
+          <div class="app-head">
+            <div class="f-body">
+              <span class="f-name">{entry.name}</span>
+              <span class="app-hint">{entry.hint}</span>
+            </div>
+            <button
+              class="ghost small"
+              aria-label={`Find ${entry.name} backups`}
+              disabled={appBusy !== "" || !session.serial}
+              onclick={() => findAppFiles(entry)}
+            >
+              <span class="msr">search</span>{appBusy === entry.id ? "Searching…" : "Find"}
+            </button>
+          </div>
+          {#if summary}
+            {#if summary.kind === "unsearched" || (summary.kind === "found" && summary.unsearched.length > 0)}
+              <!-- The search never ran against these, so "no matches" would be a
+                   claim we cannot make. -->
+              <p class="app-note warn" role="alert">
+                <span class="msr">warning</span>{unsearchedMessage(summary.unsearched)}
+              </p>
+            {/if}
+            {#if summary.kind === "none"}
+              <p class="app-note">{NO_MATCHES_MESSAGE}</p>
+            {:else if summary.kind === "found"}
+              <div class="found-list">
+                {#each summary.hits as hit (hit)}
+                  <div class="found-row">
+                    <span class="found-path mono">{hit}</span>
+                    <div class="found-actions">
+                      <button
+                        class="ghost small"
+                        aria-label={`Copy ${baseName(hit)} to this phone`}
+                        disabled={appBusy !== "" || busyName !== ""}
+                        onclick={() => pullFound(hit)}
+                      >
+                        {#if appBusy === hit}
+                          <span class="pdot blink"></span>Copying…
+                        {:else if pulledRemotes.has(hit)}
+                          <span class="msr fill">check_circle</span>Copied
+                        {:else}
+                          <span class="msr">download</span>Copy to phone
+                        {/if}
+                      </button>
+                      <button
+                        class="ghost small"
+                        disabled={appBusy !== ""}
+                        onclick={() => void load(parentDir(hit))}
+                      >
+                        <span class="msr">folder_open</span>Open folder
+                      </button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          {/if}
+        </div>
+      {/each}
+    {/if}
+  </div>
+
   <!-- Breadcrumb -->
   <div class="crumbs mono">
     <button class="crumb" class:active={segments.length === 0} onclick={() => goTo("/")}>
@@ -203,31 +383,44 @@
           {@const remote = remotePathOf(e)}
           {@const done = pulledRemotes.has(remote)}
           {@const busy = busyName === e.name}
-          {#if e.is_dir}
-            <button class="file-row" onclick={() => openDir(e.name)}>
-              <span class="msr f-icon dir">{iconFor(e)}</span>
-              <div class="f-body">
-                <span class="f-name">{e.name}</span>
-                <span class="f-sub mono">folder</span>
-              </div>
-              <span class="msr f-chevron">chevron_right</span>
-            </button>
-          {:else}
-            <button class="file-row" class:done disabled={busyName !== ""} onclick={() => pull(e)}>
-              <span class="msr f-icon">{iconFor(e)}</span>
-              <div class="f-body">
-                <span class="f-name">{e.name}</span>
-                <span class="f-sub mono">{fmtSize(e.size_bytes)}</span>
-              </div>
-              {#if busy}
-                <span class="pdot blink"></span>
-              {:else if done}
-                <span class="msr f-done fill">check_circle</span>
-              {:else}
-                <span class="msr f-dl">download</span>
-              {/if}
-            </button>
-          {/if}
+          {@const deletable = canDeleteOnTv(remote)}
+          <div class="row-wrap">
+            {#if e.is_dir}
+              <button class="file-row" onclick={() => openDir(e.name)}>
+                <span class="msr f-icon dir">{iconFor(e)}</span>
+                <div class="f-body">
+                  <span class="f-name">{e.name}</span>
+                  <span class="f-sub mono">folder</span>
+                </div>
+                <span class="msr f-chevron">chevron_right</span>
+              </button>
+            {:else}
+              <button class="file-row" class:done disabled={busyName !== ""} onclick={() => pull(e)}>
+                <span class="msr f-icon">{iconFor(e)}</span>
+                <div class="f-body">
+                  <span class="f-name">{e.name}</span>
+                  <span class="f-sub mono">{fmtSize(e.size_bytes)}</span>
+                </div>
+                {#if busy}
+                  <span class="pdot blink"></span>
+                {:else if done}
+                  <span class="msr f-done fill">check_circle</span>
+                {:else}
+                  <span class="msr f-dl">download</span>
+                {/if}
+              </button>
+            {/if}
+            {#if deletable}
+              <button
+                class="iconbtn row-delete"
+                aria-label={`Delete ${e.name} from the TV`}
+                disabled={busyName !== "" || deleting}
+                onclick={() => askDelete(remote, e.is_dir)}
+              >
+                <span class="msr">delete</span>
+              </button>
+            {/if}
+          </div>
         {/each}
       </div>
     {/if}
@@ -237,6 +430,7 @@
       <span class="callout-text">
         Files transfer over your LAN — no cloud round-trip. Tap a file to copy it into ATV
         Optimizer's private storage on this phone (not yet exportable to Downloads or other apps).
+        Items under /sdcard can be deleted from the TV with the bin icon.
       </span>
     </div>
 
@@ -257,6 +451,22 @@
 
     <div class="spacer"></div>
   {/if}
+
+  <ConfirmDialog
+    open={pendingDelete !== null}
+    title={pendingDelete?.isDir ? "Delete folder from the TV?" : "Delete file from the TV?"}
+    message={pendingDelete
+      ? pendingDelete.isDir
+        ? `"${pendingDelete.name}" and everything in it will be deleted from ${pendingDelete.path}.`
+        : `"${pendingDelete.name}" will be deleted from ${pendingDelete.path}.`
+      : ""}
+    warning="This cannot be undone. Copies already on this phone are kept."
+    confirmLabel="Delete"
+    danger
+    icon="delete"
+    onConfirm={confirmDelete}
+    onCancel={() => (pendingDelete = null)}
+  />
 
   <Toast message={toast} type={toastType} />
 </div>
@@ -444,6 +654,111 @@
     font-size: 12px;
     line-height: 1.45;
     color: var(--text-soft);
+  }
+
+  .catalog {
+    margin-bottom: 12px;
+    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: 4px 13px;
+  }
+  .catalog-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--sans);
+    padding: 0;
+    cursor: pointer;
+  }
+  .catalog-toggle .msr {
+    font-size: 20px;
+    color: var(--accent);
+  }
+  .catalog-title {
+    flex: 1;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .catalog-lede {
+    margin: 0 0 10px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-soft);
+  }
+  .app-entry {
+    border-top: 1px solid var(--line);
+    padding: 10px 0;
+  }
+  .app-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .app-head .ghost {
+    flex: none;
+  }
+  .app-hint {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .app-note {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-soft);
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .app-note.warn .msr {
+    font-size: 16px;
+    color: var(--amber);
+    flex: none;
+  }
+  .found-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .found-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .found-path {
+    font-size: 11px;
+    color: var(--text-soft);
+    overflow-wrap: anywhere;
+  }
+  .found-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .row-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .row-wrap .file-row {
+    flex: 1;
+    min-width: 0;
+  }
+  .row-delete {
+    flex: none;
+  }
+  .row-delete .msr {
+    color: var(--muted);
   }
 
   .dl-list {

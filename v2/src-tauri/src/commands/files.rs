@@ -7,37 +7,13 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
+use shield_optimizer_core::commands::files::{
+    delete_path_with, find_files_with, validate_device_path, validate_sdcard_path, FindResult,
+};
+
 use crate::adb::{parse_ls_output, FileEntry};
 
 use super::AppState;
-
-/// Validate a device path for file-manager use. Always absolute, no `..`
-/// traversal, no control characters (they'd corrupt the shell line even
-/// quoted). When `allow_system` is false the path must also live under
-/// `/sdcard`; power-user mode lifts only that boundary — the injection guards
-/// stay. Returns the trimmed path.
-fn validate_device_path(path: &str, allow_system: bool) -> Result<String, String> {
-    let p = path.trim();
-    if !p.starts_with('/') {
-        return Err(format!("Path must be absolute: {p:?}"));
-    }
-    if p.split('/').any(|seg| seg == "..") {
-        return Err("Path traversal (`..`) is not allowed.".to_string());
-    }
-    if p.chars().any(|c| c.is_control()) {
-        return Err("Path contains control characters.".to_string());
-    }
-    if !allow_system && p != "/sdcard" && !p.starts_with("/sdcard/") {
-        return Err(format!("Path must be under /sdcard: {p:?}"));
-    }
-    Ok(p.to_string())
-}
-
-/// `/sdcard`-confined validation — for the paths that are user-storage only by
-/// design (the device-to-device copy and the backup finder).
-fn validate_sdcard_path(path: &str) -> Result<String, String> {
-    validate_device_path(path, false)
-}
 
 /// Single-quote a validated device path for the device-side shell.
 fn quote_path(p: &str) -> String {
@@ -212,30 +188,10 @@ fn sanitize_temp(name: &str) -> String {
         .collect()
 }
 
-/// Refuse deleting the filesystem root, `/sdcard` itself, or a critical system
-/// mount even in power-user mode — a recursive delete there could brick the
-/// device. Subpaths are the user's call (and mostly permission-denied without
-/// root). Returns the refusal message, or `None` if the path is deletable.
-fn protected_delete_reason(path: &str) -> Option<String> {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed == "/sdcard" {
-        return Some("Refusing to delete /sdcard itself.".to_string());
-    }
-    const PROTECTED: &[&str] = &[
-        "", "/system", "/data", "/vendor", "/proc", "/sys", "/dev", "/boot", "/init", "/sbin",
-        "/bin", "/etc",
-    ];
-    if PROTECTED.contains(&trimmed) {
-        return Some(format!(
-            "Refusing to delete a protected system path: {path}"
-        ));
-    }
-    None
-}
-
 /// `delete_path` — remove a file or directory (recursively). Confined to
 /// `/sdcard` unless `allow_system` (power-user) is set; the UI confirms before
-/// calling, and `protected_delete_reason` still blocks catastrophic targets.
+/// calling, and core's `protected_delete_reason` still blocks catastrophic
+/// targets.
 #[tauri::command]
 pub async fn delete_path(
     state: State<'_, AppState>,
@@ -243,61 +199,17 @@ pub async fn delete_path(
     path: String,
     allow_system: bool,
 ) -> Result<FileTransferResult, String> {
-    let path = validate_device_path(&path, allow_system)?;
-    if let Some(reason) = protected_delete_reason(&path) {
-        return Err(reason);
-    }
     let adb = state.adb_snapshot().await;
-    let out = adb
-        .shell(&serial, &format!("rm -rf {}", quote_path(&path)))
-        .await
-        .map_err(|e| format!("rm: {e}"))?;
-    let noise = out.combined().trim().to_string();
-    if noise.is_empty() {
-        Ok(FileTransferResult {
-            ok: true,
-            message: format!("Deleted {path}."),
-            local_path: None,
-        })
-    } else {
-        Ok(FileTransferResult {
-            ok: false,
-            message: noise,
-            local_path: None,
-        })
-    }
-}
-
-/// Filename patterns for `find -name`: glob stars and dots only — no slashes,
-/// quotes, or anything the shell could reinterpret.
-fn validate_find_pattern(pattern: &str) -> Result<(), String> {
-    let ok = !pattern.is_empty()
-        && pattern.len() <= 64
-        && pattern
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '*' | '.' | '_' | '-'));
-    if ok {
-        Ok(())
-    } else {
-        Err(format!("Invalid search pattern: {pattern:?}"))
-    }
-}
-
-#[derive(Serialize)]
-pub struct FindResult {
-    /// Matching file paths, capped at 100.
-    pub hits: Vec<String>,
-    /// Directories the search could not be run against at all, because the ADB
-    /// call itself failed. A directory that simply does not exist is *not*
-    /// listed here — that is a real "no matches". Without this split, a
-    /// dropped connection rendered as "export from the app first", telling the
-    /// user to redo something that had worked (GitHub #86).
-    pub unsearched: Vec<String>,
+    let r = delete_path_with(adb.as_ref(), &serial, &path, allow_system).await?;
+    Ok(FileTransferResult {
+        ok: r.ok,
+        message: r.message,
+        local_path: None,
+    })
 }
 
 /// `find_files` — locate files matching a name pattern under one or more
-/// `/sdcard` directories. Powers the app-backup finder (e.g. Projectivy's
-/// `*.plbackup` exports land wherever the user's file picker put them).
+/// `/sdcard` directories. Powers the app-backup finder.
 #[tauri::command]
 pub async fn find_files(
     state: State<'_, AppState>,
@@ -305,95 +217,14 @@ pub async fn find_files(
     dirs: Vec<String>,
     pattern: String,
 ) -> Result<FindResult, String> {
-    validate_find_pattern(&pattern)?;
     let adb = state.adb_snapshot().await;
-    let mut hits = Vec::new();
-    let mut unsearched = Vec::new();
-    for dir in dirs {
-        let dir = validate_sdcard_path(&dir)?;
-        // A missing directory or a permission denial is expected for some
-        // candidates, and `find` reports those on stderr — suppress them, since
-        // an empty result is the honest answer. A failure of the ADB call
-        // itself is different: nothing was searched, so it must not be
-        // reported as "nothing found".
-        let cmd = format!(
-            "find {} -maxdepth 4 -type f -name '{pattern}' 2>/dev/null",
-            quote_path(&dir)
-        );
-        let Ok(out) = adb.shell(&serial, &cmd).await else {
-            unsearched.push(dir);
-            continue;
-        };
-        for line in out.stdout.lines() {
-            let line = line.trim();
-            if line.starts_with("/sdcard") && !hits.iter().any(|h| h == line) {
-                hits.push(line.to_string());
-            }
-            if hits.len() >= 100 {
-                break;
-            }
-        }
-    }
-    Ok(FindResult { hits, unsearched })
+    find_files_with(adb.as_ref(), &serial, &dirs, &pattern).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
-
-    #[test]
-    fn find_patterns_validated() {
-        assert!(validate_find_pattern("*.plbackup").is_ok());
-        assert!(validate_find_pattern("backup_*.zip").is_ok());
-        assert!(validate_find_pattern("a/b").is_err());
-        assert!(validate_find_pattern("x'y").is_err());
-        assert!(validate_find_pattern("").is_err());
-        assert!(validate_find_pattern(&"x".repeat(65)).is_err());
-    }
-
-    #[test]
-    fn accepts_sdcard_paths() {
-        assert_eq!(validate_sdcard_path("/sdcard").unwrap(), "/sdcard");
-        assert_eq!(
-            validate_sdcard_path("/sdcard/Download/file 1.mp4").unwrap(),
-            "/sdcard/Download/file 1.mp4"
-        );
-    }
-
-    #[test]
-    fn rejects_escapes_and_system_paths() {
-        assert!(validate_sdcard_path("/data/data/com.x").is_err());
-        assert!(validate_sdcard_path("/sdcard/../data").is_err());
-        assert!(validate_sdcard_path("/sdcardX/evil").is_err());
-        assert!(validate_sdcard_path("/sdcard/a\nb").is_err());
-        assert!(validate_sdcard_path("").is_err());
-    }
-
-    #[test]
-    fn power_user_mode_allows_system_paths_but_keeps_injection_guards() {
-        // System paths are reachable only with allow_system.
-        assert!(validate_device_path("/system/app", false).is_err());
-        assert_eq!(
-            validate_device_path("/system/app", true).unwrap(),
-            "/system/app"
-        );
-        assert_eq!(validate_device_path("/", true).unwrap(), "/");
-        // The shell-safety guards never relax.
-        assert!(validate_device_path("/system/../x", true).is_err());
-        assert!(validate_device_path("/system/a\nb", true).is_err());
-        assert!(validate_device_path("relative/path", true).is_err());
-    }
-
-    #[test]
-    fn protected_paths_are_never_deletable() {
-        for p in ["/", "/system", "/data", "/vendor", "/sdcard", "/system/"] {
-            assert!(protected_delete_reason(p).is_some(), "{p} must be refused");
-        }
-        // Real targets are allowed through the guard.
-        assert!(protected_delete_reason("/sdcard/Download/old.zip").is_none());
-        assert!(protected_delete_reason("/system/app/Bloat/Bloat.apk").is_none());
-    }
 
     #[test]
     fn quotes_single_quotes_in_paths() {
