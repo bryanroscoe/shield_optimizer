@@ -840,9 +840,6 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("dashboard")} aria-label="Back">
-        <span class="msr">arrow_back</span>
-      </button>
       <FindRemoteButton />
     </div>
     <h3 class="header-title">Apps</h3>
