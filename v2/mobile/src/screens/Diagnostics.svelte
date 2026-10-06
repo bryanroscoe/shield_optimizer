@@ -1,10 +1,21 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import { tierOf } from "../lib/safety";
-  import type { ResourceSample, Safety } from "../lib/types";
+  import { safetyLabel, safetyReason, type SafetyStatus } from "../lib/safety";
+  import type { PackageState } from "../lib/recommendation";
+  import {
+    memorySuggestion,
+    safetyQuery,
+    suggestionDisplay,
+    type CatalogState,
+    type InstalledState,
+  } from "../lib/memorySuggestion";
+  import { catalogItem, otherItem, type AppItem } from "../lib/appsList";
+  import type { MemoryEntry, OtherPackage, ResourceSample } from "../lib/types";
+  import AppSheetHost from "../components/AppSheetHost.svelte";
+  import Toast from "../components/Toast.svelte";
   import { formatSupport, matchContentLabel, type MediaCapabilities } from "../../../shared/media";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
 
@@ -13,14 +24,40 @@
     back: () => void;
   } = $props();
 
-  // Safety tags come from the backend `safety_info` command — the one audited
-  // classifier. No inline package→risk table (that violated the "one detection
-  // function" invariant and could disagree with the engine).
-  let safetyMap = $state<Record<string, Safety>>({});
-  let safetyLoading = $state(false);
-  let safetyFailed = $state(false);
+  // Verdicts come from the backend — `safety_info` for a row the TV confirms
+  // is an installed package, `process_safety_info` (catalog-free) for any
+  // other name — keyed by the full process name. No inline classifier.
+  let memorySafety = $state<Record<string, SafetyStatus>>({});
+  let installed = $state<InstalledState>({ status: "loading" });
+  let catalog = $state<CatalogState>({ status: "loading" });
+  let installedRows = new Map<string, OtherPackage>();
   let safetyRetry = $state(0);
   let safetyRequest = 0;
+  let sheetApp = $state<AppItem | null>(null);
+
+  let toast = $state("");
+  let toastType = $state<"success" | "error" | "info">("info");
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  function showToast(message: string, type: "success" | "error" | "info" = "info") {
+    toast = message;
+    toastType = type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ""), 4200);
+  }
+
+  /// Open a confirmed package in the app sheet, as desktop's Health opens it
+  /// in the App List. Only rows the TV confirmed are tappable.
+  function openSheet(pkg: string) {
+    const row = installedRows.get(pkg);
+    if (!row || installed.status !== "ready") return;
+    const entry = catalog.status === "ready" ? catalog.entries.get(pkg) : undefined;
+    sheetApp = entry ? catalogItem(entry, installed.packages.get(pkg) ?? null) : otherItem(row);
+  }
+
+  function afterSheetChange() {
+    ++safetyRetry;
+    void session.loadHealth(true);
+  }
   // Real catalog names (app_list_for_device). Missing package = no name, and we
   // then show the package itself rather than inventing one from its last dot
   // segment ("…youtube.tv" is not an app called "Tv").
@@ -110,41 +147,74 @@
   // Driven by data, not by the awaited loadHealth() call — `loadHealth`
   // resolves immediately when another load is already in flight, which is why
   // the old `await loadHealth(); loadSafety()` never found any packages.
+  //
+  // A process name is not an app until the TV confirms a package by that name
+  // is installed (desktop's Health does the same), so the installed list is
+  // read first and each row is then asked about as a package or a process.
   $effect(() => {
     const key = topKey;
-    const pkgs = key ? key.split(",") : [];
+    const names = key ? key.split(",") : [];
     const device = session.connectedDevice;
     const liveness = session.liveness;
     const generation = session.generation;
     void safetyRetry;
     const request = ++safetyRequest;
     const serial = device?.serial ?? "";
-    safetyMap = {};
-    safetyFailed = false;
-    safetyLoading = pkgs.length > 0 && liveness === "live";
-    if (pkgs.length === 0 || !device || liveness !== "live") return;
+    memorySafety = {};
+    installed = { status: "loading" };
+    if (names.length === 0 || !device || liveness !== "live") return;
+    const rows = untrack(() => {
+      const byName = new Map<string, MemoryEntry>();
+      for (const m of session.health?.top_memory ?? []) if (!byName.has(m.process)) byName.set(m.process, m);
+      return names.map((n) => byName.get(n)).filter((m): m is MemoryEntry => m !== undefined);
+    });
     const current = () =>
       !destroyed &&
       request === safetyRequest &&
       serial === session.serial &&
       generation === session.generation &&
       session.isConnected;
-    Promise.all(pkgs.map(async (p) => [p, await api.safetyInfo(p)] as const))
-      .then((pairs) => {
-        if (!current()) return;
-        const map: Record<string, Safety> = {};
-        for (const [p, s] of pairs) map[p] = s;
-        safetyMap = map;
-      })
-      .catch(() => {
-        if (!current()) return;
-        safetyMap = {};
-        safetyFailed = true;
-      })
-      .finally(() => {
-        if (current()) safetyLoading = false;
-      });
+    void (async () => {
+      let next: InstalledState;
+      try {
+        const list = await api.listInstalledPackages(serial);
+        const packages = new Map<string, PackageState>();
+        for (const p of list) packages.set(p.package, p.enabled ? "enabled" : "disabled");
+        next = { status: "ready", packages };
+        if (current()) installedRows = new Map(list.map((p) => [p.package, p]));
+      } catch {
+        // No installed list means nothing is confirmed as an app.
+        next = { status: "failed" };
+      }
+      if (!current()) return;
+      installed = next;
+      const queries = rows.map((m) => [m.process, safetyQuery(m, next)] as const);
+      memorySafety = Object.fromEntries(
+        queries.map(([name]) => [name, { status: "checking" } satisfies SafetyStatus]),
+      );
+      const results = await Promise.allSettled(
+        queries.map(([, q]) =>
+          q?.kind === "package" ? api.safetyInfo(q.name) : api.processSafetyInfo(q?.name ?? ""),
+        ),
+      );
+      if (!current()) return;
+      memorySafety = Object.fromEntries(
+        queries.map(([name], i) => {
+          const r = results[i];
+          return [
+            name,
+            r.status === "fulfilled"
+              ? ({ status: "ready", verdict: r.value } satisfies SafetyStatus)
+              : ({ status: "unavailable", reason: String(r.reason) } satisfies SafetyStatus),
+          ];
+        }),
+      );
+    })();
   });
+
+  const safetyFailed = $derived(
+    Object.values(memorySafety).some((status) => status.status === "unavailable"),
+  );
 
   $effect(() => {
     const device = session.connectedDevice;
@@ -152,6 +222,7 @@
     const generation = session.generation;
     const request = ++catalogRequest;
     catalogNames = {};
+    catalog = { status: "loading" };
     if (!device || liveness !== "live") return;
     const serial = device.serial;
     api
@@ -167,9 +238,12 @@
         const map: Record<string, string> = {};
         for (const e of entries) map[e.package] = e.name;
         catalogNames = map;
+        catalog = { status: "ready", entries: new Map(entries.map((e) => [e.package, e])) };
       })
       .catch(() => {
-        if (request === catalogRequest) catalogNames = {};
+        if (request !== catalogRequest) return;
+        catalogNames = {};
+        catalog = { status: "failed" };
       });
   });
 
@@ -200,6 +274,7 @@
     ++playbackRequest;
     ++resourceRequest;
     stopLive();
+    clearTimeout(toastTimer);
   });
 
   async function refresh() {
@@ -427,12 +502,20 @@
       <div class="top-memory-section">
         <span class="section-label">Top memory consumers</span>
         <p class="consumers-note">
-          These are process names, so the app behind each one isn't confirmed. Inspection only.
+          The suggestion for an app is the same one the Apps and Optimize screens give it — tap it
+          for details. Names we can't tie to an installed package are processes, not apps, and
+          there is nothing to remove.
         </p>
-        {#if safetyFailed}
+        {#if installed.status === "failed"}
           <div class="stale-warning" role="alert">
             <span class="msr">warning</span>
-            <span>Couldn't check these names against the safety list.</span>
+            <span>Couldn't read the TV's installed apps, so no row is confirmed as an app.</span>
+            <button class="retry-link" onclick={() => ++safetyRetry}>Retry</button>
+          </div>
+        {:else if safetyFailed}
+          <div class="stale-warning" role="alert">
+            <span class="msr">warning</span>
+            <span>Couldn't check some names against the safety list.</span>
             <button class="retry-link" onclick={() => ++safetyRetry}>Retry</button>
           </div>
         {/if}
@@ -441,9 +524,19 @@
         {:else}
           <div class="consumers-list">
             {#each health.top_memory.slice(0, 8) as consumer, index (`${consumer.process}#${consumer.pid ?? index}`)}
-              {@const tier = tierOf(safetyMap[consumer.process])}
-              <div class="consumer-row">
-                <div class="consumer-details">
+              {@const status = memorySafety[consumer.process]}
+              {@const suggestion = memorySuggestion(consumer, installed, catalog, status)}
+              {@const shownSuggestion = suggestionDisplay(suggestion)}
+              {@const appPkg = suggestion.kind === "recommendation" || suggestion.kind === "verdict" ? suggestion.pkg : null}
+              <svelte:element
+                this={appPkg ? "button" : "div"}
+                class="consumer-row"
+                class:tappable={appPkg !== null}
+                role={appPkg ? undefined : "group"}
+                aria-label={appPkg ? `Details for ${consumer.process}` : undefined}
+                onclick={appPkg ? () => openSheet(appPkg) : undefined}
+              >
+                <span class="consumer-details">
                   <span class="mono consumer-name">{consumer.process}</span>
                   {#if consumer.pid !== null}
                     <span class="consumer-pkg">pid {consumer.pid}</span>
@@ -451,18 +544,18 @@
                   {#if catalogNames[consumer.process]}
                     <span class="consumer-pkg">Looks like {catalogNames[consumer.process]}</span>
                   {/if}
-                </div>
-                {#if tier}
-                  <span class="risk-badge {tier.cls}" title="Rule lookup for the reported name only">
-                    {tier.label}
-                  </span>
-                {:else if safetyLoading}
-                  <span class="risk-badge pending">Checking safety…</span>
-                {:else}
-                  <span class="risk-badge pending">Safety unavailable</span>
-                {/if}
+                  {#if suggestion.kind === "recommendation"}
+                    <span class="consumer-pkg">Safety: {safetyLabel(status)}</span>
+                  {/if}
+                </span>
+                <span
+                  class="risk-badge {shownSuggestion.tone}"
+                  title={suggestion.kind === "checking" ? undefined : safetyReason(status)}
+                >
+                  {shownSuggestion.label}
+                </span>
                 <span class="mono consumer-mb">{Math.round(consumer.mb)} MB</span>
-              </div>
+              </svelte:element>
             {/each}
           </div>
         {/if}
@@ -515,6 +608,15 @@
       </section>
     </div>
   {/if}
+
+  <AppSheetHost
+    app={sheetApp}
+    {navigate}
+    onClose={() => (sheetApp = null)}
+    onChanged={afterSheetChange}
+    onToast={showToast}
+  />
+  <Toast message={toast} type={toastType} />
 </div>
 
 <style>
@@ -787,12 +889,31 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .consumer-row.tappable {
+    width: 100%;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
   .risk-badge {
     font-size: 11px;
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 6px;
     flex: none;
+    white-space: nowrap;
+    max-width: 46%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .risk-badge.act {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .risk-badge.warn {
+    color: var(--amber);
+    background: color-mix(in srgb, var(--amber) 12%, transparent);
   }
   .risk-badge.safe {
     color: var(--teal);
@@ -807,7 +928,7 @@
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   .risk-badge.unknown,
-  .risk-badge.pending {
+  .risk-badge.muted {
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 7%, transparent);
   }

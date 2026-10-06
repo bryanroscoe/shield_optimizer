@@ -2,20 +2,45 @@
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
-  import type { Screen } from "../lib/router.svelte";
-  import { SAFETY_TIERS, isBlocked, reasonOf, tierOf } from "../lib/safety";
+  import { router, type Screen } from "../lib/router.svelte";
+  import { SAFETY_TIERS, isBlocked, reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
+  import { effectiveMethod, reviewLabel } from "../lib/recommendation";
+  import {
+    isPlanRecommended,
+    isReviewRow,
+    matchesPlanQuery,
+    naturalAction,
+    planItemApp,
+    rowSafety,
+  } from "../lib/optimizeRows";
   import type {
     OptimizeMode,
     OptimizePlan,
     OptimizePlanItem,
     Safety,
   } from "../lib/types";
+  import type { AppItem } from "../lib/appsList";
+  import AppSheetHost from "../components/AppSheetHost.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
+
+  // Optimize is pushed from more than one place, so Back returns to whoever
+  // opened it rather than always to the Dashboard.
+  function goBack() {
+    if (!router.back()) navigate("dashboard");
+  }
+
+  let searchQuery = $state("");
+  let sheetApp = $state<AppItem | null>(null);
+
+  function openSheet(item: OptimizePlanItem) {
+    if (applying) return;
+    sheetApp = planItemApp(item);
+  }
 
   let loading = $state(true);
   let error = $state("");
@@ -194,11 +219,11 @@
       // starts unchecked, and a user's explicit choice is never resurrected.
       const next = new Set(selected);
       for (const item of p.items) {
+        const verdict = map[item.entry.package];
         if (
-          item.action.kind !== "enable" &&
-          item.action.kind !== "skip" &&
-          item.entry.default_optimize &&
-          isReviewed(map[item.entry.package]?.kind) &&
+          identity.mode === "optimize" &&
+          verdict &&
+          isPlanRecommended(item, "optimize", { status: "ready", verdict }) &&
           !selectionTouched.has(item.entry.package)
         ) next.add(item.entry.package);
       }
@@ -277,14 +302,11 @@
   const actionable = $derived(
     (plan?.items ?? []).filter((it) => it.action.kind !== "skip"),
   );
-  const recommendedFlag = (it: OptimizePlanItem) => {
-    if (mode === "restore") return it.action.kind === "enable" && it.entry.default_restore;
-    return (
-      it.action.kind !== "enable" &&
-      it.entry.default_optimize &&
-      isReviewed(safetyMap[it.entry.package]?.kind)
-    );
-  };
+  const statusOf = (it: OptimizePlanItem): SafetyStatus =>
+    rowSafety(safetyMap[it.entry.package], safetyLoading, safetyFailed);
+  // The same default desktop's Optimize wizard pre-selects:
+  // `recommendation().kind === "act"` (recommendation.ts).
+  const recommendedFlag = (it: OptimizePlanItem) => isPlanRecommended(it, mode, statusOf(it));
   const optionalItems = $derived(
     actionable.filter(
       (it) =>
@@ -293,13 +315,14 @@
           (!safetyLoading && !recommendedFlag(it))),
     ),
   );
-  const visibleItems = $derived(
+  const tabItems = $derived(
     activeTab === "recommended"
       ? actionable.filter(recommendedFlag)
       : activeTab === "optional"
         ? optionalItems
         : actionable,
   );
+  const visibleItems = $derived(tabItems.filter((it) => matchesPlanQuery(it, searchQuery)));
 
   // Core hands every Unknown verdict the same sentence today, which put the
   // identical paragraph on every row. When they are all the same it is stated
@@ -324,17 +347,6 @@
     return it.action.kind !== "enable" && isBlocked(safetyMap[it.entry.package]);
   }
 
-  /// A verdict that came from a reviewed source — the catalog rated it safe, or
-  /// a rule says remove it carefully. Both are "we looked at this".
-  ///
-  /// `caution` alone used to stand for this, back when the only alternatives
-  /// were `unknown` and `never_disable`. Once `safe` existed, every check
-  /// written that way silently excluded the *most* removable apps: they could
-  /// not be selected and vanished from the Recommended tab.
-  function isReviewed(kind: Safety["kind"] | undefined): boolean {
-    return kind === "safe" || kind === "caution";
-  }
-
   function isSelectable(it: OptimizePlanItem): boolean {
     if (!planCurrent() || it.action.kind === "skip") return false;
     if (it.action.kind === "enable") return true;
@@ -347,9 +359,7 @@
     actionable.filter((it) => selected.has(it.entry.package)),
   );
   const selectedCount = $derived(selectedItems.length);
-  const recommendedSelected = $derived(
-    selectedItems.filter((item) => item.entry.default_optimize).length,
-  );
+  const recommendedSelected = $derived(selectedItems.filter(recommendedFlag).length);
   const optionalSelected = $derived(selectedCount - recommendedSelected);
   const runningMb = $derived(
     selectedItems.reduce((acc, it) => acc + (it.memory_mb ?? 0), 0),
@@ -362,8 +372,8 @@
 
   function warningFor(items: FrozenItem[]): string {
     const parts: string[] = [];
-    const disables = items.filter(({ item }) => item.action.kind === "disable").length;
-    const uninstalls = items.filter(({ item }) => item.action.kind === "uninstall").length;
+    const disables = items.filter(({ item }) => naturalAction(item) === "disable").length;
+    const uninstalls = items.filter(({ item }) => naturalAction(item) === "uninstall").length;
     if (disables > 0) {
       parts.push(`${disables} app${disables === 1 ? "" : "s"} will be disabled.`);
     }
@@ -441,7 +451,7 @@
   }
 
   function actionLabel(it: OptimizePlanItem): string {
-    switch (it.action.kind) {
+    switch (naturalAction(it)) {
       case "uninstall":
         return "Uninstall for this user";
       case "enable":
@@ -553,12 +563,13 @@
               break;
             }
           }
+          const action = naturalAction(item);
           const result =
-            item.action.kind === "disable"
+            action === "disable"
               ? await api.disablePackage(serial, item.entry.package)
-              : item.action.kind === "uninstall"
+              : action === "uninstall"
                 ? await api.uninstallPackage(serial, item.entry.package)
-                : item.action.kind === "enable"
+                : action === "enable"
                   ? await api.enablePackage(serial, item.entry.package)
                   : null;
           if (!runCurrent()) {
@@ -644,7 +655,7 @@
     <div class="header-left">
       <button
         class="iconbtn"
-        onclick={() => navigate("dashboard")}
+        onclick={goBack}
         disabled={applying}
         aria-label="Back"
       >
@@ -709,6 +720,24 @@
         : "Re-enables curated apps that are currently disabled on this TV."}
     </p>
 
+    {#if actionable.length > 0}
+      <div class="search-box">
+        <span class="msr search-icon">search</span>
+        <input
+          type="text"
+          class="search-input"
+          placeholder="Search apps or packages"
+          aria-label="Search the plan"
+          bind:value={searchQuery}
+        />
+        {#if searchQuery}
+          <button class="search-clear" onclick={() => (searchQuery = "")} aria-label="Clear search">
+            <span class="msr">close</span>
+          </button>
+        {/if}
+      </div>
+    {/if}
+
     <div class="tab-pill-box">
       <button class="tab-pill" class:active={activeTab === "recommended"} onclick={() => chooseTab("recommended")}>
         Recommended
@@ -760,7 +789,10 @@
       </div>
     {/if}
 
-    {#if visibleItems.length === 0}
+    {#if visibleItems.length === 0 && tabItems.length > 0}
+      <p class="lede empty">No apps on this tab match “{searchQuery.trim()}”.</p>
+      <button class="ghost" onclick={() => (searchQuery = "")}>Clear search</button>
+    {:else if visibleItems.length === 0}
       {#if mode === "optimize" && activeTab === "recommended" && safetyLoading}
         <p class="lede empty">Checking safety before showing recommendations…</p>
       {:else if mode === "optimize" && activeTab === "recommended"}
@@ -781,7 +813,12 @@
           {@const tier = tierOf(safetyMap[item.entry.package])}
           {@const hardBlocked = isHardBlocked(item)}
           <div class="optimize-item" class:blocked-row={hardBlocked}>
-            <div class="item-details">
+            <button
+              class="item-details"
+              disabled={applying}
+              onclick={() => openSheet(item)}
+              aria-label="Details for {item.entry.name}"
+            >
               <span class="item-name">{item.entry.name}</span>
               {#if mode === "optimize" && activeTab === "optional"}
                 <span class="mono item-package">{item.entry.package}</span>
@@ -795,6 +832,9 @@
                   <span class="tier-chip {tier.cls}">{tier.label}</span>
                 {:else}
                   <span class="tier-chip pending">Safety unavailable</span>
+                {/if}
+                {#if mode === "optimize" && isReviewRow(item, statusOf(item))}
+                  <span class="tier-chip review">{reviewLabel(effectiveMethod(item.entry))}</span>
                 {/if}
                 <span class="mono meta-text">
                   {actionLabel(item)}{item.memory_mb != null
@@ -810,7 +850,7 @@
               <span class="row-purpose">
                 {mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description}
               </span>
-            </div>
+            </button>
             {#if mode === "optimize" && activeTab === "optional"}
               <div class="choice-group" role="group" aria-label="Choice for {item.entry.name}">
                 <button
@@ -826,7 +866,7 @@
                   disabled={applying || !isSelectable(item)}
                   aria-pressed={selected.has(item.entry.package) && isSelectable(item)}
                   onclick={() => chooseOptionalAction(item)}
-                >{item.action.kind === "uninstall" ? "Uninstall for this user" : "Disable"}</button>
+                >{actionLabel(item)}</button>
               </div>
             {:else}
               <button
@@ -878,6 +918,14 @@
   {/if}
 
   <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
+
+  <AppSheetHost
+    app={sheetApp}
+    {navigate}
+    onClose={() => (sheetApp = null)}
+    onChanged={() => void loadPlan(mode)}
+    onToast={showToast}
+  />
 
   <ConfirmDialog
     open={applyIntent !== null}
@@ -1007,6 +1055,49 @@
     line-height: 1.4;
   }
 
+  .search-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 2px 6px 2px 14px;
+    border-radius: 13px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    margin-bottom: 10px;
+  }
+  .search-icon {
+    font-size: 20px;
+    color: var(--muted);
+  }
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 14px;
+  }
+  .search-input:focus {
+    outline: none;
+  }
+  .search-clear {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    flex: none;
+  }
+  .search-clear .msr {
+    font-size: 18px;
+  }
+
   /* Summary */
   .optimize-summary-card {
     display: flex;
@@ -1100,8 +1191,19 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 4px;
     min-width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .item-details:disabled {
+    cursor: default;
   }
   .item-name {
     font-size: 14px;
@@ -1126,6 +1228,13 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     flex: none;
+    white-space: nowrap;
+  }
+  .tier-chip.review {
+    color: var(--amber);
+    background: color-mix(in srgb, var(--amber) 10%, transparent);
+    text-transform: none;
+    letter-spacing: 0;
   }
   .tier-chip.unknown,
   .tier-chip.restore {
