@@ -22,6 +22,13 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+### Fixed
+
+- **Find app backups said a folder "couldn't be searched" when it simply didn't exist**
+  ([#86](https://github.com/bryanroscoe/shield_optimizer/issues/86)). SmartTube can keep
+  backups in any of three folders, and most TVs only have one of them. A missing folder now
+  reads as no matches; only a search that actually failed is reported as not searched.
+
 ## v2-2.3.1 — 2026-10-04
 
 Fixes for Google TV launcher switching (#122, #157, #158): Setup Wraith, Google TV's setup

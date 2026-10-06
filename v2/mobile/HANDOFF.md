@@ -68,6 +68,40 @@ different device is now at this address.") surfaces the mismatch once in whichev
 connect flow notices it. Covered by new tests in `savedDevices.test.mjs`, verified to fail before
 the fix; unverified on a device.
 
+**Desktop parity pass (2026-10-06, branch `mobile-parity-pass`).** Mobile caught up with the
+desktop features that shipped in v2-2.3.0/2.3.1. **None of it has run on a phone or TV yet**;
+the evidence is the browser suites plus 384×812 screenshots in
+`evidence/parity-2026-10-06/`. What changed:
+
+- *Navigation:* Tweaks is a bottom tab; Optimize is a screen pushed from the Dashboard's single
+  Optimize call to action, and Back returns to whichever screen opened it. The Dashboard gains
+  Tweaks and Launcher tiles; More is titled More and lists Optimize.
+- *Optimize:* search by name or package id, tap a row for the app sheet, desktop's
+  `recommendation()` defaults and "Review: … if unused" pill.
+- *Diagnostics:* desktop's Suggestion column. A process is only treated as an app once the TV
+  confirms the package is installed (`safety_info`); anything else goes to the catalog-free
+  `process_safety_info`, and an unreadable installed list reads "Not checked".
+- *Snapshots:* marked Beta; "Preview restore" lists every row with a Now column from the plan's
+  `current_values`/`current_launcher`, and says why a missing launcher is skipped.
+- *Apps:* a Recognised section lists catalogued apps (so `com.google.android.katniss` is findable
+  without Pro), one search over name and package, Hide not installed, the detail sheet's storage
+  figures with re-measure, Report this app (#100) and a long-press action menu (#129).
+- *Launcher:* Setup Wraith card (off / on / risk, Turn it off, Re-enable), Advanced "set another
+  app as Home", a separate confirmed Disable stock launcher step, a re-read after every action
+  (#157/#158), Play Store install polling, and Source site links that open in the phone's browser.
+- *Tweaks:* Nvidia System Hooks, Remote Assistant Button (mic permission), Screensaver (Basic
+  Daydream / Off / Restore previous), the 720p display preset, regrouped sections.
+- *Files:* Find app backups from desktop's catalog, copy a hit to the phone, and TV-side delete
+  under `/sdcard`. The find/delete logic moved to core `commands::files`, shared with desktop, and
+  fixed desktop's #86 message for missing backup folders.
+- *Plumbing:* `tauri-plugin-opener` (capability scoped to http/https; `api.openUrl` also rejects
+  other schemes), `types.ts` aligned with core, icon font re-subset, notices regenerated.
+
+Still not on mobile: **phone→TV upload** (needs an Android document picker / SAF), **install APK /
+sideload**, the **bug-report bundle** (`collect_diagnostics`), and a **patch-notes viewer**. The
+opener's Android library (`androidx.browser`) is not yet listed in the hand-maintained part of
+the notices, which covers no Gradle dependencies at all.
+
 ---
 
 ## 1. What this is
@@ -419,6 +453,8 @@ reference these names.
 
 ## 9. Commit history (this effort, newest first)
 ```
+(2026-10-06 desktop parity pass on mobile-parity-pass: d2acf0b, bbd87d1, 77f8d3d, 4e054c1,
+ 65acf44, bbb7d21, then the integration and docs commits; see the checkpoint at the top)
 fae340c Mobile: document the licensing, release, and pairing backlog pass
 5e76b24 Mobile: Android 11 wireless-debugging code pairing (SPAKE2)   ← unverified on device
 aa4e589 Mobile: release signing config, version tooling, third-party notices
