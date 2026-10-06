@@ -323,13 +323,28 @@ test("a locked Set as Home opens the paywall and calls nothing else", async (t) 
   assert.equal(await page.locator(".adv-result").count(), 0);
 });
 
-test("source site copies the launcher's page link instead of navigating the app", async (t) => {
-  const page = await open(t, {
-    launchers: [
-      stock(true),
-      row(FLAUNCHER, { installed: false, enabled: false, entry: { name: "FLauncher", source_url: "https://gitlab.com/flauncher/flauncher" } }),
-    ],
-    current: STOCK,
+const flauncherOffStore = {
+  launchers: [
+    stock(true),
+    row(FLAUNCHER, { installed: false, enabled: false, entry: { name: "FLauncher", source_url: "https://gitlab.com/flauncher/flauncher" } }),
+  ],
+  current: STOCK,
+};
+
+test("source site hands the launcher's page to the phone's browser, not the app", async (t) => {
+  const page = await open(t, flauncherOffStore);
+  await page.getByRole("button", { name: /Source site for FLauncher \(gitlab\.com\)/ }).click();
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "plugin:opener|open_url"));
+  const call = await page.evaluate(() => window.calls.find((c) => c.command === "plugin:opener|open_url"));
+  assert.deepEqual(call.args, { url: "https://gitlab.com/flauncher/flauncher" });
+  assert.deepEqual(await page.evaluate(() => window.copied), []);
+  assert.equal(new URL(page.url()).origin, origin);
+});
+
+test("source site copies the link when the browser can't be opened", async (t) => {
+  const page = await open(t, flauncherOffStore);
+  await page.evaluate(() => {
+    window.handlers["plugin:opener|open_url"] = () => { throw "no browser"; };
   });
   await page.getByRole("button", { name: /Source site for FLauncher \(gitlab\.com\)/ }).click();
   await page.getByText(/Copied the gitlab\.com link for FLauncher/).waitFor();

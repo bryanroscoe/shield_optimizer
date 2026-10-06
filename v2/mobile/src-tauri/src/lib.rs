@@ -156,6 +156,7 @@ fn init_logging(data_dir: &Path) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_atv_adb::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // On Android the dirs crate returns no writable location, so resolve
             // the app-scoped data dir through Tauri's path resolver (already

@@ -689,6 +689,12 @@ test("Diagnostics keeps its safety badges when two top apps swap rank (#118)", a
   await page.evaluate(async () => {
     const entry = (process, mb) => ({ process, pid: null, package: process, mb });
     window.topMemory = [entry("com.example.big", 300), entry("com.example.small", 200)];
+    // Diagnostics asks `safety_info` only for packages the TV confirms are
+    // installed; anything else goes to the catalog-free process check.
+    window.handlers.list_installed_packages = () => [
+      { package: "com.example.big", name: "Big", system: false, enabled: true },
+      { package: "com.example.small", name: "Small", system: false, enabled: true },
+    ];
     window.handlers.health_report = () => ({
       ram: { free_mb: 512 }, storage: {}, display: {}, top_memory: window.topMemory,
     });

@@ -30,14 +30,6 @@
 
   let { navigate }: { navigate: (screen: Screen) => void; back?: () => void } = $props();
 
-  // The backend's TweaksState carries the screensaver keys; the mobile type
-  // predates them.
-  type Tweaks = TweaksState & {
-    screensaver_components?: string | null;
-    screensaver_enabled?: string | null;
-  };
-  // `hd_720p` is a backend preset the mobile DisplayScalePreset type lacks.
-  type ScalePreset = DisplayScalePreset | "hd_720p";
   type HooksState = "enabled" | "disabled" | "missing";
 
   const HOOKS_PKG = "com.nvidia.shieldtech.hooks";
@@ -47,7 +39,7 @@
 
   let loading = $state(true);
   let noDevice = $state("");
-  let tweaks = $state<Tweaks | null>(null);
+  let tweaks = $state<TweaksState | null>(null);
   let dns = $state<PrivateDnsState | null>(null);
   let scaling = $state<CurrentDisplayScaling | null>(null);
   let hooks = $state<HooksState | null>(null);
@@ -65,7 +57,7 @@
   let showPaywall = $state(false);
   let dnsHost = $state("");
   let dnsEditing = $state(false);
-  let scaleConfirm = $state<ScalePreset | null>(null);
+  let scaleConfirm = $state<DisplayScalePreset | null>(null);
   let loadGeneration = 0;
   let destroyed = false;
 
@@ -106,7 +98,7 @@
       connection !== session.generation || !session.isConnected
     ) return;
     if (t.status === "fulfilled") {
-      const value = t.value as Tweaks;
+      const value = t.value;
       tweaks = value;
       tweaksError = "";
       if (!screensaverOriginals.has(serial)) {
@@ -403,7 +395,7 @@
     { label: "1×", value: "1" },
   ];
   const longPressPresets = [300, 400, 500, 750];
-  const scalePresets: { label: string; value: ScalePreset }[] = [
+  const scalePresets: { label: string; value: DisplayScalePreset }[] = [
     { label: "4K", value: "uhd_4k" },
     { label: "1080p", value: "fhd_1080p" },
     { label: "720p", value: "hd_720p" },
@@ -541,10 +533,10 @@
     );
   }
 
-  function setScaling(preset: ScalePreset) {
+  function setScaling(preset: DisplayScalePreset) {
     apply(
       `scale-${preset}`,
-      (target) => api.setDisplayScaling(target, preset as DisplayScalePreset),
+      (target) => api.setDisplayScaling(target, preset),
       "Display scaling applied.",
     );
   }

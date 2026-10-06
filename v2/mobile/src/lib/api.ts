@@ -299,4 +299,20 @@ export const api = {
   /// Delete a file or folder on the TV. /sdcard-confined backend-side.
   deletePath: (serial: string, path: string) =>
     call<ActionResult>("delete_path", { serial, path }),
+
+  /// Hand a web link to the phone's browser. Only http(s) is accepted here as
+  /// well as in the capability scope, so a catalog or report URL can never
+  /// launch some other scheme handler.
+  openUrl: (url: string) => {
+    let protocol = "";
+    try {
+      protocol = new URL(url).protocol;
+    } catch {
+      // Falls through to the rejection below.
+    }
+    if (protocol !== "https:" && protocol !== "http:") {
+      return Promise.reject(new Error("Only web links can be opened."));
+    }
+    return call<void>("plugin:opener|open_url", { url });
+  },
 };

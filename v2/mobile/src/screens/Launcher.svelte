@@ -462,22 +462,18 @@
   }
 
   /// A launcher's official page, for one the TV's Play Store doesn't carry.
-  /// Nothing is downloaded or installed. This app has no way to hand a URL to
-  /// the phone's browser yet (a plain link would load the site inside the app
-  /// itself), so it uses `api.openUrl` once that exists and copies the link
-  /// until then.
+  /// Nothing is downloaded or installed. The link goes to the phone's browser;
+  /// if that fails it is copied instead.
   async function openSourceSite(l: LauncherStatus) {
     const url = l.entry.source_url;
     const host = sourceSiteHost(url);
     if (!url || !host) return;
     linkShown = null;
-    if ("openUrl" in api && typeof api.openUrl === "function") {
-      try {
-        await api.openUrl(url);
-        return;
-      } catch {
-        // Fall through to copying.
-      }
+    try {
+      await api.openUrl(url);
+      return;
+    } catch {
+      // Fall through to copying.
     }
     try {
       await navigator.clipboard.writeText(url);
@@ -687,7 +683,7 @@
                     onclick={() => openSourceSite(l)}
                     aria-label={`Source site for ${l.entry.name} (${host})`}
                   >
-                    <span class="msr">content_copy</span>Source site · {host}
+                    <span class="msr">open_in_new</span>Source site · {host}
                   </button>
                 {/if}
               </div>

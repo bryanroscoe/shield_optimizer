@@ -3,8 +3,8 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import type { SnapshotFile } from "../lib/types";
-  import { previewRows, previewSummary, type SnapshotPreviewPlan } from "../lib/snapshotPreview";
+  import type { SnapshotApplyPlan, SnapshotFile } from "../lib/types";
+  import { previewRows, previewSummary } from "../lib/snapshotPreview";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
@@ -30,7 +30,7 @@
   // the sheet is open must never apply TV A's plan to TV B.
   let pending = $state<{
     snap: SnapshotFile;
-    plan: SnapshotPreviewPlan;
+    plan: SnapshotApplyPlan;
     serial: string;
   } | null>(null);
   let unchangedOpen = $state(false);

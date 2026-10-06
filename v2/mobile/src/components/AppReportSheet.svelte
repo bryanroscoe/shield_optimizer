@@ -3,7 +3,7 @@
   // AppReportDialog. The preview is the report: the text shown is exactly
   // what Copy and the GitHub form carry. Nothing is sent by the app, and the
   // GitHub form still has to be submitted by the user.
-  import { invoke } from "@tauri-apps/api/core";
+  import { api } from "../lib/api";
   import type { Safety } from "../lib/types";
   import {
     APP_REPORT_NOTE_MAX,
@@ -121,7 +121,7 @@
     // browser takes over, so there is something to paste.
     const copiedFirst = prefilled ? false : await copyReport();
     try {
-      await invoke("plugin:opener|open_url", { url });
+      await api.openUrl(url);
     } catch {
       fallbackUrl = url;
       message = prefilled

@@ -297,6 +297,11 @@ export interface TweaksState {
   encoded_surround_output: string | null;
   /// Comma-separated AudioFormat encodings; applies only in Manual mode.
   encoded_surround_output_enabled_formats: string | null;
+  /// `secure.screensaver_components`: the active Daydream's ComponentName, or
+  /// null when no screensaver is configured.
+  screensaver_components: string | null;
+  /// `secure.screensaver_enabled`: whether Daydream runs at all.
+  screensaver_enabled: string | null;
 }
 
 export interface WriteResult {
@@ -315,7 +320,7 @@ export interface ResourceSample {
 }
 
 /// Must stay in lockstep with the Rust `DisplayScalePreset` serde renames.
-export type DisplayScalePreset = "uhd_4k" | "fhd_1080p" | "reset";
+export type DisplayScalePreset = "uhd_4k" | "fhd_1080p" | "hd_720p" | "reset";
 
 export interface CurrentDisplayScaling {
   size: string;
@@ -361,9 +366,16 @@ export interface SnapshotApplyPlan {
   packages_already_disabled: string[];
   packages_not_installed: string[];
   launcher_to_set: string | null;
+  /// The TV's Home app when the plan was computed; null means it couldn't say.
+  current_launcher: string | null;
+  /// The snapshot's launcher when it isn't installed on this TV.
+  launcher_not_installed: string | null;
   settings_to_write: Record<string, string>;
   settings_to_delete: string[];
   settings_already_set: string[];
+  /// The TV's current value for every setting the snapshot mentions; a key
+  /// missing here is unset on the TV.
+  current_values: Record<string, string>;
 }
 
 export interface ApplyResult {

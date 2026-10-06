@@ -6,15 +6,6 @@
 
 import type { SnapshotApplyPlan } from "./types";
 
-/// The plan as the shared core serializes it. These fields exist on the Rust
-/// struct (engine/snapshot.rs) and reach the phone; they are optional here so
-/// an older backend that omits them reads as "not reported", never as a value.
-export type SnapshotPreviewPlan = SnapshotApplyPlan & {
-  current_values?: Record<string, string>;
-  current_launcher?: string | null;
-  launcher_not_installed?: string | null;
-};
-
 export type PreviewRowKind = "disable" | "launcher" | "setting" | "reset";
 
 export interface PreviewRow {
@@ -30,7 +21,7 @@ export interface PreviewRows {
   unchanged: PreviewRow[];
 }
 
-export function previewRows(plan: SnapshotPreviewPlan, snapshotLauncher: string | null): PreviewRows {
+export function previewRows(plan: SnapshotApplyPlan, snapshotLauncher: string | null): PreviewRows {
   const now = plan.current_values ?? {};
   const currentLauncher = plan.current_launcher ?? "—";
   const acting: PreviewRow[] = [];
@@ -82,7 +73,7 @@ export function previewRows(plan: SnapshotPreviewPlan, snapshotLauncher: string 
 }
 
 /// Desktop's one-line plan summary.
-export function previewSummary(plan: SnapshotPreviewPlan): string {
+export function previewSummary(plan: SnapshotApplyPlan): string {
   const settings = Object.keys(plan.settings_to_write).length;
   const parts = [
     `${plan.packages_to_disable.length} to disable`,
