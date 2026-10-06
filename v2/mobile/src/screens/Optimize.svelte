@@ -10,7 +10,6 @@
     OptimizePlanItem,
     Safety,
   } from "../lib/types";
-  import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
@@ -894,8 +893,6 @@
   />
 
   <Toast message={toast} type={toastType} />
-
-  <BottomTabs active="optimize" {navigate} />
 </div>
 
 <style>

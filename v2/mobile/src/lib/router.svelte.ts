@@ -9,15 +9,18 @@ export type Screen =
   | "onboarding"
   // Onboarding pushed from Devices to add a TV; never auto-dials.
   | "addtv"
+  // Bottom tabs.
   | "dashboard"
-  | "diagnostics"
-  | "optimize"
   | "apps"
+  | "tweaks"
   | "remote"
   | "more"
-  // Detail screens reached from More / Dashboard (not bottom tabs).
+  // Detail screens reached from Dashboard / More (not bottom tabs). Open any
+  // of them with `router.navigate(screen)` (or a screen's `navigate` prop),
+  // which pushes it so Back returns to where the user came from.
+  | "diagnostics"
+  | "optimize"
   | "launcher"
-  | "tweaks"
   | "snapshots"
   | "devices"
   | "riskguide"
@@ -25,8 +28,13 @@ export type Screen =
   | "backups";
 
 /// Screens that live behind the bottom tab bar (top-level). Everything else
-/// (e.g. diagnostics) is a detail screen reached from the dashboard.
-const TABS = new Set<Screen>(["dashboard", "optimize", "apps", "remote", "more"]);
+/// (Optimize, Diagnostics, Launcher, …) is a detail screen pushed on top.
+export const TAB_SCREENS: readonly Screen[] = ["dashboard", "apps", "tweaks", "remote", "more"];
+const TABS = new Set<Screen>(TAB_SCREENS);
+
+export function isTabScreen(screen: Screen): boolean {
+  return TABS.has(screen);
+}
 
 // The Android back gesture reaches us as `popstate` only while the webview
 // has a history entry to pop. We keep exactly ONE spare entry while the stack

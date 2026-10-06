@@ -7,6 +7,9 @@
 export type ConnectionType = "network" | "usb";
 export type DeviceStatus = "device" | "unauthorized" | "offline";
 export type DeviceType = "shield" | "google_tv" | "unknown";
+/// What the device said about being a TV. Distinct from DeviceType, whose
+/// "unknown" only means "no catalog match" — see engine/detection.rs.
+export type TvEvidence = "tv" | "not_tv" | "unknown";
 export type ActionMethod = "disable" | "uninstall";
 export type RiskTier = "safe" | "medium" | "high" | "advanced";
 
@@ -23,6 +26,9 @@ export interface DeviceProperties {
   characteristics?: string;
   /// `ro.serialno` — stable hardware identity; empty/missing when unreadable.
   serial_number?: string;
+  /// `pm has-feature android.software.leanback`. null when the device gave no
+  /// readable answer — which is not the same as "no".
+  leanback?: boolean | null;
 }
 
 export interface Device {
@@ -31,6 +37,7 @@ export interface Device {
   name: string;
   model: string;
   device_type: DeviceType;
+  tv_evidence: TvEvidence;
   status: DeviceStatus;
   connection: ConnectionType;
   properties: DeviceProperties | null;
@@ -45,9 +52,19 @@ export interface AppEntry {
   restore_description: string;
   default_optimize: boolean;
   default_restore: boolean;
+  /// Whether this package has a real Google Play listing at this exact id
+  /// (audited). Controls whether the "Play Store" button shows.
   play_store: boolean;
+  /// Discontinued service — safe to uninstall despite no Play Store listing.
   defunct?: boolean;
+  /// "Remove if unused" tier — surfaced as a candidate with a usage signal.
   review?: boolean;
+  /// When a person last reviewed this classification, `YYYY-MM-DD`.
+  reviewed_at?: string;
+  /// Short evidence notes or URLs behind the classification.
+  sources?: string[];
+  /// Device families the entry applies to; absent means the list decides.
+  device_scope?: string[];
 }
 
 export interface DisplayMode {
@@ -106,6 +123,9 @@ export interface OtherPackage {
   enabled: boolean;
   /// Friendly name for recognized sideloads; null otherwise.
   name?: string | null;
+  /// One line on what the app is, from known-names.json. Display only: the
+  /// verdict for these packages stays Unknown.
+  description?: string | null;
 }
 
 export interface ScreenshotResult {
@@ -198,6 +218,12 @@ export type Entitlement = "free" | "pro";
 export interface LauncherEntry {
   name: string;
   package: string;
+  /// The launcher's official page, for the "Get" link on a row that isn't
+  /// installed. Null for stock launchers and for HOME handlers found on the
+  /// device rather than in the catalog.
+  source_url: string | null;
+  /// Setup helpers (Setup Wraith) a takeover turns off together with this
+  /// stock launcher. Present only on a stock entry that has one.
   disable_with?: string[];
 }
 
@@ -229,6 +255,21 @@ export interface SetLauncherResult {
   /// True when the only working switch is to disable the active stock launcher;
   /// the UI must confirm and retry with allow_stock_disable.
   stock_takeover_available: boolean;
+  /// Every command the attempt issued and what the device replied, in order.
+  /// Offered as copyable detail on failure.
+  diagnostics: string[];
+}
+
+/// `set_home_any` — the Advanced picker. It never disables anything.
+export interface SetHomeAnyResult {
+  ok: boolean;
+  current_launcher: string | null;
+  /// null when the device can't answer (query-activities is Android 9+).
+  declares_home: boolean | null;
+  /// Stock still holds Home; only the separate "Disable stock launcher" step hands it over.
+  stock_holds_home: boolean;
+  message: string;
+  diagnostics: string[];
 }
 
 // ---- Tweaks (crates/core/src/commands/tuning.rs) ----
@@ -343,6 +384,18 @@ export interface AppUsage {
   last_used: string | null;
   launch_count: number;
 }
+
+/// Installed storage for one package, in bytes. Disk, never memory. A field
+/// the device did not report is null, which renders as unavailable — never 0.
+/// `data_bytes` includes the cache, so the two are never added together.
+export interface AppStorage {
+  app_bytes: number | null;
+  data_bytes: number | null;
+  cache_bytes: number | null;
+}
+
+/// `app_permission_state` — a runtime permission's grant state for one package.
+export type PermissionState = "granted" | "revoked" | "missing";
 
 // ---- Devices hub (crates/core/src/commands/health.rs) ----
 

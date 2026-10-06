@@ -13,6 +13,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
+  import BottomTabs from "../components/BottomTabs.svelte";
   import Toast from "../components/Toast.svelte";
 
   let {
@@ -752,6 +753,8 @@
 
   <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
   <Toast message={toast} type={toastType} />
+
+  <BottomTabs active="tweaks" {navigate} />
 </div>
 
 <style>

@@ -15,6 +15,7 @@ import { connectionGeneration, emitConnectionLost, isConnectionLostError } from 
 import type {
   ActionResult,
   AppEntry,
+  AppStorage,
   AppUsage,
   ApplyResult,
   BackupEntry,
@@ -39,6 +40,7 @@ import type {
   PerformanceProfile,
   PerformanceResult,
   OtherPackage,
+  PermissionState,
   PrivateDnsResult,
   PrivateDnsState,
   RebootMode,
@@ -48,6 +50,7 @@ import type {
   Safety,
   ScreenshotResult,
   SendTextResult,
+  SetHomeAnyResult,
   SetLauncherResult,
   SnapshotApplyPlan,
   SnapshotFile,
@@ -121,6 +124,22 @@ export const api = {
   /// Backend-audited protected / caution / unknown verdict for one package.
   safetyInfo: async (pkg: string): Promise<Safety> =>
     parseSafety(await call<unknown>("safety_info", { package: pkg })),
+  /// Classify a *process* name from a memory report. Catalog-free on purpose —
+  /// see the Rust doc on `process_safety_info`.
+  processSafetyInfo: async (process: string): Promise<Safety> =>
+    parseSafety(await call<unknown>("process_safety_info", { process })),
+  /// Runtime permission state. Read-only, free.
+  appPermissionState: (serial: string, pkg: string, permission: string) =>
+    call<PermissionState>("app_permission_state", { serial, package: pkg, permission }),
+  /// Grant/revoke a runtime permission. Pro (AppPermissionWrite).
+  setAppPermission: (serial: string, pkg: string, permission: string, grant: boolean) =>
+    call<ActionResult>("set_app_permission", { serial, package: pkg, permission, grant }),
+  /// Set an appop to allow/ignore. Pro (AppPermissionWrite).
+  setAppOp: (serial: string, pkg: string, op: string, allow: boolean) =>
+    call<ActionResult>("set_app_op", { serial, package: pkg, op, allow }),
+  /// Raw `appops get` mode string for one op. Read-only, free.
+  getAppOp: (serial: string, pkg: string, op: string) =>
+    call<string>("get_app_op", { serial, package: pkg, op }),
 
   // ---- Maintenance ----
   trimCaches: (serial: string) =>
@@ -161,6 +180,13 @@ export const api = {
     call<Record<string, number>>("app_memory_map", { serial }),
   appUsageMap: (serial: string) =>
     call<Record<string, AppUsage>>("app_usage_map", { serial }),
+  /// Installed storage per package from one `dumpsys diskstats`. Read-only, free.
+  appStorageMap: (serial: string) =>
+    call<Record<string, AppStorage>>("app_storage_map", { serial }),
+  /// One package's APK size (`pm path` + `stat`), for a package diskstats has
+  /// no row for. Data and cache come back null. Read-only, free.
+  appApkSize: (serial: string, pkg: string) =>
+    call<AppStorage>("app_apk_size", { serial, package: pkg }),
   openPlayStore: (serial: string, pkg: string) =>
     call<ActionResult>("open_play_store", { serial, package: pkg }),
   reinstallExisting: (serial: string, pkg: string) =>
@@ -192,6 +218,15 @@ export const api = {
   },
   disableLauncher: (serial: string, pkg: string) =>
     call<ActionResult>("disable_launcher", { serial, package: pkg }),
+  /// Turn off an enabled Setup Wraith while stock is already disabled. Pro.
+  disableSetupHelper: (serial: string, pkg: string) =>
+    call<ActionResult>("disable_setup_helper", { serial, package: pkg }),
+  /// Advanced picker: try any app as Home. Never disables anything. Pro.
+  setHomeAny: (serial: string, pkg: string, activity: string | null = null) =>
+    call<SetHomeAnyResult>("set_home_any", { serial, package: pkg, activity }),
+  /// The explicit, confirmed step that hands Home from stock to `target`. Pro.
+  disableStockLauncher: (serial: string, target: string) =>
+    call<SetLauncherResult>("disable_stock_launcher", { serial, target }),
 
   // ---- Tweaks (5.1) — writes are Pro (TweaksWrite) ----
   getTweaks: (serial: string) => call<TweaksState>("get_tweaks", { serial }),
