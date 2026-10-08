@@ -422,6 +422,15 @@ mod tests {
     #[test]
     fn every_custom_launcher_has_a_source_url_and_no_package_repeats() {
         let cat = load_embedded_launchers().expect("parse");
+        let projectivy = cat
+            .custom
+            .iter()
+            .find(|entry| entry.package == "com.spocky.projengmenu")
+            .expect("Projectivy");
+        assert_eq!(
+            projectivy.source_url.as_deref(),
+            Some("https://github.com/spocky/miproja1/releases")
+        );
         let mut seen = std::collections::HashSet::new();
         for entry in cat.custom.iter().chain(cat.stock.iter()) {
             assert!(

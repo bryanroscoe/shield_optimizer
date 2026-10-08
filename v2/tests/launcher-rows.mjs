@@ -52,6 +52,14 @@ async function launcherTab(page) {
   const homeAppRows = await rows.filter({ has: page.locator(".tag", { hasText: "HOME APP" }) }).count();
   assert.equal(homeAppRows, 0, "no ordinary app is badged HOME APP in the demo");
 
+  const currentProjectivy = rows.filter({ has: page.locator(".launcher-pkg", { hasText: "com.spocky.projengmenu" }) });
+  assert.equal(await currentProjectivy.locator(".current-default").count(), 1);
+  assert.equal(
+    await currentProjectivy.getByRole("button", { name: "Open the developer's page for Projectivy Launcher in your browser" }).count(),
+    1,
+    "the current default keeps its source link without offering to disable it",
+  );
+
   // The Advanced picker lists every installed app, so the leanback-only app is
   // reachable there — proof the fixture has it and the list above left it out.
   await page.locator("details.home-picker summary").click();
