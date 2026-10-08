@@ -302,8 +302,8 @@ fn adb_session_line(
     })
 }
 
-/// The expert shell runs whatever the user typed, so neither the command nor
-/// its output is recorded — only that it ran and how it ended.
+/// Expert shell commands and device logs can contain private data. Record
+/// only that bounded execution ran and how it ended, never its payload.
 fn bounded_session_line(
     serial: &str,
     ms: u128,
@@ -318,7 +318,7 @@ fn bounded_session_line(
         "kind": "adb",
         "ts": session::now_ts(),
         "serial": serial,
-        "args": ["-s", serial, "shell", "<expert shell command redacted>"],
+        "args": ["-s", serial, "shell", "<bounded shell command redacted>"],
         "ms": ms,
         "exit_code": exit_code,
         "stdout": "",
@@ -432,12 +432,12 @@ impl AdbDriver for SubprocessAdb {
             ));
         }
         match &result {
-            // Only the expert shell uses this path. Its command and output
-            // are whatever the user chose to run, so neither is logged: the
+            // Expert shell and logcat use this path. Their commands and output
+            // may contain private data, so neither is logged: the
             // debug log feeds the bug-report bundle.
             Ok(out) => debug!(
                 serial,
-                command = "<expert shell command redacted>",
+                command = "<bounded shell command redacted>",
                 ms = started.elapsed().as_millis(),
                 exit_code = ?out.exit_code,
                 termination = ?out.termination,
@@ -447,7 +447,7 @@ impl AdbDriver for SubprocessAdb {
             ),
             Err(e) => debug!(
                 serial,
-                command = "<expert shell command redacted>",
+                command = "<bounded shell command redacted>",
                 ms = started.elapsed().as_millis(),
                 error = %e,
                 "adb shell (bounded) failed"
@@ -860,7 +860,7 @@ mod tests {
         let line = bounded_session_line("tv:5555", 9, &result);
         let text = line.to_string();
         assert!(!text.contains("secret"));
-        assert_eq!(line["args"][3], "<expert shell command redacted>");
+        assert_eq!(line["args"][3], "<bounded shell command redacted>");
         assert_eq!(line["exit_code"], 0);
         assert_eq!(line["termination"], "completed");
         assert_eq!(line["stream"], "bounded");

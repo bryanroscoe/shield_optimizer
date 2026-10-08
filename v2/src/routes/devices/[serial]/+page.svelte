@@ -58,11 +58,12 @@
   import RemoteTab from "$lib/components/RemoteTab.svelte";
   import OptimizeTab from "$lib/components/OptimizeTab.svelte";
   import MediaTab from "$lib/components/MediaTab.svelte";
+  import LogsTab from "$lib/components/LogsTab.svelte";
   import ShellTab from "$lib/components/ShellTab.svelte";
 
   let serial = $derived(decodeURIComponent($page.params.serial ?? ""));
 
-  type Tab = "overview" | "health" | "media" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload" | "shell";
+  type Tab = "overview" | "health" | "media" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload" | "shell" | "logs";
   let activeTab = $state<Tab>("overview");
 
   let device = $state<Device | null>(null);
@@ -2101,6 +2102,7 @@
       { id: "remote", label: "Remote", far: false },
       { id: "files", label: "Files", far: false },
       { id: "media", label: "Playback", far: false },
+      { id: "logs", label: "Logs", far: false },
       { id: "shell", label: "Shell", far: true },
     ] as t (t.id)}
       <button
@@ -3515,6 +3517,11 @@
     <div hidden={activeTab !== "media"}>
       <MediaTab {serial} resetToken={mediaResetToken} active={activeTab === "media"} />
     </div>
+  {/if}
+  {#if activeTab === "logs"}
+    {#key `${serial}:${pageEpoch}`}
+      <LogsTab {serial} resetToken={pageEpoch} active={activeTab === "logs"} />
+    {/key}
   {/if}
   {#if visited.shell}
     <div hidden={activeTab !== "shell"}>

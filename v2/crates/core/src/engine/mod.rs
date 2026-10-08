@@ -9,6 +9,7 @@ pub mod app_lists;
 pub mod detection;
 pub mod diagnostics;
 pub mod launcher;
+pub mod logcat;
 pub mod media;
 pub mod optimize;
 pub mod safety;

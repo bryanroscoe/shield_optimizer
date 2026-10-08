@@ -35,7 +35,8 @@
     "e2e:replay": "node e2e/replay.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
     "tauri": "tauri",
-    "subset-icons": "python3 scripts/subset-material-symbols.py"
+    "subset-icons": "python3 scripts/subset-material-symbols.py",
+    "test:device-logs": "node tests/log-poller.mjs && node tests/device-logs.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

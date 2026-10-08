@@ -703,6 +703,17 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         interfaces: [{ name: "eth0", rx_bytes_per_s: 11_534_336, tx_bytes_per_s: 204_800 }],
         interval_ms: 1000,
       };
+    case "read_device_logs": {
+      const options = args.options as { package?: string; tag?: string };
+      return {
+        package: options.package ?? null,
+        pid: options.package ? 1234 : null,
+        output: {
+          stdout: "10-08 12:00:00.000  1234  1234 I " + (options.tag || "ActivityManager") + ": Synthetic demo log entry\n",
+          stderr: "", exit_code: 0, termination: "completed",
+        },
+      };
+    }
     case "run_shell": {
       const command = String(args.command ?? "");
       // Mirror the real safety gate so the demo/screenshot layer cannot show

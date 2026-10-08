@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Add a read-only desktop Logs tab with severity, tag and main-process filters, bounded recent snapshots, local text search and optional auto-refresh that stops when leaving the view. Raw logs stay out of automatic debug reports.
+
 ## v2-2.3.1 — 2026-10-04
 
 Fixes for Google TV launcher switching (#122, #157, #158): Setup Wraith, Google TV's setup
