@@ -6,6 +6,18 @@ import type { FindResult } from "./types";
 // Single source with desktop's Files tab: read the catalog, don't copy it.
 import catalog from "../../../src/lib/app-files-catalog.json";
 
+export interface FileConnection {
+  serial: string;
+  generation: number;
+}
+
+export function fileConnectionMatches(
+  target: FileConnection,
+  current: { serial: string | null; generation: number; isConnected: boolean },
+): boolean {
+  return current.isConnected && target.serial === current.serial && target.generation === current.generation;
+}
+
 export interface AppFilesEntry {
   id: string;
   package: string;
