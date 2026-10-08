@@ -228,6 +228,22 @@ jobs:
         working-directory: v2
         run: npm run test:context-menu
 
+      # Reviewable UI frames also allow gallery regeneration without a local browser.
+      - name: Capture demo screenshots
+        working-directory: v2
+        run: node screenshots/capture.mjs
+
+      - name: Upload demo screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-demo-frames
+          path: |
+            v2/screenshots/frames/
+            v2/screenshots/frames-light/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # The real Rust command layer against simulated devices, with Playwright
   # driving the real UI. See v2/e2e/README.md.
   e2e:
