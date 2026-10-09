@@ -4026,7 +4026,7 @@
     margin-bottom: 1rem;
     border-bottom: 1px solid var(--border);
     padding-bottom: 0;
-    /* Twelve tabs do not always fit. Scrolling the strip is the honest
+    /* Thirteen tabs do not always fit. Scrolling the strip is the honest
        failure: wrapping "Install APK" onto two lines makes one tab twice the
        height of its neighbours and shoves the underline off the baseline. */
     overflow-x: auto;

@@ -46,8 +46,8 @@
     </div>
   </div>
   <p class="muted small">
-    Logs can contain account details, URLs and tokens. Review them before sharing.
-    This view does not save logs or add them to bug reports.
+    Logs can contain account details, URLs and tokens. Review before sharing.
+    This view does not save or upload them.
   </p>
   <fieldset disabled={pollState.busy || pollState.running}>
     <label>Minimum severity
@@ -63,7 +63,7 @@
     <label>Tag (optional)<input bind:value={tag} placeholder="ActivityManager" maxlength="64" /></label>
     <label>App package (optional)<input bind:value={packageName} placeholder="com.example.app" maxlength="255" /></label>
   </fieldset>
-  <p class="muted small">App filtering covers only its currently running main process, not helper processes. Android can reuse process IDs, so older entries may belong to a previous process. Filters and logcat options depend on the TV's Android version.</p>
+  <p class="muted small">App filtering covers the currently running main process only; helper processes are excluded.</p>
   <div class="actions">
     <button onclick={() => poller.once()} disabled={pollState.busy || pollState.running || !visible}>Read logs</button>
     {#if pollState.running}
@@ -73,7 +73,11 @@
     {/if}
     <span class="muted small" role="status">{pollState.busy ? "Reading…" : pollState.running ? "Waiting for next snapshot…" : "Stopped"}</span>
   </div>
-  <p class="muted small">Refreshes 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream; resolving an app adds a separate bounded read. Stop prevents further refreshes; an in-flight read finishes within its limits. Leaving this tab or hiding the app stops refreshes.</p>
+  <details class="capture-details small">
+    <summary>Capture limits and app scope</summary>
+    <p>Refreshes 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream; resolving an app adds a separate bounded read. Stop prevents further refreshes; an in-flight read finishes within its limits. Leaving this tab or hiding the app stops refreshes.</p>
+    <p>Android can reuse process IDs, so older entries may belong to a previous process. Filters and logcat options depend on the TV's Android version. Snapshots can overlap or miss high-volume traffic; this is not a lossless recording. Raw logs are not added to automatic bug reports.</p>
+  </details>
   {#if pollState.error}<p class="error" role="alert">{pollState.error}</p>{/if}
   {#if pollState.value}
     <p class="muted small">
@@ -91,6 +95,12 @@
 </div>
 
 <style>
+  .card-header { margin-bottom: .8rem; padding-bottom: .7rem; }
+  .card-header h2 { margin: 0; }
+  .card-header p { margin: .3rem 0 0; }
+  .small { font-size: .8rem; line-height: 1.5; }
+  .capture-details { margin: .8rem 0; color: var(--fg-secondary); }
+  .capture-details summary { cursor: pointer; }
   h2 { display: flex; align-items: center; gap: .5rem; }
   fieldset { border: 0; padding: 0; margin: 1rem 0; display: flex; flex-wrap: wrap; gap: .8rem; }
   label { display: flex; flex-direction: column; gap: .35rem; font-size: .85rem; }
