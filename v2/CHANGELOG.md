@@ -22,7 +22,13 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+### Added
+
 - Add a read-only desktop Logs tab with severity, tag and main-process filters, bounded recent snapshots, local text search and optional auto-refresh that stops when leaving the view. Raw logs stay out of automatic debug reports.
+
+### Fixed
+
+- Launcher source pages remain available for installed and current-default launchers. Projectivy links to its official GitHub releases; opening the page never uninstalls or changes the current launcher (#161).
 
 ## v2-2.3.1 — 2026-10-04
 

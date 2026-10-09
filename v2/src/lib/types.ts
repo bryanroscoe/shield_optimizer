@@ -82,9 +82,8 @@ export interface AppStorage {
 export interface LauncherEntry {
   name: string;
   package: string;
-  /// The launcher's official page, for the "Get" link on a row that isn't
-  /// installed. Null for stock launchers and for HOME handlers found on the
-  /// device rather than in the catalog.
+  /// The launcher's official source page, available even when installed.
+  /// Null for stock launchers and HOME handlers outside the catalog.
   source_url: string | null;
   /// Setup helpers (Setup Wraith) a takeover turns off together with this
   /// stock launcher. Present only on a stock entry that has one.

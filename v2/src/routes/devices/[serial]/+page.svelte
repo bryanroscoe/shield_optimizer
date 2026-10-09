@@ -2656,19 +2656,6 @@
                     >
                       {busy ? "Opening…" : "Open Play Store on TV"}
                     </button>
-                    <!-- The Play Store button drives the TV's own store, which
-                         is no help for a launcher that store doesn't carry. This
-                         opens the launcher's official page here instead; it
-                         downloads and installs nothing. -->
-                    {#if l.entry.source_url}
-                      <button
-                        class="small-action subtle launcher-get"
-                        onclick={() => openInBrowser(l.entry.source_url ?? "")}
-                        data-tip="Opens the developer's page in your browser, for launchers the TV's Play Store doesn't carry"
-                        data-tip-align="end"
-                        aria-label="Open the developer's page for {l.entry.name} in your browser"
-                      ><Icon name="open_in_new" size={14} /> <span>Source site</span></button>
-                    {/if}
                   {:else}
                     {#if !l.enabled}
                       <button
@@ -2711,6 +2698,15 @@
                         title="Disabling the launcher you're currently using would leave the TV with no Home screen. Set another launcher as default first."
                       >Current default</span>
                     {/if}
+                  {/if}
+                  {#if l.entry.source_url}
+                    <button
+                      class="small-action subtle launcher-get"
+                      onclick={() => openInBrowser(l.entry.source_url ?? "")}
+                      data-tip="Opens the developer's page in your browser. Nothing is downloaded, uninstalled, or changed on the TV."
+                      data-tip-align="end"
+                      aria-label="Open the developer's page for {l.entry.name} in your browser"
+                    ><Icon name="open_in_new" size={14} /> <span>Source site</span></button>
                   {/if}
                 </div>
               </li>
