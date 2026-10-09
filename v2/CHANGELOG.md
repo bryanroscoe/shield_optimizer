@@ -22,6 +22,10 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+### Fixed
+
+- Launcher source pages remain available for installed and current-default launchers. Projectivy links to its official GitHub releases; opening the page never uninstalls or changes the current launcher (#161).
+
 ## v2-2.3.1 — 2026-10-04
 
 Fixes for Google TV launcher switching (#122, #157, #158): Setup Wraith, Google TV's setup

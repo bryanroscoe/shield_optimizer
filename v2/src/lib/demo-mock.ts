@@ -314,7 +314,7 @@ const launchers: LauncherStatus[] = [
     other: false,
     setup_helper: false,
   },
-  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: playStore("com.spocky.projengmenu") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
+  { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: "https://github.com/spocky/miproja1/releases" }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
   { entry: { name: "FLauncher", package: "me.efesser.flauncher", source_url: playStore("me.efesser.flauncher") }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
   { entry: { name: "ATV Launcher", package: "com.sweech.launcher", source_url: playStore("com.sweech.launcher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },
   { entry: { name: "Wolf Launcher", package: "com.wolf.firelauncher", source_url: playStore("com.wolf.firelauncher") }, installed: false, enabled: false, stock: false, other: false, setup_helper: false },

@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 pub struct LauncherEntry {
     pub name: String,
     pub package: String,
-    /// Where to get it when it isn't installed — the launcher's own official
-    /// page. `None` for stock launchers, which ship with the device, and for
+    /// The launcher's official source page, also useful when already installed.
+    /// `None` for stock launchers, which ship with the device, and for
     /// HOME handlers discovered on the device rather than read from the file.
     #[serde(default)]
     pub source_url: Option<String>,
