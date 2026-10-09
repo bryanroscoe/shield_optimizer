@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { FileEntry, FindResult, PulledFile } from "../lib/types";
@@ -8,10 +8,12 @@
     appFilesCatalog,
     baseName,
     canDeleteOnTv,
+    fileConnectionMatches,
     parentDir,
     summarizeFind,
     unsearchedMessage,
     type AppFilesEntry,
+    type FileConnection,
   } from "../lib/appFiles";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
@@ -33,6 +35,19 @@
   let entries = $state<FileEntry[]>([]);
   let loadGeneration = 0;
   let watchedSerial = session.serial;
+  let watchedGeneration = session.generation;
+  let watchedLive = session.isConnected;
+  let destroyed = false;
+
+  function current(target: FileConnection) {
+    return !destroyed && fileConnectionMatches(target, session);
+  }
+
+  onDestroy(() => {
+    destroyed = true;
+    ++loadGeneration;
+    clearTimeout(toastTimer);
+  });
 
   // Files pulled this session, newest first, plus the set of remote paths we've
   // pulled so rows can show a check.
@@ -47,7 +62,7 @@
 
   // A delete waiting on the confirmation dialog. Carries its own serial so a
   // TV switch while the dialog is open can't redirect it.
-  let pendingDelete = $state<{ serial: string; path: string; name: string; isDir: boolean } | null>(
+  let pendingDelete = $state<(FileConnection & { path: string; name: string; isDir: boolean }) | null>(
     null,
   );
   let deleting = $state(false);
@@ -65,9 +80,10 @@
 
   async function load(target: string) {
     const serial = session.serial;
+    const connection = { serial, generation: session.generation };
     const generation = ++loadGeneration;
     path = target;
-    if (!serial) {
+    if (!serial || !session.isConnected) {
       error = "No TV connected. Go back and connect first.";
       entries = [];
       loading = false;
@@ -77,15 +93,15 @@
     error = "";
     try {
       const rows = await api.listRemoteDir(serial, target);
-      if (generation !== loadGeneration || serial !== session.serial) return;
+      if (generation !== loadGeneration || !current(connection)) return;
       entries = rows;
       loadedPath = target;
     } catch (e) {
-      if (generation !== loadGeneration || serial !== session.serial) return;
+      if (generation !== loadGeneration || !current(connection)) return;
       error = String(e);
       entries = [];
     } finally {
-      if (generation === loadGeneration && serial === session.serial) loading = false;
+      if (generation === loadGeneration && current(connection)) loading = false;
     }
   }
 
@@ -95,8 +111,12 @@
   // breadcrumb and the pulled-this-session markers all belonged to the old TV.
   $effect(() => {
     const serial = session.serial;
-    if (serial === watchedSerial) return;
+    const generation = session.generation;
+    const live = session.isConnected;
+    if (serial === watchedSerial && generation === watchedGeneration && live === watchedLive) return;
     watchedSerial = serial;
+    watchedGeneration = generation;
+    watchedLive = live;
     loadedPath = ROOT;
     entries = [];
     pulled = [];
@@ -105,6 +125,7 @@
     appResults = {};
     appBusy = "";
     pendingDelete = null;
+    deleting = false;
     void load(ROOT);
   });
 
@@ -135,17 +156,19 @@
   }
 
   async function pull(e: FileEntry) {
-    if (busyName || e.is_dir || !session.serial) return;
+    if (busyName || e.is_dir || !session.isConnected) return;
+    const target = { serial: session.serial, generation: session.generation };
     const remote = remotePathOf(e);
     busyName = e.name;
     try {
-      const file = await api.pullFile(session.serial, remote);
+      const file = await api.pullFile(target.serial, remote);
+      if (!current(target)) return;
       recordPulled(file, remote);
       showToast(`Copied ${file.name} into this app's storage.`, "success");
     } catch (err) {
-      showToast(String(err), "error");
+      if (current(target)) showToast(String(err), "error");
     } finally {
-      busyName = "";
+      if (current(target)) busyName = "";
     }
   }
 
@@ -156,51 +179,53 @@
 
   async function findAppFiles(entry: AppFilesEntry) {
     const serial = session.serial;
-    if (appBusy || !serial) return;
+    const target = { serial, generation: session.generation };
+    if (appBusy || !serial || !session.isConnected) return;
     appBusy = entry.id;
     try {
       const result = await api.findFiles(serial, entry.search_dirs, entry.pattern);
-      if (serial !== session.serial) return;
+      if (!current(target)) return;
       appResults = { ...appResults, [entry.id]: result };
     } catch (err) {
-      if (serial !== session.serial) return;
+      if (!current(target)) return;
       // A refused request (or a lost connection) is not a search result — drop
       // any older answer rather than leave it looking current.
       const { [entry.id]: _dropped, ...rest } = appResults;
       appResults = rest;
       showToast(String(err), "error");
     } finally {
-      if (serial === session.serial) appBusy = "";
+      if (current(target)) appBusy = "";
     }
   }
 
   async function pullFound(remote: string) {
     const serial = session.serial;
-    if (appBusy || busyName || !serial) return;
+    const target = { serial, generation: session.generation };
+    if (appBusy || busyName || !serial || !session.isConnected) return;
     appBusy = remote;
     try {
       const file = await api.pullFile(serial, remote);
-      if (serial !== session.serial) return;
+      if (!current(target)) return;
       recordPulled(file, remote);
       showToast(`Copied ${file.name} into this app's storage.`, "success");
     } catch (err) {
-      if (serial === session.serial) showToast(String(err), "error");
+      if (current(target)) showToast(String(err), "error");
     } finally {
-      if (serial === session.serial) appBusy = "";
+      if (current(target)) appBusy = "";
     }
   }
 
   function askDelete(remote: string, isDir: boolean) {
     const serial = session.serial;
-    if (!serial || deleting || !canDeleteOnTv(remote)) return;
-    pendingDelete = { serial, path: remote, name: baseName(remote), isDir };
+    if (!serial || !session.isConnected || deleting || !canDeleteOnTv(remote)) return;
+    pendingDelete = { serial, generation: session.generation, path: remote, name: baseName(remote), isDir };
   }
 
   async function confirmDelete() {
     const target = pendingDelete;
     pendingDelete = null;
     if (!target || deleting) return;
-    if (target.serial !== session.serial) {
+    if (!current(target)) {
       showToast("The TV changed before the delete was confirmed. Nothing was deleted.", "error");
       return;
     }
@@ -208,16 +233,18 @@
     busyName = target.name;
     try {
       const r = await api.deletePath(target.serial, target.path);
-      if (target.serial !== session.serial) return;
+      if (!current(target)) return;
       showToast(r.message, r.ok ? "success" : "error");
       // Found-file lists may now point at a file that is gone.
       appResults = {};
       if (r.ok) await load(loadedPath);
     } catch (err) {
-      if (target.serial === session.serial) showToast(String(err), "error");
+      if (current(target)) showToast(String(err), "error");
     } finally {
-      deleting = false;
-      busyName = "";
+      if (current(target)) {
+        deleting = false;
+        busyName = "";
+      }
     }
   }
 

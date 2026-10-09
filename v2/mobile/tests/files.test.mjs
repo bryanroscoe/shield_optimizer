@@ -245,3 +245,35 @@ test("a delete confirmed after a TV switch is not sent to the new TV", async (t)
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
   assert.equal((await callsOf(page, "delete_path")).length, 0);
 });
+
+test("reconnecting to the same endpoint clears an old delete confirmation", async (t) => {
+  const page = await open(t);
+  await page.getByRole("button", { name: "Delete old.zip from the TV" }).click();
+  await page.getByText("Delete file from the TV?").waitFor();
+  await page.evaluate(async () => {
+    const confirm = document.querySelector(".dialog-actions .danger-btn");
+    const reconnect = window.session.connect("A", 5555);
+    // The old dialog can still receive a click before Svelte flushes the reconnect.
+    confirm.click();
+    await reconnect;
+  });
+  await page.waitForFunction(() => !document.body.innerText.includes("Delete file from the TV?"));
+  assert.equal((await callsOf(page, "delete_path")).length, 0);
+});
+
+test("a copy completing after a TV switch does not mark the new TV's row copied", async (t) => {
+  const page = await open(t);
+  await page.evaluate(() => {
+    window.handlers.pull_file = () => new Promise((resolve) => { window.finishOldPull = resolve; });
+  });
+  await page.locator(".file-row").filter({ hasText: "old.zip" }).click();
+  await page.waitForFunction(() => typeof window.finishOldPull === "function");
+  await page.evaluate(async () => {
+    await window.session.connect("B", 5555);
+    window.finishOldPull({ name: "old.zip", path: "/app/downloads/old.zip", size_bytes: 10 });
+  });
+  await page.locator(".file-row").filter({ hasText: "old.zip" }).waitFor();
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(await page.getByText("Copied old.zip into this app's storage.").count(), 0);
+  assert.equal(await page.locator(".dl-list").count(), 0);
+});
