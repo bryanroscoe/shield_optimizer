@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { stripTypeScriptTypes } from "node:module";
+import ts from "typescript";
 import test from "node:test";
 const source = readFileSync(new URL("../src/lib/log-poller.ts", import.meta.url), "utf8");
-const { LogPoller } = await import("data:text/javascript," + encodeURIComponent(stripTypeScriptTypes(source, { mode: "transform" })));
+const compiled = ts.transpileModule(source, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+}).outputText;
+const { LogPoller } = await import("data:text/javascript," + encodeURIComponent(compiled));
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 
