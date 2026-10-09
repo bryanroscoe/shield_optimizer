@@ -20,8 +20,8 @@ use adb::SubprocessAdb;
 use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
-    apps, devices, health, input, launcher, loader, optimize, reboot, recovery, screenshot, shell,
-    snapshot, tuning,
+    apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
+    shell, snapshot, tuning,
 };
 use shield_optimizer_core::license::Entitlement;
 
@@ -145,6 +145,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         recovery::panic_recovery,
         reboot::reboot_device,
         shell::run_shell,
+        logcat::read_device_logs,
         tuning::get_tweaks,
         tuning::write_setting,
         tuning::set_display_scaling,

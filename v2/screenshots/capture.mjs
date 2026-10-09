@@ -141,6 +141,12 @@ async function captureScreens(page, shot) {
     await page.waitForTimeout(400);
     await shot("snapshot");
 
+    // Logs: one explicit bounded synthetic snapshot, with no background capture.
+    await page.locator("#tab-logs").click();
+    await page.getByRole("button", { name: "Read logs", exact: true }).click();
+    await page.getByLabel("Log output").waitFor();
+    await shot("logs");
+
     // 14. Shell runner.
     await page.locator("#tab-shell").click();
     await page.getByText("Disabled packages", { exact: false }).first().waitFor();

@@ -168,6 +168,24 @@ export interface ResourceSample {
   interval_ms: number | null;
 }
 
+export interface DeviceLogOptions {
+  priority: "verbose" | "debug" | "info" | "warning" | "error" | "fatal";
+  lines: number;
+  tag: string | null;
+  package: string | null;
+}
+
+export interface DeviceLogResult {
+  output: {
+    stdout: string;
+    stderr: string;
+    exit_code: number | null;
+    termination: "completed" | "output_limit" | "timeout";
+  };
+  package: string | null;
+  pid: number | null;
+}
+
 export interface ShellRunResult {
   stdout: string;
   stderr: string;

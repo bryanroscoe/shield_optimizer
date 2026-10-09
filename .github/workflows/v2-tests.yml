@@ -218,6 +218,10 @@ jobs:
         working-directory: v2
         run: npm run test:recommendation-labels
 
+      - name: Device log snapshots and lifecycle
+        working-directory: v2
+        run: npm run test:device-logs
+
       - name: Launcher rows
         working-directory: v2
         run: npm run test:launcher-rows
