@@ -162,6 +162,26 @@ test("hardware Back and direct navigation keep Optimize cancellable", async (t) 
   assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "apply_performance_settings")), false);
 });
 
+test("Tweaks is a bottom tab and Optimize is a pushed screen; Back unwinds both to Home", async (t) => {
+  const page = await open(t, "dashboard");
+  const labels = await page.locator(".bottom-tabs .tab-label").allInnerTexts();
+  assert.deepEqual(labels, ["Home", "Apps", "Tweaks", "Remote", "More"]);
+
+  await page.locator(".bottom-tabs .tab-btn", { hasText: "Tweaks" }).click();
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "tweaks"]);
+  await page.locator(".bottom-tabs .tab-btn.active", { hasText: "Tweaks" }).waitFor();
+  await page.evaluate(() => history.back());
+  await page.waitForFunction(() => window.router.current === "dashboard");
+
+  await page.evaluate(() => window.router.navigate("optimize"));
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "optimize"]);
+  await page.getByRole("heading", { name: "Optimize" }).waitFor();
+  assert.equal(await page.locator(".bottom-tabs").count(), 0);
+  await page.evaluate(() => history.back());
+  await page.waitForFunction(() => window.router.current === "dashboard");
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+});
+
 test("remote queue is discarded after navigation and a TV switch", async (t) => {
   const page = await open(t);
   await page.evaluate(() => {
@@ -669,6 +689,12 @@ test("Diagnostics keeps its safety badges when two top apps swap rank (#118)", a
   await page.evaluate(async () => {
     const entry = (process, mb) => ({ process, pid: null, package: process, mb });
     window.topMemory = [entry("com.example.big", 300), entry("com.example.small", 200)];
+    // Diagnostics asks `safety_info` only for packages the TV confirms are
+    // installed; anything else goes to the catalog-free process check.
+    window.handlers.list_installed_packages = () => [
+      { package: "com.example.big", name: "Big", system: false, enabled: true },
+      { package: "com.example.small", name: "Small", system: false, enabled: true },
+    ];
     window.handlers.health_report = () => ({
       ram: { free_mb: 512 }, storage: {}, display: {}, top_memory: window.topMemory,
     });

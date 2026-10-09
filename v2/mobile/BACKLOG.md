@@ -13,6 +13,25 @@ nothing in `v2/mobile` has been verified on a phone or TV since `44d2d66`. Accep
 the September 10 policy in `AGENTS.md`; physical items below remain gated. The
 older installation instructions are not current permission.
 
+## Desktop parity pass (2026-10-06)
+
+Shipped to mobile on `mobile-parity-pass` (details in `HANDOFF.md`): Optimize search and app
+sheet, Diagnostics suggestions, snapshot preview Now column, Apps Recognised section with
+storage details, Report this app (#100) and long-press menu (#129), Launcher Setup Wraith card,
+set-any-app-as-Home and separate stock disable (#157/#158), the Tweaks tab at desktop parity, Files
+app-backup finder and TV-side delete (shared core, desktop #86 fix), and links opening in the
+phone's browser. **Nothing here has run on a phone or TV.** Browser suites pass (207/207).
+
+Remaining parity gaps, in rough order:
+
+1. Device pass of everything above on the Pixel against a Shield and a Google TV.
+2. Phone→TV upload in Files — needs an Android document picker (folds into P1.3 SAF).
+3. Install APK / sideload from the phone.
+4. Bug-report bundle (`collect_diagnostics`) with an explicit share step.
+5. Patch-notes viewer.
+6. List `androidx.browser` (pulled in by the opener plugin) and the other Gradle dependencies in
+   `scripts/notices-header.md`.
+
 ## Correctness checkpoint
 
 Implemented in the current checkpoint:
@@ -263,8 +282,8 @@ complete the physical matrix.
    2026-09-04, unverified end-to-end; follow the manual test in `PAIRING-PLAN.md`: Pixel pairing
    service from the host first, then a Google TV, including the wrong-code and silent-reconnect
    checks).
-3. Add Android SAF import/export and user-selected push destinations, then consider Google Drive
-   sync for complete APK bundles.
+3. Add Android SAF import/export and user-selected push destinations (this is also what unblocks
+   phone→TV upload in Files), then consider Google Drive sync for complete APK bundles.
 4. Add panic recovery, advanced reboot, permission/app-op controls, reinstall-existing, and a
    deliberate performance/correctness pass across Launcher, Tweaks, Files, and Backups.
 5. ~~Signed commercial licensing~~ — done 2026-09-04 (`crates/core/src/license.rs`,

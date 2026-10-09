@@ -384,6 +384,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-atv-adb",
+ "tauri-plugin-opener",
  "tempfile",
  "tokio",
  "tracing",

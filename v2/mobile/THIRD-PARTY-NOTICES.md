@@ -162,12 +162,12 @@ the MIT License, whose text is reproduced in the MIT section below.
 
 ## Rust crate dependencies
 
-308 crates are linked into the Android build (build-time and dev-only crates excluded).
+313 crates are linked into the Android build (build-time and dev-only crates excluded).
 
 | License | Crates |
 | --- | --- |
-| MIT | 271 |
-| Apache-2.0 | 211 |
+| MIT | 276 |
+| Apache-2.0 | 213 |
 | Unicode-3.0 | 19 |
 | BSD-3-Clause | 11 |
 | Unlicense | 6 |
@@ -303,6 +303,8 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [infer](https://github.com/bojand/infer) | 0.19.0 | MIT |
 | [inout](https://github.com/RustCrypto/utils) | 0.1.4 | MIT OR Apache-2.0 |
 | [ipnet](https://github.com/krisprice/ipnet) | 2.12.0 | MIT OR Apache-2.0 |
+| [is-docker](https://github.com/TheLarkInn/is-docker) | 0.2.0 | MIT |
+| [is-wsl](https://github.com/TheLarkInn/is-wsl) | 0.4.0 | MIT |
 | [itoa](https://github.com/dtolnay/itoa) | 1.0.18 | MIT OR Apache-2.0 |
 | [jni](https://github.com/jni-rs/jni-rs) | 0.21.1 | MIT OR Apache-2.0 |
 | [jni-sys](https://github.com/jni-rs/jni-sys) | 0.3.1 | MIT OR Apache-2.0 |
@@ -337,9 +339,11 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [num_enum_derive](https://github.com/illicitonion/num_enum) | 0.7.6 | BSD-3-Clause OR MIT OR Apache-2.0 |
 | [once_cell](https://github.com/matklad/once_cell) | 1.21.4 | MIT OR Apache-2.0 |
 | [opaque-debug](https://github.com/RustCrypto/utils) | 0.3.1 | MIT OR Apache-2.0 |
+| [open](https://github.com/Byron/open-rs) | 5.3.5 | MIT |
 | [option-ext](https://github.com/soc/option-ext.git) | 0.2.0 | MPL-2.0 |
 | [parking_lot](https://github.com/Amanieu/parking_lot) | 0.12.5 | MIT OR Apache-2.0 |
 | [parking_lot_core](https://github.com/Amanieu/parking_lot) | 0.9.12 | MIT OR Apache-2.0 |
+| [pathdiff](https://github.com/Manishearth/pathdiff) | 0.2.3 | MIT OR Apache-2.0 |
 | [pem](https://github.com/jcreekmore/pem-rs.git) | 3.0.6 | MIT |
 | [pem-rfc7468](https://github.com/RustCrypto/formats/tree/master/pem-rfc7468) | 0.7.0 | Apache-2.0 OR MIT |
 | [percent-encoding](https://github.com/servo/rust-url/) | 2.3.2 | MIT OR Apache-2.0 |
@@ -427,6 +431,7 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [tauri](https://github.com/tauri-apps/tauri) | 2.11.2 | Apache-2.0 OR MIT |
 | [tauri-codegen](https://github.com/tauri-apps/tauri) | 2.6.2 | Apache-2.0 OR MIT |
 | [tauri-macros](https://github.com/tauri-apps/tauri) | 2.6.2 | Apache-2.0 OR MIT |
+| [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) | 2.5.4 | Apache-2.0 OR MIT |
 | [tauri-runtime](https://github.com/tauri-apps/tauri) | 2.11.2 | Apache-2.0 OR MIT |
 | [tauri-runtime-wry](https://github.com/tauri-apps/tauri) | 2.11.2 | Apache-2.0 OR MIT |
 | [tauri-utils](https://github.com/tauri-apps/tauri) | 2.9.2 | Apache-2.0 OR MIT |
@@ -2694,6 +2699,36 @@ IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+Used by: open 5.3.5
+
+```
+The MIT License (MIT)
+=====================
+
+Copyright © `2015` `Sebastian Thiel`
+
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the “Software”), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+```
+
 Used by: generic-array 0.14.7
 
 ```
@@ -3673,7 +3708,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Used by: brotli-decompressor 5.0.0, cesu8 1.1.0, chrono 0.4.44, dpi 0.1.2, jni-sys-macros 0.4.1, libm 0.2.16, ndk 0.9.0, ndk-sys 0.6.0+11769913, quick-protobuf 0.8.1, rcgen 0.14.8, siphasher 1.0.3, tao-macros 0.1.3, tauri 2.11.2, tauri-codegen 2.6.2, tauri-macros 2.6.2, tauri-runtime 2.11.2, tauri-runtime-wry 2.11.2, tauri-utils 2.9.2, unic-char-property 0.9.0, unic-char-range 0.9.0, unic-common 0.9.0, unic-ucd-ident 0.9.0, unic-ucd-version 0.9.0
+Used by: brotli-decompressor 5.0.0, cesu8 1.1.0, chrono 0.4.44, dpi 0.1.2, jni-sys-macros 0.4.1, libm 0.2.16, ndk 0.9.0, ndk-sys 0.6.0+11769913, quick-protobuf 0.8.1, rcgen 0.14.8, siphasher 1.0.3, tao-macros 0.1.3, tauri 2.11.2, tauri-codegen 2.6.2, tauri-macros 2.6.2, tauri-plugin-opener 2.5.4, tauri-runtime 2.11.2, tauri-runtime-wry 2.11.2, tauri-utils 2.9.2, unic-char-property 0.9.0, unic-char-range 0.9.0, unic-common 0.9.0, unic-ucd-ident 0.9.0, unic-ucd-version 0.9.0
 
 ```
 MIT License
@@ -4550,6 +4585,32 @@ Used by: schemars 0.8.22, schemars_derive 0.8.22
 MIT License
 
 Copyright (c) 2019 Graham Esau
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+Used by: is-docker 0.2.0, is-wsl 0.4.0
+
+```
+MIT License
+
+Copyright (c) 2023 Sean Larkin
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -5970,7 +6031,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-Used by: adler2 2.0.1, anyhow 1.0.102, async-trait 0.1.89, atomic-waker 1.1.2, camino 1.2.2, cargo-platform 0.1.9, cargo_metadata 0.19.2, curve25519-dalek-derive 0.1.1, displaydoc 0.2.6, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.10, fastrand 2.4.1, itoa 1.0.18, linux-raw-sys 0.12.1, num_enum 0.7.6, num_enum_derive 0.7.6, once_cell 1.21.4, pin-project-lite 0.2.17, proc-macro-crate 3.5.0, proc-macro2 1.0.106, quote 1.0.45, rsa 0.9.10, rustc-hash 2.1.2, rustix 1.1.4, rustversion 1.0.22, semver 1.0.28, serde 1.0.228, serde-untagged 0.1.9, serde_core 1.0.228, serde_derive 1.0.228, serde_derive_internals 0.29.1, serde_json 1.0.150, serde_repr 0.1.20, servo_arc 0.4.3, syn 2.0.117, thiserror 1.0.69, thiserror 2.0.18, thiserror-impl 1.0.69, thiserror-impl 2.0.18, typeid 1.0.3, unicode-ident 1.0.24, utf-8 0.7.6, zmij 1.0.21
+Used by: adler2 2.0.1, anyhow 1.0.102, async-trait 0.1.89, atomic-waker 1.1.2, camino 1.2.2, cargo-platform 0.1.9, cargo_metadata 0.19.2, curve25519-dalek-derive 0.1.1, displaydoc 0.2.6, dtoa 1.0.11, dyn-clone 1.0.20, erased-serde 0.4.10, fastrand 2.4.1, itoa 1.0.18, linux-raw-sys 0.12.1, num_enum 0.7.6, num_enum_derive 0.7.6, once_cell 1.21.4, pathdiff 0.2.3, pin-project-lite 0.2.17, proc-macro-crate 3.5.0, proc-macro2 1.0.106, quote 1.0.45, rsa 0.9.10, rustc-hash 2.1.2, rustix 1.1.4, rustversion 1.0.22, semver 1.0.28, serde 1.0.228, serde-untagged 0.1.9, serde_core 1.0.228, serde_derive 1.0.228, serde_derive_internals 0.29.1, serde_json 1.0.150, serde_repr 0.1.20, servo_arc 0.4.3, syn 2.0.117, thiserror 1.0.69, thiserror 2.0.18, thiserror-impl 1.0.69, thiserror-impl 2.0.18, typeid 1.0.3, unicode-ident 1.0.24, utf-8 0.7.6, zmij 1.0.21
 
 ```
 Permission is hereby granted, free of charge, to any

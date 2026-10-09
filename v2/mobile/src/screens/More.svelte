@@ -109,8 +109,8 @@
     {
       label: "Tuning",
       tools: [
+        { screen: "optimize", icon: "auto_fix_high", title: "Optimize", desc: "Review and turn off apps you don't use", pro: true },
         { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
-        { screen: "tweaks", icon: "tune", title: "Tweaks", desc: "CEC, frame rate, DNS, animations", pro: true },
         { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Record a setup and re-apply it later", pro: true },
       ],
     },
@@ -296,12 +296,9 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("dashboard")} aria-label="Back">
-        <span class="msr">arrow_back</span>
-      </button>
       <FindRemoteButton />
     </div>
-    <h3 class="header-title">Settings</h3>
+    <h3 class="header-title">More</h3>
   </div>
 
   <div class="more-content">

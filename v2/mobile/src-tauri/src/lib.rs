@@ -156,6 +156,7 @@ fn init_logging(data_dir: &Path) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_atv_adb::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // On Android the dirs crate returns no writable location, so resolve
             // the app-scoped data dir through Tauri's path resolver (already
@@ -227,12 +228,17 @@ pub fn run() {
             launcher::channel_provider_disabled,
             launcher::set_default_launcher,
             launcher::disable_launcher,
+            launcher::set_home_any,
+            launcher::disable_stock_launcher,
+            launcher::disable_setup_helper,
             apps::force_stop,
             screenshot::take_screenshot,
             apps::package_states,
             apps::list_other_packages,
             apps::list_installed_packages,
             apps::app_memory_map,
+            apps::app_storage_map,
+            apps::app_apk_size,
             apps::app_usage_map,
             apps::safety_info,
             apps::process_safety_info,
@@ -272,6 +278,8 @@ pub fn run() {
             file_commands::restore_apk_backup,
             file_commands::list_backups,
             file_commands::delete_backup,
+            file_commands::find_files,
+            file_commands::delete_path,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ATV Optimizer mobile application")
