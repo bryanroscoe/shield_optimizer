@@ -17,15 +17,25 @@ impl Delivery for FakeDelivery {
         Ok(())
     }
 }
-fn fixture() -> (
+type Fixture = (
     tempfile::TempDir,
     tauri::App<tauri::test::MockRuntime>,
     Arc<DevState>,
     Arc<FakeDelivery>,
     crate::adb::driver::DriverFactory,
-) {
+);
+type DeliveryFactory =
+    Box<dyn FnOnce(tauri::AppHandle<tauri::test::MockRuntime>) -> Arc<dyn Delivery>>;
+fn fixture() -> Fixture {
+    fixture_custom(None, None, None)
+}
+fn fixture_custom(
+    store: Option<Arc<dyn Store>>,
+    resources: Option<Arc<dyn Resources>>,
+    delivery_factory: Option<DeliveryFactory>,
+) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(NativePreferences::new(dir.path()).unwrap());
+    let store = store.unwrap_or_else(|| Arc::new(NativePreferences::new(dir.path()).unwrap()));
     let factory = crate::adb::driver::DriverFactory::default();
     let app = mock_builder()
         .manage(crate::commands::AppState::new(
@@ -40,16 +50,20 @@ fn fixture() -> (
     let coordinator = Coordinator::new(
         factory.controller(),
         store,
-        Arc::new(AppResources(app.handle().clone())),
+        resources.unwrap_or_else(|| Arc::new(AppResources(app.handle().clone()))),
         Arc::new(UnavailableStop),
     );
     let state = Arc::new(DevState {
         coordinator,
-        delivery: delivery.clone(),
+        delivery: delivery_factory
+            .map(|make| make(app.handle().clone()))
+            .unwrap_or_else(|| delivery.clone()),
         warning: Mutex::new(None),
         error: Mutex::new(None),
         started: std::sync::atomic::AtomicBool::new(false),
+        queue: std::sync::OnceLock::new(),
     });
+    state.start_queue();
     app.manage(state.clone());
     (dir, app, state, delivery, factory)
 }
@@ -313,34 +327,39 @@ fn pinned_mock_loop_routes_native_close_and_exit_requests_through_same_controlle
     let seen_exit = Arc::new(AtomicUsize::new(0));
     let (close_count, exit_count) = (seen_close.clone(), seen_exit.clone());
     let controller = state.coordinator.clone();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut close_canceled = false;
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        app.run_return(move |app, event| {
-            match &event {
-                tauri::RunEvent::Ready => {
-                    main.close().unwrap();
-                }
-                tauri::RunEvent::WindowEvent {
-                    event: tauri::WindowEvent::CloseRequested { .. },
-                    ..
-                } => {
-                    route(app, &event);
-                    close_count.fetch_add(1, Ordering::SeqCst);
-                    assert_eq!(controller.controller.phase(), Phase::Prompting);
-                    let ticket = controller.state.lock().unwrap().pending.unwrap();
-                    controller.cancel(ticket).unwrap();
-                    assert_eq!(controller.controller.phase(), Phase::Running);
-                    main.destroy().unwrap();
-                }
-                tauri::RunEvent::ExitRequested { .. } => {
-                    route(app, &event);
-                    exit_count.fetch_add(1, Ordering::SeqCst);
-                    assert_eq!(controller.controller.phase(), Phase::Prompting);
-                    // MockRuntime has no supported stop API after preventing exit.
-                    // Unwind only the fixture loop; never authorize an unrelated exit event.
-                    panic!("native-route-harness-complete");
-                }
-                _ => route(app, &event),
+        app.run_return(move |app, event| match &event {
+            tauri::RunEvent::Ready => main.close().unwrap(),
+            tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::CloseRequested { .. },
+                ..
+            } => {
+                route(app, &event);
+                close_count.fetch_add(1, Ordering::SeqCst);
             }
+            tauri::RunEvent::ExitRequested { .. } => {
+                route(app, &event);
+                exit_count.fetch_add(1, Ordering::SeqCst);
+            }
+            tauri::RunEvent::MainEventsCleared => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "native request never completed"
+                );
+                if controller.controller.phase() == Phase::Prompting {
+                    if !close_canceled {
+                        let ticket = controller.state.lock().unwrap().pending.unwrap();
+                        controller.cancel(ticket).unwrap();
+                        close_canceled = true;
+                        main.destroy().unwrap();
+                    } else if exit_count.load(Ordering::SeqCst) == 1 {
+                        panic!("native-route-harness-complete");
+                    }
+                }
+            }
+            _ => route(app, &event),
         });
     }));
     let reason = result.expect_err("fixture loop must terminate through its sentinel");
@@ -430,4 +449,252 @@ fn native_prompt_reveal_returns_to_settings_without_reloading_current_prompt() {
     assert_eq!(main.url().unwrap().path(), "/dev/native-exit");
     delivery.show_status().unwrap();
     assert_eq!(main.url().unwrap().path(), "/dev/native-exit");
+}
+
+#[test]
+fn native_close_callback_returns_while_owned_preference_store_is_blocked() {
+    use std::sync::{atomic::AtomicBool, mpsc, Condvar};
+    struct BlockedStore {
+        entered: mpsc::Sender<()>,
+        released: AtomicBool,
+        lock: Mutex<()>,
+        changed: Condvar,
+    }
+    impl BlockedStore {
+        fn release(&self) {
+            let _guard = self.lock.lock().unwrap();
+            self.released.store(true, Ordering::SeqCst);
+            self.changed.notify_all();
+        }
+    }
+    impl Store for BlockedStore {
+        fn persist(&self, _: Preference) -> Result<(), Error> {
+            self.entered.send(()).unwrap();
+            let mut guard = self.lock.lock().unwrap();
+            while !self.released.load(Ordering::SeqCst) {
+                guard = self.changed.wait(guard).unwrap();
+            }
+            Ok(())
+        }
+    }
+    let (entered, store_entered) = mpsc::channel();
+    let store = Arc::new(BlockedStore {
+        entered,
+        released: AtomicBool::new(false),
+        lock: Mutex::new(()),
+        changed: Condvar::new(),
+    });
+    let (_dir, app, state, delivery, factory) = fixture_custom(Some(store.clone()), None, None);
+    let saving = state.clone();
+    let save = tauri::async_runtime::spawn(async move {
+        saving
+            .command(Action::Save {
+                policy: ExitPolicy::AlwaysLeaveRunning,
+            })
+            .await
+    });
+    store_entered.recv_timeout(Duration::from_secs(5)).unwrap();
+    save.abort(); // The IPC/oneshot waiter can disappear; the mailbox still owns persistence.
+    let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+        .build()
+        .unwrap();
+    let (returned, observed_return) = mpsc::channel();
+    let watchdog_store = store.clone();
+    let watchdog = std::thread::spawn(move || {
+        if observed_return
+            .recv_timeout(Duration::from_secs(10))
+            .is_err()
+        {
+            watchdog_store.release();
+        }
+    });
+    let result_store = store.clone();
+    let count = delivery.clone();
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        app.run_return(move |app, event| match &event {
+            tauri::RunEvent::Ready => main.close().unwrap(),
+            tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::CloseRequested { .. },
+                ..
+            } => {
+                route(app, &event);
+                assert!(
+                    !store.released.load(Ordering::SeqCst),
+                    "native callback waited for persistence"
+                );
+                returned.send(()).unwrap();
+                store.release();
+            }
+            tauri::RunEvent::MainEventsCleared => {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "owned native request did not complete"
+                );
+                if count.0.load(Ordering::SeqCst) == 1 {
+                    panic!("blocked-native-callback-complete");
+                }
+            }
+            _ => route(app, &event),
+        });
+    }));
+    result_store.release();
+    watchdog.join().unwrap();
+    let reason = result.expect_err("fixture sentinel expected");
+    assert_eq!(
+        reason.downcast_ref::<&str>().copied(),
+        Some("blocked-native-callback-complete")
+    );
+    assert!(tauri::async_runtime::block_on(save).is_err());
+    assert_eq!(
+        state.coordinator.controller.preference(),
+        Preference::remembered(ExitPolicy::AlwaysLeaveRunning)
+    );
+    assert_eq!(delivery.0.load(Ordering::SeqCst), 1);
+    assert!(factory.operation().is_err());
+}
+
+#[test]
+fn native_quit_restores_retained_failure_or_undelivered_exit_after_navigation() {
+    struct RecoveryResources {
+        fail: bool,
+        calls: Arc<AtomicUsize>,
+    }
+    #[async_trait]
+    impl Resources for RecoveryResources {
+        async fn close_local_and_reap(&self) -> Result<(), CleanupFailure> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail {
+                Err(CleanupFailure::TaskFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+    struct FailedDelivery {
+        app: tauri::AppHandle<tauri::test::MockRuntime>,
+        attempts: Arc<AtomicUsize>,
+        reveals: Arc<AtomicUsize>,
+    }
+    impl Delivery for FailedDelivery {
+        fn show_status(&self) -> Result<(), String> {
+            let result = NativeDelivery(self.app.clone()).show_status();
+            if result.is_ok() {
+                self.reveals.fetch_add(1, Ordering::SeqCst);
+            }
+            result
+        }
+        fn deliver(&self, _: Arc<Coordinator>, _: ExitToken) -> Result<(), String> {
+            self.attempts.fetch_add(1, Ordering::SeqCst);
+            Err("injected delivery failure".to_owned())
+        }
+    }
+    for cleanup_failure in [true, false] {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let reveals = Arc::new(AtomicUsize::new(0));
+        let (a, r) = (attempts.clone(), reveals.clone());
+        let cleanup_calls = Arc::new(AtomicUsize::new(0));
+        let resource: Option<Arc<dyn Resources>> = Some(Arc::new(RecoveryResources {
+            fail: cleanup_failure,
+            calls: cleanup_calls.clone(),
+        }));
+        let (_dir, app, state, _, factory) = fixture_custom(
+            None,
+            resource,
+            Some(Box::new(move |app| {
+                Arc::new(FailedDelivery {
+                    app,
+                    attempts: a,
+                    reveals: r,
+                })
+            })),
+        );
+        let main = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        tauri::async_runtime::block_on(async {
+            state.command(Action::RequestQuit).await.unwrap();
+            let token = state.snapshot().token.unwrap();
+            state
+                .command(Action::Confirm {
+                    token,
+                    policy: ExitPolicy::AlwaysLeaveRunning,
+                    remember: false,
+                })
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while state.error.lock().unwrap().is_none() {
+                    tokio::task::yield_now().await;
+                }
+                while !state.coordinator.state.lock().unwrap().completed
+                    || reveals.load(Ordering::SeqCst) < 2
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        });
+        let ticket = state.coordinator.state.lock().unwrap().pending.unwrap();
+        let before_phase = state.coordinator.controller.phase();
+        let before_token = state.coordinator.recover_exit(ticket).unwrap();
+        let before_sequence = state.coordinator.state.lock().unwrap().sequence;
+        let before_error = state.error.lock().unwrap().clone();
+        let before_attempts = attempts.load(Ordering::SeqCst);
+        let before_reveals = reveals.load(Ordering::SeqCst);
+        main.navigate("http://localhost:1420/elsewhere".parse().unwrap())
+            .unwrap();
+        let (seen, current) = (reveals.clone(), state.clone());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            app.run_return(move |app, event| match &event {
+                tauri::RunEvent::Ready => main.close().unwrap(),
+                tauri::RunEvent::MainEventsCleared => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "native recovery never revealed"
+                    );
+                    if seen.load(Ordering::SeqCst) > before_reveals
+                        && app
+                            .get_webview_window("main")
+                            .unwrap()
+                            .url()
+                            .unwrap()
+                            .path()
+                            == "/dev/native-exit"
+                    {
+                        assert_eq!(current.coordinator.controller.phase(), before_phase);
+                        panic!("native-recovery-revealed");
+                    }
+                }
+                _ => route(app, &event),
+            });
+        }));
+        let reason = result.expect_err("fixture sentinel expected");
+        assert_eq!(
+            reason.downcast_ref::<&str>().copied(),
+            Some("native-recovery-revealed")
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), before_attempts);
+        assert_eq!(cleanup_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            state.coordinator.state.lock().unwrap().sequence,
+            before_sequence
+        );
+        assert_eq!(
+            state.coordinator.recover_exit(ticket).unwrap(),
+            before_token
+        );
+        assert_eq!(*state.error.lock().unwrap(), before_error);
+        assert!(factory.operation().is_err());
+        assert_eq!(
+            before_phase,
+            if cleanup_failure {
+                Phase::Failed(Failure::LocalCleanupFailed)
+            } else {
+                Phase::Finished
+            }
+        );
+    }
 }

@@ -89,6 +89,7 @@ struct DevState {
     warning: Mutex<Option<String>>,
     error: Mutex<Option<String>>,
     started: std::sync::atomic::AtomicBool,
+    queue: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<Work>>,
 }
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -122,6 +123,10 @@ struct Snapshot {
     error: Option<String>,
     warning: Option<String>,
     stop_available: bool,
+}
+struct Work {
+    action: Action,
+    reply: Option<tokio::sync::oneshot::Sender<Result<Snapshot, String>>>,
 }
 impl DevState {
     fn token(ticket: Ticket) -> String {
@@ -180,14 +185,73 @@ impl DevState {
             }
         });
     }
+    fn start_queue(self: &Arc<Self>) {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Work>();
+        self.queue
+            .set(sender)
+            .unwrap_or_else(|_| panic!("native queue initialized twice"));
+        let state = Arc::downgrade(self);
+        tauri::async_runtime::spawn(async move {
+            while let Some(work) = receiver.recv().await {
+                let Some(state) = state.upgrade() else {
+                    break;
+                };
+                let result = state.apply(work.action).await;
+                if let Err(error) = &result {
+                    *state.error.lock().unwrap() = Some(error.clone());
+                }
+                if let Some(reply) = work.reply {
+                    let _ = reply.send(result);
+                }
+            }
+        });
+    }
+    fn enqueue_native_request(self: &Arc<Self>) {
+        // No coordinator/store lock on the event thread. FIFO ownership survives IPC cancellation.
+        if self
+            .queue
+            .get()
+            .expect("native queue initialized")
+            .send(Work {
+                action: Action::RequestQuit,
+                reply: None,
+            })
+            .is_err()
+        {
+            tracing::error!("Native coordinator queue unavailable; exit remains prevented");
+        }
+    }
+    async fn command(&self, action: Action) -> Result<Snapshot, String> {
+        let (reply, response) = tokio::sync::oneshot::channel();
+        self.queue
+            .get()
+            .ok_or("Native coordinator not initialized.")?
+            .send(Work {
+                action,
+                reply: Some(reply),
+            })
+            .map_err(|_| "Native coordinator unavailable.")?;
+        response
+            .await
+            .map_err(|_| "Native coordinator response unavailable.".to_owned())?
+    }
     fn request(self: &Arc<Self>) -> Result<(), String> {
         let ticket = self
             .coordinator
             .prompt()
             .map_err(|error| format!("{error:?}"))?;
-        if self.coordinator.controller.phase() == Phase::Draining {
+        let phase = self.coordinator.controller.phase();
+        if phase == Phase::Draining {
             self.start(ticket);
-        } else if self.coordinator.controller.phase() == Phase::Prompting {
+        } else if phase == Phase::Prompting
+            || matches!(phase, Phase::Failed(_))
+            || (phase == Phase::Finished
+                && self
+                    .coordinator
+                    .recover_exit(ticket)
+                    .map_err(|error| format!("{error:?}"))?
+                    .is_some())
+        {
             self.delivery.show_status()?;
         }
         Ok(())
@@ -270,16 +334,7 @@ async fn dev_exit_action(
     state: tauri::State<'_, Arc<DevState>>,
     action: Action,
 ) -> Result<Snapshot, String> {
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn(async move {
-        let result = state.apply(action).await;
-        if let Err(error) = &result {
-            *state.error.lock().unwrap() = Some(error.clone());
-        }
-        result
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    state.inner().command(action).await
 }
 fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     let native: Box<dyn Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync> =
@@ -304,17 +359,11 @@ fn route<R: Runtime>(app: &tauri::AppHandle<R>, event: &tauri::RunEvent) {
             ..
         } if label == "main" && app.webview_windows().len() == 1 => {
             api.prevent_close();
-            let state = app.state::<Arc<DevState>>();
-            if let Err(error) = state.request() {
-                *state.error.lock().unwrap() = Some(error);
-            }
+            app.state::<Arc<DevState>>().enqueue_native_request();
         }
         tauri::RunEvent::ExitRequested { api, .. } => {
             api.prevent_exit();
-            let state = app.state::<Arc<DevState>>();
-            if let Err(error) = state.request() {
-                *state.error.lock().unwrap() = Some(error);
-            }
+            app.state::<Arc<DevState>>().enqueue_native_request();
         }
         _ => {}
     }
@@ -362,7 +411,9 @@ pub(crate) fn run() {
                 warning: Mutex::new(warning),
                 error: Mutex::new(None),
                 started: std::sync::atomic::AtomicBool::new(false),
+                queue: std::sync::OnceLock::new(),
             });
+            state.start_queue();
             app.manage(state.clone());
             if let Some(window) = app.get_webview_window("main") {
                 window.set_title("ATV Optimizer — isolated native quit development")?;
