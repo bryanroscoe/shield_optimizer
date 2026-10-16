@@ -94,6 +94,17 @@ pub async fn package_states(
     serial: String,
     packages: Vec<String>,
 ) -> Result<HashMap<String, PackageState>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { package_states_body(state, serial, packages).await })
+        .await
+}
+
+async fn package_states_body(
+    state: State<'_, AppState>,
+    serial: String,
+    packages: Vec<String>,
+) -> Result<HashMap<String, PackageState>, String> {
     package_states_impl(state.inner(), &serial, packages).await
 }
 
@@ -103,7 +114,18 @@ pub async fn package_states_impl(
     serial: &str,
     packages: Vec<String>,
 ) -> Result<HashMap<String, PackageState>, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state;
+    scope
+        .with_adb_operation(async move { package_states_impl_body(state, serial, packages).await })
+        .await
+}
+
+async fn package_states_impl_body(
+    state: &AppState,
+    serial: &str,
+    packages: Vec<String>,
+) -> Result<HashMap<String, PackageState>, String> {
+    let adb = state.adb_operation().await?;
     let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
     let out = adb
         .shell(serial, &cmd)
@@ -163,10 +185,30 @@ pub async fn list_other_packages(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<Vec<OtherPackage>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { list_other_packages_body(state, serial).await })
+        .await
+}
+
+async fn list_other_packages_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<OtherPackage>, String> {
     list_other_packages_impl(state.inner(), &serial).await
 }
 
 pub async fn list_other_packages_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Vec<OtherPackage>, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { list_other_packages_impl_body(state, serial).await })
+        .await
+}
+
+async fn list_other_packages_impl_body(
     state: &AppState,
     serial: &str,
 ) -> Result<Vec<OtherPackage>, String> {
@@ -182,10 +224,30 @@ pub async fn list_installed_packages(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<Vec<OtherPackage>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { list_installed_packages_body(state, serial).await })
+        .await
+}
+
+async fn list_installed_packages_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<OtherPackage>, String> {
     list_installed_packages_impl(state.inner(), &serial).await
 }
 
 pub async fn list_installed_packages_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Vec<OtherPackage>, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { list_installed_packages_impl_body(state, serial).await })
+        .await
+}
+
+async fn list_installed_packages_impl_body(
     state: &AppState,
     serial: &str,
 ) -> Result<Vec<OtherPackage>, String> {
@@ -200,7 +262,7 @@ async fn list_packages_impl(
     use std::time::Duration;
     use tokio::time::timeout;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     // Third-party classification is optional; installed and disabled state
     // must both be known before exposing app actions.
@@ -279,6 +341,16 @@ pub async fn app_memory_map(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<HashMap<String, f64>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { app_memory_map_body(state, serial).await })
+        .await
+}
+
+async fn app_memory_map_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HashMap<String, f64>, String> {
     app_memory_map_impl(state.inner(), &serial).await
 }
 
@@ -286,7 +358,17 @@ pub async fn app_memory_map_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<HashMap<String, f64>, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state;
+    scope
+        .with_adb_operation(async move { app_memory_map_impl_body(state, serial).await })
+        .await
+}
+
+async fn app_memory_map_impl_body(
+    state: &AppState,
+    serial: &str,
+) -> Result<HashMap<String, f64>, String> {
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(serial, "dumpsys meminfo")
         .await
@@ -308,6 +390,16 @@ pub async fn app_usage_map(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<HashMap<String, AppUsage>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { app_usage_map_body(state, serial).await })
+        .await
+}
+
+async fn app_usage_map_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HashMap<String, AppUsage>, String> {
     app_usage_map_impl(state.inner(), &serial).await
 }
 
@@ -315,7 +407,17 @@ pub async fn app_usage_map_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<HashMap<String, AppUsage>, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state;
+    scope
+        .with_adb_operation(async move { app_usage_map_impl_body(state, serial).await })
+        .await
+}
+
+async fn app_usage_map_impl_body(
+    state: &AppState,
+    serial: &str,
+) -> Result<HashMap<String, AppUsage>, String> {
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(serial, "dumpsys usagestats")
         .await
@@ -339,6 +441,16 @@ pub async fn app_storage_map(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<HashMap<String, AppStorage>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { app_storage_map_body(state, serial).await })
+        .await
+}
+
+async fn app_storage_map_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HashMap<String, AppStorage>, String> {
     app_storage_map_impl(state.inner(), &serial).await
 }
 
@@ -346,10 +458,20 @@ pub async fn app_storage_map_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<HashMap<String, AppStorage>, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { app_storage_map_impl_body(state, serial).await })
+        .await
+}
+
+async fn app_storage_map_impl_body(
+    state: &AppState,
+    serial: &str,
+) -> Result<HashMap<String, AppStorage>, String> {
     use std::time::Duration;
     use tokio::time::timeout;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = timeout(
         Duration::from_secs(15),
         adb.shell(serial, "dumpsys diskstats"),
@@ -371,6 +493,17 @@ pub async fn app_apk_size(
     serial: String,
     package: String,
 ) -> Result<AppStorage, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { app_apk_size_body(state, serial, package).await })
+        .await
+}
+
+async fn app_apk_size_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<AppStorage, String> {
     app_apk_size_impl(state.inner(), &serial, &package).await
 }
 
@@ -379,10 +512,21 @@ pub async fn app_apk_size_impl(
     serial: &str,
     package: &str,
 ) -> Result<AppStorage, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { app_apk_size_impl_body(state, serial, package).await })
+        .await
+}
+
+async fn app_apk_size_impl_body(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<AppStorage, String> {
     if let Some(rejected) = reject_invalid_package(package) {
         return Err(rejected.message);
     }
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let path_out = adb
         .shell(serial, &format!("pm path {package}"))
         .await
@@ -421,6 +565,17 @@ pub async fn disable_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { disable_package_body(state, serial, package).await })
+        .await
+}
+
+async fn disable_package_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
     disable_package_impl(&state, &serial, &package).await
 }
 
@@ -455,7 +610,7 @@ pub(crate) async fn disable_package_impl(
         .disable_with_for(package)
         .is_empty();
     let inventory = if pairs_helper {
-        let adb = state.adb_snapshot().await;
+        let adb = state.adb_operation().await?;
         match adb.shell(serial, super::launcher::HOME_HANDLER_QUERY).await {
             Ok(out) if out.success() && !out.shell_reported_failure() => {
                 Some(super::launcher::parse_home_handler_packages(&out.stdout))
@@ -481,7 +636,7 @@ pub(crate) async fn disable_package_impl(
     let landed = match &outcome {
         Ok(r) if r.ok => true,
         _ => {
-            let adb = state.adb_snapshot().await;
+            let adb = state.adb_operation().await?;
             matches!(
                 adb.shell(serial, &format!("pm list packages -d {package}")).await,
                 Ok(out) if out.success()
@@ -502,7 +657,7 @@ pub(crate) async fn disable_package_impl(
         other => return other,
     };
     if result.ok {
-        let adb = state.adb_snapshot().await;
+        let adb = state.adb_operation().await?;
         let mut diagnostics = Vec::new();
         use super::launcher::PairedHelperOutcome as Outcome;
         match super::launcher::settle_paired_helpers_after_stock_disable(
@@ -549,7 +704,7 @@ async fn refuse_last_home_handler(
     serial: &str,
     package: &str,
 ) -> Option<ActionResult> {
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await.ok()?;
     let handlers = adb
         .shell(serial, super::launcher::HOME_HANDLER_QUERY)
         .await
@@ -573,6 +728,17 @@ pub async fn enable_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { enable_package_body(state, serial, package).await })
+        .await
+}
+
+async fn enable_package_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
     enable_package_impl(&state, &serial, &package).await
 }
 
@@ -592,7 +758,7 @@ pub(crate) async fn enable_package_impl(
             .disable_with_for(package)
             .is_empty()
     {
-        let adb = state.adb_snapshot().await;
+        let adb = state.adb_operation().await?;
         let mut diagnostics = Vec::new();
         if let Some(warning) =
             super::launcher::reenable_paired_helpers(&*adb, serial, package, &mut diagnostics).await
@@ -615,6 +781,16 @@ pub async fn trim_caches(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { trim_caches_body(state, serial).await })
+        .await
+}
+
+async fn trim_caches_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ActionResult, String> {
     run(&state, &serial, "pm trim-caches 999999999999").await
 }
 
@@ -623,6 +799,17 @@ pub async fn trim_caches(
 /// gate beyond name validation is needed.
 #[tauri::command]
 pub async fn force_stop(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { force_stop_body(state, serial, package).await })
+        .await
+}
+
+async fn force_stop_body(
     state: State<'_, AppState>,
     serial: String,
     package: String,
@@ -658,6 +845,20 @@ pub async fn app_permission_state(
     package: String,
     permission: String,
 ) -> Result<PermissionState, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            app_permission_state_body(state, serial, package, permission).await
+        })
+        .await
+}
+
+async fn app_permission_state_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    permission: String,
+) -> Result<PermissionState, String> {
     app_permission_state_impl(state.inner(), &serial, &package, &permission).await
 }
 
@@ -667,10 +868,24 @@ pub async fn app_permission_state_impl(
     package: &str,
     permission: &str,
 ) -> Result<PermissionState, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            app_permission_state_impl_body(state, serial, package, permission).await
+        })
+        .await
+}
+
+async fn app_permission_state_impl_body(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    permission: &str,
+) -> Result<PermissionState, String> {
     if !is_valid_package_name(package) || !is_valid_permission(permission) {
         return Ok(PermissionState::Missing);
     }
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(serial, &format!("dumpsys package {package}"))
         .await
@@ -694,10 +909,40 @@ pub async fn set_app_permission(
     permission: String,
     grant: bool,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            set_app_permission_body(state, serial, package, permission, grant).await
+        })
+        .await
+}
+
+async fn set_app_permission_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    permission: String,
+    grant: bool,
+) -> Result<ActionResult, String> {
     set_app_permission_impl(state.inner(), &serial, &package, &permission, grant).await
 }
 
 pub async fn set_app_permission_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    permission: &str,
+    grant: bool,
+) -> Result<ActionResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            set_app_permission_impl_body(state, serial, package, permission, grant).await
+        })
+        .await
+}
+
+async fn set_app_permission_impl_body(
     state: &AppState,
     serial: &str,
     package: &str,
@@ -726,10 +971,38 @@ pub async fn set_app_op(
     op: String,
     allow: bool,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { set_app_op_body(state, serial, package, op, allow).await })
+        .await
+}
+
+async fn set_app_op_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    op: String,
+    allow: bool,
+) -> Result<ActionResult, String> {
     set_app_op_impl(state.inner(), &serial, &package, &op, allow).await
 }
 
 pub async fn set_app_op_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    op: &str,
+    allow: bool,
+) -> Result<ActionResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(
+            async move { set_app_op_impl_body(state, serial, package, op, allow).await },
+        )
+        .await
+}
+
+async fn set_app_op_impl_body(
     state: &AppState,
     serial: &str,
     package: &str,
@@ -767,10 +1040,34 @@ pub async fn get_app_op(
     package: String,
     op: String,
 ) -> Result<String, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { get_app_op_body(state, serial, package, op).await })
+        .await
+}
+
+async fn get_app_op_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    op: String,
+) -> Result<String, String> {
     get_app_op_impl(state.inner(), &serial, &package, &op).await
 }
 
 pub async fn get_app_op_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    op: &str,
+) -> Result<String, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { get_app_op_impl_body(state, serial, package, op).await })
+        .await
+}
+
+async fn get_app_op_impl_body(
     state: &AppState,
     serial: &str,
     package: &str,
@@ -782,7 +1079,7 @@ pub async fn get_app_op_impl(
     {
         return Ok("missing".to_string());
     }
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(serial, &format!("cmd appops get {package} {op}"))
         .await
@@ -835,6 +1132,17 @@ pub async fn uninstall_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { uninstall_package_body(state, serial, package).await })
+        .await
+}
+
+async fn uninstall_package_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
     if let Some(rejection) = reject_invalid_package(&package) {
         return Ok(rejection);
     }
@@ -858,6 +1166,17 @@ pub async fn uninstall_package(
 /// previously-uninstalled app from /system without a Play Store fetch.
 #[tauri::command]
 pub async fn reinstall_existing(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { reinstall_existing_body(state, serial, package).await })
+        .await
+}
+
+async fn reinstall_existing_body(
     state: State<'_, AppState>,
     serial: String,
     package: String,
@@ -886,6 +1205,17 @@ pub async fn open_play_store(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { open_play_store_body(state, serial, package).await })
+        .await
+}
+
+async fn open_play_store_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<ActionResult, String> {
     if package.is_empty()
         || package
             .chars()
@@ -905,7 +1235,7 @@ pub async fn open_play_store(
 }
 
 async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, String> {
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(serial, cmd)
         .await

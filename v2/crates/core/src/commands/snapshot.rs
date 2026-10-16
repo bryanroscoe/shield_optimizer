@@ -92,6 +92,16 @@ pub async fn delete_snapshot(
     state: State<'_, AppState>,
     snapshot_path: String,
 ) -> Result<(), String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { delete_snapshot_body(state, snapshot_path).await })
+        .await
+}
+
+async fn delete_snapshot_body(
+    state: State<'_, AppState>,
+    snapshot_path: String,
+) -> Result<(), String> {
     state.require_pro(Feature::Snapshot)?;
     let path = PathBuf::from(&snapshot_path);
     let canonical_path = tokio::fs::canonicalize(&path)
@@ -116,6 +126,13 @@ pub async fn delete_snapshot(
 /// to create still returns the path (the reveal will simply error in the UI).
 #[tauri::command]
 pub async fn snapshot_dir_path(state: State<'_, AppState>) -> Result<String, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { snapshot_dir_path_body(state).await })
+        .await
+}
+
+async fn snapshot_dir_path_body(state: State<'_, AppState>) -> Result<String, String> {
     state.require_pro(Feature::Snapshot)?;
     let _ = tokio::fs::create_dir_all(&state.snapshot_dir).await;
     Ok(state.snapshot_dir.display().to_string())
@@ -124,6 +141,13 @@ pub async fn snapshot_dir_path(state: State<'_, AppState>) -> Result<String, Str
 /// `list_snapshots` — return saved snapshots in `snapshot_dir`, newest first.
 #[tauri::command]
 pub async fn list_snapshots(state: State<'_, AppState>) -> Result<Vec<SnapshotFile>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { list_snapshots_body(state).await })
+        .await
+}
+
+async fn list_snapshots_body(state: State<'_, AppState>) -> Result<Vec<SnapshotFile>, String> {
     state.require_pro(Feature::Snapshot)?;
     let dir = state.snapshot_dir.clone();
     if !dir.exists() {
@@ -177,12 +201,26 @@ pub async fn save_snapshot(
     device_name: String,
     label: Option<String>,
 ) -> Result<SnapshotFile, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { save_snapshot_body(state, serial, device_name, label).await },
+        )
+        .await
+}
+
+async fn save_snapshot_body(
+    state: State<'_, AppState>,
+    serial: String,
+    device_name: String,
+    label: Option<String>,
+) -> Result<SnapshotFile, String> {
     state.require_pro(Feature::Snapshot)?;
     // Empty/whitespace label is treated as "no label".
     let label = label
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     // Pull all the inputs the engine needs.
     let disabled_out = adb
@@ -286,6 +324,17 @@ pub async fn preview_apply(
     serial: String,
     snapshot_path: String,
 ) -> Result<SnapshotApplyPlan, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { preview_apply_body(state, serial, snapshot_path).await })
+        .await
+}
+
+async fn preview_apply_body(
+    state: State<'_, AppState>,
+    serial: String,
+    snapshot_path: String,
+) -> Result<SnapshotApplyPlan, String> {
     state.require_pro(Feature::Snapshot)?;
     // Confine reads to the configured snapshot directory — the frontend
     // hands us paths and we should not blindly read arbitrary locations.
@@ -308,7 +357,7 @@ pub async fn preview_apply(
         .map_err(|e| format!("read snapshot: {e}"))?;
     let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let (installed_pkgs, disabled_pkgs) = installed_and_disabled(adb.as_ref(), &serial).await?;
 
     let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
@@ -381,6 +430,17 @@ pub async fn apply_snapshot(
     serial: String,
     snapshot_path: String,
 ) -> Result<ApplyResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { apply_snapshot_body(state, serial, snapshot_path).await })
+        .await
+}
+
+async fn apply_snapshot_body(
+    state: State<'_, AppState>,
+    serial: String,
+    snapshot_path: String,
+) -> Result<ApplyResult, String> {
     state.require_pro(Feature::Snapshot)?;
     // Same containment check as preview_apply.
     let path = PathBuf::from(&snapshot_path);
@@ -401,7 +461,7 @@ pub async fn apply_snapshot(
         .map_err(|e| format!("read snapshot: {e}"))?;
     let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let (installed_pkgs, disabled_pkgs) = installed_and_disabled(adb.as_ref(), &serial).await?;
 
     let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;

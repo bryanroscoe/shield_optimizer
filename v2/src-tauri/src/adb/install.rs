@@ -61,7 +61,9 @@ pub fn adb_path_in_install_root() -> Option<PathBuf> {
 ///
 /// Network call is async, ZIP extraction is sync (the `zip` crate is sync;
 /// archives are ~12MB so this is fine on a single blocking-thread spawn).
-pub async fn install_platform_tools() -> Result<PathBuf, InstallError> {
+pub async fn install_platform_tools(
+    operation: std::sync::Arc<crate::exit_lifecycle::Operation>,
+) -> Result<PathBuf, InstallError> {
     let install_to = install_root().ok_or(InstallError::NoInstallDir)?;
     tokio::fs::create_dir_all(&install_to).await?;
 
@@ -73,14 +75,29 @@ pub async fn install_platform_tools() -> Result<PathBuf, InstallError> {
 
     // Extract on a blocking thread — zip crate is synchronous.
     let install_clone = install_to.clone();
-    let adb_path = tokio::task::spawn_blocking(move || -> Result<PathBuf, InstallError> {
+    let adb_path = blocking_install(operation, move || -> Result<PathBuf, InstallError> {
         let cursor = std::io::Cursor::new(bytes.as_ref());
         extract_zip_to(cursor, &install_clone)
     })
-    .await
-    .map_err(|e| InstallError::Io(std::io::Error::other(e.to_string())))??;
+    .await?;
 
     Ok(adb_path)
+}
+
+pub(crate) async fn blocking_install<T, F>(
+    operation: std::sync::Arc<crate::exit_lifecycle::Operation>,
+    work: F,
+) -> Result<T, InstallError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, InstallError> + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let _operation = operation;
+        work()
+    })
+    .await
+    .map_err(|e| InstallError::Io(std::io::Error::other(e.to_string())))?
 }
 
 /// Extract the platform-tools ZIP, flattening the top-level `platform-tools/`
@@ -200,5 +217,55 @@ mod tests {
 
         let escape = temp.path().parent().unwrap().join("escape.txt");
         assert!(!escape.exists(), "zip-slip protection failed");
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::exit_lifecycle::{Controller, ExitPolicy, Preference, Rejected, Request};
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn extraction_worker_retains_operation_after_caller_abort() {
+        let controller = Controller::new(Preference::default());
+        let operation = Arc::new(controller.admit_operation().unwrap());
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+        let job = tokio::spawn(blocking_install(operation, move || {
+            started_tx.send(()).unwrap();
+            release_rx
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap();
+            done_tx.send(()).unwrap();
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        job.abort();
+        assert!(job.await.unwrap_err().is_cancelled());
+        let Request::Prompt(attempt) = controller.request_quit(false) else {
+            panic!("prompt");
+        };
+        controller
+            .confirm(attempt, ExitPolicy::AlwaysStop, false)
+            .unwrap();
+        assert_eq!(
+            controller.finish_drain(attempt),
+            Err(Rejected::WorkOutstanding)
+        );
+        release_tx.send(()).unwrap();
+        done_rx.await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            loop {
+                match controller.finish_drain(attempt) {
+                    Ok(()) => break,
+                    Err(Rejected::WorkOutstanding) => tokio::task::yield_now().await,
+                    other => panic!("{other:?}"),
+                }
+            }
+        })
+        .await
+        .unwrap();
     }
 }

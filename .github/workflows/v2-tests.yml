@@ -300,6 +300,10 @@ jobs:
         working-directory: v2
         run: cargo clippy -p shield-optimizer-v2 --features e2e --all-targets -- -D warnings
 
+      - name: Fake process and IPC lifetime regressions
+        working-directory: v2
+        run: cargo test -p shield-optimizer-v2 --features e2e --lib adb::driver::process_tests
+
       - name: npm run e2e
         working-directory: v2
         run: npm run e2e

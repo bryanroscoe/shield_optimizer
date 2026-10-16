@@ -40,6 +40,16 @@ pub async fn list_launchers(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<Vec<LauncherStatus>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { list_launchers_body(state, serial).await })
+        .await
+}
+
+async fn list_launchers_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<LauncherStatus>, String> {
     list_launchers_impl(state.inner(), &serial).await
 }
 
@@ -48,10 +58,20 @@ pub async fn list_launchers_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<Vec<LauncherStatus>, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { list_launchers_impl_body(state, serial).await })
+        .await
+}
+
+async fn list_launchers_impl_body(
+    state: &AppState,
+    serial: &str,
+) -> Result<Vec<LauncherStatus>, String> {
     // Installed + disabled package lists and HOME handlers in one round-trip.
     // The old `tokio::join!` bought no concurrency on the mobile transport,
     // which serializes every shell behind one connection.
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let cmd = crate::adb::checked_batch_command(&[
         "pm list packages",
         "pm list packages -d",
@@ -107,8 +127,19 @@ pub async fn disable_launcher(
     serial: String,
     package: String,
 ) -> Result<crate::commands::apps::ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { disable_launcher_body(state, serial, package).await })
+        .await
+}
+
+async fn disable_launcher_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<crate::commands::apps::ActionResult, String> {
     let outcome = async {
-        let adb = state.adb_snapshot().await;
+        let adb = state.adb_operation().await?;
         let enabled_handlers = adb
             .shell(&serial, HOME_HANDLER_QUERY)
             .await
@@ -174,6 +205,20 @@ pub async fn set_home_any(
     package: String,
     activity: Option<String>,
 ) -> Result<SetHomeAnyResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { set_home_any_body(state, serial, package, activity).await },
+        )
+        .await
+}
+
+async fn set_home_any_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    activity: Option<String>,
+) -> Result<SetHomeAnyResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
     let result = set_home_any_impl(state.inner(), &serial, &package, activity.as_deref()).await;
     match &result {
@@ -218,6 +263,20 @@ pub async fn set_home_any_impl(
     package: &str,
     activity: Option<&str>,
 ) -> Result<SetHomeAnyResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            set_home_any_impl_body(state, serial, package, activity).await
+        })
+        .await
+}
+
+async fn set_home_any_impl_body(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    activity: Option<&str>,
+) -> Result<SetHomeAnyResult, String> {
     // Picking a disabled stock launcher here enables it, so its paired setup
     // helper follows, once stock is confirmed back on (#158).
     let stock_was_disabled = stock_is_disabled_with_helper(state, serial, package).await;
@@ -239,7 +298,9 @@ async fn stock_is_disabled_with_helper(state: &AppState, serial: &str, package: 
     if !launchers().is_stock(package) || launchers().disable_with_for(package).is_empty() {
         return false;
     }
-    let adb = state.adb_snapshot().await;
+    let Ok(adb) = state.adb_operation().await else {
+        return true;
+    };
     match adb
         .shell(serial, &format!("pm list packages -d {package}"))
         .await
@@ -260,7 +321,7 @@ async fn restore_helper_if_stock_enabled(
     stock: &str,
     diagnostics: &mut Vec<String>,
 ) -> Option<String> {
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await.ok()?;
     let stock_now_enabled = match adb
         .shell(serial, &format!("pm list packages -d {stock}"))
         .await
@@ -311,7 +372,7 @@ async fn set_home_any_core(
         }
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let enable_result = adb.shell(serial, &format!("pm enable {package}")).await;
     if let Some(failure) = command_failure(&enable_result) {
         diagnostics.push(format!("pm enable {package} -> {failure}"));
@@ -462,6 +523,17 @@ pub async fn disable_stock_launcher(
     serial: String,
     target: String,
 ) -> Result<SetLauncherResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { disable_stock_launcher_body(state, serial, target).await })
+        .await
+}
+
+async fn disable_stock_launcher_body(
+    state: State<'_, AppState>,
+    serial: String,
+    target: String,
+) -> Result<SetLauncherResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
     let result =
         disable_stock_launcher_impl(state.inner(), &serial, &target, &Progress::Silent).await;
@@ -491,6 +563,20 @@ fn log_launcher_result(
 }
 
 pub async fn disable_stock_launcher_impl(
+    state: &AppState,
+    serial: &str,
+    target: &str,
+    progress: &Progress,
+) -> Result<SetLauncherResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            disable_stock_launcher_impl_body(state, serial, target, progress).await
+        })
+        .await
+}
+
+async fn disable_stock_launcher_impl_body(
     state: &AppState,
     serial: &str,
     target: &str,
@@ -542,7 +628,7 @@ pub async fn disable_stock_launcher_impl(
         ));
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let handlers = match adb.shell(serial, HOME_HANDLER_QUERY).await {
         Ok(out) if out.success() && !out.shell_reported_failure() => {
             parse_home_handler_packages(&out.stdout)
@@ -734,7 +820,17 @@ pub async fn current_launcher(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<CurrentLauncher, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { current_launcher_body(state, serial).await })
+        .await
+}
+
+async fn current_launcher_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<CurrentLauncher, String> {
+    let adb = state.adb_operation().await?;
     let reading = read_current_home(&*adb, &serial).await?;
     Ok(CurrentLauncher {
         package: reading.package,
@@ -846,6 +942,22 @@ pub async fn set_default_launcher(
     allow_stock_disable: Option<bool>,
     on_progress: tauri::ipc::Channel<String>,
 ) -> Result<SetLauncherResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            set_default_launcher_body(state, serial, package, allow_stock_disable, on_progress)
+                .await
+        })
+        .await
+}
+
+async fn set_default_launcher_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    allow_stock_disable: Option<bool>,
+    on_progress: tauri::ipc::Channel<String>,
+) -> Result<SetLauncherResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
     let result = set_default_launcher_impl(
         state.inner(),
@@ -864,6 +976,22 @@ pub async fn set_default_launcher(
 /// `allow_stock_disable` opts into the disable-stock-takeover last resort;
 /// without it the caller gets `stock_takeover_available` back and decides.
 pub async fn set_default_launcher_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    allow_stock_disable: bool,
+    progress: &Progress,
+) -> Result<SetLauncherResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            set_default_launcher_impl_body(state, serial, package, allow_stock_disable, progress)
+                .await
+        })
+        .await
+}
+
+async fn set_default_launcher_impl_body(
     state: &AppState,
     serial: &str,
     package: &str,
@@ -932,7 +1060,7 @@ async fn set_default_launcher_core(
         });
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     // 1. Enable the package — no-op for already-enabled.
     progress.step("Enabling this launcher");
@@ -1409,6 +1537,17 @@ pub async fn disable_setup_helper(
     serial: String,
     package: String,
 ) -> Result<crate::commands::apps::ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { disable_setup_helper_body(state, serial, package).await })
+        .await
+}
+
+async fn disable_setup_helper_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+) -> Result<crate::commands::apps::ActionResult, String> {
     state.require_pro(Feature::LauncherTakeover)?;
     let result = disable_setup_helper_impl(state.inner(), &serial, &package).await;
     match &result {
@@ -1425,6 +1564,19 @@ pub async fn disable_setup_helper_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(
+            async move { disable_setup_helper_impl_body(state, serial, package).await },
+        )
+        .await
+}
+
+async fn disable_setup_helper_impl_body(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<crate::commands::apps::ActionResult, String> {
     let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message });
     if !is_valid_package_name(package) || !launchers().is_transient_home_holder(package) {
         return refuse(format!("{package} is not a setup helper this app knows."));
@@ -1435,7 +1587,7 @@ pub async fn disable_setup_helper_impl(
     ) {
         return refuse(format!("{package} is on the do-not-disable list."));
     }
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let enabled = match adb.shell(serial, HOME_HANDLER_QUERY).await {
         Ok(out) if out.success() && !out.shell_reported_failure() => {
             parse_home_handler_packages(&out.stdout)
@@ -1981,7 +2133,17 @@ pub async fn channel_provider_disabled(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<bool, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { channel_provider_disabled_body(state, serial).await })
+        .await
+}
+
+async fn channel_provider_disabled_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<bool, String> {
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, "pm list packages -d com.android.providers.tv")
         .await

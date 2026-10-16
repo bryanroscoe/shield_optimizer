@@ -17,11 +17,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 #[cfg(not(target_os = "android"))]
+use crate::adb::AdbChild;
+#[cfg(not(target_os = "android"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(not(target_os = "android"))]
 use tokio::net::TcpStream;
-#[cfg(not(target_os = "android"))]
-use tokio::process::Child;
 use tracing::debug;
 #[cfg(not(target_os = "android"))]
 use tracing::warn;
@@ -240,7 +240,7 @@ impl RemoteInputSession {
                                 server_stream: Some(server_stream),
                                 scid,
                                 serial: serial.to_string(),
-                                adb,
+                                adb: adb.background_driver().unwrap_or(adb),
                             };
                             debug!(
                                 serial = %session.serial,
@@ -310,6 +310,11 @@ impl RemoteInputSession {
         .map_err(|e| format!("scrcpy: control socket task failed: {e}"))?;
         self.stream = Some(returned);
         result.map_err(|e| format!("scrcpy: control socket write failed: {e}"))
+    }
+
+    pub async fn close_with_driver(mut self, driver: Arc<dyn AdbDriver>) {
+        self.adb = driver;
+        self.close().await;
     }
 
     pub async fn close(mut self) {
@@ -410,8 +415,9 @@ async fn connect_with_retry(port: u16) -> Result<TcpStream, String> {
 #[cfg(not(target_os = "android"))]
 pub struct RemoteInputSession {
     stream: TcpStream,
-    /// Kept alive for the session; `kill_on_drop(true)` reaps the server.
-    _child: Child,
+    /// Managed local client; a dropped handle requests kill and retains its reaper.
+    _child: AdbChild,
+    cleanup_on_drop: bool,
     scid: String,
     port: u16,
     serial: String,
@@ -465,6 +471,7 @@ impl RemoteInputSession {
                 Err(e) => {
                     let mut child = child;
                     let _ = child.start_kill();
+                    let _ = child.wait().await;
                     let _ = adb
                         .raw(&as_str_args(&forward_remove_args(serial, port)))
                         .await;
@@ -472,10 +479,11 @@ impl RemoteInputSession {
                 }
             },
             _child: child,
+            cleanup_on_drop: true,
             scid,
             port,
             serial: serial.to_string(),
-            adb,
+            adb: adb.background_driver().unwrap_or(adb),
         };
 
         // The handshake dummy byte was already consumed inside
@@ -524,7 +532,20 @@ impl RemoteInputSession {
     /// then a belt-and-suspenders `pkill` for any lingering server process, then
     /// reap the local child and remove the adb forward. `Drop` is the
     /// best-effort backstop; prefer this.
+    pub async fn close_local(mut self) {
+        self.cleanup_on_drop = false;
+        let _ = self.stream.shutdown().await;
+        let _ = self._child.start_kill();
+        let _ = self._child.wait().await;
+    }
+
+    pub async fn close_with_driver(mut self, driver: Arc<dyn AdbDriver>) {
+        self.adb = driver;
+        self.close().await;
+    }
+
     pub async fn close(mut self) {
+        self.cleanup_on_drop = false;
         let _ = self.stream.shutdown().await;
         // Match our jar's name, not "com.genymobile.scrcpy" — the broad pattern
         // would also kill a desktop scrcpy session the user has open against
@@ -534,6 +555,7 @@ impl RemoteInputSession {
             .shell(&self.serial, "pkill -f shieldopt-scrcpy-server")
             .await;
         let _ = self._child.start_kill();
+        let _ = self._child.wait().await;
         let _ = self
             .adb
             .raw(&as_str_args(&forward_remove_args(&self.serial, self.port)))
@@ -544,8 +566,10 @@ impl RemoteInputSession {
 #[cfg(not(target_os = "android"))]
 impl Drop for RemoteInputSession {
     fn drop(&mut self) {
-        // `_child` has kill_on_drop(true), so the server dies and the control
-        // socket closes here. Best-effort removal of the adb forward entry if a
+        if !self.cleanup_on_drop || !self.adb.allow_background_cleanup() {
+            return;
+        }
+        // Managed child Drop retains its reaping lease. Best-effort forward removal if a
         // tokio runtime is live (e.g. app exit dropping the session registry).
         let adb = self.adb.clone();
         let serial = self.serial.clone();
@@ -795,5 +819,122 @@ mod tests {
             leftovers.is_empty(),
             "server process left behind after close(): {leftovers}"
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod lifecycle_tests {
+    use super::*;
+    use crate::adb::{AdbChild, AdbOutput, AdbResult, ChildCompletion};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    };
+    use tokio::net::TcpListener;
+
+    #[derive(Default)]
+    struct CleanupDriver {
+        calls: Mutex<Vec<String>>,
+        allow: bool,
+    }
+    #[async_trait::async_trait]
+    impl AdbDriver for CleanupDriver {
+        async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+            assert!(self.allow, "unexpected cleanup launch");
+            self.calls.lock().unwrap().push(args.join(" "));
+            Ok(AdbOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(0),
+            })
+        }
+        async fn shell(&self, _: &str, command: &str) -> AdbResult<AdbOutput> {
+            assert!(self.allow, "unexpected cleanup shell");
+            self.calls.lock().unwrap().push(command.to_owned());
+            Ok(AdbOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(0),
+            })
+        }
+        fn allow_background_cleanup(&self) -> bool {
+            self.allow
+        }
+    }
+    struct Reaped(Arc<AtomicUsize>);
+    impl ChildCompletion for Reaped {
+        fn reaped(self: Box<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    async fn session(
+        driver: Arc<dyn AdbDriver>,
+    ) -> (RemoteInputSession, TcpStream, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (stream, peer) = tokio::join!(TcpStream::connect(address), listener.accept());
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command
+            .args(["-c", "exec /bin/sleep 30"])
+            .kill_on_drop(true);
+        let reaped = Arc::new(AtomicUsize::new(0));
+        let child = AdbChild::new(
+            command.spawn().unwrap(),
+            Some(Box::new(Reaped(reaped.clone()))),
+        );
+        (
+            RemoteInputSession {
+                stream: stream.unwrap(),
+                _child: child,
+                cleanup_on_drop: true,
+                scid: "fixture".to_owned(),
+                port: address.port(),
+                serial: "fixture".to_owned(),
+                adb: driver,
+            },
+            peer.unwrap().0,
+            reaped,
+        )
+    }
+
+    #[tokio::test]
+    async fn local_close_reaps_and_closes_socket_without_any_adb_cleanup() {
+        let driver = Arc::new(CleanupDriver::default());
+        let (session, mut peer, reaped) = session(driver.clone()).await;
+        session.close_local().await;
+        assert_eq!(reaped.load(Ordering::SeqCst), 1);
+        assert_eq!(peer.read(&mut [0]).await.unwrap(), 0);
+        assert!(driver.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn denied_drop_cleanup_only_reaps_local_child() {
+        let driver = Arc::new(CleanupDriver::default());
+        let (session, _peer, reaped) = session(driver.clone()).await;
+        drop(session);
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while reaped.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(driver.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn explicit_normal_close_uses_caller_driver_and_disarms_duplicate_drop_cleanup() {
+        let old = Arc::new(CleanupDriver::default());
+        let accepted = Arc::new(CleanupDriver {
+            allow: true,
+            ..Default::default()
+        });
+        let (session, _peer, reaped) = session(old.clone()).await;
+        session.close_with_driver(accepted.clone()).await;
+        tokio::task::yield_now().await;
+        assert_eq!(reaped.load(Ordering::SeqCst), 1);
+        assert!(old.calls.lock().unwrap().is_empty());
+        assert_eq!(accepted.calls.lock().unwrap().len(), 2);
     }
 }

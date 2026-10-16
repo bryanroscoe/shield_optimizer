@@ -37,6 +37,20 @@ pub async fn prepare_optimize(
     device_type: crate::engine::DeviceType,
     mode: OptimizeMode,
 ) -> Result<OptimizePlan, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { prepare_optimize_body(state, serial, device_type, mode).await },
+        )
+        .await
+}
+
+async fn prepare_optimize_body(
+    state: State<'_, AppState>,
+    serial: String,
+    device_type: crate::engine::DeviceType,
+    mode: OptimizeMode,
+) -> Result<OptimizePlan, String> {
     prepare_optimize_impl(state.inner(), &serial, device_type, mode).await
 }
 
@@ -47,10 +61,24 @@ pub async fn prepare_optimize_impl(
     device_type: crate::engine::DeviceType,
     mode: OptimizeMode,
 ) -> Result<OptimizePlan, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            prepare_optimize_impl_body(state, serial, device_type, mode).await
+        })
+        .await
+}
+
+async fn prepare_optimize_impl_body(
+    state: &AppState,
+    serial: &str,
+    device_type: crate::engine::DeviceType,
+    mode: OptimizeMode,
+) -> Result<OptimizePlan, String> {
     state.require_pro(Feature::OptimizeWizard)?;
     let apps = state.app_lists.for_device(device_type);
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     // One round-trip: the mobile transport serializes concurrent shells behind
     // a single connection, so the old `tokio::join!` cost three Wi-Fi RTTs for
     // no concurrency.
@@ -109,6 +137,19 @@ pub async fn apply_performance_settings(
     serial: String,
     profile: PerformanceProfile,
 ) -> Result<PerformanceResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { apply_performance_settings_body(state, serial, profile).await },
+        )
+        .await
+}
+
+async fn apply_performance_settings_body(
+    state: State<'_, AppState>,
+    serial: String,
+    profile: PerformanceProfile,
+) -> Result<PerformanceResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
     let value = match profile {
         PerformanceProfile::Optimized => "0.5",
@@ -119,7 +160,7 @@ pub async fn apply_performance_settings(
          settings put global transition_animation_scale {value}; \
          settings put global animator_duration_scale {value}"
     );
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, &cmd)
         .await

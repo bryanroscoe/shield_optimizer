@@ -49,6 +49,16 @@ pub async fn health_report(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<HealthReport, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { health_report_body(state, serial).await })
+        .await
+}
+
+async fn health_report_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<HealthReport, String> {
     health_report_for(state.inner(), &serial).await
 }
 
@@ -76,6 +86,16 @@ pub async fn media_report(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<MediaCapabilities, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { media_report_body(state, serial).await })
+        .await
+}
+
+async fn media_report_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<MediaCapabilities, String> {
     media_report_for(state.inner(), &serial).await
 }
 
@@ -83,7 +103,7 @@ async fn media_report_for(state: &AppState, serial: &str) -> Result<MediaCapabil
     use std::time::Duration;
     use tokio::time::timeout;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let cmd = crate::adb::batch::checked_batch_command(&[
         "dumpsys display",
         MEDIA_CODECS_GLOB,
@@ -147,6 +167,16 @@ pub async fn resource_sample(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ResourceSample, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { resource_sample_body(state, serial).await })
+        .await
+}
+
+async fn resource_sample_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ResourceSample, String> {
     resource_sample_for(state.inner(), &serial).await
 }
 
@@ -154,7 +184,7 @@ async fn resource_sample_for(state: &AppState, serial: &str) -> Result<ResourceS
     use std::time::Duration;
     use tokio::time::timeout;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let cmd = crate::adb::checked_batch_command(&[
         "cat /proc/uptime",
         "cat /proc/stat",
@@ -223,6 +253,16 @@ pub async fn app_list_for_device(
     state: State<'_, AppState>,
     device_type: crate::engine::DeviceType,
 ) -> Result<Vec<crate::engine::types::AppEntry>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { app_list_for_device_body(state, device_type).await })
+        .await
+}
+
+async fn app_list_for_device_body(
+    state: State<'_, AppState>,
+    device_type: crate::engine::DeviceType,
+) -> Result<Vec<crate::engine::types::AppEntry>, String> {
     Ok(state.app_lists.for_device(device_type))
 }
 
@@ -240,6 +280,13 @@ pub struct DeviceReport {
 /// device, including failures so the UI can show them inline.
 #[tauri::command]
 pub async fn report_all(state: State<'_, AppState>) -> Result<Vec<DeviceReport>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { report_all_body(state).await })
+        .await
+}
+
+async fn report_all_body(state: State<'_, AppState>) -> Result<Vec<DeviceReport>, String> {
     let devices = crate::commands::devices::list_devices_impl(state.inner()).await?;
     let mut out = Vec::with_capacity(devices.len());
     for d in devices {
@@ -278,7 +325,7 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
     use std::time::Duration;
     use tokio::time::timeout;
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     // One round-trip for the whole report. This was six concurrent shells
     // plus a seventh `/proc/meminfo` call on the RAM fallback path; the mobile

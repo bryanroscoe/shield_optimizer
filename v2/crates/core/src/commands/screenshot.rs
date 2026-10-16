@@ -51,7 +51,17 @@ pub async fn take_screenshot(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ScreenshotResult, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { take_screenshot_body(state, serial).await })
+        .await
+}
+
+async fn take_screenshot_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ScreenshotResult, String> {
+    let adb = state.adb_operation().await?;
     let bytes = adb
         .raw_bytes(&["-s", &serial, "exec-out", "screencap", "-p"])
         .await

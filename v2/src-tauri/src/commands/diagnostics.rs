@@ -314,8 +314,19 @@ pub async fn collect_diagnostics(
     logs: State<'_, LogControl>,
     serial: Option<String>,
 ) -> Result<String, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { collect_diagnostics_body(state, logs, serial).await })
+        .await
+}
+
+async fn collect_diagnostics_body(
+    state: State<'_, AppState>,
+    logs: State<'_, LogControl>,
+    serial: Option<String>,
+) -> Result<String, String> {
     let adb_path = crate::adb::cached_adb_binary().map(|p| p.display().to_string());
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let adb_version = adb
         .raw(&["version"])
         .await

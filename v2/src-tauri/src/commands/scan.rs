@@ -273,6 +273,13 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
 /// UI can render counts and any per-IP failures.
 #[tauri::command]
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { scan_network_body(state).await })
+        .await
+}
+
+async fn scan_network_body(state: State<'_, AppState>) -> Result<ScanResult, String> {
     let Some(prefix) = local_subnet_prefix().await else {
         tracing::info!(subnet = "unknown", found = 0, "scan finished");
         return Ok(ScanResult {
@@ -292,7 +299,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let hits = scan_subnet(prefix).await;
     let swept: Vec<String> = hits.iter().map(|h| h.ip.clone()).collect();
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     // Warm the adb daemon before connecting. The port sweep just opened and
     // dropped raw TCP sockets against each device's adbd; firing `adb connect`

@@ -17,7 +17,6 @@ pub use shield_optimizer_core::engine;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use adb::SubprocessAdb;
 use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
@@ -54,11 +53,15 @@ impl AdbDriver for NoAdbDriver {
     }
 }
 
-fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
+fn default_state(
+    app_lists: engine::AppListBundle,
+    data_dir: PathBuf,
+    factory: &adb::driver::DriverFactory,
+) -> AppState {
     let adb: Arc<dyn AdbDriver> = match adb::cached_adb_binary() {
         Some(path) => {
             tracing::info!(adb = %path.display(), "adb located");
-            Arc::new(SubprocessAdb::new(path))
+            Arc::new(factory.create(path))
         }
         None => {
             tracing::warn!("no adb binary located; commands will return BinaryNotFound");
@@ -197,7 +200,9 @@ pub fn run() {
         }
     };
 
-    let state = default_state(app_lists, data_dir).with_known_names(loader::load_known_names());
+    let factory = adb::driver::DriverFactory::default();
+    let state =
+        default_state(app_lists, data_dir, &factory).with_known_names(loader::load_known_names());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -205,6 +210,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(state)
+        .manage(factory)
         .manage(log_control)
         .invoke_handler(invoke_handler())
         .run(tauri::generate_context!())

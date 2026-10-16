@@ -52,8 +52,20 @@ pub async fn list_dir(
     path: String,
     allow_system: bool,
 ) -> Result<Vec<FileEntry>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { list_dir_body(state, serial, path, allow_system).await })
+        .await
+}
+
+async fn list_dir_body(
+    state: State<'_, AppState>,
+    serial: String,
+    path: String,
+    allow_system: bool,
+) -> Result<Vec<FileEntry>, String> {
     let path = validate_device_path(&path, allow_system)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     // Trailing slash matters: `/sdcard` is itself a symlink (to
     // /storage/self/primary), and `ls -lA` on a bare symlink lists the link
     // line instead of the directory contents. The slash forces dereference.
@@ -95,6 +107,21 @@ pub async fn pull_file(
     local_dir: String,
     allow_system: bool,
 ) -> Result<FileTransferResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            pull_file_body(state, serial, remote_path, local_dir, allow_system).await
+        })
+        .await
+}
+
+async fn pull_file_body(
+    state: State<'_, AppState>,
+    serial: String,
+    remote_path: String,
+    local_dir: String,
+    allow_system: bool,
+) -> Result<FileTransferResult, String> {
     let remote = validate_device_path(&remote_path, allow_system)?;
     let dir = PathBuf::from(&local_dir);
     if !dir.is_dir() {
@@ -107,7 +134,7 @@ pub async fn pull_file(
     let local = dir.join(file_name);
     let local_str = local.display().to_string();
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     // `adb pull` takes the remote path as a plain argument — no device-side
     // shell involved, so no quoting needed (spaces and specials are fine).
     adb.raw_transfer(&["-s", &serial, "pull", &remote, &local_str])
@@ -129,6 +156,21 @@ pub async fn push_file(
     remote_dir: String,
     allow_system: bool,
 ) -> Result<FileTransferResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            push_file_body(state, serial, local_path, remote_dir, allow_system).await
+        })
+        .await
+}
+
+async fn push_file_body(
+    state: State<'_, AppState>,
+    serial: String,
+    local_path: String,
+    remote_dir: String,
+    allow_system: bool,
+) -> Result<FileTransferResult, String> {
     let remote_dir = validate_device_path(&remote_dir, allow_system)?;
     let local = PathBuf::from(&local_path);
     if !local.is_file() {
@@ -140,7 +182,7 @@ pub async fn push_file(
         .ok_or_else(|| format!("Unreadable file name: {local_path}"))?;
     let remote = format!("{}/{}", remote_dir.trim_end_matches('/'), file_name);
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     adb.raw_transfer(&["-s", &serial, "push", &local_path, &remote])
         .await
         .map_err(|e| format!("push {file_name}: {e}"))?;
@@ -163,6 +205,22 @@ pub async fn copy_file_to_device(
     target_serial: String,
     target_dir: String,
 ) -> Result<FileTransferResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            copy_file_to_device_body(state, source_serial, remote_path, target_serial, target_dir)
+                .await
+        })
+        .await
+}
+
+async fn copy_file_to_device_body(
+    state: State<'_, AppState>,
+    source_serial: String,
+    remote_path: String,
+    target_serial: String,
+    target_dir: String,
+) -> Result<FileTransferResult, String> {
     let remote = validate_sdcard_path(&remote_path)?;
     let target_dir = validate_sdcard_path(&target_dir)?;
     if source_serial == target_serial {
@@ -176,7 +234,7 @@ pub async fn copy_file_to_device(
 
     let temp = std::env::temp_dir().join(format!("shield-filecopy-{}", sanitize_temp(&file_name)));
     let temp_str = temp.display().to_string();
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     let result = async {
         adb.raw_transfer(&["-s", &source_serial, "pull", &remote, &temp_str])
@@ -243,11 +301,25 @@ pub async fn delete_path(
     path: String,
     allow_system: bool,
 ) -> Result<FileTransferResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { delete_path_body(state, serial, path, allow_system).await },
+        )
+        .await
+}
+
+async fn delete_path_body(
+    state: State<'_, AppState>,
+    serial: String,
+    path: String,
+    allow_system: bool,
+) -> Result<FileTransferResult, String> {
     let path = validate_device_path(&path, allow_system)?;
     if let Some(reason) = protected_delete_reason(&path) {
         return Err(reason);
     }
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, &format!("rm -rf {}", quote_path(&path)))
         .await
@@ -305,8 +377,20 @@ pub async fn find_files(
     dirs: Vec<String>,
     pattern: String,
 ) -> Result<FindResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { find_files_body(state, serial, dirs, pattern).await })
+        .await
+}
+
+async fn find_files_body(
+    state: State<'_, AppState>,
+    serial: String,
+    dirs: Vec<String>,
+    pattern: String,
+) -> Result<FindResult, String> {
     validate_find_pattern(&pattern)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let mut hits = Vec::new();
     let mut unsearched = Vec::new();
     for dir in dirs {

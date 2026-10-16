@@ -1,6 +1,7 @@
 //! Shared ADB abstractions and output parsers.
 
 pub mod batch;
+pub mod child;
 pub mod driver;
 pub mod parse;
 pub mod remote_input;
@@ -10,6 +11,7 @@ pub mod storage;
 
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};
+pub use child::{AdbChild, ChildCompletion};
 pub use driver::{
     AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ShellTermination,
 };

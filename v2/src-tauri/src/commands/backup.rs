@@ -114,6 +114,18 @@ pub async fn backup_apk(
     package: String,
     dest_dir: String,
 ) -> Result<BackupApkResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { backup_apk_body(state, serial, package, dest_dir).await })
+        .await
+}
+
+async fn backup_apk_body(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    dest_dir: String,
+) -> Result<BackupApkResult, String> {
     if !is_valid_package_name(&package) {
         return Err(format!("Invalid package name: {package:?}"));
     }
@@ -122,7 +134,7 @@ pub async fn backup_apk(
         return Err(format!("Not a folder: {dest_dir}"));
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let (remotes, version) = apk_paths_and_version(adb.as_ref(), &serial, &package).await?;
     let split = remotes.len() > 1;
     let locals = pull_apks(
@@ -171,6 +183,20 @@ pub async fn clone_app(
     target_serial: String,
     package: String,
 ) -> Result<CloneAppResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            clone_app_body(state, source_serial, target_serial, package).await
+        })
+        .await
+}
+
+async fn clone_app_body(
+    state: State<'_, AppState>,
+    source_serial: String,
+    target_serial: String,
+    package: String,
+) -> Result<CloneAppResult, String> {
     if !is_valid_package_name(&package) {
         return Err(format!("Invalid package name: {package:?}"));
     }
@@ -178,7 +204,7 @@ pub async fn clone_app(
         return Err("Source and target device are the same.".to_string());
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let (remotes, version) = apk_paths_and_version(adb.as_ref(), &source_serial, &package).await?;
 
     let stamp = chrono::Local::now().format("%Y%m%d%H%M%S%3f");

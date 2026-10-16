@@ -598,6 +598,7 @@ fn main() {
 
     let app = mock_builder()
         .manage(state)
+        .manage(shield_optimizer_v2_lib::adb::driver::DriverFactory::default())
         .manage(log_control)
         .invoke_handler(shield_optimizer_v2_lib::invoke_handler())
         .build(mock_context(noop_assets()))

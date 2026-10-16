@@ -19,6 +19,17 @@ pub async fn read_device_logs(
     serial: String,
     options: LogcatOptions,
 ) -> Result<DeviceLogs, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { read_device_logs_body(state, serial, options).await })
+        .await
+}
+
+async fn read_device_logs_body(
+    state: State<'_, AppState>,
+    serial: String,
+    options: LogcatOptions,
+) -> Result<DeviceLogs, String> {
     read_device_logs_impl(state.inner(), &serial, options).await
 }
 
@@ -28,7 +39,7 @@ async fn read_device_logs_impl(
     options: LogcatOptions,
 ) -> Result<DeviceLogs, String> {
     options.validate()?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let pid = if let Some(package) = &options.package {
         let output = adb
             .shell_bounded(serial, &format!("pidof {}", quote_shell_arg(package)))

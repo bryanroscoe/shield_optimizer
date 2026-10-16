@@ -43,6 +43,17 @@ pub async fn run_shell(
     serial: String,
     command: String,
 ) -> Result<ShellRunResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { run_shell_body(state, serial, command).await })
+        .await
+}
+
+async fn run_shell_body(
+    state: State<'_, AppState>,
+    serial: String,
+    command: String,
+) -> Result<ShellRunResult, String> {
     state.require_pro(Feature::ShellRunner)?;
     run_shell_impl(state.inner(), &serial, &command).await
 }
@@ -71,7 +82,7 @@ async fn run_shell_impl(
         });
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell_bounded(serial, trimmed)
         .await

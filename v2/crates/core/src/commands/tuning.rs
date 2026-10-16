@@ -62,7 +62,17 @@ pub const BASIC_DAYDREAM_COMPONENT: &str =
 /// `get_tweaks` — batch-fetch all Tweaks-relevant settings in one shell call.
 #[tauri::command]
 pub async fn get_tweaks(state: State<'_, AppState>, serial: String) -> Result<TweaksState, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { get_tweaks_body(state, serial).await })
+        .await
+}
+
+async fn get_tweaks_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<TweaksState, String> {
+    let adb = state.adb_operation().await?;
     get_tweaks_for(adb.as_ref(), &serial).await
 }
 
@@ -165,12 +175,27 @@ pub async fn write_setting(
     key: String,
     value: String,
 ) -> Result<WriteResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            write_setting_body(state, serial, namespace, key, value).await
+        })
+        .await
+}
+
+async fn write_setting_body(
+    state: State<'_, AppState>,
+    serial: String,
+    namespace: String,
+    key: String,
+    value: String,
+) -> Result<WriteResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
     let cmd = match build_setting_command(&namespace, &key, &value) {
         Ok(c) => c,
         Err(message) => return Ok(WriteResult { ok: false, message }),
     };
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, &cmd)
         .await
@@ -213,7 +238,17 @@ pub async fn get_display_scaling(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<CurrentDisplayScaling, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { get_display_scaling_body(state, serial).await })
+        .await
+}
+
+async fn get_display_scaling_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<CurrentDisplayScaling, String> {
+    let adb = state.adb_operation().await?;
     // One round-trip; both sections still degrade to an empty string, which is
     // what the individual failures produced.
     let cmd = crate::adb::batch_command(&["wm size", "wm density"]);
@@ -260,8 +295,19 @@ pub async fn set_display_scaling(
     serial: String,
     preset: DisplayScalePreset,
 ) -> Result<DisplayScaleResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { set_display_scaling_body(state, serial, preset).await })
+        .await
+}
+
+async fn set_display_scaling_body(
+    state: State<'_, AppState>,
+    serial: String,
+    preset: DisplayScalePreset,
+) -> Result<DisplayScaleResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let cmds: Vec<&str> = match preset {
         DisplayScalePreset::Uhd4k => vec!["wm size 3839x2160", "wm density 640"],
         DisplayScalePreset::Fhd1080p => vec!["wm size 1920x1080", "wm density 320"],
@@ -327,7 +373,17 @@ pub async fn get_private_dns(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<PrivateDnsState, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { get_private_dns_body(state, serial).await })
+        .await
+}
+
+async fn get_private_dns_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<PrivateDnsState, String> {
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(
             &serial,
@@ -360,8 +416,22 @@ pub async fn set_private_dns(
     mode: String,
     hostname: Option<String>,
 ) -> Result<PrivateDnsResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { set_private_dns_body(state, serial, mode, hostname).await },
+        )
+        .await
+}
+
+async fn set_private_dns_body(
+    state: State<'_, AppState>,
+    serial: String,
+    mode: String,
+    hostname: Option<String>,
+) -> Result<PrivateDnsResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     match mode.as_str() {
         "off" => {
             adb.shell(&serial, "settings put global private_dns_mode off")

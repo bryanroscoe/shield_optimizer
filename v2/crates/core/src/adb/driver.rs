@@ -116,6 +116,21 @@ pub fn process_output(
 /// `SubprocessAdb`.
 #[async_trait]
 pub trait AdbDriver: Send + Sync {
+    /// Desktop returns a handle retaining one whole driver-use operation.
+    /// Mobile and pure mocks retain their existing behavior by default.
+    fn operation_driver(&self) -> AdbResult<Option<std::sync::Arc<dyn AdbDriver>>> {
+        Ok(None)
+    }
+
+    fn allow_background_cleanup(&self) -> bool {
+        true
+    }
+
+    /// Resident sessions must not retain the initiating operation indefinitely.
+    fn background_driver(&self) -> Option<std::sync::Arc<dyn AdbDriver>> {
+        None
+    }
+
     /// Run `adb <args...>` (no `-s` prefix).
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput>;
 
@@ -174,11 +189,12 @@ pub trait AdbDriver: Send + Sync {
     }
 
     /// Spawn `adb <args...>` as a long-lived child WITHOUT awaiting completion,
-    /// handing the caller the `Child` to own (configured `kill_on_drop(true)`).
+    /// handing the caller a managed local child. Drop requests termination;
+    /// completion is reported only after successful reaping.
     /// Unlike `raw`/`shell`, the process is expected to keep running — for
     /// resident helpers like the scrcpy control server. Default reports
     /// unsupported so mocks need no extra wiring.
-    async fn spawn(&self, _args: &[&str]) -> AdbResult<tokio::process::Child> {
+    async fn spawn(&self, _args: &[&str]) -> AdbResult<crate::adb::AdbChild> {
         Err(AdbError::Unsupported { operation: "spawn" })
     }
 }

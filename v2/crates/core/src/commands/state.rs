@@ -16,6 +16,10 @@ use crate::adb::RemoteInputSession;
 use crate::engine::AppListBundle;
 use crate::license::{Entitlement, Feature, LicenseInfo};
 
+tokio::task_local! {
+    static ACTIVE_ADB_OPERATION: (usize, Arc<dyn AdbDriver>);
+}
+
 /// State managed by Tauri's state store. Held by `tauri::Builder::manage`.
 pub struct AppState {
     /// The driver for ADB calls. Wrapped so we can hot-swap it after a
@@ -120,7 +124,42 @@ impl AppState {
 
     /// Snapshot the current driver `Arc` — cheap clone for command bodies.
     pub async fn adb_snapshot(&self) -> Arc<dyn AdbDriver> {
+        let key = self as *const Self as usize;
+        if let Ok(Some(driver)) = ACTIVE_ADB_OPERATION
+            .try_with(|(active, driver)| (*active == key).then(|| driver.clone()))
+        {
+            return driver;
+        }
         self.adb.read().await.clone()
+    }
+
+    pub async fn with_adb_operation<T, F>(&self, future: F) -> Result<T, String>
+    where
+        F: std::future::Future<Output = Result<T, String>>,
+    {
+        let key = self as *const Self as usize;
+        if ACTIVE_ADB_OPERATION
+            .try_with(|(active, _)| *active == key)
+            .unwrap_or(false)
+        {
+            return future.await;
+        }
+        let driver = self.adb_operation().await?;
+        ACTIVE_ADB_OPERATION.scope((key, driver), future).await
+    }
+
+    pub async fn adb_operation(&self) -> Result<Arc<dyn AdbDriver>, String> {
+        let key = self as *const Self as usize;
+        if let Ok(Some(driver)) = ACTIVE_ADB_OPERATION
+            .try_with(|(active, driver)| (*active == key).then(|| driver.clone()))
+        {
+            return Ok(driver);
+        }
+        let driver = self.adb_snapshot().await;
+        Ok(driver
+            .operation_driver()
+            .map_err(|error| error.to_string())?
+            .unwrap_or(driver))
     }
 
     /// Swap the driver — used by `install_adb` after a successful download.
@@ -188,7 +227,10 @@ impl AppState {
         let _transition = self.remote_transition.lock().await;
         let session = self.remote_sessions.lock().await.remove(serial);
         if let Some(session) = session {
-            session.close().await;
+            match self.adb_operation().await {
+                Ok(driver) => session.close_with_driver(driver).await,
+                Err(_) => drop(session),
+            }
         }
     }
 
@@ -201,7 +243,10 @@ impl AppState {
             guard.drain().map(|(_, session)| session).collect()
         };
         for session in sessions {
-            session.close().await;
+            match self.adb_operation().await {
+                Ok(driver) => session.close_with_driver(driver).await,
+                Err(_) => drop(session),
+            }
         }
     }
 }

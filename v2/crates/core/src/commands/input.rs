@@ -30,7 +30,7 @@ async fn channel_ready<R: tauri::Runtime>(
     serial: &str,
 ) -> Result<(), String> {
     let jar = resolve_scrcpy_server_jar(app)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     state.ensure_remote_session(adb, &jar, serial).await
 }
 
@@ -115,6 +115,33 @@ pub async fn send_text<R: tauri::Runtime>(
     // channel starts but misbehaves.
     force_shell: bool,
 ) -> Result<SendTextResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            send_text_body(
+                app,
+                state,
+                serial,
+                text, // When true, skip the fast channel and use `input text` directly — the
+                // Remote tab's "Force compatible mode" escape hatch for devices where the
+                // channel starts but misbehaves.
+                force_shell,
+            )
+            .await
+        })
+        .await
+}
+
+async fn send_text_body<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    serial: String,
+    text: String,
+    // When true, skip the fast channel and use `input text` directly — the
+    // Remote tab's "Force compatible mode" escape hatch for devices where the
+    // channel starts but misbehaves.
+    force_shell: bool,
+) -> Result<SendTextResult, String> {
     if text.is_empty() {
         return Ok(SendTextResult {
             ok: false,
@@ -161,7 +188,7 @@ pub async fn send_text<R: tauri::Runtime>(
             })
         }
     };
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, &format!("input text {encoded}"))
         .await
@@ -224,6 +251,29 @@ pub async fn send_key<R: tauri::Runtime>(
     // See `send_text` — forces the slow `input keyevent` path.
     force_shell: bool,
 ) -> Result<SendTextResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            send_key_body(
+                app,
+                state,
+                serial,
+                key, // See `send_text` — forces the slow `input keyevent` path.
+                force_shell,
+            )
+            .await
+        })
+        .await
+}
+
+async fn send_key_body<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    serial: String,
+    key: String,
+    // See `send_text` — forces the slow `input keyevent` path.
+    force_shell: bool,
+) -> Result<SendTextResult, String> {
     let Some(code) = keycode_for(&key) else {
         return Err(format!("Unknown remote key: {key:?}"));
     };
@@ -253,7 +303,7 @@ pub async fn send_key<R: tauri::Runtime>(
         tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input keyevent");
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, &format!("input keyevent {code}"))
         .await
@@ -279,7 +329,17 @@ pub async fn open_settings(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<SendTextResult, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { open_settings_body(state, serial).await })
+        .await
+}
+
+async fn open_settings_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<SendTextResult, String> {
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(&serial, "am start -a android.settings.SETTINGS")
         .await

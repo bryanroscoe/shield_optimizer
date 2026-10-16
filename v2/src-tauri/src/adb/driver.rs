@@ -1,6 +1,7 @@
 //! Desktop subprocess-backed ADB driver.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -13,22 +14,23 @@ use shield_optimizer_core::adb::driver::process_output;
 use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 
+use crate::exit_lifecycle::{ChildLease, Controller, Operation, Phase, Preference};
 use crate::session;
+use shield_optimizer_core::adb::{AdbChild, ChildCompletion};
 
 /// The standard subprocess-backed driver. Wraps `tokio::process::Command`.
 #[derive(Debug, Clone)]
 pub struct SubprocessAdb {
     binary: PathBuf,
     command_timeout: Duration,
+    controller: Controller,
+    operation: Option<Arc<Operation>>,
 }
 
 impl SubprocessAdb {
     /// Build a driver around the `adb` binary at `binary` (must exist).
     pub fn new(binary: PathBuf) -> Self {
-        Self {
-            binary,
-            command_timeout: Duration::from_secs(30),
-        }
+        DriverFactory::default().create(binary)
     }
 
     /// Locate `adb` using the same priority order as `discover_adb_binary`.
@@ -52,11 +54,41 @@ impl SubprocessAdb {
         self
     }
 
+    fn scoped(&self) -> AdbResult<Self> {
+        let mut scoped = self.clone();
+        if scoped.operation.is_none() {
+            scoped.operation = Some(Arc::new(
+                self.controller.admit_operation().map_err(admission_error)?,
+            ));
+        }
+        Ok(scoped)
+    }
+
+    fn spawn_command(&self, mut command: Command) -> AdbResult<AdbChild> {
+        let operation = match &self.operation {
+            Some(operation) => operation.clone(),
+            None => Arc::new(self.controller.admit_operation().map_err(admission_error)?),
+        };
+        let lease = operation.register_child().map_err(admission_error)?;
+        command.kill_on_drop(true);
+        match command.spawn() {
+            Ok(child) => Ok(AdbChild::new(
+                child,
+                Some(Box::new(Completion(Some(lease)))),
+            )),
+            Err(error) => {
+                lease.spawn_failed();
+                Err(error.into())
+            }
+        }
+    }
+
     async fn run(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.run_with_timeout(args, self.command_timeout).await
     }
 
     async fn run_with_timeout(&self, args: &[&str], dur: Duration) -> AdbResult<AdbOutput> {
+        let scope = self.scoped()?;
         let started = Instant::now();
         if !self.binary.exists() {
             let e = AdbError::BinaryMissing {
@@ -73,7 +105,13 @@ impl SubprocessAdb {
         cmd.args(args).kill_on_drop(true);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
-        let fut = cmd.output();
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let child = scope.spawn_command(cmd).inspect_err(|error| {
+            record_failure(args, started, error, "text");
+        })?;
+        let fut = child.output();
 
         let output = match timeout(dur, fut).await {
             Ok(Ok(output)) => output,
@@ -131,6 +169,47 @@ impl SubprocessAdb {
             warn!(args = ?safe_args, ?exit_code, %stderr, "adb exited nonzero");
         }
         process_output(stdout, stderr, exit_code)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DriverFactory {
+    controller: Controller,
+}
+impl Default for DriverFactory {
+    fn default() -> Self {
+        Self {
+            controller: Controller::new(Preference::default()),
+        }
+    }
+}
+impl DriverFactory {
+    #[cfg(test)]
+    pub(crate) fn controller(&self) -> Controller {
+        self.controller.clone()
+    }
+
+    pub fn create(&self, binary: PathBuf) -> SubprocessAdb {
+        SubprocessAdb {
+            binary,
+            command_timeout: Duration::from_secs(30),
+            controller: self.controller.clone(),
+            operation: None,
+        }
+    }
+    pub fn operation(&self) -> Result<Operation, String> {
+        self.controller
+            .admit_operation()
+            .map_err(|error| admission_error(error).to_string())
+    }
+}
+fn admission_error(error: crate::exit_lifecycle::Rejected) -> AdbError {
+    AdbError::Transport(format!("ADB admission closed: {error:?}"))
+}
+struct Completion(Option<ChildLease>);
+impl ChildCompletion for Completion {
+    fn reaped(mut self: Box<Self>) {
+        self.0.take().expect("completion lease").reaped();
     }
 }
 
@@ -337,17 +416,11 @@ const SHELL_OUTPUT_LIMIT: usize = 256 * 1024;
 const SHELL_TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn collect_bounded_shell(
-    mut cmd: Command,
+    mut child: AdbChild,
     duration: Duration,
 ) -> AdbResult<BoundedShellOutput> {
-    use std::process::Stdio;
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let mut child = cmd.spawn()?;
-    let mut stdout = child.stdout.take().expect("stdout configured as pipe");
-    let mut stderr = child.stderr.take().expect("stderr configured as pipe");
+    let mut stdout = child.take_stdout().expect("stdout configured as pipe");
+    let mut stderr = child.take_stderr().expect("stderr configured as pipe");
     let mut out = Vec::new();
     let mut err = Vec::new();
     let mut out_buf = [0u8; 8192];
@@ -405,6 +478,19 @@ fn bounded_utf8(bytes: &[u8]) -> String {
 
 #[async_trait]
 impl AdbDriver for SubprocessAdb {
+    fn operation_driver(&self) -> AdbResult<Option<Arc<dyn AdbDriver>>> {
+        Ok(Some(Arc::new(self.scoped()?)))
+    }
+
+    fn background_driver(&self) -> Option<Arc<dyn AdbDriver>> {
+        let mut detached = self.clone();
+        detached.operation = None;
+        Some(Arc::new(detached))
+    }
+    fn allow_background_cleanup(&self) -> bool {
+        matches!(self.controller.phase(), Phase::Running | Phase::Prompting)
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.run(args).await
     }
@@ -418,12 +504,19 @@ impl AdbDriver for SubprocessAdb {
     }
 
     async fn shell_bounded(&self, serial: &str, command: &str) -> AdbResult<BoundedShellOutput> {
+        let scope = self.scoped()?;
         let mut cmd = Command::new(&self.binary);
         cmd.args(["-s", serial, "shell", command]);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
         let started = Instant::now();
-        let result = collect_bounded_shell(cmd, SHELL_TIMEOUT).await;
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let result = match scope.spawn_command(cmd) {
+            Ok(child) => collect_bounded_shell(child, SHELL_TIMEOUT).await,
+            Err(error) => Err(error),
+        };
         if session::is_recording() {
             session::record(bounded_session_line(
                 serial,
@@ -457,6 +550,7 @@ impl AdbDriver for SubprocessAdb {
     }
 
     async fn raw_bytes(&self, args: &[&str]) -> AdbResult<Vec<u8>> {
+        let scope = self.scoped()?;
         let started = Instant::now();
         if !self.binary.exists() {
             let e = AdbError::BinaryMissing {
@@ -474,7 +568,13 @@ impl AdbDriver for SubprocessAdb {
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
 
-        let output = match timeout(self.command_timeout, cmd.output()).await {
+        cmd.stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let child = scope.spawn_command(cmd).inspect_err(|error| {
+            record_failure(args, started, error, "bytes");
+        })?;
+        let output = match timeout(self.command_timeout, child.output()).await {
             Ok(Ok(output)) => output,
             Ok(Err(io)) => {
                 let e = AdbError::from(io);
@@ -524,7 +624,8 @@ impl AdbDriver for SubprocessAdb {
         Ok(output.stdout)
     }
 
-    async fn spawn(&self, args: &[&str]) -> AdbResult<tokio::process::Child> {
+    async fn spawn(&self, args: &[&str]) -> AdbResult<AdbChild> {
+        let scope = self.scoped()?;
         if !self.binary.exists() {
             return Err(AdbError::BinaryMissing {
                 path: self.binary.display().to_string(),
@@ -546,7 +647,7 @@ impl AdbDriver for SubprocessAdb {
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
 
-        cmd.spawn().map_err(AdbError::Io)
+        scope.spawn_command(cmd)
     }
 }
 
@@ -939,7 +1040,14 @@ mod tests {
     async fn shell_fixture(script: &str, duration: Duration) -> BoundedShellOutput {
         let mut command = Command::new("/bin/sh");
         command.args(["-c", script]);
-        collect_bounded_shell(command, duration).await.unwrap()
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        collect_bounded_shell(AdbChild::new(command.spawn().unwrap(), None), duration)
+            .await
+            .unwrap()
     }
 
     #[cfg(unix)]
@@ -1181,3 +1289,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+mod process_tests;

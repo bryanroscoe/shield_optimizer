@@ -19,12 +19,26 @@ use super::AppState;
 /// authorized device, classify type, return structured list.
 #[tauri::command]
 pub async fn list_devices(state: State<'_, AppState>) -> Result<Vec<Device>, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { list_devices_body(state).await })
+        .await
+}
+
+async fn list_devices_body(state: State<'_, AppState>) -> Result<Vec<Device>, String> {
     list_devices_impl(state.inner()).await
 }
 
 /// Reusable implementation — callable from inside other commands without
 /// the `State<'_, T>` lifetime constraint getting in the way.
 pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { list_devices_impl_body(state).await })
+        .await
+}
+
+async fn list_devices_impl_body(state: &AppState) -> Result<Vec<Device>, String> {
     Ok(renumber(collapse_duplicate_transports(
         list_transports(state).await?,
     )))
@@ -32,7 +46,7 @@ pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> 
 
 /// One row per adb transport, before duplicates of one device are collapsed.
 async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let raw = adb
         .raw(&["devices"])
         .await
@@ -174,10 +188,24 @@ fn renumber(mut devices: Vec<Device>) -> Vec<Device> {
 /// device, freshly refetched. Used by the Profile view to force a refresh.
 #[tauri::command]
 pub async fn device_profile(state: State<'_, AppState>, serial: String) -> Result<Device, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { device_profile_body(state, serial).await })
+        .await
+}
+
+async fn device_profile_body(state: State<'_, AppState>, serial: String) -> Result<Device, String> {
     device_profile_impl(state.inner(), &serial).await
 }
 
 pub async fn device_profile_impl(state: &AppState, serial: &str) -> Result<Device, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { device_profile_impl_body(state, serial).await })
+        .await
+}
+
+async fn device_profile_impl_body(state: &AppState, serial: &str) -> Result<Device, String> {
     let transports = list_transports(state).await?;
     let devices = renumber(collapse_duplicate_transports(transports.clone()));
     resolve_profile(&transports, devices, serial)
@@ -207,6 +235,16 @@ pub async fn connect_device(
     state: State<'_, AppState>,
     address: String,
 ) -> Result<ConnectResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { connect_device_body(state, address).await })
+        .await
+}
+
+async fn connect_device_body(
+    state: State<'_, AppState>,
+    address: String,
+) -> Result<ConnectResult, String> {
     let result = connect_device_impl(state.inner(), &address).await;
     match &result {
         Ok(r) => tracing::info!(%address, ok = r.ok, "connect finished"),
@@ -216,8 +254,18 @@ pub async fn connect_device(
 }
 
 pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { connect_device_impl_body(state, address).await })
+        .await
+}
+
+async fn connect_device_impl_body(
+    state: &AppState,
+    address: &str,
+) -> Result<ConnectResult, String> {
     let target = normalize_connect_address(address)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .raw(&["connect", &target])
         .await
@@ -265,10 +313,20 @@ pub async fn disconnect_device(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ConnectResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { disconnect_device_body(state, serial).await })
+        .await
+}
+
+async fn disconnect_device_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ConnectResult, String> {
     // A live remote-input session holds an open socket + forward to this
     // device — tear it down before dropping the connection.
     state.drop_remote_session(&serial).await;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = match adb.raw(&["disconnect", &serial]).await {
         Ok(out) => out,
         Err(e) => {
@@ -312,6 +370,16 @@ pub async fn forget_device(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<ForgetResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { forget_device_body(state, serial).await })
+        .await
+}
+
+async fn forget_device_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ForgetResult, String> {
     let result = forget_device_impl(state.inner(), &serial).await;
     match &result {
         Ok(r) => tracing::info!(
@@ -327,7 +395,14 @@ pub async fn forget_device(
 }
 
 pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<ForgetResult, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state;
+    scope
+        .with_adb_operation(async move { forget_device_impl_body(state, serial).await })
+        .await
+}
+
+async fn forget_device_impl_body(state: &AppState, serial: &str) -> Result<ForgetResult, String> {
+    let adb = state.adb_operation().await?;
     let raw = adb
         .raw(&["devices"])
         .await
@@ -465,6 +540,19 @@ pub async fn probe_paired_connect(
     pair_address: String,
     instance: Option<String>,
 ) -> Result<PairedConnectProbe, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move {
+            probe_paired_connect_body(state, pair_address, instance).await
+        })
+        .await
+}
+
+async fn probe_paired_connect_body(
+    state: State<'_, AppState>,
+    pair_address: String,
+    instance: Option<String>,
+) -> Result<PairedConnectProbe, String> {
     probe_paired_connect_impl(state.inner(), &pair_address, instance.as_deref()).await
 }
 
@@ -473,11 +561,24 @@ pub async fn probe_paired_connect_impl(
     pair_address: &str,
     instance: Option<&str>,
 ) -> Result<PairedConnectProbe, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move {
+            probe_paired_connect_impl_body(state, pair_address, instance).await
+        })
+        .await
+}
+
+async fn probe_paired_connect_impl_body(
+    state: &AppState,
+    pair_address: &str,
+    instance: Option<&str>,
+) -> Result<PairedConnectProbe, String> {
     let target = normalize_pairing_address(pair_address)?;
     let Some(instance) = instance.filter(|i| !i.trim().is_empty()) else {
         return Ok(PairedConnectProbe::Unidentified);
     };
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let services = read_mdns_services(&*adb).await;
     let attached: Vec<String> = match adb.raw(&["devices"]).await {
         Ok(out) => parse_device_list(&out.stdout)
@@ -617,6 +718,17 @@ pub async fn connect_paired(
     address: String,
     instance: String,
 ) -> Result<PairedConnectResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { connect_paired_body(state, address, instance).await })
+        .await
+}
+
+async fn connect_paired_body(
+    state: State<'_, AppState>,
+    address: String,
+    instance: String,
+) -> Result<PairedConnectResult, String> {
     let result = connect_paired_impl(state.inner(), &address, &instance).await;
     match &result {
         Ok(r) => tracing::info!(
@@ -631,6 +743,17 @@ pub async fn connect_paired(
 }
 
 pub async fn connect_paired_impl(
+    state: &AppState,
+    address: &str,
+    instance: &str,
+) -> Result<PairedConnectResult, String> {
+    let scope = state;
+    scope
+        .with_adb_operation(async move { connect_paired_impl_body(state, address, instance).await })
+        .await
+}
+
+async fn connect_paired_impl_body(
     state: &AppState,
     address: &str,
     instance: &str,
@@ -653,7 +776,7 @@ pub async fn connect_paired_impl(
         });
     }
     let target = normalize_connect_address(address)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let actual = read_hardware_id(&*adb, &target).await;
     if actual.as_deref() == Some(expected) {
         return Ok(PairedConnectResult {
@@ -698,6 +821,17 @@ pub async fn pair_device(
     pair_address: String,
     pin: String,
 ) -> Result<PairResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { pair_device_body(state, pair_address, pin).await })
+        .await
+}
+
+async fn pair_device_body(
+    state: State<'_, AppState>,
+    pair_address: String,
+    pin: String,
+) -> Result<PairResult, String> {
     let result = pair_device_impl(state.inner(), &pair_address, &pin).await;
     // Never the PIN: this line reaches the log file and the session recording.
     match &result {
@@ -735,7 +869,7 @@ async fn pair_device_impl(
         });
     }
     let target = normalize_pairing_address(pair_address)?;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     // Read before pairing: the device can stop advertising its pairing
     // service the moment pairing completes.
     let mut instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
@@ -1005,6 +1139,17 @@ pub async fn rename_device(
     serial: String,
     name: String,
 ) -> Result<crate::commands::apps::ActionResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { rename_device_body(state, serial, name).await })
+        .await
+}
+
+async fn rename_device_body(
+    state: State<'_, AppState>,
+    serial: String,
+    name: String,
+) -> Result<crate::commands::apps::ActionResult, String> {
     use crate::commands::apps::ActionResult;
 
     let quoted = match quote_device_name(&name) {
@@ -1012,7 +1157,7 @@ pub async fn rename_device(
         Err(message) => return Ok(ActionResult { ok: false, message }),
     };
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let out = adb
         .shell(
             &serial,

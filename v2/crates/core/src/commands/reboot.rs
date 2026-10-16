@@ -30,11 +30,22 @@ pub async fn reboot_device(
     serial: String,
     mode: RebootMode,
 ) -> Result<RebootResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { reboot_device_body(state, serial, mode).await })
+        .await
+}
+
+async fn reboot_device_body(
+    state: State<'_, AppState>,
+    serial: String,
+    mode: RebootMode,
+) -> Result<RebootResult, String> {
     if !matches!(mode, RebootMode::Normal) {
         state.require_pro(Feature::AdvancedReboot)?;
     }
     state.drop_remote_session(&serial).await;
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let args: Vec<&str> = match mode {
         RebootMode::Normal => vec!["-s", &serial, "reboot"],
         RebootMode::Recovery => vec!["-s", &serial, "reboot", "recovery"],

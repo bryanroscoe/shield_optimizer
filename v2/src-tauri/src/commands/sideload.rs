@@ -27,6 +27,20 @@ pub async fn install_apk(
     apk_path: String,
     reinstall: Option<bool>,
 ) -> Result<InstallApkResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(
+            async move { install_apk_body(state, serial, apk_path, reinstall).await },
+        )
+        .await
+}
+
+async fn install_apk_body(
+    state: State<'_, AppState>,
+    serial: String,
+    apk_path: String,
+    reinstall: Option<bool>,
+) -> Result<InstallApkResult, String> {
     let path_buf = PathBuf::from(&apk_path);
     if !path_buf.is_file() {
         return Ok(InstallApkResult {
@@ -37,7 +51,7 @@ pub async fn install_apk(
         });
     }
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let mut args: Vec<String> = vec!["-s".into(), serial.clone(), "install".into()];
     if reinstall.unwrap_or(true) {
         args.push("-r".into());
@@ -165,6 +179,17 @@ pub async fn inspect_apk(
     serial: String,
     path: String,
 ) -> Result<ApkInspection, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { inspect_apk_body(state, serial, path).await })
+        .await
+}
+
+async fn inspect_apk_body(
+    state: State<'_, AppState>,
+    serial: String,
+    path: String,
+) -> Result<ApkInspection, String> {
     let apk = PathBuf::from(&path);
     let metadata = tokio::fs::metadata(&apk)
         .await
@@ -180,7 +205,7 @@ pub async fn inspect_apk(
     let package = read_apk_package_id(&apk);
     let abis = read_apk_abis(&apk);
 
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
     let device_abis: Vec<String> = match adb.shell(&serial, "getprop ro.product.cpu.abilist").await
     {
         Ok(out) => out

@@ -29,7 +29,17 @@ pub async fn panic_recovery(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<RecoveryResult, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { panic_recovery_body(state, serial).await })
+        .await
+}
+
+async fn panic_recovery_body(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<RecoveryResult, String> {
+    let adb = state.adb_operation().await?;
     let disabled_out = adb
         .shell(&serial, "pm list packages -d")
         .await

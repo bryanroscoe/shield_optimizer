@@ -7,7 +7,7 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::driver::{cached_adb_binary, forget_cached_adb_binary};
-use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, SubprocessAdb};
+use crate::adb::{install_platform_tools, parse_device_list, AdbDriver};
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
@@ -27,7 +27,14 @@ pub struct AdbStatus {
 /// `adb_status` — fast diagnostic the UI shows when devices fail to list.
 #[tauri::command]
 pub async fn adb_status(state: State<'_, AppState>) -> Result<AdbStatus, String> {
-    let adb = state.adb_snapshot().await;
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { adb_status_body(state).await })
+        .await
+}
+
+async fn adb_status_body(state: State<'_, AppState>) -> Result<AdbStatus, String> {
+    let adb = state.adb_operation().await?;
     let path = cached_adb_binary().map(|p| p.display().to_string());
     let probe = adb.raw(&["devices"]).await;
     match probe {
@@ -70,6 +77,13 @@ const RECONNECT_BACKOFF: std::time::Duration = std::time::Duration::from_millis(
 /// USB-cable swap. Does not redownload — for that use `install_adb`.
 #[tauri::command]
 pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { restart_adb_body(state).await })
+        .await
+}
+
+async fn restart_adb_body(state: State<'_, AppState>) -> Result<RestartResult, String> {
     restart_adb_impl(state.inner()).await
 }
 
@@ -80,7 +94,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     // look at the machine — if they just installed adb elsewhere, this is how
     // they tell us to go find it again.
     forget_cached_adb_binary();
-    let adb = state.adb_snapshot().await;
+    let adb = state.adb_operation().await?;
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
     // their own after the daemon restarts; network devices (ip:port) do not —
@@ -176,13 +190,39 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 /// OS app-data dir, and swap the live driver so the next `list_devices` call
 /// uses the freshly-installed binary. Matches v1's auto-download flow.
 #[tauri::command]
-pub async fn install_adb(state: State<'_, AppState>) -> Result<InstallResult, String> {
-    match install_platform_tools().await {
+pub async fn install_adb(
+    state: State<'_, AppState>,
+    factory: State<'_, crate::adb::driver::DriverFactory>,
+) -> Result<InstallResult, String> {
+    let scope = state.inner();
+    scope
+        .with_adb_operation(async move { install_adb_body(state, factory).await })
+        .await
+}
+
+async fn install_adb_body(
+    state: State<'_, AppState>,
+    factory: State<'_, crate::adb::driver::DriverFactory>,
+) -> Result<InstallResult, String> {
+    install_with(state.inner(), factory.inner(), install_platform_tools).await
+}
+
+async fn install_with<F, Fut>(
+    state: &AppState,
+    factory: &crate::adb::driver::DriverFactory,
+    installer: F,
+) -> Result<InstallResult, String>
+where
+    F: FnOnce(Arc<crate::exit_lifecycle::Operation>) -> Fut,
+    Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
+{
+    let operation = Arc::new(factory.operation()?);
+    match installer(operation.clone()).await {
         Ok(path) => {
             // A managed install outranks everything discovery would otherwise
             // fall back to, so the memoized answer is now stale.
             forget_cached_adb_binary();
-            let new_driver: Arc<dyn AdbDriver> = Arc::new(SubprocessAdb::new(path.clone()));
+            let new_driver: Arc<dyn AdbDriver> = Arc::new(factory.create(path.clone()));
             state.replace_adb(new_driver).await;
             Ok(InstallResult {
                 ok: true,
@@ -279,6 +319,84 @@ mod tests {
             res.message.contains("cannot bind to port 5037"),
             "message should surface the daemon error: {}",
             res.message
+        );
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::adb::driver::DriverFactory;
+    use crate::commands::test_support::{state_with, MockAdb};
+    use crate::exit_lifecycle::{ExitPolicy, Rejected, Request};
+
+    #[tokio::test]
+    async fn pending_injected_install_blocks_drain_and_replacement_retains_closed_gate() {
+        let factory = DriverFactory::default();
+        let controller = factory.controller();
+        let state = Arc::new(state_with(MockAdb::default()));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
+        let job_state = state.clone();
+        let job_factory = factory.clone();
+        let job = tokio::spawn(async move {
+            install_with(&job_state, &job_factory, |operation| async move {
+                let _operation = operation;
+                started_tx.send(()).unwrap();
+                resume_rx.await.unwrap();
+                Ok(std::path::PathBuf::from("/inert-not-executable"))
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        let Request::Prompt(attempt) = controller.request_quit(false) else {
+            panic!("prompt");
+        };
+        controller
+            .confirm(attempt, ExitPolicy::AlwaysStop, false)
+            .unwrap();
+        assert_eq!(
+            controller.finish_drain(attempt),
+            Err(Rejected::WorkOutstanding)
+        );
+        resume_tx.send(()).unwrap();
+        assert!(job.await.unwrap().unwrap().ok);
+        assert!(state.adb_operation().await.is_err());
+        assert!(factory.operation().is_err());
+        controller.finish_drain(attempt).unwrap();
+        // No executable was launched, no platform tools were downloaded.
+    }
+
+    #[tokio::test]
+    async fn aborted_pending_install_cannot_replace_driver_later() {
+        let factory = DriverFactory::default();
+        let state = Arc::new(state_with(MockAdb::default().on_raw("fixture", "original")));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = tokio::sync::oneshot::channel::<()>();
+        let job_state = state.clone();
+        let job_factory = factory.clone();
+        let job = tokio::spawn(async move {
+            install_with(&job_state, &job_factory, |operation| async move {
+                let _operation = operation;
+                started_tx.send(()).unwrap();
+                resume_rx.await.unwrap();
+                Ok(std::path::PathBuf::from("/must-not-be-installed"))
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        job.abort();
+        assert!(matches!(job.await, Err(error) if error.is_cancelled()));
+        assert!(resume_tx.send(()).is_err());
+        assert_eq!(
+            state
+                .adb_snapshot()
+                .await
+                .raw(&["fixture"])
+                .await
+                .unwrap()
+                .stdout,
+            "original"
         );
     }
 }
