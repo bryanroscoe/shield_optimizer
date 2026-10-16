@@ -3,9 +3,10 @@ import { invoke } from "@tauri-apps/api/core";
 export const exitPreviewEnabled = import.meta.env.DEV && import.meta.env.VITE_ADB_EXIT_PREVIEW === "1";
 export type ExitPolicy = "auto" | "always_stop" | "always_leave_running";
 export type ExitPreviewAction =
-  | { type: "read" | "request_quit" | "cancel" | "restart_simulation" | "updater_restart" }
+  | { type: "read" | "request_quit" | "restart_simulation" | "updater_restart" }
+  | { type: "cancel"; prompt_generation: number }
   | { type: "save"; policy: ExitPolicy }
-  | { type: "confirm"; policy: ExitPolicy; remember: boolean };
+  | { type: "confirm"; prompt_generation: number; policy: ExitPolicy; remember: boolean };
 export type ExitPreviewSnapshot = {
   preference: { version: number; policy: ExitPolicy; remembered: boolean };
   phase: string;

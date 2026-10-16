@@ -67,7 +67,8 @@
   {#if failure && !snapshot?.prompt_open}<p class="unavailable" role="alert">{failure}</p>{/if}
 </section>
 
-<dialog bind:this={dialog} aria-labelledby="quit-preview-title" oncancel={(event) => { event.preventDefault(); void perform({ type: "cancel" }); }}>
+{#each [snapshot?.prompt_generation ?? 0] as promptGeneration (promptGeneration)}
+<dialog bind:this={dialog} aria-labelledby="quit-preview-title" oncancel={(event) => { event.preventDefault(); void perform({ type: "cancel", prompt_generation: promptGeneration }); }}>
   <div class="eyebrow">First-quit prompt · simulated</div>
   <h2 id="quit-preview-title">Leave shared ADB running?</h2>
   <p>Stopping shared ADB disconnects other apps and all attached devices.</p>
@@ -84,8 +85,8 @@
   {#if confirmUnsupported}<p class="unavailable">Stop is unavailable. No preference or shutdown will be applied.</p>{/if}
   {#if failure}<p class="unavailable" role="alert">{failure}</p>{/if}
   <div class="actions">
-    <button onclick={() => perform({ type: "cancel" })} disabled={busy}>Cancel</button>
-    <button class="primary" onclick={() => perform({ type: "confirm", policy: confirmPolicy, remember })} disabled={busy || confirmUnsupported}>
+    <button onclick={() => perform({ type: "cancel", prompt_generation: promptGeneration })} disabled={busy}>Cancel</button>
+    <button class="primary" onclick={() => perform({ type: "confirm", prompt_generation: promptGeneration, policy: confirmPolicy, remember })} disabled={busy || confirmUnsupported}>
       {confirmUnsupported ? "Stop ADB — unavailable" : confirmPolicy === "auto" ? "Continue with Auto (leaves running)" : "Leave ADB running"}
     </button>
   </div>
@@ -95,6 +96,7 @@
   </div>
   <p class="muted small">Simulation only. The real app and shared server remain running.</p>
 </dialog>
+{/each}
 
 <style>
   .exit-preview { max-width: 860px; margin: 30px auto; padding: 28px; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-surface); }

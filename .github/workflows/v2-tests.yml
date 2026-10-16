@@ -308,6 +308,10 @@ jobs:
         working-directory: v2
         run: npm run e2e
 
+      - name: Development-only exit preview regressions
+        working-directory: v2
+        run: npm run test:exit-preview
+
       - name: Upload screenshots
         if: failure()
         uses: actions/upload-artifact@v4

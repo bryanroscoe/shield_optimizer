@@ -16,10 +16,18 @@ pub struct ExitPreviewState(Arc<Mutex<Option<Session>>>);
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Action {
     Read,
-    Save { policy: ExitPolicy },
+    Save {
+        policy: ExitPolicy,
+    },
     RequestQuit,
-    Confirm { policy: ExitPolicy, remember: bool },
-    Cancel,
+    Confirm {
+        policy: ExitPolicy,
+        remember: bool,
+        prompt_generation: u64,
+    },
+    Cancel {
+        prompt_generation: u64,
+    },
     RestartSimulation,
     UpdaterRestart,
 }
@@ -186,7 +194,10 @@ impl Session {
             Action::RequestQuit => match self.controller.request_quit(false) {
                 Request::Prompt(attempt) => {
                     self.pending = Some(attempt);
-                    self.generation += 1;
+                    self.generation = self
+                        .generation
+                        .checked_add(1)
+                        .ok_or("Prompt generation exhausted.")?;
                     self.message =
                         "Choose how the simulated quit should handle shared ADB.".to_owned();
                 }
@@ -198,7 +209,8 @@ impl Session {
                 }
                 _ => return Err("Unexpected preview request.".to_owned()),
             },
-            Action::Cancel => {
+            Action::Cancel { prompt_generation } => {
+                self.require_prompt(prompt_generation)?;
                 let attempt = self.pending.ok_or("No preview prompt is open.")?;
                 self.controller
                     .cancel_prompt(attempt)
@@ -206,7 +218,12 @@ impl Session {
                 self.pending = None;
                 self.message = "Canceled. No preference or admission changes.".to_owned();
             }
-            Action::Confirm { policy, remember } => {
+            Action::Confirm {
+                policy,
+                remember,
+                prompt_generation,
+            } => {
+                self.require_prompt(prompt_generation)?;
                 Self::supported(policy)?;
                 let attempt = self.pending.ok_or("No preview prompt is open.")?;
                 if self.controller.phase() != Phase::Prompting {
@@ -215,6 +232,7 @@ impl Session {
                 if remember {
                     let preference = Preference::remembered(policy);
                     self.persist(preference)?;
+                    self.storage_warning = None;
                 }
                 self.controller
                     .confirm(attempt, policy, remember)
@@ -223,7 +241,9 @@ impl Session {
                 self.finish_simulation(attempt)?;
             }
             Action::RestartSimulation => {
+                let generation = self.generation;
                 *self = Self::load(self.path.clone());
+                self.generation = generation;
             }
             Action::UpdaterRestart => {
                 let _request = self.controller.request_quit(true);
@@ -232,6 +252,16 @@ impl Session {
             }
         }
         Ok(self.snapshot())
+    }
+
+    fn require_prompt(&self, generation: u64) -> Result<(), String> {
+        if self.pending.is_none()
+            || self.controller.phase() != Phase::Prompting
+            || generation != self.generation
+        {
+            return Err("This prompt is no longer current.".to_owned());
+        }
+        Ok(())
     }
 
     fn snapshot(&self) -> Snapshot {

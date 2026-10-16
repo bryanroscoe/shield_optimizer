@@ -42,11 +42,36 @@ try {
  await shot("03-first-quit-prompt");await modal.getByRole("button",{name:"Cancel",exact:true}).click();await modal.waitFor({state:"hidden"});
  const canceled=await invoke({type:"read"});assert.equal(canceled.admission_open,true);assert.equal(canceled.preference.remembered,false);await assert.rejects(stat(preference));
  check("Repeat close coalesces; Cancel changes no preference or admission");
+ for (const reset of ["cancel","restart","updater_restart"]) {
+  await button("Simulate normal quit").click();await modal.waitFor();
+  const oldGeneration=(await invoke({type:"read"})).prompt_generation;
+  // These closures capture the old dialog identity, like callbacks delivered late.
+  const delayedCancel=()=>native.invoke("exit_settings_preview",{action:{type:"cancel",prompt_generation:oldGeneration}});
+  const delayedConfirm=()=>native.invoke("exit_settings_preview",{action:{type:"confirm",prompt_generation:oldGeneration,policy:"auto",remember:true}});
+  if(reset!=="cancel") {
+   if(reset==="updater_restart") await invoke({type:"updater_restart"});
+   await invoke({type:"restart_simulation"});await page.reload();
+  }
+  else { await modal.getByRole("button",{name:"Cancel",exact:true}).click(); }
+  await modal.waitFor({state:"hidden"});
+  await button("Simulate normal quit").click();await modal.waitFor();
+  const current=await invoke({type:"read"});assert.ok(current.prompt_generation>oldGeneration);
+  for(const delayed of [delayedCancel,delayedConfirm]) {
+   const rejected=await delayed();assert.equal(rejected.ok,false);assert.match(String(rejected.error),/no longer current/);
+   const after=await invoke({type:"read"});assert.equal(after.prompt_generation,current.prompt_generation);
+   assert.equal(after.prompt_open,true);assert.equal(after.admission_open,true);assert.deepEqual(after.preference,current.preference);
+   await assert.rejects(stat(preference));assert.equal(await modal.isVisible(),true);
+  }
+  await modal.getByRole("button",{name:"Cancel",exact:true}).click();await modal.waitFor({state:"hidden"});
+ }
+ check("Delayed Confirm and Cancel cannot affect newer prompts after cancel, restart or updater restart");
+
  await button("Simulate normal quit").click();await modal.getByRole("radio",{name:/^Auto/}).check();await modal.getByRole("checkbox").check();
  await modal.getByRole("button",{name:"Continue with Auto (leaves running)",exact:true}).click();await modal.waitFor({state:"hidden"});
  await panel.getByText("Simulated exit completed. Shared ADB left running; the app remains open.",{exact:true}).waitFor();
  const saved=await readFile(preference,"utf8");assert.deepEqual(JSON.parse(saved),{version:1,policy:"auto",remembered:true});
  await shot("04-remembered-auto");await button("Simulate app restart").click();await button("Simulate normal quit").click();
+ await panel.getByText("Simulated exit completed. Shared ADB left running; the app remains open.",{exact:true}).waitFor();
  assert.equal((await invoke({type:"read"})).phase,"finished");assert.equal(await modal.isVisible(),false);assert.equal(await readFile(preference,"utf8"),saved);
  check("Remembered Auto survives native reload and still leaves running");
  await writeFile(preference,JSON.stringify({version:1,policy:"always_leave_running",remembered:false}));
@@ -55,11 +80,17 @@ try {
  const beforeUpdater=await readFile(preference,"utf8");await modal.getByRole("button",{name:"Simulate updater during prompt"}).click();await modal.waitFor({state:"hidden"});
  await panel.getByText("Updater restart simulated: no app restart or shared-server stop was performed.",{exact:true}).waitFor();
  assert.equal((await invoke({type:"request_quit"})).phase,"restarting");
- assert.equal((await native.invoke("exit_settings_preview",{action:{type:"confirm",policy:"auto",remember:true}})).ok,false);
+ assert.equal((await native.invoke("exit_settings_preview",{action:{type:"confirm",prompt_generation:first.prompt_generation,policy:"auto",remember:true}})).ok,false);
  assert.equal(await readFile(preference,"utf8"),beforeUpdater);await shot("05-updater-safe");check("Updater invalidates prompt; later quit cannot save or reach stop");
  await writeFile(preference,"corrupt preference");await button("Simulate app restart").click();
  await panel.getByText("Invalid preview preference; using safe defaults.",{exact:true}).waitFor();assert.equal((await invoke({type:"read"})).preference.policy,"always_leave_running");
  await shot("06-corruption-fallback");check("Corrupt native storage falls back safely without overwriting it");
+ await button("Simulate normal quit").click();await modal.waitFor();
+ await modal.getByRole("checkbox").check();
+ await modal.getByRole("button",{name:"Leave ADB running",exact:true}).click();await modal.waitFor({state:"hidden"});
+ assert.equal((await invoke({type:"read"})).storage_warning,null);
+ await panel.getByText("Invalid preview preference; using safe defaults.",{exact:true}).waitFor({state:"hidden"});
+
  await rm(preference);await mkdir(preference);await button("Simulate app restart").click();await button("Simulate normal quit").click();
  await modal.getByRole("radio",{name:/^Auto/}).check();await modal.getByRole("checkbox").check();
  await modal.getByRole("button",{name:"Continue with Auto (leaves running)",exact:true}).click();await modal.getByRole("alert").waitFor();
