@@ -48,9 +48,10 @@ export async function buildServer() {
   await run("cargo", ["build", "-p", "shield-optimizer-v2", "--features", "e2e", "--bin", "e2e_server"], { cwd: V2 });
 }
 
-export async function startServer() {
-  const child = spawn(serverBinary(), ["--port", "0"], { cwd: V2, stdio: ["ignore", "pipe", "pipe"] });
+export async function startServer({ exitPreview = false } = {}) {
+  const child = spawn(serverBinary(), ["--port", "0", ...(exitPreview ? ["--exit-preview"] : [])], { cwd: V2, stdio: ["ignore", "pipe", "pipe"] });
   const lines = [];
+  let dataDir;
   const port = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       // Kill it, or its open pipes keep Node (and a CI job) alive forever.
@@ -64,6 +65,7 @@ export async function startServer() {
       lines.push(text);
       const m = text.match(/E2E_SERVER_LISTENING port=(\d+)/);
       if (m) {
+        dataDir = text.match(/data_dir=(.+)/)?.[1]?.trim();
         clearTimeout(timer);
         resolve(Number(m[1]));
       }
@@ -74,10 +76,12 @@ export async function startServer() {
   // Keep the pipes drained; the server logs every invoke at info.
   child.stdout.on("data", () => {});
   child.stderr.on("data", () => {});
-  return { child, url: `http://127.0.0.1:${port}` };
+  return { child, url: `http://127.0.0.1:${port}`, dataDir };
 }
 
-export async function startVite(serverUrl) {
+export async function startVite(serverUrl, { exitPreview = false } = {}) {
+  if (exitPreview) process.env.VITE_ADB_EXIT_PREVIEW = "1";
+  else delete process.env.VITE_ADB_EXIT_PREVIEW;
   const { createServer } = await import("vite");
   process.env.VITE_E2E = "1";
   process.env.VITE_E2E_URL = serverUrl;

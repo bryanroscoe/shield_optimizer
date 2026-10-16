@@ -400,3 +400,52 @@ mod lifecycle_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod second_admission_tests {
+    use super::*;
+    use crate::adb::driver::DriverFactory;
+    use crate::exit_lifecycle::{ExitPolicy, Rejected, Request};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn gate_closing_after_outer_admission_cancels_installer_before_any_effect() {
+        let factory = DriverFactory::default();
+        let controller = factory.controller();
+        let state = AppState::new(
+            Arc::new(factory.create(std::path::PathBuf::from("/never-executed"))),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let effects = AtomicUsize::new(0);
+        let attempt = state
+            .with_adb_operation(async {
+                let Request::Prompt(attempt) = controller.request_quit(false) else {
+                    panic!("prompt");
+                };
+                controller
+                    .confirm(attempt, ExitPolicy::AlwaysStop, false)
+                    .unwrap();
+                assert_eq!(
+                    controller.finish_drain(attempt),
+                    Err(Rejected::WorkOutstanding)
+                );
+                let result = install_with(&state, &factory, |_| async {
+                    effects.fetch_add(1, Ordering::SeqCst);
+                    Ok(std::path::PathBuf::from("/must-not-replace"))
+                })
+                .await;
+                assert!(result.is_err());
+                assert_eq!(effects.load(Ordering::SeqCst), 0);
+                assert_eq!(
+                    controller.finish_drain(attempt),
+                    Err(Rejected::WorkOutstanding)
+                );
+                Ok(attempt)
+            })
+            .await
+            .unwrap();
+        controller.finish_drain(attempt).unwrap();
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+    }
+}

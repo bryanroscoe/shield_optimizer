@@ -1,0 +1,13 @@
+# Development-only exit settings preview
+
+This slice is stacked on PR #175 (`e5484d9e2eb3095f0c1926d2c921f8e2b94b5763`). It adds a simulated settings page and first-quit prompt, not actual window-close interception, updater restart integration, or an ADB stop executor. Always leave running is the default. Auto leaves shared ADB running because exclusive ownership cannot be established. Always stop warns about disconnecting other apps/devices and cannot be saved or confirmed.
+
+For a debug desktop preview, run `SHIELD_ADB_EXIT_PREVIEW=1 VITE_ADB_EXIT_PREVIEW=1 npm run tauri dev` from `v2/`, then visit `/dev/adb-exit-preview`. Both flags are opt-in. The frontend also requires Vite development mode; native release builds reject preview access. There is no navigation link or production setting. Preferences use only `<data_dir>/development-previews/adb-exit-v1.json`; simulated admission uses its own controller, separate from the real driver factory.
+
+`npm run test:exit-preview` uses the real native command layer through the existing simulated-device E2E server, with explicit fixture flags and temporary storage. Its nine scenarios cover default Leave, unavailable Stop/native rejection, coalesced repeated close and Cancel, remembered Auto reload, updater invalidation, corrupt preferences, failed-save recovery, no simulated ADB effects, and flag-off route/native rejection.
+
+The installer regression `gate_closing_after_outer_admission_cancels_installer_before_any_effect` closes admission after the outer guard is admitted and proves the second installer admission rejects before its closure runs (zero effects). The outer guard continues blocking drain until released. This documents safe cancellation; it does not implement a joint admission token or enable lifecycle activation.
+
+Local macOS validation: 455 core tests passed; 141 desktop tests passed and one live-device test was ignored; nine focused native preview tests passed; nine browser scenarios passed. Strict Clippy (all targets, E2E feature, warnings denied), Rust formatting, Svelte checks (zero errors/warnings), and the ordinary production frontend build passed. This is local validation, not a claim that all platform CI has passed. No real ADB/device commands, signing, or release was performed.
+
+`SIMULATED-exit-settings-preview.mp4` is the synthetic browser recording (473,493 bytes). Library file ID: `libfile_8084aaf2ea7081919ef629e15ab7d768`. Screenshots and the raw browser recording remain in ignored E2E artifacts. Ordinary captured product screens are unchanged.

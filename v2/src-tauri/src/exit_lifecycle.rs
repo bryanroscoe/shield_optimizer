@@ -43,6 +43,14 @@ impl Default for Preference {
 }
 
 impl Preference {
+    pub fn remembered(policy: ExitPolicy) -> Self {
+        Self {
+            version: 1,
+            policy,
+            remembered: true,
+        }
+    }
+
     pub fn decode(json: &str) -> Self {
         serde_json::from_str::<Self>(json)
             .ok()

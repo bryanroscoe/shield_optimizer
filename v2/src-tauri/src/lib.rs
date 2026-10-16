@@ -11,6 +11,7 @@
 pub mod adb;
 pub mod commands;
 pub mod exit_lifecycle;
+pub mod exit_preview;
 pub mod session;
 pub use shield_optimizer_core::engine;
 
@@ -78,6 +79,7 @@ fn default_state(
 pub fn invoke_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
+        exit_preview::exit_settings_preview,
         devices::list_devices,
         devices::device_profile,
         devices::connect_device,
@@ -200,6 +202,7 @@ pub fn run() {
         }
     };
 
+    let preview = exit_preview::ExitPreviewState::configured(&data_dir);
     let factory = adb::driver::DriverFactory::default();
     let state =
         default_state(app_lists, data_dir, &factory).with_known_names(loader::load_known_names());
@@ -211,6 +214,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(state)
         .manage(factory)
+        .manage(preview)
         .manage(log_control)
         .invoke_handler(invoke_handler())
         .run(tauri::generate_context!())

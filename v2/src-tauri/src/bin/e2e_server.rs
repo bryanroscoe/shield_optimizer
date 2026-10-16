@@ -596,8 +596,14 @@ fn main() {
         .with_entitlement(Entitlement::Pro)
         .with_known_names(loader::load_known_names());
 
+    let preview = if args.iter().any(|arg| arg == "--exit-preview") {
+        shield_optimizer_v2_lib::exit_preview::ExitPreviewState::development(&data_dir)
+    } else {
+        shield_optimizer_v2_lib::exit_preview::ExitPreviewState::default()
+    };
     let app = mock_builder()
         .manage(state)
+        .manage(preview)
         .manage(shield_optimizer_v2_lib::adb::driver::DriverFactory::default())
         .manage(log_control)
         .invoke_handler(shield_optimizer_v2_lib::invoke_handler())

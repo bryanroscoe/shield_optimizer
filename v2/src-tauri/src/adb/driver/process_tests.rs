@@ -315,6 +315,7 @@ fn every_desktop_dispatch_entry_has_a_guard_or_explicit_non_adb_classification()
         ("diagnostics", include_str!("../../commands/diagnostics.rs")),
     ];
     let exempt: std::collections::HashSet<_> = [
+        "exit_preview::exit_settings_preview",
         "scan::local_address_for",
         "apps::safety_info",
         "apps::process_safety_info",
