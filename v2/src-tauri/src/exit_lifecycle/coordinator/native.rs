@@ -105,7 +105,7 @@ impl NativeResources {
 }
 #[async_trait]
 impl Resources for NativeResources {
-    async fn close_local_and_reap(&self) {
+    async fn close_local_and_reap(&self) -> Result<(), CleanupFailure> {
         let closes = {
             let mut set = self.0.lock().unwrap();
             set.sealed = true;
@@ -113,8 +113,14 @@ impl Resources for NativeResources {
         };
         // Own each close independently: one blocked session cannot prevent the others starting.
         let tasks: Vec<_> = closes.into_iter().map(tokio::spawn).collect();
+        let mut failed = false;
         for task in tasks {
-            let _ = task.await;
+            failed |= task.await.is_err();
+        }
+        if failed {
+            Err(CleanupFailure::TaskFailed)
+        } else {
+            Ok(())
         }
     }
 }
@@ -267,4 +273,55 @@ fn pinned_tauri_cleanup_clears_managed_resources_without_requesting_exit() {
     app.handle().cleanup_before_exit();
     // No Tauri API is used after cleanup; the real final executor must exit immediately.
     assert!(dropped.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn panicking_native_close_without_child_leases_blocks_stop_and_requires_explicit_exit() {
+    let resources = Arc::new(NativeResources::default());
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    resources
+        .register(Box::pin(async {
+            panic!("injected local cleanup failure");
+        }))
+        .unwrap();
+    let (e, r, f) = (entered.clone(), release.clone(), finished.clone());
+    resources
+        .register(Box::pin(async move {
+            e.notify_one();
+            r.notified().await;
+            f.store(true, Ordering::SeqCst);
+        }))
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(NativePreferences::new(dir.path()).unwrap());
+    let stop = Arc::new(NativeStop::default());
+    let controller = Controller::new(Preference::default());
+    assert!(controller.0.lock().unwrap().children.is_empty());
+    let coordinator = Coordinator::new(controller, store, resources, stop.clone());
+    let ticket = coordinator.prompt().unwrap();
+    coordinator
+        .clone()
+        .confirm(ticket, ExitPolicy::AlwaysStop, false)
+        .await
+        .unwrap();
+    let run = tokio::spawn(coordinator.clone().run(ticket, true));
+    entered.notified().await;
+    assert!(!run.is_finished());
+    assert!(coordinator.controller.admit_operation().is_err());
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+    release.notify_one();
+    assert_eq!(run.await.unwrap(), Err(Error::CleanupFailed));
+    assert!(finished.load(Ordering::SeqCst));
+    assert_eq!(
+        coordinator.controller.phase(),
+        Phase::Failed(Failure::LocalCleanupFailed)
+    );
+    assert_eq!(stop.0.load(Ordering::SeqCst), 0);
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+    let token = coordinator.exit_without_stop(ticket).unwrap();
+    assert!(coordinator.allow_exit(Event::Programmatic(token)));
+    assert!(coordinator.controller.admit_operation().is_err());
+    assert_eq!(stop.0.load(Ordering::SeqCst), 0);
 }

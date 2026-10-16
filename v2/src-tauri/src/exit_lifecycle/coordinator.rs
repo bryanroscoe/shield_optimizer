@@ -39,14 +39,19 @@ enum Error {
     StopFailed,
     StopUnknown,
     ChildUnknown,
+    CleanupFailed,
 }
 
 trait Store: Send + Sync {
     fn persist(&self, preference: Preference) -> Result<(), Error>;
 }
+#[derive(Debug, PartialEq, Eq)]
+enum CleanupFailure {
+    TaskFailed,
+}
 #[async_trait]
 trait Resources: Send + Sync {
-    async fn close_local_and_reap(&self);
+    async fn close_local_and_reap(&self) -> Result<(), CleanupFailure>;
 }
 #[async_trait]
 trait Stop: Send + Sync {
@@ -240,7 +245,10 @@ impl Coordinator {
         let resources = self.resources.clone();
         let cleanup = tokio::spawn(async move { resources.close_local_and_reap().await });
         let teardown = async {
-            cleanup.await.map_err(|_| Error::Deadline)?;
+            cleanup
+                .await
+                .map_err(|_| Error::CleanupFailed)?
+                .map_err(|_| Error::CleanupFailed)?;
             loop {
                 {
                     let state = self.state.lock().unwrap();
@@ -272,6 +280,9 @@ impl Coordinator {
             Ok(Err(error)) => {
                 if error == Error::ChildUnknown {
                     self.controller.0.lock().unwrap().phase = Phase::Failed(Failure::UnreapedChild);
+                } else if error == Error::CleanupFailed {
+                    self.controller.0.lock().unwrap().phase =
+                        Phase::Failed(Failure::LocalCleanupFailed);
                 } else {
                     let _ = self.controller.expire(ticket.attempt);
                 }

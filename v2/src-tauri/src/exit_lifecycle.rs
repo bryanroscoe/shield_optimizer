@@ -85,6 +85,8 @@ pub enum Failure {
     StopCommandFailed,
     #[cfg(test)]
     StopTargetUnknown,
+    #[cfg(test)]
+    LocalCleanupFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

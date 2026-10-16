@@ -40,7 +40,7 @@ struct LocalResources {
 }
 #[async_trait]
 impl Resources for LocalResources {
-    async fn close_local_and_reap(&self) {
+    async fn close_local_and_reap(&self) -> Result<(), CleanupFailure> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.entered.notify_one();
         if self.hold.load(Ordering::SeqCst) {
@@ -49,6 +49,7 @@ impl Resources for LocalResources {
         for child in self.children.lock().unwrap().drain(..) {
             child.reaped();
         }
+        Ok(())
     }
 }
 struct FakeStop {
