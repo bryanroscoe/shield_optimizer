@@ -12,12 +12,5 @@ use super::AppState;
 /// records the verified [`LicenseInfo`] in state, and that is all the UI needs.
 #[tauri::command]
 pub async fn license_info(state: State<'_, AppState>) -> Result<Option<LicenseInfo>, String> {
-    let scope = state.inner();
-    scope
-        .with_adb_operation(async move { license_info_body(state).await })
-        .await
-}
-
-async fn license_info_body(state: State<'_, AppState>) -> Result<Option<LicenseInfo>, String> {
     Ok(state.license_info())
 }

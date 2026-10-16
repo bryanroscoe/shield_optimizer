@@ -101,9 +101,23 @@ ordering and shared-client behavior. Unix fixture-process tests do not establish
 acceptance; that platform remains a release gate. If a Tokio runtime is already shutting down,
 reaping can become unknown. Generic Tokio filesystem operations other than the leased extraction
 worker can finish after caller cancellation; they cannot launch ADB, but this slice does not claim
-all host filesystem effects have been drained.
+all host filesystem effects have been drained. Host route/ip subprocesses also remain outside the
+ADB-client registry; they cannot start ADB. This slice does not claim every host process is tracked.
 
 The next UI/native-event slice still needs a native preference store, three-choice settings,
 first-quit prompt, event coalescing and pinned Tauri request/prevention flow. It must await logical
 operations and local children, retain timeout failure states and suppress ordinary cleanup before
 any final stop. No automatic owned-server cleanup or exclusive-use guarantee is enabled here.
+
+Validation commands (from v2; all live-device tests stay ignored):
+
+```sh
+cargo test --offline --locked -p shield-optimizer-core -p shield-optimizer-v2 --features shield-optimizer-v2/e2e --lib
+cargo clippy --offline --locked -p shield-optimizer-core -p shield-optimizer-v2 --all-targets --features shield-optimizer-v2/e2e -- -D warnings
+cargo test --offline --locked -p atv-optimizer-mobile -p tauri-plugin-atv-adb --lib
+cargo fmt --all -- --check
+```
+
+ARM64 compatibility used `cargo check --offline --locked -p atv-optimizer-mobile --target
+aarch64-linux-android` with the installed NDK 28.2/API-24 compiler environment; no SDK component
+installation or Android signing task was invoked.
