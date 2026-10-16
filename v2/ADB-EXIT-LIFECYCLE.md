@@ -28,6 +28,7 @@ old pending operations or a shutdown result. Updater restart latches Restarting,
 teardown continuations. Later normal exit events cannot apply a remembered Always stop choice.
 If the final stop capability has already been delegated, a distinct RestartAfterStopDelegated
 result makes no promise that an external stop can be canceled; no additional stop is authorized.
+An abandoned delegated stop retains its unknown-outcome failure even when restart is requested.
 The real Tauri adapter must serialize this point of no return with updater requests.
 
 ## Admission, draining and local teardown
@@ -83,7 +84,7 @@ as implemented exit cleanup. There is no new private ADB daemon, port, key or ow
 ## Local validation
 
 On the trusted main base b74aee6, `cargo test --offline --locked -p shield-optimizer-v2 --lib`
-passes 114 tests, including 26 new controller tests; the existing live-device test remains ignored.
+passes 115 tests, including 27 new controller tests; the existing live-device test remains ignored.
 Strict desktop `cargo clippy --offline --locked -p shield-optimizer-v2 --all-targets -- -D warnings`,
 workspace formatting and diff checks pass. These are macOS host results, not cross-platform
 Tauri event-loop or real child-process adapter acceptance. No product UI changed, so no UI video

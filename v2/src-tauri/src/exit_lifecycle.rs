@@ -156,7 +156,10 @@ impl Controller {
     pub fn request_quit(&self, updater_restart: bool) -> Request {
         let mut state = self.0.lock().unwrap();
         if updater_restart {
-            if state.phase == Phase::Stopping {
+            if matches!(
+                state.phase,
+                Phase::Stopping | Phase::Failed(Failure::StopAbandoned)
+            ) {
                 // A capability already handed out cannot promise cancellation
                 // of an external side effect. No second stop is authorized.
                 return Request::RestartAfterStopDelegated;

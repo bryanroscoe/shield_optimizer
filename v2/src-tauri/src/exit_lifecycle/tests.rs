@@ -514,3 +514,23 @@ fn restart_after_stop_delegation_does_not_claim_it_can_cancel_an_external_stop()
     assert_eq!(controller.outcome(), Some(Outcome::StopReportedSuccess));
     assert_eq!(controller.request_quit(false), Request::AlreadyPending);
 }
+
+#[test]
+fn updater_after_abandoned_stop_preserves_unknown_external_outcome() {
+    let controller = Controller::new(Preference::default());
+    let attempt = ready_to_stop(&controller);
+    drop(controller.take_stop(attempt).unwrap());
+    assert_eq!(controller.phase(), Phase::Failed(Failure::StopAbandoned));
+    assert_eq!(
+        controller.request_quit(true),
+        Request::RestartAfterStopDelegated
+    );
+    assert_eq!(controller.phase(), Phase::Failed(Failure::StopAbandoned));
+    assert_eq!(controller.request_quit(false), Request::AlreadyPending);
+    assert!(matches!(
+        controller.take_stop(attempt),
+        Err(Rejected::WrongPhase)
+    ));
+    controller.leave_after_failure(attempt).unwrap();
+    assert_eq!(controller.outcome(), Some(Outcome::ServerStateUnknown));
+}
