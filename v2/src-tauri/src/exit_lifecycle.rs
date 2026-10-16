@@ -429,3 +429,6 @@ impl Drop for StopAttempt {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod coordinator;
