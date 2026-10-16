@@ -10,7 +10,7 @@ The preference adapter canonicalizes a native-supplied data directory and uses o
 
 The native resource registry accepts at most 64 local-close futures and seals registration atomically at teardown. Its remote-session entry point uses the existing core RemoteInputSession::close_local API, which synchronously disables ADB cleanup before returning its future. All closes start in independently owned tasks before their completions are awaited. The coordinator retains ownership across waiter cancellation/deadline and verifies child completion before stop delegation. The new integration fixture uses a real loopback TCP pair and controller lease; it does not construct a real remote-input session or launch a process. Actual session behavior is covered by the pre-existing core local-close fixture tests, not newly claimed here.
 
-A pinned Tauri MockRuntime test invokes public cleanup_before_exit and verifies a managed Resource is dropped, without invoking exit, restart or any Tauri API afterward. This proves managed-resource cleanup in the mock, not real native-window delivery or full OS shutdown.
+An E2E-feature-gated pinned Tauri MockRuntime test invokes public cleanup_before_exit and verifies a managed Resource is dropped, without invoking exit, restart or any Tauri API afterward. This proves managed-resource cleanup in the mock, not real native-window delivery or full OS shutdown.
 
 ## Exact framework limitations
 
@@ -30,4 +30,4 @@ For updater integration, the supported API is a native-owned split flow: latch s
 
 Frozen endpoint/executable selection shared with ordinary ADB drivers, actual stop argv/environment, native exit/menu correlation or replacement semantics, installer behavior, real remote-session registry wiring, crash durability and physical shared-client tests remain unimplemented/release gates. Custom or unknown server targets must fail closed; sanitizing only the final stop to localhost is not valid when normal operations used another endpoint.
 
-Local macOS checks: 25 focused coordinator/adapter checks passed, including seven new native-adapter checks and the ClosingLocal diagnostic regression. The complete backend run passed 455 core and 168 desktop tests (one live-device test ignored). Strict all-targets Clippy with E2E enabled, formatting and diff checks passed. No real native-window, installer, exit/restart, ADB or TV acceptance is claimed. Platform CI and independent adapter review remain pending.
+Local macOS checks: 25 focused coordinator/adapter checks passed with the E2E feature, including seven new native-adapter checks and the ClosingLocal diagnostic regression. The complete backend run passed 455 core and 168 desktop tests (one live-device test ignored). Strict all-targets Clippy with E2E enabled, formatting and diff checks passed. No real native-window, installer, exit/restart, ADB or TV acceptance is claimed. Platform CI and independent adapter review remain pending.

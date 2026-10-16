@@ -249,6 +249,7 @@ fn native_resource_registry_has_a_fixed_capacity() {
     assert_eq!(resources.register(Box::pin(async {})), Err(Error::Busy));
 }
 
+#[cfg(feature = "e2e")]
 #[test]
 fn pinned_tauri_cleanup_clears_managed_resources_without_requesting_exit() {
     use tauri::Manager;
