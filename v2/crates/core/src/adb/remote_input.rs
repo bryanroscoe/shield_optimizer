@@ -532,11 +532,13 @@ impl RemoteInputSession {
     /// then a belt-and-suspenders `pkill` for any lingering server process, then
     /// reap the local child and remove the adb forward. `Drop` is the
     /// best-effort backstop; prefer this.
-    pub async fn close_local(mut self) {
+    pub fn close_local(mut self) -> impl std::future::Future<Output = ()> {
         self.cleanup_on_drop = false;
-        let _ = self.stream.shutdown().await;
-        let _ = self._child.start_kill();
-        let _ = self._child.wait().await;
+        async move {
+            let _ = self.stream.shutdown().await;
+            let _ = self._child.start_kill();
+            let _ = self._child.wait().await;
+        }
     }
 
     pub async fn close_with_driver(mut self, driver: Arc<dyn AdbDriver>) {
@@ -545,7 +547,6 @@ impl RemoteInputSession {
     }
 
     pub async fn close(mut self) {
-        self.cleanup_on_drop = false;
         let _ = self.stream.shutdown().await;
         // Match our jar's name, not "com.genymobile.scrcpy" — the broad pattern
         // would also kill a desktop scrcpy session the user has open against
@@ -560,6 +561,7 @@ impl RemoteInputSession {
             .adb
             .raw(&as_str_args(&forward_remove_args(&self.serial, self.port)))
             .await;
+        self.cleanup_on_drop = false;
     }
 }
 
@@ -571,7 +573,10 @@ impl Drop for RemoteInputSession {
         }
         // Managed child Drop retains its reaping lease. Best-effort forward removal if a
         // tokio runtime is live (e.g. app exit dropping the session registry).
-        let adb = self.adb.clone();
+        let adb = self
+            .adb
+            .background_driver()
+            .unwrap_or_else(|| self.adb.clone());
         let serial = self.serial.clone();
         let port = self.port;
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -936,5 +941,163 @@ mod lifecycle_tests {
         assert_eq!(reaped.load(Ordering::SeqCst), 1);
         assert!(old.calls.lock().unwrap().is_empty());
         assert_eq!(accepted.calls.lock().unwrap().len(), 2);
+    }
+    struct CancellationState {
+        allowed: std::sync::atomic::AtomicBool,
+        shell_started: tokio::sync::Notify,
+        raw_started: tokio::sync::Notify,
+        raw_resume: tokio::sync::Notify,
+        raw_done: tokio::sync::Notify,
+        launches: AtomicUsize,
+        detached: AtomicUsize,
+        delay_raw: bool,
+    }
+    struct CancellationDriver {
+        state: Arc<CancellationState>,
+        fresh: bool,
+    }
+    impl CancellationDriver {
+        fn new(delay_raw: bool) -> Arc<Self> {
+            Arc::new(Self {
+                state: Arc::new(CancellationState {
+                    allowed: std::sync::atomic::AtomicBool::new(true),
+                    shell_started: tokio::sync::Notify::new(),
+                    raw_started: tokio::sync::Notify::new(),
+                    raw_resume: tokio::sync::Notify::new(),
+                    raw_done: tokio::sync::Notify::new(),
+                    launches: AtomicUsize::new(0),
+                    detached: AtomicUsize::new(0),
+                    delay_raw,
+                }),
+                fresh: false,
+            })
+        }
+    }
+    #[async_trait::async_trait]
+    impl AdbDriver for CancellationDriver {
+        async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+            self.state.shell_started.notify_one();
+            std::future::pending().await
+        }
+        async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+            assert!(
+                self.fresh,
+                "Drop fallback retained an accepted-operation driver"
+            );
+            assert_eq!(&args[..2], &["-s", "fixture"]);
+            assert_eq!(&args[2..4], &["forward", "--remove"]);
+            self.state.raw_started.notify_one();
+            if self.state.delay_raw {
+                self.state.raw_resume.notified().await;
+            }
+            if !self.state.allowed.load(Ordering::SeqCst) {
+                self.state.raw_done.notify_one();
+                return Err(crate::adb::AdbError::Transport(
+                    "admission closed".to_owned(),
+                ));
+            }
+            self.state.launches.fetch_add(1, Ordering::SeqCst);
+            self.state.raw_done.notify_one();
+            Ok(AdbOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(0),
+            })
+        }
+        fn allow_background_cleanup(&self) -> bool {
+            self.state.allowed.load(Ordering::SeqCst)
+        }
+        fn background_driver(&self) -> Option<Arc<dyn AdbDriver>> {
+            self.state.detached.fetch_add(1, Ordering::SeqCst);
+            Some(Arc::new(Self {
+                state: self.state.clone(),
+                fresh: true,
+            }))
+        }
+    }
+
+    async fn reaping_finished(reaped: &AtomicUsize) {
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while reaped.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn canceled_running_close_preserves_detached_forward_removal_fallback() {
+        let driver = CancellationDriver::new(false);
+        let (session, _peer, reaped) = session(driver.clone()).await;
+        let copy = driver.clone();
+        let job = tokio::spawn(async move { session.close_with_driver(copy).await });
+        driver.state.shell_started.notified().await;
+        job.abort();
+        assert!(job.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            driver.state.raw_done.notified(),
+        )
+        .await
+        .unwrap();
+        reaping_finished(&reaped).await;
+        assert_eq!(driver.state.detached.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.state.launches.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn canceled_close_after_gate_closure_does_not_launch_cleanup() {
+        let driver = CancellationDriver::new(false);
+        let (session, _peer, reaped) = session(driver.clone()).await;
+        let copy = driver.clone();
+        let job = tokio::spawn(async move { session.close_with_driver(copy).await });
+        driver.state.shell_started.notified().await;
+        driver.state.allowed.store(false, Ordering::SeqCst);
+        job.abort();
+        assert!(job.await.unwrap_err().is_cancelled());
+        reaping_finished(&reaped).await;
+        assert_eq!(driver.state.launches.load(Ordering::SeqCst), 0);
+        assert_eq!(driver.state.detached.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn queued_close_fallback_requires_fresh_admission_when_gate_closes() {
+        let driver = CancellationDriver::new(true);
+        let (session, _peer, reaped) = session(driver.clone()).await;
+        let copy = driver.clone();
+        let job = tokio::spawn(async move { session.close_with_driver(copy).await });
+        driver.state.shell_started.notified().await;
+        job.abort();
+        assert!(job.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            driver.state.raw_started.notified(),
+        )
+        .await
+        .unwrap();
+        driver.state.allowed.store(false, Ordering::SeqCst);
+        driver.state.raw_resume.notify_one();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            driver.state.raw_done.notified(),
+        )
+        .await
+        .unwrap();
+        reaping_finished(&reaped).await;
+        assert_eq!(driver.state.detached.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.state.launches.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn unpolled_local_close_already_suppresses_generic_cleanup() {
+        let driver = Arc::new(CleanupDriver {
+            allow: true,
+            ..Default::default()
+        });
+        let (session, _peer, reaped) = session(driver.clone()).await;
+        drop(session.close_local());
+        reaping_finished(&reaped).await;
+        assert!(driver.calls.lock().unwrap().is_empty());
     }
 }

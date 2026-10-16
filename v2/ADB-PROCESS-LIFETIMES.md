@@ -67,9 +67,12 @@ client only: daemon/grandchild ownership is deliberately not inferred or control
 
 RemoteInputSession holds a detached driver, so a resident session does not hold the initiating
 logical operation open forever; its managed child lease remains outstanding. Explicit ordinary
-cleanup uses the caller's accepted driver and disarms duplicate Drop cleanup. A separate desktop
-close_local path closes the socket and terminates/reaps the local child without shell pkill or
-forward removal. Background Drop checks admission, and actual spawning checks again atomically:
+cleanup uses the caller's accepted driver and disarms Drop only after forward-removal was
+attempted. Cancellation while Running preserves the best-effort fallback, which uses a detached
+driver and fresh admission rather than retaining the canceled operation's permit. A separate desktop
+close_local path disarms generic cleanup synchronously (even before its future is polled), closes
+the socket and terminates/reaps the local child without shell pkill or forward removal. Background
+Drop checks admission, and actual spawning checks again atomically:
 queued late cleanup cannot bypass a committed gate. No broad privileged cleanup lane exists.
 
 Platform-tools installation holds a factory operation before download/replacement. Its blocking
@@ -79,9 +82,9 @@ download or writes the platform-tools install directory.
 
 ## Evidence and remaining gates
 
-On macOS, the core suite passes 451 tests and the desktop suite with the e2e feature passes 131,
+On macOS, the core suite passes 455 tests and the desktop suite with the e2e feature passes 131,
 with its existing live-device test ignored. The desktop results include 16 new adapter tests;
-core adds four child/remote-session tests. Native fixtures use an explicitly supplied inert shell
+core adds eight child/remote-session tests. Native fixtures use an explicitly supplied inert shell
 executable, not binary discovery or a real ADB. Local fake control sockets are ephemeral test
 pairs, not an ADB server. Mobile host compatibility tests pass 26; plugin host compilation passes.
 The installed ARM64 Android target also passes offline cargo check with NDK API 24. This is not an
@@ -92,7 +95,8 @@ spawn failure, inherited pipes, resident-child wait/Drop, old clones/replacement
 steps, pending/aborted installation and blocking extraction after cancellation. A mock-Tauri test
 runs the actual connect_device IPC handler and keeps its operation outstanding through the async
 response; the existing E2E CI job now runs these feature-enabled process/IPC tests too. Remote tests execute real local socket/child teardown and assert no cleanup calls, or
-exactly the ordinary caller cleanup once. Failed-wait notification is tested with an injected
+exactly the ordinary caller cleanup once. Cancellation tests cover Running fallback, gate closure
+before Drop and gate closure while fallback work is queued. Failed-wait notification is tested with an injected
 error at the shared notification branch; an actual OS wait failure is not reproduced.
 
 Destructive activation remains inaccessible. Before adding a real Stop executor, independently
