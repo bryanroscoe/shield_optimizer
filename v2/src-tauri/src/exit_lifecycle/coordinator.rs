@@ -36,6 +36,9 @@ enum Error {
     Busy,
     Deadline,
     TargetUnknown,
+    StopFailed,
+    StopUnknown,
+    ChildUnknown,
 }
 
 trait Store: Send + Sync {
@@ -54,8 +57,15 @@ struct State {
     pending: Option<Ticket>,
     update_intent: bool,
     running: bool,
+    completed: bool,
+    exit_issued: bool,
     exit: Option<ExitToken>,
     sequence: u64,
+}
+#[derive(Default)]
+struct ClaimGate {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
 }
 struct Coordinator {
     session: u64,
@@ -65,6 +75,7 @@ struct Coordinator {
     resources: Arc<dyn Resources>,
     stop: Arc<dyn Stop>,
     budget: Duration,
+    claim_gate: Mutex<Option<Arc<ClaimGate>>>,
 }
 impl Coordinator {
     fn new(
@@ -80,6 +91,8 @@ impl Coordinator {
                 pending: None,
                 update_intent: false,
                 running: false,
+                completed: false,
+                exit_issued: false,
                 exit: None,
                 sequence: 0,
             }),
@@ -87,6 +100,7 @@ impl Coordinator {
             resources,
             stop,
             budget: Duration::from_secs(1),
+            claim_gate: Mutex::new(None),
         })
     }
     fn prompt(&self) -> Result<Ticket, Error> {
@@ -195,9 +209,13 @@ impl Coordinator {
             state.running = true;
         }
         // This task, not its caller, owns continuations across await cancellation.
-        tokio::spawn(async move { self.run_owned(ticket, supported_target).await })
-            .await
-            .expect("owned coordinator")
+        tokio::spawn(async move {
+            let result = self.run_owned(ticket, supported_target).await;
+            self.state.lock().unwrap().completed = true;
+            result
+        })
+        .await
+        .expect("owned coordinator")
     }
     async fn run_owned(&self, ticket: Ticket, supported_target: bool) -> Result<ExitToken, Error> {
         let drain = async {
@@ -239,20 +257,30 @@ impl Coordinator {
                     Err(Rejected::ChildOutstanding) => {
                         tokio::time::sleep(Duration::from_millis(1)).await
                     }
-                    _ => return Err(Error::Deadline),
+                    Err(Rejected::ChildCompletionUnknown) => return Err(Error::ChildUnknown),
+                    _ => return Err(Error::Stale),
                 }
             }
         };
         match tokio::time::timeout(self.budget, teardown).await {
             Ok(Ok(())) => {}
             Ok(Err(error)) => {
-                let _ = self.controller.expire(ticket.attempt);
+                if error == Error::ChildUnknown {
+                    self.controller.0.lock().unwrap().phase = Phase::Failed(Failure::UnreapedChild);
+                } else {
+                    let _ = self.controller.expire(ticket.attempt);
+                }
                 return Err(error);
             }
             Err(_) => {
                 let _ = self.controller.expire(ticket.attempt);
                 return Err(Error::Deadline);
             }
+        }
+        let gate = self.claim_gate.lock().unwrap().clone();
+        if let Some(gate) = gate {
+            gate.entered.notify_one();
+            gate.release.notified().await;
         }
         let capability = {
             let state = self.state.lock().unwrap();
@@ -267,6 +295,8 @@ impl Coordinator {
             }
             if self.controller.phase() == Phase::ReadyToStop {
                 if !supported_target {
+                    self.controller.0.lock().unwrap().phase =
+                        Phase::Failed(Failure::StopTargetUnknown);
                     return Err(Error::TargetUnknown);
                 }
                 Some(
@@ -281,19 +311,32 @@ impl Coordinator {
         if let Some(capability) = capability {
             match tokio::time::timeout(self.budget, self.stop.execute()).await {
                 Ok(StopResult::Success) => capability.report(true),
-                Ok(StopResult::CommandFailure) => capability.report(false),
-                Ok(StopResult::Unknown) | Err(_) => {
-                    // Proposed explicit unknown-result reporting; never reinterpret reap as success.
+                result => {
+                    let (outcome, error) = match result {
+                        Ok(StopResult::CommandFailure) => {
+                            (Outcome::StopReportedFailure, Error::StopFailed)
+                        }
+                        _ => (Outcome::ServerStateUnknown, Error::StopUnknown),
+                    };
                     let mut state = capability.controller.0.lock().unwrap();
-                    state.outcome = Some(Outcome::ServerStateUnknown);
-                    state.phase = Phase::Finished;
+                    state.outcome = Some(outcome);
+                    state.phase = Phase::Failed(if outcome == Outcome::StopReportedFailure {
+                        Failure::StopCommandFailed
+                    } else {
+                        Failure::StopAbandoned
+                    });
                     drop(state);
                     let mut capability = capability;
                     capability.completed = true;
+                    return Err(error);
                 }
             }
         }
         let mut state = self.state.lock().unwrap();
+        if state.exit_issued {
+            return state.exit.ok_or(Error::Busy);
+        }
+        state.exit_issued = true;
         state.sequence += 1;
         let token = ExitToken {
             session: self.session,
@@ -307,20 +350,27 @@ impl Coordinator {
         if state.pending != Some(ticket) {
             return Err(Error::Stale);
         }
+        if !state.completed {
+            return Err(Error::Busy);
+        }
+        if state.exit_issued {
+            return state.exit.ok_or(Error::Busy);
+        }
         let mut controller = self.controller.0.lock().unwrap();
         match controller.phase {
-            Phase::Failed(_) | Phase::ReadyToStop => {
-                controller.outcome = Some(
+            Phase::Failed(_) => {
+                controller.outcome = Some(controller.outcome.unwrap_or(
                     if controller.phase == Phase::Failed(Failure::StopAbandoned) {
                         Outcome::ServerStateUnknown
                     } else {
                         Outcome::LeftRunning
                     },
-                );
+                ));
                 controller.phase = Phase::Finished;
             }
             _ => return Err(Error::Busy),
         }
+        state.exit_issued = true;
         state.sequence += 1;
         let token = ExitToken {
             session: self.session,
@@ -328,6 +378,14 @@ impl Coordinator {
         };
         state.exit = Some(token);
         Ok(token)
+    }
+
+    fn recover_exit(&self, ticket: Ticket) -> Result<Option<ExitToken>, Error> {
+        let state = self.state.lock().unwrap();
+        if state.pending != Some(ticket) || ticket.session != self.session {
+            return Err(Error::Stale);
+        }
+        Ok(if state.completed { state.exit } else { None })
     }
 
     fn allow_exit(&self, event: Event) -> bool {

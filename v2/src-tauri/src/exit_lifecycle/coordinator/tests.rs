@@ -263,7 +263,30 @@ async fn command_failure_is_observed_not_untouched_and_unknown_stays_unknown() {
     ] {
         let (coordinator, _, _, stop) = setup(result);
         let ticket = confirmed(&coordinator, ExitPolicy::AlwaysStop).await;
-        coordinator.clone().run(ticket, true).await.unwrap();
+        let completion = coordinator.clone().run(ticket, true).await;
+        match result {
+            StopResult::Success => assert!(completion.is_ok()),
+            StopResult::CommandFailure => assert_eq!(completion, Err(Error::StopFailed)),
+            StopResult::Unknown => assert_eq!(completion, Err(Error::StopUnknown)),
+        }
+        if result != StopResult::Success {
+            assert_eq!(
+                coordinator.controller.phase(),
+                Phase::Failed(if result == StopResult::CommandFailure {
+                    Failure::StopCommandFailed
+                } else {
+                    Failure::StopAbandoned
+                })
+            );
+            assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+            coordinator.update_intent();
+            assert_eq!(coordinator.commit_restart(), Err(Error::Busy));
+            let token = coordinator.exit_without_stop(ticket).unwrap();
+            assert_eq!(coordinator.exit_without_stop(ticket), Ok(token));
+            assert!(!coordinator.allow_exit(Event::MenuQuit));
+            assert!(coordinator.allow_exit(Event::Programmatic(token)));
+            assert!(!coordinator.allow_exit(Event::Programmatic(token)));
+        }
         assert_eq!(coordinator.controller.outcome(), Some(expected));
         assert_eq!(stop.calls.load(Ordering::SeqCst), 1);
         assert_eq!(
@@ -292,7 +315,13 @@ async fn stop_deadline_remains_unknown_even_if_local_children_were_reaped() {
     operation.register_child().unwrap().reaped();
     drop(operation);
     let ticket = confirmed(&coordinator, ExitPolicy::AlwaysStop).await;
-    coordinator.clone().run(ticket, true).await.unwrap();
+    assert_eq!(
+        coordinator.clone().run(ticket, true).await,
+        Err(Error::StopUnknown)
+    );
+    assert!(coordinator.state.lock().unwrap().exit.is_none());
+    let token = coordinator.exit_without_stop(ticket).unwrap();
+    assert!(coordinator.allow_exit(Event::Programmatic(token)));
     assert_eq!(
         coordinator.controller.outcome(),
         Some(Outcome::ServerStateUnknown)
@@ -378,7 +407,12 @@ async fn updater_after_stop_delegation_does_not_claim_cancellation_or_delegate_t
     let run = tokio::spawn(coordinator.clone().run(ticket, true));
     stop.entered.notified().await;
     coordinator.update_intent();
-    run.await.unwrap().unwrap();
+    assert_eq!(run.await.unwrap(), Err(Error::StopUnknown));
+    assert!(coordinator.state.lock().unwrap().exit.is_none());
+    assert_eq!(coordinator.commit_restart(), Err(Error::Busy));
+    let token = coordinator.exit_without_stop(ticket).unwrap();
+    assert_eq!(coordinator.exit_without_stop(ticket), Ok(token));
+    assert!(coordinator.allow_exit(Event::Programmatic(token)));
     assert_eq!(
         coordinator.controller.outcome(),
         Some(Outcome::ServerStateUnknown)
@@ -394,18 +428,29 @@ async fn updater_after_stop_delegation_does_not_claim_cancellation_or_delegate_t
 async fn canceled_coordinator_waiter_retains_owned_cleanup_and_finishes() {
     let (coordinator, _, resources, stop) = setup(StopResult::Success);
     resources.hold.store(true, Ordering::SeqCst);
-    let ticket = confirmed(&coordinator, ExitPolicy::Auto).await;
+    let ticket = confirmed(&coordinator, ExitPolicy::AlwaysStop).await;
     let waiter = tokio::spawn(coordinator.clone().run(ticket, true));
     resources.entered.notified().await;
     waiter.abort();
     let _ = waiter.await;
     resources.release.notify_one();
     wait_phase(&coordinator.controller, Phase::Finished).await;
-    assert_eq!(stop.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(stop.calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         coordinator.controller.outcome(),
-        Some(Outcome::AutoLeftRunningOwnershipUnknown)
+        Some(Outcome::StopReportedSuccess)
     );
+    let token = coordinator.recover_exit(ticket).unwrap().unwrap();
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), Some(token));
+    assert!(!coordinator.allow_exit(Event::MenuQuit));
+    assert!(coordinator.allow_exit(Event::Programmatic(token)));
+    assert!(!coordinator.allow_exit(Event::Programmatic(token)));
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+    assert_eq!(
+        coordinator.clone().run(ticket, true).await,
+        Err(Error::Busy)
+    );
+    assert_eq!(stop.calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -417,7 +462,7 @@ async fn unknown_child_completion_blocks_stop_and_allows_explicit_exit_only() {
     let ticket = confirmed(&coordinator, ExitPolicy::AlwaysStop).await;
     assert_eq!(
         coordinator.clone().run(ticket, true).await,
-        Err(Error::Deadline)
+        Err(Error::ChildUnknown)
     );
     assert_eq!(stop.calls.load(Ordering::SeqCst), 0);
     assert!(coordinator.controller.admit_operation().is_err());
@@ -437,4 +482,26 @@ async fn factory_and_coordinator_share_the_same_admission_controller() {
     drop(operation);
     coordinator.clone().run(ticket, true).await.unwrap();
     assert_eq!(stop.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn failure_exit_cannot_race_ready_to_stop_and_mint_an_extra_token() {
+    let (coordinator, _, _, stop) = setup(StopResult::Success);
+    let gate = Arc::new(ClaimGate::default());
+    *coordinator.claim_gate.lock().unwrap() = Some(gate.clone());
+    let ticket = confirmed(&coordinator, ExitPolicy::AlwaysStop).await;
+    let run = tokio::spawn(coordinator.clone().run(ticket, true));
+    gate.entered.notified().await;
+    assert_eq!(coordinator.controller.phase(), Phase::ReadyToStop);
+    assert_eq!(coordinator.exit_without_stop(ticket), Err(Error::Busy));
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+    gate.release.notify_one();
+    let token = run.await.unwrap().unwrap();
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), Some(token));
+    assert_eq!(coordinator.exit_without_stop(ticket), Ok(token));
+    assert_eq!(stop.calls.load(Ordering::SeqCst), 1);
+    assert!(coordinator.allow_exit(Event::Programmatic(token)));
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+    assert_eq!(coordinator.exit_without_stop(ticket), Err(Error::Busy));
+    assert!(!coordinator.allow_exit(Event::Programmatic(token)));
 }

@@ -81,6 +81,10 @@ pub enum Failure {
     LocalTeardownDeadline,
     UnreapedChild,
     StopAbandoned,
+    #[cfg(test)]
+    StopCommandFailed,
+    #[cfg(test)]
+    StopTargetUnknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
