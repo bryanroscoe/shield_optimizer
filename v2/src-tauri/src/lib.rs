@@ -10,6 +10,7 @@
 #![allow(clippy::double_must_use)]
 pub mod adb;
 pub mod commands;
+pub mod exit_lifecycle;
 pub mod session;
 pub use shield_optimizer_core::engine;
 
