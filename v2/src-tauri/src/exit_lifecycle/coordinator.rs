@@ -258,6 +258,11 @@ impl Coordinator {
                         tokio::time::sleep(Duration::from_millis(1)).await
                     }
                     Err(Rejected::ChildCompletionUnknown) => return Err(Error::ChildUnknown),
+                    Err(Rejected::WrongPhase)
+                        if self.controller.phase() == Phase::Failed(Failure::UnreapedChild) =>
+                    {
+                        return Err(Error::ChildUnknown);
+                    }
                     _ => return Err(Error::Stale),
                 }
             }
@@ -403,3 +408,6 @@ impl Coordinator {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod native;

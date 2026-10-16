@@ -505,3 +505,25 @@ async fn failure_exit_cannot_race_ready_to_stop_and_mint_an_extra_token() {
     assert_eq!(coordinator.exit_without_stop(ticket), Err(Error::Busy));
     assert!(!coordinator.allow_exit(Event::Programmatic(token)));
 }
+
+#[tokio::test]
+async fn child_dropped_during_closing_local_reports_completion_unknown_not_stale() {
+    let (coordinator, _, resources, stop) = setup(StopResult::Success);
+    let operation = coordinator.controller.admit_operation().unwrap();
+    let child = operation.register_child().unwrap();
+    drop(operation);
+    resources.hold.store(true, Ordering::SeqCst);
+    let ticket = confirmed(&coordinator, ExitPolicy::AlwaysStop).await;
+    let run = tokio::spawn(coordinator.clone().run(ticket, true));
+    resources.entered.notified().await;
+    assert_eq!(coordinator.controller.phase(), Phase::ClosingLocal);
+    drop(child);
+    resources.release.notify_one();
+    assert_eq!(run.await.unwrap(), Err(Error::ChildUnknown));
+    assert_eq!(
+        coordinator.controller.phase(),
+        Phase::Failed(Failure::UnreapedChild)
+    );
+    assert_eq!(coordinator.recover_exit(ticket).unwrap(), None);
+    assert_eq!(stop.calls.load(Ordering::SeqCst), 0);
+}
