@@ -16,15 +16,20 @@ pub mod session;
 pub use shield_optimizer_core::engine;
 
 use std::path::PathBuf;
+#[cfg(not(feature = "dev-exit"))]
 use std::sync::Arc;
 
-use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
+use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
-    apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
-    shell, snapshot, tuning,
+    apps, devices, health, input, launcher, logcat, optimize, reboot, recovery, screenshot, shell,
+    snapshot, tuning,
 };
-use shield_optimizer_core::license::Entitlement;
+#[cfg(not(feature = "dev-exit"))]
+use shield_optimizer_core::{
+    commands::{loader, AppState},
+    license::Entitlement,
+};
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
 /// subdirectory).
@@ -54,6 +59,7 @@ impl AdbDriver for NoAdbDriver {
     }
 }
 
+#[cfg(not(feature = "dev-exit"))]
 fn default_state(
     app_lists: engine::AppListBundle,
     data_dir: PathBuf,
@@ -172,6 +178,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(not(feature = "dev-exit"))]
 pub fn run() {
     // Some Wayland/Mesa setups crash WebKitGTK's DMABUF renderer on startup
     // ("Could not create default EGL display: EGL_BAD_PARAMETER"), leaving a
@@ -219,4 +226,9 @@ pub fn run() {
         .invoke_handler(invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(feature = "dev-exit")]
+pub fn run() {
+    exit_lifecycle::coordinator::native::wired::run();
 }

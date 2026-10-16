@@ -1,5 +1,7 @@
 # Unwired native exit coordinator contract
 
+This document records the PR177 contract slice. The subsequent opt-in, debug-only native integration is documented in [WIRED-NATIVE-EXIT-DEVELOPMENT.md](WIRED-NATIVE-EXIT-DEVELOPMENT.md); the default application remains unchanged.
+
 This slice stacks on PR176 head `4df768ce1c888e6e39d066d98c9b5ac48fbf54f0`. The coordinator is a private child module of `exit_lifecycle` compiled only under `cfg(test)`. Release and ordinary development applications cannot construct it. There are no new IPC commands, production event hooks, preferences, process launches, updater calls, device calls or stop executors. Existing preview and PR heads are preserved.
 
 The executable contract uses the existing Controller with an injected synchronous preference store and asynchronous local-resource/stop fakes. Proposed restart-drain, stop suppression and unknown-result extensions manipulate the parent model's private state only within this test module; they are not production APIs or approval of those transitions for runtime activation. A future independently reviewed controller API must replace these test-only bridges.

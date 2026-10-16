@@ -76,6 +76,12 @@ jobs:
         working-directory: v2
         run: cargo test --workspace
 
+      - name: Wired native quit development checks
+        working-directory: v2
+        run: |
+          cargo test -p shield-optimizer-v2 --features dev-exit --lib exit_lifecycle::coordinator::native::wired
+          cargo clippy -p shield-optimizer-v2 --features dev-exit --all-targets -- -D warnings
+
       - name: Vendored transport tests
         working-directory: v2/vendor/adb_client
         run: cargo test --lib

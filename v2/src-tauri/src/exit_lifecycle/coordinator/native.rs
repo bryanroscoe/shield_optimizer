@@ -1,12 +1,14 @@
-//! Unwired native adapters for the existing coordinator traits; test builds only.
+//! Native adapters reused by contracts and the opt-in debug native integration.
 use super::*;
 use std::future::Future;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
+#[cfg(test)]
 #[derive(Default)]
 struct NativeStop(std::sync::atomic::AtomicUsize);
+#[cfg(test)]
 #[async_trait]
 impl Stop for NativeStop {
     async fn execute(&self) -> StopResult {
@@ -325,3 +327,6 @@ async fn panicking_native_close_without_child_leases_blocks_stop_and_requires_ex
     assert!(coordinator.controller.admit_operation().is_err());
     assert_eq!(stop.0.load(Ordering::SeqCst), 0);
 }
+
+#[cfg(feature = "dev-exit")]
+pub(crate) mod wired;

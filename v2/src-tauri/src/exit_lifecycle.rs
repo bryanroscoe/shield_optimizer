@@ -81,11 +81,11 @@ pub enum Failure {
     LocalTeardownDeadline,
     UnreapedChild,
     StopAbandoned,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-exit"))]
     StopCommandFailed,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-exit"))]
     StopTargetUnknown,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "dev-exit"))]
     LocalCleanupFailed,
 }
 
@@ -436,5 +436,5 @@ impl Drop for StopAttempt {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod coordinator;
+#[cfg(any(test, feature = "dev-exit"))]
+pub(crate) mod coordinator;

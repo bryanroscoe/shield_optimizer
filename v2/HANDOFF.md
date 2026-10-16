@@ -4,6 +4,10 @@ v2 is a shipping desktop app. Last **published** version: **2.3.0** (2026-09-30)
 
 Full release pipeline live: installers built for macOS/Linux/Windows on every `v2-*` tag push via `.github/workflows/v2-release.yml`; macOS also distributed via Homebrew tap (`bryanroscoe/homebrew-shield-optimizer`).
 
+## Development-only native quit
+
+The stacked native-exit work has an opt-in `dev-exit` Cargo feature for an isolated debug app: real native Leave/Auto quit, fixed-path preferences, prompt tokens, shared factory admission and AppState local-session teardown. Stop, device commands and updater/process plugins are unavailable in that app; the default application is unchanged. See [WIRED-NATIVE-EXIT-DEVELOPMENT.md](WIRED-NATIVE-EXIT-DEVELOPMENT.md) for checks, run instructions, the callback audit and pending platform/visual acceptance. This is not a release or production shutdown activation.
+
 ## Unreleased on `main`
 
 `v2-2.3.0` shipped 2026-09-30 (the ATV Optimizer rename plus #88, #119–#124).

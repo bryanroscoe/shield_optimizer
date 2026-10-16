@@ -184,7 +184,13 @@ impl Default for DriverFactory {
     }
 }
 impl DriverFactory {
-    #[cfg(test)]
+    #[cfg(feature = "dev-exit")]
+    pub(crate) fn with_preference(preference: Preference) -> Self {
+        Self {
+            controller: Controller::new(preference),
+        }
+    }
+    #[cfg(any(test, feature = "dev-exit"))]
     pub(crate) fn controller(&self) -> Controller {
         self.controller.clone()
     }

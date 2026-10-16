@@ -103,6 +103,7 @@
   );
 
   onMount(() => {
+    if (window.location.pathname === "/dev/native-exit") return;
     theme = getThemePref();
     autoUpdate = getAutoUpdate();
     // Keep Auto honest while the app is open, not just at launch.

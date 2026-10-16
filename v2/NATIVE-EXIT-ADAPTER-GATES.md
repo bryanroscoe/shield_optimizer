@@ -1,5 +1,7 @@
 # Native exit adapters and pinned framework boundary
 
+This document records the PR178 adapter slice and its pinned-framework audit. The subsequent opt-in, debug-only wired path is documented in [WIRED-NATIVE-EXIT-DEVELOPMENT.md](WIRED-NATIVE-EXIT-DEVELOPMENT.md); production stop and updater activation remain excluded.
+
 This slice stacks on approved PR177 head `10497a0cece9b884149e076a8a7621b22bdb3012`. It extends the existing coordinator's Store and Resources adapters, not a second coordinator. All new code remains under the parent's `cfg(test)` gate. No production event hook, real stop, updater installation, process exit or restart is enabled. Existing macOS window-close behavior is untouched.
 
 The diagnostic regression drops a registered child specifically during ClosingLocal. The controller has already latched Failed(UnreapedChild), so finish_local_teardown reports WrongPhase. The coordinator now recognizes that exact state as ChildUnknown instead of returning Stale; it still grants no automatic exit or stop.

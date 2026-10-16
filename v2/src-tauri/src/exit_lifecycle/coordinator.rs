@@ -1,4 +1,6 @@
-//! Test-only integration contract. No production constructor, IPC, event hook or executor.
+// Reviewed contract methods retained for the feature-gated adapter.
+#![cfg_attr(not(test), allow(dead_code))]
+//! Reviewed coordinator; development integration is isolated behind dev-exit.
 use super::*;
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -420,5 +422,5 @@ impl Coordinator {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod native;
+#[cfg(any(test, feature = "dev-exit"))]
+pub(crate) mod native;
