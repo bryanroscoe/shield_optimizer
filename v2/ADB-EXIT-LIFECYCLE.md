@@ -24,8 +24,11 @@ A normal quit first yields a prompt ticket. Repeated requests coalesce. Cancel l
 and preferences untouched; stale callbacks cannot confirm a later prompt. Confirmation commits
 the selected policy and closes new-operation admission under one lock. Only an explicit remembered
 choice returns a preference to persist. A new app instance restores only this preference, never
-old pending operations or a shutdown result. Updater restart yields a distinct non-destructive
-request; the real Tauri adapter must preserve that distinction.
+old pending operations or a shutdown result. Updater restart latches Restarting, closing admission and invalidating pending prompt, drain and
+teardown continuations. Later normal exit events cannot apply a remembered Always stop choice.
+If the final stop capability has already been delegated, a distinct RestartAfterStopDelegated
+result makes no promise that an external stop can be canceled; no additional stop is authorized.
+The real Tauri adapter must serialize this point of no return with updater requests.
 
 ## Admission, draining and local teardown
 
@@ -80,7 +83,7 @@ as implemented exit cleanup. There is no new private ADB daemon, port, key or ow
 ## Local validation
 
 On the trusted main base b74aee6, `cargo test --offline --locked -p shield-optimizer-v2 --lib`
-passes 111 tests, including 23 new controller tests; the existing live-device test remains ignored.
+passes 114 tests, including 26 new controller tests; the existing live-device test remains ignored.
 Strict desktop `cargo clippy --offline --locked -p shield-optimizer-v2 --all-targets -- -D warnings`,
 workspace formatting and diff checks pass. These are macOS host results, not cross-platform
 Tauri event-loop or real child-process adapter acceptance. No product UI changed, so no UI video

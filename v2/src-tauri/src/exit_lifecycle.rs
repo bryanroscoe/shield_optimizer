@@ -64,6 +64,7 @@ pub enum Request {
     Draining(Attempt),
     AlreadyPending,
     RestartWithoutServerStop,
+    RestartAfterStopDelegated,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +78,7 @@ pub enum Failure {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     Running,
+    Restarting,
     Prompting,
     Draining,
     ClosingLocal,
@@ -153,11 +155,20 @@ impl Controller {
 
     pub fn request_quit(&self, updater_restart: bool) -> Request {
         let mut state = self.0.lock().unwrap();
+        if updater_restart {
+            if state.phase == Phase::Stopping {
+                // A capability already handed out cannot promise cancellation
+                // of an external side effect. No second stop is authorized.
+                return Request::RestartAfterStopDelegated;
+            }
+            if matches!(state.phase, Phase::Restarting | Phase::Finished) {
+                return Request::AlreadyPending;
+            }
+            state.phase = Phase::Restarting;
+            return Request::RestartWithoutServerStop;
+        }
         if state.phase != Phase::Running {
             return Request::AlreadyPending;
-        }
-        if updater_restart {
-            return Request::RestartWithoutServerStop;
         }
         state.attempt.0 += 1;
         if state.preference.remembered {

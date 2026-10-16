@@ -109,11 +109,10 @@ fn prompt_does_not_block_work_and_unremembered_confirmation_does_not_save() {
 }
 
 #[test]
-fn repeated_close_and_updater_events_coalesce_while_prompting_or_draining() {
+fn repeated_normal_close_events_coalesce_while_prompting_or_draining() {
     let controller = Controller::new(Preference::default());
     let attempt = prompt(&controller);
     assert_eq!(controller.request_quit(false), Request::AlreadyPending);
-    assert_eq!(controller.request_quit(true), Request::AlreadyPending);
     controller
         .confirm(attempt, ExitPolicy::AlwaysStop, false)
         .unwrap();
@@ -359,8 +358,17 @@ fn updater_request_has_no_stop_capability_or_preference_side_effects() {
         controller.request_quit(true),
         Request::RestartWithoutServerStop
     );
-    assert_eq!(controller.phase(), Phase::Running);
+    assert_eq!(controller.phase(), Phase::Restarting);
     assert_eq!(controller.preference(), preference);
+    for _ in 0..3 {
+        assert_eq!(controller.request_quit(false), Request::AlreadyPending);
+        assert_eq!(controller.request_quit(true), Request::AlreadyPending);
+    }
+    assert_eq!(controller.phase(), Phase::Restarting);
+    assert!(matches!(
+        controller.admit_operation(),
+        Err(Rejected::AdmissionClosed)
+    ));
     assert!(matches!(
         controller.take_stop(Attempt(0)),
         Err(Rejected::WrongPhase)
@@ -433,4 +441,76 @@ fn child_abandoned_during_local_teardown_fails_closed() {
         controller.take_stop(attempt),
         Err(Rejected::WrongPhase)
     ));
+}
+
+#[test]
+fn restart_supersedes_pending_prompt_without_saving_or_accepting_stale_confirmation() {
+    let controller = Controller::new(Preference::default());
+    let operation = controller.admit_operation().unwrap();
+    let attempt = prompt(&controller);
+    assert_eq!(
+        controller.request_quit(true),
+        Request::RestartWithoutServerStop
+    );
+    assert_eq!(
+        controller.confirm(attempt, ExitPolicy::AlwaysStop, true),
+        Err(Rejected::WrongPhase)
+    );
+    assert_eq!(controller.cancel_prompt(attempt), Err(Rejected::WrongPhase));
+    assert_eq!(controller.preference(), Preference::default());
+    assert!(matches!(
+        operation.register_child(),
+        Err(Rejected::AdmissionClosed)
+    ));
+    assert_eq!(controller.request_quit(false), Request::AlreadyPending);
+}
+
+#[test]
+fn restart_invalidates_drain_teardown_and_ready_stop_continuations() {
+    for phase in [Phase::Draining, Phase::ClosingLocal, Phase::ReadyToStop] {
+        let controller = Controller::new(Preference::default());
+        let attempt = commit(&controller, ExitPolicy::AlwaysStop);
+        if phase != Phase::Draining {
+            controller.finish_drain(attempt).unwrap();
+        }
+        if phase == Phase::ReadyToStop {
+            controller.finish_local_teardown(attempt).unwrap();
+        }
+        assert_eq!(controller.phase(), phase);
+        assert_eq!(
+            controller.request_quit(true),
+            Request::RestartWithoutServerStop
+        );
+        assert_eq!(controller.phase(), Phase::Restarting);
+        assert_eq!(controller.finish_drain(attempt), Err(Rejected::WrongPhase));
+        assert_eq!(
+            controller.finish_local_teardown(attempt),
+            Err(Rejected::WrongPhase)
+        );
+        assert_eq!(controller.expire(attempt), Err(Rejected::WrongPhase));
+        assert!(matches!(
+            controller.take_stop(attempt),
+            Err(Rejected::WrongPhase)
+        ));
+        assert_eq!(controller.request_quit(false), Request::AlreadyPending);
+    }
+}
+
+#[test]
+fn restart_after_stop_delegation_does_not_claim_it_can_cancel_an_external_stop() {
+    let controller = Controller::new(Preference::default());
+    let attempt = ready_to_stop(&controller);
+    let stop = controller.take_stop(attempt).unwrap();
+    assert_eq!(
+        controller.request_quit(true),
+        Request::RestartAfterStopDelegated
+    );
+    assert_eq!(controller.request_quit(false), Request::AlreadyPending);
+    assert!(matches!(
+        controller.take_stop(attempt),
+        Err(Rejected::WrongPhase)
+    ));
+    stop.report(true);
+    assert_eq!(controller.outcome(), Some(Outcome::StopReportedSuccess));
+    assert_eq!(controller.request_quit(false), Request::AlreadyPending);
 }
