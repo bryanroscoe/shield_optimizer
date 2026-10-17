@@ -424,12 +424,13 @@
           <p class="metric-detail">Temperature unavailable</p>
         {/if}
         {#if thermal.value != null}<p class="metric-detail">{thermal.sensor}</p>{/if}
+        {#if thermal.cached}<p class="temp-note">No current sensor reading was supplied; showing a cached value.</p>{/if}
         {#if thermal.value != null || thermal.status != null}
         <p class="thermal-status" class:thermal-warning={thermal.status != null && thermal.status >= 2} class:thermal-critical={thermal.status != null && thermal.status >= 4}>
           {thermal.status == null ? thermal.statusLabel : `${thermal.statusScope}: ${thermal.statusLabel}`}
         </p>
         {#if thermal.deviceStatus != null && thermal.sensorStatus != null && thermal.deviceStatus !== thermal.sensorStatus}
-          <p class="thermal-status" class:thermal-warning={thermal.sensorStatus >= 2} class:thermal-critical={thermal.sensorStatus >= 4}>Selected sensor: {thermal.sensorStatusLabel}</p>
+          <p class="thermal-status" class:thermal-warning={thermal.sensorStatus >= 2} class:thermal-critical={thermal.sensorStatus >= 4}>{thermal.cached ? "Cached sensor" : "Selected sensor"}: {thermal.sensorStatusLabel}</p>
         {/if}
         <p class="temp-note">{thermal.statusHelp}</p>
         {#if thermal.value != null && thermal.throttle != null}

@@ -56,8 +56,21 @@ Boundary coverage includes 0/50/100% used, unavailable/invalid capacity, fallbac
 
 ## Validation receipt
 
-On current merged base `cd2244b`: **259 mobile tests passed**, **454 shared-core tests passed**, **8 focused checks including capture passed**; Svelte check 0 errors/0 warnings, Vite build, Rustfmt and core Clippy all-targets with warnings denied passed. The full mobile suite includes merged PR182/183 safety tests. See `validation.json` for source/artifact hashes.
+On current merged base `cd2244b`: **259 mobile tests passed**, **459 shared-core tests passed**, **8 focused checks including capture passed**; Svelte check 0 errors/0 warnings, Vite build, Rustfmt and core Clippy all-targets with warnings denied passed. The full mobile suite includes merged PR182/183 safety tests. See `validation.json` for source/artifact hashes.
 
 Local aarch64 debug APK build passed with installed JDK 17, SDK 36 and NDK 28.2.13676358 using cached offline Rust dependencies. No APK was installed/launched. The first attempt with another worktree's target cache lacked generated TauriActivity; rerunning the supported build with its own default target regenerated the classes and succeeded. Existing Gradle deprecation/release-signing notices and the fresh-worktree parent tsconfig notice remain. This is not a signed Play release or physical acceptance.
 
 Independent source review and CI remain pending. No merge/release/deploy is authorized by this receipt.
+
+## Independent-review follow-up: current HAL beats cached records
+
+Original sealed head `cee8e81757d6b9f3fc4952b18b19cc09ac766d7b` is preserved in Git history. AOSP prints cached temperatures before current HAL temperatures; selecting a maximum across both can retain old status on ties or select a hotter old value. Both requested regression fixtures fail against that original code.
+
+The parser now isolates the current HAL section when its heading is present. An empty/unreadable current section does **not** resurrect cached readings; it may use the existing current hardware fallback or remain unavailable. Only absent current-section headings permit an explicitly marked cached-only/legacy fallback. A current CPU/GPU hardware reading is preferred over a recognized cached thermal reading. Old unsectioned formats retain their prior precedence because freshness cannot be reliably classified.
+
+Context distinguishes current, cached and legacy thermal sources. A cached fallback is labeled as last-known data and its sensor severity is not described as current. Framework-wide status remains separate. See the [AOSP dump order](https://github.com/aosp-mirror/platform_frameworks_base/blob/android10-release/services/core/java/com/android/server/power/ThermalManagerService.java#L481-L490).
+
+- [Current HAL80°C/status4 with framework status0](current-hal-80c-critical-simulated.png)
+- [Explicit cached-only fallback](cached-only-80c-simulated.png)
+
+The refreshed video includes both states. New tests cover equal cached/current80°C with status0→4; hotter cache100°C versus current70°C/status1; empty current section; cached-only/legacy behavior; and current hardware versus cached-only precedence. Final validation:459 core tests,259 mobile tests,8 focused checks, Clippy/Rustfmt/check/build and refreshed isolated-target Android debug APK build passed. No physical queries or settings changes. Report-layout work is checkpointed separately on `fix/mobile-report-readability-20261017` and is not included here.

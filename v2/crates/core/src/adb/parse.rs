@@ -472,6 +472,36 @@ fn current_celsius(value: f64) -> bool {
     (10.0..120.0).contains(&value)
 }
 
+/// AOSP dumps cached entries before current HAL entries. Never compare their
+/// temperatures or statuses: the current section is authoritative even if empty.
+/// Cached-only dumps and older unsectioned formats retain an explicit fallback.
+fn thermal_temperature_records(text: &str) -> (&str, &'static str) {
+    static CURRENT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?mi)^[ \t]*Current temperatures from HAL[ \t]*:[ \t]*").unwrap()
+    });
+    static CACHED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Cached temperatures[ \t]*:[ \t]*").unwrap());
+    static NEXT_SECTION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?mi)^[ \t]*(?:Cached temperatures|HAL Ready|HAL connection|Thermal Status|Temperature thresholds|Current (?:temperatures|cooling devices|temperature thresholds) from HAL)[ \t]*:").unwrap()
+    });
+    let section = CURRENT
+        .find(text)
+        .map(|heading| (heading, "thermalservice_current"))
+        .or_else(|| {
+            CACHED
+                .find(text)
+                .map(|heading| (heading, "thermalservice_cached"))
+        });
+    let Some((heading, source)) = section else {
+        return (text, "thermalservice");
+    };
+    let records = &text[heading.end()..];
+    let end = NEXT_SECTION
+        .find(records)
+        .map_or(records.len(), |next| next.start());
+    (&records[..end], source)
+}
+
 /// The hottest readable reported Celsius sensor, not necessarily a CPU sensor.
 /// Thermal HAL BCL types 6–8 report mV/mA/percent, and must not become °C.
 pub fn parse_thermal_reading(text: &str) -> Option<TemperatureReading> {
@@ -489,7 +519,8 @@ pub fn parse_thermal_reading(text: &str) -> Option<TemperatureReading> {
     static STATUS: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"mStatus=(\d+)(?:[,}\s]|$)").unwrap());
     let mut hottest: Option<TemperatureReading> = None;
-    for record in RECORD.find_iter(text) {
+    let (records, source) = thermal_temperature_records(text);
+    for record in RECORD.find_iter(records) {
         let record = record.as_str();
         let Some(value) = VALUE
             .captures(record)
@@ -525,7 +556,7 @@ pub fn parse_thermal_reading(text: &str) -> Option<TemperatureReading> {
         }
         hottest = Some(TemperatureReading {
             celsius: value,
-            source: "thermalservice".to_string(),
+            source: source.to_string(),
             sensor_name: NAME
                 .captures(record)
                 .map(|c| c[1].trim().trim_matches('"').to_string())
@@ -1514,6 +1545,37 @@ Inter-|   Receive                                                |  Transmit\n\
         assert_eq!(info.free_mb, Some(752));
         assert_eq!(info.used_mb, Some(2125));
         assert_eq!(info.swap_mb, Some(512));
+    }
+
+    #[test]
+    fn thermal_current_hal_wins_equal_temperature_with_new_status() {
+        let text = "Cached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: true\nCurrent temperatures from HAL:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=4}\nCurrent cooling devices from HAL:";
+        let reading = parse_thermal_reading(text).unwrap();
+        assert_eq!(reading.celsius, 80.0);
+        assert_eq!(reading.status, Some(4));
+        assert_eq!(reading.source, "thermalservice_current");
+    }
+
+    #[test]
+    fn thermal_current_hal_wins_even_when_cache_is_hotter() {
+        let text = "Cached temperatures:\nTemperature{mValue=100, mType=0, mName=cpu0, mStatus=5}\nHAL Ready: true\nCurrent temperatures from HAL:\nTemperature{mValue=70, mType=0, mName=cpu0, mStatus=1}\nCurrent cooling devices from HAL:";
+        let reading = parse_thermal_reading(text).unwrap();
+        assert_eq!(reading.celsius, 70.0);
+        assert_eq!(reading.status, Some(1));
+        assert_eq!(parse_thermal_max_celsius(text), Some(70.0));
+    }
+
+    #[test]
+    fn thermal_empty_current_section_does_not_resurrect_cache_but_legacy_falls_back() {
+        let cached = "Cached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: false";
+        assert_eq!(parse_thermal_max_celsius(cached), Some(80.0));
+        assert_eq!(
+            parse_thermal_reading(cached).unwrap().source,
+            "thermalservice_cached"
+        );
+        let empty = format!("{cached}\nCurrent temperatures from HAL:\nCurrent cooling devices from HAL:\nTemperature{{mValue=99, mType=0, mName=not-a-temperature-section, mStatus=5}}");
+        assert_eq!(parse_thermal_reading(&empty), None);
+        assert_eq!(parse_thermal_max_celsius("mValue=42.0"), Some(42.0));
     }
 
     #[test]

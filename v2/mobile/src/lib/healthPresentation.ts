@@ -44,7 +44,10 @@ export function temperatureContext(report: Partial<HealthReport> | null | undefi
   const name = indexed ? `${indexed[1]} reading ${Number(indexed[2]) + 1}` : rawName;
   const kind = reading?.sensor_type;
   const sensor = indexed ? name! : name && kind && name.toLowerCase() !== kind.toLowerCase() ? `${kind} · ${name}` : name || kind || 'Sensor not reported';
-  const source = reading?.source === 'thermalservice' ? 'Android thermal sensors'
+  const cached = reading?.source === 'thermalservice_cached';
+  const source = reading?.source === 'thermalservice_current' ? 'Current Android thermal sensors'
+    : cached ? 'Cached Android thermal sensors'
+    : reading?.source === 'thermalservice' ? 'Android thermal sensors'
     : reading?.source === 'hardware_properties' ? 'CPU/GPU hardware report' : null;
   const throttle = finite(reading?.throttling_c) && reading.throttling_c > 0 ? reading.throttling_c : null;
   const shutdown = finite(reading?.shutdown_c) && reading.shutdown_c > 0 ? reading.shutdown_c : null;
@@ -55,11 +58,11 @@ export function temperatureContext(report: Partial<HealthReport> | null | undefi
       : `${metricNumber(Math.abs(difference))}°C ${difference > 0 ? 'above' : 'below'} reported throttle point`;
   }
   return {
-    value, sensor, source, throttle, shutdown, comparison,
+    value, sensor, source, throttle, shutdown, comparison, cached,
     deviceStatus: validStatus(deviceStatus) ? deviceStatus : null, sensorStatus,
     sensorStatusLabel: sensorStatus == null ? null : statusNames[sensorStatus],
-    status, statusScope: validStatus(deviceStatus) ? 'Device status' : 'Selected sensor status',
+    status, statusScope: validStatus(deviceStatus) ? 'Device status' : cached ? 'Cached sensor status' : 'Selected sensor status',
     statusLabel: status == null ? 'Thermal status not reported' : statusNames[status],
-    statusHelp: status == null ? (throttle != null ? 'No severity level was supplied; the limits below belong to this reported sensor.' : 'A temperature alone does not establish overheating. No device-specific severity was supplied.') : statusHelp[status],
+    statusHelp: cached && !validStatus(deviceStatus) ? 'This cached sensor status may not reflect current thermal conditions.' : status == null ? (throttle != null ? 'No severity level was supplied; the limits below belong to this reported sensor.' : 'A temperature alone does not establish overheating. No device-specific severity was supplied.') : statusHelp[status],
   };
 }

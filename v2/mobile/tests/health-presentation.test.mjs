@@ -32,6 +32,8 @@ test('temperature comparison uses only a matching sensor own threshold', () => {
   assert.equal(legacy.sensor, 'Sensor not reported'); assert.equal(legacy.status, null); assert.equal(legacy.throttle, null);
   const mismatched = present.temperatureContext({ temperature_c: 30, temperature_reading: reading(100) });
   assert.equal(mismatched.throttle, null); assert.equal(mismatched.sensor, 'Sensor not reported');
+  const cached = present.temperatureContext(health({ temperature_c: 80, temperature_reading: reading(80, { source: 'thermalservice_cached', status: 4 }) }));
+  assert.equal(cached.statusScope, 'Cached sensor status'); assert.match(cached.statusHelp, /may not reflect current/);
 });
 test('reported device status is independent of hottest sensor status; no temperature-derived grade', () => {
   for (let status = 0; status <= 6; status++) {
@@ -101,6 +103,12 @@ test('legacy100C stays unknown; a device-reported critical status is shown even 
   await show(page, health({ temperature_c: null, temperature_reading: null, thermal_status: 4 }));
   await page.getByText('Temperature unavailable', { exact: true }).waitFor();
   await page.getByText('Device status: Critical thermal status', { exact: true }).waitFor();
+  await show(page, health({ temperature_c: 80, thermal_status: 0, temperature_reading: reading(80, { source: 'thermalservice_current', sensor_name: 'cpu0', status: 4, throttling_c: null, shutdown_c: null }) }));
+  await page.getByText('Selected sensor: Critical thermal status', { exact: true }).waitFor();
+  await page.getByText('80 °C', { exact: true }).waitFor();
+  await show(page, health({ temperature_c: 80, thermal_status: null, temperature_reading: reading(80, { source: 'thermalservice_cached', sensor_name: 'cpu0', status: 4, throttling_c: null, shutdown_c: null }) }));
+  await page.getByText('Cached sensor status: Critical thermal status', { exact: true }).waitFor();
+  await page.getByText('No current sensor reading was supplied; showing a cached value.', { exact: true }).waitFor();
 });
 
 if (process.env.METRICS_EVIDENCE === '1') test('capture synthetic capacity and sensor-aware thermal boundaries', async t => {
@@ -113,6 +121,10 @@ if (process.env.METRICS_EVIDENCE === '1') test('capture synthetic capacity and s
   await page.screenshot({ path: `${dir}/100c-unknown-context-simulated.png` }); await page.waitForTimeout(700);
   await show(page, health({ thermal_status: 4 }));
   await page.screenshot({ path: `${dir}/30c-device-critical-simulated.png` }); await page.waitForTimeout(700);
+  await show(page, health({ temperature_c: 80, thermal_status: 0, temperature_reading: reading(80, { source: 'thermalservice_current', sensor_name: 'cpu0', status: 4, throttling_c: null, shutdown_c: null }) }));
+  await page.screenshot({ path: `${dir}/current-hal-80c-critical-simulated.png` }); await page.waitForTimeout(700);
+  await show(page, health({ temperature_c: 80, thermal_status: null, temperature_reading: reading(80, { source: 'thermalservice_cached', sensor_name: 'cpu0', status: 4, throttling_c: null, shutdown_c: null }) }));
+  await page.screenshot({ path: `${dir}/cached-only-80c-simulated.png` }); await page.waitForTimeout(700);
   await show(page, health({ ram: {}, storage: {}, temperature_c: null, temperature_reading: null, thermal_status: null }));
   await page.evaluate(() => scrollTo(0,0)); await page.screenshot({ path: `${dir}/missing-readings-simulated.png`, fullPage: true }); await page.waitForTimeout(700);
   const video = page.video(); await contextClose(page); await video.saveAs(`${dir}/metric-boundaries-simulated.webm`);

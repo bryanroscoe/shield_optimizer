@@ -350,8 +350,19 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
     }
 
     let storage = parse_storage_info(df_text);
-    let temperature_reading = parse_thermal_reading(thermal_text)
-        .or_else(|| parse_hardware_properties_reading(hwprops_text));
+    let thermal = parse_thermal_reading(thermal_text);
+    let hardware = parse_hardware_properties_reading(hwprops_text);
+    // A cached framework value is only a last-known fallback; an available
+    // current hardware reading is preferable. Legacy unsectioned formats keep
+    // their prior precedence because their freshness cannot be classified.
+    let temperature_reading = if thermal
+        .as_ref()
+        .is_some_and(|reading| reading.source == "thermalservice_cached")
+    {
+        hardware.or(thermal)
+    } else {
+        thermal.or(hardware)
+    };
     let temperature_c = temperature_reading.as_ref().map(|reading| reading.celsius);
     let thermal_status = parse_thermal_status(thermal_text);
     let audio_device = parse_active_audio_device(audio_text);
@@ -405,6 +416,41 @@ mod tests {
     const PROC_MEMINFO: &str = "MemTotal:        3145728 kB\n\
                                 MemFree:          524288 kB\n\
                                 MemAvailable:    1048576 kB\n";
+
+    #[tokio::test]
+    async fn health_report_prefers_current_hardware_to_cached_only_then_marks_cached_fallback() {
+        let thermal = "Cached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: false";
+        for hardware in ["CPU temperatures: [30]", ""] {
+            let mock = MockAdb::default().on_shell(
+                BATCH_SEPARATOR,
+                &batched(&["", MEMINFO, thermal, DF, AUDIO, hardware, PROC_MEMINFO]),
+            );
+            let state = state_with(mock);
+            let report = health_report_for(&state, "serial").await.unwrap();
+            let reading = report.temperature_reading.unwrap();
+            if hardware.is_empty() {
+                assert_eq!(reading.celsius, 80.0);
+                assert_eq!(reading.source, "thermalservice_cached");
+            } else {
+                assert_eq!(reading.celsius, 30.0);
+                assert_eq!(reading.source, "hardware_properties");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn health_report_uses_current_hal_context_instead_of_cached_ties() {
+        let thermal = "Thermal Status: 0\nCached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: true\nCurrent temperatures from HAL:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=4}\nCurrent cooling devices from HAL:";
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", MEMINFO, thermal, DF, AUDIO, "", PROC_MEMINFO]),
+        );
+        let state = state_with(mock);
+        let report = health_report_for(&state, "serial").await.unwrap();
+        assert_eq!(report.temperature_c, Some(80.0));
+        assert_eq!(report.thermal_status, Some(0));
+        assert_eq!(report.temperature_reading.unwrap().status, Some(4));
+    }
 
     #[tokio::test]
     async fn health_report_retains_status_and_matching_fallback_limits_without_new_reads() {
