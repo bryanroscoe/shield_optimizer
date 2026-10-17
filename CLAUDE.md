@@ -141,7 +141,7 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 ## Conventions
 
 - **Commits**: always create a new commit. Never `--amend` unless explicitly asked. No `Co-Authored-By` trailers on commits.
-- **PRs**: short summary, no checklists or boilerplate. Don't add test plans to the body.
+- **PRs**: keep the problem/behavior summary short. Agent-authored PRs must complete the evidence checklist in `.github/pull_request_template.md` and follow [CONTRIBUTING.md](CONTRIBUTING.md#agent-authored-pr-evidence). Include completed validation evidence, not boilerplate test plans. This rule does not impose retroactive requirements on external contributor PRs.
 - **Roadmap markers**: closing a roadmap or parity item updates its status in the same commit
   (`v2/ATVTOOLS-PARITY.md`, `v2/ATV-OPTIMIZER-ANDROID-PLAN.md`, `v2/mobile/BACKLOG.md`). Docs that
   claim shipped work is unbuilt send the next reader to rebuild it — that has happened here.
