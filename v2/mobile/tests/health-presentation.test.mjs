@@ -1,11 +1,18 @@
 import assert from 'node:assert/strict';
 import { before, after, test } from 'node:test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { startViteServer } from './helpers/vite-harness.mjs';
 let server, origin, browser, present;
 before(async () => { ({ server, origin } = await startViteServer()); present = await server.ssrLoadModule('/src/lib/healthPresentation.ts'); browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); await server?.close(); });
+
+const shieldMeminfo = await readFile(new URL('../../crates/core/tests/fixtures/devices/shield-tv-pro/dumpsys-meminfo.txt', import.meta.url), 'utf8');
+const fixtureMb = label => {
+  const match = shieldMeminfo.match(new RegExp(`^\\s*${label} RAM: *([0-9,]+)K`, 'm'));
+  assert.ok(match, `${label} fixture field`); return Math.floor(Number(match[1].replaceAll(',', '')) / 1024);
+};
+const shieldRam = { total_mb: fixtureMb('Total'), used_mb: fixtureMb('Used'), free_mb: fixtureMb('Free') };
 
 const reading = (celsius, extras = {}) => ({ celsius, source: 'hardware_properties', sensor_name: 'CPU temperatures[1]', sensor_type: 'CPU', status: null, throttling_c: 89, shutdown_c: 102.5, ...extras });
 const health = (extra = {}) => ({ ram: { total_mb: 4096, used_mb: 3072, free_mb: 1024 }, storage: { total: '10G', used: '2.5G', available: '7.5G', used_percent: 25 }, display: {}, audio_device: null, top_memory: [], temperature_c: 30, temperature_reading: reading(30), thermal_status: null, ...extra });
@@ -16,8 +23,8 @@ test('RAM uses explicit used/total or available complement; zero/full are real v
   assert.equal(present.memoryUsage({ total_mb: 100, free_mb: 25 }).percent, 75);
   assert.equal(present.memoryUsage({ total_mb: 100, used_mb: 60 }).percent, 60);
 });
-test('missing, invalid and inconsistent memory is not painted as zero/full', () => {
-  for (const ram of [null, {}, { total_mb: 0, used_mb: 0 }, { total_mb: 100, used_mb: -1 }, { total_mb: 100, used_mb: 101 }, { total_mb: 100, used_mb: NaN }, { total_mb: 100, free_mb: Infinity }, { total_mb: 100, used_mb: 80, free_mb: 50 }]) assert.equal(present.memoryUsage(ram), null);
+test('missing and invalid memory is not painted as zero/full', () => {
+  for (const ram of [null, {}, { total_mb: 0, used_mb: 0 }, { total_mb: 100, used_mb: -1 }, { total_mb: 100, used_mb: 101 }, { total_mb: 100, used_mb: NaN }, { total_mb: 100, free_mb: Infinity }, { total_mb: 100, used_mb: NaN, free_mb: 50 }]) assert.equal(present.memoryUsage(ram), null);
 });
 test('storage retains reported percentages and distinguishes missing/invalid from zero', () => {
   for (const p of [0, 25, 50, 100]) assert.equal(present.storageUsage({ used_percent: p }), p);
@@ -187,4 +194,29 @@ if (process.env.THERMAL_WORDING_EVIDENCE === '1') test('capture conservative thr
     await page.waitForTimeout(900);
   }
   const video = page.video(); await page.context().close(); await video.saveAs(`${dir}/threshold-statuses-simulated.webm`);
+});
+
+test('checked-in Shield meminfo keeps explicit Used despite non-complementary Free accounting', () => {
+  assert.deepEqual(shieldRam, { total_mb: 2946, used_mb: 1711, free_mb: 1384 });
+  assert.ok(shieldRam.used_mb + shieldRam.free_mb > shieldRam.total_mb);
+  assert.deepEqual(present.memoryUsage(shieldRam), { used: 1711, total: 2946, free: 1384, percent: 58 });
+});
+
+test('Shield accounting renders explicit used/free without changing the source report', async t => {
+  const evidence = process.env.RAM_ACCOUNTING_EVIDENCE === '1';
+  const dir = 'evidence/ram-accounting-2026-10-17';
+  if (evidence) await mkdir(dir, { recursive: true });
+  const page = await open(t, evidence, dir);
+  await show(page, health({ ram: shieldRam }));
+  assert.equal(await page.getByRole('progressbar', { name: 'RAM used', exact: true }).getAttribute('aria-valuenow'), '58');
+  await page.getByText('1711 / 2946 MB used', { exact: true }).waitFor();
+  await page.getByText('1384 MB reported free/available', { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.mockHealth.ram), shieldRam);
+  if (evidence) { await page.screenshot({ path: `${dir}/shield-ram.png`, fullPage: true }); await page.waitForTimeout(900); }
+  await page.evaluate(() => document.documentElement.style.fontSize = '24px');
+  await page.getByText('1711 / 2946 MB used', { exact: true }).waitFor();
+  if (evidence) { await page.screenshot({ path: `${dir}/shield-ram-large-text.png`, fullPage: true }); await page.waitForTimeout(900); }
+  await show(page, health({ ram: {} }));
+  assert.equal(await page.getByRole('progressbar', { name: 'RAM used', exact: true }).count(), 0);
+  if (evidence) await page.waitForTimeout(900);
 });
