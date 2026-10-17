@@ -5,12 +5,12 @@
   "environment": "macOS host Chromium with mocked Tauri",
   "checks": {
     "full_mobile": {
-      "passed": 274,
+      "passed": 275,
       "failed": 0,
       "skipped": 0
     },
     "focused_combined": {
-      "passed": 64,
+      "passed": 65,
       "failed": 0
     },
     "svelte_check": {
@@ -33,9 +33,9 @@
     }
   },
   "sha256": {
-    "v2/mobile/src/lib/modal.ts": "260632b8ba9ed86fb36c7bad2767e67458cc8705a94fc31a668fff4e4b0178e8",
+    "v2/mobile/src/lib/modal.ts": "2ca5d88ed43210fb5847cb03b0cd20f231015f5bb12dcdf8a868ed4ccc038be4",
     "v2/mobile/src/components/StockTakeoverDialog.svelte": "1f0698913f84e566d5191f4926bc173997b6e67b3617a8b1e62d0a8612b8233f",
-    "v2/mobile/tests/modal-lifecycle.test.mjs": "b503a4374bd452e9a1255401846589df96f76c3030bf278f9962c9f037c4158f",
+    "v2/mobile/tests/modal-lifecycle.test.mjs": "9f664113265513446f649dd99a77fd7d0ff37328f8cc7d00081d478a4cb94c4c",
     "v2/mobile/tests/apps-catalog.test.mjs": "7815678f5f451c37be40ef68a79051e414aed93784aaad47a5487d0dbbcb7c65",
     "v2/mobile/tests/launcher.test.mjs": "0700e3b3c9e328fea8d436913a452785bd749da8cbd13454b6a59c12af16386c",
     "v2/mobile/evidence/modal-handoffs-2026-10-17/launcher-before-simulated.png": "d22f37efc9b65ea880f4450e6e5b238239124b59e5eb33d9a05fb2e7f1c0434a",
@@ -52,5 +52,16 @@
     "No Android native/touch validation, release or merge.",
     "Independent review and cross-OS CI pending.",
     "Existing parent missing .svelte-kit/tsconfig.json notice precedes successful mobile checks/build."
-  ]
+  ],
+  "review_followup": {
+    "previous_head": "31b93a7821f02a55c8d0e2d272b24f19c8044125",
+    "finding": "Focused C closes then non-top A closes in one turn while B survives.",
+    "reproduction": "reverse-order-reproduction-before.txt",
+    "assertions": [
+      "Exact surviving B last-control focus",
+      "Document lock retained",
+      "Original opener, scroll and styles restored after B closes"
+    ],
+    "visual_layout_changed": false
+  }
 }

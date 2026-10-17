@@ -77,7 +77,28 @@ fixture during the host interruption. That run is not claimed green. The video-s
 had not run, so it was applied after recovery and both videos were regenerated on the merged base.
 The existing bounded Amphetamine session was inspected and reused; no user session was replaced.
 
-On the merged base, all 64 focused cases passed, Svelte check found 0 errors / 0 warnings, and Vite
-build passed. The full combined mobile suite passed 274/274 with no failures or skips.
+Before the review follow-up, all 64 focused cases passed on the merged base, Svelte check found 0 errors / 0 warnings, and Vite
+build passed. That full combined mobile suite passed 274/274 with no failures or skips.
 [Validation receipt with source/artifact hashes](validation.json) records the final host checks.
 The two screen regressions still demonstrate their original failures in the preserved before log.
+
+## Independent review follow-up: reverse teardown order
+
+Review of `31b93a7821f02a55c8d0e2d272b24f19c8044125` identified one additional focus-ordering
+case: after settled A → B → C, destroying focused C and then non-top A in the same turn leaves
+B. A's revision superseded C's pending restoration, then the non-top cleanup returned without
+restoring focus. The document lock stayed held while focus fell to the body.
+
+The [new regression failed before this fix](reverse-order-reproduction-before.txt). Latest cleanup
+now repairs focus when it is outside the surviving top modal, preferring that modal's last valid
+control. It leaves focus already inside the survivor alone and retains the revision guard, so a
+superseded callback cannot steal focus from a new top modal. The test asserts B's exact last
+control, retained document lock, and eventual original-opener/scroll/style restoration after B closes.
+
+The follow-up changes no visual layout; existing screenshots/videos remain representative. Its
+new evidence is the failing-before regression plus the refreshed source hashes and combined checks
+in `validation.json`. Independent verification of the new commit remains pending.
+
+Review-fix validation: **275/275 full mobile cases and 65/65 focused combined cases passed**,
+Svelte check found 0 errors / 0 warnings, Vite build passed, and `git diff --check` passed.
+No screenshot/video assets changed because this correction changes only teardown focus ownership.

@@ -125,7 +125,15 @@ export function modal(node: HTMLElement, options: Options) {
           unlock?.();
           unlock = undefined;
         }
-        if (!wasTop) return;
+        if (!wasTop) {
+          // An ancestor removal can supersede a just-closed child's cleanup.
+          // Repair focus only if it fell outside the surviving top modal.
+          if (top?.node.isConnected && !top.node.contains(document.activeElement)) {
+            if (top.lastFocus && controls(top.node).includes(top.lastFocus)) focusControl(top.lastFocus, top);
+            else focusInside(top);
+          }
+          return;
+        }
         if (entry.returnFocus?.isConnected && (!top || top.node.contains(entry.returnFocus))) {
           if (top) focusControl(entry.returnFocus, top);
           else entry.returnFocus.focus({ preventScroll: true });

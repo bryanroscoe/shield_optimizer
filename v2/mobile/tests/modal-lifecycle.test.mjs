@@ -136,3 +136,19 @@ test("alertdialog without enabled controls receives focus and Escape releases th
   await page.keyboard.press("Escape");
   await restored(page);
 });
+
+test("closing the focused child then a non-top ancestor restores the surviving middle modal", async t => {
+  const page = await open(t);
+  await page.evaluate(() => {
+    createModal("A"); createModal("B");
+    owners.B.node.querySelectorAll("button")[1].focus();
+    createModal("C");
+  });
+  await page.waitForFunction(() => document.activeElement?.textContent === "C");
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.evaluate(() => { destroyModal("C"); destroyModal("A"); });
+  assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Last B");
+  assert.equal((await state(page)).locked, true);
+  await page.keyboard.press("Escape");
+  await restored(page);
+});
