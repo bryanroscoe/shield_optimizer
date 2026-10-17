@@ -73,14 +73,22 @@ pub async fn install_platform_tools() -> Result<PathBuf, InstallError> {
 
     // Extract on a blocking thread — zip crate is synchronous.
     let install_clone = install_to.clone();
-    let adb_path = tokio::task::spawn_blocking(move || -> Result<PathBuf, InstallError> {
+    let adb_path = finish_extraction(move || -> Result<PathBuf, InstallError> {
         let cursor = std::io::Cursor::new(bytes.as_ref());
         extract_zip_to(cursor, &install_clone)
     })
-    .await
-    .map_err(|e| InstallError::Io(std::io::Error::other(e.to_string())))??;
+    .await?;
 
     Ok(adb_path)
+}
+
+pub(crate) async fn finish_extraction<F>(extract: F) -> Result<PathBuf, InstallError>
+where
+    F: FnOnce() -> Result<PathBuf, InstallError> + Send + 'static,
+{
+    tokio::task::spawn_blocking(extract)
+        .await
+        .map_err(|e| InstallError::Io(std::io::Error::other(e.to_string())))?
 }
 
 /// Extract the platform-tools ZIP, flattening the top-level `platform-tools/`

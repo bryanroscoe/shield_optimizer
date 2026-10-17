@@ -370,6 +370,126 @@ mod tests {
         assert_eq!(stops.load(Ordering::SeqCst), 0);
     }
 
+    #[tokio::test]
+    async fn quit_waits_for_old_snapshot_after_replacement_then_stops_live_driver() {
+        let (state, old_stops) = state_counting_stops();
+        let old_snapshot = state.adb_snapshot().await;
+        let replacement = StopCounter::default();
+        let replacement_stops = Arc::clone(&replacement.stops);
+        state.replace_adb(Arc::new(replacement)).await;
+        let release_old = async {
+            tokio::task::yield_now().await;
+            old_snapshot.raw(&["fixture"]).await.unwrap();
+            drop(old_snapshot);
+        };
+        let control = enabled();
+        let children = Leases::new();
+        let (outcome, ()) = tokio::join!(quit(&state, &control, &children), release_old);
+        assert_eq!(outcome, QuitStop::Ran(ServerStop::Stopped));
+        assert_eq!(old_stops.load(Ordering::SeqCst), 0);
+        assert_eq!(replacement_stops.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            state.adb_snapshot().await.raw(&[]).await,
+            Err(AdbError::ShuttingDown)
+        ));
+    }
+
+    #[tokio::test]
+    async fn pending_install_prevents_stop_until_driver_replacement_finishes() {
+        let (state, stops) = state_counting_stops();
+        let (entered_tx, entered) = tokio::sync::oneshot::channel();
+        let (release, released) = tokio::sync::oneshot::channel();
+        let install = super::super::install::install_with(&state, || async {
+            entered_tx.send(()).unwrap();
+            released.await.unwrap();
+            Ok(std::path::PathBuf::from("/fixture/not-executed"))
+        });
+        tokio::pin!(install);
+        tokio::select! {
+            _ = &mut install => panic!("installer should remain pending"),
+            _ = entered => {}
+        }
+        assert_eq!(
+            quit_stop(
+                &state,
+                &enabled(),
+                &Leases::new(),
+                Duration::ZERO,
+                QUIT_STOP_TIMEOUT
+            )
+            .await,
+            QuitStop::OperationsRunning(1)
+        );
+        assert_eq!(stops.load(Ordering::SeqCst), 0);
+        release.send(()).unwrap();
+        assert!(install.await.unwrap().ok);
+        assert_eq!(state.adb_operations_active(), 0);
+        assert!(matches!(
+            state.adb_snapshot().await.raw(&[]).await,
+            Err(AdbError::ShuttingDown)
+        ));
+    }
+
+    #[tokio::test]
+    async fn install_after_closed_admission_has_no_installer_effects() {
+        let (state, stops) = state_counting_stops();
+        state.close_adb_admission();
+        let effects = AtomicUsize::new(0);
+        let result = super::super::install::install_with(&state, || async {
+            effects.fetch_add(1, Ordering::SeqCst);
+            Ok(std::path::PathBuf::from("/fixture/not-executed"))
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(effects.load(Ordering::SeqCst), 0);
+        assert_eq!(stops.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn canceled_install_waiter_keeps_blocking_extraction_counted() {
+        let (state, stops) = state_counting_stops();
+        let state = Arc::new(state);
+        let (entered_tx, entered) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let (done_tx, done) = tokio::sync::oneshot::channel();
+        let install_state = Arc::clone(&state);
+        let install = tokio::spawn(async move {
+            super::super::install::install_with(&install_state, || async {
+                crate::adb::install::finish_extraction(move || {
+                    entered_tx.send(()).unwrap();
+                    // A bounded wait also makes a failed assertion safe to unwind.
+                    let released = released.recv_timeout(Duration::from_secs(5)).is_ok();
+                    let _ = done_tx.send(());
+                    assert!(released, "fixture extraction was not released");
+                    Ok(std::path::PathBuf::from("/fixture/not-executed"))
+                })
+                .await
+            })
+            .await
+        });
+        entered.await.unwrap();
+        install.abort();
+        assert!(matches!(install.await, Err(error) if error.is_cancelled()));
+        let outcome = quit_stop(
+            &state,
+            &enabled(),
+            &Leases::new(),
+            Duration::ZERO,
+            QUIT_STOP_TIMEOUT,
+        )
+        .await;
+        // Always release the owned worker before asserting the regression.
+        release.send(()).unwrap();
+        done.await.unwrap();
+        assert_eq!(outcome, QuitStop::OperationsRunning(1));
+        assert_eq!(stops.load(Ordering::SeqCst), 0);
+        assert!(
+            state
+                .wait_adb_operations(Instant::now() + Duration::from_secs(2))
+                .await
+        );
+    }
+
     #[cfg(unix)]
     mod with_a_real_process {
         use std::path::{Path, PathBuf};

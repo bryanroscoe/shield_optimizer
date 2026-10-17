@@ -1128,6 +1128,40 @@ mod tests {
         const SLEEPER: &str = "echo $$ > \"$PID_FILE\"; exec sleep 30";
 
         #[tokio::test]
+        async fn inherited_output_pipes_respect_timeout_after_direct_child_exit() {
+            let dir = tempfile::tempdir().unwrap();
+            let children = Leases::new();
+            let driver = SubprocessAdb::new(fake_adb(dir.path(), "/bin/sleep 1 &\nprintf output"))
+                .with_timeout(Duration::from_millis(100))
+                .with_child_leases(Arc::clone(&children));
+            let started = Instant::now();
+            let result = tokio::time::timeout(Duration::from_millis(800), driver.raw(&[])).await;
+            assert!(matches!(result, Ok(Err(AdbError::Timeout { .. }))));
+            assert!(started.elapsed() < Duration::from_millis(800));
+            assert_eq!(children.active(), 0, "only the direct client is tracked");
+        }
+
+        #[tokio::test]
+        async fn replacement_and_old_driver_clones_share_closed_process_admission() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = fake_adb(dir.path(), "echo $$ > \"$PID_FILE\"; printf ok");
+            let old = SubprocessAdb::new(path.clone());
+            let old_clone = old.clone();
+            let replacement = SubprocessAdb::new(path);
+            assert!(Arc::ptr_eq(&old.children, &replacement.children));
+            // Replace the global counter in each fixture before closing anything.
+            let children = Leases::new();
+            let old = old.with_child_leases(Arc::clone(&children));
+            let old_clone = old_clone.with_child_leases(Arc::clone(&children));
+            let replacement = replacement.with_child_leases(Arc::clone(&children));
+            children.close();
+            for driver in [&old, &old_clone, &replacement] {
+                assert!(matches!(driver.raw(&[]).await, Err(AdbError::ShuttingDown)));
+            }
+            assert!(!dir.path().join("pid").exists());
+        }
+
+        #[tokio::test]
         async fn a_timed_out_call_is_reaped_before_it_returns() {
             let dir = tempfile::tempdir().unwrap();
             let children = Leases::new();
