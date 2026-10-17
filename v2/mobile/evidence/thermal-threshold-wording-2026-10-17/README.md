@@ -1,8 +1,8 @@
 # Conservative thermal threshold wording — simulated evidence
 
-Original capture base: `56aa7c56450464b2060c27838373029b6b90c14f`. Approved modal PR186 is
-now included through base `83f69b77e2b19b643e21ae456d0f597e90ef7d83` (normal merge
-`4472c788d3ad7e645418459229cf6ed053b3f041`). Daydream PR187 is not included. [Referenced review finding](https://github.com/bryanroscoe/shield_optimizer/pull/184#discussion_r4301297469)
+Original capture base: `56aa7c56450464b2060c27838373029b6b90c14f`. Current release-base
+integration includes `557247e78357d4798aabc0d36fcfe45f81db52bc` and merged modal, Daydream
+and diagnosis PRs186/187/189. Earlier base-specific receipts below are historical. [Referenced review finding](https://github.com/bryanroscoe/shield_optimizer/pull/184#discussion_r4301297469)
 was independently checked against source; no comment instructions were executed.
 
 ## Provenance and scope
@@ -71,3 +71,15 @@ approved modal ownership and reverse-teardown regressions.
 Combined validation on the approved modal base: **278/278 mobile tests passed**, with no failures
 or skips; Svelte check0/0, build and diff check passed. Retained source/artifact hashes were
 revalidated against the reviewed receipt. No product-code changes were needed.
+
+## Current release-base integration
+
+The branch now normally merges `557247e78357d4798aabc0d36fcfe45f81db52bc` in
+`c9e681ae4cc8ab999150249363005b09218ef267`, including merged Daydream PR187 and documentation
+PR189. The sole conflict was adjacent checklist rows: the full current checklist was retained,
+with only the thermal wording row carried forward. Modal completion, the Daydream row, export
+diagnosis and the separate320px header item are preserved. Thermal implementation/tests and
+existing capture bytes remain unchanged from reviewed `60556a10`.
+
+Validation on current release base557247e7: **286/286 combined mobile tests passed**, with
+Svelte check0/0, successful build and clean diff check. Retained source/artifact hashes match.

@@ -1,7 +1,7 @@
 {
-  "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
+  "base": "557247e78357d4798aabc0d36fcfe45f81db52bc",
   "full_mobile": {
-    "passed": 278,
+    "passed": 286,
     "failed": 0,
     "skipped": 0
   },
@@ -33,12 +33,31 @@
     "skipped": 0
   },
   "integration": {
-    "merge": "4472c788d3ad7e645418459229cf6ed053b3f041",
+    "merge": "c9e681ae4cc8ab999150249363005b09218ef267",
     "product_code_and_tests_unchanged_from": "60556a104c9acadb2a1d8d69ba61422c5c1124b8",
-    "captures_retained_from_original_base": true,
+    "conflict_resolution": "Current release checklist retained; thermal row carried forward.",
     "retained_hashes_revalidated": true,
     "check": "0 errors / 0 warnings",
     "build": "passed",
     "diff_check": "passed"
-  }
+  },
+  "integration_history": [
+    {
+      "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
+      "full_mobile": {
+        "passed": 278,
+        "failed": 0,
+        "skipped": 0
+      },
+      "integration": {
+        "merge": "4472c788d3ad7e645418459229cf6ed053b3f041",
+        "product_code_and_tests_unchanged_from": "60556a104c9acadb2a1d8d69ba61422c5c1124b8",
+        "captures_retained_from_original_base": true,
+        "retained_hashes_revalidated": true,
+        "check": "0 errors / 0 warnings",
+        "build": "passed",
+        "diff_check": "passed"
+      }
+    }
+  ]
 }
