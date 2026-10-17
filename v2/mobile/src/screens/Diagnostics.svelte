@@ -559,22 +559,33 @@
 </div>
 
 <style>
+  .topline {
+    flex-wrap: wrap;
+  }
   .header-left {
+    flex: none;
     display: flex;
     gap: 8px;
     align-items: center;
   }
   .header-title {
+    flex: 1 1 8rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
     margin: 0;
-    font-size: 22px;
+    font-size: 1.375rem;
+    line-height: 1.2;
     font-weight: 700;
     letter-spacing: -0.01em;
   }
   .live-refresh-btn {
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
     background: transparent;
     border: none;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: .6875rem;
     color: var(--muted);
     display: inline-flex;
     align-items: center;
