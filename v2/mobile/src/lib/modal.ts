@@ -11,8 +11,23 @@ function controls(node: HTMLElement): HTMLElement[] {
   return Array.from(node.querySelectorAll<HTMLElement>(focusable))
     .filter((element) => element.getClientRects().length > 0 && !element.closest('[inert]'));
 }
+function focusControl(element: HTMLElement, entry: Entry) {
+  element.focus({ preventScroll: true });
+  // Keep the document lock intact while revealing focus inside a long sheet.
+  // Walking only modal ancestors avoids scrollIntoView moving the page behind
+  // the overlay (and works without newer WebView container:"nearest" support).
+  for (let parent = element.parentElement; parent && entry.node.contains(parent); parent = parent.parentElement) {
+    if (!/^(auto|scroll)$/.test(getComputedStyle(parent).overflowY) || parent.scrollHeight <= parent.clientHeight) continue;
+    const target = element.getBoundingClientRect();
+    const bounds = parent.getBoundingClientRect();
+    const top = bounds.top + parent.clientTop;
+    const bottom = top + parent.clientHeight;
+    if (target.top < top) parent.scrollTop += target.top - top;
+    else if (target.bottom > bottom) parent.scrollTop += target.bottom - bottom;
+  }
+}
 function focusInside(entry: Entry) {
-  (controls(entry.node)[0] ?? entry.node.querySelector<HTMLElement>('[role="dialog"], [role="menu"]') ?? entry.node).focus({ preventScroll: true });
+  focusControl(controls(entry.node)[0] ?? entry.node.querySelector<HTMLElement>('[role="dialog"], [role="menu"]') ?? entry.node, entry);
 }
 function holdDocument() {
   const x = window.scrollX;
@@ -73,10 +88,10 @@ export function modal(node: HTMLElement, options: Options) {
         focusInside(entry);
       } else if (event.shiftKey && (document.activeElement === first || !node.contains(document.activeElement))) {
         event.preventDefault();
-        last?.focus({ preventScroll: true });
+        if (last) focusControl(last, entry);
       } else if (!event.shiftKey && (document.activeElement === last || !node.contains(document.activeElement))) {
         event.preventDefault();
-        first.focus({ preventScroll: true });
+        focusControl(first, entry);
       }
     }
   };
@@ -107,7 +122,8 @@ export function modal(node: HTMLElement, options: Options) {
       queueMicrotask(() => {
         const top = stack.at(-1);
         if (entry.returnFocus?.isConnected && (!top || top.node.contains(entry.returnFocus))) {
-          entry.returnFocus.focus({ preventScroll: true });
+          if (top) focusControl(entry.returnFocus, top);
+          else entry.returnFocus.focus({ preventScroll: true });
         } else if (top && top.node.isConnected) focusInside(top);
         else if (!top && fallbackFocus?.isConnected) fallbackFocus.focus({ preventScroll: true });
       });

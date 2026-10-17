@@ -365,6 +365,15 @@ if (process.env.MODAL_EVIDENCE === '1') test("capture modal scroll lock simulati
   await dialog(page).waitFor();
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${dir}/app-details-simulated.png` });
+  await page.setViewportSize({ width: 384, height: 420 });
+  await dialog(page).getByRole('button', { name: 'Close', exact: true }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await page.screenshot({ path: `${dir}/keyboard-last-action-simulated.png`, animations: 'disabled' });
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Tab');
+  await page.screenshot({ path: `${dir}/keyboard-close-simulated.png`, animations: 'disabled' });
+  await page.waitForTimeout(500);
+  await page.setViewportSize({ width: 384, height: 812 });
   await dialog(page).hover();
   await page.mouse.wheel(0, 500);
   await page.waitForTimeout(500);
@@ -429,4 +438,31 @@ test("modal lock survives out-of-order owner teardown and restores the original 
   assert.equal(await locked(page), false);
   assert.equal(await page.evaluate(() => scrollY), before);
   assert.equal(await trigger.evaluate(el => document.activeElement === el), true);
+});
+
+test("modal long-sheet keyboard wrap reveals last action and Close without moving the background", async (t) => {
+  const { page, trigger } = await diagnosticSheetPage(t);
+  await page.setViewportSize({ width: 384, height: 420 });
+  await trigger.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  const before = await page.evaluate(() => scrollY);
+  await trigger.click();
+  const sheet = dialog(page);
+  const close = sheet.getByRole('button', { name: 'Close', exact: true });
+  const last = sheet.getByRole('button', { name: /Re-measure/ });
+  await sheet.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)));
+  await close.focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await last.evaluate(el => document.activeElement === el), true);
+  const inView = async control => control.evaluate(el => {
+    const rect = el.getBoundingClientRect(), sheet = el.closest('[role="dialog"]').getBoundingClientRect();
+    return rect.top >= Math.max(0, sheet.top) - 1 && rect.bottom <= Math.min(innerHeight, sheet.bottom) + 1;
+  });
+  assert.equal(await inView(last), true, 'wrapped last action must be visible');
+  assert.equal(await page.evaluate(() => document.body.style.top), `${-before}px`);
+  await page.keyboard.press('Tab');
+  assert.equal(await close.evaluate(el => document.activeElement === el), true);
+  assert.equal(await inView(close), true, 'wrapped Close action must be visible');
+  assert.equal(await page.evaluate(() => document.body.style.top), `${-before}px`);
+  await close.click();
+  assert.equal(await page.evaluate(() => scrollY), before);
 });

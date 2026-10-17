@@ -61,6 +61,7 @@ after(async () => {
 async function openApps(t, { openerFails = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 384, height: 812 } });
   const page = await context.newPage();
+  page.setDefaultTimeout(10000);
   t.after(() => context.close());
   await page.addInitScript(
     ({ fixture, openerFails }) => {
@@ -296,4 +297,30 @@ test("rows, chips and labels fit a 384px screen", async (t) => {
     return out;
   });
   assert.deepEqual(overflow, []);
+});
+
+test("long report keyboard wrap reveals its focused actions without moving the locked page", async (t) => {
+  const page = await openApps(t);
+  await page.setViewportSize({ width: 384, height: 420 });
+  await page.getByPlaceholder('Search apps or packages').fill('katniss');
+  await page.locator(`.app-row[data-package="${katniss.package}"]`).click();
+  await page.getByRole('button', { name: /Report this app/ }).click();
+  const report = page.getByRole('dialog', { name: 'Report this app', exact: true });
+  const close = report.getByRole('button', { name: 'Close', exact: true });
+  const last = report.getByRole('button', { name: 'Open GitHub issue', exact: true });
+  await report.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)));
+  const top = await page.evaluate(() => document.body.style.top);
+  const inView = async control => control.evaluate(el => {
+    const r = el.getBoundingClientRect(), s = el.closest('[role="dialog"]').getBoundingClientRect();
+    return r.top >= Math.max(0, s.top) - 1 && r.bottom <= Math.min(innerHeight, s.bottom) + 1;
+  });
+  await close.focus();
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await last.evaluate(el => document.activeElement === el), true);
+  assert.equal(await inView(last), true, 'last report action must be visible');
+  assert.equal(await page.evaluate(() => document.body.style.top), top);
+  await page.keyboard.press('Tab');
+  assert.equal(await close.evaluate(el => document.activeElement === el), true);
+  assert.equal(await inView(close), true, 'report Close action must be visible');
+  assert.equal(await page.evaluate(() => document.body.style.top), top);
 });

@@ -37,4 +37,15 @@ Browser coverage does not prove Android touch/overscroll, software keyboard or a
 
 The durable general list is [PR181's release checklist](https://github.com/bryanroscoe/shield_optimizer/blob/3c15c2147a0e4b2cf0768592d33b8f682811bcbc/v2/mobile/RELEASE-POLISH.md). RAM/storage, thermal context, reports, exports and app inventory remain separate tasks. Independent review also found an inherited density-only display override label issue: `scaleLine` can show physical density and “device default” while selection recognizes the override. Preserve PR181's approved head; add a density-only fixture and label correction in the next settings slice.
 
-Validation: **230 full mobile tests passed**, **6 focused modal checks including capture passed**, Svelte check zero errors/warnings, Vite build passed, and `git diff --check` passed. The existing fresh-worktree parent `.svelte-kit/tsconfig.json` Vite notice remains. No native source changed; no native APK/phone validation is claimed for this slice.
+Validation: **232 full mobile tests passed**, **8 focused modal checks including capture passed**, Svelte check zero errors/warnings, Vite build passed, and `git diff --check` passed. The existing fresh-worktree parent `.svelte-kit/tsconfig.json` Vite notice remains. No native source changed; no native APK/phone validation is claimed for this slice.
+
+## Keyboard visibility follow-up (independent P2 review)
+
+The sealed `c852eb7` helper kept focus in the modal but could wrap to an action outside a long sheet's visible scrollport. New tests reproduce this after entrance animations settle in both AppDetail and Report at 384×420. The revised helper focuses without scrolling the page, then reveals the control by adjusting only scrolling ancestors inside that modal. Both Shift+Tab from Close and Tab from the last action verify visible controls and unchanged background position.
+
+- [Last action revealed at short viewport](keyboard-last-action-simulated.png)
+- [Close revealed after wrapping back](keyboard-close-simulated.png)
+
+The refreshed video includes that short-viewport keyboard check (not a physical phone/software-keyboard simulation). Both new tests failed against the sealed helper on current base plus PR182, then pass with the revised helper. Standalone final suite:232 passed. Isolated current base `6f3deefa5e46a03d292aa4ef1e84927440b03766` plus revised PR182 source:236 passed; check/build passed. No merge conflicts; PR181 and the old sealed modal commit were not rewritten. One interrupted combined run had235 passes/one session timeout during Mac disconnection; the clean post-reconnection rerun is236/236.
+
+A separate P1 report identifies stale app selection being rebound to a new connection by AppSheetHost. This modal/keyboard slice does **not** clear that safety blocker; it requires a separate identity-lifecycle fix before release.
