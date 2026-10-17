@@ -255,9 +255,11 @@ The installed SDK apksigner rejected an unsigned synthetic archive through the C
 no success receipt). Positive signing/SDK outcomes in unit tests are mocked: no genuine signed
 release artifact or Android runtime was validated. This receipt is not release authorization.
 
-### Deferred modal polish (2026-10-17, separate focused fix)
+### Modal polish follow-up (2026-10-17, independent review pending)
 
-Two P2s remain outside the diagnostic report-layout PR. `StockTakeoverDialog` lacks modal
-registration. Sequential `AppActionMenu` → Report transitions lose the original row focus
-because `modal.destroy` clears `documentReturnFocus` while the stack is briefly empty.
-Cover modal registration and restored original-row focus with regression tests in a later fix.
+The separate modal follow-up registers `StockTakeoverDialog` with shared scroll/focus ownership
+and preserves original-row focus through sequential `AppActionMenu` → Report transitions.
+Regression coverage includes cancellation, async replacements, nested/out-of-order teardown,
+short-screen keyboard access and restored scroll. See
+[evidence and verification limits](evidence/modal-handoffs-2026-10-17/README.md).
+These two P2s await independent review; host simulation does not clear physical-device gates.
