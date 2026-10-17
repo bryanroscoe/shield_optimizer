@@ -1,0 +1,18 @@
+{
+  "base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
+  "mobile_tests": 310,
+  "launcher_tests": 25,
+  "backend_guard_tests": 19,
+  "core_tests": 466,
+  "core_clippy": "all targets, warnings denied, passed",
+  "fmt": "passed",
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "limits": [
+    "Mocks only; no device operations",
+    "No backend guard behavior changed"
+  ]
+}
