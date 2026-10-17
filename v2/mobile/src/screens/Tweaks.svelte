@@ -117,14 +117,16 @@
     if (d.status === "fulfilled") {
       dns = d.value;
       dnsError = "";
-      if (d.value.hostname) dnsHost = d.value.hostname;
+      if (!dnsEditing) dnsHost = d.value.hostname ?? "";
     } else {
+      dns = null;
       dnsError = String(d.reason);
     }
     if (s.status === "fulfilled") {
       scaling = s.value;
       scalingError = "";
     } else {
+      scaling = null;
       scalingError = String(s.reason);
     }
     // A reply that doesn't name the package is unreadable, not "missing":
@@ -170,6 +172,7 @@
     showPaywall = false;
     scaleConfirm = null;
     dnsEditing = false;
+    dnsHost = "";
     clearTimeout(toastTimer);
     untrack(() => void load());
   });
@@ -337,14 +340,19 @@
       "Manual audio formats updated.",
     );
   }
+  function numericSetting(value: string | null | undefined): number | null {
+    if (value == null || !value.trim()) return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
   const animScale = $derived(
     tweaks?.window_animation_scale != null ? parseFloat(tweaks.window_animation_scale) : null,
   );
   const animMixed = $derived(
     tweaks != null &&
       !(
-        tweaks.window_animation_scale === tweaks.transition_animation_scale &&
-        tweaks.window_animation_scale === tweaks.animator_duration_scale
+        numericSetting(tweaks.window_animation_scale) === numericSetting(tweaks.transition_animation_scale) &&
+        numericSetting(tweaks.window_animation_scale) === numericSetting(tweaks.animator_duration_scale)
       ),
   );
   const longPress = $derived(
@@ -407,8 +415,19 @@
     { label: "Reset", value: "reset" },
   ];
 
+  function scaleActive(preset: DisplayScalePreset): boolean {
+    if (!scaling || scalingError) return false;
+    if (preset === "reset") return !!physicalSize && !overrideSize && !overrideDensity;
+    const expected = preset === "uhd_4k" ? ["3839x2160", "640"]
+      : preset === "fhd_1080p" ? ["1920x1080", "320"] : ["1280x720", "213"];
+    return !!(overrideSize || overrideDensity) && (overrideSize ?? physicalSize) === expected[0]
+      && (overrideDensity ?? physicalDensity) === expected[1];
+  }
+  const scalingCustom = $derived(!!scaling && !!(overrideSize || overrideDensity)
+    && !["uhd_4k", "fhd_1080p", "hd_720p"].some((p) => scaleActive(p as DisplayScalePreset)));
+
   function triLabel(v: string | null): string {
-    return v === "1" ? "On" : v === "0" ? "Off" : "Unset";
+    return v === "1" ? "On" : v === "0" ? "Off" : v == null ? "Unset (TV default)" : `Unrecognized (${v})`;
   }
   function frameLabel(v: string | null): string {
     return v === "0"
@@ -417,7 +436,7 @@
         ? "Seamless only"
         : v === "2"
           ? "Always"
-          : "Unset (device default)";
+          : v == null ? "Unset (device default)" : `Unrecognized (${v})`;
   }
   function animLabel(): string {
     if (tweaks == null) return "—";
@@ -898,7 +917,7 @@
             <span class="msr t-icon" aria-hidden="true">aspect_ratio</span>
             <div class="t-info">
               <span class="t-title">Display scaling</span>
-              <span class="t-desc mono">{scalingError ? "Couldn't read the current size" : scaleLine}</span>
+              <span class="t-desc mono">{scalingError ? "Couldn't read the current size" : scaleLine}{scalingCustom ? " · Custom size / density" : ""}</span>
             </div>
           </div>
           <p class="t-note">
@@ -910,6 +929,8 @@
             {#each scalePresets as p (p.value)}
               <button
                 class="seg"
+                class:active={scaleActive(p.value)}
+                aria-pressed={scaleActive(p.value)}
                 class:busy={busy === `scale-${p.value}`}
                 disabled={busy !== ""}
                 onclick={() => (scaleConfirm = p.value)}>{p.label}</button
@@ -957,6 +978,9 @@
                 onclick={screensaverOff}>Off</button
               >
             </div>
+            {#if !ssIsBasic && !ssIsOff}
+              <span class="t-desc">{ssComponent ? "A different screensaver is configured; neither option above matches it." : "No explicit screensaver is configured; the TV may use its default."}</span>
+            {/if}
             {#if screensaverOriginal}
               <button
                 class="restore-btn"
@@ -1008,32 +1032,31 @@
             </div>
           </div>
 
-          <div class="tweak-row column">
+          <div class="tweak-row column" data-tweak="cached-processes">
             <div class="t-row-head">
               <span class="msr t-icon" aria-hidden="true">memory</span>
               <div class="t-info">
-                <span class="t-title">Background process limit</span>
+                <span class="t-title">Cached background processes</span>
                 <span class="t-desc">
-                  Current: <span class="state">{cachedLimit != null ? `Up to ${cachedLimit} cached apps` : "Not reported by this TV"}</span>
+                  <span class="state">{cachedLimit != null ? `Reported cached-process cap: ${cachedLimit}` : "Not reported by this TV"}</span>
                 </span>
               </div>
-              {#if bgLimit != null}
+            </div>
+            <p class="t-note">
+              Android’s reported cap on cached processes, not a count of running apps. Apps may use multiple
+              processes. This app does not change this cap. Developer options behavior varies by Android version.
+            </p>
+            {#if bgLimit != null}
+              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing this deletes only the stored value; it does not set the reported cap. This key had no effect on the tested Shield TV running Android 11; vendor behavior may differ.</p>
                 <button
                   class="reset-btn"
                   class:busy={busy === "bg-remove"}
                   disabled={busy !== ""}
                   onclick={removeBgLimit}
                 >
-                  <span class="msr">delete</span>Remove old setting
+                  <span class="msr">delete</span>Remove legacy value
                 </button>
-              {/if}
-            </div>
-            <p class="t-note">
-              How many recent apps Android keeps in memory. This app can't change it; use Background
-              process limit in the TV's Developer options.
-            </p>
-            {#if bgLimit != null}
-              <p class="t-desc mono">global.background_process_limit = {bgLimit} (ignored by Android)</p>
+
             {/if}
           </div>
         {/if}
@@ -1058,7 +1081,7 @@
                         ? dns?.hostname
                           ? `Custom (${dns.hostname})`
                           : "Custom"
-                        : "Unset"}</span>
+                        : dnsMode == null ? "Not explicitly set (TV default)" : `Unrecognized mode (${dnsMode})`}</span>
                 {/if}
               </span>
             </div>
@@ -1069,9 +1092,9 @@
             stays online.
           </p>
           <div class="segmented">
-            <button class="seg" class:active={dnsMode === "off"} class:busy={busy === "dns-off"} disabled={busy !== ""} onclick={() => setDns("off")}>Off</button>
-            <button class="seg" class:active={dnsMode === "opportunistic"} class:busy={busy === "dns-opportunistic"} disabled={busy !== ""} onclick={() => setDns("opportunistic")}>Auto</button>
-            <button class="seg" class:active={dnsMode === "hostname" || dnsEditing} disabled={busy !== ""} onclick={() => setDns("hostname")}>Custom</button>
+            <button class="seg" class:active={dnsMode === "off"} aria-pressed={dnsMode === "off"} class:busy={busy === "dns-off"} disabled={busy !== ""} onclick={() => setDns("off")}>Off</button>
+            <button class="seg" class:active={dnsMode === "opportunistic"} aria-pressed={dnsMode === "opportunistic"} class:busy={busy === "dns-opportunistic"} disabled={busy !== ""} onclick={() => setDns("opportunistic")}>Auto</button>
+            <button class="seg" class:active={dnsMode === "hostname"} aria-pressed={dnsMode === "hostname"} aria-expanded={dnsEditing} disabled={busy !== ""} onclick={() => setDns("hostname")}>Custom</button>
           </div>
           {#if dnsEditing}
             <div class="dns-input-row">

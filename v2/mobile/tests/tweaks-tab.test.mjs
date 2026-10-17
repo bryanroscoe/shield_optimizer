@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir, readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -20,7 +21,7 @@ const BASIC = "com.android.dreams.basic/com.android.dreams.basic.BasicDream";
 const VENDOR = "com.google.android.backdrop/.Backdrop";
 
 async function open(t, screen, options = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(options.evidence ? { recordVideo: { dir: "evidence/settings-polish-2026-10-17/raw", size: { width: 384, height: 812 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
   await page.addInitScript((options) => {
     localStorage.clear();
@@ -296,4 +297,98 @@ test("Free users retain emergency recovery without an unlock or payment", async 
   assert.equal(await page.evaluate(() => window.session.entitlement), "free");
   assert.deepEqual(await writes(page, "panic_recovery"), [{ serial: "A:5555" }]);
   assert.equal((await writes(page, "activate_license")).length, 0);
+});
+
+test("scaling readback matches both resolution and density and clears stale selection on failure", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Display scaling', { exact: true }) });
+  await page.evaluate(() => { handlers.get_display_scaling = () => ({ size: 'Physical size: 3840x2160\nOverride size: 1920x1080', density: 'Physical density: 640\nOverride density: 320' }); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '1080p' && b.getAttribute('aria-pressed') === 'true'));
+  await page.evaluate(() => { handlers.get_display_scaling = () => ({ size: 'Physical size: 3840x2160\nOverride size: 1920x1080', density: 'Physical density: 640\nOverride density: 300' }); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.getByText(/Custom size \/ density/).waitFor();
+  assert.equal(await card.locator('[aria-pressed="true"]').count(), 0);
+  await page.evaluate(() => { handlers.get_display_scaling = () => Promise.reject('read failed'); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.getByText("Couldn't read the current size").waitFor();
+  assert.equal(await card.locator('[aria-pressed="true"]').count(), 0);
+});
+
+test("Custom DNS editing does not claim the TV has applied it; failed read clears selection", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Private DNS', { exact: true }) });
+  await card.getByRole('button', { name: 'Auto', exact: true }).waitFor();
+  await card.getByRole('button', { name: 'Custom', exact: true }).click();
+  assert.equal(await card.getByRole('button', { name: 'Custom', exact: true }).getAttribute('aria-pressed'), 'false');
+  assert.equal(await card.getByRole('button', { name: 'Auto', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.evaluate(() => { handlers.get_private_dns = () => Promise.reject('DNS read failed'); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.getByText("Couldn't read the current mode").waitFor();
+  assert.equal(await card.locator('[aria-pressed="true"]').count(), 0);
+});
+
+test("equivalent Android animation number formats select the same speed", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.evaluate(() => Object.assign(tweaks, { window_animation_scale: '1.0', transition_animation_scale: '1', animator_duration_scale: '1.00' }));
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Animation speed', { exact: true }) });
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '1×' && b.classList.contains('active')));
+  assert.equal(await card.getByRole('button', { name: '1×', exact: true }).evaluate(b => b.classList.contains('active')), true);
+});
+
+if (process.env.MOBILE_POLISH_EVIDENCE === "1") test("capture simulated settings and optical icon comparison", async (t) => {
+  const dir = "evidence/settings-polish-2026-10-17";
+  await mkdir(dir, { recursive: true });
+  const page = await open(t, "tweaks", { pro: true, evidence: true });
+  await page.evaluate(() => {
+    Object.assign(tweaks, { cached_process_limit: 32, background_process_limit: "2", window_animation_scale: "1.0", transition_animation_scale: "1", animator_duration_scale: "1.00" });
+    handlers.get_display_scaling = () => ({ size: "Physical size: 3840x2160\nOverride size: 1920x1080", density: "Physical density: 640\nOverride density: 320" });
+  });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.getByText('Reported cached-process cap: 32', { exact: true }).waitFor();
+  await page.screenshot({ path: `${dir}/settings-simulated.png`, fullPage: true });
+  await page.waitForTimeout(700);
+  const dns = page.locator('.tweak-row').filter({ has: page.getByText('Private DNS', { exact: true }) });
+  await dns.scrollIntoViewIfNeeded();
+  await dns.getByRole('button', { name: 'Custom', exact: true }).click();
+  await page.waitForTimeout(700);
+  await page.getByRole('textbox', { name: 'Private DNS hostname' }).fill('dns.example.test');
+  await page.screenshot({ path: `${dir}/dns-draft-simulated.png` });
+  await page.getByRole('button', { name: 'Auto', exact: true }).click();
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.waitForTimeout(700);
+  const recording = page.video();
+  await page.context().close();
+  await recording.saveAs(`${dir}/settings-simulated.webm`);
+  const icons = await browser.newPage({ viewport: { width: 840, height: 420 }, deviceScaleFactor: 2 });
+  t.after(() => icons.close());
+  const svg = await readFile('src-tauri/icons/icon.svg', 'utf8');
+  const transparent = svg.replace(/<rect width="120" height="120" rx="28" fill="#C9F24E"\/>/, '');
+  const art = transparent.replace(/<svg[^>]*>/, '').replace('</svg>', '');
+  const adaptive = y => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><g transform="translate(14.4 ${y}) scale(.66)">${art}</g></svg>`;
+  const current = adaptive(14.4);
+  const shifted = adaptive(17.4);
+  await icons.setContent(`<style>body{background:#16191e;color:#f2f5f8;font:16px system-ui;padding:20px} .row{display:flex;gap:42px;margin:22px} .icon{width:64px;height:64px;background:#c9f24e;overflow:hidden}.icon svg{width:64px;height:64px}.circle{border-radius:50%}.square{border-radius:18px}.squircle{border-radius:28%}span{width:180px}small{color:#bbb}</style><h2>Launcher optical alignment · simulated masks</h2><small>64 CSS px; candidate moves artwork down 1.8 px. No launcher/device test.</small>${['circle','square','squircle'].map(mask => `<div class="row"><span>${mask}</span><div class="icon ${mask}">${current}</div><div class="icon ${mask}">${shifted}</div></div>`).join('')}<p>Current ← → proposed optical shift (source assets unchanged)</p>`);
+  await icons.screenshot({ path: `${dir}/icon-optical-comparison.png` });
+});
+
+test("DNS confirmed changes survive navigation and reconnect, while unset stays explicit", async (t) => {
+  const page = await open(t, 'tweaks', { pro: true });
+  await page.evaluate(() => {
+    window.dnsState = { mode: 'opportunistic', hostname: null };
+    handlers.get_private_dns = () => ({ ...dnsState });
+    handlers.set_private_dns = args => { dnsState = { mode: args.mode, hostname: args.hostname ?? null }; return { ok: true, message: 'done' }; };
+  });
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Private DNS', { exact: true }) });
+  await card.getByRole('button', { name: 'Off', exact: true }).click();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Off' && b.getAttribute('aria-pressed') === 'true'));
+  await page.evaluate(() => router.navigate('more'));
+  await page.evaluate(() => router.navigate('tweaks'));
+  await card.getByRole('button', { name: 'Off', exact: true }).waitFor();
+  assert.equal(await card.getByRole('button', { name: 'Off', exact: true }).getAttribute('aria-pressed'), 'true');
+  await page.evaluate(async () => { await session.connect('B', 5555); dnsState = { mode: null, hostname: null }; });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await page.getByText('Not explicitly set (TV default)', { exact: true }).waitFor();
+  assert.equal(await card.locator('[aria-pressed="true"]').count(), 0);
 });

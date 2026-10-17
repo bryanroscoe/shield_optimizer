@@ -1,5 +1,7 @@
 # ATV Optimizer mobile backlog
 
+Current owner release-polish findings and acceptance checks: [RELEASE-POLISH.md](RELEASE-POLISH.md). This supplement preserves the historical backlog below.
+
 Updated 2026-09-05 America/Chicago (lifecycle evidence/current authority). Bryan's
 feedback records a debug build from `main` at `44d2d66` installed on the Pixel;
 this is owner-reported use, not a completed physical stability matrix.
