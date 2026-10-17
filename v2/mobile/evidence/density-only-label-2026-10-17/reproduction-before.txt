@@ -1,0 +1,36 @@
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✖ density-only readback shows the override instead of physical density or device default (1129.3445ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1438.395583
+
+✖ failing tests:
+
+test at tests/tweaks-tab.test.mjs:504:1
+✖ density-only readback shows the override instead of physical density or device default (1129.3445ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + '3840x2160 @ 640 · device default · Custom size / density'
+  - '3840x2160 @ 300 · density override · Custom size / density'
+
+      at TestContext.<anonymous> (file://<workspace>/v2/mobile/tests/tweaks-tab.test.mjs:511:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '3840x2160 @ 640 · device default · Custom size / density',
+    expected: '3840x2160 @ 300 · density override · Custom size / density',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

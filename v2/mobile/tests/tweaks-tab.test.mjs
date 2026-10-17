@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -498,4 +498,68 @@ test("a reconnect after the Daydream component write prevents enabling", async t
   await page.evaluate(async () => { await session.connect("A", 5555); finishComponent(); });
   assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components"]);
   assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+});
+
+
+test("density-only readback shows the override instead of physical density or device default", async t => {
+  const page = await open(t, "tweaks");
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Display scaling', { exact: true }) });
+  await page.evaluate(() => { handlers.get_display_scaling = () => ({ size: 'Physical size: 3840x2160', density: 'Physical density: 640\nOverride density: 300' }); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await card.getByText(/Custom size \/ density/).waitFor();
+  if (process.env.DENSITY_BEFORE === '1') { await mkdir('evidence/density-only-label-2026-10-17', { recursive: true }); await card.screenshot({ path: 'evidence/density-only-label-2026-10-17/before-simulated.png' }); }
+  assert.equal(await card.locator('.t-info .t-desc').innerText(), '3840x2160 @ 300 · density override · Custom size / density');
+  assert.equal(await card.locator('[aria-pressed="true"]').count(), 0);
+  assert.equal(await card.getByText(/device default/).count(), 0);
+  assert.deepEqual(await writes(page, 'set_display_scaling'), []);
+  assert.deepEqual(await writes(page, 'write_setting'), []);
+});
+
+
+test("density-only matching preset, absent size and reset readbacks retain their distinct states", async t => {
+  const page = await open(t, "tweaks");
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Display scaling', { exact: true }) });
+  for (const fixture of [
+    { size: 'Physical size: 1920x1080', density: 'Physical density: 640\nOverride density: 320', text: '1920x1080 @ 320 · density override', selected: '1080p' },
+    { size: '', density: 'Physical density: 640\nOverride density: 300', text: 'Size not reported @ 300 · density override · Custom size / density', selected: null },
+    { size: 'Physical size: 3840x2160', density: 'Physical density: 640', text: '3840x2160 @ 640 · device default', selected: 'Reset' },
+    { size: 'Physical size: 3840x2160\nOverride size: 1920x1080', density: 'Physical density: 320', text: '1920x1080 @ 320 · panel 3840x2160', selected: '1080p' },
+    { size: '', density: '', text: '—', selected: null },
+  ]) {
+    await page.evaluate(fixture => { handlers.get_display_scaling = () => ({ size: fixture.size, density: fixture.density }); }, fixture);
+    await page.getByRole('button', { name: 'Re-read settings' }).click();
+    await card.getByText(fixture.text, { exact: true }).waitFor();
+    assert.equal(await card.locator('[aria-pressed="true"]').count(), fixture.selected ? 1 : 0);
+    if (fixture.selected) assert.equal(await card.getByRole('button', { name: fixture.selected, exact: true }).getAttribute('aria-pressed'), 'true');
+  }
+  assert.deepEqual(await writes(page, 'set_display_scaling'), []);
+  assert.deepEqual(await writes(page, 'write_setting'), []);
+});
+
+if (process.env.DENSITY_EVIDENCE === '1') test("capture density-only label at narrow width and enlarged summary text", async t => {
+  const page = await open(t, "tweaks");
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Display scaling', { exact: true }) });
+  await page.evaluate(() => { handlers.get_display_scaling = () => ({ size: 'Physical size: 3840x2160', density: 'Physical density: 640\nOverride density: 300' }); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await card.getByText('3840x2160 @ 300 · density override · Custom size / density', { exact: true }).waitFor();
+  const dir = 'evidence/density-only-label-2026-10-17'; await mkdir(dir, { recursive: true });
+  await card.screenshot({ path: `${dir}/after-384-simulated.png` });
+  await page.setViewportSize({ width: 320, height: 812 });
+  await card.evaluate(el => {
+    const nodes = [el, ...el.querySelectorAll('*')];
+    const sizes = nodes.map(node => parseFloat(getComputedStyle(node).fontSize));
+    nodes.forEach((node, i) => { if (!node.classList.contains('msr')) node.style.fontSize = `${sizes[i] * 2}px`; });
+  });
+  await card.screenshot({ path: `${dir}/known-full-card-text-200-simulated.png` });
+  const overflow = await card.evaluate(el => [...el.querySelectorAll('*')].filter(node => node.scrollWidth > node.clientWidth + 1).map(node => ({ text: node.textContent.trim(), width: node.clientWidth, content: node.scrollWidth })));
+  await writeFile(`${dir}/full-card-text-200-observations.json`, JSON.stringify(overflow, null, 2) + '\n');
+  await card.evaluate(el => {
+    [el, ...el.querySelectorAll('*')].forEach(node => node.style.fontSize = '');
+    const summary = el.querySelector('.t-info .t-desc');
+    summary.style.fontSize = `${parseFloat(getComputedStyle(summary).fontSize) * 2}px`;
+  });
+  assert.equal(await card.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  await card.screenshot({ path: `${dir}/after-320-summary-text-200-simulated.png` });
+  assert.deepEqual(await writes(page, 'set_display_scaling'), []);
+  assert.deepEqual(await writes(page, 'write_setting'), []);
 });
