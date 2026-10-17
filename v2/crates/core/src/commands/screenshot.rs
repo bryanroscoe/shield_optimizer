@@ -65,7 +65,7 @@ fn publish_screenshot(
         .as_file_mut()
         .flush()
         .map_err(|e| format!("flush screenshot: {e}"))?;
-    // Publish complete bytes atomically; existence checks alone race other captures.
+    // Publish complete bytes without replacing a destination; existence checks alone race.
     for n in 1..=MAX_CAPTURE_NAMES {
         let name = if n == 1 {
             format!("{stem}.png")
