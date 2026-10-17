@@ -1,0 +1,25 @@
+{
+  "base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "full_mobile": {
+    "passed": 271,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focused_with_capture": 27,
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "sha256": {
+    "v2/mobile/src/screens/Tweaks.svelte": "dc5cd5da0b17e64cac2e8ac2e3521ebb03b6d437889e79de8d655b77127558f8",
+    "v2/mobile/tests/tweaks-tab.test.mjs": "ae64d09213c981fde7a6c5d702763d4cc92800ad137ace9573abe845f56b02fd",
+    "v2/mobile/evidence/daydream-order-2026-10-17/basic-daydream-readback-simulated.png": "142c6d5e9d7a067faa673dedbb5fb6664ab198794c466752eac93331fb0fffc1",
+    "v2/mobile/evidence/daydream-order-2026-10-17/component-refused-off-simulated.png": "25b52d0a62a98b5e034c4a04fb0e7105c91717826a2f0154953297da9739a80d",
+    "v2/mobile/evidence/daydream-order-2026-10-17/daydream-failure-recovery-simulated.webm": "8332b7e0a2035d416a8708ec83c53c5b50ca302c8bfae34d3d708c7496ee794c"
+  },
+  "limitations": [
+    "Simulated Tauri replies only; no device operations.",
+    "Independent review and CI pending."
+  ]
+}

@@ -21,7 +21,7 @@ const BASIC = "com.android.dreams.basic/com.android.dreams.basic.BasicDream";
 const VENDOR = "com.google.android.backdrop/.Backdrop";
 
 async function open(t, screen, options = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(options.evidence ? { recordVideo: { dir: "evidence/settings-polish-2026-10-17/raw", size: { width: 384, height: 812 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(options.daydreamEvidence ? { recordVideo: { dir: "evidence/daydream-order-2026-10-17/raw", size: { width: 384, height: 812 } } } : options.evidence ? { recordVideo: { dir: "evidence/settings-polish-2026-10-17/raw", size: { width: 384, height: 812 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
   await page.addInitScript((options) => {
     localStorage.clear();
@@ -161,9 +161,9 @@ test("screensaver: Basic Daydream, Off, then Restore previous brings the vendor 
 
   const ss = (await writes(page, "write_setting")).map((a) => `${a.key}=${a.value}`);
   assert.deepEqual(ss, [
-    "screensaver_enabled=1", `screensaver_components=${BASIC}`,
+    `screensaver_components=${BASIC}`, "screensaver_enabled=1",
     "screensaver_enabled=0", "screensaver_components=",
-    "screensaver_enabled=1", `screensaver_components=${VENDOR}`,
+    `screensaver_components=${VENDOR}`, "screensaver_enabled=1",
   ]);
 });
 
@@ -282,9 +282,9 @@ test("current gap: Pro loss blocks restoring an app-changed screensaver even wit
   assert.equal(await page.evaluate(() => window.tweaks.screensaver_components), null);
   assert.equal(await page.evaluate(() => window.session.entitlement), "free");
   const calls = await writes(page, "write_setting");
-  assert.equal(calls.length, 3, "two initial writes, then a denied restore flag write only");
-  assert.equal(calls[2].key, "screensaver_enabled");
-  assert.equal(calls[2].value, "1");
+  assert.equal(calls.length, 3, "two initial writes, then a denied restore component write only");
+  assert.equal(calls[2].key, "screensaver_components");
+  assert.equal(calls[2].value, VENDOR);
 });
 
 test("Free users retain emergency recovery without an unlock or payment", async (t) => {
@@ -391,4 +391,111 @@ test("DNS confirmed changes survive navigation and reconnect, while unset stays 
   await page.getByRole('button', { name: 'Re-read settings' }).click();
   await page.getByText('Not explicitly set (TV default)', { exact: true }).waitFor();
   assert.equal(await card.locator('[aria-pressed="true"]').count(), 0);
+});
+
+for (const component of [VENDOR, null]) {
+  for (const outcome of ["refuse", "reject"]) {
+    test(`Daydream component ${outcome} never enables an off screensaver with ${component ? "previous" : "unset"} component`, async t => {
+      const page = await open(t, "tweaks", { pro: true });
+      await page.locator('[data-tweak="screensaver"]').waitFor();
+      await page.evaluate(({ component, outcome }) => {
+        tweaks.screensaver_enabled = "0"; tweaks.screensaver_components = component;
+        handlers.write_setting = args => {
+          if (args.key === "screensaver_components") {
+            if (outcome === "reject") throw "Component write failed";
+            return { ok: false, message: "Component write refused" };
+          }
+          tweaks[args.key] = args.value || null; return { ok: true, message: "done" };
+        };
+      }, { component, outcome });
+      await page.locator('[data-tweak="screensaver"]').getByRole("button", { name: "Basic Daydream", exact: true }).click();
+      await page.getByText(/Component write (failed|refused)/).waitFor();
+      assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+      assert.equal(await page.evaluate(() => tweaks.screensaver_components), component);
+      assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components"]);
+    });
+  }
+}
+
+for (const action of ["Basic Daydream", "Restore previous"]) {
+  test(`${action} does not enable after a refused component; failed enable retains off with configured component`, async t => {
+    const page = await open(t, "tweaks", { pro: true });
+    const card = page.locator('[data-tweak="screensaver"]'); await card.waitFor();
+    if (action === "Restore previous") {
+      await card.getByRole("button", { name: "Off", exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('[data-tweak="screensaver"] .state')?.textContent === "Off");
+    }
+    await page.evaluate(() => {
+      tweaks.screensaver_enabled = "0";
+      calls.length = 0;
+      handlers.write_setting = args => {
+        if (args.key === "screensaver_components") return { ok: false, message: "Component refused" };
+        tweaks[args.key] = args.value || null; return { ok: true, message: "done" };
+      };
+    });
+    const button = () => card.getByRole("button", { name: action === "Restore previous" ? /Restore previous/ : action, exact: action !== "Restore previous" });
+    await button().click(); await page.getByText(/Component refused/).waitFor();
+    assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+    assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components"]);
+    await page.evaluate(() => {
+      calls.length = 0;
+      handlers.write_setting = args => {
+        if (args.key === "screensaver_enabled") return { ok: false, message: "Enable refused" };
+        tweaks[args.key] = args.value || null; return { ok: true, message: "done" };
+      };
+    });
+    await button().click(); await page.getByText(/switch was not confirmed/).waitFor();
+    assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+    assert.equal(await page.evaluate(() => tweaks.screensaver_components), action === "Restore previous" ? VENDOR : BASIC);
+    assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components", "screensaver_enabled"]);
+  });
+}
+
+test("Off keeps the switch disabled if component clearing fails", async t => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.locator('[data-tweak="screensaver"]').waitFor();
+  await page.evaluate(() => {
+    handlers.write_setting = args => {
+      if (args.key === "screensaver_components") return { ok: false, message: "Clear refused" };
+      tweaks[args.key] = args.value || null; return { ok: true, message: "done" };
+    };
+  });
+  await page.locator('[data-tweak="screensaver"]').getByRole("button", { name: "Off", exact: true }).click();
+  await page.getByText(/component was not confirmed/).waitFor();
+  assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+  assert.equal(await page.evaluate(() => tweaks.screensaver_components), VENDOR);
+  assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_enabled", "screensaver_components"]);
+});
+
+if (process.env.DAYDREAM_EVIDENCE === "1") test("capture simulated Daydream partial failure and recovery", async t => {
+  const dir = "evidence/daydream-order-2026-10-17"; await mkdir(dir, { recursive: true });
+  const page = await open(t, "tweaks", { pro: true, daydreamEvidence: true });
+  const card = page.locator('[data-tweak="screensaver"]'); await card.waitFor();
+  await card.getByRole("button", { name: "Off", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-tweak="screensaver"] .state')?.textContent === "Off");
+  await card.scrollIntoViewIfNeeded();
+  await page.evaluate(() => { handlers.write_setting = args => args.key === "screensaver_components" ? { ok: false, message: "Component write refused (simulated)" } : { ok: true, message: "done" }; });
+  await card.getByRole("button", { name: "Basic Daydream", exact: true }).click();
+  await page.getByText(/Component write refused \(simulated\)/).waitFor();
+  await page.screenshot({ path: `${dir}/component-refused-off-simulated.png`, animations: "disabled" }); await page.waitForTimeout(800);
+  assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+  await page.evaluate(() => { delete handlers.write_setting; });
+  await card.getByRole("button", { name: "Basic Daydream", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-tweak="screensaver"] .state')?.textContent === "Basic Daydream");
+  await page.screenshot({ path: `${dir}/basic-daydream-readback-simulated.png`, animations: "disabled" }); await page.waitForTimeout(800);
+  const video = page.video(); await page.close(); await video.saveAs(`${dir}/daydream-failure-recovery-simulated.webm`);
+});
+
+test("a reconnect after the Daydream component write prevents enabling", async t => {
+  const page = await open(t, "tweaks", { pro: true });
+  const card = page.locator('[data-tweak="screensaver"]'); await card.waitFor();
+  await page.evaluate(() => {
+    tweaks.screensaver_enabled = "0";
+    handlers.write_setting = args => new Promise(resolve => { window.finishComponent = () => { tweaks[args.key] = args.value; resolve({ ok: true, message: "done" }); }; });
+  });
+  await card.getByRole("button", { name: "Basic Daydream", exact: true }).click();
+  await page.waitForFunction(() => !!window.finishComponent);
+  await page.evaluate(async () => { await session.connect("A", 5555); finishComponent(); });
+  assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components"]);
+  assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
 });
