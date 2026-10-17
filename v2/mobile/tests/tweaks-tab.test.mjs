@@ -499,3 +499,47 @@ test("a reconnect after the Daydream component write prevents enabling", async t
   assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components"]);
   assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
 });
+
+for (const [width, scale] of [[320, 1], [384, 1], [320, 2], [384, 2]]) test(`scaling preset row fits ${width}px at ${scale * 100}% text and preserves controls`, async t => {
+  const page = await open(t, 'tweaks', { pro: true });
+  const card = page.locator('.tweak-row').filter({ has: page.getByText('Display scaling', { exact: true }) });
+  await page.evaluate(() => { handlers.get_display_scaling = () => ({ size: 'Physical size: 3840x2160\nOverride size: 1920x1080', density: 'Physical density: 640\nOverride density: 320' }); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  const row = card.locator('.segmented');
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(el => el.textContent.trim() === '1080p' && el.getAttribute('aria-pressed') === 'true'));
+  await page.setViewportSize({ width, height: 812 });
+  if (scale !== 1) await card.evaluate((el, scale) => {
+    const nodes = [el, ...el.querySelectorAll('*')];
+    const sizes = nodes.map(node => parseFloat(getComputedStyle(node).fontSize));
+    nodes.forEach((node, i) => { if (!node.classList.contains('msr')) node.style.fontSize = `${sizes[i] * scale}px`; });
+  }, scale);
+  await row.evaluate(el => el.scrollIntoView({ block: 'center' }));
+  const dir = 'evidence/scaling-preset-wrap-2026-10-17';
+  if (process.env.SCALING_WRAP_BEFORE === '1') { await mkdir(dir, { recursive: true }); await row.screenshot({ path: `${dir}/before-${width}-${scale * 100}-simulated.png` }); }
+  const dimensions = await row.evaluate(el => ({ width: el.clientWidth, content: el.scrollWidth }));
+  assert.ok(dimensions.content <= dimensions.width, JSON.stringify(dimensions));
+  assert.equal(await card.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+  assert.deepEqual((await row.getByRole('button').allTextContents()).map(x => x.trim()), ['4K', '1080p', '720p', 'Reset']);
+  const buttons = row.getByRole('button');
+  await buttons.first().focus();
+  for (let i = 0; i < 4; i++) {
+    const button = buttons.nth(i);
+    assert.equal(await button.evaluate(el => document.activeElement === el), true);
+    assert.equal(await button.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return r.width >= 44 && r.height >= 44 && r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && el.scrollWidth <= el.clientWidth;
+    }), true);
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: i === 3 ? 'Reset display scaling?' : 'Change display scaling?', exact: true });
+    await dialog.waitFor(); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); await dialog.waitFor({ state: 'detached' });
+    assert.equal(await button.evaluate(el => document.activeElement === el), true);
+    if (i < 3) await page.keyboard.press('Tab');
+  }
+  assert.equal(await row.getByRole('button', { name: '1080p', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(await writes(page, 'set_display_scaling'), []);
+  assert.deepEqual(await writes(page, 'write_setting'), []);
+  if (process.env.SCALING_WRAP_EVIDENCE === '1') {
+    await mkdir(dir, { recursive: true }); await row.evaluate(el => el.scrollIntoView({ block: 'center' }));
+    await row.screenshot({ path: `${dir}/after-${width}-${scale * 100}-simulated.png` });
+  }
+});
