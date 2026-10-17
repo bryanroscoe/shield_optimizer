@@ -5,6 +5,7 @@ type Entry = { node: HTMLElement; options: Options; returnFocus: HTMLElement | n
 const stack: Entry[] = [];
 let unlock: (() => void) | undefined;
 let documentReturnFocus: HTMLElement | null = null;
+let revision = 0;
 const focusable = 'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 function controls(node: HTMLElement): HTMLElement[] {
@@ -27,7 +28,7 @@ function focusControl(element: HTMLElement, entry: Entry) {
   }
 }
 function focusInside(entry: Entry) {
-  focusControl(controls(entry.node)[0] ?? entry.node.querySelector<HTMLElement>('[role="dialog"], [role="menu"]') ?? entry.node, entry);
+  focusControl(controls(entry.node)[0] ?? entry.node.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"], [role="menu"]') ?? entry.node, entry);
 }
 function holdDocument() {
   const x = window.scrollX;
@@ -62,14 +63,16 @@ export function modal(node: HTMLElement, options: Options) {
   const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   // A triggering action may briefly disable its button while awaiting a safety
   // read, causing the browser to drop focus before its confirmation mounts.
-  const returnFocus = previous && (!active || !previous.node.contains(active))
-    ? previous.lastFocus : active;
+  let returnFocus = active;
+  if (!previous && unlock) returnFocus = documentReturnFocus;
+  else if (previous && (!active || !previous.node.contains(active))) returnFocus = previous.lastFocus;
   const entry: Entry = { node, options, returnFocus, lastFocus: null };
-  if (!stack.length) {
+  if (!stack.length && !unlock) {
     documentReturnFocus = entry.returnFocus;
     unlock = holdDocument();
   }
   stack.push(entry);
+  revision++;
   const initialFocus = requestAnimationFrame(() => {
     if (stack.at(-1) === entry && node.isConnected) focusInside(entry);
   });
@@ -110,17 +113,19 @@ export function modal(node: HTMLElement, options: Options) {
       const index = stack.indexOf(entry);
       if (index < 0) return;
       stack.splice(index, 1);
-      const fallbackFocus = documentReturnFocus;
-      if (!stack.length) {
-        documentReturnFocus = null;
-        unlock?.();
-        unlock = undefined;
-      }
-      if (!wasTop) return;
-      // Wait for Svelte to remove the closing overlay; never focus behind a
-      // newly opened modal or a disconnected launcher after screen navigation.
+      const closedAt = ++revision;
+      // Svelte can destroy a menu before mounting its replacement in the same
+      // update. Retain the document lock/opener until that update settles.
       queueMicrotask(() => {
+        if (closedAt !== revision) return;
         const top = stack.at(-1);
+        const fallbackFocus = documentReturnFocus;
+        if (!top) {
+          documentReturnFocus = null;
+          unlock?.();
+          unlock = undefined;
+        }
+        if (!wasTop) return;
         if (entry.returnFocus?.isConnected && (!top || top.node.contains(entry.returnFocus))) {
           if (top) focusControl(entry.returnFocus, top);
           else entry.returnFocus.focus({ preventScroll: true });

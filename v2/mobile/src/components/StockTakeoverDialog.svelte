@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modal } from "../lib/modal";
   // The confirm for Launcher › Advanced "Disable stock launcher". Three ways
   // out, as on desktop: save a snapshot first, disable now, or cancel.
   let {
@@ -20,11 +21,12 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="dialog-overlay" onclick={onCancel}>
+  <div class="dialog-overlay" use:modal={{ onClose: onCancel }} onclick={onCancel}>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="dialog-card"
       role="alertdialog"
+      aria-modal="true"
       tabindex="-1"
       aria-label="Confirm disabling the stock launcher"
       onclick={(e) => e.stopPropagation()}
@@ -70,6 +72,9 @@
   .dialog-card {
     width: 100%;
     max-width: 360px;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
     box-sizing: border-box;
     padding: 22px 20px 12px;
     border-radius: 20px;
