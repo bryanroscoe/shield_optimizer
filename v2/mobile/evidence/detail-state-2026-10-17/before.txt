@@ -1,0 +1,114 @@
+✖ Restore enable plans describe a disabled installed app to the detail sheet (747.736333ms)
+✖ diagnostics: Disable landing with a false response discards the stale selection (2100.049125ms)
+✖ diagnostics: Uninstall landing with a false response discards the stale selection (819.578625ms)
+✖ optimize: Disable landing with a false response discards the stale selection (832.755458ms)
+✖ optimize: Uninstall landing with a false response discards the stale selection (825.04025ms)
+✖ Restore detail offers Enable and dispatches only enable_package (10228.934667ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 0
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16605.85125
+
+✖ failing tests:
+
+test at tests/parity-rows.test.mjs:233:2
+✖ Restore enable plans describe a disabled installed app to the detail sheet (747.736333ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'enabled'
+  - 'disabled'
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/parity-rows.test.mjs:235:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'enabled',
+    expected: 'disabled',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/sheet-opening-identity.test.mjs:179:50
+✖ diagnostics: Disable landing with a false response discards the stale selection (2100.049125ms)
+  AssertionError [ERR_ASSERTION]: an inconclusive write must clear child and parent selection
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/sheet-opening-identity.test.mjs:197:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/sheet-opening-identity.test.mjs:179:50
+✖ diagnostics: Uninstall landing with a false response discards the stale selection (819.578625ms)
+  AssertionError [ERR_ASSERTION]: an inconclusive write must clear child and parent selection
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/sheet-opening-identity.test.mjs:197:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/sheet-opening-identity.test.mjs:179:50
+✖ optimize: Disable landing with a false response discards the stale selection (832.755458ms)
+  AssertionError [ERR_ASSERTION]: an inconclusive write must clear child and parent selection
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/sheet-opening-identity.test.mjs:197:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/sheet-opening-identity.test.mjs:179:50
+✖ optimize: Uninstall landing with a false response discards the stale selection (825.04025ms)
+  AssertionError [ERR_ASSERTION]: an inconclusive write must clear child and parent selection
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/sheet-opening-identity.test.mjs:197:12)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/sheet-opening-identity.test.mjs:206:1
+✖ Restore detail offers Enable and dispatches only enable_package (10228.934667ms)
+  locator.waitFor: Timeout 10000ms exceeded.
+  Call log:
+  [2m  - waiting for locator('.sheet').getByRole('button', { name: 'Enable', exact: true }) to be visible[22m
+  
+      at TestContext.<anonymous> (/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/sheet-opening-identity.test.mjs:214:16) {
+    name: 'TimeoutError'
+  }

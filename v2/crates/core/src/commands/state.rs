@@ -323,6 +323,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_driver_without_a_server_skips_stop_without_dispatching_commands() {
+        let mock = MockAdb::default();
+        let raw = mock.raw_log();
+        let shell = mock.shell_log();
+        let state = AppState::new(
+            Arc::new(mock),
+            AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        assert!(matches!(
+            state.stop_adb_server(std::time::Duration::ZERO).await,
+            ServerStop::Skipped(_)
+        ));
+        assert!(matches!(
+            state
+                .adb_snapshot()
+                .await
+                .stop_server(std::time::Duration::ZERO)
+                .await,
+            ServerStop::Skipped(_)
+        ));
+        assert!(raw.lock().unwrap().is_empty());
+        assert!(shell.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn every_snapshot_counts_until_its_last_clone_goes() {
         let state = state();
         let snapshot = state.adb_snapshot().await;

@@ -1,0 +1,98 @@
+[
+  {
+    "name": "test:app-files-catalog",
+    "code": 0
+  },
+  {
+    "name": "test:pairing-flow",
+    "code": 0
+  },
+  {
+    "name": "test:adb-errors",
+    "code": 0
+  },
+  {
+    "name": "test:sideload-scan",
+    "code": 0
+  },
+  {
+    "name": "test:device-list-rows",
+    "code": 0
+  },
+  {
+    "name": "test:stop-adb-on-quit",
+    "code": 0
+  },
+  {
+    "name": "test:release-notes",
+    "code": 0
+  },
+  {
+    "name": "test:version-compare",
+    "code": 0
+  },
+  {
+    "name": "test:update-notes-dialog",
+    "code": 0
+  },
+  {
+    "name": "test:notes-seen",
+    "code": 0
+  },
+  {
+    "name": "test:report-bug",
+    "code": 0
+  },
+  {
+    "name": "test:app-report",
+    "code": 0
+  },
+  {
+    "name": "test:remote-paste",
+    "code": 0
+  },
+  {
+    "name": "test:memory-safety",
+    "code": 0
+  },
+  {
+    "name": "test:recommendation-labels",
+    "code": 0
+  },
+  {
+    "name": "test:optimize-plan",
+    "code": 0
+  },
+  {
+    "name": "test:playback-shell",
+    "code": 0
+  },
+  {
+    "name": "test:optimize-safety-all-rows",
+    "code": 0
+  },
+  {
+    "name": "test:shell-acknowledge",
+    "code": 0
+  },
+  {
+    "name": "test:icon-alignment",
+    "code": 0
+  },
+  {
+    "name": "test:launcher-rows",
+    "code": 0
+  },
+  {
+    "name": "test:files-drop",
+    "code": 0
+  },
+  {
+    "name": "test:context-menu",
+    "code": 0
+  },
+  {
+    "name": "test:device-logs",
+    "code": 0
+  }
+]

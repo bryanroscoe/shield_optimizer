@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-17",
+  "base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
+  "source_delta": "One scoped class and CSS wrapping/intrinsic width/minimum touch target rules; no logic or value changes.",
+  "before_failure": {
+    "viewport": 320,
+    "text_percent": 200,
+    "row_width": 240,
+    "content_width": 271
+  },
+  "focused_layout_tests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "full_mobile_tests": {
+    "passed": 308,
+    "failed": 0
+  },
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "fixtures": [
+    "320px 100%",
+    "384px 100%",
+    "320px 200%",
+    "384px 200%"
+  ],
+  "verified": [
+    "all four labels and minimum 44x44 targets",
+    "row/card horizontal fit and viewport-contained controls",
+    "Tab order and Enter/Cancel for every confirmation",
+    "focus return and 1080p selection retained",
+    "no setting/scaling writes"
+  ],
+  "isolated_from": [],
+  "limitations": [
+    "Synthetic browser only",
+    "No physical accessibility, touch or Android acceptance claimed"
+  ],
+  "previous_validation": {
+    "base": "b095f697b2a24c3d2fb8f56cef7056586b6355ef",
+    "full_mobile_passed": 304,
+    "head": "1c5bc6b76ef6dc851d8c34a8b477775ef77b3539"
+  },
+  "integration_delta": "Merge reviewed screensaver PR195, reconcile checklist completion and update provenance. CSS/class delta is unchanged; removing only it reproduces the current base Tweaks source exactly.",
+  "unchanged_visual_evidence": "Original layout PNGs retained byte-for-byte; merged screensaver names change a different card.",
+  "integration_history": [
+    {
+      "base": "35b5deaa044bb2218c720eeaa64858486ffc195f",
+      "full_mobile_passed": 306,
+      "head": "02e2747b83dcea4a28c3f9a7b528cd580e8bcc15"
+    }
+  ]
+}

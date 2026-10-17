@@ -1,0 +1,33 @@
+{
+  "original_base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
+  "mobile_tests": 326,
+  "apps_report_tests": 21,
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "measured_bytes_in_evidence": 1234567,
+  "export_storage": {
+    "source": "apk_files",
+    "app_bytes": 1234567,
+    "data_bytes": null,
+    "cache_bytes": null
+  },
+  "identity_receipt": "Internal package, serial, connection generation and measurement-batch id; never exported.",
+  "limits": [
+    "Browser mocks only; no device operations",
+    "No new queries, write actions or schema fields"
+  ],
+  "pending": null,
+  "current_base": "4148f035c20450751d92d894456162cbc5ab837b",
+  "original_mobile_tests": 316,
+  "integration": "Merge approved helper PR197; reconcile both checklist rows and validation provenance. APK source/app-report tests unchanged from f1044a5; helper source/tests exactly match merged base.",
+  "integration_history": [
+    {
+      "base": "a73787a36bbf44311de2596e9a01c8232a049a02",
+      "mobile_tests": 320,
+      "head": "f1044a5b8af6ce01502223e4d569721e488dbe9e"
+    }
+  ]
+}

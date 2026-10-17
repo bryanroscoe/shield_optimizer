@@ -109,8 +109,8 @@
     {
       label: "Tuning",
       tools: [
+        { screen: "optimize", icon: "auto_fix_high", title: "Optimize", desc: "Review and turn off apps you don't use", pro: true },
         { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
-        { screen: "tweaks", icon: "tune", title: "Tweaks", desc: "CEC, frame rate, DNS, animations", pro: true },
         { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Record a setup and re-apply it later", pro: true },
       ],
     },
@@ -296,12 +296,9 @@
 <div class="screen">
   <div class="topline">
     <div class="header-left">
-      <button class="iconbtn" onclick={() => navigate("dashboard")} aria-label="Back">
-        <span class="msr">arrow_back</span>
-      </button>
       <FindRemoteButton />
     </div>
-    <h3 class="header-title">Settings</h3>
+    <h3 class="header-title">More</h3>
   </div>
 
   <div class="more-content">
@@ -439,7 +436,7 @@
           <p class="card-desc">
             Includes app or process identifiers, observation times and version information. Review
             the contents before sharing. No network addresses, device serials, license keys or full
-            debug logs are included.
+            debug logs are included. Copy diagnostic JSON puts text on your clipboard; it does not save a file.
           </p>
           <div class="log-toolbar">
             <button class="ghost-btn compact" onclick={takeDiagnosticsSnapshot}>
@@ -485,7 +482,7 @@
     <!-- Debug log -->
     <div class="more-card">
       <span class="card-label">Debug log</span>
-      <p class="card-desc">Recent app activity and the device transport log — useful for support.</p>
+      <p class="card-desc">Recent app activity and the device transport log — useful for support. Copy puts log text on your clipboard; it does not save a file.</p>
       {#if !showLog}
         <button class="ghost-btn" onclick={loadLog}>
           <span class="msr">description</span>Show debug log
@@ -808,6 +805,7 @@
 
   .log-toolbar {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .log-view {

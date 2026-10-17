@@ -18,8 +18,11 @@ building and uploading is still a local, manual step.
 
 ## 1. Create the upload keystore (one time, then keep it forever)
 
-An Android package's signing identity is permanent: a key change means a new listing. Generate the
-key once, back it up in the password manager **and** offline, and never commit it.
+Coordinate signing identity and backup with the owner before any creation. Distinguish the app
+signing key from a Play upload key: Play App Signing supports upload-key reset and specific
+app-signing-key upgrade procedures. Do not assume replacing a local key preserves sideload
+updates. Keep credentials out of Git. The following is reference documentation, not authorization
+to generate a key.
 
 ```
 keytool -genkeypair -v \
@@ -152,20 +155,112 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
 
 1. Play Console → Internal testing → create release → upload the AAB.
 2. Check the pre-launch report; `minSdk` is 24 and `targetSdk` 36.
-3. Data safety form: the app talks only to devices on the user's own LAN over wireless ADB; there
-   is no backend and no analytics. Keep that answer accurate if telemetry is ever added.
+3. Complete Data safety from the verified final artifact, actual data inventory and owner-approved
+   disclosures; see `DATA-INVENTORY.md`. Do not reuse preset LAN-only/no-backend/no-analytics
+   answers. Include user-initiated external navigation and review the resolved SDK graph.
 4. Promote internal → closed → production once a real device has been exercised end to end.
 
-## Not done yet — read before promising a release date
+## Testing-candidate gates (feature freeze, 2026-10-16)
 
-- **SPAKE2 pairing is missing.** `adb_client` implements legacy network debugging (`:5555`) but not
-  the Android 11+ pairing-code handshake, so a Google TV device that has never been paired from a
-  PC cannot be onboarded from the phone alone. Clean-room SPAKE2 is queued; see
-  `HANDOFF.md` and `TRANSPORT-LICENSING-RESEARCH.md`.
-- **SAF import/export is missing.** Backups and snapshots stay in app-private storage; there is no
-  Storage Access Framework picker, so a user cannot move a bundle off the phone.
-- **Licensing / Pro entitlement** is not release-ready — the current unlock path is a development
-  key, not signed validation. See `LICENSING.md` for the current status.
-- **No release automation.** There is no mobile tag namespace and no signed-build job; step 5 is
-  manual. an APK/AAB CI job is not set up yet; it needs
-  (SDK + NDK setup, the four Rust targets, keystore secrets).
+This is a preparation checklist, not approval to create credentials, upload or install a build.
+No purchase, trial or pricing policy is selected. Keep the existing feature set frozen.
+
+- [ ] Integrate the independently reviewed reconnect fix (PR167) into the chosen candidate.
+- [ ] Record exact commit, lockfiles, SDK/NDK/JDK versions and selected ABIs.
+- [ ] Run host Rust fmt/clippy/tests, mobile `npm test`, check and build. Host CI is not an Android build.
+- [ ] Resolve and review the Android release runtime dependency graph and its notices (see
+      `ANDROID-DEPENDENCIES.md`); notices for declaration sites are not a complete resolved graph.
+- [ ] Confirm signing-key ownership and durable custody through the owner. Do not generate keys
+      merely to make a build pass. Existing Gradle config can emit an unsigned release when absent.
+- [ ] Choose a new, never-uploaded `versionCode` across all tracks and build the candidate locally.
+- [ ] Verify the APK with `python3 scripts/verify-release-apk.py candidate.apk`, using SDK tool
+      paths via `--apksigner`, `--zipalign`, `--apkanalyzer` as needed. All missing tools, signature,
+      debug-certificate/debuggable, package-id, target/version, ZIP and architecture-aware native ELF alignment failures
+      reject the artifact. ELF load segments require 16 KB alignment for arm64-v8a/x86_64;
+      valid 4 KB armeabi-v7a/x86 libraries are accepted, with ABI/header consistency checked.
+      The receipt certifies ELF LOAD alignment only, not full ELF/16 KB compatibility. It does
+      not validate GNU_RELRO layout or overlap; retain those checks (including NDK r27-and-earlier
+      hazards) and actual 16 KB runtime validation as separate gates. It never signs, installs or uploads. A successful check does not prove
+      the signing fingerprint is the owner's, or that the versionCode exceeds Play's latest value.
+- [ ] For Play, separately verify the AAB signature, bundletool output and generated APKs, then
+      Play's pre-launch report. The APK checker deliberately does not accept AABs.
+- [ ] Run on an Android 16 KB page-size environment; static alignment checks are not runtime tests.
+- [ ] Perform the physical matrix in `PAIRING-PLAN.md` and `LIFECYCLE-EVIDENCE.md`: Shield legacy
+      debugging; fresh Google TV code pairing; wrong code; rotated port; replaced endpoint;
+      denied/unavailable discovery; reconnect; Home/background/Back/Recents; recreation/process
+      death; fresh install and upgrade; restore/undo; free and legitimately licensed Pro behavior.
+      Preserve #93 and #105 until their actual acceptance evidence exists.
+- [ ] Review release disclosures, risk copy, accessibility, support contact and listing assets.
+      `DATA-INVENTORY.md` is a code-grounded draft, not a published privacy policy.
+- [ ] Owner selects distribution and monetization. No Play purchase/restore or self-service trial
+      exists. Do not claim that offline key entry is store purchase restoration or that expiring
+      manually issued licenses constitute a self-service trial. The paywall uses neutral feature copy; approve actual purchase terms before public sale.
+- [ ] Obtain the account-specific testing/verification requirements from the actual store account;
+      no account status or production-access eligibility has been verified here.
+
+### Implemented, not fully physically validated
+
+Android 11+ SPAKE2 code pairing is implemented in `src-tauri/src/wireless_adb.rs` and the vendored
+transport. Signed Ed25519 offline licensing, persistence and debug-only development keys are
+implemented; see `LICENSING.md`. The old claims that these implementations were missing were stale.
+Neither implementation establishes current phone/TV end-to-end readiness.
+
+### Still missing or unresolved
+
+SAF import/export, mobile release automation, verified signed APK/AAB evidence, complete resolved
+Android dependency notices, privacy/store disclosures, and a selected commerce channel remain open.
+The preflight-tools workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
+it does not build/sign an APK, validate the native Android transport, or publish anything.
+
+### Current external requirements to verify at submission
+
+The configuration targets API36 (the mobile requirement effective August 31, 2026), with minSdk24.
+Check current rules again before submission:
+
+- https://support.google.com/googleplay/android-developer/answer/11926878
+- https://developer.android.com/guide/practices/page-sizes
+- https://developer.android.com/google/play/billing/integrate
+- https://support.google.com/googleplay/android-developer/answer/9858738
+- https://support.google.com/googleplay/android-developer/answer/10144311
+
+For local-network access, SDK36 and SDK37 have different requirements; do not add/request a
+future permission speculatively: https://developer.android.com/privacy-and-security/local-network-permission
+
+## Open Shield issues at the 2026-10-16 release audit
+
+This is a dated triage snapshot, not a claim that an open issue is resolved. Re-read the tracker
+before cutting a candidate; close only after its actual acceptance evidence is reviewed.
+
+| Issue | Release disposition / exact remaining evidence |
+|---|---|
+| [#93 Saved-TV discovery/reconnect](https://github.com/bryanroscoe/shield_optimizer/issues/93) | Physical gate: Shield without mDNS, rotated Google TV port, changed address, cached identity/name isolation and honest reconnect results. Browser coverage does not close this. |
+| [#105 Restart/lifecycle report](https://github.com/bryanroscoe/shield_optimizer/issues/105) | Physical gate: distinguish Home/background, Back, Recents, recreation and process death. Do not claim restored live state or replay mutations from browser reconstruction. |
+| [#123 Glance/Daydream](https://github.com/bryanroscoe/shield_optimizer/issues/123) | Current screensaver controls are not proof that the reporter's server-delivered Glance variant is covered. Obtain exact package/device behavior and reporter confirmation; retain vendor restore/reconnect tests. |
+| [#161 Launcher sources/default](https://github.com/bryanroscoe/shield_optimizer/issues/161) | Desktop source-site work merged in PR165; mobile parity includes source links. Confirm the requested installed/current-default case and release availability; do not reimplement or auto-close. |
+| [#162 Logcat](https://github.com/bryanroscoe/shield_optimizer/issues/162) | Desktop Logs merged in PR166. Confirm requested filtering/live-display acceptance and release availability; it is not a reason to add mobile features during this freeze. |
+
+PR167 reconnect safety was merged into `mobile-parity-pass` at
+`f7897c1292d702fdfad1b77c3193312a641475b2` after independent review and six passing PR checks.
+Its integration does not clear the physical gates above. Release-preparation PR169 includes that
+ancestry by a normal merge. The existing test workflow triggers pushes to `main`, not feature
+branches; a missing postmerge feature-branch run must not be reported as a passing run.
+
+### Preparation validation receipt (2026-10-16)
+
+On the release-preparation branch after merging `f7897c1`: 218 mobile browser/unit tests passed,
+13 APK-verifier tests passed, mobile check reported 0 errors / 0 warnings and build succeeded.
+The neutral paywall was inspected at 384×812. Notices regeneration inventoried 313 Cargo crates;
+Android/JVM declarations are listed separately without claiming full transitive resolution.
+The installed SDK apksigner rejected an unsigned synthetic archive through the CLI (exit 1,
+no success receipt). Positive signing/SDK outcomes in unit tests are mocked: no genuine signed
+release artifact or Android runtime was validated. This receipt is not release authorization.
+
+### Modal polish follow-up (2026-10-17, merged PR186)
+
+The separate modal follow-up registers `StockTakeoverDialog` with shared scroll/focus ownership
+and preserves original-row focus through sequential `AppActionMenu` → Report transitions.
+Regression coverage includes cancellation, async replacements, nested/out-of-order teardown,
+short-screen keyboard access and restored scroll. See
+[evidence and verification limits](evidence/modal-handoffs-2026-10-17/README.md).
+These two P2s passed independent source review and all six CI jobs, and PR186 merged at
+`83f69b77e2b19b643e21ae456d0f597e90ef7d83`. Host simulation does not clear physical-device gates.

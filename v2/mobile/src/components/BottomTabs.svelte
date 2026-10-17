@@ -10,8 +10,8 @@
 
   const tabs: { id: Screen; icon: string; label: string }[] = [
     { id: "dashboard", icon: "grid_view", label: "Home" },
-    { id: "optimize", icon: "auto_fix_high", label: "Optimize" },
     { id: "apps", icon: "apps", label: "Apps" },
+    { id: "tweaks", icon: "tune", label: "Tweaks" },
     { id: "remote", icon: "stadia_controller", label: "Remote" },
     { id: "more", icon: "more_horiz", label: "More" },
   ];

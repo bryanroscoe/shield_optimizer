@@ -1,0 +1,15 @@
+✔ diagnostics: Disable landing with a false response discards the stale selection (1801.219166ms)
+✔ diagnostics: Uninstall landing with a false response discards the stale selection (829.712375ms)
+✔ optimize: Disable landing with a false response discards the stale selection (1623.149708ms)
+✔ optimize: Uninstall landing with a false response discards the stale selection (818.534375ms)
+✔ Restore detail offers Enable and dispatches only enable_package (1696.246834ms)
+✔ diagnostics: successful uninstall retains the explicit Reinstall path (766.414ms)
+✔ optimize: successful uninstall retains the explicit Reinstall path (785.596708ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8746.7235

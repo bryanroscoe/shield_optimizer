@@ -28,7 +28,7 @@ VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["vers
 
 # The header pins npm versions by hand; warn (don't fail) when they drift.
 if [[ -d "$MOBILE_DIR/node_modules" ]]; then
-  for pkg in svelte @tauri-apps/api geist material-symbols; do
+  for pkg in svelte @tauri-apps/api material-symbols; do
     installed="$(node -e "process.stdout.write(require('$MOBILE_DIR/node_modules/$pkg/package.json').version)" 2>/dev/null || true)"
     if [[ -n "$installed" ]] && ! grep -q "\`$pkg\` | $installed " "$MOBILE_DIR/scripts/notices-header.md"; then
       echo "warning: $pkg is installed at $installed but scripts/notices-header.md says otherwise" >&2

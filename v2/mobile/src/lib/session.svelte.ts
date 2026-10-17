@@ -21,7 +21,7 @@ import type {
 export type Liveness = "idle" | "connecting" | "live" | "reconnecting" | "lost";
 
 class Session {
-  private connectionGeneration = Date.now() * 1000;
+  private connectionGeneration = $state(Date.now() * 1000);
   private healthGeneration = 0;
   private healthLoadingSerial = "";
   private bloatGeneration = 0;

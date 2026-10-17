@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-17",
+  "base": "9265e5fdbf4c9c73f7cea5522e50c50dbcd90fe0",
+  "reviewed_storage_head": "6a43e6c464369733f6898b3da5a746a2b89fcced",
+  "changes": "Merge approved RAM base, preserve both checklist completion entries and update evidence receipts; approved screenshot source and dependency declaration are byte-for-byte unchanged.",
+  "mobile_browser_tests": {
+    "passed": 300,
+    "failed": 0
+  },
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "mobile_build": "passed",
+  "rust_fmt": "passed",
+  "rust_clippy_all_targets_warnings_denied": [
+    "shield-optimizer-core",
+    "shield-optimizer-v2",
+    "atv-optimizer-mobile"
+  ],
+  "rust_tests": {
+    "core_passed": 465,
+    "mobile_passed": 26,
+    "desktop_passed": 83,
+    "desktop_ignored_live_test": 1
+  },
+  "visual_evidence": "Existing header, RAM and screenshot-contract evidence retained unchanged from approved branches; no new UI or fixture changes.",
+  "limitations": [
+    "macOS host and simulated browser only",
+    "Android acceptance open",
+    "Cleanup best effort; no universal atomic rename or power-loss durability guarantee"
+  ],
+  "previous_integration": {
+    "base": "5e80c0efd6620060bb03d5c354815990303628ab",
+    "browser_passed": 298,
+    "head": "6a43e6c464369733f6898b3da5a746a2b89fcced"
+  }
+}

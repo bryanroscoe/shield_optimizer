@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-17T14:59:26.022Z",
+  "truncated": false,
+  "source": "mobile_app_report",
+  "records": [
+    {
+      "kind": "installed_package",
+      "token": "com.google.android.katniss",
+      "reason": "user_report_other",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-10-17T14:59:26.022Z",
+      "last_seen": "2026-10-17T14:59:26.022Z",
+      "count": 1,
+      "app_name": "Google Assistant (Katniss)",
+      "current_verdict": "unavailable",
+      "verdict_source": null,
+      "note": null,
+      "state": {
+        "installed": true,
+        "enabled": false,
+        "running": false,
+        "ram_mb": null,
+        "storage": {
+          "source": "diskstats",
+          "app_bytes": 12582912,
+          "data_bytes": 3145728,
+          "cache_bytes": 1048576
+        }
+      }
+    }
+  ]
+}

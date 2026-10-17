@@ -1,0 +1,32 @@
+{
+  "reviewed_base": "94079cc45c034fac4761f8fcee8dfc5fc01b3961",
+  "code_commit": "de5dda6eaead4605ce18d49e3b1cd087cb236586",
+  "simulated_only": true,
+  "physical_device_validation": false,
+  "tests": {
+    "full_mobile": {
+      "passed": 217,
+      "failed": 0
+    },
+    "unchanged_base_new_scenarios": {
+      "passed": 0,
+      "failed": 3
+    },
+    "typecheck": "0 errors, 0 warnings",
+    "build": "passed",
+    "lint": "no separate mobile lint command; node --check and git diff --check pass"
+  },
+  "log_sha256": {
+    "final-build.log": "c9bc72e24496025d16ffaaac3d7a7c782e3bc854a1e2f47472f55632de280b26",
+    "full-tests.log": "28cd8b3b3104d6de025c57fd9e42e0754fc4d6b22511b72d9a449b27828d5a0b",
+    "baseline-regressions.log": "9e420df66e606887e384beb7fb1c050d2f854cc469ccaf7f1bcaba1c6ff23752",
+    "final-check.log": "f2f965bef65e9acbf1e00d70deaa53a215937f12f78747c5055c324b41f383fe",
+    "final-tests.log": "ac55b9cb8029b3c81f494c45329bedb648f077dce71ad18b70bb6caaad5fa9a8"
+  },
+  "videos": {
+    "SIMULATED-verified-TV-retains-originals-across-a-rotated-port-replacement-hardware-does-not.mp4": "fba6f32fe90836c75f6f71634ffce512325a362a6569e9b43cfea7a7c9b009eb",
+    "SIMULATED-endpoint-reuse-never-restores-another-TV-s-screensaver-and-interrupted-writes-stop.mp4": "49dd4d148d39a05438fb1bf5fa95f331b6c639bd365e52f2a8110eb3146c94de",
+    "SIMULATED-a-reconnect-between-screensaver-writes-prevents-the-second-write.mp4": "509159b5313075f56345dcf3c5f339dccd9287d2e5ffcd687efe75c33664c7d4",
+    "SIMULATED-same-endpoint-reconnect-cancels-confirmations-and-late-launcher-results.mp4": "2b1288deaee4d2a091b8c03a1bd2d44eff5fab0c2187f3d75e9587aec34c0cec"
+  }
+}

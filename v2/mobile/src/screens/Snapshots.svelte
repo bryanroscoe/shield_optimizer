@@ -4,6 +4,7 @@
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { SnapshotApplyPlan, SnapshotFile } from "../lib/types";
+  import { previewRows, previewSummary } from "../lib/snapshotPreview";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
@@ -32,7 +33,7 @@
     plan: SnapshotApplyPlan;
     serial: string;
   } | null>(null);
-  let planExpanded = $state(false);
+  let unchangedOpen = $state(false);
   let deleteTarget = $state<SnapshotFile | null>(null);
 
   let toast = $state("");
@@ -95,8 +96,8 @@
         showToast("The connected TV changed while the plan was loading. Preview again.", "error");
         return;
       }
-      planExpanded = false;
       pending = { snap, plan, serial };
+      unchangedOpen = previewRows(plan, snap.launcher).unchanged.length <= 6;
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
       else showToast(String(e), "error");
@@ -158,16 +159,10 @@
       " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   }
 
-  const settingsToWrite = $derived(
-    pending ? Object.entries(pending.plan.settings_to_write) : [],
+  const rows = $derived(
+    pending ? previewRows(pending.plan, pending.snap.launcher) : { acting: [], unchanged: [] },
   );
-  const nothingToDo = $derived(
-    pending != null &&
-      pending.plan.packages_to_disable.length === 0 &&
-      settingsToWrite.length === 0 &&
-      pending.plan.settings_to_delete.length === 0 &&
-      pending.plan.launcher_to_set == null,
-  );
+  const nothingToDo = $derived(pending != null && rows.acting.length === 0);
 </script>
 
 <div class="screen">
@@ -178,7 +173,7 @@
       </button>
       <FindRemoteButton />
     </div>
-    <h3 class="header-title">Snapshots</h3>
+    <h3 class="header-title">Snapshots <span class="beta-tag">Beta</span></h3>
     <span style="width:44px"></span>
   </div>
 
@@ -191,9 +186,9 @@
       <span class="locked-icon msr">photo_camera_back</span>
       <h2>Snapshots are a Pro feature</h2>
       <p class="locked-desc">
-        Record this TV's disabled apps, launcher and tracked settings to a file, then re-apply that
-        record later or to another compatible TV. Applying only re-disables and re-writes what was
-        recorded — it never re-enables or reinstalls anything.
+        A snapshot records which apps are disabled, your Home app and a set of display, audio,
+        HDMI-CEC and screensaver settings. Restoring it disables those apps again and puts the
+        settings back. It never re-enables anything or reinstalls apps.
       </p>
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro
@@ -206,10 +201,17 @@
     <button class="primary" onclick={load}>Retry</button>
     <div class="spacer"></div>
   {:else}
+    <p class="intro">
+      A snapshot records which apps are disabled, your Home app and a set of display, audio,
+      HDMI-CEC and screensaver settings. Restoring it disables those apps again and puts the
+      settings back. It never re-enables anything or reinstalls apps. Restore to the same TV, or to
+      another one to copy its setup.
+    </p>
+
     <!-- Create -->
     <div class="create-card">
       <span class="card-label">Save current setup</span>
-      <p class="card-desc">Captures this TV's disabled packages, launcher and tracked settings.</p>
+      <p class="card-desc">Records this TV's disabled apps, Home app and tracked settings.</p>
       <div class="create-row">
         <input class="label-input" bind:value={label} placeholder="Label (optional)" onkeydown={(e) => e.key === "Enter" && save()} />
         <button class="primary small-inline" disabled={saving} onclick={save}>
@@ -221,8 +223,8 @@
     <span class="section-label">Saved snapshots</span>
     {#if snapshots.length === 0}
       <p class="lede empty">
-        No snapshots yet. Save one above to record which apps are disabled, which launcher is
-        active, and the tracked settings.
+        No snapshots yet. Save one above to record which apps are disabled, your Home app and the
+        tracked settings.
       </p>
       <div class="spacer"></div>
     {:else}
@@ -245,7 +247,7 @@
               {#if snap.launcher}<span class="chip"><span class="msr">home</span>launcher</span>{/if}
             </div>
             <button class="apply-btn" disabled={busyPath !== ""} onclick={() => beginApply(snap)}>
-              {#if busy}<span class="pdot blink"></span>Working…{:else}<span class="msr">settings_backup_restore</span>Preview &amp; apply{/if}
+              {#if busy}<span class="pdot blink"></span>Working…{:else}<span class="msr">settings_backup_restore</span>Preview restore{/if}
             </button>
           </div>
         {/each}
@@ -260,7 +262,7 @@
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <div class="plan-card" onclick={(e) => e.stopPropagation()}>
         <span class="plan-icon msr">settings_backup_restore</span>
-        <h3>Apply "{pending.snap.label ?? pending.snap.device_name}"?</h3>
+        <h3>Restore "{pending.snap.label ?? pending.snap.device_name}"?</h3>
         <p class="plan-target">
           to <strong>{session.deviceLabel}</strong>
         </p>
@@ -271,82 +273,50 @@
           </p>
         {/if}
 
+        <p class="plan-summary mono">{previewSummary(pending.plan)}</p>
+
         {#if nothingToDo}
           <p class="plan-empty">This TV already matches the snapshot — nothing to change.</p>
         {:else}
-          <div class="plan-rows">
-            <div class="plan-row">
-              <span class="msr">block</span>
-              <div class="plan-body">
-                <span class="plan-line">
-                  Disable {pending.plan.packages_to_disable.length} app{pending.plan
-                    .packages_to_disable.length === 1
-                    ? ""
-                    : "s"}
-                </span>
-                <span class="plan-sub">
-                  {pending.plan.packages_already_disabled.length} already disabled ·
-                  {pending.plan.packages_not_installed.length} not installed
-                </span>
-              </div>
-              {#if pending.plan.packages_to_disable.length > 0}
-                <button class="plan-toggle" onclick={() => (planExpanded = !planExpanded)}>
-                  {planExpanded ? "Hide" : "Show"}
-                  <span class="msr" class:flip={planExpanded}>expand_more</span>
-                </button>
-              {/if}
-            </div>
-            {#if planExpanded}
-              <ul class="plan-pkgs mono">
-                {#each pending.plan.packages_to_disable as pkg (pkg)}
-                  <li>{pkg}</li>
-                {/each}
-              </ul>
-            {/if}
+          <span class="plan-heading">What happens</span>
+          <ul class="plan-list" aria-label="Changes">
+            {#each rows.acting as row (`${row.kind}:${row.item}`)}
+              <li class="plan-item acting">
+                <span class="plan-key mono">{row.item}</span>
+                <span class="plan-now"><span class="now-label">Now</span><span class="mono">{row.now}</span></span>
+                <span class="plan-act {row.kind}">{row.result}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
 
-            <div class="plan-row">
-              <span class="msr">home</span>
-              <div class="plan-body">
-                {#if pending.plan.launcher_to_set}
-                  <span class="plan-line">Set the recorded launcher</span>
-                  <span class="plan-sub mono">{pending.plan.launcher_to_set}</span>
-                {:else}
-                  <span class="plan-line dim">Launcher unchanged</span>
-                {/if}
-              </div>
-            </div>
-
-            <div class="plan-row">
-              <span class="msr">tune</span>
-              <div class="plan-body">
-                <span class="plan-line" class:dim={settingsToWrite.length === 0}>
-                  {settingsToWrite.length === 0
-                    ? "No settings to write"
-                    : `Write ${settingsToWrite.length} setting${settingsToWrite.length === 1 ? "" : "s"}`}
-                </span>
-                {#if pending.plan.settings_already_set.length > 0}
-                  <span class="plan-sub">
-                    {pending.plan.settings_already_set.length} already match
-                  </span>
-                {/if}
-                <span class="plan-line">Reset {pending.plan.settings_to_delete.length} settings to device defaults</span>
-                {#each pending.plan.settings_to_delete as key (key)}
-                  <span class="plan-sub mono">{key}: delete override</span>
-                {/each}
-              </div>
-            </div>
-          </div>
+        {#if rows.unchanged.length > 0}
+          <button class="plan-toggle" onclick={() => (unchangedOpen = !unchangedOpen)} aria-expanded={unchangedOpen}>
+            {rows.unchanged.length} already match or are skipped
+            <span class="msr" class:flip={unchangedOpen}>expand_more</span>
+          </button>
+          {#if unchangedOpen}
+            <ul class="plan-list" aria-label="No change">
+              {#each rows.unchanged as row (`${row.kind}:${row.item}:${row.result}`)}
+                <li class="plan-item dim">
+                  <span class="plan-key mono">{row.item}</span>
+                  <span class="plan-now"><span class="now-label">Now</span><span class="mono">{row.now}</span></span>
+                  <span class="plan-reason">{row.result}</span>
+                </li>
+              {/each}
+            </ul>
+          {/if}
         {/if}
 
         <p class="plan-note">
-          Applying re-disables the recorded packages, sets the recorded launcher and writes the
-          recorded settings, including resetting recorded absent settings to device defaults. It does not re-enable, reinstall or restore anything the snapshot
-          didn't record.
+          Restoring disables the recorded apps and writes the recorded settings back, including
+          resetting settings the snapshot recorded as never set. It never re-enables anything or
+          reinstalls apps. A disabled app can be turned back on with Emergency recovery under More.
         </p>
 
         <div class="plan-actions">
           <button class="ghost small" onclick={() => (pending = null)}>Cancel</button>
-          <button class="primary small" disabled={nothingToDo} onclick={confirmApply}>Apply</button>
+          <button class="primary small" disabled={nothingToDo} onclick={confirmApply}>Restore</button>
         </div>
       </div>
     </div>
@@ -625,47 +595,109 @@
     color: var(--muted);
     text-align: center;
   }
-  .plan-rows {
+  .plan-summary {
+    margin: 0 0 4px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.45;
+    text-align: center;
+  }
+  .plan-heading {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--dim);
+    text-transform: uppercase;
+    margin-top: 4px;
+  }
+  .plan-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
   }
-  .plan-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 11px 12px;
-    border-radius: 12px;
+  .plan-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+    padding: 9px 11px;
+    border-radius: 11px;
     background: var(--canvas);
     border: 1px solid var(--line);
   }
-  .plan-row > .msr {
-    font-size: 19px;
-    color: var(--muted);
-    flex: none;
+  .plan-item.acting {
+    box-shadow: inset 3px 0 0 var(--accent);
   }
-  .plan-body {
-    flex: 1;
-    min-width: 0;
+  .plan-item.dim {
+    opacity: 0.6;
+  }
+  .plan-key {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    color: var(--text-soft);
+    overflow-wrap: anywhere;
+  }
+  .plan-now {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .plan-line {
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .plan-line.dim {
-    color: var(--muted);
-    font-weight: 500;
-  }
-  .plan-sub {
+    gap: 6px;
+    align-items: baseline;
+    min-width: 0;
     font-size: 11px;
     color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
+  }
+  .now-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    flex: none;
+  }
+  .plan-act {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    text-align: right;
+    overflow-wrap: anywhere;
+    max-width: 60vw;
+  }
+  .plan-act.setting,
+  .plan-act.reset {
+    color: var(--text-soft);
+    font-weight: 500;
+  }
+  .plan-reason {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+    color: var(--muted);
+    align-self: center;
+    text-align: right;
+  }
+  .beta-tag {
+    margin-left: 4px;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--amber) 14%, transparent);
+    color: var(--amber);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
+  .intro {
+    margin: 0 0 12px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
   }
   .plan-toggle {
+    align-self: flex-start;
     display: inline-flex;
     align-items: center;
     gap: 3px;
@@ -687,23 +719,6 @@
   }
   .plan-toggle .msr.flip {
     transform: rotate(180deg);
-  }
-  .plan-pkgs {
-    list-style: none;
-    margin: 0;
-    padding: 10px 12px;
-    max-height: 180px;
-    overflow-y: auto;
-    border-radius: 12px;
-    background: var(--canvas);
-    border: 1px solid var(--line);
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-soft);
-    word-break: break-all;
   }
   .plan-note {
     margin: 4px 0 8px;

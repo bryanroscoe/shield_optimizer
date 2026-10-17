@@ -1,0 +1,42 @@
+{
+  "base": "dccfe99a805ffcb0c11f32a4fa9f227306ba1cf3",
+  "merged_fixes_verified": [
+    "e05891dfbd33bb513eafb6794dcfd03c41d19ba4",
+    "dccfe99a805ffcb0c11f32a4fa9f227306ba1cf3"
+  ],
+  "pre_change_base": {
+    "mobile_passed": 293,
+    "check_errors": 0,
+    "check_warnings": 0,
+    "build": "passed"
+  },
+  "post_change": {
+    "mobile_passed": 298,
+    "failed": 0,
+    "skipped": 0,
+    "focused_with_capture": 30,
+    "check_errors": 0,
+    "check_warnings": 0,
+    "build": "passed",
+    "diff_check": "passed"
+  },
+  "component_markup_and_script_identical_to_base": true,
+  "video_seconds": 3.28,
+  "sha256": {
+    "v2/mobile/src/screens/Diagnostics.svelte": "4fc0eacd1bfbf3785bc8075c31c9d57480e49dc84035fdaae6d911e43a24ea4f",
+    "v2/mobile/tests/diagnostics-header.test.mjs": "f722b54cafd51325d0b70438cef1b30ee4024f3ec99612df80806fed61867640",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/header-320-100-simulated.png": "1c00daea6ce1a5c52f0a47bfbf316f59a42efc89692ce91417eb4055eac18807",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/header-320-200-simulated.png": "32c330f1aaf0b116ce4848affe40fb080b791317ed127cac3f82d0b8534ff4c4",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/header-384-100-simulated.png": "c56c352d404e6b81fb9d9c6c67e8c5418af3368813dadb1b30f97191941770e8",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/header-384-200-simulated.png": "82095bfbac0afed871cb642bec110cc62a0424128828a8080e330c6435f04982",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/live-on-simulated.png": "7d176dd71aca36a440e205d6764933dbdf12b0f9697da36f7a815b1b6c35bcb4",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/remote-confirm-cancel-only-simulated.png": "ec9b39c088a85f91c281b1fb279a368ace11505113391ec837b512db1fde33d9",
+    "v2/mobile/evidence/diagnostics-header-2026-10-17/header-layout-controls-simulated.webm": "2a1e7083c60a798a766571fa01069c878b11942dd1e29c3ede0bdde1cf68ccf9"
+  },
+  "limitations": [
+    "Native replies mocked; no device operations or ringing command.",
+    "Root font scaling and static viewport policy checks are not physical Android accessibility/pinch verification.",
+    "Existing wake-session ownership uncertain; preserved without a new start or end.",
+    "Independent source review and current-head CI pending."
+  ]
+}

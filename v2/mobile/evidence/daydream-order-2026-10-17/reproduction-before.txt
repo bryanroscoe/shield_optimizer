@@ -1,0 +1,88 @@
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✖ Daydream component refuse never enables an off screensaver with previous component (1119.46025ms)
+✖ Daydream component reject never enables an off screensaver with previous component (142.389791ms)
+✖ Daydream component refuse never enables an off screensaver with unset component (140.313458ms)
+✖ Daydream component reject never enables an off screensaver with unset component (142.801291ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 0
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1851.328125
+
+✖ failing tests:
+
+test at tests/tweaks-tab.test.mjs:398:5
+✖ Daydream component refuse never enables an off screensaver with previous component (1119.46025ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  '1' !== '0'
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/tweaks-tab.test.mjs:413:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '1',
+    expected: '0',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tweaks-tab.test.mjs:398:5
+✖ Daydream component reject never enables an off screensaver with previous component (142.389791ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  '1' !== '0'
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/tweaks-tab.test.mjs:413:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '1',
+    expected: '0',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tweaks-tab.test.mjs:398:5
+✖ Daydream component refuse never enables an off screensaver with unset component (140.313458ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  '1' !== '0'
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/tweaks-tab.test.mjs:413:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '1',
+    expected: '0',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/tweaks-tab.test.mjs:398:5
+✖ Daydream component reject never enables an off screensaver with unset component (142.801291ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  '1' !== '0'
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/tweaks-tab.test.mjs:413:14)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '1',
+    expected: '0',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

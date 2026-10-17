@@ -9,6 +9,9 @@
 //!   app-private writes.
 //! - **push** would need a SAF document picker to reach a user-chosen source
 //!   file; that is a documented follow-up and not implemented here.
+//! - **find** and **delete** are the shared core implementations
+//!   (`commands::files`), `/sdcard`-confined exactly as on desktop. Mobile has
+//!   no power-user mode, so the system-path override is never offered.
 //!
 //! All device I/O rides the shared `AdbDriver` seam (shell + `raw_transfer`),
 //! keeping `crates/core/engine` pure. The transfer itself is implemented by
@@ -19,6 +22,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shield_optimizer_core::adb::{parse_ls_output, FileEntry};
+use shield_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
 use shield_optimizer_core::commands::{apps::ActionResult, AppState};
 use tauri::State;
 
@@ -580,6 +584,32 @@ pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>
     // Newest first (ISO-8601 sorts lexicographically).
     out.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
     Ok(out)
+}
+
+/// `find_files` — the app-files catalog search (SmartTube backups, Projectivy
+/// exports, …). Directories whose search could not run come back in
+/// `unsearched` so the UI never reports them as "no matches" (GitHub #86).
+#[tauri::command]
+pub async fn find_files(
+    state: State<'_, AppState>,
+    serial: String,
+    dirs: Vec<String>,
+    pattern: String,
+) -> Result<FindResult, String> {
+    let adb = state.adb_snapshot().await;
+    find_files_with(adb.as_ref(), &serial, &dirs, &pattern).await
+}
+
+/// `delete_path` — delete a file or folder on the TV. Always `/sdcard`-confined
+/// with `/sdcard` itself refused; the screen confirms before calling.
+#[tauri::command]
+pub async fn delete_path(
+    state: State<'_, AppState>,
+    serial: String,
+    path: String,
+) -> Result<ActionResult, String> {
+    let adb = state.adb_snapshot().await;
+    delete_path_with(adb.as_ref(), &serial, &path, false).await
 }
 
 /// Format a file's last-modified time as ISO-8601 UTC, or empty on error.
