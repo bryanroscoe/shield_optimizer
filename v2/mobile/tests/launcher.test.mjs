@@ -498,3 +498,78 @@ test("stock takeover dialog locks scrolling, traps focus and Escape cancels with
     await video.saveAs(`${dir}/takeover-cancel-simulated.webm`);
   }
 });
+
+async function confirmHelperRow(page) {
+  await page.locator('.launcher-row', { hasText: 'Setup Wraith' }).getByRole('button', { name: 'Disable', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Disable Setup Wraith?', exact: true }).getByRole('button', { name: 'Disable', exact: true }).click();
+}
+
+test('Setup Wraith row uses the guarded helper command and refreshes confirmed success', async t => {
+  const page = await open(t, { launchers: [stock(false), wraith(true), row(PROJECTIVY)], current: PROJECTIVY });
+  const before = await count(page, 'list_launchers');
+  await page.evaluate(pkg => { handlers.disable_setup_helper = () => {
+    launchers = launchers.map(row => row.entry.package === pkg ? { ...row, enabled: false } : row);
+    return { ok: true, message: 'Setup Wraith is off.' };
+  }; }, WRAITH);
+  await confirmHelperRow(page);
+  await page.waitForFunction(() => calls.some(call => ['disable_setup_helper', 'disable_launcher'].includes(call.command)));
+  assert.equal(await count(page, 'disable_setup_helper'), 1);
+  assert.equal(await count(page, 'disable_launcher'), 0);
+  assert.deepEqual(await page.evaluate(() => calls.find(call => call.command === 'disable_setup_helper').args), { serial: 'A:5555', package: WRAITH });
+  await page.locator('[data-setup-helper="off"]').waitFor();
+  assert.ok(await count(page, 'list_launchers') > before);
+});
+
+
+for (const [message, enabled] of [
+  ["Home didn't stay on a launcher after the helper was disabled, so it was re-enabled.", true],
+  ["Couldn't confirm the helper is back on. Setup Wraith may still be off. Use Re-enable Setup Wraith or Emergency Recovery.", false],
+]) test(`helper row preserves guarded failure: ${enabled ? 'rolled back' : 'rollback unconfirmed'}`, async t => {
+  const page = await open(t, { launchers: [stock(false), wraith(true), row(PROJECTIVY)], current: PROJECTIVY });
+  const before = await count(page, 'list_launchers');
+  await page.evaluate(({ pkg, message, enabled }) => { handlers.disable_setup_helper = () => {
+    launchers = launchers.map(row => row.entry.package === pkg ? { ...row, enabled } : row);
+    return { ok: false, message };
+  }; }, { pkg: WRAITH, message, enabled });
+  await confirmHelperRow(page);
+  await page.locator('.action-note').getByText(`Couldn't fully disable Setup Wraith: ${message}`, { exact: true }).waitFor();
+  await page.waitForFunction(before => calls.filter(c => c.command === 'list_launchers').length > before, before);
+  await page.locator('.launcher-row', { hasText: 'Setup Wraith' }).locator('.l-progress').waitFor({ state: 'detached' });
+  assert.equal(await count(page, 'disable_launcher'), 0);
+  assert.equal(await count(page, 'enable_package'), 0);
+  if (process.env.HELPER_ROUTE_EVIDENCE === '1') {
+    const dir = 'evidence/setup-helper-disable-2026-10-17'; await mkdir(dir, { recursive: true });
+    await page.waitForTimeout(4200);
+    await page.locator('.action-note').screenshot({ path: `${dir}/${enabled ? 'rollback-confirmed' : 'rollback-unconfirmed'}-simulated.png` });
+  }
+});
+
+for (const host of ['A', 'B']) test(`late helper-row result cannot overwrite a fresh ${host === 'A' ? 'same-endpoint reconnect' : 'TV switch'}`, async t => {
+  const page = await open(t, { launchers: [stock(false), wraith(true), row(PROJECTIVY)], current: PROJECTIVY });
+  await page.evaluate(() => { handlers.disable_setup_helper = () => new Promise(resolve => { window.finishOldHelper = resolve; }); });
+  await confirmHelperRow(page); await page.waitForFunction(() => !!window.finishOldHelper);
+  await page.evaluate(async host => {
+    handlers.list_devices = () => [{ id: 1, serial: `${host}:5555`, status: 'device', connection: 'network', device_type: 'google_tv', properties: null }];
+    await session.connect(host, 5555);
+    handlers.disable_setup_helper = () => new Promise(resolve => { window.finishNewHelper = resolve; });
+  }, host);
+  await page.locator('.launcher-row', { hasText: 'Setup Wraith' }).getByRole('button', { name: 'Disable', exact: true }).waitFor();
+  await confirmHelperRow(page); await page.waitForFunction(() => !!window.finishNewHelper);
+  const before = await count(page, 'list_launchers');
+  await page.evaluate(() => finishOldHelper({ ok: false, message: 'STALE rollback failure' })); await page.waitForTimeout(50);
+  assert.equal(await page.getByText(/STALE rollback/).count(), 0);
+  assert.equal(await count(page, 'list_launchers'), before);
+  await page.locator('.launcher-row', { hasText: 'Setup Wraith' }).locator('.l-progress').waitFor();
+  assert.deepEqual(await page.evaluate(() => calls.filter(c => c.command === 'disable_setup_helper').map(c => c.args.serial)), ['A:5555', `${host}:5555`]);
+  await page.evaluate(() => finishNewHelper({ ok: false, message: 'Current connection guarded refusal' }));
+  await page.locator('.action-note').getByText(/Current connection guarded refusal/).waitFor();
+  assert.equal(await count(page, 'disable_launcher'), 0);
+});
+
+test('ordinary stock row keeps its launcher disable command', async t => {
+  const page = await open(t, { launchers: [stock(true), row(PROJECTIVY)], current: PROJECTIVY });
+  await page.locator('.launcher-row', { hasText: 'Google TV Home' }).getByRole('button', { name: 'Disable', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Disable Google TV Home?', exact: true }).getByRole('button', { name: 'Disable', exact: true }).click();
+  await page.waitForFunction(() => calls.some(c => c.command === 'disable_launcher'));
+  assert.equal(await count(page, 'disable_setup_helper'), 0);
+});

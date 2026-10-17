@@ -313,7 +313,9 @@
     clearNote();
     let locked = false;
     try {
-      const res = await api.disableLauncher(serial, l.entry.package);
+      const res = l.setup_helper
+        ? await api.disableSetupHelper(serial, l.entry.package)
+        : await api.disableLauncher(serial, l.entry.package);
       if (!valid(serial, connection)) return;
       const text = res.ok
         ? res.message || `${l.entry.name} disabled.`
@@ -749,8 +751,7 @@
                   <span class="msr">download</span>Install
                 </button>
               {:else if l.setup_helper}
-                <!-- Google TV's setup wizard declares Home but is never a default.
-                     Its on/off fix lives in the Setup Wraith card below. -->
+                <!-- A setup helper can claim Home, so both controls use the guarded helper command. -->
                 {#if l.enabled}
                   <button class="l-btn" disabled={anyBusy} onclick={() => (disableConfirm = l)}>
                     Disable

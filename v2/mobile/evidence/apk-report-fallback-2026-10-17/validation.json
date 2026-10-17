@@ -1,6 +1,6 @@
 {
   "original_base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
-  "mobile_tests": 320,
+  "mobile_tests": 326,
   "apps_report_tests": 21,
   "svelte_check": {
     "errors": 0,
@@ -20,7 +20,14 @@
     "No new queries, write actions or schema fields"
   ],
   "pending": null,
-  "current_base": "a73787a36bbf44311de2596e9a01c8232a049a02",
+  "current_base": "4148f035c20450751d92d894456162cbc5ab837b",
   "original_mobile_tests": 316,
-  "integration": "Merged actual current mobile base; APK source/app-report tests/captured evidence unchanged from d0458c6178401e1eaf32f010d579468379c5dfae."
+  "integration": "Merge approved helper PR197; reconcile both checklist rows and validation provenance. APK source/app-report tests unchanged from f1044a5; helper source/tests exactly match merged base.",
+  "integration_history": [
+    {
+      "base": "a73787a36bbf44311de2596e9a01c8232a049a02",
+      "mobile_tests": 320,
+      "head": "f1044a5b8af6ce01502223e4d569721e488dbe9e"
+    }
+  ]
 }

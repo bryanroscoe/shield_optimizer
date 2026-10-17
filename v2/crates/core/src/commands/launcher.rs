@@ -3239,6 +3239,38 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn helper_disable_re_enables_after_home_verification_fails() {
+            let mock = MockAdb::default()
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", "")
+                .on_shell("resolve-activity", &format!("{WRAITH}/.Wraith"));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+            let result = disable_setup_helper_impl(&state, "serial", WRAITH)
+                .await
+                .unwrap();
+            assert!(!result.ok);
+            assert!(
+                result.message.contains("was re-enabled"),
+                "{}",
+                result.message
+            );
+            let calls = log.lock().unwrap();
+            let disabled = calls
+                .iter()
+                .position(|c| c == &format!("pm disable-user --user 0 {WRAITH}"))
+                .unwrap();
+            let enabled = calls
+                .iter()
+                .position(|c| c == &format!("pm enable {WRAITH}"))
+                .unwrap();
+            assert!(disabled < enabled);
+            assert!(calls[disabled + 1..enabled]
+                .iter()
+                .any(|c| c.contains("resolve-activity")));
+        }
+
+        #[tokio::test]
         async fn a_failed_helper_rollback_is_reported_not_called_re_enabled() {
             let query = format!(
                 "  priority=0\n    packageName={WRAITH}\n  priority=0\n    packageName=com.example.launcher\n"
