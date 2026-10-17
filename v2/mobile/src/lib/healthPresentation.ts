@@ -10,7 +10,8 @@ export function memoryUsage(ram: Partial<RamInfo> | null | undefined) {
   if (free != null && (!finite(free) || free < 0 || free > total)) return null;
   if (used != null && (!finite(used) || used < 0 || used > total)) return null;
   const amount = used ?? (free != null ? total - free : null);
-  if (amount == null || (free != null && amount + free > total)) return null;
+  // Android reports Used and Free RAM with separate cache/swap accounting.
+  if (amount == null) return null;
   return { used: amount, total, free: free ?? null, percent: Math.round(amount / total * 100) };
 }
 
