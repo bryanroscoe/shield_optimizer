@@ -116,7 +116,7 @@ test("source site links are offered only for http(s) URLs", () => {
 // ---- screen ----
 
 async function open(t, setup = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(setup.modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 812 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(setup.modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 420 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
   if (setup.clock) await page.clock.install();
   await page.addInitScript((init) => {

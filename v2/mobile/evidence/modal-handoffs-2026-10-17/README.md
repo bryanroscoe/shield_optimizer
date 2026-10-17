@@ -1,7 +1,11 @@
 # Modal handoffs and stock takeover — simulated evidence
 
-Fresh branch from `mobile-parity-pass` at `3a1881e9b73c768be3a417abbea14cf524cfbe40`.
-Report PR185 remains untouched at `330275bd9858c9ea6ef8e22ab8df424350a498ef`.
+Saved implementation starts from `mobile-parity-pass` at
+`3a1881e9b73c768be3a417abbea14cf524cfbe40` and is preserved in checkpoint `8df9b7c`.
+After host recovery, merge `e6274e3a8a331bc988c562faccf6fa98f5f16275` integrates the
+reviewed report PR185 base `56aa7c56450464b2060c27838373029b6b90c14f` without conflicts.
+Report implementation/evidence files are inherited unchanged; the release-checklist entry is
+reconciled to point at this separate modal follow-up.
 
 ## Reproduced before fixing
 
@@ -34,8 +38,8 @@ screen cases; assertions pin zero stock-disable/save-snapshot calls in the takeo
 - [Stock takeover heading on a 384×420 viewport](stock-takeover-heading-simulated.png)
 - [Keyboard wrap reveals Cancel while the document remains locked](stock-takeover-keyboard-simulated.png)
 - [Original Launcher scroll and opener restored](launcher-restored-simulated.png)
-- [Menu → Report → close video](menu-report-close-simulated.webm)
-- [Takeover cancellation video](takeover-cancel-simulated.webm)
+- [2.12-second Menu → Report → close video, 384×812](menu-report-close-simulated.webm)
+- [2.76-second takeover cancellation video, 384×420](takeover-cancel-simulated.webm)
 
 Raw intermediate recordings are ignored. Screenshots and sampled video frames are visually inspected.
 No desktop gallery screens changed.
@@ -65,3 +69,15 @@ Host Chromium simulation on macOS only; no phone/TV query, installation, real la
 physical touch/pinch/text-scaling claim, release or merge. Native Android callbacks, cross-OS CI and
 independent review remain pending. The existing parent v2 missing `.svelte-kit/tsconfig.json` notice
 appears before successful mobile checks/build. No dependencies were installed.
+
+## Recovery and verification
+
+The pre-disconnect full run completed with 269 passes and one navigation timeout in the Tweaks
+fixture during the host interruption. That run is not claimed green. The video-size adjustment
+had not run, so it was applied after recovery and both videos were regenerated on the merged base.
+The existing bounded Amphetamine session was inspected and reused; no user session was replaced.
+
+On the merged base, all 64 focused cases passed, Svelte check found 0 errors / 0 warnings, and Vite
+build passed. The full combined mobile suite passed 274/274 with no failures or skips.
+[Validation receipt with source/artifact hashes](validation.json) records the final host checks.
+The two screen regressions still demonstrate their original failures in the preserved before log.
