@@ -25,9 +25,9 @@ test('storage retains reported percentages and distinguishes missing/invalid fro
 });
 test('temperature comparison uses only a matching sensor own threshold', () => {
   const low = present.temperatureContext(health());
-  assert.match(low.sensor, /CPU reading 2/); assert.equal(low.comparison, '59°C below reported throttle point');
-  assert.equal(present.temperatureContext(health({ temperature_c: 89, temperature_reading: reading(89) })).comparison, 'At reported throttle point');
-  assert.equal(present.temperatureContext(health({ temperature_c: 100, temperature_reading: reading(100) })).comparison, '11°C above reported throttle point');
+  assert.match(low.sensor, /CPU reading 2/); assert.equal(low.comparison, '59°C below reported sensor threshold');
+  assert.equal(present.temperatureContext(health({ temperature_c: 89, temperature_reading: reading(89) })).comparison, 'At reported sensor threshold');
+  assert.equal(present.temperatureContext(health({ temperature_c: 100, temperature_reading: reading(100) })).comparison, '11°C above reported sensor threshold');
   const legacy = present.temperatureContext({ temperature_c: 100 });
   assert.equal(legacy.sensor, 'Sensor not reported'); assert.equal(legacy.status, null); assert.equal(legacy.throttle, null);
   const mismatched = present.temperatureContext({ temperature_c: 30, temperature_reading: reading(100) });
@@ -47,8 +47,8 @@ test('reported device status is independent of hottest sensor status; no tempera
   for (const status of [-1, 7, NaN, 0.5]) assert.equal(present.temperatureContext(health({ thermal_status: status })).status, null);
 });
 
-async function open(t, record = false) {
-  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(record ? { recordVideo: { dir: 'evidence/metric-context-2026-10-17/raw', size: { width: 384, height: 812 } } } : {}) });
+async function open(t, record = false, evidenceDir = "evidence/metric-context-2026-10-17") {
+  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(record ? { recordVideo: { dir: `${evidenceDir}/raw`, size: { width: 384, height: 812 } } } : {}) });
   const page = await context.newPage(); page.setDefaultTimeout(10000); t.after(() => context.close());
   await page.addInitScript(initial => {
     localStorage.clear(); window.mockHealth = initial;
@@ -130,3 +130,61 @@ if (process.env.METRICS_EVIDENCE === '1') test('capture synthetic capacity and s
   const video = page.video(); await contextClose(page); await video.saveAs(`${dir}/metric-boundaries-simulated.webm`);
 });
 async function contextClose(page) { await page.context().close(); }
+
+test('below-threshold light/moderate readings do not describe throttling onset or infer HAL severity', () => {
+  for (const status of [1, 2]) {
+    const ctx = present.temperatureContext(health({ temperature_c: 70, thermal_status: status, temperature_reading: reading(70) }));
+    assert.equal(ctx.comparison, '19°C below reported sensor threshold');
+    assert.equal(ctx.status, status);
+  }
+});
+
+test('threshold provenance stays unspecified for hardware, HIDL-like and unknown sources', () => {
+  for (const source of ['hardware_properties', 'legacy_hidl', 'unknown', 'thermalservice_current']) {
+    const ctx = present.temperatureContext(health({ temperature_c: 70, temperature_reading: reading(70, { source }) }));
+    assert.equal(ctx.status, null);
+    assert.equal(ctx.comparison, '19°C below reported sensor threshold');
+    assert.match(ctx.thresholdHelp, /may already be active below/);
+    assert.match(ctx.thresholdHelp, /does not identify this threshold's severity/);
+    assert.equal(ctx.throttle, 89);
+    assert.equal(ctx.shutdown, 102.5);
+  }
+  assert.equal(present.temperatureContext(health({ temperature_reading: null })).thresholdHelp, null);
+});
+
+test('visible thresholds retain reported status and never claim onset or a severity without provenance', async t => {
+  const page = await open(t); await page.setViewportSize({ width: 320, height: 812 });
+  const region = page.getByRole('region', { name: 'Temperature context' });
+  for (const [status, label] of [[1, 'Light throttling'], [2, 'Moderate throttling']]) {
+    await show(page, health({ temperature_c: 70, thermal_status: status, temperature_reading: reading(70) }));
+    await region.getByText(`Device status: ${label}`, { exact: true }).waitFor();
+    await region.getByText('Reported sensor threshold: 89 °C', { exact: true }).waitFor();
+    await region.getByText('19°C below reported sensor threshold', { exact: true }).waitFor();
+    await region.getByText(/Throttling may already be active below this value/).waitFor();
+    assert.equal(await region.getByText(/Reported throttle point|severe.throttling threshold/i).count(), 0);
+  }
+  await show(page, health({ temperature_c: 70, temperature_reading: reading(70, { source: 'unknown' }) }));
+  await region.getByText('Thermal status not reported', { exact: true }).waitFor();
+  assert.equal(await region.getByText('CPU/GPU hardware report', { exact: true }).count(), 0);
+  assert.equal(await region.getByText(/No throttling reported|Severe throttling/).count(), 0);
+  await show(page, health({ temperature_c: 100, thermal_status: 4, temperature_reading: reading(100) }));
+  await region.getByText('Device status: Critical thermal status', { exact: true }).waitFor();
+  await region.getByText('11°C above reported sensor threshold', { exact: true }).waitFor();
+  await show(page, health({ temperature_c: 70, temperature_reading: reading(70, { throttling_c: null }) }));
+  await region.getByText('Matching sensor threshold not reported', { exact: true }).waitFor();
+  assert.equal(await region.getByText(/Throttling may already be active below/).count(), 0);
+  assert.equal(await region.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+});
+
+if (process.env.THERMAL_WORDING_EVIDENCE === '1') test('capture conservative threshold wording with independent statuses', async t => {
+  const dir = 'evidence/thermal-threshold-wording-2026-10-17'; await mkdir(dir, { recursive: true });
+  const page = await open(t, true, dir);
+  const region = page.getByRole('region', { name: 'Temperature context' });
+  for (const [name, status, source] of [['light-below-threshold', 1, 'hardware_properties'], ['moderate-below-threshold', 2, 'hardware_properties'], ['unknown-provenance', null, 'unknown']]) {
+    await show(page, health({ temperature_c: 70, thermal_status: status, temperature_reading: reading(70, { source }) }));
+    await region.scrollIntoViewIfNeeded();
+    await region.screenshot({ path: `${dir}/${name}-simulated.png`, animations: 'disabled' });
+    await page.waitForTimeout(900);
+  }
+  const video = page.video(); await page.context().close(); await video.saveAs(`${dir}/threshold-statuses-simulated.webm`);
+});

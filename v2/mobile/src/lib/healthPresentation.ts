@@ -54,11 +54,12 @@ export function temperatureContext(report: Partial<HealthReport> | null | undefi
   let comparison: string | null = null;
   if (value != null && throttle != null) {
     const difference = value - throttle;
-    comparison = difference === 0 ? 'At reported throttle point'
-      : `${metricNumber(Math.abs(difference))}°C ${difference > 0 ? 'above' : 'below'} reported throttle point`;
+    comparison = difference === 0 ? 'At reported sensor threshold'
+      : `${metricNumber(Math.abs(difference))}°C ${difference > 0 ? 'above' : 'below'} reported sensor threshold`;
   }
   return {
     value, sensor, source, throttle, shutdown, comparison, cached,
+    thresholdHelp: throttle == null ? null : "Throttling may already be active below this value. The report does not identify this threshold's severity.",
     deviceStatus: validStatus(deviceStatus) ? deviceStatus : null, sensorStatus,
     sensorStatusLabel: sensorStatus == null ? null : statusNames[sensorStatus],
     status, statusScope: validStatus(deviceStatus) ? 'Device status' : cached ? 'Cached sensor status' : 'Selected sensor status',

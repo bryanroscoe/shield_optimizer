@@ -434,10 +434,11 @@
         {/if}
         <p class="temp-note">{thermal.statusHelp}</p>
         {#if thermal.value != null && thermal.throttle != null}
-          <p class="metric-detail">Reported throttle point: <strong>{metricNumber(thermal.throttle)} °C</strong></p>
+          <p class="metric-detail">Reported sensor threshold: <strong>{metricNumber(thermal.throttle)} °C</strong></p>
           <p class="metric-detail" class:threshold-exceeded={thermal.value != null && thermal.value >= thermal.throttle}>{thermal.comparison}</p>
+          <p class="temp-note">{thermal.thresholdHelp}</p>
         {:else if thermal.value != null}
-          <p class="metric-detail">Matching sensor throttle point not reported</p>
+          <p class="metric-detail">Matching sensor threshold not reported</p>
         {/if}
         {#if thermal.shutdown != null}<p class="metric-detail">Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
         {:else}<p class="temp-note">Sensor and thermal-status data were not supplied.</p>{/if}
