@@ -1,7 +1,7 @@
 {
-  "base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
   "full_mobile": {
-    "passed": 271,
+    "passed": 283,
     "failed": 0,
     "skipped": 0
   },
@@ -21,5 +21,19 @@
   "limitations": [
     "Simulated Tauri replies only; no device operations.",
     "Independent review and CI pending."
-  ]
+  ],
+  "original_base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "original_full_mobile": {
+    "passed": 271,
+    "failed": 0,
+    "skipped": 0
+  },
+  "integration": {
+    "merge": "c606b28e9a545982013849adae7fca42442ffe08",
+    "product_code_and_tests_unchanged_from": "2133e8ec6428a3d960345ce3fc050aac327cbb00",
+    "captures_retained_from_original_base": true,
+    "check": "0 errors / 0 warnings",
+    "build": "passed",
+    "diff_check": "passed"
+  }
 }
