@@ -21,6 +21,16 @@ export interface AppMeasurements {
   storage: MeasureStatus;
 }
 
+// Internal receipt only: identity and timing fields never enter report JSON.
+export interface ApkReportMeasurement {
+  package: string;
+  serial: string;
+  generation: number;
+  measurementId: number;
+  appBytes: number;
+  at: number;
+}
+
 /// One row's slice of the page's measurements, as the detail panel reads it.
 export interface AppDetailInputs {
   serial: string;

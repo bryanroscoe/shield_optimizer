@@ -1,0 +1,23 @@
+{
+  "original_base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
+  "mobile_tests": 316,
+  "apps_report_tests": 21,
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "measured_bytes_in_evidence": 1234567,
+  "export_storage": {
+    "source": "apk_files",
+    "app_bytes": 1234567,
+    "data_bytes": null,
+    "cache_bytes": null
+  },
+  "identity_receipt": "Internal package, serial, connection generation and measurement-batch id; never exported.",
+  "limits": [
+    "Browser mocks only; no device operations",
+    "No new queries, write actions or schema fields"
+  ],
+  "pending": "Final integration with current mobile base after PR196 merge."
+}

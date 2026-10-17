@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-17T07:18:59.011Z",
+  "truncated": false,
+  "source": "mobile_app_report",
+  "records": [
+    {
+      "kind": "installed_package",
+      "token": "com.example.streambox",
+      "reason": "user_report_not_listed",
+      "app_version": "0.1.0",
+      "registry_version": null,
+      "device_family": "shield",
+      "device_os": "11",
+      "first_seen": "2026-10-17T07:18:59.011Z",
+      "last_seen": "2026-10-17T07:18:59.011Z",
+      "count": 1,
+      "app_name": "StreamBox",
+      "current_verdict": "unknown",
+      "verdict_source": "no_record",
+      "note": null,
+      "state": {
+        "installed": true,
+        "enabled": true,
+        "running": false,
+        "ram_mb": null,
+        "storage": {
+          "source": "apk_files",
+          "app_bytes": 1234567,
+          "data_bytes": null,
+          "cache_bytes": null
+        }
+      }
+    }
+  ]
+}

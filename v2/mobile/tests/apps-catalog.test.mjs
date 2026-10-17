@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -67,6 +67,7 @@ async function openApps(t, { openerFails = false, modalEvidence = false } = {}) 
   await page.addInitScript(
     ({ fixture, openerFails }) => {
       window.calls = [];
+      window.handlers = {};
       window.copied = [];
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
@@ -75,6 +76,7 @@ async function openApps(t, { openerFails = false, modalEvidence = false } = {}) 
       window.__TAURI_INTERNALS__ = {
         invoke: async (command, args) => {
           window.calls.push({ command, args });
+          if (window.handlers[command]) return window.handlers[command](args);
           switch (command) {
             case "get_entitlement":
               return "pro";
@@ -136,6 +138,7 @@ async function openApps(t, { openerFails = false, modalEvidence = false } = {}) 
   await page.evaluate(async () => {
     const { session } = await import("/src/lib/session.svelte.ts");
     const { router } = await import("/src/lib/router.svelte.ts");
+    window.session = session; window.router = router;
     session.entitlement = "pro";
     await session.connect("TV", 5555);
     router.reset("dashboard");
@@ -352,4 +355,137 @@ test("menu Report returns focus to its original app row after closing", async (t
     const video = page.video(); await page.context().close();
     await video.saveAs(`${dir}/menu-report-close-simulated.webm`);
   }
+});
+
+
+async function openMeasuredReport(page, pkg = 'com.example.streambox') {
+  await page.locator(`.app-row[data-package="${pkg}"]`).click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await details.locator('[data-measure="storage"]').getByText(/APK files only/).waitFor();
+  return { details, ...await reportFromDetails(page, details) };
+}
+
+async function reportFromDetails(page, details = page.getByRole('dialog', { name: /App details for/ })) {
+  await details.getByRole('button', { name: 'Report this app' }).click();
+  const report = page.getByRole('dialog', { name: 'Report this app', exact: true });
+  await report.getByLabel('Include installed and enabled state, and the measured RAM and storage', { exact: true }).check();
+  await report.getByRole('button', { name: /Show the full report/ }).click();
+  return { report, preview: report.getByLabel('Report preview') };
+}
+
+test('report includes the successful APK fallback visible in the detail sheet', async t => {
+  const page = await openApps(t);
+  const { preview } = await openMeasuredReport(page);
+  assert.deepEqual(JSON.parse(await preview.inputValue()).records[0].state.storage, { source: 'apk_files', app_bytes: 2048, data_bytes: null, cache_bytes: null });
+});
+
+
+for (const bytes of [0, 1234567]) test(`APK report keeps exact ${bytes} bytes, unknown data/cache and identical copied JSON`, async t => {
+  const page = await openApps(t);
+  await page.evaluate(bytes => { handlers.app_apk_size = () => ({ app_bytes: bytes, data_bytes: 999, cache_bytes: 888 }); }, bytes);
+  await page.locator('.app-row[data-package="com.example.streambox"]').click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await details.locator('[data-measure="storage"]').getByText(/APK files only/).waitFor();
+  const evidence = process.env.APK_REPORT_EVIDENCE === '1' && bytes > 0;
+  const dir = 'evidence/apk-report-fallback-2026-10-17';
+  if (evidence) { await mkdir(dir, { recursive: true }); await details.locator('dl.measures').screenshot({ path: `${dir}/visible-apk-measurement-simulated.png` }); }
+  const { report, preview } = await reportFromDetails(page, details);
+  const text = await preview.inputValue(); const record = JSON.parse(text).records[0];
+  assert.deepEqual(record.state.storage, { source: 'apk_files', app_bytes: bytes, data_bytes: null, cache_bytes: null });
+  for (const internal of ['TV:5555', 'HWSERIAL123', 'measurementId', 'generation', 'appBytes']) assert.equal(text.includes(internal), false);
+  await report.getByRole('button', { name: 'Copy report' }).click();
+  assert.equal(await page.evaluate(() => copied.at(-1)), text);
+  if (evidence) {
+    await preview.evaluate(el => el.scrollTop = el.scrollHeight);
+    await preview.screenshot({ path: `${dir}/report-preview-simulated.png` });
+    await writeFile(`${dir}/storage-report-simulated.json`, text + '\n');
+  }
+  assert.equal((await commands(page)).some(c => ['disable_package', 'uninstall_package', 'write_setting'].includes(c)), false);
+});
+
+test('diskstats remains the report source when a complete measured row exists', async t => {
+  const page = await openApps(t);
+  await page.locator(`.app-row[data-package="${katniss.package}"]`).click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await details.locator('[data-measure="storage"]').getByText(/Android refreshes these sizes/).waitFor();
+  const { preview } = await reportFromDetails(page, details);
+  assert.deepEqual(JSON.parse(await preview.inputValue()).records[0].state.storage, { source: 'diskstats', app_bytes: 12582912, data_bytes: 3145728, cache_bytes: 1048576 });
+  assert.equal((await commands(page)).includes('app_apk_size'), false);
+});
+
+for (const mode of ['pending', 'failed', 'missing', 'negative']) test(`APK report keeps storage unknown for a ${mode} fallback`, async t => {
+  const page = await openApps(t);
+  await page.evaluate(mode => { handlers.app_apk_size = () => {
+    if (mode === 'pending') return new Promise(() => {});
+    if (mode === 'failed') return Promise.reject('APK unreadable');
+    return { app_bytes: mode === 'negative' ? -1 : null, data_bytes: null, cache_bytes: null };
+  }; }, mode);
+  await page.locator('.app-row[data-package="com.example.streambox"]').click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await page.waitForFunction(() => calls.some(c => c.command === 'app_apk_size'));
+  if (mode === 'pending') await details.getByText('Reading APK size…', { exact: true }).waitFor();
+  else if (mode === 'failed' || mode === 'missing') await details.getByText(/The APK size couldn't be read either/).waitFor();
+  else await details.getByText(/APK files only/).waitFor();
+  const { preview } = await reportFromDetails(page, details);
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].state.storage, null);
+});
+
+test('remeasure invalidates a successful APK receipt and ignores an older fallback reply', async t => {
+  const page = await openApps(t);
+  let { details, report, preview } = await openMeasuredReport(page);
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].state.storage.app_bytes, 2048);
+  await page.evaluate(() => { window.apkReplies = []; handlers.app_apk_size = () => new Promise(resolve => apkReplies.push(resolve)); });
+  // Simulate a measurement refresh while its existing report preview is open.
+  await details.getByRole('button', { name: /Re-measure/ }).evaluate(el => el.click());
+  await page.waitForFunction(() => apkReplies.length === 1);
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].state.storage, null);
+  await report.getByRole('button', { name: 'Close', exact: true }).click();
+  await details.getByRole('button', { name: /Re-measure/ }).click();
+  await page.waitForFunction(() => apkReplies.length === 2);
+  await page.evaluate(() => apkReplies[1]({ app_bytes: 8192, data_bytes: null, cache_bytes: null }));
+  await details.getByText(/APK 8.0 KB/).waitFor();
+  await page.evaluate(() => apkReplies[0]({ app_bytes: 4096, data_bytes: null, cache_bytes: null })); await page.waitForTimeout(50);
+  ({ report, preview } = await reportFromDetails(page, details));
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].state.storage.app_bytes, 8192);
+});
+
+for (const host of ['TV', 'OTHER']) test(`APK fallback cannot cross a ${host === 'TV' ? 'same-endpoint reconnect' : 'TV switch'}`, async t => {
+  const page = await openApps(t);
+  await page.evaluate(() => { handlers.app_apk_size = () => new Promise(resolve => { window.finishOldApk = resolve; }); });
+  await page.locator('.app-row[data-package="com.example.streambox"]').click(); await page.waitForFunction(() => !!window.finishOldApk);
+  await page.evaluate(async host => {
+    handlers.list_devices = () => [{ id: 1, serial: `${host}:5555`, status: 'device', connection: 'network', device_type: 'shield', tv_evidence: 'tv', properties: { android_release: '11', serial_number: host === 'TV' ? 'HWSERIAL123' : 'OTHER_HARDWARE' } }];
+    handlers.app_apk_size = () => new Promise(resolve => { window.finishNewApk = resolve; });
+    await session.connect(host, 5555);
+  }, host);
+  await page.getByRole('dialog', { name: /App details for/ }).waitFor({ state: 'detached' });
+  await page.locator('.app-row[data-package="com.example.streambox"]').click(); await page.waitForFunction(() => !!window.finishNewApk);
+  await page.evaluate(() => finishOldApk({ app_bytes: 4096, data_bytes: null, cache_bytes: null })); await page.waitForTimeout(50);
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await details.getByText('Reading APK size…', { exact: true }).waitFor();
+  let { report, preview } = await reportFromDetails(page, details);
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].state.storage, null);
+  await report.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(() => finishNewApk({ app_bytes: 16384, data_bytes: null, cache_bytes: null }));
+  await details.getByText(/APK 16.0 KB/).waitFor();
+  ({ preview } = await reportFromDetails(page, details));
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].state.storage.app_bytes, 16384);
+});
+
+
+test('an APK result for a closed package cannot replace the next package measurement', async t => {
+  const page = await openApps(t);
+  await page.evaluate(() => { handlers.app_apk_size = args => args.package === 'com.example.streambox'
+    ? new Promise(resolve => { window.finishStreamApk = resolve; })
+    : { app_bytes: 32768, data_bytes: null, cache_bytes: null }; });
+  await page.locator('.app-row[data-package="com.example.streambox"]').click(); await page.waitForFunction(() => !!window.finishStreamApk);
+  await page.getByRole('dialog', { name: /App details for/ }).getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('.app-row[data-package="com.example.launcherguard"]').click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await details.getByText(/APK 32.0 KB/).waitFor();
+  await page.evaluate(() => finishStreamApk({ app_bytes: 4096, data_bytes: null, cache_bytes: null })); await page.waitForTimeout(50);
+  const { preview } = await reportFromDetails(page, details);
+  const record = JSON.parse(await preview.inputValue()).records[0];
+  assert.equal(record.token, 'com.example.launcherguard');
+  assert.equal(record.state.storage.app_bytes, 32768);
 });

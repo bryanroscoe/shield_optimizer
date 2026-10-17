@@ -12,7 +12,7 @@
   import { reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
   import { safetySourceLabel } from "../../../shared/safety";
   import { canOfferUninstall, recommendation } from "../lib/recommendation";
-  import { formatBytes, hasStorage, measuredAt, type AppMeasurements, type MeasureStatus } from "../lib/app-details";
+  import { formatBytes, hasStorage, measuredAt, type AppMeasurements, type ApkReportMeasurement, type MeasureStatus } from "../lib/app-details";
   import type { AppItem } from "../lib/appsList";
   import type { AppStorage, AppUsage, Safety } from "../lib/types";
 
@@ -22,6 +22,7 @@
     usage,
     storage,
     measures,
+    measurementId = 0,
     onRemeasure,
     busy,
     uninstalled = false,
@@ -40,6 +41,7 @@
     usage: AppUsage | null;
     storage: AppStorage | null;
     measures: AppMeasurements;
+    measurementId?: number;
     onRemeasure?: () => void;
     busy: boolean;
     /// True once the package has been removed for the TV's current user, so
@@ -52,7 +54,7 @@
     onUninstall: (app: AppItem) => void;
     onPlayStore: (app: AppItem) => void;
     onReinstall?: (app: AppItem) => void;
-    onReport?: (app: AppItem) => void;
+    onReport?: (app: AppItem, apk?: ApkReportMeasurement) => void;
     /// The verdict this sheet resolved, so a report opened from here carries
     /// the same one the user is looking at.
     onVerdict?: (pkg: string, verdict: Safety | null) => void;
@@ -111,7 +113,7 @@
   type ApkRead =
     | { status: "idle" }
     | { status: "loading" }
-    | { status: "ready"; at: number; value: AppStorage }
+    | { status: "ready"; at: number; value: AppStorage; package: string; serial: string; generation: number; measurementId: number }
     | { status: "unavailable"; at: number; reason: string };
 
   /// The fallback for a package diskstats has no row for: its APK files only.
@@ -128,6 +130,7 @@
     const pkg = app?.package ?? "";
     const device = session.connectedDevice;
     const generation = session.generation;
+    const batch = measurementId;
     // Keyed on the batch read it falls back from: a re-measure starts a fresh
     // fallback, and a reply to an older one is dropped.
     void measures.storage;
@@ -138,13 +141,13 @@
     }
     const serial = device.serial;
     const current = () =>
-      token === apkToken && app?.package === pkg && session.serial === serial && session.generation === generation;
+      token === apkToken && app?.package === pkg && session.isConnected && session.serial === serial && session.generation === generation && measurementId === batch;
     apk = { status: "loading" };
     api.appApkSize(serial, pkg).then(
       (value) => {
         if (!current()) return;
         apk = hasStorage(value)
-          ? { status: "ready", at: Date.now(), value }
+          ? { status: "ready", at: Date.now(), value, package: pkg, serial, generation, measurementId: batch }
           : { status: "unavailable", at: Date.now(), reason: "no APK size reported" };
       },
       (e) => {
@@ -152,6 +155,20 @@
       },
     );
   });
+
+  function reportApp() {
+    if (!app) return;
+    const value = apk;
+    const bytes = value.status === "ready" ? value.value.app_bytes : null;
+    const fallback = value.status === "ready" && needsApkFallback && session.isConnected
+      && value.package === app.package && value.serial === session.serial
+      && value.generation === session.generation && value.measurementId === measurementId
+      && bytes != null && Number.isFinite(bytes) && bytes >= 0
+      ? { package: value.package, serial: value.serial, generation: value.generation,
+          measurementId: value.measurementId, appBytes: bytes, at: value.at }
+      : undefined;
+    onReport?.(app, fallback);
+  }
 
   onDestroy(() => {
     ++safetyRequest;
@@ -454,7 +471,7 @@
           </button>
         {/if}
         {#if canReport && onReport}
-          <button class="link-btn" onclick={() => onReport?.(app)}>
+          <button class="link-btn" onclick={reportApp}>
             <span class="msr">warning</span>Report this app
           </button>
         {/if}

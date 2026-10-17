@@ -6,7 +6,7 @@
   import { isBlocked, safetyLabel, tierOf, verdictOf, verdictSummary, type SafetyStatus } from "../lib/safety";
   import { canOfferUninstall, recommendation, uninstallNote, type PackageState, type Recommendation } from "../lib/recommendation";
   import { isReportablePackage, reportFamily, type AppReportDevice, type AppReportState } from "../lib/app-report";
-  import { hasStorage, idleMeasurements, type AppMeasurements, type MeasureStatus } from "../lib/app-details";
+  import { hasStorage, idleMeasurements, type AppMeasurements, type ApkReportMeasurement, type MeasureStatus } from "../lib/app-details";
   import { normalizeHardwareId } from "../lib/identity";
   import {
     catalogItems,
@@ -66,7 +66,7 @@
   let removedIdentity = $state<(ListIdentity & { app: AppItem }) | null>(null);
   let removalIntent = $state<RemovalIntent | null>(null);
   let loadRequest = 0;
-  let enrichmentRequest = 0;
+  let enrichmentRequest = $state(0);
   let safetyRequest = 0;
   let removalRequest = 0;
   let actionRequest = 0;
@@ -94,6 +94,7 @@
   let menuApp = $state<AppItem | null>(null);
   let reportApp = $state<AppItem | null>(null);
   let reportVerdict = $state<Safety | null>(null);
+  let reportApk = $state<ApkReportMeasurement | null>(null);
 
   function isLocked(e: unknown): boolean {
     return String(e).includes("LOCKED:");
@@ -164,6 +165,7 @@
     removedIdentity = null;
     menuApp = null;
     reportApp = null;
+    reportApk = null;
   }
 
   async function readCatalog(serial: string, deviceType: DeviceType) {
@@ -686,10 +688,11 @@
     return sheetVerdicts[pkg] ?? verdictOf(catalogSafety[pkg]) ?? null;
   }
 
-  function openReport(app: AppItem) {
+  function openReport(app: AppItem, apk?: ApkReportMeasurement) {
     if (!canReport(app)) return;
     const request = ++reportRequest;
     reportApp = app;
+    reportApk = apk ?? null;
     reportVerdict = knownVerdict(app.package);
     if (reportVerdict) return;
     const serial = session.serial;
@@ -710,6 +713,12 @@
     const mb = memoryMap[pkg];
     const running = memRead ? mb !== undefined && mb > 0 : null;
     const stored = storageMap[pkg];
+    const apk = reportApk;
+    const apkCurrent = apk && listCurrent() && sessionCurrent(apk.serial, apk.generation)
+      && apk.package === pkg && apk.measurementId === enrichmentRequest
+      && (measures.storage.status === "ready" || measures.storage.status === "unavailable")
+      && !sheetUninstalled && app.state !== "missing"
+      && Number.isFinite(apk.appBytes) && apk.appBytes >= 0 && Number.isFinite(apk.at);
     return {
       status: app.state,
       running,
@@ -717,7 +726,9 @@
       storage:
         measures.storage.status === "ready" && hasStorage(stored)
           ? { source: "diskstats", ...stored }
-          : null,
+          : apkCurrent
+            ? { source: "apk_files", app_bytes: apk.appBytes, data_bytes: null, cache_bytes: null }
+            : null,
     };
   }
 
@@ -1030,6 +1041,7 @@
     usage={sheetApp ? (usageMap[sheetApp.package] ?? null) : null}
     storage={sheetApp ? (storageMap[sheetApp.package] ?? null) : null}
     {measures}
+    measurementId={enrichmentRequest}
     onRemeasure={remeasure}
     busy={busyAction !== "" || lookupBusy !== ""}
     uninstalled={sheetUninstalled}
@@ -1057,6 +1069,7 @@
       onClose={() => {
         ++reportRequest;
         reportApp = null;
+        reportApk = null;
       }}
     />
   {/if}
