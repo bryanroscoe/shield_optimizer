@@ -59,6 +59,6 @@ The existing Amphetamine timer observed after host recovery did not match the pr
 bounded-session timing. Its ownership was not assumed, so it was preserved; this task did not
 start or end another wake session.
 
-Final validation: **298/298 full mobile tests and30/30 focused cases including capture passed**,
-with no failures or skips. Post-change Svelte check0/0, build and diff check passed. The video
-is3.28 seconds. [Validation receipt](validation.json) includes baseline/final checks and hashes.
+Final validation: **298/298 full mobile tests and 30/30 focused cases including capture passed**,
+with no failures or skips. Post-change Svelte check 0/0, build and diff check passed. The video
+is 3.28 seconds. [Validation receipt](validation.json) includes baseline/final checks and hashes.
