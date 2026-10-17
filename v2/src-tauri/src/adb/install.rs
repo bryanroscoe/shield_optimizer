@@ -5,6 +5,9 @@
 
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use shield_optimizer_core::adb::Lease;
 
 use thiserror::Error;
 
@@ -61,7 +64,7 @@ pub fn adb_path_in_install_root() -> Option<PathBuf> {
 ///
 /// Network call is async, ZIP extraction is sync (the `zip` crate is sync;
 /// archives are ~12MB so this is fine on a single blocking-thread spawn).
-pub async fn install_platform_tools() -> Result<PathBuf, InstallError> {
+pub async fn install_platform_tools(operation: Arc<Lease>) -> Result<PathBuf, InstallError> {
     let install_to = install_root().ok_or(InstallError::NoInstallDir)?;
     tokio::fs::create_dir_all(&install_to).await?;
 
@@ -73,7 +76,7 @@ pub async fn install_platform_tools() -> Result<PathBuf, InstallError> {
 
     // Extract on a blocking thread — zip crate is synchronous.
     let install_clone = install_to.clone();
-    let adb_path = finish_extraction(move || -> Result<PathBuf, InstallError> {
+    let adb_path = finish_extraction(operation, move || -> Result<PathBuf, InstallError> {
         let cursor = std::io::Cursor::new(bytes.as_ref());
         extract_zip_to(cursor, &install_clone)
     })
@@ -82,13 +85,20 @@ pub async fn install_platform_tools() -> Result<PathBuf, InstallError> {
     Ok(adb_path)
 }
 
-pub(crate) async fn finish_extraction<F>(extract: F) -> Result<PathBuf, InstallError>
+pub(crate) async fn finish_extraction<F>(
+    operation: Arc<Lease>,
+    extract: F,
+) -> Result<PathBuf, InstallError>
 where
     F: FnOnce() -> Result<PathBuf, InstallError> + Send + 'static,
 {
-    tokio::task::spawn_blocking(extract)
-        .await
-        .map_err(|e| InstallError::Io(std::io::Error::other(e.to_string())))?
+    tokio::task::spawn_blocking(move || {
+        // The worker outlives cancellation of its async waiter.
+        let _operation = operation;
+        extract()
+    })
+    .await
+    .map_err(|e| InstallError::Io(std::io::Error::other(e.to_string())))?
 }
 
 /// Extract the platform-tools ZIP, flattening the top-level `platform-tools/`

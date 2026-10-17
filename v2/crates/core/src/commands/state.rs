@@ -13,7 +13,7 @@ use crate::adb::lifetimes::{ClosedAdb, LeasedAdb};
 #[cfg(not(target_os = "android"))]
 use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
 use crate::adb::RemoteInputSession;
-use crate::adb::{AdbDriver, Leases, ServerStop};
+use crate::adb::{AdbDriver, AdbError, Lease, Leases, ServerStop};
 use crate::engine::AppListBundle;
 use crate::license::{Entitlement, Feature, LicenseInfo};
 
@@ -133,6 +133,14 @@ impl AppState {
             Some(lease) => Arc::new(LeasedAdb::new(driver, lease)),
             None => Arc::new(ClosedAdb),
         }
+    }
+
+    /// Count work such as installation that must finish before quit can stop
+    /// the server, even though it does not use the current driver.
+    pub fn try_adb_operation(&self) -> Result<Lease, AdbError> {
+        self.adb_operations
+            .try_acquire()
+            .ok_or(AdbError::ShuttingDown)
     }
 
     /// Refuse every later snapshot. Snapshots already handed out keep working.
@@ -304,7 +312,6 @@ pub fn resolve_scrcpy_server_jar<R: tauri::Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adb::AdbError;
     use crate::commands::test_support::MockAdb;
 
     fn state() -> AppState {

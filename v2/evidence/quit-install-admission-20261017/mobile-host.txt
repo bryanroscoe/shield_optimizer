@@ -1,0 +1,43 @@
+   Compiling tauri-plugin-atv-adb v0.1.0 (<checkout>/v2/mobile/tauri-plugin-atv-adb)
+   Compiling atv-optimizer-mobile v0.1.0 (<checkout>/v2/mobile/src-tauri)
+   Compiling shield-optimizer-core v2.3.0 (<checkout>/v2/crates/core)
+   Compiling adb_client v3.2.2 (<checkout>/v2/vendor/adb_client)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.10s
+     Running unittests src/lib.rs (<target>/debug/deps/atv_optimizer_mobile_lib-f6dcfa35e15e840f)
+
+running 26 tests
+test file_commands::tests::complete_bundle_round_trips ... ok
+test file_commands::tests::concurrent_downloads_publish_distinct_complete_files ... ok
+test file_commands::tests::delete_target_must_be_a_top_level_backup ... ok
+test file_commands::tests::download_names_dedupe_instead_of_clobbering ... ok
+test file_commands::tests::failed_download_removes_partial_output_and_preserves_existing_files ... ok
+test file_commands::tests::parses_every_split_apk_path ... ok
+test file_commands::tests::rejects_unsafe_reported_apk_path ... ok
+test file_commands::tests::restore_path_must_stay_inside_backup_root ... ok
+test license_tests::persisted_valid_license_round_trips ... ok
+test license_tests::persistence_failure_is_reported ... ok
+test limited_writer::tests::preserves_destination_errors ... ok
+test limited_writer::tests::rejects_growth_without_writing_past_the_limit ... ok
+test remote_lifecycle::tests::current_background_epoch_can_claim_cleanup_once ... ok
+test remote_lifecycle::tests::newer_suspend_invalidates_an_older_timer ... ok
+test remote_lifecycle::tests::resume_invalidates_pending_cleanup ... ok
+test scrcpy_resource::tests::embedded_server_matches_audited_release ... ok
+test scrcpy_resource::tests::materialize_creates_and_repairs_server ... ok
+test wireless_adb::tests::canceled_handshakes_cannot_publish_or_supersede_a_retry ... ok
+test wireless_adb::tests::connect_timeout_explains_the_tv_approval_prompt ... ok
+test wireless_adb::tests::installs_get_the_slow_shell_timeout ... ok
+test wireless_adb::tests::only_socket_level_errors_are_fatal ... ok
+test wireless_adb::tests::pairing_codes_are_normalized_before_the_one_allowed_guess ... ok
+test wireless_adb::tests::pairing_errors_name_the_next_step ... ok
+test wireless_adb::tests::refused_connect_explains_network_debugging ... ok
+test wireless_adb::tests::requested_serial_must_match_active_connection ... ok
+test wireless_commands::tests::find_remote_requires_a_successful_shell_result ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (<target>/debug/deps/tauri_plugin_atv_adb-7725b1d1feb8bf6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

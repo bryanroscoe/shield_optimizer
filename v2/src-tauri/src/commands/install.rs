@@ -185,10 +185,11 @@ pub(crate) async fn install_with<F, Fut>(
     installer: F,
 ) -> Result<InstallResult, String>
 where
-    F: FnOnce() -> Fut,
+    F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
-    match installer().await {
+    let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
+    match installer(Arc::clone(&operation)).await {
         Ok(path) => {
             // A managed install outranks everything discovery would otherwise
             // fall back to, so the memoized answer is now stale.

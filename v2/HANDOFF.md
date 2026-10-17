@@ -11,6 +11,8 @@ Full release pipeline live: installers built for macOS/Linux/Windows on every `v
 #98, #100, #129 and the rest listed there) and waits on the owner's go to tag.
 Things the next reader needs that the code does not say:
 
+- **ADB quit hardening:** PR168 is the implementation authority. See [ADB-QUIT-HARDENING.md](ADB-QUIT-HARDENING.md) for the focused installer regression follow-on, framework limits and preserved historical drafts #174–179.
+
 - **The app is now ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and
   the updater channel are unchanged on purpose; the WiX UpgradeCode is pinned in
   `tauri.conf.json` to the value the old name derived. The Homebrew tap change

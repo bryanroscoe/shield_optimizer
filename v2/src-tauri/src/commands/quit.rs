@@ -399,7 +399,7 @@ mod tests {
         let (state, stops) = state_counting_stops();
         let (entered_tx, entered) = tokio::sync::oneshot::channel();
         let (release, released) = tokio::sync::oneshot::channel();
-        let install = super::super::install::install_with(&state, || async {
+        let install = super::super::install::install_with(&state, |_| async {
             entered_tx.send(()).unwrap();
             released.await.unwrap();
             Ok(std::path::PathBuf::from("/fixture/not-executed"))
@@ -435,7 +435,7 @@ mod tests {
         let (state, stops) = state_counting_stops();
         state.close_adb_admission();
         let effects = AtomicUsize::new(0);
-        let result = super::super::install::install_with(&state, || async {
+        let result = super::super::install::install_with(&state, |_| async {
             effects.fetch_add(1, Ordering::SeqCst);
             Ok(std::path::PathBuf::from("/fixture/not-executed"))
         })
@@ -443,6 +443,35 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(effects.load(Ordering::SeqCst), 0);
         assert_eq!(stops.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn canceled_pending_install_releases_admission_without_replacing_driver() {
+        let (state, stops) = state_counting_stops();
+        let state = Arc::new(state);
+        let (entered_tx, entered) = tokio::sync::oneshot::channel();
+        let install_state = Arc::clone(&state);
+        let install = tokio::spawn(async move {
+            super::super::install::install_with(&install_state, |_| async {
+                entered_tx.send(()).unwrap();
+                std::future::pending().await
+            })
+            .await
+        });
+        entered.await.unwrap();
+        assert_eq!(state.adb_operations_active(), 1);
+        install.abort();
+        assert!(matches!(install.await, Err(error) if error.is_cancelled()));
+        assert_eq!(state.adb_operations_active(), 0);
+        assert_eq!(
+            quit(&state, &enabled(), &Leases::new()).await,
+            QuitStop::Ran(ServerStop::Stopped)
+        );
+        assert_eq!(
+            stops.load(Ordering::SeqCst),
+            1,
+            "the original mock driver remains installed"
+        );
     }
 
     #[tokio::test]
@@ -454,8 +483,8 @@ mod tests {
         let (done_tx, done) = tokio::sync::oneshot::channel();
         let install_state = Arc::clone(&state);
         let install = tokio::spawn(async move {
-            super::super::install::install_with(&install_state, || async {
-                crate::adb::install::finish_extraction(move || {
+            super::super::install::install_with(&install_state, |operation| async {
+                crate::adb::install::finish_extraction(operation, move || {
                     entered_tx.send(()).unwrap();
                     // A bounded wait also makes a failed assertion safe to unwind.
                     let released = released.recv_timeout(Duration::from_secs(5)).is_ok();

@@ -1,0 +1,4 @@
+    Blocking waiting for file lock on build directory
+   Compiling shield-optimizer-v2 v2.3.0 (<checkout>/v2/src-tauri)
+    Checking shield-optimizer-core v2.3.0 (<checkout>/v2/crates/core)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 17.75s

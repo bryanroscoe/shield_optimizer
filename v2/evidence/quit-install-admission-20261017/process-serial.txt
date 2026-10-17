@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+     Running unittests src/lib.rs (<target>/debug/deps/shield_optimizer_v2_lib-89974529a272a39a)
+
+running 8 tests
+test adb::driver::tests::process_lifetimes::a_cancelled_call_stays_counted_until_its_process_is_reaped ... ok
+test adb::driver::tests::process_lifetimes::a_resident_child_counts_until_it_is_reaped ... ok
+test adb::driver::tests::process_lifetimes::a_stop_that_times_out_is_killed_and_reported_unknown ... ok
+test adb::driver::tests::process_lifetimes::a_timed_out_call_is_reaped_before_it_returns ... ok
+test adb::driver::tests::process_lifetimes::closed_process_admission_refuses_to_spawn ... ok
+test adb::driver::tests::process_lifetimes::inherited_output_pipes_respect_timeout_after_direct_child_exit ... ok
+test adb::driver::tests::process_lifetimes::replacement_and_old_driver_clones_share_closed_process_admission ... ok
+test adb::driver::tests::process_lifetimes::the_stop_reports_what_kill_server_exited_with ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 106 filtered out; finished in 1.57s
+

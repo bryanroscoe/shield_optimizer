@@ -1,0 +1,51 @@
+   Compiling shield-optimizer-v2 v2.3.0 (<checkout>/v2/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.15s
+     Running unittests src/lib.rs (<target>/debug/deps/shield_optimizer_v2_lib-89974529a272a39a)
+
+running 14 tests
+test commands::quit::tests::a_change_from_an_outdated_view_cannot_turn_the_stop_on ... ok
+test commands::quit::tests::once_quit_has_begun_the_setting_no_longer_changes ... ok
+test commands::quit::tests::quitting_twice_stops_at_most_once ... ok
+test commands::quit::tests::a_restart_for_an_update_leaves_the_server_running ... ok
+test commands::quit::tests::after_admission_closes_new_work_is_refused_before_it_reaches_adb ... ok
+test commands::quit::tests::an_adb_process_still_alive_leaves_the_server_running ... ok
+test commands::quit::tests::an_operation_that_outlasts_the_drain_leaves_the_server_running ... ok
+test commands::quit::tests::quit_waits_for_old_snapshot_after_replacement_then_stops_live_driver ... ok
+test commands::quit::tests::the_setting_starts_off ... ok
+test commands::quit::tests::with_the_setting_off_quit_never_stops_the_server ... ok
+test commands::quit::tests::quit_waits_for_an_operation_already_running_then_stops ... ok
+test commands::quit::tests::install_after_closed_admission_has_no_installer_effects ... FAILED
+test commands::quit::tests::pending_install_prevents_stop_until_driver_replacement_finishes ... FAILED
+test commands::quit::tests::canceled_install_waiter_keeps_blocking_extraction_counted ... FAILED
+
+failures:
+
+---- commands::quit::tests::install_after_closed_admission_has_no_installer_effects stdout ----
+
+thread 'commands::quit::tests::install_after_closed_admission_has_no_installer_effects' (17706735) panicked at src-tauri/src/commands/quit.rs:443:9:
+assertion failed: result.is_err()
+
+---- commands::quit::tests::pending_install_prevents_stop_until_driver_replacement_finishes stdout ----
+
+thread 'commands::quit::tests::pending_install_prevents_stop_until_driver_replacement_finishes' (17706737) panicked at src-tauri/src/commands/quit.rs:412:9:
+assertion `left == right` failed
+  left: Ran(Stopped)
+ right: OperationsRunning(1)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- commands::quit::tests::canceled_install_waiter_keeps_blocking_extraction_counted stdout ----
+
+thread 'commands::quit::tests::canceled_install_waiter_keeps_blocking_extraction_counted' (17706734) panicked at src-tauri/src/commands/quit.rs:484:9:
+assertion `left == right` failed
+  left: Ran(Stopped)
+ right: OperationsRunning(1)
+
+
+failures:
+    commands::quit::tests::canceled_install_waiter_keeps_blocking_extraction_counted
+    commands::quit::tests::install_after_closed_admission_has_no_installer_effects
+    commands::quit::tests::pending_install_prevents_stop_until_driver_replacement_finishes
+
+test result: FAILED. 11 passed; 3 failed; 0 ignored; 0 measured; 100 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p shield-optimizer-v2 --lib`
