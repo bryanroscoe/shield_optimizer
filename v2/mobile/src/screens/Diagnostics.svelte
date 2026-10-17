@@ -16,7 +16,8 @@
   import type { MemoryEntry, OtherPackage, ResourceSample } from "../lib/types";
   import AppSheetHost from "../components/AppSheetHost.svelte";
   import Toast from "../components/Toast.svelte";
-  import { formatSupport, matchContentLabel, type MediaCapabilities } from "../../../shared/media";
+  import DiagnosticReports from "../components/DiagnosticReports.svelte";
+  import { type MediaCapabilities } from "../../../shared/media";
   import { memoryUsage, storageUsage, temperatureContext, metricNumber } from "../lib/healthPresentation";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
 
@@ -126,7 +127,6 @@
     }
   }
 
-  const rate = (value: number | null) => value == null ? "Unavailable" : `${(value / 1024).toFixed(1)} KiB/s`;
 
   let liveMode = $state(false);
   let liveTimer: ReturnType<typeof setInterval> | undefined;
@@ -544,49 +544,7 @@
   {/if}
 
   {#if session.connectedDevice}
-    <div class="diagnostics-content reports">
-      <section class="diagnostic-card" aria-label="Playback report">
-        <div class="card-header">
-          <span class="card-title">Playback report</span>
-          <button class="retry-link" disabled={playbackBusy || resourceBusy || !session.isConnected} onclick={readPlayback}>{playbackBusy ? "Reading…" : "Read playback report"}</button>
-        </div>
-        <p class="temp-note">Advertised configuration, not a playback test. Actual decoding and passthrough depend on the app, content and connected display or receiver.</p>
-        {#if playbackError}<p class="error" role="alert">{playbackError}</p>{/if}
-        {#if playback}
-          <dl class="about-list">
-            {#each playback.video as format (format.mime)}
-              <dt>{format.label}</dt><dd>{formatSupport(format).label}</dd>
-            {/each}
-            <dt>Advertised HDR</dt><dd>{playback.hdr_types.length ? playback.hdr_types.join(", ") : "Unknown / not reported"}</dd>
-            <dt>Display modes</dt><dd>{playback.modes.length ? playback.modes.map((mode) => `${mode.width}×${mode.height} @ ${mode.fps} Hz${mode.active ? " (active)" : ""}`).join(", ") : "Unknown / not reported"}</dd>
-            <dt>Surround policy</dt><dd>{playback.audio.mode === "unset" ? "Default / unset" : playback.audio.mode}</dd>
-            <dt>Manual formats</dt><dd>{playback.audio.enabled_formats.join(", ") || "None / unset"}</dd>
-            <dt>Frame-rate policy</dt><dd>{playback.match_content_frame_rate == null ? "Default / unset" : (matchContentLabel[playback.match_content_frame_rate] ?? `Unknown (${playback.match_content_frame_rate})`)}</dd>
-          </dl>
-          {#each playback.verdicts as verdict}
-            <p class="temp-note"><strong>{verdict.title}</strong> {verdict.detail}</p>
-          {/each}
-        {/if}
-      </section>
-      <section class="diagnostic-card" aria-label="Resource sample">
-        <div class="card-header">
-          <span class="card-title">CPU &amp; network</span>
-          <button class="retry-link" disabled={resourceBusy || playbackBusy || !session.isConnected} onclick={sampleResources}>{resourceBusy ? "Sampling…" : "Sample resources"}</button>
-        </div>
-        <p class="temp-note">One device-side sample per tap. Interfaces are shown separately because VPN traffic can also appear on the physical interface.</p>
-        {#if resourceError}<p class="error" role="alert">{resourceError}</p>{/if}
-        {#if resources}
-          <dl class="about-list">
-            <dt>CPU use</dt><dd>{resources.cpu_percent == null ? "Unavailable" : `${resources.cpu_percent.toFixed(1)}%`}</dd>
-            <dt>Sample duration</dt><dd>{resources.interval_ms == null ? "Unavailable" : `${(resources.interval_ms / 1000).toFixed(2)} s`}</dd>
-            {#each resources.interfaces as network (network.name)}
-              <dt>{network.name}</dt><dd>Receive {rate(network.rx_bytes_per_s)} · Send {rate(network.tx_bytes_per_s)}</dd>
-            {/each}
-          </dl>
-          {#if resources.interfaces.length === 0}<p class="temp-note">No network counters available.</p>{/if}
-        {/if}
-      </section>
-    </div>
+    <DiagnosticReports {playback} {resources} {playbackBusy} {resourceBusy} {playbackError} {resourceError} connected={session.isConnected} onReadPlayback={readPlayback} onSampleResources={sampleResources} />
   {/if}
 
   <AppSheetHost
@@ -600,9 +558,6 @@
 </div>
 
 <style>
-  .reports {
-    margin-top: 16px;
-  }
   .header-left {
     display: flex;
     gap: 8px;

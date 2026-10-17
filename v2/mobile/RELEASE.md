@@ -254,3 +254,10 @@ Android/JVM declarations are listed separately without claiming full transitive 
 The installed SDK apksigner rejected an unsigned synthetic archive through the CLI (exit 1,
 no success receipt). Positive signing/SDK outcomes in unit tests are mocked: no genuine signed
 release artifact or Android runtime was validated. This receipt is not release authorization.
+
+### Deferred modal polish (2026-10-17, separate focused fix)
+
+Two P2s remain outside the diagnostic report-layout PR. `StockTakeoverDialog` lacks modal
+registration. Sequential `AppActionMenu` → Report transitions lose the original row focus
+because `modal.destroy` clears `documentReturnFocus` while the stack is briefly empty.
+Cover modal registration and restored original-row focus with regression tests in a later fix.
