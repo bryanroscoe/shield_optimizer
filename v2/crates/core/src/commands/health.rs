@@ -5,9 +5,9 @@ use tauri::State;
 
 use crate::adb::{
     batch_command, kb_to_mb, package_for_process, parse_active_audio_device, parse_display_mode,
-    parse_display_modes, parse_hardware_properties_temp, parse_meminfo_summary, parse_net_dev,
-    parse_proc_stat, parse_pss_by_process, parse_storage_info, parse_thermal_max_celsius,
-    split_batch, DisplayMode, RamInfo, StorageInfo,
+    parse_display_modes, parse_hardware_properties_reading, parse_meminfo_summary, parse_net_dev,
+    parse_proc_stat, parse_pss_by_process, parse_storage_info, parse_thermal_reading,
+    parse_thermal_status, split_batch, DisplayMode, RamInfo, StorageInfo, TemperatureReading,
 };
 use crate::engine::media::{
     build_capabilities, parse_media_codecs, surround_mode, MediaCapabilities,
@@ -36,6 +36,10 @@ pub struct HealthReport {
     pub ram: RamInfo,
     pub storage: StorageInfo,
     pub temperature_c: Option<f64>,
+    /// Optional context from the same existing thermal reads. Old clients retain
+    /// their scalar temperature; new clients can identify the sensor and limits.
+    pub temperature_reading: Option<TemperatureReading>,
+    pub thermal_status: Option<u8>,
     /// Current active audio output (e.g. "HDMI", "BUILTIN_SPEAKER"). Parsed
     /// from `dumpsys audio`; `None` when the section isn't present.
     pub audio_device: Option<String>,
@@ -346,8 +350,21 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
     }
 
     let storage = parse_storage_info(df_text);
-    let temperature_c = parse_thermal_max_celsius(thermal_text)
-        .or_else(|| parse_hardware_properties_temp(hwprops_text));
+    let thermal = parse_thermal_reading(thermal_text);
+    let hardware = parse_hardware_properties_reading(hwprops_text);
+    // A cached framework value is only a last-known fallback; an available
+    // current hardware reading is preferable. Legacy unsectioned formats keep
+    // their prior precedence because their freshness cannot be classified.
+    let temperature_reading = if thermal
+        .as_ref()
+        .is_some_and(|reading| reading.source == "thermalservice_cached")
+    {
+        hardware.or(thermal)
+    } else {
+        thermal.or(hardware)
+    };
+    let temperature_c = temperature_reading.as_ref().map(|reading| reading.celsius);
+    let thermal_status = parse_thermal_status(thermal_text);
     let audio_device = parse_active_audio_device(audio_text);
 
     let mut processes = parse_pss_by_process(mem_text);
@@ -368,6 +385,8 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
         ram,
         storage,
         temperature_c,
+        temperature_reading,
+        thermal_status,
         audio_device,
         top_memory,
     })
@@ -399,6 +418,62 @@ mod tests {
                                 MemAvailable:    1048576 kB\n";
 
     #[tokio::test]
+    async fn health_report_prefers_current_hardware_to_cached_only_then_marks_cached_fallback() {
+        let thermal = "Cached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: false";
+        for hardware in ["CPU temperatures: [30]", ""] {
+            let mock = MockAdb::default().on_shell(
+                BATCH_SEPARATOR,
+                &batched(&["", MEMINFO, thermal, DF, AUDIO, hardware, PROC_MEMINFO]),
+            );
+            let state = state_with(mock);
+            let report = health_report_for(&state, "serial").await.unwrap();
+            let reading = report.temperature_reading.unwrap();
+            if hardware.is_empty() {
+                assert_eq!(reading.celsius, 80.0);
+                assert_eq!(reading.source, "thermalservice_cached");
+            } else {
+                assert_eq!(reading.celsius, 30.0);
+                assert_eq!(reading.source, "hardware_properties");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn health_report_uses_current_hal_context_instead_of_cached_ties() {
+        let thermal = "Thermal Status: 0\nCached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: true\nCurrent temperatures from HAL:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=4}\nCurrent cooling devices from HAL:";
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", MEMINFO, thermal, DF, AUDIO, "", PROC_MEMINFO]),
+        );
+        let state = state_with(mock);
+        let report = health_report_for(&state, "serial").await.unwrap();
+        assert_eq!(report.temperature_c, Some(80.0));
+        assert_eq!(report.thermal_status, Some(0));
+        assert_eq!(report.temperature_reading.unwrap().status, Some(4));
+    }
+
+    #[tokio::test]
+    async fn health_report_retains_status_and_matching_fallback_limits_without_new_reads() {
+        let thermal = "Thermal Status: 4\nTemperature{mValue=99, mType=8, mName=bcl, mStatus=4}";
+        let hardware = "CPU temperatures: [100]\nCPU throttling temperatures: [89]\nCPU shutdown temperatures: [102.5]";
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["", MEMINFO, thermal, DF, AUDIO, hardware, PROC_MEMINFO]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        let report = health_report_for(&state, "serial").await.unwrap();
+        assert_eq!(report.temperature_c, Some(100.0));
+        assert_eq!(report.thermal_status, Some(4));
+        let reading = report.temperature_reading.as_ref().unwrap();
+        assert_eq!(reading.sensor_type.as_deref(), Some("CPU"));
+        assert_eq!(reading.source, "hardware_properties");
+        assert_eq!(reading.throttling_c, Some(89.0));
+        assert_eq!(reading.shutdown_c, Some(102.5));
+        assert_eq!(log.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn health_report_reads_every_section_from_one_batched_call() {
         let mock = MockAdb::default().on_shell(
             BATCH_SEPARATOR,
@@ -416,6 +491,10 @@ mod tests {
         assert_eq!(report.storage.used_percent, Some(78));
         assert_eq!(report.storage.available.as_deref(), Some("2.4G"));
         assert_eq!(report.temperature_c, Some(42.0));
+        let reading = report.temperature_reading.as_ref().unwrap();
+        assert_eq!(reading.sensor_name.as_deref(), Some("CPU"));
+        assert_eq!(reading.source, "thermalservice");
+        assert_eq!(report.thermal_status, None);
         assert_eq!(report.audio_device.as_deref(), Some("HDMI"));
         assert_eq!(report.top_memory.len(), 1);
         assert_eq!(report.top_memory[0].process, "com.netflix.ninja");

@@ -98,11 +98,23 @@ export interface StorageInfo {
   used_percent: number | null;
 }
 
+export interface TemperatureReading {
+  celsius: number;
+  source: string;
+  sensor_name: string | null;
+  sensor_type: string | null;
+  status: number | null;
+  throttling_c: number | null;
+  shutdown_c: number | null;
+}
+
 export interface HealthReport {
   display: DisplayMode;
   ram: RamInfo;
   storage: StorageInfo;
   temperature_c: number | null;
+  temperature_reading?: TemperatureReading | null;
+  thermal_status?: number | null;
   audio_device: string | null;
   top_memory: MemoryEntry[];
 }
