@@ -519,25 +519,32 @@
     );
   }
 
-  // Screensaver is two settings acting as one control: screensaver_enabled
-  // gates whether Daydream runs at all, and screensaver_components picks which
-  // one. Clearing the component alone can leave a vendor default running, so
-  // Off turns the flag off too. A refused flag write stops before the
-  // component changes, so Daydream is never left enabled with no component.
+  // Configure the component before enabling Daydream so a failed component
+  // write cannot activate the previous/default dream. Off disables first.
   function writeScreensaver(key: string, component: string, enabled: string, successMsg: string) {
     const connection = session.generation;
+    const turningOff = enabled === "0";
+    const firstKey = turningOff ? "screensaver_enabled" : "screensaver_components";
+    const secondKey = turningOff ? "screensaver_components" : "screensaver_enabled";
     apply(
       key,
       async (target) => {
-        const flag = await api.writeSetting(target, "secure", "screensaver_enabled", enabled);
-        if (!flag.ok) {
+        const first = await api.writeSetting(target, "secure", firstKey, turningOff ? enabled : component);
+        if (!first.ok) {
           return {
             ok: false,
-            message: `The TV refused the screensaver switch (${flag.message.trim() || "no reason given"}). The screensaver was left unchanged.`,
+            message: turningOff
+              ? `The TV refused the screensaver switch (${first.message.trim() || "no reason given"}). The screensaver was left unchanged.`
+              : `The TV refused the screensaver component (${first.message.trim() || "no reason given"}). The screensaver switch was not written.`,
           };
         }
         if (connection !== session.generation || !session.isConnected || target !== session.serial) throw new Error("TV connection changed.");
-        return api.writeSetting(target, "secure", "screensaver_components", component);
+        const second = await api.writeSetting(target, "secure", secondKey, turningOff ? component : enabled);
+        if (!second.ok) return {
+          ok: false,
+          message: `${second.message.trim() || "The second screensaver write failed."} The ${turningOff ? "switch" : "component"} was written, but the ${turningOff ? "component" : "switch"} was not confirmed. Recheck current settings.`,
+        };
+        return second;
       },
       successMsg,
     );
