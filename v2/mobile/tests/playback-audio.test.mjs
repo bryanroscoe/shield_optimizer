@@ -80,8 +80,10 @@ test("Free diagnostics reports are explicit, honest and per-interface", async (t
   assert.equal(await page.getByText("Unknown / not reported", { exact: true }).count(), 2);
   assert.equal(await page.getByText("Default / unset", { exact: true }).count(), 2);
   await page.getByRole("button", { name: "Sample resources" }).click();
-  await page.getByText("Receive 2.0 KiB/s · Send 1.0 KiB/s", { exact: true }).waitFor();
-  await page.getByText("Receive Unavailable · Send Unavailable", { exact: true }).waitFor();
+  const wlan = page.getByRole("listitem", { name: "Interface wlan0", exact: true });
+  await wlan.getByText("2.0 KiB/s", { exact: true }).waitFor();
+  await wlan.getByText("1.0 KiB/s", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("listitem", { name: "Interface tun0", exact: true }).getByText("Unavailable", { exact: true }).count(), 2);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 });
 
