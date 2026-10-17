@@ -1,0 +1,26 @@
+{
+  "base": "6f3deefa5e46a03d292aa4ef1e84927440b03766",
+  "source_sha256": {
+    "src/components/AppSheetHost.svelte": "10a890165d779c56f3f89bb524100a1d4e053fe2c567666e8f22c6864dd2d0cc",
+    "tests/sheet-opening-identity.test.mjs": "4c670e623322bc174fe4ba3d53158a20df92a1da5d31c5d075ec676641fa6298"
+  },
+  "evidence_sha256": {
+    "b-requires-fresh-selection-simulated.png": "6f38cc439422158c58c9d9458a240a19a510d5dfa0dd8c45172e5f4c6ce5458a",
+    "fresh-b-selection-simulated.png": "d9e1d481fb9ccf74ab76b4a381043713dd5dc2968b81755d00e2910bc2ab4bb2",
+    "opened-on-a-simulated.png": "2f1e8d54f4b83aaea17293e702927e396ac99484c6c4fc7f0d57406df7377dae",
+    "a-confirmation-simulated.png": "43667a31038e325061117ad3bb76ec1e56a898ea540ac7721db0bad7bb13edb6",
+    "sheet-opening-identity-simulated.webm": "da71ae17c6afa5e591e12e9cd13a49458671b9586c0fe25418b64bcb2b523042"
+  },
+  "pre_fix_resurrection_failures": 6,
+  "focused_safety_tests": 16,
+  "focused_with_capture": 17,
+  "standalone_full_mobile_tests": 245,
+  "combined_with_modal_head": "1dd9bef7f949f66e4a6b6e94ba11e5c319c9baa0",
+  "combined_full_mobile_tests": 252,
+  "svelte_errors": 0,
+  "svelte_warnings": 0,
+  "vite_build": "passed",
+  "physical_device_tested": false,
+  "native_files_modified": false,
+  "independent_review": "pending"
+}

@@ -4,7 +4,7 @@
   // screen's rules: a removal re-reads `safety_info` before the confirm and
   // again before the mutation, Protected is refused outright, and every result
   // is bound to the connection the sheet was opened on.
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { verdictSummary } from "../lib/safety";
@@ -32,10 +32,10 @@
     onToast: (message: string, type: "success" | "error" | "info") => void;
   } = $props();
 
-  type Target = { serial: string; generation: number };
+  type Target = Readonly<{ serial: string; generation: number }>;
   type RemovalIntent = Target & { action: "disable" | "uninstall"; app: AppItem; verdict: Safety };
 
-  let target = $state<Target | null>(null);
+  let target = $state.raw<Target | null>(null);
   let shown = $state<AppItem | null>(null);
   let uninstalled = $state(false);
   let busy = $state(false);
@@ -46,29 +46,62 @@
   let memoryMap = $state<Record<string, number>>({});
   let usageMap = $state<Record<string, AppUsage>>({});
   let storageMap = $state<Record<string, AppStorage>>({});
-  let measuredFor = "";
   let measureRequest = 0;
   let request = 0;
   let destroyed = false;
 
-  // Bind to the connection the sheet opened on; a reconnect closes it.
+  let selectedApp: AppItem | null = null;
+
+  function invalidateSelection() {
+    ++request;
+    ++measureRequest;
+    target = null;
+    shown = null;
+    intent = null;
+    showPaywall = false;
+    busy = false;
+    uninstalled = false;
+    measures = idleMeasurements();
+    memoryMap = {};
+    usageMap = {};
+    storageMap = {};
+  }
+
+  function closeSelection() {
+    invalidateSelection();
+    onClose(); // Clear the parent's selection too: reconnect must not reopen it.
+  }
+
+  // Only a new explicit app selection captures an opening identity. Session
+  // changes must invalidate it, never bind the old package to a new transport.
   $effect(() => {
     const next = app;
+    untrack(() => {
+      if (next === selectedApp) return;
+      selectedApp = next;
+      invalidateSelection();
+      if (!next) return;
+      const serial = session.serial;
+      const generation = session.generation;
+      if (!serial || !session.isConnected) {
+        onClose();
+        return;
+      }
+      const opening = Object.freeze({ serial, generation });
+      target = opening;
+      shown = { ...next };
+      void measure(opening);
+    });
+  });
+
+  $effect(() => {
     const serial = session.serial;
     const generation = session.generation;
     const live = session.isConnected;
-    ++request;
-    intent = null;
-    busy = false;
-    uninstalled = false;
-    if (!next || !serial || !live) {
-      shown = null;
-      target = null;
-      return;
+    const opening = target;
+    if (opening && (!live || serial !== opening.serial || generation !== opening.generation)) {
+      untrack(closeSelection);
     }
-    shown = { ...next };
-    target = { serial, generation };
-    if (measuredFor !== `${serial}|${generation}`) void measure({ serial, generation });
   });
 
   onDestroy(() => {
@@ -80,7 +113,6 @@
   // The same three batch reads the Apps screen makes, each stamped with when
   // it answered; a failed read is "unavailable", never zero.
   async function measure(t: Target) {
-    measuredFor = `${t.serial}|${t.generation}`;
     const mine = ++measureRequest;
     measures = loadingMeasurements();
     const [memory, usage, storage] = await Promise.allSettled([
@@ -104,6 +136,7 @@
     return (
       !destroyed &&
       t !== null &&
+      t === target &&
       session.serial === t.serial &&
       session.generation === t.generation &&
       session.isConnected
@@ -134,7 +167,6 @@
   function changed(t: Target) {
     session.invalidateAll();
     onChanged();
-    measuredFor = "";
     void measure(t);
   }
 
@@ -149,7 +181,7 @@
       if (!current(t)) return;
       onToast(r.ok ? `Enabled ${label(a)}.` : r.message || "Enable failed.", r.ok ? "success" : "error");
       changed(t);
-      if (r.ok) onClose();
+      if (r.ok) closeSelection();
     });
   }
 
@@ -201,7 +233,7 @@
       // A not-ok result can still have landed, so the caller reloads either way.
       changed(t);
       if (r.ok && pending.action === "uninstall") uninstalled = true;
-      else if (r.ok) onClose();
+      else if (r.ok) closeSelection();
     });
   }
 
@@ -231,7 +263,7 @@
         onToast(`Reinstalled ${label(a)}.`, "success");
         uninstalled = false;
         changed(t);
-        onClose();
+        closeSelection();
       } else {
         onToast(r.message || "Reinstall failed. Try the Play Store.", "error");
       }
@@ -252,11 +284,7 @@
   onRemeasure={() => target && current(target) && void measure(target)}
   {busy}
   {uninstalled}
-  onClose={() => {
-    ++request;
-    intent = null;
-    onClose();
-  }}
+  onClose={closeSelection}
   onToggle={handleToggle}
   onForceStop={handleForceStop}
   onUninstall={(a) => void requestRemoval(a, "uninstall")}
