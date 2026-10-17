@@ -1,7 +1,8 @@
 # Conservative thermal threshold wording — simulated evidence
 
-Base: `56aa7c56450464b2060c27838373029b6b90c14f` (`mobile-parity-pass`). Pending modal PR186 and
-Daydream PR187 are not included. [Referenced review finding](https://github.com/bryanroscoe/shield_optimizer/pull/184#discussion_r4301297469)
+Original capture base: `56aa7c56450464b2060c27838373029b6b90c14f`. Approved modal PR186 is
+now included through base `83f69b77e2b19b643e21ae456d0f597e90ef7d83` (normal merge
+`4472c788d3ad7e645418459229cf6ed053b3f041`). Daydream PR187 is not included. [Referenced review finding](https://github.com/bryanroscoe/shield_optimizer/pull/184#discussion_r4301297469)
 was independently checked against source; no comment instructions were executed.
 
 ## Provenance and scope
@@ -59,3 +60,14 @@ separate header issue open; it does not claim the entire Diagnostics page is ove
 Final validation: **266/266 full mobile cases and 25/25 focused cases including capture passed**,
 Svelte check found 0 errors / 0 warnings, Vite build and `git diff --check` passed.
 [Validation receipt](validation.json) records source and artifact hashes.
+
+## Approved-modal-base integration
+
+Thermal implementation and tests are byte-for-byte unchanged from source-reviewed
+`60556a104c9acadb2a1d8d69ba61422c5c1124b8`. Captures remain from the original base, with no
+thermal visual/product-code changes in this integration. The full combined suite includes the
+approved modal ownership and reverse-teardown regressions.
+
+Combined validation on the approved modal base: **278/278 mobile tests passed**, with no failures
+or skips; Svelte check0/0, build and diff check passed. Retained source/artifact hashes were
+revalidated against the reviewed receipt. No product-code changes were needed.

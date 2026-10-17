@@ -1,7 +1,7 @@
 {
-  "base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
   "full_mobile": {
-    "passed": 266,
+    "passed": 278,
     "failed": 0,
     "skipped": 0
   },
@@ -25,5 +25,20 @@
     "Unchanged Diagnostics header overflows at320px; thermal-card wrapping passes.",
     "No HAL transport/severity provenance is retained by this payload.",
     "Independent review and CI pending."
-  ]
+  ],
+  "original_base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "original_full_mobile": {
+    "passed": 266,
+    "failed": 0,
+    "skipped": 0
+  },
+  "integration": {
+    "merge": "4472c788d3ad7e645418459229cf6ed053b3f041",
+    "product_code_and_tests_unchanged_from": "60556a104c9acadb2a1d8d69ba61422c5c1124b8",
+    "captures_retained_from_original_base": true,
+    "retained_hashes_revalidated": true,
+    "check": "0 errors / 0 warnings",
+    "build": "passed",
+    "diff_check": "passed"
+  }
 }
