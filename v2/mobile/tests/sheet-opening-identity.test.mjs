@@ -8,7 +8,7 @@ before(async () => { ({ server, origin } = await startViteServer()); browser = a
 after(async () => { await browser?.close(); await server?.close(); });
 const pkg = 'com.example.video';
 async function open(t, screen, evidence = false) {
-  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(evidence ? { recordVideo: { dir: 'evidence/sheet-identity-2026-10-17/raw', size: { width: 384, height: 812 } } } : {}) });
+  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(evidence ? { recordVideo: { dir: typeof evidence === 'string' ? `${evidence}/raw` : 'evidence/sheet-identity-2026-10-17/raw', size: { width: 384, height: 812 } } } : {}) });
   const page = await context.newPage(); page.setDefaultTimeout(10000); t.after(() => context.close());
   await page.addInitScript(() => {
     localStorage.clear(); window.calls = []; window.handlers = {}; window.activeHost = 'A';
@@ -173,4 +173,68 @@ if (process.env.SHEET_IDENTITY_EVIDENCE === '1') test('capture synthetic opening
   await page.waitForTimeout(600);
   await writeFile(`${dir}/scenario.json`, JSON.stringify({ fixture: 'synthetic TV A -> B', real_device: false, recorded_mutations: await mutations(page), current_serial: await page.evaluate(() => session.serial), requires_fresh_selection: true, confirmation_canceled: true }, null, 2) + '\n');
   const video = page.video(); await page.context().close(); await video.saveAs(`${dir}/sheet-opening-identity-simulated.webm`);
+});
+
+for (const screen of ['diagnostics', 'optimize']) {
+  for (const action of ['Disable', 'Uninstall']) test(`${screen}: ${action} landing with a false response discards the stale selection`, async t => {
+    const evidence = process.env.DETAIL_STATE_EVIDENCE === '1' && screen === 'optimize' && action === 'Disable' ? 'evidence/detail-state-2026-10-17' : false;
+    if (evidence) await mkdir(evidence, { recursive: true });
+    const page = await open(t, screen, evidence); await select(page, screen);
+    if (evidence) await page.screenshot({ path: `${evidence}/before-inconclusive-simulated.png`, animations: "disabled" });
+    await page.evaluate(action => {
+      const command = action === 'Disable' ? 'disable_package' : 'uninstall_package';
+      handlers[command] = () => {
+        window.mutationLanded = true;
+        handlers.package_states = ({ packages }) => Object.fromEntries(packages.map(p => [p, action === 'Disable' ? 'disabled' : 'missing']));
+        handlers.list_installed_packages = () => action === 'Disable' ? [{ package: 'com.example.video', system: false, enabled: false }] : [];
+        handlers.prepare_optimize = ({ mode }) => ({ mode, items: [] });
+        return { ok: false, message: 'Synthetic verification inconclusive after mutation.' };
+      };
+    }, action);
+    const before = await page.evaluate(() => calls.length);
+    await page.locator('.sheet').getByRole('button', { name: new RegExp(`^${action}`) }).click();
+    await page.locator('.dialog-card').getByRole('button', { name: action, exact: true }).click();
+    await page.waitForFunction(() => window.mutationLanded);
+    await page.getByText('Synthetic verification inconclusive after mutation.', { exact: true }).waitFor();
+    await settle(page);
+    assert.equal(await page.locator('.sheet, .dialog-card').count(), 0, 'an inconclusive write must clear child and parent selection');
+    assert.notEqual(await page.evaluate(() => document.body.style.position), 'fixed');
+    await page.waitForFunction(({ before, screen }) => calls.slice(before).some(c => c.command === (screen === 'optimize' ? 'prepare_optimize' : 'health_report')), { before, screen });
+    if (evidence) {
+      await page.screenshot({ path: `${evidence}/inconclusive-cleared-simulated.png`, animations: "disabled" });
+      await page.waitForTimeout(700);
+    }
+    await change(page, 'reconnect');
+    assert.equal(await page.locator('.sheet').count(), 0, 'reconnect cannot reopen the stale parent object');
+    assert.equal((await mutations(page)).length, 1);
+    if (evidence) { const video = page.video(); await page.context().close(); await video.saveAs(`${evidence}/inconclusive-cleared-simulated.webm`); }
+  });
+}
+
+test('Restore detail offers Enable and dispatches only enable_package', async t => {
+  const evidence = process.env.DETAIL_STATE_EVIDENCE === '1' ? 'evidence/detail-state-2026-10-17' : false;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await open(t, 'optimize', evidence);
+  await page.evaluate(() => {
+    handlers.prepare_optimize = ({ mode }) => ({ mode, items: [{ entry: { package: 'com.example.video', name: 'Example video', method: 'disable', risk: 'safe', optimize_description: 'Synthetic app.', restore_description: 'Restore synthetic app.', default_optimize: true, default_restore: true, play_store: true }, action: { kind: 'enable' }, memory_mb: null }] });
+  });
+  await page.getByRole('button', { name: 'Restore', exact: true }).click();
+  await page.getByRole('button', { name: 'Details for Example video', exact: true }).click();
+  const enable = page.locator('.sheet').getByRole('button', { name: 'Enable', exact: true });
+  await enable.waitFor();
+  assert.equal(await page.locator('.sheet').getByRole('button', { name: 'Disable', exact: true }).count(), 0);
+  if (evidence) { await page.screenshot({ path: `${evidence}/restore-enable-simulated.png`, animations: "disabled" }); await page.waitForTimeout(700); }
+  await enable.click();
+  await page.waitForFunction(() => calls.some(c => c.command === 'enable_package'));
+  assert.deepEqual((await mutations(page)).map(c => [c.command, c.args.serial, c.args.package]), [['enable_package', 'A:5555', pkg]]);
+  if (evidence) { await page.waitForTimeout(700); const video = page.video(); await page.context().close(); await video.saveAs(`${evidence}/restore-enable-simulated.webm`); }
+});
+
+for (const screen of ['diagnostics', 'optimize']) test(`${screen}: successful uninstall retains the explicit Reinstall path`, async t => {
+  const page = await open(t, screen); await select(page, screen);
+  await page.locator('.sheet').getByRole('button', { name: /^Uninstall/ }).click();
+  await page.locator('.dialog-card').getByRole('button', { name: 'Uninstall', exact: true }).click();
+  await page.locator('.sheet').getByRole('button', { name: /Reinstall/ }).waitFor();
+  assert.equal(await page.locator('.sheet').getByRole('button', { name: 'Disable', exact: true }).count(), 0);
+  assert.equal((await mutations(page)).filter(c => c.command === 'uninstall_package').length, 1);
 });

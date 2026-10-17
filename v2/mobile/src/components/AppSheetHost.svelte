@@ -233,7 +233,7 @@
       // A not-ok result can still have landed, so the caller reloads either way.
       changed(t);
       if (r.ok && pending.action === "uninstall") uninstalled = true;
-      else if (r.ok) closeSelection();
+      else closeSelection();
     });
   }
 

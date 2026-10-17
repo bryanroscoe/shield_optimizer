@@ -1,0 +1,43 @@
+✔ Optimize recommends exactly what desktop pre-selects (150.383ms)
+✔ an uninstall the store can't give back runs as Disable (0.121792ms)
+✔ review pill only for resolved, unprotected review rows (0.066083ms)
+✔ plan search matches name or package, case-insensitively (0.060292ms)
+✔ row safety never reads unresolved as a verdict (0.61525ms)
+✔ the sheet sees the plan's state and catalog entry (0.059708ms)
+✔ Health: a confirmed catalog app gets the App List's recommendation (0.130375ms)
+✔ Health: a name no installed package carries is a process, not an app (0.077208ms)
+✔ Health: an unreadable installed list confirms nothing and says so (0.089959ms)
+✔ Health: an installed package outside the catalog shows its verdict (0.083542ms)
+✔ snapshot preview: Now is what the TV reported, and matching settings read Already set (0.155958ms)
+✔ snapshot preview: launcher change, skipped launcher, and an unset Now (0.068375ms)
+✔ snapshot preview summary matches desktop's wording (0.057042ms)
+✔ Restore enable plans describe a disabled installed app to the detail sheet (0.03925ms)
+✔ diagnostics: disconnect requires a new sheet selection before any action (1709.668083ms)
+✔ diagnostics: reconnect requires a new sheet selection before any action (829.448959ms)
+✔ diagnostics: switch requires a new sheet selection before any action (825.615125ms)
+✔ diagnostics: old pending safety cannot open a confirmation after switch or a fresh same-connection selection (891.2235ms)
+✔ diagnostics: Disable nested confirmation is cleared by same-endpoint reconnect (483.524666ms)
+✔ diagnostics: Uninstall nested confirmation is cleared by same-endpoint reconnect (501.033125ms)
+✔ diagnostics: paywall and pending measurements cannot follow the opening identity (554.277166ms)
+✔ optimize: disconnect requires a new sheet selection before any action (815.055083ms)
+✔ optimize: reconnect requires a new sheet selection before any action (821.20125ms)
+✔ optimize: switch requires a new sheet selection before any action (815.939667ms)
+✔ optimize: old pending safety cannot open a confirmation after switch or a fresh same-connection selection (891.538916ms)
+✔ optimize: Disable nested confirmation is cleared by same-endpoint reconnect (475.472167ms)
+✔ optimize: Uninstall nested confirmation is cleared by same-endpoint reconnect (483.383208ms)
+✔ optimize: paywall and pending measurements cannot follow the opening identity (556.7115ms)
+✔ diagnostics: a failed reconnect or transient liveness loss still invalidates the opening (254.754625ms)
+✔ optimize: a failed reconnect or transient liveness loss still invalidates the opening (246.643917ms)
+✔ diagnostics: Disable landing with a false response discards the stale selection (799.834334ms)
+✔ diagnostics: Uninstall landing with a false response discards the stale selection (806.91125ms)
+✔ optimize: Disable landing with a false response discards the stale selection (1582.855417ms)
+✔ optimize: Uninstall landing with a false response discards the stale selection (785.965459ms)
+✔ Restore detail offers Enable and dispatches only enable_package (1689.20375ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 17506.265042

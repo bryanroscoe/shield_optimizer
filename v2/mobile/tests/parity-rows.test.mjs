@@ -229,3 +229,12 @@ test("snapshot preview summary matches desktop's wording", () => {
     "1 to disable · 0 already disabled · 0 not on device · 1 setting to write · 0 to reset · Home app",
   );
 });
+
+test("Restore enable plans describe a disabled installed app to the detail sheet", () => {
+  const restore = item({ kind: "enable" }, { default_restore: true });
+  assert.equal(rows.planRowState(restore), "disabled");
+  assert.equal(rows.planItemApp(restore).state, "disabled");
+  assert.equal(rows.naturalAction(restore), "enable");
+  assert.equal(rows.planRowState(item({ kind: "skip", reason: "already_enabled" })), "enabled");
+  assert.equal(rows.planRowState(item({ kind: "skip", reason: "not_installed" })), "missing");
+});

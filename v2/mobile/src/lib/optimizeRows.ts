@@ -10,10 +10,10 @@ import { isReinstallable, recommendation, type PackageState, type RemovalMethod 
 
 export type RowAction = RemovalMethod | "enable";
 
-/// On-device state read off the plan's skip reason, exactly as desktop's
-/// OptimizeTab does: not installed ⇒ missing, already disabled ⇒ disabled,
-/// everything else ⇒ enabled.
+/// Enable plans come only from installed, disabled apps. Skip reasons retain
+/// the state the planner observed; other actionable plans start enabled.
 export function planRowState(item: OptimizePlanItem): PackageState {
+  if (item.action.kind === "enable") return "disabled";
   if (item.action.kind === "skip") {
     if (item.action.reason === "not_installed") return "missing";
     if (item.action.reason === "already_disabled") return "disabled";
