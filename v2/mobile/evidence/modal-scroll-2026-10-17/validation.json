@@ -1,0 +1,27 @@
+{
+  "base": "5f4fc141ceda0307cb86b68bfc50433b9ffcc49d",
+  "source_sha256": {
+    "src/lib/modal.ts": "083b0557d3b50ab41dd9ec6e31f0a284dfa3eefa8f0bc957738a9d3a6162cef1",
+    "tests/parity-screens.test.mjs": "efdbf167407dbd423c656c062575c1df218030694029a181201edaf986bb6224",
+    "src/components/AppDetailSheet.svelte": "061c3fb72140e2bff0f4dc5045d0b94c64a769f747f220f218e32d0fcad784ff",
+    "src/components/AppActionMenu.svelte": "51a3c3e9502b4ca6a9dfa3f306a05154d7fcb10e9d008d2d9b7bf1f034acb443",
+    "src/components/AppReportSheet.svelte": "0a9e9883712b0e2fbfc46772d2ac8c7e6d9b6aa623dca6d64e58afce087765e5",
+    "src/components/ConfirmDialog.svelte": "df5b632d94cd98a75a183fe84636345d5b0ffb92eba765b1331b07bacc6abbf0",
+    "src/components/PaywallSheet.svelte": "e91933a8760bb03d41304672083142b35c4c3ded996d46e0936321082c8cb22f"
+  },
+  "evidence_sha256": {
+    "modal-scroll-simulated.webm": "9828e673b6eebd49b27afe17a696fb80aba0b49af5fffc8a6cb01673445acf3f",
+    "app-details-simulated.png": "11a12047b7885c262fff25755f7c9b00823cf66d6d52e9de0dacff6bdc10e0f0",
+    "diagnostics-before-simulated.png": "2c9ede8a1b9e037da852f2753a1fe3f0a0e6858fb3c953e5e4e309318432a625",
+    "nested-confirm-simulated.png": "6417215faf67c34b48e70f0da5250299debdf13b6865c1af1e3f5d76c0ef9303",
+    "diagnostics-restored-simulated.png": "2c9ede8a1b9e037da852f2753a1fe3f0a0e6858fb3c953e5e4e309318432a625"
+  },
+  "full_mobile_tests": 230,
+  "focused_modal_with_capture": 6,
+  "svelte_errors": 0,
+  "svelte_warnings": 0,
+  "vite_build": "passed",
+  "physical_device_tested": false,
+  "native_files_modified": false,
+  "pinch_zoom_disabled": false
+}

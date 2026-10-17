@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modal } from "../lib/modal";
   // Long-press menu for one app row — the phone's counterpart to desktop's
   // right-click menu (#129). It only routes: Disable/Enable go through the
   // screen's own gated paths (safety lookup, confirm, fail closed), exactly as
@@ -18,7 +19,7 @@
 
 {#if app}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="menu-overlay" onclick={onClose} oncontextmenu={(e) => e.preventDefault()}>
+  <div class="menu-overlay" use:modal={{ onClose: onClose }} onclick={onClose} oncontextmenu={(e) => e.preventDefault()}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       class="menu"

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -37,7 +38,8 @@ const item = (name, options = {}) => ({
 });
 
 async function createPage(t, options = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 } });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(options.evidence ? { recordVideo: { dir: "evidence/modal-scroll-2026-10-17/raw", size: { width: 384, height: 812 } } } : {}) });
+  page.setDefaultTimeout(10000);
   t.after(() => page.close());
   await page.addInitScript((options) => {
     localStorage.clear();
@@ -260,4 +262,171 @@ test("Snapshots: Beta, Preview restore, and a real Now column", async (t) => {
     await page.evaluate(() => window.calls.some((c) => c.command === "apply_snapshot")),
     false,
   );
+});
+
+
+async function diagnosticSheetPage(t, extra = {}) {
+  const app = entry("Example video", { package: "com.example.video" });
+  const page = await createPage(t, {
+    catalog: [app], installed: [{ package: app.package, system: false, enabled: true }],
+    safety: { [app.package]: { kind: "safe", reason: "Synthetic optional app for UI tests." } },
+    health: { ram: { free_mb: 1024, total_mb: 2048 }, storage: {}, display: {},
+      top_memory: Array.from({ length: 24 }, (_, i) => ({ process: `${app.package}:${i}`, package: app.package, pid: i + 1, mb: 100 - i })) },
+    ...extra,
+  });
+  await openScreen(page, 'diagnostics');
+  const trigger = page.getByRole('button', { name: 'Details for com.example.video:0', exact: true });
+  await trigger.waitFor();
+  await trigger.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+  await trigger.focus();
+  return { page, trigger };
+}
+const locked = page => page.evaluate(() => document.body.style.position === 'fixed' && document.documentElement.style.overflow === 'hidden');
+const dialog = page => page.getByRole('dialog', { name: 'App details for Example video', exact: true });
+
+test("modal sheet blocks background wheel/edge scroll and restores position, focus and existing styles repeatedly", async (t) => {
+  const { page, trigger } = await diagnosticSheetPage(t);
+  await page.evaluate(() => { document.body.style.setProperty('width', '100%', 'important'); document.documentElement.style.setProperty('overscroll-behavior', 'auto'); });
+  for (let i = 0; i < 2; i++) {
+    await trigger.focus();
+    const before = await page.evaluate(() => ({ y: scrollY, style: document.body.getAttribute('style'), root: document.documentElement.getAttribute('style') }));
+    assert.ok(before.y > 0, 'fixture starts on a scrolled diagnostic page');
+    await trigger.click();
+    const sheet = dialog(page);
+    await sheet.waitFor();
+    assert.equal(await locked(page), true);
+    assert.equal(await page.evaluate(() => document.body.style.top), `${-before.y}px`);
+    await page.mouse.move(10, 10);
+    await page.mouse.wheel(0, 700);
+    assert.equal(await page.evaluate(() => document.body.style.top), `${-before.y}px`);
+    await sheet.hover();
+    await page.mouse.wheel(0, 500);
+    await page.waitForFunction(() => document.querySelector('.sheet').scrollTop > 0);
+    assert.equal(await sheet.evaluate(el => getComputedStyle(el).overscrollBehaviorY), 'contain');
+    await sheet.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await page.mouse.wheel(0, 700);
+    await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.waitForFunction(() => document.body.style.position !== 'fixed');
+    assert.equal(await page.evaluate(() => scrollY), before.y);
+    assert.equal(await trigger.evaluate(el => document.activeElement === el), true);
+    assert.deepEqual(await page.evaluate(() => ({ style: document.body.getAttribute('style'), root: document.documentElement.getAttribute('style') })), { style: before.style, root: before.root });
+  }
+});
+
+test("modal nested confirmation keeps the page locked and Escape/Tab affect only the top layer", async (t) => {
+  const { page, trigger } = await diagnosticSheetPage(t);
+  await trigger.click();
+  const sheet = dialog(page);
+  const remove = sheet.getByRole('button', { name: 'Disable', exact: true });
+  await remove.click();
+  const confirm = page.getByRole('dialog', { name: 'Disable Example video?', exact: true });
+  await confirm.waitFor();
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Cancel');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await confirm.getByRole('button', { name: 'Disable', exact: true }).evaluate(el => document.activeElement === el), true);
+  await page.keyboard.press('Tab');
+  assert.equal(await confirm.getByRole('button', { name: 'Cancel', exact: true }).evaluate(el => document.activeElement === el), true);
+  await page.keyboard.press('Escape');
+  await confirm.waitFor({ state: 'detached' });
+  assert.equal(await locked(page), true);
+  assert.equal(await remove.evaluate(el => document.activeElement === el), true);
+  await page.keyboard.press('Escape');
+  await sheet.waitFor({ state: 'detached' });
+  assert.equal(await locked(page), false);
+  assert.equal(await trigger.evaluate(el => document.activeElement === el), true);
+});
+
+test("modal backdrop, screen teardown and disconnect release the document without leaving a lock", async (t) => {
+  const { page, trigger } = await diagnosticSheetPage(t);
+  await trigger.click();
+  await dialog(page).waitFor();
+  await page.mouse.click(8, 8);
+  await dialog(page).waitFor({ state: 'detached' });
+  assert.equal(await locked(page), false);
+  await trigger.click();
+  await dialog(page).waitFor();
+  await page.evaluate(() => router.navigate('more'));
+  await page.getByRole('heading', { name: 'More', exact: true }).waitFor();
+  assert.equal(await locked(page), false);
+  await openScreen(page, 'diagnostics');
+  await trigger.click();
+  await dialog(page).waitFor();
+  await page.evaluate(() => session.disconnect());
+  await dialog(page).waitFor({ state: 'detached' });
+  assert.equal(await locked(page), false);
+});
+
+if (process.env.MODAL_EVIDENCE === '1') test("capture modal scroll lock simulation", async (t) => {
+  const dir = 'evidence/modal-scroll-2026-10-17';
+  await mkdir(dir, { recursive: true });
+  const { page, trigger } = await diagnosticSheetPage(t, { evidence: true });
+  await page.screenshot({ path: `${dir}/diagnostics-before-simulated.png` });
+  await trigger.click();
+  await dialog(page).waitFor();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${dir}/app-details-simulated.png` });
+  await dialog(page).hover();
+  await page.mouse.wheel(0, 500);
+  await page.waitForTimeout(500);
+  await dialog(page).getByRole('button', { name: 'Disable', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Disable Example video?', exact: true }).waitFor();
+  await page.screenshot({ path: `${dir}/nested-confirm-simulated.png`, animations: 'disabled' });
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(500);
+  await page.keyboard.press('Escape');
+  await dialog(page).waitFor({ state: 'detached' });
+  await page.screenshot({ path: `${dir}/diagnostics-restored-simulated.png` });
+  await page.waitForTimeout(500);
+  const recording = page.video();
+  await page.context().close();
+  await recording.saveAs(`${dir}/modal-scroll-simulated.webm`);
+});
+
+test("modal paywall dismissal retains the underlying app sheet lock", async (t) => {
+  const { page, trigger } = await diagnosticSheetPage(t);
+  await page.evaluate(() => {
+    const invoke = __TAURI_INTERNALS__.invoke;
+    __TAURI_INTERNALS__.invoke = (command, args) => command === 'force_stop'
+      ? Promise.reject('LOCKED:force_stop') : invoke(command, args);
+  });
+  await trigger.click();
+  const sheet = dialog(page);
+  const stop = sheet.getByRole('button', { name: /Force stop/ });
+  await stop.click();
+  const paywall = page.getByRole('dialog', { name: 'ATV Optimizer Pro', exact: true });
+  await paywall.waitFor();
+  await page.keyboard.press('Escape');
+  await paywall.waitFor({ state: 'detached' });
+  assert.equal(await locked(page), true);
+  assert.equal(await stop.evaluate(el => document.activeElement === el), true);
+  await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+  await sheet.waitFor({ state: 'detached' });
+  assert.equal(await locked(page), false);
+});
+
+test("modal lock survives out-of-order owner teardown and restores the original opener after its child", async (t) => {
+  const { page, trigger } = await diagnosticSheetPage(t);
+  const before = await page.evaluate(() => scrollY);
+  await page.evaluate(async () => {
+    const { modal } = await import('/src/lib/modal.ts');
+    const create = name => {
+      const node = document.createElement('div');
+      node.style.cssText = 'position:fixed;inset:0';
+      node.innerHTML = `<div role="dialog" tabindex="-1"><button>${name}</button></div>`;
+      document.body.append(node);
+      const action = modal(node, { onClose() {} });
+      return { node, action };
+    };
+    window.outerModal = create('Outer');
+    outerModal.node.querySelector('button').focus();
+    window.innerModal = create('Inner');
+    outerModal.action.destroy();
+    outerModal.node.remove();
+  });
+  assert.equal(await locked(page), true);
+  await page.evaluate(() => { innerModal.action.destroy(); innerModal.node.remove(); });
+  assert.equal(await locked(page), false);
+  assert.equal(await page.evaluate(() => scrollY), before);
+  assert.equal(await trigger.evaluate(el => document.activeElement === el), true);
 });

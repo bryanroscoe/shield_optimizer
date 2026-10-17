@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modal } from "../lib/modal";
   // Bottom-sheet detail for one package (design §8.1). Safety tier + reason come
   // ONLY from the core `safety_info` command via src/lib/safety.ts — never an
   // inline classifier. Memory / usage / storage are passed in from the parent's
@@ -296,9 +297,9 @@
 {#if app}
   {@const st = stateLabel(app)}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="sheet-overlay" onclick={onClose}>
+  <div class="sheet-overlay" use:modal={{ onClose: onClose }} onclick={onClose}>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="sheet" onclick={(e) => e.stopPropagation()}>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label={`App details for ${fmtLabel(app)}`} tabindex="-1" onclick={(e) => e.stopPropagation()}>
       <div class="sheet-head">
         <div class="avatar"><span class="msr">{iconFor(app)}</span></div>
         <div class="head-body">
@@ -476,6 +477,7 @@
     width: 100%;
     max-height: 90vh;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
     background: var(--surface-2);
     border-top: 1px solid var(--line);
     border-radius: 22px 22px 0 0;

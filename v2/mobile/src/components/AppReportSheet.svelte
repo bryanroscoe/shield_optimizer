@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modal } from "../lib/modal";
   // "Report this app" (#100), the phone's version of desktop's
   // AppReportDialog. The preview is the report: the text shown is exactly
   // what Copy and the GitHub form carry. Nothing is sent by the app, and the
@@ -144,7 +145,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="sheet-overlay" onclick={onClose}>
+<div class="sheet-overlay" use:modal={{ onClose: onClose }} onclick={onClose}>
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="sheet"
@@ -256,6 +257,7 @@
     width: 100%;
     max-height: 92vh;
     overflow-y: auto;
+    overscroll-behavior-y: contain;
     background: var(--surface-2);
     border-top: 1px solid var(--line);
     border-radius: 22px 22px 0 0;

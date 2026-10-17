@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modal } from "../lib/modal";
   // The one Pro upsell surface (design §6.3). Screens open this when a Pro
   // command throws `LOCKED:<feature>` instead of showing a raw error. "Enter
   // license key" routes to More, where the real activate_license flow lives.
@@ -40,9 +41,9 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="paywall-overlay" onclick={onClose}>
+  <div class="paywall-overlay" use:modal={{ onClose: onClose }} onclick={onClose}>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="paywall-card" onclick={(e) => e.stopPropagation()}>
+    <div class="paywall-card" role="dialog" aria-modal="true" aria-label="ATV Optimizer Pro" tabindex="-1" onclick={(e) => e.stopPropagation()}>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <span class="paywall-close msr" onclick={onClose}>close</span>
       <div class="paywall-header">
