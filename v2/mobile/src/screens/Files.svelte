@@ -164,7 +164,7 @@
       const file = await api.pullFile(target.serial, remote);
       if (!current(target)) return;
       recordPulled(file, remote);
-      showToast(`Copied ${file.name} into this app's storage.`, "success");
+      showToast(`Copied ${file.name} into this app's private storage.`, "success");
     } catch (err) {
       if (current(target)) showToast(String(err), "error");
     } finally {
@@ -207,7 +207,7 @@
       const file = await api.pullFile(serial, remote);
       if (!current(target)) return;
       recordPulled(file, remote);
-      showToast(`Copied ${file.name} into this app's storage.`, "success");
+      showToast(`Copied ${file.name} into this app's private storage.`, "success");
     } catch (err) {
       if (current(target)) showToast(String(err), "error");
     } finally {
@@ -456,7 +456,8 @@
       <span class="msr">bolt</span>
       <span class="callout-text">
         Files transfer over your LAN — no cloud round-trip. Tap a file to copy it into ATV
-        Optimizer's private storage on this phone (not yet exportable to Downloads or other apps).
+        Optimizer's private storage on this phone, not the phone's public Downloads. Sharing and export
+        to other apps are not available yet. The list below shows copies from this session.
         Items under /sdcard can be deleted from the TV with the bin icon.
       </span>
     </div>
@@ -469,7 +470,7 @@
             <span class="msr dl-icon fill">check_circle</span>
             <div class="f-body">
               <span class="f-name">{f.name}</span>
-              <span class="f-sub mono">{fmtSize(f.size_bytes)} · {f.path}</span>
+              <span class="f-sub mono">{fmtSize(f.size_bytes)} · Private app location: {f.path}</span>
             </div>
           </div>
         {/each}

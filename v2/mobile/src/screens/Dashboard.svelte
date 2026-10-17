@@ -351,13 +351,14 @@
     <div class="shot-sheet" role="dialog" aria-label="Screenshot">
       <div class="shot-head">
         <span class="shot-title">TV screenshot</span>
-        <button class="iconbtn" aria-label="Close" onclick={() => (screenshot = null)}>
+        <button class="iconbtn" aria-label="Close screenshot preview" onclick={() => (screenshot = null)}>
           <span class="msr">close</span>
         </button>
       </div>
       <img class="shot-img" src={`data:image/png;base64,${screenshot.base64}`} alt="Current TV screen" />
-      <p class="shot-note mono">{screenshot.path}</p>
-      <p class="shot-note">Saved in the app's private storage on this phone. Sharing and export are not available yet.</p>
+      <p class="shot-note mono">Private app location: {screenshot.path}</p>
+      <p class="shot-note">Saved in ATV Optimizer's private storage on this phone, not in Gallery or Downloads. Sharing and export are not available yet.</p>
+      <p class="shot-note">Close screenshot preview hides this view. The saved image stays in the app.</p>
     </div>
   {/if}
 
@@ -476,15 +477,17 @@
   }
   .shot-img {
     width: 100%;
+    box-sizing: border-box;
     border-radius: 12px;
     border: 1px solid var(--line);
     background: #000;
   }
   .shot-note {
     margin: 0;
-    font-size: 11px;
+    font-size: .875rem;
+    line-height: 1.5;
     color: var(--muted);
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .dropdown-item {
     width: 100%;

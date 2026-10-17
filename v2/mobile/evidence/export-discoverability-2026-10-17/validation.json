@@ -1,0 +1,44 @@
+{
+  "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
+  "full_mobile": {
+    "passed": 282,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focused_including_capture": 37,
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "vite_build": "passed",
+  "diff_check": "passed",
+  "video_seconds": 5.44,
+  "sha256": {
+    "v2/mobile/src/screens/Dashboard.svelte": "29a9db50e764c48ec98d2de6d873c5d195ddffbf3feb86c64d4bbfedc3cc7b72",
+    "v2/mobile/src/screens/Files.svelte": "7ef9e0b82c6612cedf519439e0a8aac324a441bb8aa9673f2a6856d5276be2a0",
+    "v2/mobile/src/screens/More.svelte": "2998a7f94459a3979d7258bbcc3eeee0d91bab5d0566f0743f873deb5bbd8626",
+    "v2/mobile/src/components/AppReportSheet.svelte": "ac6e0d7e391cf5ab450179532a813fa2be63b1e227df8a8b696112c26cd4727a",
+    "v2/mobile/tests/export-discoverability.test.mjs": "73cd8cd84dd03472cf6ab98b869aaf650aeab9964ee5bb989d4062e3e0cc0ad6",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/copy-only-debug-log-simulated.png": "0b2ec849e86676d81927a15585ea1bf4d2020437ed2b8e4872663517eb24020b",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/copy-only-diagnostic-json-simulated.png": "6529c836227bcdefa3ee285d1a5436c083321f06560530e1074655cd5c5667cd",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/copy-only-report-simulated.png": "b278a7b2a5f869b79fe9feded3e12de09f614ee31f3b97e2fd38c1bb2a39f770",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/preview-320-200-simulated.png": "0bed812cb51d8571985b4832519f891120ad7f7580e53fb1766a4e80c4122fa6",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/preview-320-200-tail-simulated.png": "345942fb630f768ef770482886f447befa8c8f7a9c8667ae1f5ef0c1bd812dae",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/preview-384-100-simulated.png": "f5f6500f76690d54e7b21d4a720faf36bab85f6ba39674d28ec0deccc363e8a5",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/private-file-copy-simulated.png": "e659042d9e8ac83c75bdade6cf27015135c0c787c56c2168d23b802c6b3149eb",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/screenshot-error-simulated.png": "ceb02d345a8a93de9ff138fb8c225243a11661d607c9d4f69a0893a89fc2456e",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/screenshot-private-preview-simulated.png": "f5f6500f76690d54e7b21d4a720faf36bab85f6ba39674d28ec0deccc363e8a5",
+    "v2/mobile/evidence/export-discoverability-2026-10-17/private-save-copy-clarification-simulated.webm": "6c8ddbb06b45d58d60ccac039911f91d78f77635171251783660682c344168a4"
+  },
+  "scope": [
+    "Private-storage and clipboard-only wording, accessible screenshot close label.",
+    "Local screenshot-note/image fit and More copy-toolbar wrapping only.",
+    "No backend/provider/permission/SAF/Share/formatter changes."
+  ],
+  "limitations": [
+    "Native replies, clipboard and browser opening are mocked; no device queries or installations.",
+    "Root-font enlargement is simulation, not physical Android accessibility verification.",
+    "Diagnostics 320px header overflow remains a separate issue.",
+    "Independent source review and cross-OS CI pending."
+  ]
+}

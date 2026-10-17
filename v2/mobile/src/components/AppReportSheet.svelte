@@ -166,7 +166,8 @@
     <p class="lede">
       Nothing is sent automatically. Copy the report, or open a GitHub issue you review and
       submit yourself. A report asks for a review; it never changes how the app rates this
-      package.
+      package. Copy puts report text on your clipboard; it does not save a file. Opening a long
+      report may also copy its text before the GitHub form opens.
     </p>
 
     {#if !report}

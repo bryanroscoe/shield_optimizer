@@ -436,7 +436,7 @@
           <p class="card-desc">
             Includes app or process identifiers, observation times and version information. Review
             the contents before sharing. No network addresses, device serials, license keys or full
-            debug logs are included.
+            debug logs are included. Copy diagnostic JSON puts text on your clipboard; it does not save a file.
           </p>
           <div class="log-toolbar">
             <button class="ghost-btn compact" onclick={takeDiagnosticsSnapshot}>
@@ -482,7 +482,7 @@
     <!-- Debug log -->
     <div class="more-card">
       <span class="card-label">Debug log</span>
-      <p class="card-desc">Recent app activity and the device transport log — useful for support.</p>
+      <p class="card-desc">Recent app activity and the device transport log — useful for support. Copy puts log text on your clipboard; it does not save a file.</p>
       {#if !showLog}
         <button class="ghost-btn" onclick={loadLog}>
           <span class="msr">description</span>Show debug log
@@ -805,6 +805,7 @@
 
   .log-toolbar {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .log-view {
