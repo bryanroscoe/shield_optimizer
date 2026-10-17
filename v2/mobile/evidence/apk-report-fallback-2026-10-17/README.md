@@ -13,3 +13,7 @@ Simulated evidence shows [the measured APK value](visible-apk-measurement-simula
 Regressions cover diskstats precedence, zero/exact bytes, pending/failed/missing/negative fallback, active-preview re-measure invalidation, older replies after a new measurement, package changes, same-endpoint reconnect and TV switch. All calls are browser mocks. No real package measurement, app action, device read, native storage/export permission, icon or catalog-data change occurred. No Rust production code changed; Android/physical acceptance remains open.
 
 Original-base validation: all 316 mobile tests passed (including all 21 apps/report tests), Svelte check reports 0 errors/0 warnings and the production build passed. This checkpoint precedes final integration with the newly merged preset-layout base.
+
+Current base integration: `a73787a36bbf44311de2596e9a01c8232a049a02` includes merged scaling-layout PR196. APK report source, its app/report tests and all captured evidence are unchanged byte-for-byte from the source-review checkpoint; only upstream files, completed checklist status and validation provenance are added.
+
+Current-base validation on `a73787a`: all 320 combined mobile tests passed, Svelte check reports 0 errors/0 warnings and the production build passed. The original 316-test result above is historical. No APK report source or evidence pixels changed during this integration.

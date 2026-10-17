@@ -1,6 +1,6 @@
 {
   "original_base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
-  "mobile_tests": 316,
+  "mobile_tests": 320,
   "apps_report_tests": 21,
   "svelte_check": {
     "errors": 0,
@@ -19,5 +19,8 @@
     "Browser mocks only; no device operations",
     "No new queries, write actions or schema fields"
   ],
-  "pending": "Final integration with current mobile base after PR196 merge."
+  "pending": null,
+  "current_base": "a73787a36bbf44311de2596e9a01c8232a049a02",
+  "original_mobile_tests": 316,
+  "integration": "Merged actual current mobile base; APK source/app-report tests/captured evidence unchanged from d0458c6178401e1eaf32f010d579468379c5dfae."
 }

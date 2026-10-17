@@ -1,0 +1,31 @@
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✖ scaling preset row fits 320px at 200% text and preserves controls (1053.578375ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1328.444041
+
+✖ failing tests:
+
+test at tests/tweaks-tab.test.mjs:503:72
+✖ scaling preset row fits 320px at 200% text and preserves controls (1053.578375ms)
+  AssertionError [ERR_ASSERTION]: {"width":240,"content":271}
+      at TestContext.<anonymous> (file://<workspace>/v2/mobile/tests/tweaks-tab.test.mjs:520:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
