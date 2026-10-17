@@ -1,6 +1,6 @@
 {
   "date": "2026-10-17",
-  "base": "b095f697b2a24c3d2fb8f56cef7056586b6355ef",
+  "base": "35b5deaa044bb2218c720eeaa64858486ffc195f",
   "source_delta": "One scoped class and CSS wrapping/intrinsic width/minimum touch target rules; no logic or value changes.",
   "before_failure": {
     "viewport": 320,
@@ -13,7 +13,7 @@
     "failed": 0
   },
   "full_mobile_tests": {
-    "passed": 304,
+    "passed": 306,
     "failed": 0
   },
   "svelte_check": {
@@ -35,11 +35,17 @@
     "no setting/scaling writes"
   ],
   "isolated_from": [
-    "pending PR194 density summary",
     "PR195 screensaver labels"
   ],
   "limitations": [
     "Synthetic browser only",
     "No physical accessibility, touch or Android acceptance claimed"
-  ]
+  ],
+  "previous_validation": {
+    "base": "b095f697b2a24c3d2fb8f56cef7056586b6355ef",
+    "full_mobile_passed": 304,
+    "head": "1c5bc6b76ef6dc851d8c34a8b477775ef77b3539"
+  },
+  "integration_delta": "Merge PR194 density summary and both regression sets; reconcile completed checklist entries and evidence provenance. Reviewed layout delta is unchanged.",
+  "unchanged_visual_evidence": "All existing layout PNGs retained byte-for-byte; the fixture uses size and density overrides, so the density-only branch changes no captured pixels."
 }

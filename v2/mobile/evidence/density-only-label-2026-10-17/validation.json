@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-17",
+  "base": "9265e5fdbf4c9c73f7cea5522e50c50dbcd90fe0",
+  "scope": "Three-line summary branch; no setting-value, API, write or preset-selection changes.",
+  "before_regression": "Failed: physical 640 / device default shown instead of override 300.",
+  "focused_capture_tests": {
+    "passed": 3,
+    "failed": 0
+  },
+  "full_mobile_tests": {
+    "passed": 302,
+    "failed": 0
+  },
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "mobile_build": "passed",
+  "screensaver": "Raw Current/Restore component reproduced by existing tests; naming policy remains separate.",
+  "open_pr_searches": {
+    "density_title": [],
+    "screensaver_title": []
+  },
+  "limitations": [
+    "Simulated browser only; no phone/TV operations",
+    "Summary-only 200% text at 320px fits; whole-card 200% preset row overflows 270px inside 240px",
+    "No native accessibility or pinch gesture acceptance claimed"
+  ],
+  "unchanged": [
+    "setting values and write behavior",
+    "unknown/custom/preset state calculation",
+    "launcher icons",
+    "catalog",
+    "native storage/export permissions"
+  ]
+}
