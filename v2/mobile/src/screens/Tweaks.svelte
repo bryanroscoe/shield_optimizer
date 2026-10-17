@@ -397,6 +397,9 @@
       const density = overrideDensity ?? physicalDensity;
       return `${overrideSize}${density ? ` @ ${density}` : ""} · panel ${physicalSize ?? "—"}`;
     }
+    if (overrideDensity) {
+      return `${physicalSize ?? "Size not reported"} @ ${overrideDensity} · density override`;
+    }
     if (physicalSize) {
       return `${physicalSize}${physicalDensity ? ` @ ${physicalDensity}` : ""} · device default`;
     }

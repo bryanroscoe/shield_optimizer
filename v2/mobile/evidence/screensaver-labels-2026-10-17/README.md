@@ -1,6 +1,6 @@
 # Screensaver display names — 2026-10-17
 
-Base: mobile-parity-pass `b095f697b2a24c3d2fb8f56cef7056586b6355ef`. Separate from pending density summary PR194 and the scaling preset-row layout slice.
+Original base: `b095f697b2a24c3d2fb8f56cef7056586b6355ef`. Now integrates mobile-parity-pass `35b5deaa044bb2218c720eeaa64858486ffc195f`, including reviewed and merged density summary PR194. Scaling preset-row PR196 remains separate. Screensaver source is unchanged from the original PR195 head apart from the upstream density summary branch.
 
 Screensaver Current and Restore previous now use the embedded catalog's name for the exact owner package of a single well-formed Android component. For the existing checked-in `com.google.android.backdrop/.Backdrop` fixture, the common catalog supplies Ambient Mode. Basic Daydream retains its existing exact-component label. Unknown packages, lookalike package prefixes, malformed strings and multiple-component lists remain Custom screensaver; names are not guessed from class/package suffixes. Off and missing values retain their existing display states.
 
@@ -13,3 +13,7 @@ Tests use the actual checked-in Ambient Mode catalog entry and cover known/custo
 Screenshots at 320px show [known](known-320-simulated.png), [custom long component](custom-320-simulated.png), [Off with retained raw component](off-320-simulated.png) and [missing](missing-320-simulated.png). These are synthetic browser fixtures. No phone/TV query, install, permission, launcher-icon or native-export change occurred. No physical accessibility or Android acceptance is claimed.
 
 Focused suite with evidence: 29/29 passed; Svelte check 0 errors/0 warnings and production build passed. All 302 mobile tests passed; see [validation receipt](validation.json). No Rust source changed.
+
+Integration provenance: the existing screensaver PNGs are retained byte-for-byte. PR194 only changes the Display scaling summary, outside this captured card; catalog data, screensaver fixture values, raw details and naming behavior are unchanged. Both density readback tests and screensaver tests are preserved.
+
+Current integration on `35b5deaa`: all 304 mobile tests passed, Svelte check reports 0 errors/0 warnings and the production build passed. Original 302-test and 29-test evidence receipts above describe the original PR195 head. Naming/state behavior is unchanged; source review remains pending and this PR is unmerged.
