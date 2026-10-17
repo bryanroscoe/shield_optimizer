@@ -1,0 +1,41 @@
+{
+  "base": "cd2244b970e2d579627e89bc3fb59a44da41d75e",
+  "source_sha256": {
+    "v2/crates/core/src/adb/parse.rs": "4f973384b7f3e82e98f3cebca4643c2c3cfbb220b1eb72cb977eab09271ef8ca",
+    "v2/crates/core/src/adb/mod.rs": "c7e4bfe30e720f747774c7fac40863d792c5d63ef28ddac290ac91fd08f82679",
+    "v2/crates/core/src/commands/health.rs": "3d705f4cb11d698f3e4e818921110e1441ed7d9500cec5742a52660a2dda40d2",
+    "v2/mobile/src/lib/types.ts": "f3bc7a6ded5ac5afc9aeb22c03dbd669d11cf8dd2c7407074a7ed774d4a5b3d9",
+    "v2/mobile/src/lib/healthPresentation.ts": "3624e629678231ee80c3243566b5a0a67c68d11cd38a9c20e50d3e68a302fa04",
+    "v2/mobile/src/screens/Diagnostics.svelte": "2599dd98ac81091bfcfa33f392c89070a710ea45e5e33175f16c23b96823dc91",
+    "v2/mobile/tests/health-presentation.test.mjs": "7fad00df3de251e37bb01138b334c5da6d6bb0361e44424c406996d61633efc2"
+  },
+  "evidence_sha256": {
+    "metric-boundaries-simulated.webm": "a047513be505f6d25bc4f18c1a5dac58cd0bb8388226dc32feaa7651dfd18d47",
+    "30c-device-critical-simulated.png": "562f5ddcc60ba2587359e52a0aaaf62bb09a4a9198ee385ffe9654e5383f7b7d",
+    "usage-and-30c-simulated.png": "15dadf9c5d1e00dc88df58db51205391d16cf624ad1bc4c3b430bbbc7e954420",
+    "100c-unknown-context-simulated.png": "92d7269ab63698613383e17190136849e553f41ea090211184aa574458befc03",
+    "100c-reported-limit-simulated.png": "71fd149c66627eb691cc43e00748faba5bbe029f2fabfaf66af1be01b7b5e8d1",
+    "missing-readings-simulated.png": "d44dfe85ec8e810d288422520edc1162f4cef3427f2371b551740e40f0ba415a"
+  },
+  "full_current_base_mobile_tests": 259,
+  "focused_with_capture": 8,
+  "shared_core_tests": 454,
+  "clippy_all_targets_warnings_denied": "passed",
+  "rustfmt_check": "passed",
+  "svelte_errors": 0,
+  "svelte_warnings": 0,
+  "vite_build": "passed",
+  "android_debug_apk": {
+    "result": "passed using isolated default target",
+    "file_sha256": "c9c40df64d582966159a8bf0abeb0062fada1efb89af3bf774296ffb7da791d2",
+    "architecture": "aarch64",
+    "jdk": 17,
+    "compile_sdk": 36,
+    "ndk": "28.2.13676358",
+    "installed": false
+  },
+  "physical_device_tested": false,
+  "additional_device_commands": 0,
+  "universal_temperature_threshold_added": false,
+  "independent_review": "pending"
+}

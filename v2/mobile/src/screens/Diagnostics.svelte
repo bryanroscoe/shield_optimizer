@@ -17,6 +17,7 @@
   import AppSheetHost from "../components/AppSheetHost.svelte";
   import Toast from "../components/Toast.svelte";
   import { formatSupport, matchContentLabel, type MediaCapabilities } from "../../../shared/media";
+  import { memoryUsage, storageUsage, temperatureContext, metricNumber } from "../lib/healthPresentation";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
 
   let { navigate, back }: {
@@ -281,39 +282,11 @@
     await session.loadHealth(true);
   }
 
-  // --- Memory (real values or "—"; no fabricated 2966/1512 fallbacks) ---
+  // Both capacity bars represent USED space, with neutral color (not severity).
+  const memory = $derived(memoryUsage(health?.ram));
+  const storagePercent = $derived(storageUsage(health?.storage));
+  const thermal = $derived(temperatureContext(health));
   const totalRam = $derived(health?.ram?.total_mb ?? null);
-  const freeRam = $derived(health?.ram?.free_mb ?? null);
-  const usedRam = $derived(
-    health?.ram?.used_mb ??
-      (totalRam != null && freeRam != null ? Math.max(0, totalRam - freeRam) : null),
-  );
-  const ramText = $derived(
-    usedRam != null && totalRam != null
-      ? `${Math.round(usedRam)} / ${Math.round(totalRam)} MB used`
-      : "—",
-  );
-  const ramUsedPercent = $derived(
-    usedRam != null && totalRam
-      ? Math.min(100, Math.max(0, Math.round((usedRam / totalRam) * 100)))
-      : 0,
-  );
-
-  // --- Storage ---
-  const storageText = $derived(
-    health?.storage?.used != null && health?.storage?.total != null
-      ? `${health.storage.used} / ${health.storage.total} used`
-      : "—",
-  );
-  const storageUsedPercent = $derived(health?.storage?.used_percent ?? 0);
-
-  // --- Temperature ---
-  // The sensor is real; the "warm / throttle" cut-offs we used to print were
-  // invented. Show the reading on a neutral, explicitly-approximate scale.
-  const tempC = $derived(health?.temperature_c ?? null);
-  const tempPercent = $derived(
-    tempC == null ? 0 : Math.min(100, Math.max(0, ((tempC - 20) / 80) * 100)),
-  );
 
   // --- Display & audio ---
   const displayRes = $derived(health?.display?.resolution ?? "—");
@@ -411,57 +384,63 @@
       </div>
     {/if}
     <div class="diagnostics-content">
-      <!-- Memory -->
-      <div class="diagnostic-card">
+      <section class="diagnostic-card" aria-label="RAM usage">
         <div class="card-header">
-          <span class="card-title">Memory</span>
-          <span class="mono card-value">{ramText}</span>
+          <span class="card-title">RAM used</span>
+          <span class="mono card-value">{memory ? `${memory.percent}% used` : "Unavailable"}</span>
         </div>
-        <div class="progress-track">
-          <div class="progress-fill ram-gradient" style="width: {ramUsedPercent}%"></div>
-        </div>
-      </div>
-
-      <!-- Storage -->
-      <div class="diagnostic-card">
-        <div class="card-header">
-          <span class="card-title">Storage</span>
-          <span class="mono card-value">{storageText}</span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill storage-gradient" style="width: {storageUsedPercent}%"></div>
-        </div>
-      </div>
-
-      <!-- Temperature -->
-      <div class="diagnostic-card">
-        <div class="card-header">
-          <span class="card-title inline-title">
-            <span class="msr temp-icon">thermostat</span>Temperature
-          </span>
-          <span class="mono card-value">approximate</span>
-        </div>
-        {#if tempC != null}
-          <div class="temp-readout">
-            <span class="mono temp-value">{Math.round(tempC)}<span class="temp-unit"> °C</span></span>
+        {#if memory}
+          <div class="progress-track" role="progressbar" aria-label="RAM used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={memory.percent} aria-valuetext={`${memory.percent}% used`}>
+            <div class="progress-fill usage-fill" style={`width: ${memory.percent}%`}></div>
           </div>
-          <div class="temp-bar-wrap">
-            <div class="temp-neutral-bar"></div>
-            <span class="temp-indicator-dot" style="left: {tempPercent}%"></span>
-          </div>
-          <div class="temp-labels">
-            <span>20°</span>
-            <span>60°</span>
-            <span>100°</span>
-          </div>
-          <p class="temp-note">
-            One sensor reading from the TV. Throttling points differ per device, so this app doesn't
-            grade it as normal or hot.
-          </p>
-        {:else}
-          <span class="mono card-value">Unavailable</span>
+          <p class="metric-detail mono">{metricNumber(memory.used)} / {metricNumber(memory.total)} MB used</p>
+          <p class="metric-detail">{memory.free == null ? "Free/available RAM not reported" : `${metricNumber(memory.free)} MB reported free/available`}</p>
         {/if}
-      </div>
+        <p class="temp-note">Android can reclaim cached memory. High RAM use alone does not establish memory pressure.</p>
+      </section>
+
+      <section class="diagnostic-card" aria-label="Storage usage">
+        <div class="card-header">
+          <span class="card-title">Storage used</span>
+          <span class="mono card-value">{storagePercent == null ? "Percentage unavailable" : `${storagePercent}% used`}</span>
+        </div>
+        {#if storagePercent != null}
+          <div class="progress-track" role="progressbar" aria-label="Storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={storagePercent} aria-valuetext={`${storagePercent}% used`}>
+            <div class="progress-fill usage-fill" style={`width: ${storagePercent}%`}></div>
+          </div>
+        {/if}
+        <p class="metric-detail mono">{health.storage?.used != null && health.storage?.total != null ? `${health.storage.used} / ${health.storage.total} used` : "Used size not reported"}</p>
+        <p class="metric-detail">{health.storage?.available != null ? `${health.storage.available} available on /data` : "Available storage not reported"}</p>
+      </section>
+
+      <section class="diagnostic-card" aria-label="Temperature context">
+        <div class="card-header thermal-header">
+          <span class="card-title inline-title"><span class="msr temp-icon">thermostat</span>{thermal.value == null ? "Temperature" : "Highest reported temperature"}</span>
+          {#if thermal.source}<span class="mono card-value">{thermal.source}</span>{/if}
+        </div>
+        {#if thermal.value != null}
+          <div class="temp-readout"><span class="mono temp-value">{metricNumber(thermal.value)} °C</span></div>
+        {:else}
+          <p class="metric-detail">Temperature unavailable</p>
+        {/if}
+        {#if thermal.value != null}<p class="metric-detail">{thermal.sensor}</p>{/if}
+        {#if thermal.value != null || thermal.status != null}
+        <p class="thermal-status" class:thermal-warning={thermal.status != null && thermal.status >= 2} class:thermal-critical={thermal.status != null && thermal.status >= 4}>
+          {thermal.status == null ? thermal.statusLabel : `${thermal.statusScope}: ${thermal.statusLabel}`}
+        </p>
+        {#if thermal.deviceStatus != null && thermal.sensorStatus != null && thermal.deviceStatus !== thermal.sensorStatus}
+          <p class="thermal-status" class:thermal-warning={thermal.sensorStatus >= 2} class:thermal-critical={thermal.sensorStatus >= 4}>Selected sensor: {thermal.sensorStatusLabel}</p>
+        {/if}
+        <p class="temp-note">{thermal.statusHelp}</p>
+        {#if thermal.value != null && thermal.throttle != null}
+          <p class="metric-detail">Reported throttle point: <strong>{metricNumber(thermal.throttle)} °C</strong></p>
+          <p class="metric-detail" class:threshold-exceeded={thermal.value != null && thermal.value >= thermal.throttle}>{thermal.comparison}</p>
+        {:else if thermal.value != null}
+          <p class="metric-detail">Matching sensor throttle point not reported</p>
+        {/if}
+        {#if thermal.shutdown != null}<p class="metric-detail">Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
+        {:else}<p class="temp-note">Sensor and thermal-status data were not supplied.</p>{/if}
+      </section>
 
       <!-- Display & Audio -->
       <div class="grid2">
@@ -745,12 +724,12 @@
   .progress-fill {
     height: 100%;
   }
-  .ram-gradient {
-    background: linear-gradient(90deg, var(--teal), #8ce6c6);
-  }
-  .storage-gradient {
-    background: linear-gradient(90deg, var(--amber), #f7cb7a);
-  }
+  .thermal-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .usage-fill { background: var(--text-soft); }
+  .metric-detail { margin: 8px 0 0; color: var(--text-soft); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+  .thermal-status { margin: 12px 0 0; font-size: 13px; color: var(--text-soft); font-weight: 600; }
+  .thermal-warning, .threshold-exceeded { color: var(--amber); }
+  .thermal-critical { color: var(--danger); }
 
   .temp-readout {
     display: flex;
@@ -761,42 +740,6 @@
     font-size: 32px;
     font-weight: 600;
     line-height: 0.9;
-  }
-  .temp-unit {
-    font-size: 15px;
-    color: var(--muted);
-  }
-  .temp-bar-wrap {
-    position: relative;
-    height: 8px;
-    margin-top: 4px;
-  }
-  .temp-neutral-bar {
-    position: absolute;
-    inset: 0;
-    height: 100%;
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--text) 12%, transparent);
-  }
-  .temp-indicator-dot {
-    position: absolute;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--text);
-    border: 3px solid var(--canvas);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
-    transition: left 0.3s ease;
-  }
-  .temp-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--dim);
-    font-family: var(--mono);
-    margin-top: -4px;
   }
   .temp-note {
     margin: 0;
