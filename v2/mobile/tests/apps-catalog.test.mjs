@@ -59,13 +59,13 @@ after(async () => {
   await server?.close();
 });
 
-async function openApps(t, { openerFails = false, modalEvidence = false } = {}) {
-  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 812 } } } : {}) });
+async function openApps(t, { openerFails = false, modalEvidence = false, safetyEvidence = false, catalogSafetyOverride = null } = {}) {
+  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(modalEvidence || safetyEvidence ? { recordVideo: { dir: safetyEvidence ? "evidence/report-safety-2026-10-17/raw" : "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 812 } } } : {}) });
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   t.after(() => context.close());
   await page.addInitScript(
-    ({ fixture, openerFails }) => {
+    ({ fixture, openerFails, catalogSafetyOverride }) => {
       window.calls = [];
       window.handlers = {};
       window.copied = [];
@@ -113,6 +113,7 @@ async function openApps(t, { openerFails = false, modalEvidence = false } = {}) 
             case "app_apk_size":
               return { app_bytes: 2048, data_bytes: null, cache_bytes: null };
             case "safety_info":
+              if (catalogSafetyOverride && args.package === "com.google.android.katniss") return catalogSafetyOverride;
               if (args.package === "com.example.launcherguard") {
                 return { kind: "never_disable", reason: "Required for Home.", source: "protected_list" };
               }
@@ -132,7 +133,7 @@ async function openApps(t, { openerFails = false, modalEvidence = false } = {}) 
         },
       };
     },
-    { fixture, openerFails },
+    { fixture, openerFails, catalogSafetyOverride },
   );
   await page.goto(origin);
   await page.evaluate(async () => {
@@ -488,4 +489,115 @@ test('an APK result for a closed package cannot replace the next package measure
   const record = JSON.parse(await preview.inputValue()).records[0];
   assert.equal(record.token, 'com.example.launcherguard');
   assert.equal(record.state.storage.app_bytes, 32768);
+});
+
+const safetyReportDir = 'evidence/report-safety-2026-10-17';
+const settleSafety = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+async function failedSafetySheet(page, pkg = katniss.package) {
+  await page.waitForFunction(() => calls.filter(c => c.command === 'safety_info').length >= 3);
+  await settleSafety(page);
+  await page.evaluate(() => { handlers.safety_info = () => Promise.reject('Synthetic fresh safety lookup failed'); });
+  await page.locator(`.app-row[data-package="${pkg}"]`).click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await details.getByText('Safety unavailable', { exact: true }).waitFor();
+  return details;
+}
+async function copiedSafety(page, report, preview) {
+  const text = await preview.inputValue();
+  await report.getByRole('button', { name: 'Copy report' }).click();
+  assert.equal(await page.evaluate(() => copied.at(-1)), text);
+  return JSON.parse(text).records[0];
+}
+for (const [pkg, oldKind] of [[katniss.package, 'caution'], [katniss.package, 'safe'], [protectedEntry.package, 'never_disable']]) test(`report safety: failed sheet overrides old ${oldKind} catalog and retries honestly`, async t => {
+  const evidence = process.env.REPORT_SAFETY_EVIDENCE === '1' && oldKind === 'caution';
+  if (evidence) await mkdir(safetyReportDir, { recursive: true });
+  const page = await openApps(t, { safetyEvidence: evidence, catalogSafetyOverride: { kind: oldKind, reason: 'Synthetic older catalog result.', source: 'reviewed_catalog' } });
+  const details = await failedSafetySheet(page, pkg);
+  if (evidence) await page.screenshot({ path: `${safetyReportDir}/sheet-unavailable-simulated.png`, animations: 'disabled' });
+  await page.evaluate(() => { handlers.safety_info = () => new Promise((resolve, reject) => { window.safetyRetry = { resolve, reject }; }); });
+  const before = await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length);
+  const { report, preview } = await reportFromDetails(page, details);
+  assert.equal(JSON.parse(await preview.inputValue()).records[0].current_verdict, 'unavailable');
+  await page.waitForFunction(() => !!window.safetyRetry);
+  assert.equal(await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length), before + 1);
+  assert.equal((await copiedSafety(page, report, preview)).verdict_source, null);
+  await page.evaluate(() => safetyRetry.reject('Synthetic report retry failed'));
+  await settleSafety(page);
+  assert.equal((await copiedSafety(page, report, preview)).current_verdict, 'unavailable');
+  if (evidence) {
+    await preview.evaluate(el => { const line = el.value.split('\n').findIndex(text => text.includes('current_verdict')); el.scrollTop = Math.max(0, line * (parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.2) - 24); });
+    await page.screenshot({ path: `${safetyReportDir}/report-unavailable-simulated.png`, animations: 'disabled' });
+    await writeFile(`${safetyReportDir}/unavailable-report-simulated.json`, await preview.inputValue() + '\n');
+  }
+  await report.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(() => { delete window.safetyRetry; });
+  const reopened = await reportFromDetails(page, details);
+  await page.waitForFunction(() => !!window.safetyRetry);
+  await page.evaluate(() => safetyRetry.resolve({ kind: 'unknown', reason: 'Synthetic fresh unknown.', source: 'no_record' }));
+  await page.waitForFunction(() => document.querySelector('textarea[aria-label="Report preview"]')?.value.includes('"current_verdict": "unknown"'));
+  const record = await copiedSafety(page, reopened.report, reopened.preview);
+  assert.equal(record.current_verdict, 'unknown'); assert.equal(record.verdict_source, 'no_record');
+  if (evidence) {
+    await reopened.preview.evaluate(el => { const line = el.value.split('\n').findIndex(text => text.includes('current_verdict')); el.scrollTop = Math.max(0, line * (parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.2) - 24); });
+    await page.screenshot({ path: `${safetyReportDir}/retry-unknown-simulated.png`, animations: 'disabled' });
+    await writeFile(`${safetyReportDir}/unknown-report-simulated.json`, await reopened.preview.inputValue() + '\n');
+    await page.waitForTimeout(700);
+    const video = page.video(); await page.context().close(); await video.saveAs(`${safetyReportDir}/report-safety-simulated.webm`);
+  }
+});
+
+for (const transition of ['reopen', 'package', 'reconnect']) test(`report safety: late retry cannot cross ${transition}`, async t => {
+  const page = await openApps(t); const details = await failedSafetySheet(page);
+  await page.evaluate(() => { handlers.safety_info = () => new Promise(resolve => { window.resolveOldReportSafety = resolve; }); });
+  const { report } = await reportFromDetails(page, details);
+  await page.waitForFunction(() => !!window.resolveOldReportSafety);
+  await report.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(() => { handlers.safety_info = () => Promise.reject('Synthetic current lookup failed'); });
+  if (transition !== 'reopen') await details.getByRole('button', { name: 'Close', exact: true }).click();
+  if (transition === 'reconnect') {
+    await page.evaluate(() => session.connect('TV', 5555));
+    await page.getByRole('heading', { name: /Recognised apps/ }).waitFor();
+    await page.locator(`.app-row[data-package="${katniss.package}"]`).click();
+  } else if (transition === 'package') await page.locator(`.app-row[data-package="${protectedEntry.package}"]`).click();
+  await details.getByText('Safety unavailable', { exact: true }).waitFor();
+  const current = await reportFromDetails(page, details);
+  await page.evaluate(() => resolveOldReportSafety({ kind: 'safe', reason: 'Obsolete response', source: 'reviewed_catalog' }));
+  await settleSafety(page);
+  const record = await copiedSafety(page, current.report, current.preview);
+  assert.equal(record.current_verdict, 'unavailable'); assert.equal(record.verdict_source, null);
+  assert.equal(record.token, transition === 'package' ? protectedEntry.package : katniss.package);
+});
+
+test('report safety: an absent sheet result retains the catalog fallback without retry', async t => {
+  const page = await openApps(t);
+  await page.waitForFunction(() => calls.filter(c => c.command === 'safety_info').length >= 3); await settleSafety(page);
+  const before = await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length);
+  await page.locator(`.app-row[data-package="${katniss.package}"]`).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Report this app' }).click();
+  const report = page.getByRole('dialog', { name: 'Report this app', exact: true });
+  await report.getByRole('button', { name: /Show the full report/ }).click();
+  const record = await copiedSafety(page, report, report.getByLabel('Report preview'));
+  assert.equal(record.current_verdict, 'caution'); assert.equal(record.verdict_source, 'reviewed_catalog');
+  assert.equal(await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length), before);
+});
+
+for (const transition of ['package', 'reconnect']) test(`report safety: late sheet lookup cannot cross ${transition} and overwrite the current result`, async t => {
+  const page = await openApps(t);
+  await page.waitForFunction(() => calls.filter(c => c.command === 'safety_info').length >= 3); await settleSafety(page);
+  await page.evaluate(() => { handlers.safety_info = () => new Promise(resolve => { window.resolveOldSheetSafety = resolve; }); });
+  await page.locator(`.app-row[data-package="${katniss.package}"]`).click();
+  const details = page.getByRole('dialog', { name: /App details for/ });
+  await page.waitForFunction(() => !!window.resolveOldSheetSafety);
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.evaluate(() => { handlers.safety_info = () => { window.currentSafetyReads = (window.currentSafetyReads ?? 0) + 1; return { kind: 'unknown', source: 'no_record', reason: 'Synthetic current result.' }; }; });
+  if (transition === 'reconnect') await page.evaluate(() => session.connect('TV', 5555));
+  const pkg = transition === 'package' ? protectedEntry.package : katniss.package;
+  await page.locator(`.app-row[data-package="${pkg}"]`).click();
+  await details.getByText('Synthetic current result.', { exact: true }).waitFor();
+  await page.evaluate(() => resolveOldSheetSafety({ kind: 'safe', source: 'reviewed_catalog', reason: 'Obsolete sheet result' }));
+  await settleSafety(page);
+  const before = await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length);
+  const { report, preview } = await reportFromDetails(page, details);
+  assert.equal((await copiedSafety(page, report, preview)).current_verdict, 'unknown');
+  assert.equal(await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length), before, 'a successful current sheet verdict needs no report retry');
 });

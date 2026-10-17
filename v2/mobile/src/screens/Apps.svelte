@@ -685,7 +685,10 @@
   }
 
   function knownVerdict(pkg: string): Safety | null {
-    return sheetVerdicts[pkg] ?? verdictOf(catalogSafety[pkg]) ?? null;
+    // A failed fresh sheet lookup supersedes an older catalog verdict too.
+    return Object.prototype.hasOwnProperty.call(sheetVerdicts, pkg)
+      ? sheetVerdicts[pkg]
+      : verdictOf(catalogSafety[pkg]) ?? null;
   }
 
   function openReport(app: AppItem, apk?: ApkReportMeasurement) {
