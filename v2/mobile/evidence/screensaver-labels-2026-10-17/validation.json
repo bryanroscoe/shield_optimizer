@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-17",
+  "base": "b095f697b2a24c3d2fb8f56cef7056586b6355ef",
+  "full_mobile_tests": {
+    "passed": 302,
+    "failed": 0
+  },
+  "focused_with_evidence": {
+    "passed": 29,
+    "failed": 0
+  },
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "raw_values": "Preserved in native details disclosure; existing restoration/write-order tests unchanged in behavior.",
+  "name_source": "Existing embedded app_list_for_device command; exact package match of one valid flattened component; no device lookup.",
+  "limitations": [
+    "Simulated browser only",
+    "No phone/TV operation",
+    "Not a claim of an installed service or a service-specific display name"
+  ],
+  "isolated_from": [
+    "pending PR194 density summary",
+    "separate scaling preset-row CSS slice"
+  ]
+}

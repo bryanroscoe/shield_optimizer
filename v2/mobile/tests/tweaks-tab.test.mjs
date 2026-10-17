@@ -19,6 +19,8 @@ after(async () => {
 const HOOKS = "com.nvidia.shieldtech.hooks";
 const BASIC = "com.android.dreams.basic/com.android.dreams.basic.BasicDream";
 const VENDOR = "com.google.android.backdrop/.Backdrop";
+const ambientEntry = JSON.parse(await readFile(new URL('../../crates/core/data/app-lists/common.json', import.meta.url), 'utf8')).find(entry => entry.package === VENDOR.split('/')[0]);
+assert.equal(ambientEntry.name, 'Ambient Mode');
 
 async function open(t, screen, options = {}) {
   const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(options.daydreamEvidence ? { recordVideo: { dir: "evidence/daydream-order-2026-10-17/raw", size: { width: 384, height: 812 } } } : options.evidence ? { recordVideo: { dir: "evidence/settings-polish-2026-10-17/raw", size: { width: 384, height: 812 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
@@ -32,8 +34,8 @@ async function open(t, screen, options = {}) {
       hdmi_control_enabled: "1",
       match_content_frame_rate: "1",
       long_press_timeout: "400",
-      screensaver_components: options.screensaver ?? "com.google.android.backdrop/.Backdrop",
-      screensaver_enabled: "1",
+      screensaver_components: Object.hasOwn(options, "screensaver") ? options.screensaver : "com.google.android.backdrop/.Backdrop",
+      screensaver_enabled: Object.hasOwn(options, "screensaverEnabled") ? options.screensaverEnabled : "1",
     };
     window.hooks = options.hooks ?? "enabled";
     window.mic = options.mic ?? "granted";
@@ -46,7 +48,7 @@ async function open(t, screen, options = {}) {
         case "wireless_status": return { connected: true };
         case "list_devices": return [{ id: 1, serial: `${window.activeHost}:5555`, name: window.activeHost, model: "TV", status: "device", connection: "network", device_type: options.deviceType ?? "shield", properties: null }];
         case "health_report": return { ram: { free_mb: 1024 }, storage: {}, display: {}, top_memory: [] };
-        case "app_list_for_device": return [];
+        case "app_list_for_device": return options.catalog;
         case "package_states":
           return Object.fromEntries(args.packages.map((p) => [p, p === "com.nvidia.shieldtech.hooks" ? window.hooks : "enabled"]));
         case "get_tweaks": return { ...window.tweaks };
@@ -69,7 +71,7 @@ async function open(t, screen, options = {}) {
         default: return { ok: true, message: "done" };
       }
     } };
-  }, options);
+  }, { ...options, catalog: options.catalog ?? [ambientEntry] });
   await page.goto(origin);
   await page.evaluate(async ({ screen, pro }) => {
     const { session } = await import("/src/lib/session.svelte.ts");
@@ -93,7 +95,7 @@ test("Free users see every current value, including hooks, mic and screensaver",
   await page.getByText("Nvidia System Hooks", { exact: true }).waitFor();
   assert.equal(await page.getByText("Hooks on", { exact: true }).count(), 1);
   assert.equal(await page.getByText("Mic on", { exact: true }).count(), 1);
-  assert.equal(await page.locator('[data-tweak="screensaver"] .state').innerText(), VENDOR);
+  assert.equal(await page.locator('[data-tweak="screensaver"] .state').innerText(), "Ambient Mode");
   assert.equal(await page.getByText("Reading settings is free. Changing them is a Pro feature.").count(), 1);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 });
@@ -155,9 +157,9 @@ test("screensaver: Basic Daydream, Off, then Restore previous brings the vendor 
   // Leaving and re-entering the tab must not recapture the value we wrote.
   await page.evaluate(() => { router.navigate("dashboard"); router.navigate("tweaks"); });
   await row.waitFor();
-  assert.match(await row.getByRole("button", { name: /Restore previous/ }).innerText(), /backdrop/);
+  assert.match(await row.getByRole("button", { name: /Restore previous/ }).innerText(), /Ambient Mode/);
   await row.getByRole("button", { name: /Restore previous/ }).click();
-  await page.waitForFunction((vendor) => document.querySelector('[data-tweak="screensaver"] .state')?.textContent === vendor, VENDOR);
+  await page.waitForFunction(() => document.querySelector('[data-tweak="screensaver"] .state')?.textContent === "Ambient Mode");
 
   const ss = (await writes(page, "write_setting")).map((a) => `${a.key}=${a.value}`);
   assert.deepEqual(ss, [
@@ -223,6 +225,7 @@ test("endpoint reuse never restores another TV's screensaver and interrupted wri
   await card.getByRole("button", { name: "Off", exact: true }).click();
   await page.waitForFunction(() => window.tweaks.screensaver_enabled === "0");
   await page.evaluate(async () => { window.tweaks.screensaver_components = "replacement/.Dream"; window.tweaks.screensaver_enabled = "1"; await window.session.connect("A", 5555); });
+  await card.locator("summary").click();
   await card.getByText("replacement/.Dream", { exact: true }).first().waitFor();
   assert.equal(await card.getByText("com.google.android.backdrop/.Backdrop", { exact: true }).count(), 0);
   await page.evaluate(() => { window.handlers.write_setting = () => new Promise(resolve => { window.finishWrite = resolve; }); });
@@ -248,6 +251,7 @@ test("verified TV retains originals across a rotated port, replacement hardware 
   await card.getByRole("button", { name: /Restore previous/ }).click();
   await page.waitForFunction(() => window.tweaks.screensaver_components === "com.google.android.backdrop/.Backdrop" && window.tweaks.screensaver_enabled === "1");
   await page.evaluate(async () => { window.hardware = "verified-B"; window.tweaks.screensaver_components = "different/.Dream"; await window.session.connect("A", 4321); });
+  await card.locator("summary").click();
   await card.getByText("different/.Dream", { exact: true }).first().waitFor();
   assert.equal(await card.getByText("com.google.android.backdrop/.Backdrop", { exact: true }).count(), 0);
 });
@@ -498,4 +502,63 @@ test("a reconnect after the Daydream component write prevents enabling", async t
   await page.evaluate(async () => { await session.connect("A", 5555); finishComponent(); });
   assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components"]);
   assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
+});
+
+
+test("screensaver names preserve raw known, custom, disabled and missing component states", async t => {
+  for (const fixture of [
+    { component: VENDOR, enabled: '1', label: 'Ambient Mode', raw: VENDOR },
+    { component: BASIC, enabled: '1', label: 'Basic Daydream', raw: BASIC },
+    { component: 'vendor.unknown/.Dream', enabled: '1', label: 'Custom screensaver', raw: 'vendor.unknown/.Dream' },
+    { component: 'com.google.android.backdrop.clone/.Backdrop', enabled: '1', label: 'Custom screensaver', raw: 'com.google.android.backdrop.clone/.Backdrop' },
+    { component: `${VENDOR},vendor.unknown/.Dream`, enabled: '1', label: 'Custom screensaver', raw: `${VENDOR},vendor.unknown/.Dream` },
+    { component: VENDOR, enabled: '0', label: 'Off', raw: VENDOR },
+    { component: null, enabled: null, label: 'None set', raw: 'Not reported' },
+    { component: '', enabled: '1', label: 'None set', raw: 'None set' },
+  ]) {
+    const page = await open(t, 'tweaks', { screensaver: fixture.component, screensaverEnabled: fixture.enabled });
+    const card = page.locator('[data-tweak="screensaver"]');
+    await card.locator('.state').getByText(fixture.label, { exact: true }).waitFor();
+    assert.match(await card.getByRole('button', { name: /Restore previous/ }).innerText(), new RegExp(fixture.label));
+    const summary = card.locator('summary'); await summary.focus(); await page.keyboard.press('Enter');
+    assert.equal(await card.locator('details').getAttribute('open'), '');
+    assert.deepEqual(await card.locator('details p .mono').allTextContents(), [fixture.raw, fixture.raw]);
+    assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
+    assert.deepEqual(await writes(page, 'write_setting'), []);
+    await page.close();
+  }
+});
+
+test("catalog failure stays custom and late old catalog names cannot cross connections", async t => {
+  const page = await open(t, 'tweaks'); const card = page.locator('[data-tweak="screensaver"]');
+  await card.locator('.state').getByText('Ambient Mode', { exact: true }).waitFor();
+  await page.evaluate(() => { handlers.app_list_for_device = () => Promise.reject('catalog unavailable'); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click();
+  await card.locator('.state').getByText('Custom screensaver', { exact: true }).waitFor();
+  await page.evaluate(() => { handlers.app_list_for_device = () => new Promise(resolve => { window.finishOldCatalog = resolve; }); });
+  await page.getByRole('button', { name: 'Re-read settings' }).click(); await page.waitForFunction(() => !!window.finishOldCatalog);
+  await page.evaluate(async () => {
+    handlers.app_list_for_device = () => [];
+    tweaks.screensaver_components = 'vendor.other/.Dream';
+    await session.connect('B', 5555);
+  });
+  await card.locator('.state').getByText('Custom screensaver', { exact: true }).waitFor();
+  await page.evaluate(() => finishOldCatalog([{ package: 'vendor.other', name: 'Old connection name' }]));
+  await page.waitForTimeout(50);
+  assert.equal(await card.locator('.state').innerText(), 'Custom screensaver');
+  await card.locator('summary').click();
+  assert.deepEqual(await card.locator('details p .mono').allTextContents(), ['vendor.other/.Dream', 'vendor.other/.Dream']);
+  assert.deepEqual(await writes(page, 'write_setting'), []);
+});
+
+if (process.env.SCREENSAVER_LABEL_EVIDENCE === '1') test("capture named and custom screensavers with raw details", async t => {
+  const dir = 'evidence/screensaver-labels-2026-10-17'; await mkdir(dir, { recursive: true });
+  for (const [name, component, enabled] of [['known', VENDOR, '1'], ['custom', 'vendor.example.really_long_component_owner/.ScreensaverWithALongServiceName', '1'], ['off', VENDOR, '0'], ['missing', null, null]]) {
+    const page = await open(t, 'tweaks', { screensaver: component, screensaverEnabled: enabled });
+    const card = page.locator('[data-tweak="screensaver"]'); await card.locator('summary').waitFor();
+    await page.setViewportSize({ width: 320, height: 812 }); await card.locator('summary').click();
+    assert.equal(await card.evaluate(el => el.scrollWidth <= el.clientWidth), true);
+    await card.screenshot({ path: `${dir}/${name}-320-simulated.png` });
+    await page.close();
+  }
 });

@@ -43,6 +43,7 @@
   let tweaks = $state<TweaksState | null>(null);
   let dns = $state<PrivateDnsState | null>(null);
   let scaling = $state<CurrentDisplayScaling | null>(null);
+  let screensaverNames = $state<Record<string, string>>({});
   let hooks = $state<HooksState | null>(null);
   let assistant = $state<PermissionState | null>(null);
   // Per-card read errors — one failed read must not blank the whole screen.
@@ -89,17 +90,21 @@
     }
     loading = tweaks === null && dns === null && scaling === null;
     noDevice = "";
-    const [t, d, s, h, a] = await Promise.allSettled([
+    const [t, d, s, h, a, names] = await Promise.allSettled([
       api.getTweaks(serial),
       api.getPrivateDns(serial),
       api.getDisplayScaling(serial),
       api.packageStates(serial, [HOOKS_PKG]),
       api.appPermissionState(serial, ASSISTANT_PKG, ASSISTANT_PERM),
+      api.appListForDevice(session.connectedDevice?.device_type ?? "unknown"),
     ]);
     if (
       destroyed || generation !== loadGeneration || serial !== session.serial ||
       connection !== session.generation || !session.isConnected
     ) return;
+    screensaverNames = names.status === "fulfilled"
+      ? Object.fromEntries(names.value.filter((entry) => entry.name?.trim()).map((entry) => [entry.package, entry.name]))
+      : {};
     if (t.status === "fulfilled") {
       const value = t.value;
       tweaks = value;
@@ -162,6 +167,7 @@
     hooks = null;
     assistant = null;
     screensaverOriginal = null;
+    screensaverNames = {};
     tweaksError = "";
     dnsError = "";
     scalingError = "";
@@ -452,7 +458,12 @@
     if (enabled === "0") return "Off";
     if (!component) return "None set";
     if (component === BASIC_DAYDREAM) return "Basic Daydream";
-    return component;
+    const match = component.match(/^([A-Za-z]\w*(?:\.\w+)+)\/(?:\.[A-Za-z_$][\w.$]*|[A-Za-z_$][\w.$]*)$/);
+    return (match && screensaverNames[match[1]]) || "Custom screensaver";
+  }
+
+  function rawScreensaver(component: string | null): string {
+    return component == null ? "Not reported" : component || "None set";
   }
 
   function toggleCec(row: { key: string; title: string; value: string | null }) {
@@ -1002,10 +1013,17 @@
                 </span>
               </button>
               <span class="t-desc">
-                Previous is what was set when Tweaks first read this TV, including a vendor
-                screensaver this app can't name.
+                Previous is what was set when Tweaks first read this TV. Names come from the
+                app catalog; custom screensavers may have no known name.
               </span>
             {/if}
+            <details class="screensaver-details">
+              <summary>Component details</summary>
+              <p>Current: <span class="mono">{rawScreensaver(ssComponent)}</span></p>
+              {#if screensaverOriginal}
+                <p>Previous: <span class="mono">{rawScreensaver(screensaverOriginal.components)}</span></p>
+              {/if}
+            </details>
           </div>
 
           <div class="tweak-row column">
@@ -1317,6 +1335,21 @@
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+  }
+  .screensaver-details {
+    font-size: .75rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .screensaver-details summary {
+    cursor: pointer;
+    min-height: 44px;
+    padding: 12px 0;
+  }
+  .screensaver-details summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
   .restore-value {
     font-size: 10px;
