@@ -1,7 +1,7 @@
 {
-  "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
+  "base": "557247e78357d4798aabc0d36fcfe45f81db52bc",
   "full_mobile": {
-    "passed": 282,
+    "passed": 290,
     "failed": 0,
     "skipped": 0
   },
@@ -28,7 +28,8 @@
     "v2/mobile/evidence/export-discoverability-2026-10-17/private-file-copy-simulated.png": "e659042d9e8ac83c75bdade6cf27015135c0c787c56c2168d23b802c6b3149eb",
     "v2/mobile/evidence/export-discoverability-2026-10-17/screenshot-error-simulated.png": "ceb02d345a8a93de9ff138fb8c225243a11661d607c9d4f69a0893a89fc2456e",
     "v2/mobile/evidence/export-discoverability-2026-10-17/screenshot-private-preview-simulated.png": "f5f6500f76690d54e7b21d4a720faf36bab85f6ba39674d28ec0deccc363e8a5",
-    "v2/mobile/evidence/export-discoverability-2026-10-17/private-save-copy-clarification-simulated.webm": "6c8ddbb06b45d58d60ccac039911f91d78f77635171251783660682c344168a4"
+    "v2/mobile/evidence/export-discoverability-2026-10-17/private-save-copy-clarification-simulated.webm": "6c8ddbb06b45d58d60ccac039911f91d78f77635171251783660682c344168a4",
+    "v2/mobile/tests/files.test.mjs": "790dca4f14aa6cf70e719168fa2d8ddba4b1be483fb14eb09259ca2848787a6a"
   },
   "scope": [
     "Private-storage and clipboard-only wording, accessible screenshot close label.",
@@ -40,5 +41,21 @@
     "Root-font enlargement is simulation, not physical Android accessibility verification.",
     "Diagnostics 320px header overflow remains a separate issue.",
     "Independent source review and cross-OS CI pending."
-  ]
+  ],
+  "original_base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
+  "original_full_mobile": {
+    "passed": 282,
+    "failed": 0,
+    "skipped": 0
+  },
+  "integration": {
+    "merge": "f035d3dd7526552502c32e6b2832bb642fa2f522",
+    "product_source_and_new_tests_unchanged_from": "20cc8c4689924f859e752cb3b788f78fd5938bed",
+    "test_maintenance": "files.test.mjs stale-toast absence assertion uses actual 'Copied old.zip into this app's private storage.'",
+    "targeted_stale_toast_test": "1 passed",
+    "retained_hashes_revalidated": true,
+    "check": "0 errors / 0 warnings",
+    "build": "passed",
+    "diff_check": "passed"
+  }
 }

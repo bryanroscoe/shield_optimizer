@@ -274,6 +274,6 @@ test("a copy completing after a TV switch does not mark the new TV's row copied"
   });
   await page.locator(".file-row").filter({ hasText: "old.zip" }).waitFor();
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
-  assert.equal(await page.getByText("Copied old.zip into this app's storage.").count(), 0);
+  assert.equal(await page.getByText("Copied old.zip into this app's private storage.").count(), 0);
   assert.equal(await page.locator(".dl-list").count(), 0);
 });

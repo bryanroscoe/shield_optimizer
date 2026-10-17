@@ -1,7 +1,8 @@
 # Private saves and clipboard-only reports — simulated evidence
 
-Base: `83f69b77e2b19b643e21ae456d0f597e90ef7d83`, including approved modal PR186.
-Pending Daydream/thermal/diagnosis branch changes are not included. This is an existing-flow
+Original capture base: `83f69b77e2b19b643e21ae456d0f597e90ef7d83`. The branch now includes
+current release base `557247e78357d4798aabc0d36fcfe45f81db52bc`, including merged modal,
+Daydream and diagnosis work. Pending thermal PR188 is not included. This is an existing-flow
 frontend clarification, not an export implementation.
 
 ## Scope and retained behavior
@@ -67,3 +68,20 @@ review and cross-OS CI remain pending; no release, merge, installation or device
 Final host validation: **282/282 full mobile cases and 37/37 focused cases including capture passed**,
 with no failures or skips. Svelte check found 0 errors / 0 warnings; Vite build and diff check passed.
 The video is5.44 seconds. [Validation receipt](validation.json) records source/artifact hashes.
+
+## Current release-base integration and review follow-up
+
+Normal merge `f035d3dd7526552502c32e6b2832bb642fa2f522` integrates verified base557247e7.
+The checklist conflict retains every current row, including the separate320px header issue, and
+combines the merged source-diagnosis link with this pending clarification status. Modal completion
+is inherited intact.
+
+The one review correction changes the stale-toast absence assertion in `tests/files.test.mjs`
+from the obsolete “this app's storage” wording to the actual “this app's private storage” wording.
+All product UI source and the new clarification tests remain byte-for-byte unchanged from reviewed
+`20cc8c4689924f859e752cb3b788f78fd5938bed`. Existing screenshots/video are retained from their
+original capture base; this integration changes no captured product appearance.
+
+Validation on current release base557247e7: **290/290 combined mobile tests passed**, plus the
+corrected stale-toast regression directly (1/1); Svelte check0/0, build and diff check passed.
+Retained product-source and visual-artifact hashes match the reviewed receipt.
