@@ -255,11 +255,12 @@ The installed SDK apksigner rejected an unsigned synthetic archive through the C
 no success receipt). Positive signing/SDK outcomes in unit tests are mocked: no genuine signed
 release artifact or Android runtime was validated. This receipt is not release authorization.
 
-### Modal polish follow-up (2026-10-17, independent review pending)
+### Modal polish follow-up (2026-10-17, merged PR186)
 
 The separate modal follow-up registers `StockTakeoverDialog` with shared scroll/focus ownership
 and preserves original-row focus through sequential `AppActionMenu` → Report transitions.
 Regression coverage includes cancellation, async replacements, nested/out-of-order teardown,
 short-screen keyboard access and restored scroll. See
 [evidence and verification limits](evidence/modal-handoffs-2026-10-17/README.md).
-These two P2s await independent review; host simulation does not clear physical-device gates.
+These two P2s passed independent source review and all six CI jobs, and PR186 merged at
+`83f69b77e2b19b643e21ae456d0f597e90ef7d83`. Host simulation does not clear physical-device gates.
