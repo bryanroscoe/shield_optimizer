@@ -1,0 +1,36 @@
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✖ closing the focused child then a non-top ancestor restores the surviving middle modal (967.593416ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1247.225625
+
+✖ failing tests:
+
+test at tests/modal-lifecycle.test.mjs:140:1
+✖ closing the focused child then a non-top ancestor restores the surviving middle modal (967.593416ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'Original rowOther rowBLast B'
+  - 'Last B'
+  
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/modal-lifecycle.test.mjs:150:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'Original rowOther rowBLast B',
+    expected: 'Last B',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

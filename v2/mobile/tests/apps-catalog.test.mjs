@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -58,8 +59,8 @@ after(async () => {
   await server?.close();
 });
 
-async function openApps(t, { openerFails = false } = {}) {
-  const context = await browser.newContext({ viewport: { width: 384, height: 812 } });
+async function openApps(t, { openerFails = false, modalEvidence = false } = {}) {
+  const context = await browser.newContext({ viewport: { width: 384, height: 812 }, ...(modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 812 } } } : {}) });
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   t.after(() => context.close());
@@ -323,4 +324,32 @@ test("long report keyboard wrap reveals its focused actions without moving the l
   assert.equal(await close.evaluate(el => document.activeElement === el), true);
   assert.equal(await inView(close), true, 'report Close action must be visible');
   assert.equal(await page.evaluate(() => document.body.style.top), top);
+});
+
+test("menu Report returns focus to its original app row after closing", async (t) => {
+  const evidence = process.env.MODAL_HANDOFF_EVIDENCE === "1";
+  const dir = "evidence/modal-handoffs-2026-10-17";
+  if (evidence) await mkdir(dir, { recursive: true });
+  const page = await openApps(t, { modalEvidence: evidence });
+  const row = page.locator('.app-row[data-package="com.example.streambox"]');
+  await row.focus();
+  await row.click({ button: "right" });
+  await page.getByRole("menu").getByRole("menuitem", { name: "Report this app" }).click();
+  const report = page.getByRole("dialog", { name: "Report this app", exact: true });
+  await report.waitFor();
+  if (evidence) {
+    await page.screenshot({ path: `${dir}/menu-to-report-simulated.png`, animations: "disabled" });
+    await page.waitForTimeout(700);
+  }
+  await page.keyboard.press("Escape");
+  await report.waitFor({ state: "detached" });
+  assert.equal(await row.evaluate(el => document.activeElement === el), true);
+  assert.notEqual(await page.evaluate(() => document.body.style.position), "fixed");
+  assert.equal((await commands(page)).includes("disable_package"), false);
+  if (evidence) {
+    await page.screenshot({ path: `${dir}/original-app-row-restored-simulated.png`, animations: "disabled" });
+    await page.waitForTimeout(700);
+    const video = page.video(); await page.context().close();
+    await video.saveAs(`${dir}/menu-report-close-simulated.webm`);
+  }
 });

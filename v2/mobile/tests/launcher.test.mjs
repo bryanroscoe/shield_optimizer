@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -115,7 +116,7 @@ test("source site links are offered only for http(s) URLs", () => {
 // ---- screen ----
 
 async function open(t, setup = {}) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(setup.modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 420 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
   if (setup.clock) await page.clock.install();
   await page.addInitScript((init) => {
@@ -433,4 +434,67 @@ test("old snapshot completion cannot unlock a newer Home action after reconnect"
   await page.evaluate(() => { window.completeNewHome({ ok: true, message: "New action finished" }); });
   await page.waitForFunction(() => document.querySelector('.adv-result')?.textContent.includes("New action finished"));
   assert.equal(await setHome.isDisabled(), false);
+});
+
+test("stock takeover dialog locks scrolling, traps focus and Escape cancels without a mutation", async (t) => {
+  const evidence = process.env.MODAL_HANDOFF_EVIDENCE === "1";
+  const dir = "evidence/modal-handoffs-2026-10-17";
+  if (evidence) await mkdir(dir, { recursive: true });
+  const page = await open(t, { launchers: [stock(true), wraith(true)], current: PROJECTIVY, modalEvidence: evidence });
+  await page.getByRole("button", { name: /Advanced: set another app as Home/ }).click();
+  await page.getByRole("button", { name: "Choose an app" }).click();
+  await page.getByRole("button", { name: /Choose Projectivy/ }).click();
+  await page.setViewportSize({ width: 384, height: 420 });
+  const trigger = page.getByRole("button", { name: /Disable stock launcher/ });
+  await trigger.evaluate(el => el.scrollIntoView({ block: "center", behavior: "instant" }));
+  await trigger.focus();
+  const before = await page.evaluate(() => scrollY);
+  assert.ok(before > 0, "fixture starts on a scrolled launcher page");
+  if (evidence) await page.screenshot({ path: `${dir}/launcher-before-simulated.png`, animations: "disabled" });
+  await trigger.click();
+  const dialog = page.getByRole("alertdialog", { name: "Confirm disabling the stock launcher" });
+  await dialog.waitFor();
+  assert.equal(await page.evaluate(() => document.body.style.position), "fixed");
+  await page.waitForFunction(() => document.activeElement?.textContent?.includes("Save snapshot first"));
+  if (evidence) {
+    await dialog.evaluate(el => { el.scrollTop = 0; });
+    await page.screenshot({ path: `${dir}/stock-takeover-heading-simulated.png`, animations: "disabled" });
+    await page.waitForTimeout(700);
+  }
+  await page.keyboard.press("Shift+Tab");
+  assert.equal(await dialog.getByRole("button", { name: "Cancel", exact: true }).evaluate(el => document.activeElement === el), true);
+  assert.equal(await dialog.getAttribute("aria-modal"), "true");
+  const visible = await dialog.getByRole("button", { name: "Cancel", exact: true }).evaluate(el => {
+    const rect = el.getBoundingClientRect(); return rect.top >= 0 && rect.bottom <= innerHeight;
+  });
+  assert.equal(visible, true);
+  await page.mouse.move(6, 6); await page.mouse.wheel(0, 500);
+  assert.equal(await page.evaluate(() => document.body.style.top), `${-before}px`);
+  if (evidence) {
+    await page.screenshot({ path: `${dir}/stock-takeover-keyboard-simulated.png`, animations: "disabled" });
+    await page.waitForTimeout(700);
+  }
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+  assert.equal(await trigger.evaluate(el => document.activeElement === el), true);
+  assert.equal(await page.evaluate(() => scrollY), before);
+  assert.notEqual(await page.evaluate(() => document.body.style.position), "fixed");
+  for (const dismiss of ["cancel", "backdrop"]) {
+    await trigger.click();
+    await dialog.waitFor();
+    if (dismiss === "cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    else await page.mouse.click(6, 6);
+    await dialog.waitFor({ state: "detached" });
+    assert.equal(await trigger.evaluate(el => document.activeElement === el), true);
+    assert.equal(await page.evaluate(() => scrollY), before);
+    assert.notEqual(await page.evaluate(() => document.body.style.position), "fixed");
+  }
+  assert.equal(await count(page, "disable_stock_launcher"), 0);
+  assert.equal(await count(page, "save_snapshot"), 0);
+  if (evidence) {
+    await page.screenshot({ path: `${dir}/launcher-restored-simulated.png`, animations: "disabled" });
+    await page.waitForTimeout(700);
+    const video = page.video(); await page.close();
+    await video.saveAs(`${dir}/takeover-cancel-simulated.webm`);
+  }
 });
