@@ -1,7 +1,9 @@
 # Screenshot and report export diagnosis
 
-Read-only source investigation, 2026-10-17. Base: `56aa7c56450464b2060c27838373029b6b90c14f`.
-Active PR186/187/188 remain unchanged. Open PRs were inspected; none implements Android export.
+Read-only source investigation, 2026-10-17. Source audit base: `56aa7c56450464b2060c27838373029b6b90c14f`.
+Reconciled with approved modal integration `83f69b77e2b19b643e21ae456d0f597e90ef7d83`; its
+release-checklist completion is retained and it changes none of the export destinations below.
+Approved PR186 is inherited from the current base; product changes in PR187/188 are not included. Open PRs were inspected; none implements Android export.
 SAF export remains explicitly open in `BACKLOG.md`, `HANDOFF.md` and `RELEASE.md`. This document
 proposes scope; it does not implement storage, permission, native or UI changes.
 
