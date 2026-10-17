@@ -1,6 +1,6 @@
 {
-  "base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
-  "mobile_tests": 310,
+  "base": "a73787a36bbf44311de2596e9a01c8232a049a02",
+  "mobile_tests": 314,
   "launcher_tests": 25,
   "backend_guard_tests": 19,
   "core_tests": 466,
@@ -14,5 +14,8 @@
   "limits": [
     "Mocks only; no device operations",
     "No backend guard behavior changed"
-  ]
+  ],
+  "original_base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
+  "original_mobile_tests": 310,
+  "integration": "Current base adds preset layout only; Launcher source/tests and Rust source/test unchanged from 1458b96bafb09705cc818941f398fcc767b44ca8. Identical Rust tree retains original fmt/Clippy/466-test validation."
 }

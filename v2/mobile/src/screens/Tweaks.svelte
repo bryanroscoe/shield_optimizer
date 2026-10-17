@@ -946,7 +946,7 @@
             video still decodes at full resolution. Lower is lighter on the TV but looks softer.
             Restarting the TV does not undo this; use Reset.
           </p>
-          <div class="segmented">
+          <div class="segmented scaling-presets">
             {#each scalePresets as p (p.value)}
               <button
                 class="seg"
@@ -1478,6 +1478,14 @@
     border-radius: 11px;
     background: var(--canvas);
     gap: 3px;
+  }
+  .scaling-presets {
+    flex-wrap: wrap;
+  }
+  .scaling-presets .seg {
+    flex: 1 0 auto;
+    min-width: 44px;
+    min-height: 44px;
   }
   .seg {
     flex: 1;
