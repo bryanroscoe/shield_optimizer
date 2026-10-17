@@ -1,6 +1,6 @@
 # Display scaling preset wrapping — 2026-10-17
 
-Original base: `b095f697b2a24c3d2fb8f56cef7056586b6355ef`. Now integrates mobile-parity-pass `35b5deaa044bb2218c720eeaa64858486ffc195f`, including reviewed and merged density summary PR194. Screensaver-label PR195 remains separate. The scoped reviewed layout code is unchanged; only the merged density summary branch is added.
+Original base: `b095f697b2a24c3d2fb8f56cef7056586b6355ef`. Now integrates mobile-parity-pass `ba7c9d78d31b0a579f5ffd03d92cd403ebf47227`, including reviewed and merged density summary PR194 and screensaver-label PR195. PR196 remains unmerged. The scoped reviewed layout code is unchanged; only the merged density summary branch is added.
 
 The existing display-scaling preset row overflows at 320px with all card text doubled: 271px of content inside a 240px row in this fixture. [Before screenshot](before-320-200-simulated.png) clips Reset; the [pre-fix regression](reproduction-before.txt) fails on those dimensions.
 
@@ -15,3 +15,7 @@ Focused layout tests: 4/4 passed. All 304 mobile tests passed, Svelte check repo
 Integration provenance: all existing preset screenshots are retained byte-for-byte. Their fixture uses both size and density overrides, so PR194’s density-only summary branch does not change these pixels. Imported PR194 captures of the old full-card overflow remain historical evidence from before this CSS fix; the preset-wrap captures demonstrate the prepared fix.
 
 Current integration on `35b5deaa`: all 306 mobile tests passed, Svelte check reports 0 errors/0 warnings and the production build passed. Existing 304-test results above describe the original review head. Both density readback and preset-layout regressions are retained; no screenshots were regenerated.
+
+Latest integration provenance: screensaver naming and raw details are imported unchanged from merged PR195. The scaling preset class and CSS rules remain exactly the reviewed layout delta; removing only those additions reproduces the current base source byte-for-byte. Existing preset PNGs remain unchanged because the screenshots crop only the scaling row and PR195 changes a different card.
+
+Latest integration on `ba7c9d78`: all 308 combined mobile tests passed, Svelte check reports 0 errors/0 warnings and the production build passed. Prior 304/306-test receipts above are historical validations. No focused CSS changes or new visual captures were required.

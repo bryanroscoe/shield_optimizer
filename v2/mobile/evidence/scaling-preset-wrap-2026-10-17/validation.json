@@ -1,6 +1,6 @@
 {
   "date": "2026-10-17",
-  "base": "35b5deaa044bb2218c720eeaa64858486ffc195f",
+  "base": "ba7c9d78d31b0a579f5ffd03d92cd403ebf47227",
   "source_delta": "One scoped class and CSS wrapping/intrinsic width/minimum touch target rules; no logic or value changes.",
   "before_failure": {
     "viewport": 320,
@@ -13,7 +13,7 @@
     "failed": 0
   },
   "full_mobile_tests": {
-    "passed": 306,
+    "passed": 308,
     "failed": 0
   },
   "svelte_check": {
@@ -34,9 +34,7 @@
     "focus return and 1080p selection retained",
     "no setting/scaling writes"
   ],
-  "isolated_from": [
-    "PR195 screensaver labels"
-  ],
+  "isolated_from": [],
   "limitations": [
     "Synthetic browser only",
     "No physical accessibility, touch or Android acceptance claimed"
@@ -46,6 +44,13 @@
     "full_mobile_passed": 304,
     "head": "1c5bc6b76ef6dc851d8c34a8b477775ef77b3539"
   },
-  "integration_delta": "Merge PR194 density summary and both regression sets; reconcile completed checklist entries and evidence provenance. Reviewed layout delta is unchanged.",
-  "unchanged_visual_evidence": "All existing layout PNGs retained byte-for-byte; the fixture uses size and density overrides, so the density-only branch changes no captured pixels."
+  "integration_delta": "Merge reviewed screensaver PR195, reconcile checklist completion and update provenance. CSS/class delta is unchanged; removing only it reproduces the current base Tweaks source exactly.",
+  "unchanged_visual_evidence": "Original layout PNGs retained byte-for-byte; merged screensaver names change a different card.",
+  "integration_history": [
+    {
+      "base": "35b5deaa044bb2218c720eeaa64858486ffc195f",
+      "full_mobile_passed": 306,
+      "head": "02e2747b83dcea4a28c3f9a7b528cd580e8bcc15"
+    }
+  ]
 }
