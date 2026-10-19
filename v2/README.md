@@ -23,7 +23,9 @@ This directory is the v2 workspace. v1 (`Shield-Optimizer.ps1` at the repo root)
 - Tests: Rust tests (engine + ADB parsers + loader sanity), all passing
 - Runs as an installable desktop app (`npm run tauri dev` for dev; download from [Releases](https://github.com/bryanroscoe/shield_optimizer/releases) or `brew install --cask shield-optimizer`)
 - Lists ADB devices with friendly model names + device-type detection
-- Full device management: profile, health report, launcher wizard (install/set-default/disable stock), optimize wizard with per-app defaults, full app list with disable/enable/force-stop/uninstall, Tweaks (HDMI-CEC, animations, display scaling), APK sideload, APK backup and cross-device clone, file manager, device screenshots, reboot + recovery, and snapshot save/preview/apply
+- Full device management: profile, health report, launcher wizard (install/request default/guarded stock disable where firmware permits), optimize wizard with per-app defaults, full app list with disable/enable/force-stop/uninstall, Tweaks (HDMI-CEC, animations, display scaling), APK sideload, APK backup and cross-device clone, file manager, device screenshots, reboot + recovery, and snapshot save/preview/apply
+
+**Launcher compatibility:** device detection and a launcher catalog entry do not guarantee that firmware accepts Home changes. Some Fire TV builds reject changing protected Amazon stock packages; even the precautionary re-enable can be rejected. Failures retain raw diagnostics, a separate restore outcome and the final Home readback. No firmware-protection bypass is provided, and a successful command is not itself proof of the final Home app. [Issue #205](https://github.com/bryanroscoe/shield_optimizer/issues/205) remains unverified on hardware pending reporter version/build information. This shared-core behavior applies to desktop and mobile once each branch includes the fix.
 
 **Remaining feature gaps vs. aTV Tools:** see [`ATVTOOLS-PARITY.md`](ATVTOOLS-PARITY.md). Screen recording and a permissions viewer remain unimplemented. The unreleased desktop adds playback configuration reports, CPU/per-interface network samples, and an opt-in expert shell. Playback and resource reports plus audio policy controls are also available in the mobile companion; mobile does not expose arbitrary shell.
 
@@ -126,7 +128,7 @@ is ever added it needs signature verification and an offline fallback to embedde
 4. **The detection logic exists exactly once.** v1 has two device-type-detection paths that don't agree on edge cases (see `docs/FEATURES.md` §13.1). v2 must have one.
 5. **Snapshots are versioned.** `schemaVersion` in every snapshot file. The reader handles old versions or rejects them with a clear error.
 6. **Strict mode everywhere.** Rust's compiler catches the equivalent of v1's `Set-StrictMode -Version Latest`; preserve that. No `unwrap()` on values that can fail at runtime — propagate `Result`.
-7. **Reversibility model preserved.** Same disable/uninstall/settings tiers as v1. The Recovery action remains a one-click backout.
+7. **Reversibility model preserved.** Same disable/uninstall/settings tiers as v1. Recovery requests re-enable/reset actions and reports failures; firmware restrictions can prevent a backout.
 
 ## Explicit non-goals
 

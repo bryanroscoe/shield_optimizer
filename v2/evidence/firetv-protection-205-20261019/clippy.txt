@@ -1,0 +1,6 @@
+    Checking shield-optimizer-core v2.3.0 (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/crates/core)
+    Checking atv-optimizer-mobile v0.1.0 (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/mobile/src-tauri)
+    Checking shield-optimizer-v2 v2.3.0 (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/src-tauri)
+    Checking atvopt-license v0.1.0 (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/tools/atvopt-license)
+    Checking registry-triage v0.1.0 (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/tools/registry-triage)
+    Finished `dev` profile [unoptimized] target(s) in 8.94s

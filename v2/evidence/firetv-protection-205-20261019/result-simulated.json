@@ -1,0 +1,11 @@
+{
+  "ok": false,
+  "strategy": null,
+  "current_launcher": "com.amazon.tv.launcher",
+  "last_error": "This firmware explicitly rejected changing protected package com.amazon.tv.launcher. Stock-launcher takeover through this action is restricted on this build. Do not repeat the takeover to bypass that restriction. For support, share the Optimizer version, OS/build and redacted diagnostics; no further disable attempt is needed. A restore error alone does not prove the disable succeeded. The precautionary restore result and Home readback are separate observations. Stock-disable command failed for com.amazon.tv.launcher: ADB call failed: adb process failed (exit code Some(255)): Security exception: Cannot disable a protected package: com.amazon.tv.launcher java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher. Stock-restore command failed for com.amazon.tv.launcher: ADB call failed: adb process failed (exit code Some(255)): Security exception: Cannot disable a protected package: com.amazon.tv.launcher java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher. Android reports com.amazon.tv.launcher as the Home app.",
+  "stock_takeover_available": false,
+  "diagnostics": [
+    "pm disable-user com.amazon.tv.launcher -> ADB call failed: adb process failed (exit code Some(255)): Security exception: Cannot disable a protected package: com.amazon.tv.launcher java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher",
+    "pm enable com.amazon.tv.launcher (restore) -> ADB call failed: adb process failed (exit code Some(255)): Security exception: Cannot disable a protected package: com.amazon.tv.launcher java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher"
+  ]
+}

@@ -626,6 +626,7 @@ pub async fn disable_stock_launcher_impl(
         Some(a) if a == target => {
             let mut disabled = Vec::new();
             let mut failure = None;
+            let mut protected_rejection = None;
             for stock in &stocks {
                 progress.step(&format!("Disabling the stock launcher ({stock})"));
                 let result = adb
@@ -633,6 +634,9 @@ pub async fn disable_stock_launcher_impl(
                     .await;
                 match command_failure(&result) {
                     Some(f) => {
+                        if protected_package_rejection(&result, stock) {
+                            protected_rejection = Some(stock.clone());
+                        }
                         diagnostics.push(format!("pm disable-user {stock} -> {f}"));
                         // An errored disable may still have landed; restore it too.
                         disabled.push(stock.clone());
@@ -677,6 +681,9 @@ pub async fn disable_stock_launcher_impl(
             let mut unrestored: Vec<String> = Vec::new();
             for stock in &disabled {
                 let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
+                if protected_package_rejection(&restore, stock) {
+                    protected_rejection = Some(stock.clone());
+                }
                 diagnostics.push(match command_failure(&restore) {
                     Some(f) => {
                         unrestored.push(stock.clone());
@@ -692,7 +699,11 @@ pub async fn disable_stock_launcher_impl(
             Ok(refuse(
                 current,
                 format!(
-                    "{}. {}",
+                    "{}{}. {}",
+                    protected_rejection
+                        .as_deref()
+                        .map(protected_package_guidance)
+                        .unwrap_or_default(),
                     failure.unwrap_or_else(|| format!(
                         "Home moved away from {target} after the stock launcher was disabled"
                     )),
@@ -1657,10 +1668,55 @@ async fn stock_takeover(
         ok: false,
         strategy: None,
         current_launcher: current,
-        last_error: Some(format!("{primary_failure}. {restoration}. {observation}.")),
+        last_error: Some(format!(
+            "{}{primary_failure}. {restoration}. {observation}.",
+            if protected_package_rejection(&disable_result, active)
+                || protected_package_rejection(&restore_result, active)
+            {
+                protected_package_guidance(active)
+            } else {
+                String::new()
+            }
+        )),
         stock_takeover_available: false,
         diagnostics: std::mem::take(diagnostics),
     })
+}
+
+fn protected_package_rejection(
+    result: &crate::adb::AdbResult<crate::adb::AdbOutput>,
+    package: &str,
+) -> bool {
+    if command_failure(result).is_none() {
+        return false;
+    }
+    let detail = match result {
+        Ok(output) => output.combined(),
+        Err(error) => error.to_string(),
+    };
+    let lower = detail.to_ascii_lowercase();
+    if !lower.contains("securityexception") && !lower.contains("security exception:") {
+        return false;
+    }
+    static RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"(?i:cannot (?:disable|enable) a protected package):[ \t]*([A-Za-z][A-Za-z0-9_.]*)",
+        )
+        .unwrap()
+    });
+    RE.captures_iter(&detail)
+        .any(|capture| capture[1].trim_end_matches('.') == package)
+}
+
+fn protected_package_guidance(package: &str) -> String {
+    format!(
+        "This firmware explicitly rejected changing protected package {package}. \
+         Stock-launcher takeover through this action is restricted on this build. \
+         Do not repeat the takeover to bypass that restriction. For support, share the \
+         Optimizer version, OS/build and redacted diagnostics; no further disable attempt is needed. \
+         A restore error alone does not prove the disable succeeded. \
+         The precautionary restore result and Home readback are separate observations. "
+    )
 }
 
 fn command_failure(result: &crate::adb::AdbResult<crate::adb::AdbOutput>) -> Option<String> {
@@ -2163,6 +2219,172 @@ mod tests {
             assert!(error.contains(expected_error), "{name}: {error}");
             assert_eq!(&*log.lock().unwrap(), &[command.to_string()], "{name}");
         }
+    }
+
+    #[test]
+    fn protected_package_guidance_requires_explicit_matching_security_evidence() {
+        let package = "com.amazon.tv.launcher";
+        for (message, code, expected) in [
+            ("Security exception: Cannot disable a protected package: com.amazon.tv.launcher", 255, true),
+            ("java.lang.SecurityException: Cannot enable a protected package: com.amazon.tv.launcher", 1, true),
+            ("Security exception: Cannot disable a protected package: com.amazon.tv.launcher.extra", 255, false),
+            ("SecurityException: Cannot disable a protected package: com.other.home", 255, false),
+            ("SecurityException: Permission denied for com.amazon.tv.launcher", 255, false),
+            ("Cannot disable a protected package: com.amazon.tv.launcher", 255, false),
+            ("transport reset", 255, false),
+            ("SecurityException: Cannot disable a protected package: com.amazon.tv.launcher", 0, true),
+        ] {
+            assert_eq!(protected_package_rejection(&Ok(adb_output("", message, Some(code))), package), expected, "{message}");
+        }
+        assert!(!protected_package_rejection(
+            &Ok(adb_output("Package enabled", "", Some(0))),
+            package
+        ));
+        assert!(!protected_package_rejection(
+            &Err(AdbError::Transport("exit 255".into())),
+            package
+        ));
+    }
+
+    #[tokio::test]
+    async fn protected_stock_rejection_preserves_errors_restore_and_home_readback() {
+        let stock = "com.amazon.tv.launcher";
+        let disable = "pm disable-user --user 0 com.amazon.tv.launcher";
+        let restore = "pm enable com.amazon.tv.launcher";
+        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let raw = "Security exception: Cannot disable a protected package: com.amazon.tv.launcher java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher";
+        for (disable_protected, restore_fails) in [(true, false), (true, true), (false, true)] {
+            for wrapped_error in [false, true] {
+                let failure = || {
+                    if wrapped_error {
+                        Err(AdbError::NonZeroExit {
+                            code: Some(255),
+                            stderr: raw.into(),
+                        })
+                    } else {
+                        Ok(adb_output("", raw, Some(255)))
+                    }
+                };
+                let (script, log) = ScriptedAdb::new(vec![
+                    ShellStep {
+                        command: disable,
+                        result: if disable_protected {
+                            failure()
+                        } else {
+                            Err(AdbError::Transport("disable reply lost".into()))
+                        },
+                    },
+                    ShellStep {
+                        command: restore,
+                        result: if restore_fails {
+                            failure()
+                        } else {
+                            Ok(adb_output("Package enabled", "", Some(0)))
+                        },
+                    },
+                    ShellStep {
+                        command: resolve,
+                        result: Ok(adb_output("com.amazon.tv.launcher/.Home", "", Some(0))),
+                    },
+                ]);
+                let result = stock_takeover(
+                    &script,
+                    "synthetic",
+                    "com.spocky.projengmenu",
+                    stock,
+                    true,
+                    &Progress::Silent,
+                    &mut Vec::new(),
+                )
+                .await
+                .unwrap();
+                assert!(!result.ok);
+                assert!(!result.stock_takeover_available);
+                assert_eq!(result.current_launcher.as_deref(), Some(stock));
+                let error = result.last_error.as_deref().unwrap();
+                assert!(
+                    error.contains("This firmware explicitly rejected"),
+                    "{error}"
+                );
+                assert!(error.contains(raw), "raw rejection must remain: {error}");
+                assert!(error.contains("Stock-disable command failed"));
+                assert!(error.contains("Android reports com.amazon.tv.launcher as the Home app"));
+                assert_eq!(
+                    error.contains("Stock-restore command failed"),
+                    restore_fails
+                );
+                assert_eq!(
+                    error.contains("enabled state was not independently verified"),
+                    !restore_fails
+                );
+                assert!(!error.contains("Nothing was disabled"));
+                assert!(result.diagnostics.iter().any(|line| line.contains(raw)));
+                assert_eq!(
+                    &*log.lock().unwrap(),
+                    &[
+                        disable.to_string(),
+                        restore.to_string(),
+                        resolve.to_string()
+                    ]
+                );
+                if disable_protected && restore_fails && wrapped_error {
+                    if let Ok(path) = std::env::var("SHIELD_205_EVIDENCE") {
+                        std::fs::write(path, serde_json::to_string_pretty(&result).unwrap())
+                            .unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn unrelated_exit_255_does_not_claim_protection_even_if_restore_is_rejected() {
+        let disable = "pm disable-user --user 0 com.amazon.tv.launcher";
+        let restore = "pm enable com.amazon.tv.launcher";
+        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let (script, log) = ScriptedAdb::new(vec![
+            ShellStep {
+                command: disable,
+                result: Ok(adb_output("", "unrelated shell failure", Some(255))),
+            },
+            ShellStep {
+                command: restore,
+                result: Ok(adb_output("", "permission denied", Some(255))),
+            },
+            ShellStep {
+                command: resolve,
+                result: Ok(adb_output("com.vendor.recovery/.Home", "", Some(0))),
+            },
+        ]);
+        let result = stock_takeover(
+            &script,
+            "synthetic",
+            "com.spocky.projengmenu",
+            "com.amazon.tv.launcher",
+            true,
+            &Progress::Silent,
+            &mut Vec::new(),
+        )
+        .await
+        .unwrap();
+        let error = result.last_error.unwrap();
+        assert!(
+            !error.contains("This firmware explicitly rejected"),
+            "{error}"
+        );
+        assert!(error.contains("unrelated shell failure") && error.contains("permission denied"));
+        assert_eq!(
+            result.current_launcher.as_deref(),
+            Some("com.vendor.recovery")
+        );
+        assert_eq!(
+            &*log.lock().unwrap(),
+            &[
+                disable.to_string(),
+                restore.to_string(),
+                resolve.to_string()
+            ]
+        );
     }
 
     #[tokio::test]
@@ -3656,6 +3878,53 @@ mod tests {
             !calls.iter().any(|c| c.starts_with("pm enable")),
             "{calls:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn protection_behind_the_active_target_keeps_precautionary_restore_and_readback() {
+        let stock = "com.amazon.tv.launcher";
+        let target = "com.spocky.projengmenu";
+        let raw = "java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher";
+        let mock = MockAdb::default()
+            .on_shell(
+                HANDLERS_QUERY,
+                "packageName=com.amazon.tv.launcher\npackageName=com.spocky.projengmenu",
+            )
+            .on_shell_seq(
+                "resolve-activity",
+                &[
+                    "com.spocky.projengmenu/.Home",
+                    "com.amazon.tv.launcher/.Home",
+                ],
+            )
+            .on_shell("pm disable-user --user 0 com.amazon.tv.launcher", raw)
+            .on_shell("pm enable com.amazon.tv.launcher", raw);
+        let log = mock.shell_log();
+        let result =
+            disable_stock_launcher_impl(&state_with(mock), "synthetic", target, &Progress::Silent)
+                .await
+                .unwrap();
+        assert!(!result.ok);
+        assert_eq!(result.current_launcher.as_deref(), Some(stock));
+        let error = result.last_error.unwrap();
+        assert!(
+            error.contains("This firmware explicitly rejected"),
+            "{error}"
+        );
+        assert!(error.contains(raw) && error.contains("Re-enabling the stock launcher failed"));
+        let calls = log.lock().unwrap();
+        let disable = calls
+            .iter()
+            .position(|c| c == "pm disable-user --user 0 com.amazon.tv.launcher")
+            .unwrap();
+        let restore = calls
+            .iter()
+            .position(|c| c == "pm enable com.amazon.tv.launcher")
+            .unwrap();
+        assert!(disable < restore);
+        assert!(calls[restore + 1..]
+            .iter()
+            .any(|c| c.contains("resolve-activity")));
     }
 
     #[tokio::test]
