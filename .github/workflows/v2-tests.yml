@@ -230,7 +230,7 @@ jobs:
 
       - name: Launcher rows
         working-directory: v2
-        run: npm run test:launcher-rows
+        run: CLEARTV_EVIDENCE=1 npm run test:launcher-rows
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.
@@ -251,6 +251,8 @@ jobs:
           path: |
             v2/screenshots/frames/
             v2/screenshots/frames-light/
+            v2/evidence/cleartv-208-20261022/*-simulated.png
+            v2/evidence/cleartv-208-20261022/launcher-states-simulated.webm
           retention-days: 7
           if-no-files-found: ignore
 

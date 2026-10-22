@@ -34,6 +34,11 @@
       "name": "Monet Launcher",
       "package": "com.klevico.monet",
       "source_url": "https://github.com/Klevico/Monet-Launcher"
+    },
+    {
+      "name": "ClearTV Islamic / CleanYourTV",
+      "package": "com.gathin.tvhome",
+      "source_url": "https://github.com/Pokka99/cleartv-Islamic"
     }
   ],
   "stock": [
