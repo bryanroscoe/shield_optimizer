@@ -22,6 +22,6 @@ The demo fixture defaults to missing, with an explicit cleartvState switch for o
 
 ## Validation and visual evidence status
 
-The initial 20 loader tests passed. Local syntax and formatting checks pass. Full Rust checks and fresh exact-head CI are tracked separately from this initial receipt. Local frontend dependencies remain offloaded; no local frontend success is claimed. Captured UI artifacts and regenerated galleries will be included before final review. Simulation is not real-device validation.
+The initial 20 loader tests passed. Workspace fmt, all-target Clippy with warnings denied and serial tests pass: core464, desktop114 with one preexisting live test ignored, mobile Rust26, license2 and registry9. Independent read-only source review approved initial head `71f12cf5b0220a81cb7c1be93b286968a3bb9d6d` with no blockers; its nonblocking source-link assertion suggestion was adopted. Final-head CI and review are tracked separately. Local frontend dependencies remain offloaded; no local frontend success is claimed. Captured UI artifacts and regenerated galleries will be included before final review. Simulation is not real-device validation.
 
 Reproduce with existing dependencies from v2: `CLEARTV_EVIDENCE=1 npm run test:launcher-rows`; normal gallery capture is `npm run screenshots`. No device operations, APK fetch/install, upstream setup execution, signature/accessibility/security changes, paid calls, store publication or release is included.

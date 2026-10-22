@@ -187,7 +187,7 @@ async function clearTvStates({ browser, base }) {
       });
       await row.getByRole("button", { name: `Open the developer's page for ${name} in your browser`, exact: true }).click();
       assert.deepEqual(await page.evaluate(() => clearTvCalls.filter(c => c.command === "plugin:opener|open_url").map(c => c.args.url)), [source]);
-      assert.equal(await page.evaluate(() => clearTvCalls.some(c => ["disable_package", "enable_package", "set_default_launcher", "disable_stock_launcher", "install_launcher"].includes(c.command))), false);
+      assert.deepEqual(await page.evaluate(() => clearTvCalls.map(c => c.command)), ["plugin:opener|open_url"], "the source link must not issue any device or launcher command");
       if (evidence) {
         await row.scrollIntoViewIfNeeded();
         await page.evaluate(state => {
