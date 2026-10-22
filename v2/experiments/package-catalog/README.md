@@ -112,3 +112,9 @@ Useful next steps are a reviewed source for optional Leanback/TV intent evidence
 app-specific descriptions for high-priority packages, and an explicitly authorized
 private full installed-ID inventory to measure actual device coverage. None is
 required to reproduce these results, and no device operation was performed.
+
+## Separate profile research leads
+
+A draft-only follow-on is documented in [profile-leads/README.md](profile-leads/README.md).
+It adds source associations and explicit unknowns without changing this snapshot,
+its counts, production defaults or removal safety.

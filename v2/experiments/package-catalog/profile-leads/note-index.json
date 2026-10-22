@@ -1,0 +1,346 @@
+[
+  {
+    "path": "docs/devices/coop-cotv-0001.md",
+    "git_blob": "3f0378812aedf2dd1f87642b02cdb9a6b841c360",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/durabrand-durat32isdb.md",
+    "git_blob": "aa304fed9d03d23cf7f800c206cae8ae8b6a427c",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/fpd-cg50-c3.md",
+    "git_blob": "7278f36ed6296ee55d85da20ad34e6838cd77bd6",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/haam-r4-inputs.png",
+    "git_blob": "5b83f1d026df7e133eb454eea64fb58d5c963bdd",
+    "kind": "image",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/haam-r4.md",
+    "git_blob": "b44eea63889989508569fb4b24434c6b36bf51de",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/haier-haieratvt32dvb.md",
+    "git_blob": "1ac755a6d2469372b85437fb65664b5eb0b22fd2",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/haier-hra962x2-ali6g-cn.md",
+    "git_blob": "354da491a3009a238eed05008741b1a5cf4b147d",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/haier-hra962x2-home.jpg",
+    "git_blob": "31ed36276d3c965de52fe03273d63d9545e603b0",
+    "kind": "image",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/jmgo-g9s.md",
+    "git_blob": "413e3b8dc80f48dd43236eb0aac145c4bf16a6a7",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/master-g-2k-smart-tv.md",
+    "git_blob": "4eebbf9bbece040b5ac8567fa288d66d1dc88de5",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/philips-65pug7406-78.md",
+    "git_blob": "e70de93a4070faab57f52be1df5c00e1a35e6e66",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/samsung-c71kw-200.md",
+    "git_blob": "3bb5845409760017ae07c86b6450307218a0c9ee",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/samsung-tizen.md",
+    "git_blob": "ed42139ff4e3221dd62f56f43a43890c31c0120b",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/sharp-32fi4ea.md",
+    "git_blob": "b4fa5f4bd301c0f0af1fcdc4c7ab9adc612f5e9a",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/skyworth-8r40-k5c.md",
+    "git_blob": "058709e020f62aab82a05a9d305ac52472e4d547",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/sony-k85xr70-ae2.md",
+    "git_blob": "4750de1a6fcbeccf9523e7bdadd76606ebd48d13",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/sony-kd-55x9000h.md",
+    "git_blob": "1af6a91378ee56fdcc72743663edd92c3b9392bd",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/sony-x9000h-cn-home.png",
+    "git_blob": "e60c53962802331ef2e860fdc396080a68eab863",
+    "kind": "image",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/sony-x9000h-cn.md",
+    "git_blob": "84e17eff974ca752de7649710a5fbffed897450e",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/sony-xr-75x91k-cn.md",
+    "git_blob": "c32e0e243a40932a97020ff58e87618278e0a360",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/strong-leap-s3.md",
+    "git_blob": "7650a722be76dff2aabe51343c2f89ee6e367bf2",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-50dp660.txt",
+    "git_blob": "c295de327c06bd1da8708b71f3313c2fbf0d25ef",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-55c728-g05-4k-gb.md",
+    "git_blob": "1d117c99fa3c630ea134cfd6bab6f1fb5fb1675a",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-55p71b-g09-key-repeat.md",
+    "git_blob": "aeed2e6c7193f48b380efb3ff8ddb6ae8bf26e95",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-55p71b-pro-g09.md",
+    "git_blob": "8063da591e01d69d279e8e0f5b58bab7fa83f814",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-75c63b-home.png",
+    "git_blob": "1acd02580054f6fb1b4487821725d1fd02c7a62a",
+    "kind": "image",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-75c63b.md",
+    "git_blob": "90cbf86265d55bc7b100c279671aae3b60a22efc",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-75qm751g-qm7.md",
+    "git_blob": "1b440b7392c4279211657450aeb956ddf33ccf91",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-beyondtv-ap08.md",
+    "git_blob": "5fb5d84dcb4389f078bb677e8e293b2c050daf4e",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-beyondtv2-v660.md",
+    "git_blob": "7ca440a96ebbe83178d4efe198f1e19b6b189ac2",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tcl-mt9655-cn-android14.md",
+    "git_blob": "8b672c68ce491064b74a10c45f8b7aa4152ac8c6",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/toshiba-55z500qf-cn.md",
+    "git_blob": "9cbb510e1543ae6f735d8b3468a7908e44eba9f1",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/tvision-hub.md",
+    "git_blob": "d177c9ddf202bbd7986023053249609c3e531cb9",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-l43m7-ea-antl0.md",
+    "git_blob": "de1d92ea15a306cc94e97ae866e83a6c91cea80d",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mi-box-s.md",
+    "git_blob": "e1b0161cd4bed48b7caaa52884af6357b512f1c1",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-aetp0-dofus.md",
+    "git_blob": "a0f1ea0cefb024789a11dda1a7d9091ac3f37edb",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-aetp0-home.png",
+    "git_blob": "63d575e7ecc0c56de0b1ca9fb6092240b46c0ccf",
+    "kind": "image",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-ansp0-jobs.txt",
+    "git_blob": "1597de320aa9f4caf90f39713f0e4f8291880409",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-astr0-blueplanet.md",
+    "git_blob": "d3e6dafa606250f467ac55905bf7059406973f88",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-mftr0-debloat-home.md",
+    "git_blob": "5d314381e04398cd865fe595c59c239cde4af8cf",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-mftr0-freeguy.txt",
+    "git_blob": "176922aa65a9f84ce5f26681ede45b824897d7f8",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-mosr4.md",
+    "git_blob": "4d0805a5ca1a7082181afce9b0134c1d065e86b0",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  },
+  {
+    "path": "docs/devices/xiaomi-mitv-mteq0-baymax.md",
+    "git_blob": "b976f8ce0706831ee899ee3373c1c1d98e594410",
+    "kind": "text",
+    "model": null,
+    "firmware": null,
+    "testing_level": "unreviewed_upstream_note"
+  }
+]

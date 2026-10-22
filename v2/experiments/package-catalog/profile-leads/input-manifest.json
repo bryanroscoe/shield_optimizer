@@ -1,0 +1,1162 @@
+[
+  {
+    "path": "examples/aipro2k/debloat.txt",
+    "git_blob": "3c1dbfa8fd51fbbadec974df73185ea6c8bdb80d",
+    "sha256": "08c5bda70e8dd3bb2d5ba1c185fca8218bf010381291f6172ecf10bcd139ee6c"
+  },
+  {
+    "path": "examples/aiwa-ai-pont-sa/debloat.txt",
+    "git_blob": "73588ae0f863623af763ba4191301ef2d4a565f5",
+    "sha256": "10cedcdc778d8836cc05cbd72ed786a873d71db5634dbb1c6b60eb23c75051d1"
+  },
+  {
+    "path": "examples/amazon-fire-tv-aftdec012e/debloat.txt",
+    "git_blob": "a80c955085c966da5b43973536bc3b084a58c5d6",
+    "sha256": "d7640a64f08d2e10d873cd4239f88444d6be7cac5806f0c914be71ee75fc4781"
+  },
+  {
+    "path": "examples/amazon-fire-tv-afteu014/debloat.txt",
+    "git_blob": "ecf63e9cbaaf4980233f584ef9cc56b2b2a32a00",
+    "sha256": "7b2327378cc634270d31586c2ec618b3f753974644235a203660aa401b0262f7"
+  },
+  {
+    "path": "examples/amazon-fire-tv-afttiff43/debloat.txt",
+    "git_blob": "7f8c2c157e76de1919656e10a0b02f1da76f0ba6",
+    "sha256": "dd4d953ea5e5a7ecb6f3be807a5d2a5ebd705a16ab31e9914e57141c26e96a50"
+  },
+  {
+    "path": "examples/amazon-fire-tv-stick-4k-2018/debloat.txt",
+    "git_blob": "4403a4412a30f6437d785ae803e592f7539476c3",
+    "sha256": "a5f6564cf6dcdd9fbe5885b1bd2268288f6a59a5cbad03c466d9978c53a9472e"
+  },
+  {
+    "path": "examples/amazon-fire-tv-stick-4k-2023/debloat.txt",
+    "git_blob": "5340361f35b8e808780a21f5661a075a48345373",
+    "sha256": "f8aad095b4519d3f299d8c055ea8453b58720c905ac0a205e789d64b5ac45d76"
+  },
+  {
+    "path": "examples/amazon-fire-tv-stick-4k-max-2021/debloat.txt",
+    "git_blob": "75918152e4d3a62926e4c89f974677fc669d1a36",
+    "sha256": "e7297765e09fae6c1fed48f39ede12dc2dccd4ccc99a2fa125ee7016da514214"
+  },
+  {
+    "path": "examples/amazon-fire-tv-stick-lite-2020/debloat.txt",
+    "git_blob": "49858e62139563ba663aefe41c8852b05e48f2c8",
+    "sha256": "bb9f47c0e92c3bedb480fb7d703280e60569a262bba5924a5fed9252faabc38e"
+  },
+  {
+    "path": "examples/anker-nebula-d2140/debloat.txt",
+    "git_blob": "1adb716206dceb0c88e69897aedda2e52554186b",
+    "sha256": "324965c893bc4f4c4d546eeadbce6783c4b71567da88545ab20988eaf83d76c8"
+  },
+  {
+    "path": "examples/anker-nebula-d2426/debloat.txt",
+    "git_blob": "b5c4cb3de235c95be7a7b4834d121296602ade46",
+    "sha256": "cab1b6455572bdd6f6134c672ff88e0a89418c4cb95aebf2b4d1766e818236d4"
+  },
+  {
+    "path": "examples/artel-cvte-mt5863/debloat.txt",
+    "git_blob": "4db5d186f4ad38856e4a6afd9d739d070194e4d2",
+    "sha256": "c76f2564a93b0dfff5ac77d8fb9554ecf98f4b2bca2a68ca7ab212d33b8ff74a"
+  },
+  {
+    "path": "examples/benq-e55-735/debloat.txt",
+    "git_blob": "1ceaddc374c8b5639bf044938b83555a0b31be18",
+    "sha256": "ee9dc4248c20f61bcd230bb2c323f545af296823c8626c3aaafd6250a53284b9"
+  },
+  {
+    "path": "examples/benq-e55-750/debloat.txt",
+    "git_blob": "79ae5aa03f078f842e2f12d410379b0ae9046a48",
+    "sha256": "5a0464fee8856e53a50c37c7e242d845ef208c3c93413ff90c28c6dc01ebc4b6"
+  },
+  {
+    "path": "examples/benq-gv32/debloat.txt",
+    "git_blob": "74db68e25e3a30315078a0ab555db044b374092c",
+    "sha256": "99b197cbfaeccecbe26808d01f6725ab75d3025325f619e05eb657a22f7c52f4"
+  },
+  {
+    "path": "examples/byintek-t5-max/debloat.txt",
+    "git_blob": "a0920777f69834e6c225cbf7b0907c650f4e452b",
+    "sha256": "334a03dabfd698a5f407eade9f8679c26d00740ce3f624f645491e713f44c57b"
+  },
+  {
+    "path": "examples/byintek-u4/debloat.txt",
+    "git_blob": "9d4308e925eacb19f664104eeea10826e198c440",
+    "sha256": "1958658e5af7123bb3ddaf887f913f9042f384bbbf2acac1fadcc1b66bb775ad"
+  },
+  {
+    "path": "examples/caxium-58-realtek-rtk2851p/debloat.txt",
+    "git_blob": "52e45c3021aa31097541a277cdabb12e04fd46dd",
+    "sha256": "bc7326a1b535da917c114f35560efd89ee46faec9af564351cbda6df828870c3"
+  },
+  {
+    "path": "examples/cecotec-shandao/debloat.txt",
+    "git_blob": "b924c66cdb7d67d00b9d79fdb2711fb8b0b588d4",
+    "sha256": "6a3ffe761b6a9bcfba8e7b6fce7e9df071d5e51f2d6806443853a56ee4d4d3ed"
+  },
+  {
+    "path": "examples/challenger-32t22bt/debloat.txt",
+    "git_blob": "d1196ed748657fc58d2e14b5a66004e596617d4b",
+    "sha256": "2d41bea13e947af57871287bf62c2948db46d871be5daf95fa239c9653e2a24b"
+  },
+  {
+    "path": "examples/chiq-ai-pont/debloat.txt",
+    "git_blob": "100e8ddbeb345b4f6cf9b25ca5d11cbc5b25f44d",
+    "sha256": "60984b14ef9de8869aa22b220e0c1a64ac04f3d260de7ec085b410e9b2f8b088"
+  },
+  {
+    "path": "examples/chiq-gtvu65/debloat.txt",
+    "git_blob": "1c94ac782352d26fdf9164cedc5d851058e5ec98",
+    "sha256": "060ff435ac0a3de0cdff0393f7f6099597899ba09fad8d9730df28a6b0dcaf46"
+  },
+  {
+    "path": "examples/compac-atv-r2/debloat.txt",
+    "git_blob": "ffd7204fac39c89d9c89258708159c8fa8d11f8e",
+    "sha256": "10d773981861abb85b092f9c983bd6a5a4c03aa579a45e737ca32d93da3aa351"
+  },
+  {
+    "path": "examples/coocaa-k3-pro-90p3d-max/debloat.txt",
+    "git_blob": "2de9bd7a3dec8b1747fc1c3e48265d957f167fd9",
+    "sha256": "b666b8068937f45d2f85cf65ae244fb1426a4b803ee540dc15615dd85adbb61f"
+  },
+  {
+    "path": "examples/dialog-viu-sei103dl/debloat.txt",
+    "git_blob": "1f63d1588c7f5bb0a8265caa3cd7935e4934ac15",
+    "sha256": "c6b53841573e7bf63aa342e9d6213bc7de72d5bcfdd220c670ece8157c219f3d"
+  },
+  {
+    "path": "examples/eko-2k-google-tv-tennoji/debloat.txt",
+    "git_blob": "988356cd2747636685e29bf84341929488df010e",
+    "sha256": "604f1bdaae3d8584a22b3e3f07b3017479a5e41892c98e64c8eee9aad858bd7e"
+  },
+  {
+    "path": "examples/epson-ls800/debloat.txt",
+    "git_blob": "256f2345e9e2dc40f82fa1a948673813f64c6d04",
+    "sha256": "d4650b12302ecf7542f8622b7ec5a652a0dad1fc08e1efbbd15d67dbbe827dc7"
+  },
+  {
+    "path": "examples/ffalcon-65s585c-pro/debloat.txt",
+    "git_blob": "4ca25073090093fe1ce527c04edf34774fb730b7",
+    "sha256": "797b73c359796bac1d7caa9df59dd5c8a5270034be46aba9ef52f5211e72a5c0"
+  },
+  {
+    "path": "examples/ffalcon-r34a0-cn/debloat.txt",
+    "git_blob": "fcf6aae1897bf4ca35089a6b2d4888ab14d6b358",
+    "sha256": "a186595364c0b1c5102417a57c057c50146c9b40266daf5d76d6bb20c1d8b87b"
+  },
+  {
+    "path": "examples/formovie-laser-4k-hanlla/debloat.txt",
+    "git_blob": "3966b2750661ea6f41e75687b084000e119a8a62",
+    "sha256": "10d66ccdd23c37f84338593ede9b8a5a09f984ff46702af512bcceb1eda40884"
+  },
+  {
+    "path": "examples/formovie-mprojm05/debloat.txt",
+    "git_blob": "5af460036e60e451175251ce249a2ecadb1a64ca",
+    "sha256": "6bac61e9bdab6b03cc6b3580dabc4f53ffeeac94a4fe9f6d94d2e504e10d3d12"
+  },
+  {
+    "path": "examples/freebox-player-pop/debloat.txt",
+    "git_blob": "977f9f7de835f9c0b63518f7300a6d852d81c2a4",
+    "sha256": "065160b45385e2c2e5073d53ddffa48a47c3350935f391449f8ed30837051862"
+  },
+  {
+    "path": "examples/gadnic-proj100w/debloat.txt",
+    "git_blob": "3b23113d530aa438e12a114f1c6204caedf8d980",
+    "sha256": "82a7d20219a468c7b3e6baeb6ddace42abd654144218ff835516b47179eb42bf"
+  },
+  {
+    "path": "examples/google-chromecast-gtv-4k/debloat.txt",
+    "git_blob": "3999cdfd8e2b6be29296fe0f61852b25bf7da552",
+    "sha256": "8c58906f026de830dd5cff533b121d50f47ad8384f1ffe49453b70194689b4e3"
+  },
+  {
+    "path": "examples/google-chromecast-gtv-hd/debloat.txt",
+    "git_blob": "f22eb63c2a00af5da36e0e15e325d73bdb749eff",
+    "sha256": "2110e2e11d0419640357365fbed474d79aba923699b4bcedf1a6353d291774f6"
+  },
+  {
+    "path": "examples/google-tv-streamer-4k-kirkwood/debloat.txt",
+    "git_blob": "6b63130be344fb075276a84534faca63c26c3db5",
+    "sha256": "c1d0b8aef562b14809469e8478f981cb72401e5949a0e260c118920fef1adabf"
+  },
+  {
+    "path": "examples/grundig-kunyang/debloat.txt",
+    "git_blob": "bf22d05519c6bbe539ee1c2a21c746de259e09a0",
+    "sha256": "d3633c9e27fecd1e3c218cc55db633bde6d7e8e2f6c25d08f8cecb0db38e356d"
+  },
+  {
+    "path": "examples/haier-android-tv-dvb2k/debloat.txt",
+    "git_blob": "ac00729ea484dcbd7064c54d5d60c9430edb7555",
+    "sha256": "9feb254591acc26a8789c84a3b3e6f0e6c136c7c444a5e8a532ed196f03402f0"
+  },
+  {
+    "path": "examples/haier-h32s80efx/debloat.txt",
+    "git_blob": "0f241b2c2b9c9bfd89a6427d601a8c988f6cba59",
+    "sha256": "3cae9261f106eb9fdde73053e9e0ac26b91256f182df80c6468bc7110078f82d"
+  },
+  {
+    "path": "examples/hisense-e5q-pro/debloat.txt",
+    "git_blob": "146a8e32847f7da23463c1e8aeb5e74de6d23cf7",
+    "sha256": "be027604139f0f06c6af9be9021237811afbdbc5df8374f5163935416a02f1f6"
+  },
+  {
+    "path": "examples/hisense-fire-tv-aftcibfbd1/debloat.txt",
+    "git_blob": "d6107fd5ad656098a81e0e4725ec1eba781e9c0a",
+    "sha256": "418610fdc09bec7022ad749de2b5e1a92aed5c6b60d45427d79b38c103ca3c25"
+  },
+  {
+    "path": "examples/hisense-hg9/debloat.txt",
+    "git_blob": "a98091ec8355a1e529275a1cb787b493f1d6d6af",
+    "sha256": "d8f2adfb8e26f17c1e83649a8e6cad014933790f21def0da4cd8d7a8c2dfbdc4"
+  },
+  {
+    "path": "examples/hisense-hismarttv-a4-android11/debloat.txt",
+    "git_blob": "819530610910f2008da405955d887f0295b8e420",
+    "sha256": "185ce1b75167410391a3947a14358ae0017949a95b4a3a9a049f1b3041272c5d"
+  },
+  {
+    "path": "examples/hisense-hismarttv-a4/debloat.txt",
+    "git_blob": "c017328b7f411a5465388702dd512abc408dd10d",
+    "sha256": "a07425b37d36506f03f80d3e1a5ab5539183f86e135f6b5a87e380e3d486662f"
+  },
+  {
+    "path": "examples/hisense-smarttv-4k-ffm-android11/debloat.txt",
+    "git_blob": "af372ac5badb12961b0bce70245a0ef0b78e6a16",
+    "sha256": "0da834f5c1bddb2a77f8a6e2e00f82887f075312ef5494aa48858147722fb3e0"
+  },
+  {
+    "path": "examples/hisense-smarttv-4k-ffm-lushan/debloat.txt",
+    "git_blob": "e69c0640cd51080078edff0c1143c47d75e4ad94",
+    "sha256": "bd6965b3c4177ad02c2f86ba4ba681fd1cd5c46b0b7cbe0953962df312fb1711"
+  },
+  {
+    "path": "examples/hisense-smarttv-4k-ffm/debloat.txt",
+    "git_blob": "60e9512bd3e6e53968b100bb4d85f92110e0c987",
+    "sha256": "19dbf6dd93f0b82a9dfeb82600536b8ce24638a00dffc79d5c8abdc41d8ab4e1"
+  },
+  {
+    "path": "examples/hisense-u75-hengshan/debloat.txt",
+    "git_blob": "4dd493f69a9502c7edf091b702626a5e7d6f3efa",
+    "sha256": "c05ba0dd4167f647a1c0da5c1c3e45add336316b7188554518825321019c355d"
+  },
+  {
+    "path": "examples/hitachi-65qledsm20/debloat.txt",
+    "git_blob": "90b3e50cd76946040f40e80a1baafd5f7a7d1f33",
+    "sha256": "abff2b4128b167a64d6e0ebecc6113695178dc8461a9bc02964d72584d67eac0"
+  },
+  {
+    "path": "examples/hitachi-cdh-le32smart21/debloat.txt",
+    "git_blob": "4f55b0d07f637c8ad37b07385ca4cd27f4885475",
+    "sha256": "2d56529017ecf26d53a98f80ab7c7b26b54297b7d20479d0f21de5426d097444"
+  },
+  {
+    "path": "examples/insignia-ns55f301na25/debloat.txt",
+    "git_blob": "a7c199b05bf1a0d6834787b1bcde5cf2cc0ecbc4",
+    "sha256": "b05c89f22d5ddbb6568587f5e12fb804f2a2079ae59736d7987491e8ef5a8ea4"
+  },
+  {
+    "path": "examples/jmgo-n1s-holan/debloat.txt",
+    "git_blob": "e418413c7023ba5b158d007666fb24c1b437feb1",
+    "sha256": "86d9b93664296c8f4ae54c9278565328386a7f25bf75acfe4b57efa9767c3783"
+  },
+  {
+    "path": "examples/jvc-android-tv-menlo/debloat.txt",
+    "git_blob": "b73a81c1a124f64fd09cce68872c33641eaeea4a",
+    "sha256": "fe0ece8d85161c37463e7184af56a57402d972f4a2c831cee48e43fc9406380e"
+  },
+  {
+    "path": "examples/kalley-43g200/debloat.txt",
+    "git_blob": "513c98b83bbef98e20b43a6ac4c3061dad72ce2b",
+    "sha256": "ba80386c8f7e4ec11a2b94560850d9b480bf1ba65d01d2848509ad57732abe16"
+  },
+  {
+    "path": "examples/kalley-r10g/debloat.txt",
+    "git_blob": "13fafa01a1ecda7d9045bfcdc3a69a4eb71b9edf",
+    "sha256": "225ea72e2a3424c866c321ec095dab03184376f7ce403309f7271beec5300efb"
+  },
+  {
+    "path": "examples/karbonn-swtv-20ae/debloat.txt",
+    "git_blob": "304c6a48f8f694d9b60f39ca1143a34814834342",
+    "sha256": "59c7824d757f38271aa1d569d3d4094daf21b1b8e2f1b107f88ae2f01221fb5e"
+  },
+  {
+    "path": "examples/kogan-gtvu65kg/debloat.txt",
+    "git_blob": "dbbed7f4fb84f4f45b4a5dfd30378aa93e2ebb7a",
+    "sha256": "b002dc86ae9e7cd3d57f953fd5279dae835af8148df4079d788b2aa44e9d9c4f"
+  },
+  {
+    "path": "examples/motorola-swtv-24ae-fhd/debloat.txt",
+    "git_blob": "33ba2b5995b5ffa7c859a7ecf344afb552a76e2f",
+    "sha256": "d6a7eb8b91e6a51cc80ee752590598f118e4bf068be514c8803358204b6f1370"
+  },
+  {
+    "path": "examples/mtc-uk-2k-android-tv/debloat.txt",
+    "git_blob": "b7a31bfb5b1967834dfade50e0e6ac93bf4592b4",
+    "sha256": "dc831e45deb5757d1a4f302e3830562827be8dd219f4f9e8a302b3e45eb6cb5a"
+  },
+  {
+    "path": "examples/noblex-shinjuku/debloat.txt",
+    "git_blob": "a2ffc85d27da86274863561532c181b58d79f320",
+    "sha256": "ec7821e5930007f7cc02f2bcae37211a00da987bb3f7f616e8e0e96d947206ad"
+  },
+  {
+    "path": "examples/nokia-streaming-box-8000/debloat.txt",
+    "git_blob": "f56514d5756c2fd50c309ae3c97a75d3a5bb5dcf",
+    "sha256": "30036b313fa97e192628aff37f4cb376bc9c2792bd74bc1d0d6a3ce1672f5a5a"
+  },
+  {
+    "path": "examples/nokia-streaming-box-8010/debloat.txt",
+    "git_blob": "afe77e6e42cf04f746abb12926b150c234966673",
+    "sha256": "21919855abdee5b4c0e656fc95087e0f6f62408cc56340b49a874443187d192d"
+  },
+  {
+    "path": "examples/nvidia-shield-tv-2019/debloat.txt",
+    "git_blob": "e93b207276ea9b2de078da5bceaef3d769c548be",
+    "sha256": "959df46d663a5883aba198fd0912b62116de505c51558b7c4a32d10075fd7778"
+  },
+  {
+    "path": "examples/nvidia-shield-tv-pro-2019/debloat.txt",
+    "git_blob": "9eb5e5df2f0b0453c0d6c763a2adb5fee17e2500",
+    "sha256": "943093a6e71f965361bf38f48a3aedac32a3dd31585e204cc5e88c7d77649224"
+  },
+  {
+    "path": "examples/ok-ai-pont-ikebukuro/debloat.txt",
+    "git_blob": "00c8ac9ee2eb1aaf2fa095b461202aff55b6fc66",
+    "sha256": "b0c1b3d5619216894443acb611648f5cb2a12db0f7eba115d67b87ab3ee140b2"
+  },
+  {
+    "path": "examples/oneplus-tv-dubai/debloat.txt",
+    "git_blob": "51500a464d694c1d5705eb5b6dedba3c784d6beb",
+    "sha256": "5d7ee29a3d70eb3ed002cf11b06e98564708931ca0eee4a22d0bd939f1579101"
+  },
+  {
+    "path": "examples/oneplus-tv-y1/debloat.txt",
+    "git_blob": "c940f0b659eb7977fa5b2174aef9960cda70b16f",
+    "sha256": "d8e82baa9119a4799815c95beecb51515332bdad7fe8f2e40042412bcacf7b9c"
+  },
+  {
+    "path": "examples/onn-4k-plus-2025/debloat.txt",
+    "git_blob": "619029699498334197efe056e35aeaf73e612efe",
+    "sha256": "6e639677f8d4f047b6a4ef809ad058d2d0bb0db1b89006a901f9067154ea2cfc"
+  },
+  {
+    "path": "examples/onn-4k-streaming-box-2023/debloat.txt",
+    "git_blob": "e80d055a8686aa0c447609ab15e2b00a744c85a5",
+    "sha256": "14bc11ecd8da8d54a6cf555e0bb783243b811b449f05683ee6da776df38309c8"
+  },
+  {
+    "path": "examples/panasonic-4ktv-0su/debloat.txt",
+    "git_blob": "376e7883fd8bd63f104a3b62633df0c0cf6ae60c",
+    "sha256": "d24a1fedfa69d152d6b429adf28e210bd43205796f65d9c13d9094dc16b031ad"
+  },
+  {
+    "path": "examples/panasonic-4ktv-jup/debloat.txt",
+    "git_blob": "097a2a67b9a92f6c2561f38847e4d0278b749b85",
+    "sha256": "0e52d86b9db169020c7f684818698e869f5ece6447e2aee5262405946653d5b9"
+  },
+  {
+    "path": "examples/panasonic-th-40hs550k/debloat.txt",
+    "git_blob": "dee20481a3e1bf67d29925767f6fb8a05384da51",
+    "sha256": "5c39441425720633fce24ec1f4e81048ba3f34dbfe865d3e9d4b552558962008"
+  },
+  {
+    "path": "examples/peaq-ptv43aqu-5023c/debloat.txt",
+    "git_blob": "466acd4dfa4c1916235698ef86cc32b3b34606fe",
+    "sha256": "3d0b8845eaf9529e312cd0090c9be4f87585542891f99e0652fde712976ca007"
+  },
+  {
+    "path": "examples/philips-50pud7406/debloat.txt",
+    "git_blob": "bec11be3a5ae42e7d3bb1e4d321b229d2d9efd27",
+    "sha256": "3c8796309641ed895da35e207f5df1b79f67039770da4ca3d95cde3953cc5429"
+  },
+  {
+    "path": "examples/philips-50pus8517/debloat.txt",
+    "git_blob": "e293e386c68b405c429e4272d2d4faf11a26f90e",
+    "sha256": "6cbd295ec2937003d5ddfafaf82eb9f960eb856f8cc62ccd280bf2db85a992cd"
+  },
+  {
+    "path": "examples/philips-55oled707/debloat.txt",
+    "git_blob": "c70db55ce855882284b83467683dd38174933df6",
+    "sha256": "17e733d334ef6ff7a51b50702b956f4d3544bb08e418a892448a910f1bdd6b74"
+  },
+  {
+    "path": "examples/philips-55oled708/debloat.txt",
+    "git_blob": "1ae089c23f07c0838bec18f1292f4991848dc96d",
+    "sha256": "c1bb82e88a318df85346e50037812f90743b7a6220f3766e1331b79254f5d1dc"
+  },
+  {
+    "path": "examples/philips-55pus7503/debloat.txt",
+    "git_blob": "7cc1c17e02364727e744f73f1cbe43f75155ab92",
+    "sha256": "3b5b9343595bbd6606afc185670801e3b8c5f96c61f3a9c7e8ec073b1a493a92"
+  },
+  {
+    "path": "examples/philips-65pus8102/debloat.txt",
+    "git_blob": "f2088d5aa5edd16a2e640f619cab22558e3e7932",
+    "sha256": "91c061862ee46cbae2cc6ffffc920e391e3ca2a2050fa71d53e0a67601725bff"
+  },
+  {
+    "path": "examples/philips-65pus9435/debloat.txt",
+    "git_blob": "afde5756ebc87a5a111be522f8c1daf20ed59baa",
+    "sha256": "5b269bfb72698b016846d4bdd5ffef7bba4894d23d95aa9dbcad9bf37358a19f"
+  },
+  {
+    "path": "examples/philips-75pus8505/debloat.txt",
+    "git_blob": "bc9b01d547db50f8348125c0799fe9bfdd2f1eb3",
+    "sha256": "262c030f3b44f614d0d6e89c6ef7bbe79d43d040e2730b385aa112bddf5e656d"
+  },
+  {
+    "path": "examples/philips-google-tv-ta7/debloat.txt",
+    "git_blob": "d5202493fc221b22770520f5a1c52c9430b78848",
+    "sha256": "25d298d605c678798544c493350aa810754030b85093ff85d81955f25cc1eaec"
+  },
+  {
+    "path": "examples/philips-r8g-google-tv/debloat.txt",
+    "git_blob": "46667f98c403cb297eea5ef6710d7ac786bb6243",
+    "sha256": "3b49e2ae63272a9d11c071fe7ef3a13deab7440c796bf6b30c5ad1f3a334c716"
+  },
+  {
+    "path": "examples/philips-smart-4k-google-tv/debloat.txt",
+    "git_blob": "5739d4d06a42b91c06cba51384f7b9f8cb79a106",
+    "sha256": "93f4550d3744e967d70b7c6640071cad57741b46d5e1a8e7fc0d79344ab75ff7"
+  },
+  {
+    "path": "examples/philips-tpm191e/debloat.txt",
+    "git_blob": "5806cc12b38849b88579cdb17311aeafb2b2ade6",
+    "sha256": "22eab1f7132127565ca10d63513fc8414b3bfeddea93abcdff4cc54cae3a00c2"
+  },
+  {
+    "path": "examples/polytron-2k-hayward/debloat.txt",
+    "git_blob": "bda9bff3088c070dec217c8092bb875a3b67e66a",
+    "sha256": "8dd59a886342e176573ada73fab9ccf73a9f1ac692fbf28c7f3e8bca20c328f0"
+  },
+  {
+    "path": "examples/portronics-beem-470/debloat.txt",
+    "git_blob": "ae93932f2ee2879f6618ce7f0fbe05fa28316479",
+    "sha256": "058ff04be28fec6075a2b61b5a0eefc5d7956518f89fd32c814126e5207d17e9"
+  },
+  {
+    "path": "examples/prismplus-q65-ultra-r10g/debloat.txt",
+    "git_blob": "bae69d4e20b2551ee2b07e3e2d65f32920ece15d",
+    "sha256": "1bb671138df6e981ae1f06319cb2c5cbf695f9ce26fe6699daeeba0ef5d7664a"
+  },
+  {
+    "path": "examples/rca-ai-pont/debloat.txt",
+    "git_blob": "7a2dffb9daf5e34814bf8c985196f826d797c973",
+    "sha256": "25e6d7f8b77b3e1c16365edda281fe91e5fb66c7923f109b69398eff77c42116"
+  },
+  {
+    "path": "examples/redmi-mitv-antl0/debloat.txt",
+    "git_blob": "574b3460325ecbfcf9ae9d95dc37a943c65ccd4b",
+    "sha256": "31c1b67093ac7e7fd7b54f02d8260cf6d84a2938f229b7fecaee7b913f873c65"
+  },
+  {
+    "path": "examples/redmi-mitv-mftp0/debloat.txt",
+    "git_blob": "b12bfb01877a6f15b1def927bf0401bd70f4ff0a",
+    "sha256": "5679de6d6a776921bb767b4262e31e0fc3c2a1ea44af30b40cf12e1169d24f17"
+  },
+  {
+    "path": "examples/sankey-smart2ktvse/debloat.txt",
+    "git_blob": "476a4b86146d227a3e4070b4e39130a654c9cc11",
+    "sha256": "aaf1b0a8913ad202ff6a51640cedd104ec294dc7c9d807c86e09f57549704b25"
+  },
+  {
+    "path": "examples/sanyo-atv-r2/debloat.txt",
+    "git_blob": "7f70b0216f486fc4864edc29f4ee52574d103a95",
+    "sha256": "58bbcd4f45e6f18872cdcc9b47bfe0e3d895f83359d316b9610d70d5906bb09f"
+  },
+  {
+    "path": "examples/sharp-aquos-tve21f/debloat.txt",
+    "git_blob": "9e9bee112b5c49324480898c0f4f63f9e2ad7bbb",
+    "sha256": "b4e4d7e1f9b940700b82b7695d773f112fbfec8773392c1a28bc6715d8bfee9a"
+  },
+  {
+    "path": "examples/skyworth-65a3f/debloat.txt",
+    "git_blob": "9082780944b54367eb32b661872adbd2792e2633",
+    "sha256": "d69a25bcd7121662fcc43802e4c41948933e9662a484c38e9028bf3ab6d17de9"
+  },
+  {
+    "path": "examples/skyworth-7s60-a5/debloat.txt",
+    "git_blob": "f5129bdb70ff6364a4a711dcb5fa9231fb5e7270",
+    "sha256": "092db408209229ddada0e2e58abf4dbe4403e75206a23530ddf598b3e6168ea3"
+  },
+  {
+    "path": "examples/skyworth-8r40-k5c/debloat.txt",
+    "git_blob": "584b3650e2c74110587cb22d0b91c1602b2da63c",
+    "sha256": "cbc063f8dfaa53587e0534b41f53210abbf84e0e72c09186654688a55bce6d65"
+  },
+  {
+    "path": "examples/skyworth-sw-22sa/debloat.txt",
+    "git_blob": "9c2241eb1c2a1a4600bd5705c5c91d0e64dfd7a6",
+    "sha256": "f7bca0362cac25069c5c7b5da4067aa038312f68dda5defd8c69a694412385d5"
+  },
+  {
+    "path": "examples/skyworth-swtv-21ae/debloat.txt",
+    "git_blob": "111a9276f9646665bcbbc94a632761d238d808f4",
+    "sha256": "b734a5a857cbaf2b9b2e4722104da5f233dbc0c471db666466c2986817714a20"
+  },
+  {
+    "path": "examples/skyworth-swtv-22ae-fhd/debloat.txt",
+    "git_blob": "054ad5828321b88346a4556277da73717481f6ea",
+    "sha256": "6a2be61f02fd78acc2273f97f7aa5730f692b2e2d43d3b2dd44d25865d46f0bd"
+  },
+  {
+    "path": "examples/skyworth-swtv-24ae-4k-nf/debloat.txt",
+    "git_blob": "29b375949fd207406db94d82e90900b06de4360f",
+    "sha256": "fb56c4a7796e03084c53bc67601f60de8a29c4f837d932c06a5c2c0efb09edd6"
+  },
+  {
+    "path": "examples/skyworth-swtv-24na-4k-nf/debloat.txt",
+    "git_blob": "18d3d16fdcc162c10350d5cfebdae0d989d78ad9",
+    "sha256": "21802fdc49b2561d353c86e30a2d8a309df034d3c1330f53c4ae9fd4d8b07111"
+  },
+  {
+    "path": "examples/sony-bravia-4k-gb-us/debloat.txt",
+    "git_blob": "45f542eb1b15e398acfd3943885f55a35dcfd368",
+    "sha256": "726f111d26c3b6e6e7833dc4f0c8530a91c9c26ba5035a0278446c9a8aa5ad84"
+  },
+  {
+    "path": "examples/sony-bravia-4k-gb/debloat.txt",
+    "git_blob": "3533bad6be3de1ea241dea927edc0c18952e65b7",
+    "sha256": "b5eeed01c02bcf63ac18fe06549ac12f399b8ee47002c5d26843623fcce3830e"
+  },
+  {
+    "path": "examples/sony-bravia-4k-ur2/debloat.txt",
+    "git_blob": "44edf95e200b643337a357550696648a97453faa",
+    "sha256": "c1d2d9844136c5dd35215f6e0761d93dff72f2c5a656262460eb209cdfc542db"
+  },
+  {
+    "path": "examples/sony-bravia-4k-vh2/debloat.txt",
+    "git_blob": "6c17afb1f3accef3fca187f36dea28e400da4592",
+    "sha256": "5add25519a06fc50e3feaa2061f36417cbe27da36dc7095feb0d80f207c593e7"
+  },
+  {
+    "path": "examples/sony-bravia-4k-vh21-eu/debloat.txt",
+    "git_blob": "5d5b10381f1a39ae91b4bd93ee3bf65345b1b9f3",
+    "sha256": "81cffaf65255caca642443464e14981aa55a6d5048d15ce305ad2df6aebf597a"
+  },
+  {
+    "path": "examples/sony-bravia-4k-vh21/debloat.txt",
+    "git_blob": "c60cb2b9f63c2258cb716dc38baadf50b8a3bbf8",
+    "sha256": "084b3719b39d5367a62e7ea2ded5e67a7c13a8f2d411efedb6f4d22b2877d148"
+  },
+  {
+    "path": "examples/sony-bravia-9-ii/debloat.txt",
+    "git_blob": "d7f753309603c3ea1d1cbe90b422f8bfe9410582",
+    "sha256": "c94f047130de5f5c08cb740dc3bdb13bf990db52d4b26679ca50018666e59685"
+  },
+  {
+    "path": "examples/sony-bravia-ae2/debloat.txt",
+    "git_blob": "b80d0a8c876b953d2528667c105b7ab9039bcbc9",
+    "sha256": "79aea80518a846fa0b2dd4815d37786b15836212afea9f61d26a5b5d80575d38"
+  },
+  {
+    "path": "examples/sony-bravia-bf1/debloat.txt",
+    "git_blob": "146c075747d384d4ee22437a2c7a67a5062c66ba",
+    "sha256": "5eee3a346bd93a6297e3d64a2becf0880cbf587fbd33f37175afc0f036aab78f"
+  },
+  {
+    "path": "examples/sony-bravia-tl2/debloat.txt",
+    "git_blob": "2ef0845e2b018bf3f0da39dbf60071043148be08",
+    "sha256": "a6128a8490838a719ac865ae511af73a2c722180e6f36d0aa7b2916de9cc6bd2"
+  },
+  {
+    "path": "examples/sony-bravia-vu31/debloat.txt",
+    "git_blob": "f2b5a626caabd56515086168eea2fca900df3582",
+    "sha256": "f6d35fa2a2e9b2ae868325f54597d2230e297d88cf0fd5a5d629342a6cf0e55a"
+  },
+  {
+    "path": "examples/sony-kd-43x80l/debloat.txt",
+    "git_blob": "2ba15162ce3059d2ad5e29e8537230597b2f5dcc",
+    "sha256": "cc696ee1de6332871da66993ab218ebfc4df91dadb4036962855eee13d563ddc"
+  },
+  {
+    "path": "examples/sony-kd-49x8307c/debloat.txt",
+    "git_blob": "1463a570fbb51bd12a1f7e60ab33d7f24abed7d5",
+    "sha256": "9407cf41f2a71a8d176542c22223a69abae88bb7e2b06423c6c4dfd7e1ab06c3"
+  },
+  {
+    "path": "examples/sony-kd-55x8509c/debloat.txt",
+    "git_blob": "ff1cd872d5d42f473f6e1c1408dff15a5d06663e",
+    "sha256": "c572e3e8cc628938f3686e7ce0b67d097e4dc866b2d4612549fa16ebc7617850"
+  },
+  {
+    "path": "examples/sony-kd-55x85j/debloat.txt",
+    "git_blob": "acfb2cb7e0d1ef05197118b462ce9ad47d4440c2",
+    "sha256": "4513937c265aaaef3b46eef2ab76988404426baa03b7b5e3c881ec21e9e3bf76"
+  },
+  {
+    "path": "examples/sony-kd-55xe8596/debloat.txt",
+    "git_blob": "7bbe37ebdde37d61ac72544b96f53c70f52db54a",
+    "sha256": "b041864c9c5077220be1e2d2cbfb5cad2504acd7208e29614d72a4b3a669c772"
+  },
+  {
+    "path": "examples/sony-kd-55xf7596/debloat.txt",
+    "git_blob": "8acbe04ba0e84442312c3946e29ee3f6c13df1d0",
+    "sha256": "17f0b2593d3449a3643888263562ccde43ab3ee388ed81c75b2170ba4b8ce957"
+  },
+  {
+    "path": "examples/sony-kd-55xf8096/debloat.txt",
+    "git_blob": "4057a62b40c2dcbc91f9811e45acd1a3d2402f69",
+    "sha256": "09cb4dc2c21acdc7ee65b6d7319d956da8dfe5f6d2a9fc91cf9352d82cf719c1"
+  },
+  {
+    "path": "examples/sony-kd-65x80j/debloat.txt",
+    "git_blob": "b7ccd21358b77e940a376cd89d374b7ee65689f8",
+    "sha256": "f6a6621c027dc80372b7ac696f83818cfd363680c6d970ab62f9147e374a6ee3"
+  },
+  {
+    "path": "examples/sony-kd-65x82l/debloat.txt",
+    "git_blob": "30b92c42131bea975523bd8929600647f5b484ab",
+    "sha256": "5874bec6e9f1ac9c44175c16172ea528fe525e2bcabec808e85a1abceb02fd43"
+  },
+  {
+    "path": "examples/sony-kd-65x9300d/debloat.txt",
+    "git_blob": "06905e909f0a81403af8fd11f33d8803c9360dcc",
+    "sha256": "47bbe0218e969d4d6f3e1387fac4bf676705b20b39a8caebacbfa592fac59837"
+  },
+  {
+    "path": "examples/sony-x9000h-cn/debloat.txt",
+    "git_blob": "859c6f396b814d748104ca14a8bed59acc8dc728",
+    "sha256": "49d2405d7aa34ae16e033a7d9d510c91a28c3e7c670c61dfdfcbb4554dccf784"
+  },
+  {
+    "path": "examples/sony-xbr-55x850c/debloat.txt",
+    "git_blob": "d3df4af7b80f6ae1bf88134f37b97a9095e61d0c",
+    "sha256": "602a8ffeab77561c763176f7a6e1d5e2c373c0e827ea0c0bbce062acee357a0c"
+  },
+  {
+    "path": "examples/sony-xbr-55x850d/debloat.txt",
+    "git_blob": "843aac5a25ae0b1b24f3a675a47702bc7f916e0d",
+    "sha256": "e04e5b05ed8de9726f728a7ec6d8559831144410b78cf17dfdd0a9d1f5a05b42"
+  },
+  {
+    "path": "examples/sony-xbr-65x900f/debloat.txt",
+    "git_blob": "88d2bf6fe1c3cf6756c41b940366face5bb8beeb",
+    "sha256": "1c1688d5701bcb6b0bc93b395490e72951419271f06c5d9a076a1b481c4d2172"
+  },
+  {
+    "path": "examples/sony-xbr-x900e/debloat.txt",
+    "git_blob": "0596321f7a9e0ae7affedb9947fc2e69850cd86f",
+    "sha256": "f28803dbe227bd425ed75f3146d5c459da27b0bc4df0256e6121a66f05f40d67"
+  },
+  {
+    "path": "examples/sony-xr-65a80j/debloat.txt",
+    "git_blob": "ae292eda49647948d86062a855e35f3f62f03899",
+    "sha256": "04c8f939a6fc56abacfa112ad55433d0a4676e8412974fb4e7c641556a1b2347"
+  },
+  {
+    "path": "examples/sony-xr-65x90j-cn/debloat.txt",
+    "git_blob": "b3e836829858342a844ca2e1da58268801cf0cdf",
+    "sha256": "6a1f5bad4cd0a8239cf66c9ea60a63614eb836359c62b705fdcc097c83f2090c"
+  },
+  {
+    "path": "examples/stellamore-t950s/debloat.txt",
+    "git_blob": "a69bc2cde4b2744daf6675ab82386a73e00d3c95",
+    "sha256": "4e848dbf9ba75c9ebe74adefcfbab5113b3b479d79b48ac9b00bdb4cb8486a34"
+  },
+  {
+    "path": "examples/super-general-cvte-t972/debloat.txt",
+    "git_blob": "318872d3c3f092f6b551b2085b309c3d6f7b05dd",
+    "sha256": "49b9a0d2f7924f57d2cc8ba04d53ab1c00f08e760eb405702c63a761042132c5"
+  },
+  {
+    "path": "examples/tcl-32l5a/debloat.txt",
+    "git_blob": "aa35f1e2f00c6c059d6f10f95bce4a156f8ecac0",
+    "sha256": "fcb43234dc234dbc9d57d952a29108cd2dadf1d7e6b6612a7c6820f51cbe7c5b"
+  },
+  {
+    "path": "examples/tcl-32s5400a/debloat.txt",
+    "git_blob": "8a0f00235cb88bab73a239443c5cabc9b7d06de9",
+    "sha256": "6cb217fead4bd92dad5cce8a8ef868bed91de80df0486b51336ac7068644ac38"
+  },
+  {
+    "path": "examples/tcl-32s5k/debloat.txt",
+    "git_blob": "fc758126f564953358ec0b4dc0fced7945b91860",
+    "sha256": "776b94c51c99811492498d18832d30f4f28f79b82528e049b514d2c73be54541"
+  },
+  {
+    "path": "examples/tcl-40s5400a/debloat.txt",
+    "git_blob": "241e34b5aab1a66846ff250b6d6b2f5d5c7423aa",
+    "sha256": "8a9d300471f688e1894386d8fb77e89be9274c4a60e19a66eecd83427cd74b79"
+  },
+  {
+    "path": "examples/tcl-43c645/debloat.txt",
+    "git_blob": "5dcb9c3ae18e05237d2baed9588a7604e4fa0ad1",
+    "sha256": "1e7926aed0c3b97753eaada0e113856a1107e7778900dac5e71b890adf3ab98d"
+  },
+  {
+    "path": "examples/tcl-43ep660/debloat.txt",
+    "git_blob": "71a66c0fbef42296f659e58ebe2bfec3cdaca331",
+    "sha256": "955668bd0c6b9651706014a32d2d60e1d43e492f94d4d68465c444845515d784"
+  },
+  {
+    "path": "examples/tcl-43p615/debloat.txt",
+    "git_blob": "7ce7cf7b1e729d69b90a5bffeb92eed7f6782e57",
+    "sha256": "d811b24bba5259f6980d9191c413526f96a9e49f231598f56bf71060e1b4a970"
+  },
+  {
+    "path": "examples/tcl-43s450f-ca/debloat.txt",
+    "git_blob": "f2a6d765d8f58a11ae1ca89649ff3ad54ce62615",
+    "sha256": "792111a85e266d23970b08c1f68920818b91a7a5982757ea3da68f95a94ff107"
+  },
+  {
+    "path": "examples/tcl-43s5400a/debloat.txt",
+    "git_blob": "d32f13a79f8ea872c0a2666721859937627e53ff",
+    "sha256": "03944ee8ef2656e48c4b1fdfd6530ac7b9126aca1b80c445dd2842ae75d73172"
+  },
+  {
+    "path": "examples/tcl-43s5k/debloat.txt",
+    "git_blob": "e3cb7eef21ee7a8df36df5e8cdb99fcdae76ae4c",
+    "sha256": "ceb4cdbcb359db7ff79d2e090dcaf0d80866d136c1ea9617af22367130671d43"
+  },
+  {
+    "path": "examples/tcl-50c725k/debloat.txt",
+    "git_blob": "7c4a3daed360300cc8ebbe54a7b9236b8fac9fbf",
+    "sha256": "672881272f9951acf854a19f1eabd31b8e5de067a2b78bf5d343b38e7e1d00f6"
+  },
+  {
+    "path": "examples/tcl-50dp660/debloat.txt",
+    "git_blob": "2b8dd3df9fa4cf276332b994266931d9871b594d",
+    "sha256": "168bc445c3caf287c8ee5f3b49839c46987c04f009ed09fa3b329aedb788c8c6"
+  },
+  {
+    "path": "examples/tcl-50ep680/debloat.txt",
+    "git_blob": "8f9558d4b32ab8f49359dc971e6d983d258ee9a3",
+    "sha256": "32e94f2207c2d157872c515e19dacfcb1ebdf8a6810eb838ed089b74a2a2c375"
+  },
+  {
+    "path": "examples/tcl-50p615/debloat.txt",
+    "git_blob": "b737f1142b528b090636a8f133f1e4ffd2cdb01a",
+    "sha256": "18feef13cbcbd8b3c3154986646e79ff06efb8f59053b9fadf0ac628fb9ee8fe"
+  },
+  {
+    "path": "examples/tcl-50p735/debloat.txt",
+    "git_blob": "db69aaca60dcdeceb08ded2d5d4adc9da0044603",
+    "sha256": "f6e01236d30e84ca0fd7d312470ebbfdd70cdebbb2251286044997b88016e1bd"
+  },
+  {
+    "path": "examples/tcl-55c715/debloat.txt",
+    "git_blob": "f924fe672b0dd0a0250096edc010fb824440482d",
+    "sha256": "7b862d38514c4b108abd1648cc541f646a9d3e7a89785a49ea3ec3eefe16b1fd"
+  },
+  {
+    "path": "examples/tcl-55c725/debloat.txt",
+    "git_blob": "7ab6b74ac5a971a643de27cde521bf25a6195d19",
+    "sha256": "149094e7be3578a9fb4a8da353a07ea3060540e879079e2853efc188a8a197f9"
+  },
+  {
+    "path": "examples/tcl-55c745/debloat.txt",
+    "git_blob": "17c6de2f4354de9d548ab23f9264bc5c504160a4",
+    "sha256": "c03a3683d11012bbc2319eeeb5d4408048ea1e869f57225204612220427e3e86"
+  },
+  {
+    "path": "examples/tcl-55c7k-uk/debloat.txt",
+    "git_blob": "ea17e6130c7a923666e1538f7de8331ec4ccc454",
+    "sha256": "40297bb4c14ea5f48988e5eda81720208712bdd483bae9219e24c741569917b1"
+  },
+  {
+    "path": "examples/tcl-55c815/debloat.txt",
+    "git_blob": "24bf7f9b1cf967e3b6144010dc207a645ed2adc5",
+    "sha256": "e95eeb3ed8b4142ee507fc64c9e43c019e6065f7c690953d685f4fd3f3915292"
+  },
+  {
+    "path": "examples/tcl-55ep640/debloat.txt",
+    "git_blob": "d20512f70d04972860dc04e1e590c0422ed20aba",
+    "sha256": "927dab9c29ec4271e37eb2e4a0d744b7693a9e8a894191ff30c586e35a7002fd"
+  },
+  {
+    "path": "examples/tcl-55p638/debloat.txt",
+    "git_blob": "f843c3e2e72d23afa174fead9ea5d77b215834f2",
+    "sha256": "4cbd64cbd9f89d2ada0d0889b82b8669f5de094de19bd2562f649e1affb432a3"
+  },
+  {
+    "path": "examples/tcl-55p7k/debloat.txt",
+    "git_blob": "c7ea65d479cba8bd108db85eff610fb00102e398",
+    "sha256": "25651f5fdaa07d6bc5aa1541d28b2106713654f6820b279ed6811bde00d2bec6"
+  },
+  {
+    "path": "examples/tcl-55p8ls/debloat.txt",
+    "git_blob": "6f460e031340b48b276035971f9e55a5083cab10",
+    "sha256": "f65f4a61452a4361d9991e462bd22d6b9c8aa694107d4addf6b1719aafa857e0"
+  },
+  {
+    "path": "examples/tcl-55s470g/debloat.txt",
+    "git_blob": "a67db786ce2c2bded930f55541b242aa096c6c83",
+    "sha256": "f56f22dbefb18cc0f5d9a4b0384f11ea90d044da4ac9807847a490e3875e40a9"
+  },
+  {
+    "path": "examples/tcl-58s571f-fire-tv/debloat.txt",
+    "git_blob": "0832d410053e660fc951cce2102535b7f390d2d2",
+    "sha256": "d53dfa2cb9d93b4b6181e8cddd0b16bf1b1f37c8711581b0ed21a22dd024f97a"
+  },
+  {
+    "path": "examples/tcl-65c725/debloat.txt",
+    "git_blob": "277cf427670eab90024d32d11502d77942b81626",
+    "sha256": "3456f0b79e1ff078821d502a5904ef7596548dcee0a7f79e715c4932e3bb3738"
+  },
+  {
+    "path": "examples/tcl-65c735/debloat.txt",
+    "git_blob": "df900c4a1a9625f26a9e907042f78d547c7ed457",
+    "sha256": "9069ea10e4bbcc088d922bfeddfece2a8f77cf7f7a8aa7723e21c4d0f3daa53b"
+  },
+  {
+    "path": "examples/tcl-65c7k-google-tv/debloat.txt",
+    "git_blob": "fefe266b0bd57717c477125c35f591988612bca1",
+    "sha256": "aa0e85a47f02c52263f3f5b73c331eb5a35935cc5d42f1671a851d11f080105b"
+  },
+  {
+    "path": "examples/tcl-65q550g/debloat.txt",
+    "git_blob": "822a7ea27cd5450a97b662e71b4f16dcf673854e",
+    "sha256": "1d734f3b39c3ecca8362ed94a109003edf829f93dd24dab89ae0cc84eb3f40d6"
+  },
+  {
+    "path": "examples/tcl-65q650g/debloat.txt",
+    "git_blob": "877d93d92be2aa897837d9c27fcff80085d1924f",
+    "sha256": "870e9f81199807bc9f753b53c413763ae3c7f34a953e4212d3ee2c303f6675e1"
+  },
+  {
+    "path": "examples/tcl-85rm7l-google-tv/debloat.txt",
+    "git_blob": "0b9414a7ab8357d1c3956d8129ebba9b9a223510",
+    "sha256": "1d68a8126d9f9a8d66eb3214c74ff58451da657848980a365c67d4c5a4ad0363"
+  },
+  {
+    "path": "examples/tcl-ak30a5/debloat.txt",
+    "git_blob": "7d56bca82237fc73bbad5b2f8d4e1808582aa8db",
+    "sha256": "fcb20b4f3f10e4375171bcefb53661174c70a192af036956d04031aaee1e2fa1"
+  },
+  {
+    "path": "examples/tcl-beyondtv-pl/debloat.txt",
+    "git_blob": "2520edb5c1a5e5de0d45b23b75694a3634f9c084",
+    "sha256": "aec9d465df4fceb36afc5cd465ad5ecc30306c6c041bc353e3e746ed7c045f3e"
+  },
+  {
+    "path": "examples/tcl-beyondtv-rt2851/debloat.txt",
+    "git_blob": "48396faae8c6d715b7c231dde04c7d4e90574748",
+    "sha256": "e9ef9afb9c5bbf00c6f744eb5b32730403bac79a4b0615cb6d33d958c346f642"
+  },
+  {
+    "path": "examples/tcl-beyondtv/debloat.txt",
+    "git_blob": "b35bffc3ea5011556f5793722778694fc947a03f",
+    "sha256": "acddff929fa3ee9648b733452ca6ad9a165e0a00be9154c44782ff01c5b009a7"
+  },
+  {
+    "path": "examples/tcl-beyondtv2-android-11/debloat.txt",
+    "git_blob": "ff336c9914c6e9a316a5a3ab4e35c9049897187a",
+    "sha256": "8b10f696b06e17b72a935e4731648a199691b44677b848f2e72269ff7de7f334"
+  },
+  {
+    "path": "examples/tcl-beyondtv2-latin-america/debloat.txt",
+    "git_blob": "eb0dab3882944ce2d7ec65627aaca5e8ef4e3d7c",
+    "sha256": "de66213d4562bad801276f4c1b561e69809760d6017cabd0c1274e2fde9180bf"
+  },
+  {
+    "path": "examples/tcl-c755-google-tv/debloat.txt",
+    "git_blob": "90c629ea98e675abf73ea17d07cbfe591558b29b",
+    "sha256": "4998ef2108bc2597666412fc142355a4010038bf9d8eca5106d4ad8de400f470"
+  },
+  {
+    "path": "examples/tcl-c845x2-google-tv/debloat.txt",
+    "git_blob": "e18e6031f62b99aa7e9d5b776641b4186daca05e",
+    "sha256": "b9f50855251903e6bcdeaa0fe3bff9c95f727985cee3a49f4b1c831dce5d1a46"
+  },
+  {
+    "path": "examples/tcl-c89b-google-tv/debloat.txt",
+    "git_blob": "6edd4ee28d82655b2b6321ef80ad0515e3929ef9",
+    "sha256": "d3e8df0dbc98a2cecd3019b600342fa6aed56accbcd5eb78307adbd3d6ea1c0c"
+  },
+  {
+    "path": "examples/tcl-g03-google-tv/debloat.txt",
+    "git_blob": "0b0e027800d12d5513805d83c2f658084ee52bf1",
+    "sha256": "d41022bcd55fd3cdc0e7f2f0d16825337e0c8f6e54bd21e537bf076406d1cb21"
+  },
+  {
+    "path": "examples/tcl-g05-google-tv/debloat.txt",
+    "git_blob": "76743152a5e64947ea85f03dcb505a18551dc9eb",
+    "sha256": "d12f9ef1341d67ca3046e688d950984edf39cb6c23ff8261417e3382c516f792"
+  },
+  {
+    "path": "examples/tcl-g07-google-tv/debloat.txt",
+    "git_blob": "1149994492856c8b3615633f7ae7dbfc88a6a22a",
+    "sha256": "130ba8851afd720f36fb67d3fb21b4931478178513595b4dfe9c5b1857877c8d"
+  },
+  {
+    "path": "examples/tcl-g08-au-android12/debloat.txt",
+    "git_blob": "3f6c6db043979c6bb040b72011b329ec25becd0d",
+    "sha256": "d2c7960ca6b81df787c0f8861d2a713df4d98da1515c5f1023ec77e7692a775e"
+  },
+  {
+    "path": "examples/tcl-g08-eu-android12/debloat.txt",
+    "git_blob": "f5eb9d8e8c96d322be03128833d63be083359c29",
+    "sha256": "b6c8b45d8759ec9b2f7e0fe5f505ede383157e484748f86e221a7e7b29787cba"
+  },
+  {
+    "path": "examples/tcl-g08-us-google-tv/debloat.txt",
+    "git_blob": "9c59b7d8e23cc50380732e518e5cda64aeb35051",
+    "sha256": "18d263a98eb9e29adc06b130e6159e6593c7a10b750ee69273ca760d0bb84bab"
+  },
+  {
+    "path": "examples/tcl-g09-google-tv/debloat.txt",
+    "git_blob": "52a5effa7a0fd9e9ba7aaafbf6220b42d6cb1783",
+    "sha256": "9d7cd1517cfe09a557c578be731784ece5c0a6696760b22ed770eb344fdd1eb5"
+  },
+  {
+    "path": "examples/tcl-g10-google-tv/debloat.txt",
+    "git_blob": "26e83ba862ce316f2113ea860a6695fc91c85b8c",
+    "sha256": "3049730746a10f046cca9dbf77452afc2b4c71e450c7e7b243b5885ab982df83"
+  },
+  {
+    "path": "examples/tcl-l40s66e/debloat.txt",
+    "git_blob": "23457d5088ff3bd374601a613e62618c4ad4aa84",
+    "sha256": "dfc02fc31bac6f0be7a61215d6e24d5794f8623be6021b0cd1eb610d09048aea"
+  },
+  {
+    "path": "examples/tcl-mt9655-cn-android14/debloat.txt",
+    "git_blob": "341c782d8b92c5a474f7daac2e6925a5af1dded1",
+    "sha256": "e4245bfc9519cdf1b794601dd92d9119d7ad11ac2cbba934ba3e6a98c685efea"
+  },
+  {
+    "path": "examples/tcl-q10g-pro/debloat.txt",
+    "git_blob": "cef0bcfc4b26cac0d19020060aac40f794dc9250",
+    "sha256": "aa97c2b23370bbb1020ddf0cb3ed8d6c7d7644f0dc8d00a7b5ef955739e55fa9"
+  },
+  {
+    "path": "examples/tcl-q7c-google-tv/debloat.txt",
+    "git_blob": "a027b808c78f273527e799ba4a00abbc28d4b8ea",
+    "sha256": "de811d9197277cb71cd08c2f5aeda5b664fa02441532a57d31fbc99636c5c344"
+  },
+  {
+    "path": "examples/tcl-qm6k-google-tv/debloat.txt",
+    "git_blob": "81df770e337ab04a94a5fcfff3f15d98546a0650",
+    "sha256": "1d33f588a3ef47564dcda5558beae4ba69bb050b51ec2511b531e5f74e1afff8"
+  },
+  {
+    "path": "examples/tcl-uniontv-latin-america/debloat.txt",
+    "git_blob": "d6ec22fe3cda2579f34ecb3496dd2e0f118e1bb7",
+    "sha256": "671508ea5dc04d8399223aeead2cda25cbce92dfc9deffdb066c5e7b1cd20b0c"
+  },
+  {
+    "path": "examples/telesystem-ont2hd/debloat.txt",
+    "git_blob": "1030deebc2b1effcabc730a0aa2052ddf2c5d037",
+    "sha256": "39b6b314af9cb9b8d6cc7e0758c39e27c0dfa368ef2d1242373f41dc4a32a33e"
+  },
+  {
+    "path": "examples/thomson-32he5800/debloat.txt",
+    "git_blob": "6928aca5e047131c8e7831aa433faf7a51b42075",
+    "sha256": "03cdfe38ebbbfc52e3a95788a7f048793333a38a7d6abbe571db97af48a3747c"
+  },
+  {
+    "path": "examples/thomson-43rt1055/debloat.txt",
+    "git_blob": "9e5ea4bfcca39ca16e0d9eeafed6ec26bf4e3cc1",
+    "sha256": "04f3b3566f9e829307ef729b9ae3e22a97fcae1619a4e1e8f0d893d627929649"
+  },
+  {
+    "path": "examples/thomson-sppl-4k-sw6h/debloat.txt",
+    "git_blob": "ac1a2963b15b952baddebbb143bf13173818d485",
+    "sha256": "c7f19d839a0424e474e68630d5736a72bd93c75b03e62a9182f670b512f1cf28"
+  },
+  {
+    "path": "examples/thomson-t32rtl6000/debloat.txt",
+    "git_blob": "367ad6a993e745ff0d3b9d4476644b4e4ed7f004",
+    "sha256": "69d47f92dcd6ab07f7e2b7bf07395cbe06e5e67f8550cc4b5fd854e94d0d83a3"
+  },
+  {
+    "path": "examples/tornado-65ua1400e/debloat.txt",
+    "git_blob": "ade4c88159333b2a17bc9969258ebf1baf695caf",
+    "sha256": "d9be5562867d21f33f5a11103d27ae7ab0582d64a7ebf8a39010dd60e8480add"
+  },
+  {
+    "path": "examples/toshiba-cosmos-android-tv/debloat.txt",
+    "git_blob": "087df893bc4a09b243dc987dfd000de71f7922ba",
+    "sha256": "f8b1e893d06b24e796b26c03da1f149fd7ea0efdfcfd0f4b71df24a30c235dbc"
+  },
+  {
+    "path": "examples/toshiba-fire-tv-aftha004/debloat.txt",
+    "git_blob": "fe1dc3500a7f8f9a13897e606fa703e844781bec",
+    "sha256": "35d6716723422036b2099ad1b7eeb0f4caaccb04833e3c2003ee00bd7ae86864"
+  },
+  {
+    "path": "examples/turkcell-tv-plus-4k-box-dv6069y/debloat.txt",
+    "git_blob": "112c3b4b5a61aac8e056326d59474533c48ea97b",
+    "sha256": "050026cca90a6d6a3e6fdcc4827019905b6ff0fb33d3b64284775297968aece8"
+  },
+  {
+    "path": "examples/verizon-stream-tv/debloat.txt",
+    "git_blob": "f2e06d8f9d06ea3f8dae2bd7f5c86a8a5c31e554",
+    "sha256": "1cbf05d2f49f560305689a7f99af174bd984eda5c6848f8ce30bd211e313dd21"
+  },
+  {
+    "path": "examples/vidda-mt9653/debloat.txt",
+    "git_blob": "b0cb6b12b573cbd5142e592c8e2a094d00c50d0e",
+    "sha256": "281cb6dcdc5e86e1462eafc63eb13abcc631ccef8151ae2accb3f06d79f76806"
+  },
+  {
+    "path": "examples/vision-2024vision43stv/debloat.txt",
+    "git_blob": "a378be3e8e9ee00cb6bf340700323887f0a91e55",
+    "sha256": "825c669d08c1da275787aad83ef0ce55bda62e682aea8bc3dffba96c8f8391b9"
+  },
+  {
+    "path": "examples/vu-4k-lushan/debloat.txt",
+    "git_blob": "81271853c6f494f5b7df33382a7e981205e60def",
+    "sha256": "965a591c00766258c5581d570c7954e5ea64e3d3c8223741e107846e9aadfe11"
+  },
+  {
+    "path": "examples/vu-premium-fhd-43-hamamatsucho/debloat.txt",
+    "git_blob": "9b043cb010d93e1ae4937ef220aa95e9628108cd",
+    "sha256": "f2bd999f356f4d52ce43bc4d57373cde8b09736c24fa8bd21d5edd3d0b3a945a"
+  },
+  {
+    "path": "examples/wanbo-x5-pro/debloat.txt",
+    "git_blob": "6f56f421e49cfbad61fd0348c58034ded165e874",
+    "sha256": "4fbaab6ab2e5af3417c8d8871390fec19d83f41d41ea91f7aba971946102183e"
+  },
+  {
+    "path": "examples/xgimi-horizon-s-pro/debloat.txt",
+    "git_blob": "c4a9815552d625f67d68ec7d0c01506b9c33a6aa",
+    "sha256": "63b532686f57fb68a6bdedb11ef7631beff3f1a1c33cd07ce49f51040474a3a9"
+  },
+  {
+    "path": "examples/xgimi-mogo-2/debloat.txt",
+    "git_blob": "e3abea26e532eca888a24e6012a5f3a3f4f3fceb",
+    "sha256": "c172c5a16ac2a48751042d029c9fc92769650299c6aa7bfbd0f6b1af1848ed8e"
+  },
+  {
+    "path": "examples/xgimi-mogo-3-pro/debloat.txt",
+    "git_blob": "094b7620198211fdbb80637172884853b9862516",
+    "sha256": "3e7f412010b2a463e07deddd364b690ff322ef7e9b033963e4c3a88fe4dc2fb1"
+  },
+  {
+    "path": "examples/xiaomi-mi-box-s-2nd-gen/debloat.txt",
+    "git_blob": "bb5ae4262223868bfa59788d23b7a7b618ce0a37",
+    "sha256": "cafad051c82a07e925924e08b3c97504a83164fc3d0bb19ff41e82796d3e512c"
+  },
+  {
+    "path": "examples/xiaomi-mi-box-s/debloat.txt",
+    "git_blob": "d8878fff577877222f1a662fa4f0bc187b8fc912",
+    "sha256": "33005f6697e91ec114bc9ea8cbba5394a79616008bf474e5426354b6fb9d5751"
+  },
+  {
+    "path": "examples/xiaomi-mi-tv-4a/debloat.txt",
+    "git_blob": "cfb071e0dce0c885b2e00c37b45ca2df465193b6",
+    "sha256": "3436611806301cf27ece4868a1d1257e91fe20828d205980f39dd5c64d7f1716"
+  },
+  {
+    "path": "examples/xiaomi-mitv-aesp0/debloat.txt",
+    "git_blob": "7709da180ab3fa13989d32618316cc571838e2a3",
+    "sha256": "8f5a274202331faf6651e1303136e51cdadc16cf407037ab6044e2be70619d56"
+  },
+  {
+    "path": "examples/xiaomi-mitv-afmu0/debloat.txt",
+    "git_blob": "9993062b7a80bdd9fee2deac77138cacdd1ca006",
+    "sha256": "ceff2756ee549cd4e4c9535cac2e2f2469f9b8e5e0dc096a8389c952e06f5a21"
+  },
+  {
+    "path": "examples/xiaomi-mitv-afmu1/debloat.txt",
+    "git_blob": "b7919d044633eb89858b06a73f16d2ac4cebbb32",
+    "sha256": "931849ea9807bd3d0f737d7a3954d9c9dd02564a44b67091a6dba0cf22c6ec52"
+  },
+  {
+    "path": "examples/xiaomi-mitv-ansp0/debloat.txt",
+    "git_blob": "d609811037fe76aae7e003877412152a6a74904b",
+    "sha256": "30c73ebb613fa8b206b2f7df06107001b8c82763d014291502ec3debea78116c"
+  },
+  {
+    "path": "examples/xiaomi-mitv-astp0/debloat.txt",
+    "git_blob": "d021a0480376fd292c306f12788a1def06f271ea",
+    "sha256": "e8a4f2fb16711522d33caf7d95472dc68a0a917a78d4de5f45ac3839879f4b5e"
+  },
+  {
+    "path": "examples/xiaomi-mitv-astp1/debloat.txt",
+    "git_blob": "f1ecadbc3ac89a3adb9129f566acba88bb119b41",
+    "sha256": "a5f4e713b526eb650e7bd761d9a28179ebaf90db4bf5e8e3e42617d7ec73ef79"
+  },
+  {
+    "path": "examples/xiaomi-mitv-astr0/debloat.txt",
+    "git_blob": "c67f6a1cdaa609ac79cd4faa39a356cd7942069e",
+    "sha256": "25b4a2368fc0f79e0b914b25d0c5f77c1da0c16d6437777906c76ac73f53639a"
+  },
+  {
+    "path": "examples/xiaomi-mitv-axfr1/debloat.txt",
+    "git_blob": "8fb51d8d6164df4fdb034a416b4675a1af28cc20",
+    "sha256": "e850d49ddc888264c60f1ba37ecfab75e6b367f0deb0cb85482d1369b33a67e3"
+  },
+  {
+    "path": "examples/xiaomi-mitv-axso0/debloat.txt",
+    "git_blob": "13f1ba462622c1f2952a124739b29eeda8576bb0",
+    "sha256": "8e6fd3c54e428e6af1bd60159eadf96c3ef2495df1b8f4044b29ec3cb9978f43"
+  },
+  {
+    "path": "examples/xiaomi-mitv-axso2/debloat.txt",
+    "git_blob": "29a6534b28019e8da4c73fa94e6bb0b5527adcc8",
+    "sha256": "cd4caaf082c2dea0d1d6075175a2ac5e09d30127f5659c908abc06776db3a541"
+  },
+  {
+    "path": "examples/xiaomi-mitv-ayfr0/debloat.txt",
+    "git_blob": "a221bef6bdbbc615c9eb342501dbfc2f6a85ddc6",
+    "sha256": "70879954031b6f8cc2b52be965e919ac9c9f0668911dda7e6ce6e0fbd109b90a"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mffu0/debloat.txt",
+    "git_blob": "8c34e8b61afa7a1333f0085c1a80b042904936d6",
+    "sha256": "bd97abca6fcaf2b346fc77508658637e1d4e8d76501d4b661f98afbbf6b6356c"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mftr0/debloat.txt",
+    "git_blob": "d347cf7f3b8fd92be369c146a3dbafcbe87d2140",
+    "sha256": "02b66c3f31746532b0a456d3cbe8b5fabcad19e212dfc54f3eba027fd73a98cf"
+  },
+  {
+    "path": "examples/xiaomi-mitv-moeu0/debloat.txt",
+    "git_blob": "32c189424eb6b88439e67872490867b1d1089115",
+    "sha256": "2c2915ee67eb267b8b826ec2caa9a4d15b87d2a15f7910a28e1cfad0ce722ec5"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mooq0/debloat.txt",
+    "git_blob": "d222a8b8d99bfefd312e4af4775b99e082956169",
+    "sha256": "bfcf442f93ef926992a70248972eea0180e31c2f3947fec27cbae4937037bd81"
+  },
+  {
+    "path": "examples/xiaomi-mitv-moor2/debloat.txt",
+    "git_blob": "baf47b18dc6f1cff3ceb729e73755b54c74d0537",
+    "sha256": "250d8aed25216841a5c88da4ff58076f8b7b6605ccf54ac44016e6d5d1ff2d76"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mosr4/debloat.txt",
+    "git_blob": "80ef4a9a5b287b62aca2d347336264b532e34a22",
+    "sha256": "3be40f64227531fdc9556aa5e45b2fdf17f2d34517d9b6c148a732e4fe0d2b9e"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mssp0/debloat.txt",
+    "git_blob": "cf967a574d10c4badafa289c09572f177eb86f72",
+    "sha256": "0d1b5bf12d7d15f97587d9e4f83b65289c8c4f914ab470f2d4a07b7372782058"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mssp1/debloat.txt",
+    "git_blob": "da65ac27cd9d3aa36c27ed3224214f9d5ba7474f",
+    "sha256": "c8248f8c03766b9cd7cab1f3641f945d55a05f51c932c1926f11440775cb5ae2"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mssp2/debloat.txt",
+    "git_blob": "a8988f7fba00db5dedfb08aa8dfeafb910767e93",
+    "sha256": "7725a0639df3457b215bc1d349cf041bcd4462199eae999513de0d26ff5941f6"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mssp3-android9/debloat.txt",
+    "git_blob": "2b05cb105dae1f45ce58793f708e364c5ae0e1f5",
+    "sha256": "825c16b6996b4bb2a8cd962a9c96124ec570fe1814d50247aad69bc48043ef68"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mssp3/debloat.txt",
+    "git_blob": "e930c43140522db400dae3c2b334ba3f8ee48ffc",
+    "sha256": "a15cf4084ad87ddd168fed6b1bf131aa2cb3dab6e8998715e40fb3b15949446e"
+  },
+  {
+    "path": "examples/xiaomi-mitv-mteq0/debloat.txt",
+    "git_blob": "1ceec5285340e2e02e98fe65e1f8fd0722bb8697",
+    "sha256": "a81185e4a0211516f981bb412d719ae8ae7881aa4c56ea002bb5e442f9f86dce"
+  },
+  {
+    "path": "examples/xiaomi-tv-a-pro-2026/debloat.txt",
+    "git_blob": "b465f2591e5ca008788892f9c4ea4b54e0473d83",
+    "sha256": "d3b0a01fe4b888a672ec612b7982aebeab2834de035414b6f87e950b1e4d5ebd"
+  }
+]

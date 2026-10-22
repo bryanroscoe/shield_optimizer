@@ -1,0 +1,10 @@
+{
+  "upstream_commit": "30626a8e4714f86bf837384b109b5c73ee736917",
+  "observed_at": "2026-10-22",
+  "license": "MIT",
+  "source_url": "https://github.com/Gathin23/cleanyourtv/tree/30626a8e4714f86bf837384b109b5c73ee736917",
+  "normalized_seed_sha256": "ec696ce9b4b6f18a647a93be0b25794e341e2d35441b4ec80544bbd29b27101d",
+  "policy": "Only active package IDs and source associations are extracted. No upstream descriptions, safety labels or code copied. Device model, firmware and testing claims remain unknown.",
+  "input_manifest_sha256": "9efe94063217eb8eabf1c62a9a3ce1896d959dc8f101e85a5d36bd10e1056351",
+  "note_index_sha256": "a49c8f54377d6efade10a30ac552a9f894c228134195c618917e061a32905d5e"
+}
