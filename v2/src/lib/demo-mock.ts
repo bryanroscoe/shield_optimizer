@@ -403,7 +403,6 @@ const snapshots: SnapshotFile[] = [
 const DISABLED = new Set([
   "com.nvidia.stats",
   "com.nvidia.diagtools",
-  "com.google.android.tvrecommendations",
   "com.amazon.amazonvideo.livingroom",
   "com.facebook.katana",
   // A Caution-list package that is already disabled. It exists to keep the
@@ -445,7 +444,8 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         index < 16
         || entry.package === "com.android.providers.tv"
         || entry.package === "com.nvidia.tegrazone3"
-        || entry.package === "com.philo.philo",
+        || entry.package === "com.philo.philo"
+        || entry.package === "com.google.android.tvrecommendations",
     )
     .map((entry) => {
       const state = MISSING.has(entry.package)

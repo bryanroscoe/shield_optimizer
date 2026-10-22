@@ -122,6 +122,53 @@ mod tests {
 
     use crate::engine::{classify_with_catalog, CatalogVerdict, Safety, SafetySource};
 
+    #[test]
+    fn tvrecommendations_is_not_a_default_removal_and_explains_remote_risk() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        let entry = bundle
+            .shield
+            .iter()
+            .find(|e| e.package == "com.google.android.tvrecommendations")
+            .expect("SHIELD recommendations entry exists");
+        assert!(
+            !entry.default_optimize,
+            "phone-remote dependency must not be selected automatically"
+        );
+        assert!(entry.default_restore);
+        let verdict = classify_with_catalog(
+            &entry.package,
+            Some(CatalogVerdict {
+                risk: entry.risk,
+                description: &entry.optimize_description,
+            }),
+        );
+        match verdict {
+            Safety::Caution { reason, source } => {
+                assert_eq!(source, SafetySource::ReviewedCatalog);
+                for evidence in [
+                    "phone app",
+                    "reboot",
+                    "custom launcher",
+                    "darcy",
+                    "foster_e",
+                    "Android 11",
+                    "unverified",
+                ] {
+                    assert!(
+                        reason.contains(evidence),
+                        "missing consequence or evidence limit: {evidence}"
+                    );
+                }
+            }
+            other => panic!("expected Caution, got {other:?}"),
+        }
+        assert!(entry
+            .sources
+            .iter()
+            .any(|s| s.contains("30626a8e4714f86bf837384b109b5c73ee736917")));
+        assert!(!entry.optimize_description.contains("No effect"));
+    }
+
     /// The shipped lists, not a fixture. This is the assertion that would have
     /// caught the regression where 82 of 89 curated apps reported "role and
     /// effects unknown" beside their own description.

@@ -55,17 +55,17 @@
   },
   {
     "package": "com.google.android.tvrecommendations",
-    "name": "Sponsored Content",
+    "name": "TV Recommendations",
     "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Removes Sponsored / Top Picks rows on the stock Google TV home. Also removes the home-screen Watch Next rows that surface Apple TV / Netflix Continue Watching. No effect if you've switched to a custom launcher.",
-    "restore_description": "Restores sponsored and Watch Next rows on stock launcher.",
-    "default_optimize": true,
+    "risk": "high",
+    "optimize_description": "Disabling can remove stock-home recommendation rows and may stop key input from NVIDIA's SHIELD TV phone app after a reboot, even with a custom launcher. An external report covers darcy and foster_e devices on Android 11; other models and firmware are unverified. Keep enabled if you use the phone remote.",
+    "restore_description": "Re-enables TV Recommendations, including the reported phone-remote dependency. Recovery on your model and firmware has not been verified here.",
+    "default_optimize": false,
     "default_restore": true,
     "play_store": true,
-    "reviewed_at": "2026-05-29",
+    "reviewed_at": "2026-10-22",
     "sources": [
-      "git history (6d8106f)"
+      "https://github.com/Gathin23/cleanyourtv/blob/30626a8e4714f86bf837384b109b5c73ee736917/docs/TROUBLESHOOTING.md#shield-tv-phone-app-connects-but-no-key-does-anything"
     ],
     "device_scope": [
       "shield"

@@ -228,6 +228,10 @@ jobs:
         working-directory: v2
         run: npm run test:device-logs
 
+      - name: TVRecommendations safety defaults
+        working-directory: v2
+        run: TVRECOMMENDATIONS_EVIDENCE=1 npm run test:tvrecommendations-safety
+
       - name: Launcher rows
         working-directory: v2
         run: CLEARTV_EVIDENCE=1 npm run test:launcher-rows
@@ -253,6 +257,8 @@ jobs:
             v2/screenshots/frames-light/
             v2/evidence/cleartv-208-20261022/*-simulated.png
             v2/evidence/cleartv-208-20261022/launcher-states-simulated.webm
+            v2/evidence/tvrecommendations-safety/*-simulated.png
+            v2/evidence/tvrecommendations-safety/caution-review-simulated.webm
           retention-days: 7
           if-no-files-found: ignore
 
