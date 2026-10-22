@@ -196,6 +196,8 @@
   let launcherErr = $state<string | null>(null);
   let launcherActionBusy = $state<string | null>(null); // package id currently being acted on
   let launcherActionMessage = $state("");
+  let launcherSetResult = $state<{ package: string; message: string } | null>(null);
+  let launcherRequest = 0;
   /// Per-stage record from the last failed launcher switch, offered as a copy
   /// button. Kept out of the message itself — it is for a bug report, not for
   /// reading on screen.
@@ -650,22 +652,29 @@
   });
 
   async function loadLauncher() {
+    const context = capturePageContext();
+    const request = ++launcherRequest;
     launcherLoading = true;
     launcherErr = null;
     try {
       const [list, cur, chan] = await Promise.all([
-        api.listLaunchers(serial),
-        api.currentLauncher(serial),
-        api.channelProviderDisabled(serial),
+        api.listLaunchers(context.serial),
+        api.currentLauncher(context.serial),
+        api.channelProviderDisabled(context.serial),
       ]);
+      if (!pageContextIsCurrent(context) || request !== launcherRequest) return false;
       launchers = list;
       currentLauncher = cur;
       channelDisabled = chan;
+      return true;
     } catch (e) {
-      launcherErr = String(e);
+      if (pageContextIsCurrent(context) && request === launcherRequest) launcherErr = String(e);
+      return false;
     } finally {
-      launcherLoading = false;
-      launchersLoaded = true;
+      if (pageContextIsCurrent(context) && request === launcherRequest) {
+        launcherLoading = false;
+        launchersLoaded = true;
+      }
     }
   }
 
@@ -1310,6 +1319,7 @@
   }
 
   async function installLauncherFromStore(pkg: string) {
+    launcherSetResult = null;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     stopStorePoll();
@@ -1371,6 +1381,7 @@
   let stockHoldsHomeFor = $state<string | null>(null);
 
   async function setHomeFromPicker() {
+    launcherSetResult = null;
     const pkg = homePickerChoice;
     if (!pkg) return;
     homePickerBusy = "set";
@@ -1393,6 +1404,7 @@
   }
 
   async function disableStockFromPicker(saveFirst: boolean) {
+    launcherSetResult = null;
     const pkg = homePickerChoice;
     if (!pkg) return;
     stockConfirmOpen = false;
@@ -1428,6 +1440,7 @@
   }
 
   async function enableLauncher(pkg: string) {
+    launcherSetResult = null;
     const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     const prevDefault = currentLauncher?.package ?? null;
     const prevName = prevDefault
@@ -1517,6 +1530,7 @@
   );
 
   async function turnOffSetupHelper() {
+    launcherSetResult = null;
     const row = setupHelper;
     if (!row) return;
     const pkg = row.entry.package;
@@ -1539,6 +1553,7 @@
   }
 
   async function disableLauncher(pkg: string) {
+    launcherSetResult = null;
     const row = launchers.find((l) => l.entry.package === pkg);
     const name = row?.entry.name ?? pkg;
     const advice = row?.other
@@ -1587,21 +1602,25 @@
   }
 
   async function setDefaultLauncher(pkg: string) {
+    if (launcherActionBusy !== null) return;
+    const context = capturePageContext();
     const name = launchers.find((l) => l.entry.package === pkg)?.entry.name ?? pkg;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
+    launcherSetResult = null;
     launcherDiagnostics = [];
     launcherDiagnosticsCopied = false;
-    launcherProgress = "";
+    launcherProgress = "Setting default launcher";
     // The backend works through several strategies (enable → role → set-home-
     // activity → verify) that can take a few seconds; narrate each step so the
     // user knows it's working rather than hung.
     const onProgress = new Channel<string>();
     onProgress.onmessage = (step) => {
-      if (launcherActionBusy === pkg) launcherProgress = step;
+      if (pageContextIsCurrent(context) && launcherActionBusy === pkg) launcherProgress = step;
     };
     try {
-      let r = await api.setDefaultLauncher(serial, pkg, false, onProgress);
+      let r = await api.setDefaultLauncher(context.serial, pkg, false, onProgress);
+      if (!pageContextIsCurrent(context)) return;
       if (!r.ok && r.stock_takeover_available) {
         // The only working method on this build disables the stock launcher.
         // Never do that silently — ask, then retry with the opt-in flag.
@@ -1609,22 +1628,24 @@
         const proceed = confirm(
           `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.`,
         );
-        if (proceed) r = await api.setDefaultLauncher(serial, pkg, true, onProgress);
+        if (proceed) r = await api.setDefaultLauncher(context.serial, pkg, true, onProgress);
       }
+      if (!pageContextIsCurrent(context)) return;
+      let message: string;
       if (r.ok) {
-        launcherActionMessage =
+        message =
           r.strategy === "disable_stock_takeover"
             ? `${name} is now your default launcher — the stock launcher was disabled to hand it over. Re-enable it from this list any time.`
             : `${name} is now your default launcher.`;
         // A successful switch only carries `last_error` as a follow-up note
         // (e.g. the setup helper couldn't be re-enabled).
-        if (r.last_error) launcherActionMessage += ` ${r.last_error}`;
+        if (r.last_error) message += ` ${r.last_error}`;
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than
         // prefixing "Failed:", which once produced "Failed: Success".
-        launcherActionMessage =
-          r.last_error ?? "Could not set default launcher. Try disabling other launchers first.";
+        message =
+          r.last_error ?? `Android did not verify ${name} as default. No success was confirmed.`;
         // Only on failure: this is the record a reporter can paste back, and
         // it is the only thing that distinguishes "the device refused the
         // command" from "the device accepted it and ignored it".
@@ -1636,15 +1657,24 @@
       // is itself a few ADB queries, so keep the row's status line alive for it
       // rather than leaving the spinner frozen on the last backend step.
       if (launcherActionBusy === pkg) launcherProgress = "Refreshing the launcher list";
-      await loadLauncher();
+      launcherSetResult = { package: pkg, message };
+      const refreshed = await loadLauncher();
+      if (!pageContextIsCurrent(context)) return;
+      if (!refreshed) {
+        launcherSetResult = { package: pkg, message: `${message} Launcher status could not be refreshed; the displayed state may be stale. ${launcherErr ?? "Refresh to retry."}` };
+      }
       // The takeover may have disabled stock; either way launcher state changed,
       // so the Memory tab's report is stale.
       invalidateDeviceCaches();
     } catch (e) {
-      launcherActionMessage = String(e);
+      if (pageContextIsCurrent(context)) {
+        launcherSetResult = { package: pkg, message: `Could not confirm whether ${name} became default: ${e}. Refresh the launcher list to check its current state.` };
+      }
     } finally {
-      launcherActionBusy = null;
-      launcherProgress = "";
+      if (pageContextIsCurrent(context)) {
+        launcherActionBusy = null;
+        launcherProgress = "";
+      }
     }
   }
 
@@ -1940,7 +1970,8 @@
     report = null; reportErr = null; reportLastRefreshed = null; memorySafety = {};
     memoryConfirmed = new Set();
     launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
-    launcherErr = null; launcherActionMessage = "";
+    launcherErr = null; launcherActionMessage = ""; launcherSetResult = null;
+    launcherActionBusy = null; launcherProgress = ""; launcherLoading = false; launcherDiagnostics = [];
     stopStorePoll(); storeOpened = null;
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
@@ -2596,6 +2627,21 @@
           {launcherLoading ? "Loading…" : "Refresh"}
         </button>
       </div>
+      {#if launcherSetResult && (launcherErr || !launchers.some((l) => l.entry.package === launcherSetResult?.package))}
+        <p class="small action-message launcher-set-result" role="status">{launcherSetResult.message}</p>
+      {/if}
+      {#if launcherDiagnostics.length > 0}
+        <p class="muted small action-message">
+          <button class="link-button" onclick={copyLauncherDiagnostics}>
+            {launcherDiagnosticsCopied ? "Copied" : "Copy diagnostic details"}
+          </button>
+          — every command this attempt ran and what your TV replied. Paste it into a
+          GitHub issue; it is what makes a launcher report fixable.
+        </p>
+      {/if}
+      {#if launcherActionMessage}
+        <p class="muted small mono action-message" role="status">{launcherActionMessage}</p>
+      {/if}
       {#if launcherErr}
         <div class="error">{launcherErr}</div>
       {:else}
@@ -2621,6 +2667,9 @@
                   <div class="launcher-text">
                     <div class="launcher-name">{l.entry.name}</div>
                     <div class="muted small mono launcher-pkg">{l.entry.package}</div>
+                    {#if launcherSetResult?.package === l.entry.package}
+                      <p class="small action-message launcher-set-result" role="status">{launcherSetResult.message}</p>
+                    {/if}
                     {#if busy && launcherProgress}
                       <div class="launcher-progress" role="status" aria-live="polite">
                         <span class="spinner" aria-hidden="true"></span>{launcherProgress}…
@@ -2879,18 +2928,6 @@
               {/if}
             </div>
           </details>
-          {#if launcherActionMessage}
-            <p class="muted small mono action-message">{launcherActionMessage}</p>
-          {/if}
-          {#if launcherDiagnostics.length > 0}
-            <p class="muted small action-message">
-              <button class="link-button" onclick={copyLauncherDiagnostics}>
-                {launcherDiagnosticsCopied ? "Copied" : "Copy diagnostic details"}
-              </button>
-              — every command this attempt ran and what your TV replied. Paste it into a
-              GitHub issue; it is what makes a launcher report fixable.
-            </p>
-          {/if}
         {/if}
       {/if}
     </div>
@@ -3551,6 +3588,7 @@
 {/if}
 
 <style>
+  .launcher-set-result { overflow-wrap: anywhere; white-space: normal; max-width: 48rem; }
   .back-row {
     margin-bottom: 1rem;
   }

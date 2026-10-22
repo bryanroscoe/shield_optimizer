@@ -1,0 +1,13 @@
+{
+  "cancel-takeover-simulated.png": "c7d7a57cfd9eda0eab47f83028f61bf40035779c73b04861b2fd0c53b7575528",
+  "channel-refresh-simulated.png": "fbd516f911f0b1e8a8700155fbfe686b234163cac01298bbdd8b092466d5fdea",
+  "current-refresh-simulated.png": "5fd6eb467eb5674f511387999d995d88accd9f8463bcf233ee30366e64bf4281",
+  "failure-refresh-simulated.png": "7c756bed07cd66f0c3a1cde3182a9088372c71695284f77929482e5f9b845b4b",
+  "failure-simulated.png": "e6ba46266eefc8f767788cf419b37b097edb57a781a7c0a1f111aa5948f53f83",
+  "interrupted-simulated.png": "978a1dac009390949727f15466e31b9875776ce3f67513ac84c7fe8d24103d8a",
+  "launcher-feedback-simulated.webm": "29584b91a439dd4d9da268754dd80eef112f1fada04eba8836a57fc42f726137",
+  "list-refresh-simulated.png": "ae36f118aa14cdafce3ceb8de979eb3c42d523a78d8015fc42e80a95a57ace75",
+  "noop-simulated.png": "2be452869f30f331d3c02df6275a4ed3a465b4a6627e9c6d978067ec6b8dd4e3",
+  "success-simulated.png": "4c625538d3ef2de5b33685b8fef28067fb2ed75bfa9f4387e89f13a6366f44ec",
+  "unverified-simulated.png": "361e8c666fbffe21821d19b99215b81f46f8f0c6ce00f2ed3461be87f0f98c9d"
+}
