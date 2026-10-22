@@ -20,3 +20,4 @@ jobs:
         run: |
           python -m unittest -v
           python catalog.py --check
+          python profiles.py --check

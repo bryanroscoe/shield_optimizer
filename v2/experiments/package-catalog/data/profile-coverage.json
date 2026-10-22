@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "profiles": 232,
+  "active_line_occurrences": 5504,
+  "unique_candidate_ids": 1190,
+  "new_ids_beyond_baseline": 1113,
+  "baseline_overlap": 77,
+  "fdroid_identity_matches": 2,
+  "new_ids_beyond_fdroid_snapshot": 1188,
+  "combined_unique_ids": 5954,
+  "classification_counts": {
+    "classified": 2,
+    "unknown": 1188
+  },
+  "tv_evidence_counts": {
+    "unknown": 1190
+  },
+  "device_note_assets": 43,
+  "text_note_leads": 38,
+  "image_note_leads": 5,
+  "hardware_verified_ids": 0,
+  "removal_safety_reviewed_ids": 0,
+  "scope": "Profile membership is a research lead, not installed-device inventory, TV compatibility or removal advice."
+}

@@ -11,7 +11,12 @@ facts; sort and deduplicate; map category terms into original broad descriptions
 add explicit unreviewed safety, unknown TV status and aggregate coverage against
 the local registry. `catalog.json` and `coverage.json` are generated adaptations.
 
-These three JSON data files are distributed under GNU Affero General Public
+`profile-candidates.json` and `profile-coverage.json` additionally join the
+MIT-licensed minimal profile facts attributed in `../profile-leads/NOTICE.md`.
+Only F-Droid cross-referenced descriptions/categories are carried into those
+generated files; no third-party safety labels are included.
+
+These five JSON data files are distributed under GNU Affero General Public
 License version 3 (AGPL-3.0); see LICENSE-AGPL-3.0.txt. Original generated text and
 selection/arrangement contributions by Bryan Roscoe, 2026, are licensed on the same
 terms for these data files. This notice overrides the repository's default license
