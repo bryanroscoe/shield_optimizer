@@ -1,0 +1,7 @@
+Frontend type check	svelte-check	2026-10-22T05:03:21.7576188Z svelte-check found 0 errors and 0 warnings
+Frontend type check	Frontend build	2026-10-22T05:03:22.7756146Z vite v6.4.2 building SSR bundle for production...
+Frontend type check	Frontend build	2026-10-22T05:03:25.7705487Z vite v6.4.2 building for production...
+Frontend type check	Frontend build	2026-10-22T05:03:28.6051365Z ✓ built in 2.83s
+Frontend type check	Frontend build	2026-10-22T05:03:28.9971569Z ✓ built in 6.19s
+Frontend type check	Launcher rows	2026-10-22T05:06:06.2246449Z Launcher rows passed: leanback-only app not listed, picker renders and gates the stock takeover, Play Store callout shows, fresh snapshot previews no launcher change with a populated Now column.
+Frontend type check	Launcher rows	2026-10-22T05:06:13.8664181Z ClearTV shared identity: missing/installed/disabled/current states, single row, correct source URL and no mutation pass.

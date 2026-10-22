@@ -1,0 +1,45 @@
+{
+  "source_head": "8734ab4aa79d9fa414f19c2b16f984c39a0d9c82",
+  "ci_run": 39725797395,
+  "artifact_id": 12402983993,
+  "artifact_name": "desktop-demo-frames",
+  "real_device": false,
+  "gallery_frames_per_theme": 16,
+  "files": [
+    {
+      "path": "v2/evidence/cleartv-208-20261022/disabled-simulated.png",
+      "sha256": "34acdea6d7645e7f638bea683aaaf7f24fb07bdabcc0edac85cdd13ad1e162ca",
+      "bytes": 139704
+    },
+    {
+      "path": "v2/evidence/cleartv-208-20261022/current-simulated.png",
+      "sha256": "153e6817b631f8c287fc4ebc73d56922efa706282e66b72715687b56222fb2b7",
+      "bytes": 138743
+    },
+    {
+      "path": "v2/evidence/cleartv-208-20261022/missing-simulated.png",
+      "sha256": "78c364e3437e4d7cf0a7a0c1d83fe1ee0d098b90e0260b416806472cbe45a9a8",
+      "bytes": 138927
+    },
+    {
+      "path": "v2/evidence/cleartv-208-20261022/installed-simulated.png",
+      "sha256": "07e7fedc13b1b4ce2a4c08211191c0e88208719fa5dcf218dc94e0f65f2332fb",
+      "bytes": 139284
+    },
+    {
+      "path": "v2/evidence/cleartv-208-20261022/launcher-states-simulated.webm",
+      "sha256": "89051fbabf9d9e9c034aef7c9019171faacebebf571a1025739983a366ad9fab",
+      "bytes": 1053295
+    },
+    {
+      "path": "v2/screenshots/gallery.gif",
+      "sha256": "9e82950174324ceba202666f8fec1a629da022b7f25634523c7878d3fe132b0c",
+      "bytes": 1734256
+    },
+    {
+      "path": "v2/screenshots/gallery-light.gif",
+      "sha256": "07a79c226f57bf2a685d99e45f4efa3bcdefe3baaaab77023f6f190711a32c23",
+      "bytes": 1571764
+    }
+  ]
+}

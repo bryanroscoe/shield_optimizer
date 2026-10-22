@@ -20,8 +20,22 @@ The JSON catalog gains one custom entry (8 total). Loader tests assert exact nam
 
 The demo fixture defaults to missing, with an explicit cleartvState switch for other states. CI runs the browser regression with evidence capture and uploads the simulated screenshots/video beside normal demo frames. This allows visual evidence/gallery regeneration without installing local dependencies or touching a device.
 
-## Validation and visual evidence status
+## Validation and simulated visual evidence
 
-The initial 20 loader tests passed. Workspace fmt, all-target Clippy with warnings denied and serial tests pass: core464, desktop114 with one preexisting live test ignored, mobile Rust26, license2 and registry9. Independent read-only source review approved initial head `71f12cf5b0220a81cb7c1be93b286968a3bb9d6d` with no blockers; its nonblocking source-link assertion suggestion was adopted. Final-head CI and review are tracked separately. Local frontend dependencies remain offloaded; no local frontend success is claimed. Captured UI artifacts and regenerated galleries will be included before final review. Simulation is not real-device validation.
+Local workspace fmt, all-target Clippy with warnings denied and serial tests pass: core 464, desktop 114 with one preexisting live test ignored, mobile Rust 26, license 2 and registry 9. The initial loader subset passed all 20 tests. Logs are in `workspace-tests.txt` and `clippy.txt`.
 
-Reproduce with existing dependencies from v2: `CLEARTV_EVIDENCE=1 npm run test:launcher-rows`; normal gallery capture is `npm run screenshots`. No device operations, APK fetch/install, upstream setup execution, signature/accessibility/security changes, paid calls, store publication or release is included.
+Independent read-only source review approved `71f12cf5b0220a81cb7c1be93b286968a3bb9d6d` and then hardened head `8734ab4aa79d9fa414f19c2b16f984c39a0d9c82` with no blockers. Its nonblocking suggestion was adopted: clicking the source link must issue exactly one opener call and no other command. The reviewer did not independently execute browser tests.
+
+[CI run39725797395](https://github.com/bryanroscoe/shield_optimizer/actions/runs/39725797395) passed all six jobs on that exact hardened source head: Linux/macOS/Windows Rust, desktop frontend, mobile frontend and simulated-device E2E. Desktop Svelte check was 0 errors/0 warnings; production build and the full launcher-row browser test passed. `frontend-ci-excerpt.txt` records the relevant completed-job lines. Local Svelte/Vite cache files remain offloaded, so no local frontend execution is claimed and no dependencies were installed locally.
+
+The screenshots and video below come from that run's `desktop-demo-frames` artifact12402983993. They show the real Svelte UI against demo fixtures, with an explicit simulation overlay. The existing demo profile says Shield2019 Pro; that is synthetic data, not a test of either that model or the reporter's Shield2017.
+
+- [Missing](missing-simulated.png): one catalog row and the requested source site.
+- [Installed/enabled](installed-simulated.png): normal Set as default control.
+- [Disabled](disabled-simulated.png): Enable and Enable & set default controls.
+- [Current](current-simulated.png): Active/current-default state, retaining the source link.
+- [7.6-second state video](launcher-states-simulated.webm).
+
+All four screenshots and a sampled video frame were visually inspected. Both normal desktop galleries were regenerated from the same run's 16 dark and16 light frames using the existing `screenshots/build-gif.sh`; launcher frames were inspected. Raw recorder intermediates are omitted. `provenance.json` records artifact/source-head and file hashes. The final evidence-only commit is covered separately by the PR's exact-head CI and delta review; the source-run result is not substituted for that gate.
+
+Reproduce with existing dependencies from v2: `CLEARTV_EVIDENCE=1 npm run test:launcher-rows`; normal gallery capture is `npm run screenshots`. No device operations, APK fetch/install, upstream setup execution, signature/accessibility/security changes, paid calls, store publication or release is included. Shield2017 hardware acceptance remains unverified.
