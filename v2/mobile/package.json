@@ -10,12 +10,12 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "preview": "vite preview",
     "subset-icons": "python3 scripts/subset-material-symbols.py",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh"
   },
   "license": "UNLICENSED",
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "geist": "^1.7.2",
     "material-symbols": "^0.45.5"
   },
   "devDependencies": {

@@ -2,7 +2,8 @@
 // exactly four kinds (crates/core/src/engine/safety.rs: NeverDisable /
 // Caution / Safe / Unknown); this maps each to the label, blurb and CSS class
 // every screen renders. Screens must not invent tiers and must not classify
-// packages themselves.
+// packages themselves. Labels and descriptions match desktop's
+// v2/src/lib/safety.ts word for word, so one TV reads the same on both apps.
 //
 // `Safe` only ever comes from the reviewed app list, never as a fallback —
 // that is what separates "we looked at this and rated it" from "we have no
@@ -10,7 +11,14 @@
 
 import type { Safety } from "./types";
 
+export type { Safety };
 export type SafetyKind = Safety["kind"];
+
+/// Resolution state of an async `safety_info` lookup — same shape as desktop.
+export type SafetyStatus =
+  | { status: "checking" }
+  | { status: "ready"; verdict: Safety }
+  | { status: "unavailable"; reason: string };
 
 export interface SafetyTier {
   kind: SafetyKind;
@@ -25,9 +33,9 @@ export interface SafetyTier {
 export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
   safe: {
     kind: "safe",
-    label: "Safe",
+    label: "Safe to remove",
     description:
-      "Reviewed for Android TV and rated safe to remove. The reason says what it is and what you lose.",
+      "The reason says what the app is and what you lose. Only ever comes from the reviewed list, never as a fallback.",
     cls: "safe",
     icon: "check_circle",
   },
@@ -43,7 +51,7 @@ export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
     kind: "caution",
     label: "Caution",
     description:
-      "Removing it has a known consequence — the reason says exactly what can stop working. You must review that warning first.",
+      "Removing it has a known consequence — the reason says exactly what can stop working. Review that warning first.",
     cls: "caution",
     icon: "warning",
   },
@@ -51,7 +59,7 @@ export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
     kind: "never_disable",
     label: "Protected",
     description:
-      "Disabling would brick the TV or cut this app's connection to it. Every disable and uninstall path refuses these.",
+      "Disabling would break the TV or cut this app's connection to it. Every disable and uninstall path refuses these.",
     cls: "blocked",
     icon: "shield",
   },
@@ -73,6 +81,35 @@ export function tierOf(safety: Safety | null | undefined): SafetyTier | null {
   return safety ? SAFETY_TIERS[safety.kind] : null;
 }
 
+/// The verdict inside a lookup state, or null while it is unresolved.
+export function verdictOf(status: SafetyStatus | undefined): Safety | null {
+  return status?.status === "ready" ? status.verdict : null;
+}
+
+export const CHECKING_LABEL = "Checking…";
+export const UNAVAILABLE_LABEL = "Safety unavailable";
+
+/// Label for a resolved verdict.
+export function verdictLabel(safety: Safety): string {
+  return SAFETY_TIERS[safety.kind].label;
+}
+
+/// Short label for a lookup state — never falls back to Unknown while the
+/// lookup is unresolved or failed.
+export function safetyLabel(status: SafetyStatus | undefined): string {
+  if (!status || status.status === "unavailable") return UNAVAILABLE_LABEL;
+  if (status.status === "checking") return CHECKING_LABEL;
+  return verdictLabel(status.verdict);
+}
+
+/// The core-supplied reason, or why there isn't one yet.
+export function safetyReason(status: SafetyStatus | undefined): string {
+  if (!status) return "Safety lookup has not completed.";
+  if (status.status === "checking") return "Safety lookup is in progress.";
+  if (status.status === "unavailable") return `Safety lookup failed: ${status.reason}`;
+  return status.verdict.reason;
+}
+
 /// The core-supplied reason for every canonical verdict.
 export function reasonOf(safety: Safety | null | undefined): string {
   return safety?.reason ?? "";
@@ -87,7 +124,7 @@ export function reasonOf(safety: Safety | null | undefined): string {
 export function verdictSummary(safety: Safety | null | undefined): string {
   switch (safety?.kind) {
     case "safe":
-      return "The safety engine rated this Safe to remove.";
+      return `The safety engine rated this ${SAFETY_TIERS.safe.label}.`;
     case "caution":
       return "The safety engine marked this Caution.";
     case "never_disable":
@@ -105,4 +142,9 @@ export function isBlocked(safety: Safety | null | undefined): boolean {
 /// Needs a loud confirm carrying `reasonOf(safety)` before any removal action.
 export function needsConfirm(safety: Safety | null | undefined): boolean {
   return safety?.kind === "caution" || safety?.kind === "unknown";
+}
+
+/// The Safety/Reason lines shared by every removal confirm prompt.
+export function confirmVerdictLine(safety: Safety): string {
+  return `Safety: ${verdictLabel(safety)}\nReason: ${safety.reason}`;
 }

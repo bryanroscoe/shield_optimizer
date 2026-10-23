@@ -402,7 +402,6 @@ const snapshots: SnapshotFile[] = [
 const DISABLED = new Set([
   "com.nvidia.stats",
   "com.nvidia.diagtools",
-  "com.google.android.tvrecommendations",
   "com.amazon.amazonvideo.livingroom",
   "com.facebook.katana",
   // A Caution-list package that is already disabled. It exists to keep the
@@ -444,7 +443,8 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         index < 16
         || entry.package === "com.android.providers.tv"
         || entry.package === "com.nvidia.tegrazone3"
-        || entry.package === "com.philo.philo",
+        || entry.package === "com.philo.philo"
+        || entry.package === "com.google.android.tvrecommendations",
     )
     .map((entry) => {
       const state = MISSING.has(entry.package)
@@ -515,8 +515,9 @@ function demoShellOutput(command: string): string {
 }
 
 // Map of command name → handler. Unlisted commands fall through to a benign
-// success so a stray click during capture never throws.
-function handle(cmd: string, args: Record<string, unknown>): unknown {
+// success so a stray click during capture never throws. Exported so the mobile
+// app's demo layer answers the commands both apps share from the same fixtures.
+export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };

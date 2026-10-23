@@ -98,6 +98,8 @@ It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated be
 - **New screen/tab** → add a visit + capture step in `screenshots/capture.mjs`.
 - **New `invoke` command that loads on a screen** → add a fixture case in `src/lib/demo-mock.ts`, or that screen renders empty.
 
+The phone app has its own capture: `cd v2/mobile && npm run screenshots` writes every mobile screen to `v2/mobile/screenshots/frames/` (gitignored), then rebuilds the committed `gallery.gif` and one-page `contact-sheet.png` shown in the root and mobile READMEs. The `refresh-screenshots` release job regenerates them too once the mobile app is on the default branch. It runs against `v2/mobile/src/lib/demo-mock.ts` (`VITE_DEMO=1`), which answers shared commands from the desktop fixtures and only adds the mobile-only ones. A new mobile screen needs an entry in `SCREENS` in `v2/mobile/screenshots/capture.mjs`.
+
 The release workflow also regenerates the gallery on every `v2-*` tag (the `refresh-screenshots` job) and commits it to the default branch, so a release always ships current screenshots even if a manual regen was missed. Requires `ffmpeg` + `npx playwright install chromium` locally. Full pipeline docs: `v2/screenshots/README.md`.
 
 ## Cutting a v2 release

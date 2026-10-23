@@ -1,0 +1,19 @@
+{
+  "mobile_base": "b7bd2c0b50fc774c3ffad10ee67d95c9c7aa4a79",
+  "incoming_main": "c227cc87782233b2a44ef1d6e27ca30335b88783",
+  "resolution": "reviewed main gallery bytes; combined desktop UI/capture source matches main",
+  "files": [
+    {
+      "path": "v2/screenshots/gallery.gif",
+      "mobile_blob": "181eaec74b64b8571b125e3300ed297bd23470c2",
+      "main_blob": "ed7e81b555a9bd0f67c6101e0ccf6237d1599505",
+      "resolved_sha256": "9e82950174324ceba202666f8fec1a629da022b7f25634523c7878d3fe132b0c"
+    },
+    {
+      "path": "v2/screenshots/gallery-light.gif",
+      "mobile_blob": "678a78f471612c5b1c2ef8abbd4a0541f3c2eccd",
+      "main_blob": "49a35d674d5ebe0c5003abf8a27feb98b399b4a2",
+      "resolved_sha256": "07a79c226f57bf2a685d99e45f4efa3bcdefe3baaaab77023f6f190711a32c23"
+    }
+  ]
+}

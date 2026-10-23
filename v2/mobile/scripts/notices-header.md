@@ -16,6 +16,23 @@ Regenerate this document with `mobile/scripts/gen-notices.sh` after any dependen
 
 ## Components not managed by Cargo
 
+### Android/JVM runtime dependencies
+
+The application declares AndroidX WebKit 1.14.0, AppCompat 1.7.1, Activity KTX 1.10.1,
+Lifecycle Process 2.10.0 and Material Components 1.12.0. The ADB plugin declares AndroidX
+Core KTX 1.13.1 and kotlinx-coroutines-android 1.10.2. Tauri Android declares older Core KTX,
+AppCompat and Material versions plus Jackson Databind 2.15.3.
+The opener plugin 2.5.4 declares **AndroidX Browser 1.8.0**, Core KTX 1.9.0 and Jackson Databind
+2.15.3. These components use Apache License 2.0 (AndroidX, Material, Jackson) or Apache License
+2.0 (kotlinx.coroutines); retain upstream notices and applicable license texts with the resolved
+release inventory. The Apache License 2.0 text appears below.
+
+These are actual dependency declarations, not a claim of final Gradle resolution. Transitive
+JVM dependencies, conflict-selected versions and their per-artifact NOTICE files must be captured
+from the final release runtime classpath before distribution. See `ANDROID-DEPENDENCIES.md`.
+
+
+
 ### Geist and Geist Mono — SIL Open Font License 1.1
 
 `src/fonts/Geist-Variable.woff2` and `src/fonts/GeistMono-Variable.woff2` are the variable-weight
@@ -153,16 +170,17 @@ appears in the Cargo inventory below with its upstream license text.
 
 Source: <https://github.com/cocool97/adb_client>
 
-### npm runtime dependencies
+### Bundled npm-origin code and assets
 
-Only these npm packages contribute code or assets to the shipped app; everything else in
-`package.json` is build-time tooling.
+These packages are the sources of bundled code/assets. Geist 1.7.2 is retained as checked-in
+WOFF2 assets with its license; the unused npm package is not needed to build the app.
+Other entries in `package.json` provide tooling, which can also contribute compiled runtime code.
 
 | Package | Version | License |
 | --- | --- | --- |
 | `svelte` | 5.56.4 | MIT |
 | `@tauri-apps/api` | 2.11.1 | Apache-2.0 OR MIT |
-| `geist` | 1.7.2 | SIL OFL 1.1 (see above) |
+| `geist` (checked-in WOFF2 assets only) | 1.7.2 | SIL OFL 1.1 (see above) |
 | `material-symbols` | 0.45.5 | Apache-2.0 (see above) |
 
 Svelte compiles into the app bundle; `@tauri-apps/api` ships as JavaScript. Both are used under

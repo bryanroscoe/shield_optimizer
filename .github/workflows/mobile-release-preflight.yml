@@ -1,0 +1,20 @@
+name: Mobile release preflight tools
+on:
+  pull_request:
+    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml']
+  push:
+    branches: [main]
+    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  artifact-verifier-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test fail-closed APK validation
+        run: python -m unittest discover -s v2/mobile/scripts -p 'test_*.py'

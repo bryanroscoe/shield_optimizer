@@ -431,6 +431,6 @@ test("the confirm summary names the Safe verdict rather than calling it Caution"
   const dialog = page.locator(".dialog-card");
   await dialog.waitFor();
   const text = await dialog.innerText();
-  assert.match(text, /Safe: Safe Default/);
+  assert.match(text, /Safe to remove: Safe Default/);
   assert.doesNotMatch(text, /Caution: Safe Default/);
 });

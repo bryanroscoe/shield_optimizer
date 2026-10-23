@@ -17,9 +17,8 @@ Android TV devices.
 It's a native app for macOS, Windows and Linux. It downloads its own `adb` on first launch, finds
 TVs on your network, and updates itself. You don't need a terminal or any scripting.
 
-> **📱 Coming soon: ATV Optimizer for Android.** A phone and tablet version that runs the same
-> cleanup over Wi-Fi, with no computer involved. It's in testing now.
-> [Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
+> **📱 Coming soon: [ATV Optimizer for Android](#atv-optimizer-for-android).** A phone and tablet
+> version that runs the same cleanup over Wi-Fi, with no computer involved. It's in testing now.
 
 ## Install
 
@@ -145,6 +144,17 @@ tracks a Toshiba Fire TV report that's still waiting on version and build detail
 The Homebrew tap and cask are still called `shield-optimizer`, so `brew upgrade` keeps working. If
 you installed from the `.dmg`, you'll still have the old `Shield Optimizer.app` until you
 reinstall. After that you can drag the old one to the Trash.
+
+## ATV Optimizer for Android
+
+**Coming soon.** A phone and tablet version that drives your TV over Wi-Fi with no computer
+involved: the same app list, safety checks, launcher switching and tweaks as the desktop app. It's
+in testing now and hasn't been released.
+[Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
+
+<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
+
+The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
 ## Legacy: PowerShell script (v1)
 

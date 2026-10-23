@@ -1597,6 +1597,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn free_user_can_reenable_a_package_after_downgrade() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        use crate::license::Entitlement;
+
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        let state = state_with(mock).with_entitlement(Entitlement::Pro);
+        state.set_entitlement(Entitlement::Free);
+        let result = enable_package_impl(&state, "TV", "com.example.app")
+            .await
+            .unwrap();
+        assert!(result.ok);
+        assert!(log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|x| x == "pm enable com.example.app"));
+    }
+
+    #[tokio::test]
     async fn free_entitlement_blocks_permission_writes_before_adb() {
         use crate::commands::test_support::{state_with, MockAdb};
         use crate::license::Entitlement;

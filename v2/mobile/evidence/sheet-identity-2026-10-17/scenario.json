@@ -1,0 +1,8 @@
+{
+  "fixture": "synthetic TV A -> B",
+  "real_device": false,
+  "recorded_mutations": [],
+  "current_serial": "B:5555",
+  "requires_fresh_selection": true,
+  "confirmation_canceled": true
+}

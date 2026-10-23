@@ -1,0 +1,51 @@
+        Info Using installed NDK: /Users/bryanroscoe/Android/sdk/ndk/28.2.13676358
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `npm run build`
+npm notice run atv-optimizer-mobile@0.1.0 build
+npm notice run vite build
+vite v6.4.3 building for production...
+transforming...
+✓ 196 modules transformed.
+rendering chunks...
+computing gzip size...
+build/index.html                                        0.47 kB │ gzip:   0.30 kB
+build/assets/Geist-Variable-Bj2R_7yk.woff2             69.65 kB
+build/assets/GeistMono-Variable-Dispecij.woff2         71.37 kB
+build/assets/material-symbols-rounded-BwUW-B6-.woff2  123.34 kB
+build/assets/index-CESwICGG.css                       115.17 kB │ gzip:  17.35 kB
+build/assets/notices.generated-B-XobKCb.js            338.84 kB │ gzip:  33.32 kB
+build/assets/index-D-BjJy4N.js                        379.86 kB │ gzip: 121.03 kB
+✓ built in 1.38s
+[1m[92m    Blocking[0m waiting for file lock on build directory
+[1m[92m   Compiling[0m shield-optimizer-core v2.3.0 (/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/crates/core)
+[1m[92m   Compiling[0m atv-optimizer-mobile v0.1.0 (/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/src-tauri)
+[1m[92m    Finished[0m `dev` profile [unoptimized] target(s) in 21.85s
+        Info symlinking lib "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" in jniLibs dir "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a"
+        Info "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libandroid.so"
+        Info "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libdl.so"
+        Info "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "liblog.so"
+        Info "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libm.so"
+        Info "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libc.so"
+        Info symlink at "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libatv_optimizer_mobile_lib.so" points to "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so"
+ATV Optimizer: release signing is not configured — the release APK/AAB will be UNSIGNED and Play will reject it. Create gen/android/keystore.properties (storeFile/storePassword/keyAlias/keyPassword) or set ATVOPT_KEYSTORE_PATH, ATVOPT_KEYSTORE_PASSWORD, ATVOPT_KEYSTORE_ALIAS and ATVOPT_KEYSTORE_KEY_PASSWORD. See mobile/RELEASE.md.
+npm notice run atv-optimizer-mobile@0.1.0 tauri
+npm notice run tauri android android-studio-script --target aarch64
+        Info connection; remote_addr=127.0.0.1:62382 conn_id=0
+[1m[32m        Info[0m Using installed NDK: /Users/bryanroscoe/Android/sdk/ndk/28.2.13676358
+[1m[92m    Finished[0m `dev` profile [unoptimized] target(s) in 0.51s
+[1m[32m        Info[0m symlinking lib "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" in jniLibs dir "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a"
+[1m[32m        Info[0m "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libandroid.so"
+[1m[32m        Info[0m "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libdl.so"
+[1m[32m        Info[0m "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "liblog.so"
+[1m[32m        Info[0m "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libm.so"
+[1m[32m        Info[0m "/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/target/aarch64-linux-android/debug/libatv_optimizer_mobile_lib.so" requires shared lib "libc.so"
+
+[Incubating] Problems report is available at: file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/src-tauri/gen/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+    Finished 1 APK at:
+        /Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/src-tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk

@@ -1,0 +1,8 @@
+    Checking shield-optimizer-core v2.3.0 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/crates/core)
+   Compiling tauri-plugin-atv-adb v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/mobile/tauri-plugin-atv-adb)
+   Compiling shield-optimizer-v2 v2.3.0 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/src-tauri)
+   Compiling atv-optimizer-mobile v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/mobile/src-tauri)
+    Checking adb_client v3.2.2 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/vendor/adb_client)
+    Checking atvopt-license v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/tools/atvopt-license)
+    Checking registry-triage v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-206-20261019/v2/tools/registry-triage)
+    Finished `dev` profile [unoptimized] target(s) in 22.66s

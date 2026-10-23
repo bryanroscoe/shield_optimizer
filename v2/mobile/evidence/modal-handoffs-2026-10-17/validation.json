@@ -1,0 +1,67 @@
+{
+  "base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "integration": "e6274e3a8a331bc988c562faccf6fa98f5f16275",
+  "preserved_checkpoint": "8df9b7c",
+  "environment": "macOS host Chromium with mocked Tauri",
+  "checks": {
+    "full_mobile": {
+      "passed": 275,
+      "failed": 0,
+      "skipped": 0
+    },
+    "focused_combined": {
+      "passed": 65,
+      "failed": 0
+    },
+    "svelte_check": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "vite_build": "passed",
+    "git_diff_check": "passed"
+  },
+  "videos": {
+    "menu-report-close-simulated.webm": {
+      "seconds": 2.12,
+      "width": 384,
+      "height": 812
+    },
+    "takeover-cancel-simulated.webm": {
+      "seconds": 2.76,
+      "width": 384,
+      "height": 420
+    }
+  },
+  "sha256": {
+    "v2/mobile/src/lib/modal.ts": "2ca5d88ed43210fb5847cb03b0cd20f231015f5bb12dcdf8a868ed4ccc038be4",
+    "v2/mobile/src/components/StockTakeoverDialog.svelte": "1f0698913f84e566d5191f4926bc173997b6e67b3617a8b1e62d0a8612b8233f",
+    "v2/mobile/tests/modal-lifecycle.test.mjs": "9f664113265513446f649dd99a77fd7d0ff37328f8cc7d00081d478a4cb94c4c",
+    "v2/mobile/tests/apps-catalog.test.mjs": "7815678f5f451c37be40ef68a79051e414aed93784aaad47a5487d0dbbcb7c65",
+    "v2/mobile/tests/launcher.test.mjs": "0700e3b3c9e328fea8d436913a452785bd749da8cbd13454b6a59c12af16386c",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/launcher-before-simulated.png": "d22f37efc9b65ea880f4450e6e5b238239124b59e5eb33d9a05fb2e7f1c0434a",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/launcher-restored-simulated.png": "d22f37efc9b65ea880f4450e6e5b238239124b59e5eb33d9a05fb2e7f1c0434a",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/menu-to-report-simulated.png": "dc7e762eea6c750f2f3327c132dd8b34504bdeec802dc624fc9b37b5f6ba7935",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/original-app-row-restored-simulated.png": "6bffdeb7cd07373b0b6aa962ac8824207fd87411744e32648a984a4a2485be77",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/stock-takeover-heading-simulated.png": "406e9a451f89d84879f5e5f0af1b2a47ba6a285eab465ea9fe33538512091dec",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/stock-takeover-keyboard-simulated.png": "f3c12e8b163eeff208d3caef2de65f8126f3a27058a64ad0103405f198992e7d",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/menu-report-close-simulated.webm": "3a5f4f0c9b0177ed0d0fd4f51cd29c1f5d9ef335a1925b0f33bac0b86c0e332b",
+    "v2/mobile/evidence/modal-handoffs-2026-10-17/takeover-cancel-simulated.webm": "35f4071dea887d898b12da88f918edb3a6e90bf2028aa990d51d44c44e9ff256"
+  },
+  "limitations": [
+    "No physical device queries, installs or launcher mutations.",
+    "No Android native/touch validation, release or merge.",
+    "Independent review and cross-OS CI pending.",
+    "Existing parent missing .svelte-kit/tsconfig.json notice precedes successful mobile checks/build."
+  ],
+  "review_followup": {
+    "previous_head": "31b93a7821f02a55c8d0e2d272b24f19c8044125",
+    "finding": "Focused C closes then non-top A closes in one turn while B survives.",
+    "reproduction": "reverse-order-reproduction-before.txt",
+    "assertions": [
+      "Exact surviving B last-control focus",
+      "Document lock retained",
+      "Original opener, scroll and styles restored after B closes"
+    ],
+    "visual_layout_changed": false
+  }
+}

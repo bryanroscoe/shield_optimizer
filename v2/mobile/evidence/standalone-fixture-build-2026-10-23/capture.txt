@@ -1,0 +1,26 @@
+npm notice run atv-optimizer-mobile@0.1.0 screenshots
+npm notice run node screenshots/capture.mjs
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Capturing 16 screens at 412x915@2x → /Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/screenshots/frames
+  onboarding
+  dashboard
+  apps
+  app-detail
+  tweaks
+  remote
+  more
+  optimize
+  diagnostics
+  launcher
+  snapshots
+  devices
+  files
+  backups
+  riskguide
+  add-tv
+Contact sheet → /Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/screenshots/contact-sheet.png

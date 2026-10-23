@@ -1,0 +1,204 @@
+npm notice run atv-optimizer-v2@2.3.0 e2e
+npm notice run node e2e/run.mjs
+[e2e] building e2e_server (cargo, feature e2e)…
+   Compiling shield-optimizer-core v2.3.0 (/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/crates/core)
+   Compiling shield-optimizer-v2 v2.3.0 (/Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/src-tauri)
+    Finished `dev` profile [unoptimized] target(s) in 12.67s
+[e2e] server http://127.0.0.1:62086  ui http://127.0.0.1:62094
+
+▶ devices-scan-lan
+    · 01 empty list
+    · 02 scan connected the Shield and found an unauthorized box
+    · 03 unauthorized row explains the on-TV prompt
+  ✓ devices-scan-lan (2.2s)
+
+▶ devices-two-transports-forget
+    · 01 one row for two transports
+    · 02 forget removed the row
+  ✓ devices-two-transports-forget (1.3s)
+
+▶ devices-alias-route
+    · 01 the mDNS alias opened the collapsed row under its ip:port key
+  ✓ devices-alias-route (1.4s)
+
+▶ devices-reattach-message
+    · 01 forget warns that adb will re-attach it
+    · 02 the row came back and the app says why
+  ✓ devices-reattach-message (4.0s)
+
+▶ devices-tv-evidence
+    · 01 unconfirmed TV opens, not-a-TV is labelled
+    · 02 open anyway asks first
+    · 03 tools opened on the phone
+  ✓ devices-tv-evidence (1.3s)
+
+▶ devices-pair-pin-auto-connect
+    · 01 pair form filled
+    · 02 paired, then connected on the advertised connect port
+  ✓ devices-pair-pin-auto-connect (1.5s)
+
+▶ devices-connect-errors
+    · 01 a typo'd IP is rejected before adb runs
+    · 02 an unreachable address gets an explanation
+  ✓ devices-connect-errors (1.1s)
+
+▶ health-cards-and-memory
+    · 01 health cards
+    · 02 memory rows: full names, pids, suggestions
+    · 03 a disabled app leaves the memory table
+  ✓ health-cards-and-memory (1.8s)
+
+▶ optimize-select-all-safe-run-restore
+    · 01 plan built from the device
+    · 02 select all safe armed 12 rows
+    · 03 plan ran
+    · 04 restore plan armed
+    · 05 restore ran
+  ✓ optimize-select-all-safe-run-restore (2.4s)
+
+▶ app-report-state-during-post-optimize-resync
+    · 01 report state is unknown during the post-run re-read
+    · 02 report state is the post-run state once the re-read lands
+  ✓ app-report-state-during-post-optimize-resync (7.4s)
+
+▶ app-report-state-after-direct-optimize
+    · 01 report state is unknown after a run with no inventory to re-read
+  ✓ app-report-state-after-direct-optimize (1.3s)
+
+▶ app-report-state-during-optimize-run
+    · 01 report state is unknown while the run is in progress
+    · 02 report state is the post-run state once the run finishes
+  ✓ app-report-state-during-optimize-run (9.3s)
+
+▶ app-list-keep-per-hardware-id
+    · 01 kept com.amazon.amazonvideo.livingroom
+    · 02 kept after reload
+    · 03 kept at another address of the same hardware id
+    · 04 a different hardware id is unaffected
+    · 05 optimize plan defaults the kept app to Keep
+  ✓ app-list-keep-per-hardware-id (5.0s)
+
+▶ launcher-lists-home-handlers-only
+    · 01 only catalog launchers and real HOME handlers
+  ✓ launcher-lists-home-handlers-only (0.9s)
+
+▶ launcher-switch-through-setup-wraith
+    · 01 switch landed after the transient holder
+  ✓ launcher-switch-through-setup-wraith (2.3s)
+
+▶ launcher-current-is-the-role-holder-not-setup-wraith
+    · 01 Setup Wraith is labelled a setup helper
+    · 02 Monet is the current launcher after refresh
+    · 03 snapshot records Monet
+  ✓ launcher-current-is-the-role-holder-not-setup-wraith (2.3s)
+
+▶ launcher-set-home-refused-setter
+    · 01 picked Projectivy
+    · 02 refusal reported, nothing disabled
+  ✓ launcher-set-home-refused-setter (6.7s)
+
+▶ launcher-disable-stock-hands-home-over
+    · 01 Android took the request but stock still holds Home
+    · 02 confirm
+    · 03 stock disabled, Projectivy is Home
+  ✓ launcher-disable-stock-hands-home-over (7.2s)
+
+▶ launcher-takeover-verification-failure-restores-stock
+    · 01 verification failed and stock was restored
+  ✓ launcher-takeover-verification-failure-restores-stock (11.8s)
+
+▶ launcher-settings-refused-and-home-kept
+    · 01 Settings is never the takeover target
+  ✓ launcher-settings-refused-and-home-kept (6.5s)
+
+▶ setup-wraith-takeover-disables-it-and-recovery-restores-both
+    · 01 takeover left Setup Wraith off, with its way back
+    · 02 Re-enable Setup Wraith works
+  ✓ setup-wraith-takeover-disables-it-and-recovery-restores-both (2.0s)
+
+▶ setup-wraith-re-enabling-stock-re-enables-the-helper
+  ✓ setup-wraith-re-enabling-stock-re-enables-the-helper (1.4s)
+
+▶ setup-wraith-takeover-failure-restores-stock-and-the-helper
+  ✓ setup-wraith-takeover-failure-restores-stock-and-the-helper (0.5s)
+
+▶ setup-wraith-callout-states
+    · 01 enabled while stock is on
+    · 02 enabled while stock is off
+    · 03 one-click fix turned it off
+  ✓ setup-wraith-callout-states (2.2s)
+
+▶ setup-wraith-one-click-fix-refuses-without-a-real-launcher
+  ✓ setup-wraith-one-click-fix-refuses-without-a-real-launcher (0.0s)
+
+▶ setup-wraith-confirm-names-both-effects
+    · 01 confirm names both effects
+  ✓ setup-wraith-confirm-names-both-effects (6.5s)
+
+▶ setup-wraith-shield-is-unchanged
+  ✓ setup-wraith-shield-is-unchanged (6.5s)
+
+▶ snapshot-save-preview-restore
+    · 01 snapshot saved
+    · 02 preview of an unchanged device: no launcher change, real Now values
+    · 03 preview after changes
+    · 04 restored
+  ✓ snapshot-save-preview-restore (3.4s)
+
+▶ tweaks-screensaver
+    · 01 current screensaver read from the device
+    · 02 Basic Daydream
+    · 03 None
+    · 04 Restore previous
+    · 05 refused flag write is reported
+  ✓ tweaks-screensaver (2.4s)
+
+▶ tweaks-background-limit
+    · 01 Android's limit and the leftover key
+    · 02 leftover key removed, limit unchanged
+  ✓ tweaks-background-limit (1.3s)
+
+▶ shell-acknowledgement-gate
+    · 01 run gated on the acknowledgement
+    · 02 acknowledged, the command ran on the device
+  ✓ shell-acknowledgement-gate (1.2s)
+
+▶ report-bug-diagnostics
+    · 01 bundle built from the backend
+  ✓ report-bug-diagnostics (1.1s)
+
+▶ visual-smoke-dark
+    · 01 devices
+    · 02 tab overview
+    · 03 tab health
+    · 04 tab optimize
+    · 05 tab apps
+    · 06 tab launcher
+    · 07 tab tweaks
+    · 08 tab snapshot
+    · 09 tab sideload
+    · 10 tab remote
+    · 11 tab files
+    · 12 tab media
+    · 13 tab shell
+    · 14 snapshots page
+  ✓ visual-smoke-dark (9.9s)
+
+▶ visual-smoke-light
+    · 01 devices
+    · 02 tab overview
+    · 03 tab health
+    · 04 tab optimize
+    · 05 tab apps
+    · 06 tab launcher
+    · 07 tab tweaks
+    · 08 tab snapshot
+    · 09 tab sideload
+    · 10 tab remote
+    · 11 tab files
+    · 12 tab media
+    · 13 tab shell
+    · 14 snapshots page
+  ✓ visual-smoke-light (9.9s)
+
+34/34 scenarios passed. Screenshots: /Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/e2e/artifacts

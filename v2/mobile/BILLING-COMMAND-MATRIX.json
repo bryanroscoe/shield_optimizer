@@ -1,0 +1,717 @@
+{
+  "base": "f7897c1292d702fdfad1b77c3193312a641475b2",
+  "scope": "all registered mobile commands plus scoped opener; current gates, not target policy",
+  "commands": [
+    {
+      "command": "wireless_discover",
+      "api": "wirelessDiscover",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/lib/session.svelte.ts",
+        "src/screens/Onboarding.svelte"
+      ]
+    },
+    {
+      "command": "wireless_pair",
+      "api": "wirelessPair",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "wireless_connect",
+      "api": "wirelessConnect",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "wireless_cancel_connect",
+      "api": "wirelessCancelConnect",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "wireless_disconnect",
+      "api": "wirelessDisconnect",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "wireless_status",
+      "api": "wirelessStatus",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "find_remote",
+      "api": "findRemote",
+      "gate": "Free",
+      "backend": "src-tauri/src/wireless_commands.rs",
+      "callers": [
+        "src/components/FindRemoteButton.svelte"
+      ]
+    },
+    {
+      "command": "activate_license",
+      "api": "activateLicense",
+      "gate": "Free",
+      "backend": "src-tauri/src/lib.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "get_entitlement",
+      "api": "getEntitlement",
+      "gate": "Free",
+      "backend": "src-tauri/src/lib.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "license_info",
+      "api": "licenseInfo",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/license.rs",
+      "callers": [
+        "src/screens/More.svelte"
+      ]
+    },
+    {
+      "command": "read_debug_log",
+      "api": "readDebugLog",
+      "gate": "Free",
+      "backend": "src-tauri/src/lib.rs",
+      "callers": [
+        "src/screens/More.svelte"
+      ]
+    },
+    {
+      "command": "list_devices",
+      "api": "listDevices",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/devices.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "device_profile",
+      "api": "deviceProfile",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/devices.rs",
+      "callers": []
+    },
+    {
+      "command": "rename_device",
+      "api": "renameDevice",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/devices.rs",
+      "callers": [
+        "src/screens/Devices.svelte"
+      ]
+    },
+    {
+      "command": "health_report",
+      "api": "healthReport",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/health.rs",
+      "callers": [
+        "src/lib/session.svelte.ts"
+      ]
+    },
+    {
+      "command": "media_report",
+      "api": "mediaReport",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/health.rs",
+      "callers": [
+        "src/screens/Diagnostics.svelte"
+      ]
+    },
+    {
+      "command": "resource_sample",
+      "api": "resourceSample",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/health.rs",
+      "callers": [
+        "src/screens/Diagnostics.svelte"
+      ]
+    },
+    {
+      "command": "app_list_for_device",
+      "api": "appListForDevice",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/health.rs",
+      "callers": [
+        "src/lib/session.svelte.ts",
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "report_all",
+      "api": "reportAll",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/health.rs",
+      "callers": []
+    },
+    {
+      "command": "list_launchers",
+      "api": "listLaunchers",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "current_launcher",
+      "api": "currentLauncher",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "channel_provider_disabled",
+      "api": "channelProviderDisabled",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "set_default_launcher",
+      "api": "setDefaultLauncher",
+      "gate": "LauncherTakeover",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "disable_launcher",
+      "api": "disableLauncher",
+      "gate": "CuratedDebloat",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "set_home_any",
+      "api": "setHomeAny",
+      "gate": "LauncherTakeover",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "disable_stock_launcher",
+      "api": "disableStockLauncher",
+      "gate": "LauncherTakeover",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "disable_setup_helper",
+      "api": "disableSetupHelper",
+      "gate": "LauncherTakeover",
+      "backend": "../crates/core/src/commands/launcher.rs",
+      "callers": [
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "force_stop",
+      "api": "forceStop",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "take_screenshot",
+      "api": "takeScreenshot",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/screenshot.rs",
+      "callers": [
+        "src/screens/Dashboard.svelte"
+      ]
+    },
+    {
+      "command": "package_states",
+      "api": "packageStates",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/lib/session.svelte.ts",
+        "src/screens/Apps.svelte",
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "list_other_packages",
+      "api": "listOtherPackages",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "list_installed_packages",
+      "api": "listInstalledPackages",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Backups.svelte",
+        "src/screens/Diagnostics.svelte",
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "app_memory_map",
+      "api": "appMemoryMap",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "app_storage_map",
+      "api": "appStorageMap",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "app_apk_size",
+      "api": "appApkSize",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppDetailSheet.svelte"
+      ]
+    },
+    {
+      "command": "app_usage_map",
+      "api": "appUsageMap",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "safety_info",
+      "api": "safetyInfo",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte",
+        "src/screens/Diagnostics.svelte",
+        "src/screens/Optimize.svelte"
+      ]
+    },
+    {
+      "command": "process_safety_info",
+      "api": "processSafetyInfo",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Diagnostics.svelte"
+      ]
+    },
+    {
+      "command": "trim_caches",
+      "api": "trimCaches",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Dashboard.svelte"
+      ]
+    },
+    {
+      "command": "disable_package",
+      "api": "disablePackage",
+      "gate": "CuratedDebloat",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte",
+        "src/screens/Optimize.svelte",
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "enable_package",
+      "api": "enablePackage",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte",
+        "src/screens/Launcher.svelte",
+        "src/screens/Optimize.svelte",
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "uninstall_package",
+      "api": "uninstallPackage",
+      "gate": "CuratedDebloat",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte",
+        "src/screens/Optimize.svelte"
+      ]
+    },
+    {
+      "command": "reinstall_existing",
+      "api": "reinstallExisting",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
+      "command": "set_app_permission",
+      "api": "setAppPermission",
+      "gate": "AppPermissionWrite",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "app_permission_state",
+      "api": "appPermissionState",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "set_app_op",
+      "api": "setAppOp",
+      "gate": "AppPermissionWrite",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": []
+    },
+    {
+      "command": "get_app_op",
+      "api": "getAppOp",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": []
+    },
+    {
+      "command": "open_play_store",
+      "api": "openPlayStore",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/components/AppSheetHost.svelte",
+        "src/screens/Apps.svelte",
+        "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "send_text",
+      "api": "sendText",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": [
+        "src/screens/Remote.svelte"
+      ]
+    },
+    {
+      "command": "send_key",
+      "api": "sendKey",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": [
+        "src/screens/Remote.svelte"
+      ]
+    },
+    {
+      "command": "open_settings",
+      "api": "openSettings",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": [
+        "src/screens/Remote.svelte"
+      ]
+    },
+    {
+      "command": "remote_warm",
+      "api": "remoteWarm",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": [
+        "src/screens/Remote.svelte"
+      ]
+    },
+    {
+      "command": "panic_recovery",
+      "api": "panicRecovery",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/recovery.rs",
+      "callers": [
+        "src/screens/More.svelte"
+      ]
+    },
+    {
+      "command": "reboot_device",
+      "api": "rebootDevice",
+      "gate": "conditional: normal Free; recovery/bootloader AdvancedReboot",
+      "backend": "../crates/core/src/commands/reboot.rs",
+      "callers": [
+        "src/screens/Dashboard.svelte",
+        "src/screens/More.svelte"
+      ]
+    },
+    {
+      "command": "prepare_optimize",
+      "api": "prepareOptimize",
+      "gate": "OptimizeWizard",
+      "backend": "../crates/core/src/commands/optimize.rs",
+      "callers": [
+        "src/screens/Optimize.svelte"
+      ]
+    },
+    {
+      "command": "apply_performance_settings",
+      "api": "applyPerformanceSettings",
+      "gate": "TweaksWrite",
+      "backend": "../crates/core/src/commands/optimize.rs",
+      "callers": [
+        "src/screens/Optimize.svelte"
+      ]
+    },
+    {
+      "command": "get_tweaks",
+      "api": "getTweaks",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/tuning.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "write_setting",
+      "api": "writeSetting",
+      "gate": "TweaksWrite",
+      "backend": "../crates/core/src/commands/tuning.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "get_display_scaling",
+      "api": "getDisplayScaling",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/tuning.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "set_display_scaling",
+      "api": "setDisplayScaling",
+      "gate": "TweaksWrite",
+      "backend": "../crates/core/src/commands/tuning.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "get_private_dns",
+      "api": "getPrivateDns",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/tuning.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "set_private_dns",
+      "api": "setPrivateDns",
+      "gate": "TweaksWrite",
+      "backend": "../crates/core/src/commands/tuning.rs",
+      "callers": [
+        "src/screens/Tweaks.svelte"
+      ]
+    },
+    {
+      "command": "delete_snapshot",
+      "api": "deleteSnapshot",
+      "gate": "Snapshot",
+      "backend": "../crates/core/src/commands/snapshot.rs",
+      "callers": [
+        "src/screens/Snapshots.svelte"
+      ]
+    },
+    {
+      "command": "snapshot_dir_path",
+      "api": "snapshotDirPath",
+      "gate": "Snapshot",
+      "backend": "../crates/core/src/commands/snapshot.rs",
+      "callers": []
+    },
+    {
+      "command": "list_snapshots",
+      "api": "listSnapshots",
+      "gate": "Snapshot",
+      "backend": "../crates/core/src/commands/snapshot.rs",
+      "callers": [
+        "src/screens/Snapshots.svelte"
+      ]
+    },
+    {
+      "command": "save_snapshot",
+      "api": "saveSnapshot",
+      "gate": "Snapshot",
+      "backend": "../crates/core/src/commands/snapshot.rs",
+      "callers": [
+        "src/screens/Launcher.svelte",
+        "src/screens/Snapshots.svelte"
+      ]
+    },
+    {
+      "command": "apply_snapshot",
+      "api": "applySnapshot",
+      "gate": "Snapshot",
+      "backend": "../crates/core/src/commands/snapshot.rs",
+      "callers": [
+        "src/screens/Snapshots.svelte"
+      ]
+    },
+    {
+      "command": "preview_apply",
+      "api": "previewApply",
+      "gate": "Snapshot",
+      "backend": "../crates/core/src/commands/snapshot.rs",
+      "callers": [
+        "src/screens/Snapshots.svelte"
+      ]
+    },
+    {
+      "command": "list_remote_dir",
+      "api": "listRemoteDir",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "pull_file",
+      "api": "pullFile",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "backup_apk",
+      "api": "backupApk",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Backups.svelte"
+      ]
+    },
+    {
+      "command": "restore_apk_backup",
+      "api": "restoreApkBackup",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Backups.svelte"
+      ]
+    },
+    {
+      "command": "list_backups",
+      "api": "listBackups",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Backups.svelte"
+      ]
+    },
+    {
+      "command": "delete_backup",
+      "api": "deleteBackup",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Backups.svelte"
+      ]
+    },
+    {
+      "command": "find_files",
+      "api": "findFiles",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "delete_path",
+      "api": "deletePath",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "plugin:opener|open_url",
+      "api": "openUrl",
+      "gate": "Free",
+      "backend": "src/lib/api.ts (scoped opener plugin)",
+      "callers": [
+        "src/components/AppReportSheet.svelte",
+        "src/screens/Launcher.svelte"
+      ]
+    }
+  ]
+}

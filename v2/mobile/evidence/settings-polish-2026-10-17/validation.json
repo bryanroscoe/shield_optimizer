@@ -1,0 +1,23 @@
+{
+  "base": "5f4fc141ceda0307cb86b68bfc50433b9ffcc49d",
+  "source_sha256": {
+    "src/screens/Tweaks.svelte": "e6a009982f741b588366081513bdfe0fd12f52e5845eb2e04fcaba06aaa4348c",
+    "src-tauri/gen/android/app/src/main/java/com/atvoptimizer/mobile/MainActivity.kt": "2e52b363c297df7721c56a86b1ec254229be2582171caae6d786c040009b8c3c",
+    "tests/tweaks-tab.test.mjs": "c3cdd4118e3f61d799c7ed52db90d949df3c40865eeef652f99a923ee9a993aa"
+  },
+  "evidence_sha256": {
+    "dns-draft-simulated.png": "ea287a26e69dbfa1b1b873376777ab2731f54a5f2640a0c13dcd613f0283ea59",
+    "settings-simulated.webm": "2acb907e5862a6a3c4a89809f7f93b55b1336bb8a2e8f48c1890eb1a33c02acd",
+    "icon-optical-comparison.png": "db51eda861e36ca527120b3600d46c9fc09bc7724b9f72407cc7ff896beb7c30",
+    "settings-simulated.png": "fb09e617f0c21fe2b0e35311c3289edc4a715b7777be9f5181bcf52b8dabc398"
+  },
+  "full_mobile_tests": 229,
+  "focused_with_evidence": 19,
+  "svelte_errors": 0,
+  "svelte_warnings": 0,
+  "vite_build": "passed",
+  "android_debug_apk_build": "passed",
+  "physical_device_tested": false,
+  "icon_assets_modified": false,
+  "pinch_zoom_disabled": false
+}

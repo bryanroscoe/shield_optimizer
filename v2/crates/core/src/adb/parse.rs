@@ -454,58 +454,198 @@ pub fn parse_meminfo_summary(meminfo: &str) -> RamInfo {
     info
 }
 
-/// Parse the highest temperature reading from `dumpsys thermalservice`. The
-/// service emits a list of HardwareThrottlingService temps per zone; we want
-/// the hottest CPU-class zone since that's the one users care about for
-/// throttling. Returns `None` if no readable temp is present.
-pub fn parse_thermal_max_celsius(dumpsys_thermalservice: &str) -> Option<f64> {
-    static TEMP: LazyLock<Regex> = LazyLock::new(|| {
-        // Common formats across Android 9-13:
-        //   "Temperature{mValue=42.0, mType=0, mName=..."
-        //   "  CPU: temp=42.0 type=CPU"
-        Regex::new(r"mValue=([\d.]+)|temp=([\d.]+)").unwrap()
-    });
-
-    let mut max: Option<f64> = None;
-    for caps in TEMP.captures_iter(dumpsys_thermalservice) {
-        let raw = caps.get(1).or(caps.get(2)).map(|m| m.as_str())?;
-        let Ok(t) = raw.parse::<f64>() else { continue };
-        // Sanity check — drop obvious garbage like 0.0 or 999.0.
-        if !(10.0..120.0).contains(&t) {
-            continue;
-        }
-        max = Some(max.map_or(t, |m| m.max(t)));
-    }
-    max
+/// One selected reported temperature, with context from the same device report.
+/// Limits are optional reported values, never universal CPU health thresholds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TemperatureReading {
+    pub celsius: f64,
+    pub source: String,
+    pub sensor_name: Option<String>,
+    pub sensor_type: Option<String>,
+    pub status: Option<u8>,
+    pub throttling_c: Option<f64>,
+    pub shutdown_c: Option<f64>,
 }
 
-/// Fallback temperature from `dumpsys hardware_properties`, used when
-/// `thermalservice` reports nothing (older Shield firmware, e.g. 8.2.3,
-/// formats it differently or restricts it). Reads the `CPU temperatures:`
-/// and `GPU temperatures:` lines — `CPU temperatures: [32.0, 32.0, ...]` —
-/// and returns the hottest in-range reading. Ignores the *throttling* /
-/// *shutdown* / *vr* lines (those are limits, not the current temp).
-pub fn parse_hardware_properties_temp(dumpsys_hardware_properties: &str) -> Option<f64> {
-    static FLOAT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"-?\d+\.?\d*").unwrap());
-    let mut max: Option<f64> = None;
-    for line in dumpsys_hardware_properties.lines() {
-        let l = line.trim();
-        let is_current = (l.starts_with("CPU temperatures:") || l.starts_with("GPU temperatures:"))
-            && !l.contains("throttling")
-            && !l.contains("shutdown");
-        if !is_current {
+fn current_celsius(value: f64) -> bool {
+    // Preserve the previous parser's sanity range; this is not a health grade.
+    (10.0..120.0).contains(&value)
+}
+
+/// AOSP dumps cached entries before current HAL entries. Never compare their
+/// temperatures or statuses: the current section is authoritative even if empty.
+/// Cached-only dumps and older unsectioned formats retain an explicit fallback.
+fn thermal_temperature_records(text: &str) -> (&str, &'static str) {
+    static CURRENT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?mi)^[ \t]*Current temperatures from HAL[ \t]*:[ \t]*").unwrap()
+    });
+    static CACHED: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?mi)^[ \t]*Cached temperatures[ \t]*:[ \t]*").unwrap());
+    static NEXT_SECTION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?mi)^[ \t]*(?:Cached temperatures|HAL Ready|HAL connection|Thermal Status|Temperature thresholds|Current (?:temperatures|cooling devices|temperature thresholds) from HAL)[ \t]*:").unwrap()
+    });
+    let section = CURRENT
+        .find(text)
+        .map(|heading| (heading, "thermalservice_current"))
+        .or_else(|| {
+            CACHED
+                .find(text)
+                .map(|heading| (heading, "thermalservice_cached"))
+        });
+    let Some((heading, source)) = section else {
+        return (text, "thermalservice");
+    };
+    let records = &text[heading.end()..];
+    let end = NEXT_SECTION
+        .find(records)
+        .map_or(records.len(), |next| next.start());
+    (&records[..end], source)
+}
+
+/// The hottest readable reported Celsius sensor, not necessarily a CPU sensor.
+/// Thermal HAL BCL types 6–8 report mV/mA/percent, and must not become °C.
+pub fn parse_thermal_reading(text: &str) -> Option<TemperatureReading> {
+    static RECORD: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\bTemperature\{[^}]*\}|(?m)^[^{}\n]*(?:mValue=|temp=)[^{}\n]*$").unwrap()
+    });
+    static VALUE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?:mValue=|temp=)([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)(?:[,}\s]|$)")
+            .unwrap()
+    });
+    static TYPE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?:mType|type)=([^,\s}]+)").unwrap());
+    static NAME: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r#"(?:mName|name)=("[^"]*"|[^,}\n]+)"#).unwrap());
+    static STATUS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"mStatus=(\d+)(?:[,}\s]|$)").unwrap());
+    let mut hottest: Option<TemperatureReading> = None;
+    let (records, source) = thermal_temperature_records(text);
+    for record in RECORD.find_iter(records) {
+        let record = record.as_str();
+        let Some(value) = VALUE
+            .captures(record)
+            .and_then(|c| c[1].parse::<f64>().ok())
+        else {
+            continue;
+        };
+        if !current_celsius(value) {
             continue;
         }
-        for m in FLOAT.find_iter(l) {
-            let Ok(t) = m.as_str().parse::<f64>() else {
+        let raw_type = TYPE.captures(record).map(|c| c[1].to_string());
+        if matches!(
+            raw_type.as_deref(),
+            Some("6" | "7" | "8" | "BCL_VOLTAGE" | "BCL_CURRENT" | "BCL_PERCENTAGE")
+        ) {
+            continue;
+        }
+        let sensor_type = raw_type.map(|kind| match kind.as_str() {
+            "0" => "CPU".to_string(),
+            "1" => "GPU".to_string(),
+            "2" => "Battery".to_string(),
+            "3" => "Skin".to_string(),
+            "4" => "USB port".to_string(),
+            "5" => "Power amplifier".to_string(),
+            "9" => "NPU".to_string(),
+            _ => kind,
+        });
+        if hottest
+            .as_ref()
+            .is_some_and(|current| current.celsius >= value)
+        {
+            continue;
+        }
+        hottest = Some(TemperatureReading {
+            celsius: value,
+            source: source.to_string(),
+            sensor_name: NAME
+                .captures(record)
+                .map(|c| c[1].trim().trim_matches('"').to_string())
+                .filter(|s| !s.is_empty()),
+            sensor_type,
+            status: STATUS
+                .captures(record)
+                .and_then(|c| c[1].parse::<u8>().ok())
+                .filter(|s| *s <= 6),
+            throttling_c: None,
+            shutdown_c: None,
+        });
+    }
+    hottest
+}
+
+/// Legacy scalar retained for desktop/report compatibility.
+pub fn parse_thermal_max_celsius(text: &str) -> Option<f64> {
+    parse_thermal_reading(text).map(|reading| reading.celsius)
+}
+
+/// The framework-wide status is distinct from the selected sensor's status.
+pub fn parse_thermal_status(text: &str) -> Option<u8> {
+    static STATUS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?mi)^\s*Thermal Status:\s*([0-6])\s*$").unwrap());
+    STATUS.captures(text).and_then(|c| c[1].parse().ok())
+}
+
+fn temperature_array(text: &str, label: &str) -> Option<Vec<Option<f64>>> {
+    let line = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix(label))?;
+    let (values, _) = line.trim().strip_prefix('[')?.split_once(']')?;
+    if values.trim().is_empty() {
+        return Some(Vec::new());
+    }
+    // Keep missing/nonfinite slots: dropping them would misalign sensor limits.
+    Some(
+        values
+            .split(',')
+            .map(|v| v.trim().parse::<f64>().ok().filter(|v| v.is_finite()))
+            .collect(),
+    )
+}
+
+/// Current CPU/GPU arrays only. Limits are paired by family and index only when
+/// their array lengths match; a missing/NaN slot must never borrow a neighbour.
+pub fn parse_hardware_properties_reading(text: &str) -> Option<TemperatureReading> {
+    let mut hottest: Option<TemperatureReading> = None;
+    for kind in ["CPU", "GPU"] {
+        let Some(values) = temperature_array(text, &format!("{kind} temperatures:")) else {
+            continue;
+        };
+        let throttle = temperature_array(text, &format!("{kind} throttling temperatures:"));
+        let shutdown = temperature_array(text, &format!("{kind} shutdown temperatures:"));
+        let limit = |limits: &Option<Vec<Option<f64>>>, index: usize| -> Option<f64> {
+            limits
+                .as_ref()
+                .filter(|limits| limits.len() == values.len())
+                .and_then(|limits| limits[index])
+                .filter(|value| *value > 0.0)
+        };
+        for (index, value) in values.iter().enumerate() {
+            let Some(value) = value.filter(|v| current_celsius(*v)) else {
                 continue;
             };
-            if (10.0..120.0).contains(&t) {
-                max = Some(max.map_or(t, |cur: f64| cur.max(t)));
+            if hottest
+                .as_ref()
+                .is_some_and(|reading| reading.celsius >= value)
+            {
+                continue;
             }
+            hottest = Some(TemperatureReading {
+                celsius: value,
+                source: "hardware_properties".to_string(),
+                sensor_name: Some(format!("{kind} temperatures[{index}]")),
+                sensor_type: Some(kind.to_string()),
+                status: None,
+                throttling_c: limit(&throttle, index),
+                shutdown_c: limit(&shutdown, index),
+            });
         }
     }
-    max
+    hottest
+}
+
+/// Legacy scalar retained for desktop/report compatibility.
+pub fn parse_hardware_properties_temp(text: &str) -> Option<f64> {
+    parse_hardware_properties_reading(text).map(|reading| reading.celsius)
 }
 
 /// Disk usage parsed from `df -h /data`.
@@ -1405,6 +1545,105 @@ Inter-|   Receive                                                |  Transmit\n\
         assert_eq!(info.free_mb, Some(752));
         assert_eq!(info.used_mb, Some(2125));
         assert_eq!(info.swap_mb, Some(512));
+    }
+
+    #[test]
+    fn thermal_current_hal_wins_equal_temperature_with_new_status() {
+        let text = "Cached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: true\nCurrent temperatures from HAL:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=4}\nCurrent cooling devices from HAL:";
+        let reading = parse_thermal_reading(text).unwrap();
+        assert_eq!(reading.celsius, 80.0);
+        assert_eq!(reading.status, Some(4));
+        assert_eq!(reading.source, "thermalservice_current");
+    }
+
+    #[test]
+    fn thermal_current_hal_wins_even_when_cache_is_hotter() {
+        let text = "Cached temperatures:\nTemperature{mValue=100, mType=0, mName=cpu0, mStatus=5}\nHAL Ready: true\nCurrent temperatures from HAL:\nTemperature{mValue=70, mType=0, mName=cpu0, mStatus=1}\nCurrent cooling devices from HAL:";
+        let reading = parse_thermal_reading(text).unwrap();
+        assert_eq!(reading.celsius, 70.0);
+        assert_eq!(reading.status, Some(1));
+        assert_eq!(parse_thermal_max_celsius(text), Some(70.0));
+    }
+
+    #[test]
+    fn thermal_empty_current_section_does_not_resurrect_cache_but_legacy_falls_back() {
+        let cached = "Cached temperatures:\nTemperature{mValue=80, mType=0, mName=cpu0, mStatus=0}\nHAL Ready: false";
+        assert_eq!(parse_thermal_max_celsius(cached), Some(80.0));
+        assert_eq!(
+            parse_thermal_reading(cached).unwrap().source,
+            "thermalservice_cached"
+        );
+        let empty = format!("{cached}\nCurrent temperatures from HAL:\nCurrent cooling devices from HAL:\nTemperature{{mValue=99, mType=0, mName=not-a-temperature-section, mStatus=5}}");
+        assert_eq!(parse_thermal_reading(&empty), None);
+        assert_eq!(parse_thermal_max_celsius("mValue=42.0"), Some(42.0));
+    }
+
+    #[test]
+    fn thermal_reading_preserves_sensor_context_and_excludes_non_celsius_objects() {
+        let text = "Thermal Status: 3\n\
+          Temperature{mValue=30.0, mType=0, mName=cpu0, mStatus=0}\n\
+          Temperature{mValue=100.0, mType=1, mName=gpu0, mStatus=4}\n\
+          Temperature{mValue=119.0, mType=8, mName=battery-percent, mStatus=5}\n\
+          CoolingDevice{mValue=110, mType=0, mName=fan}\n\
+          TemperatureThreshold{mValue=118, mType=0, mName=cpu-limit}";
+        let reading = parse_thermal_reading(text).unwrap();
+        assert_eq!(reading.celsius, 100.0);
+        assert_eq!(reading.sensor_name.as_deref(), Some("gpu0"));
+        assert_eq!(reading.sensor_type.as_deref(), Some("GPU"));
+        assert_eq!(reading.status, Some(4));
+        assert_eq!(parse_thermal_status(text), Some(3));
+        assert_eq!(reading.throttling_c, None);
+        assert_eq!(parse_thermal_max_celsius(text), Some(100.0));
+    }
+
+    #[test]
+    fn thermal_unknown_context_and_invalid_status_never_become_cpu_or_normal() {
+        let reading = parse_thermal_reading("mValue=42.0").unwrap();
+        assert_eq!(reading.sensor_name, None);
+        assert_eq!(reading.sensor_type, None);
+        assert_eq!(reading.status, None);
+        assert_eq!(parse_thermal_status("Thermal Status: 10"), None);
+        assert_eq!(parse_thermal_status("Thermal Status: -1"), None);
+        assert_eq!(parse_thermal_status("Thermal Status: 0"), Some(0));
+        assert_eq!(
+            parse_thermal_reading("mValue=NaN\nmValue=Infinity\nmValue=1e3\nmValue=32junk"),
+            None
+        );
+        assert_eq!(
+            parse_thermal_max_celsius("CPU: temp=3e1 type=CPU"),
+            Some(30.0)
+        );
+        assert_eq!(
+            parse_thermal_max_celsius("mValue=10\nmValue=119.9\nmValue=120"),
+            Some(119.9)
+        );
+        let unknown =
+            parse_thermal_reading("Temperature{mValue=40, mName=\"vendor,zone\", mStatus=99}")
+                .unwrap();
+        assert_eq!(unknown.sensor_name.as_deref(), Some("vendor,zone"));
+        assert_eq!(unknown.status, None);
+    }
+
+    #[test]
+    fn hardware_reading_pairs_limits_by_family_index_and_exact_length() {
+        let reading = parse_hardware_properties_reading("CPU temperatures: [NaN, 100]\nCPU throttling temperatures: [70, 89]\nCPU shutdown temperatures: [102]\nGPU temperatures: [30]\nGPU throttling temperatures: [50]").unwrap();
+        assert_eq!(reading.celsius, 100.0);
+        assert_eq!(reading.sensor_name.as_deref(), Some("CPU temperatures[1]"));
+        assert_eq!(reading.throttling_c, Some(89.0));
+        assert_eq!(reading.shutdown_c, None);
+        assert_eq!(reading.status, None);
+        let gpu = parse_hardware_properties_reading("CPU temperatures: [40]\nCPU throttling temperatures: [89]\nGPU temperatures: [100]\nGPU throttling temperatures: []").unwrap();
+        assert_eq!(gpu.sensor_type.as_deref(), Some("GPU"));
+        assert_eq!(gpu.throttling_c, None);
+        assert_eq!(
+            parse_hardware_properties_reading(
+                "CPU throttling temperatures: [89]\nCPU shutdown temperatures: [102]"
+            ),
+            None
+        );
+        let missing = parse_hardware_properties_reading("CPU temperatures: [30, 100]\nCPU throttling temperatures: [89, NaN]\nCPU shutdown temperatures: [102, -1]").unwrap();
+        assert_eq!(missing.throttling_c, None);
+        assert_eq!(missing.shutdown_c, None);
     }
 
     #[test]
