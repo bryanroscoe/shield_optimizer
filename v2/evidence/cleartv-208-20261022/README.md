@@ -1,3 +1,5 @@
+> Historical evidence for PR209. Its curated entry is superseded by the launcher curation correction; these captures do not describe the current featured list. Generic installed HOME support remains available.
+
 # ClearTV Islamic shared launcher identity — issue 208
 
 The catalog addition targets main `c78176d5ea640a0e230633a3f0b0bc0720c01af4`. Mobile was at `b7bd2c0b50fc774c3ffad10ee67d95c9c7aa4a79`; both launcher catalogs were identical. One shared catalog is changed, without a second mobile edit. Existing PR168/207 work is retained; pending PR180 and other worktrees are untouched.

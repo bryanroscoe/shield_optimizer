@@ -110,7 +110,7 @@ jobs:
           body+="    - **GUI:** System Settings → Privacy & Security → scroll to the \"ATV Optimizer was blocked\" message → **Open Anyway** → enter password"$'\n'
           body+="- **Windows** (SmartScreen): \"More info\" → \"Run anyway\"."$'\n'
           body+="- **Linux**: \`chmod +x ATV.Optimizer*.AppImage\` before running."$'\n\n'
-          body+="See the [v2 README](https://github.com/${{ github.repository }}/blob/main/v2/README.md) for setup and feature docs."
+          body+="See the [README](https://github.com/${{ github.repository }}#readme) for setup and feature docs."
 
           # Emit as a multi-line output.
           {

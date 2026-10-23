@@ -2,8 +2,8 @@
 
 Two products live in this tree:
 
-- **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). Still maintained.
-- **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`). Released on `v2-*` tags via `.github/workflows/v2-release.yml`.
+- **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy** since 2026-10-22: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
+- **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`), the official product, shipped as **ATV Optimizer**. Released on `v2-*` tags via `.github/workflows/v2-release.yml`. The root `README.md` is the user-facing page for it; `v2/README.md` is the developer guide.
 
 The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
 
@@ -141,7 +141,13 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 ## Conventions
 
 - **Commits**: always create a new commit. Never `--amend` unless explicitly asked. No `Co-Authored-By` trailers on commits.
-- **PRs**: short summary, no checklists or boilerplate. Don't add test plans to the body.
+- **PRs**: keep the problem/behavior summary short. Agent-authored PRs must complete the evidence checklist in `.github/pull_request_template.md` and follow [CONTRIBUTING.md](CONTRIBUTING.md#agent-authored-pr-evidence). Include completed validation evidence, not boilerplate test plans. This rule does not impose retroactive requirements on external contributor PRs.
+- **PR screenshots and videos are attached with `gh --attach`** (gh ≥ 2.99): `gh pr create`,
+  `gh pr edit <n>` or `gh pr comment <n>` with `--attach ./file.webm` (repeatable; `'./shot.png#alt text'`
+  for images). Attachments get `user-attachments` URLs that GitHub renders inline, videos as a player.
+  A body that already references `./file` has that reference rewritten. Never link evidence by a
+  repo-relative path (`v2/evidence/…`): in a PR it resolves under `/pull/<n>/` and 404s. Branch
+  links break when the branch is deleted. Committing evidence to the repo is optional; attaching it is not.
 - **Roadmap markers**: closing a roadmap or parity item updates its status in the same commit
   (`v2/ATVTOOLS-PARITY.md`, `v2/ATV-OPTIMIZER-ANDROID-PLAN.md`, `v2/mobile/BACKLOG.md`). Docs that
   claim shipped work is unbuilt send the next reader to rebuild it — that has happened here.

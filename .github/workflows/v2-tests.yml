@@ -230,7 +230,7 @@ jobs:
 
       - name: Launcher rows
         working-directory: v2
-        run: CLEARTV_EVIDENCE=1 npm run test:launcher-rows
+        run: LAUNCHER_CURATION_EVIDENCE=1 npm run test:launcher-rows
 
       - name: Launcher feedback
         working-directory: v2
@@ -255,8 +255,8 @@ jobs:
           path: |
             v2/screenshots/frames/
             v2/screenshots/frames-light/
-            v2/evidence/cleartv-208-20261022/*-simulated.png
-            v2/evidence/cleartv-208-20261022/launcher-states-simulated.webm
+            v2/evidence/launcher-curation-2026-10-23/*-simulated.png
+            v2/evidence/launcher-curation-2026-10-23/launcher-states-simulated.webm
             v2/evidence/launcher-feedback-212/*-simulated.png
             v2/evidence/launcher-feedback-212/launcher-feedback-simulated.webm
           retention-days: 7

@@ -150,46 +150,55 @@ async function exercise({ browser, base }) {
   );
 }
 
-async function clearTvStates({ browser, base }) {
+async function genericHomeStates({ browser, base }) {
   const packageId = "com.gathin.tvhome";
-  const name = "ClearTV Islamic / CleanYourTV";
-  const source = "https://github.com/Pokka99/cleartv-Islamic";
-  const evidence = process.env.CLEARTV_EVIDENCE === "1";
-  const dir = join(V2, "evidence/cleartv-208-20261022");
+  const name = packageId;
+  const evidence = process.env.LAUNCHER_CURATION_EVIDENCE === "1";
+  const dir = join(V2, "evidence/launcher-curation-2026-10-23");
   if (evidence) await mkdir(dir, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...(evidence ? { recordVideo: { dir: join(dir, "raw"), size: { width: 1280, height: 900 } } } : {}) });
   const page = await context.newPage();
   try {
-    await page.goto(base, { waitUntil: "networkidle" });
     for (const state of ["missing", "installed", "disabled", "current"]) {
-      await page.evaluate(state => localStorage.setItem("shieldopt.demo.cleartvState", state), state);
       await page.goto(base, { waitUntil: "networkidle" });
+      await page.evaluate(() => {
+        const original = window.__TAURI_INTERNALS__.invoke;
+        window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+          const result = await original(command, args);
+          const state = window.genericHomeState;
+          if (command === "list_launchers" && state && state !== "missing") return [...result, {
+            entry: { name: "com.gathin.tvhome", package: "com.gathin.tvhome", source_url: null, disable_with: [] },
+            installed: true, enabled: state !== "disabled", stock: false, other: true, setup_helper: false,
+          }];
+          if (command === "current_launcher" && state === "current") return { package: "com.gathin.tvhome", activity: ".MainActivity" };
+          return result;
+        };
+      });
+      await page.evaluate(state => { window.genericHomeState = state; }, state);
       await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
       await page.getByRole("tab", { name: "Launcher" }).click();
       const row = page.locator(".launcher-list li").filter({ has: page.locator(".launcher-pkg", { hasText: packageId }) });
-      await row.waitFor();
-      assert.equal(await row.count(), 1);
-      assert.equal(await row.locator(".launcher-name").innerText(), name);
-      const tags = await row.locator(".tag").allTextContents();
-      assert.equal(tags.includes("MISSING"), state === "missing");
-      assert.equal(tags.includes("INSTALLED"), state !== "missing");
-      assert.equal(tags.includes("DISABLED"), state === "disabled");
-      assert.equal(tags.includes("ACTIVE"), state === "current");
-      assert.equal(tags.includes("HOME APP"), false);
-      assert.equal(await row.getByRole("button", { name: "Enable", exact: true }).count(), state === "disabled" ? 1 : 0);
-      assert.equal(await row.getByRole("button", { name: "Set as default", exact: true }).count(), state === "installed" ? 1 : 0);
-      assert.equal(await row.getByRole("button", { name: "Enable & set default", exact: true }).count(), state === "disabled" ? 1 : 0);
-      assert.equal(await row.locator(".current-default").count(), state === "current" ? 1 : 0);
-      await page.evaluate(() => {
-        const original = window.__TAURI_INTERNALS__.invoke;
-        window.clearTvCalls = [];
-        window.__TAURI_INTERNALS__.invoke = (command, args) => { window.clearTvCalls.push({ command, args }); return original(command, args); };
-      });
-      await row.getByRole("button", { name: `Open the developer's page for ${name} in your browser`, exact: true }).click();
-      assert.deepEqual(await page.evaluate(() => clearTvCalls.filter(c => c.command === "plugin:opener|open_url").map(c => c.args.url)), [source]);
-      assert.deepEqual(await page.evaluate(() => clearTvCalls.map(c => c.command)), ["plugin:opener|open_url"], "the source link must not issue any device or launcher command");
+      await page.locator(".launcher-list li").first().waitFor();
+      if (state === "missing") {
+        assert.equal(await row.count(), 0, "uncurated missing packages have no recommendation");
+      } else {
+        await row.waitFor();
+        assert.equal(await row.count(), 1);
+        assert.equal(await row.locator(".launcher-name").innerText(), name);
+        const tags = await row.locator(".tag").allTextContents();
+        assert.equal(tags.includes("MISSING"), state === "missing");
+        assert.equal(tags.includes("INSTALLED"), false);
+        assert.equal(tags.includes("DISABLED"), state === "disabled");
+        assert.equal(tags.includes("ACTIVE"), state === "current");
+        assert.equal(tags.includes("HOME APP"), true);
+        assert.equal(await row.getByRole("button", { name: "Enable", exact: true }).count(), state === "disabled" ? 1 : 0);
+        assert.equal(await row.getByRole("button", { name: "Set as default", exact: true }).count(), state === "installed" ? 1 : 0);
+        assert.equal(await row.getByRole("button", { name: "Enable & set default", exact: true }).count(), state === "disabled" ? 1 : 0);
+        assert.equal(await row.locator(".current-default").count(), state === "current" ? 1 : 0);
+        assert.equal(await row.getByRole("button", { name: /Open the developer/ }).count(), 0);
+      }
       if (evidence) {
-        await row.scrollIntoViewIfNeeded();
+        if (state !== "missing") await row.scrollIntoViewIfNeeded();
         await page.evaluate(state => {
           const label = document.createElement("div"); label.textContent = `SIMULATED CATALOG STATE: ${state} — no real device`;
           label.style.cssText = "position:fixed;top:0;right:0;z-index:99999;padding:8px;background:#1a2540;color:white;font:14px sans-serif";
@@ -203,7 +212,7 @@ async function clearTvStates({ browser, base }) {
     await context.close();
     if (evidence) await video.saveAs(join(dir, "launcher-states-simulated.webm"));
   } finally { await context.close(); }
-  console.log("ClearTV shared identity: missing/installed/disabled/current states, single row, correct source URL and no mutation pass.");
+  console.log("Uncurated package: absent recommendation and generic installed/disabled/current HOME states pass.");
 }
 
 async function main() {
@@ -216,7 +225,7 @@ async function main() {
     await server.listen();
     browser = await chromium.launch();
     await exercise({ browser, base: serverURL(server) });
-    await clearTvStates({ browser, base: serverURL(server) });
+    await genericHomeStates({ browser, base: serverURL(server) });
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));
     await server?.close().catch((e) => console.error("Vite cleanup failed", e));
