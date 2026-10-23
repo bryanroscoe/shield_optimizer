@@ -2,8 +2,7 @@
   // The ONE find-remote control. Rings an Nvidia Shield remote's locator.
   // Only renders for Shield devices (the underlying `am start` is Shield-only
   // and errors on Google TV), uses a consistent `settings_remote` icon, and
-  // confirms with a styled in-app dialog before ringing — replacing the six
-  // divergent copies that were scattered across the screens.
+  // confirms with a styled in-app dialog before ringing.
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";

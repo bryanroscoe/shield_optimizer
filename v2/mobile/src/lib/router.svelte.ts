@@ -1,4 +1,4 @@
-// A small screen-stack router replacing the old single `currentScreen` string.
+// A small screen-stack router.
 // Navigation pushes/replaces/pops a stack; the Android system/gesture back
 // button is intercepted via the webview history (popstate) so it pops the
 // stack instead of exiting the app on the first press.

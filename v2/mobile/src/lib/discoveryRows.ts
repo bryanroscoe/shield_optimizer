@@ -154,7 +154,7 @@ export function buildDiscoveryRows(
   const rows: DiscoveryRow[] = [];
   // Saved TVs this scan identified by their advertised serial. They are named
   // on their discovery row, so they must not also appear as a saved-endpoint
-  // row further down -- that is what produced duplicate reconnect entries.
+  // row further down, which would list the same TV twice.
   const verified = new Set<SavedDevice>();
   for (const group of hosts.values()) {
     const connectPorts = [...group.connectPorts].sort((a, b) => a - b);

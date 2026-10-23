@@ -69,8 +69,8 @@ export const APP_REPORT_NOTE_MAX = 1000;
 const NAME_MAX = 120;
 
 /// A device that reported nothing about being a TV is "unknown", never
-/// promoted to a family it did not claim. A missing `tv_evidence` (an older
-/// core) reads as unknown too.
+/// promoted to a family it did not claim. A missing `tv_evidence` reads as
+/// unknown too.
 export function reportFamily(type: DeviceType, tv: TvEvidence | undefined): ReportDeviceFamily {
   if (type === "shield") return "shield";
   if (type === "google_tv") return "google_tv";

@@ -52,7 +52,7 @@
   });
 
   // The shared health cache is the one source; a second per-device sweep here
-  // used to profile the connected TV twice before the card painted.
+  // would profile the connected TV twice before the card painted.
   const health = $derived(session.health);
 
   const ramFree = $derived(
@@ -97,9 +97,9 @@
     try {
       const r = await session.connect(d.host, d.connectPort);
       if (r.ok) {
-        // The global identity-note banner in App.svelte owns showing a
-        // mismatch (it survives this navigate; a toast shown here would not
-        // -- #154 follow-up). Suppress only the now-misleading success toast.
+        // The global identity-note toast in App.svelte owns showing a
+        // mismatch (it survives this navigate; a toast shown here would not,
+        // #154). Suppress only the now-misleading success toast.
         if (!session.identityNote) {
           showToast(`Connected to ${session.deviceLabel}.`, "success");
         }
@@ -128,7 +128,7 @@
       if (!r.ok) {
         showToast(r.message || "Couldn't reconnect.", "error");
       } else if (!session.identityNote) {
-        // The global identity-note banner in App.svelte owns showing a
+        // The global identity-note toast in App.svelte owns showing a
         // mismatch; suppress only the now-misleading success toast here.
         showToast("Reconnected.", "success");
       }

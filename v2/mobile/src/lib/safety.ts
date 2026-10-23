@@ -7,7 +7,7 @@
 //
 // `Safe` only ever comes from the reviewed app list, never as a fallback —
 // that is what separates "we looked at this and rated it" from "we have no
-// idea what this is", and both were previously collapsed into Unknown.
+// idea what this is".
 
 import type { Safety } from "./types";
 
@@ -116,11 +116,10 @@ export function reasonOf(safety: Safety | null | undefined): string {
 }
 
 /// One sentence stating what the engine said about a package, for the confirm
-/// dialog the user reads before a removal. Derived from the kind rather than
-/// written per call site: a two-way `unknown ? … : "Caution"` ternary over this
-/// four-valued union told the user the engine had "marked this Caution" about
-/// packages it had actually rated Safe — a false claim about our own verdict,
-/// at the moment of consent.
+/// dialog the user reads before a removal. Derived from all four kinds rather
+/// than written per call site, so the prompt never claims a verdict the engine
+/// did not give (such as Caution for a package it rated Safe) at the moment of
+/// consent.
 export function verdictSummary(safety: Safety | null | undefined): string {
   switch (safety?.kind) {
     case "safe":

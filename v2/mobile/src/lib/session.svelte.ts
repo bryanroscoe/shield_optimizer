@@ -3,8 +3,7 @@
 // the Dashboard and Diagnostics screens don't each re-fetch it. Screens import
 // `session` instead of receiving prop-drilled `any`.
 //
-// The one canonical `deviceLabel` lives here (via deviceLabelOf) — the three
-// old divergent derivations in Onboarding/Dashboard/Remote are gone.
+// The one canonical `deviceLabel` lives here (via deviceLabelOf).
 
 import { api } from "./api";
 import { onConnectionLost, setConnectionGeneration } from "./connectionEvents";
@@ -283,8 +282,7 @@ class Session {
           // explicit reconnect -- so it needs the same identity check before
           // being trusted as live. Without it, a different id-less TV that
           // took over this address mid-session would be silently treated as
-          // "the" saved TV reconnecting, the same bug #154 fixed for an
-          // explicit connect.
+          // "the" saved TV reconnecting (#154).
           if (live) this.rememberCurrentDevice();
           this.liveness = live ? "live" : "lost";
           if (live) this.recoveryAttempted = false;
@@ -316,7 +314,7 @@ class Session {
     try {
       this.entitlement = await api.getEntitlement();
     } catch {
-      // Leave as-is (defaults to free) if the command isn't available yet.
+      // Leave as-is (defaults to free) if the command fails.
     }
   }
 

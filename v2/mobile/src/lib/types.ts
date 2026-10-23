@@ -299,8 +299,8 @@ export interface TweaksState {
   window_animation_scale: string | null;
   transition_animation_scale: string | null;
   animator_duration_scale: string | null;
-  /// `global.background_process_limit`, written by earlier versions. Android
-  /// ignores it (#99); read only so a leftover value can be removed.
+  /// `global.background_process_limit`. Android ignores it (#99); it is read
+  /// only so a leftover value can be removed.
   background_process_limit: string | null;
   /// The cached background process limit Android is applying
   /// (CUR_MAX_CACHED_PROCESSES), or null when the device did not report it.
@@ -455,7 +455,8 @@ export interface BackupEntry {
   path: string;
   size_bytes: number;
   apk_count: number;
-  /// False for base-only backups created before split-APK bundles existed.
+  /// False for a legacy base-only APK, which may lack its splits and cannot be
+  /// restored.
   complete: boolean;
   /// ISO-8601 (UTC) of the backup file's last-modified time.
   saved_at: string;
@@ -463,9 +464,6 @@ export interface BackupEntry {
 
 // ---- Saved-TV persistence (mobile-only, localStorage) ----
 
-/// A previously-paired TV remembered on this phone so the app can offer a
-/// one-tap reconnect on launch (design §1.0). The RSA pairing key is persisted
-/// Kotlin-side, so a reconnect is silent — this is just app-side bookkeeping.
 /// A soft identity hint captured from a device's reported properties. Never
 /// proof of identity -- see `deviceFingerprintOf`/`fingerprintMismatch` in
 /// `identity.ts` -- only ever used to rule an id-less match *out*.
@@ -478,6 +476,9 @@ export interface DeviceFingerprint {
   name?: string;
 }
 
+/// A previously-paired TV remembered on this phone so the app can offer a
+/// one-tap reconnect on launch (design §1.0). The RSA pairing key is persisted
+/// Kotlin-side, so a reconnect is silent — this is just app-side bookkeeping.
 export interface SavedDevice {
   host: string;
   connectPort: number;
@@ -503,7 +504,7 @@ export interface SavedDevice {
 /// Canonical device label — prefer the friendly name, then the reported
 /// name, then model, then a generic fallback. This is the ONLY place a
 /// device label should be derived; every screen reads it via the session
-/// store so the three old divergent derivations stay dead.
+/// store.
 export function deviceLabelOf(device: Device | null): string {
   return (
     device?.properties?.friendly_name ||

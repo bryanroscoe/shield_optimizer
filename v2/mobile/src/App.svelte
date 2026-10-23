@@ -63,7 +63,7 @@
   // user is already sitting on any screen, with no mount event to hang a
   // per-screen consumer off of. Watching it here means the note is shown the
   // moment it is set no matter what screen is open, instead of waiting for
-  // the user to happen to leave and revisit Dashboard (#154 follow-up).
+  // the user to happen to leave and revisit Dashboard (#154).
   $effect(() => {
     if (!session.identityNote) return;
     const timer = setTimeout(() => {
