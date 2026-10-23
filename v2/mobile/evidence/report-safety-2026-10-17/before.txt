@@ -1,0 +1,50 @@
+✖ report safety: failed sheet overrides old catalog for com.google.android.katniss and retries honestly (2085.82ms)
+✖ report safety: failed sheet overrides old catalog for com.example.launcherguard and retries honestly (832.291833ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3222.762958
+
+✖ failing tests:
+
+test at tests/apps-catalog.test.mjs:510:62
+✖ report safety: failed sheet overrides old catalog for com.google.android.katniss and retries honestly (2085.82ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'caution'
+  - 'unavailable'
+
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/apps-catalog.test.mjs:519:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'caution',
+    expected: 'unavailable',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at tests/apps-catalog.test.mjs:510:62
+✖ report safety: failed sheet overrides old catalog for com.example.launcherguard and retries honestly (832.291833ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + 'never_disable'
+  - 'unavailable'
+
+      at TestContext.<anonymous> (file:///Users/bryanroscoe/Documents/Codex/2026-09-30/task/shield-mobile-report-readability-20261017/v2/mobile/tests/apps-catalog.test.mjs:519:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'never_disable',
+    expected: 'unavailable',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

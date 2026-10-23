@@ -61,4 +61,8 @@ From M2 onward, add hardware validation for pairing, reconnect, screencap, shell
 
 - Desktop rebrand is out of scope.
 - Mobile MVP excludes APK sideload, files, backup/clone, screen mirror, and mouse mode.
+  Status 2026-10-06: Files (browse, pull to the phone, delete under `/sdcard`, Find app backups)
+  and APK backup/restore have since shipped on mobile, unverified on a device. Phone-to-TV upload
+  (needs an Android document picker), APK sideload, cloning, screen mirror and mouse mode are
+  still not built. See `mobile/HANDOFF.md`.
 - Existing untracked root files (`atv-optimizer-android-strategy.html`, root `package.json`, root `package-lock.json`, root `node_modules/`) are not part of this implementation unless explicitly added later.

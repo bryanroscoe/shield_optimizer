@@ -1,0 +1,23 @@
+npm notice run atv-optimizer-mobile@0.1.0 build
+npm notice run vite build
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+vite v6.4.3 building for production...
+transforming...
+✓ 188 modules transformed.
+✗ Build failed in 696ms
+error during build:
+[vite:esbuild] failed to resolve "extends":"./.svelte-kit/tsconfig.json" in /Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/tsconfig.json
+file: /Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/src/lib/demo-mock.ts
+    at resolveExtends (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:8739:8)
+    at parseExtends (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:8674:24)
+    at parse$e (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:8531:23)
+    at async loadTsconfigJsonForFile (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:9360:38)
+    at async transformWithEsbuild (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:9088:60)
+    at async Object.transform (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/vite/dist/node/chunks/dep-Dm0c1Wj2.js:9199:24)
+    at async transform (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/rollup/dist/es/shared/node-entry.js:21726:16)
+    at async ModuleLoader.addModuleSource (file:///Users/bryanroscoe/Developer/shield-mobile-fixture-build-20261023/v2/mobile/node_modules/rollup/dist/es/shared/node-entry.js:21946:36)

@@ -1,0 +1,480 @@
+npm notice run atv-optimizer-mobile@0.1.0 test
+npm notice run node --test --test-concurrency=1 tests/*.test.mjs
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ a disabled katniss is found by package and by name, and can be re-enabled (1818.125792ms)
+✔ not-installed recognised apps hide by default and can be revealed (369.959542ms)
+✔ long-press opens the action menu without opening the sheet; a tap still opens it (1023.531834ms)
+✔ menu Disable goes through the safety lookup and confirm, never straight to the TV (458.626625ms)
+✔ report opens a prefilled GitHub form through the opener (798.4135ms)
+✔ without an opener, report falls back to copy and a link to copy (789.818916ms)
+✔ rows, chips and labels fit a 384px screen (143.635792ms)
+✔ long report keyboard wrap reveals its focused actions without moving the locked page (783.741417ms)
+✔ menu Report returns focus to its original app row after closing (473.044542ms)
+✔ report includes the successful APK fallback visible in the detail sheet (794.3695ms)
+✔ APK report keeps exact 0 bytes, unknown data/cache and identical copied JSON (812.90775ms)
+✔ APK report keeps exact 1234567 bytes, unknown data/cache and identical copied JSON (825.768042ms)
+✔ diskstats remains the report source when a complete measured row exists (789.623625ms)
+✔ APK report keeps storage unknown for a pending fallback (785.274583ms)
+✔ APK report keeps storage unknown for a failed fallback (785.680042ms)
+✔ APK report keeps storage unknown for a missing fallback (798.327ms)
+✔ APK report keeps storage unknown for a negative fallback (791.361125ms)
+✔ remeasure invalidates a successful APK receipt and ignores an older fallback reply (1211.507583ms)
+✔ APK fallback cannot cross a same-endpoint reconnect (1214.733416ms)
+✔ APK fallback cannot cross a TV switch (1216.586125ms)
+✔ an APK result for a closed package cannot replace the next package measurement (1174.311125ms)
+✔ report safety: failed sheet overrides old caution catalog and retries honestly (3547.95775ms)
+✔ report safety: failed sheet overrides old safe catalog and retries honestly (3532.670375ms)
+✔ report safety: failed sheet overrides old never_disable catalog and retries honestly (3526.890459ms)
+✔ report safety: late retry cannot cross reopen (1183.342958ms)
+✔ report safety: late retry cannot cross package (1491.386875ms)
+✔ report safety: late retry cannot cross reconnect (1499.947541ms)
+✔ report safety: an absent sheet result retains the catalog fallback without retry (800.568833ms)
+✔ report safety: late sheet lookup cannot cross package and overwrite the current result (1149.590583ms)
+✔ report safety: late sheet lookup cannot cross reconnect and overwrite the current result (1150.109958ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ system visibility composes with enabled and disabled filters (1067.458833ms)
+✔ search reports empty results and can reveal or clear them (617.59875ms)
+✔ filtering never mutates packages and protected-app safety stays enforced (242.83ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ katniss is in the shared catalogue (124.541833ms)
+✔ katniss is found by package and by name when enabled (0.82325ms)
+✔ katniss is found by package and by name when disabled (0.099417ms)
+✔ a disabled katniss is reachable from the Disabled chip so it can be re-enabled (0.058958ms)
+✔ not-installed catalogue rows hide by default and are counted as hidden (0.092042ms)
+✔ an unread state is unknown: shown under All, never under Enabled (0.045459ms)
+✔ system packages in Everything else follow the toggle and are counted when hidden (0.053416ms)
+✔ a package in both lists is listed once, as recognised (0.076209ms)
+✔ validatedStates drops malformed values instead of guessing (0.105ms)
+✔ onDeviceCount leaves out only rows known to be missing (0.073334ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ installed picker hides systems by default and composes reveal with search (1005.037625ms)
+✔ one chosen app makes one backup call for the expected TV and package (162.518167ms)
+✔ a delayed A picker read cannot replace the newer B result (191.916208ms)
+✔ a backup started on A stays owned by A when it finishes after a switch to B (174.921834ms)
+✔ a stale displayed A row cannot start a backup on B (163.858333ms)
+✔ a restore confirmation opened on A cannot restore onto B (135.923084ms)
+✔ picker and backup failures stay explicit and device-owned (171.696208ms)
+✔ disconnected state and APK-only limits are stated plainly (119.708958ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Dashboard counts enabled among installed recommended apps (977.252291ms)
+✔ Dashboard treats incomplete package state replies as unavailable (117.099875ms)
+✔ a stale same-serial count cannot overwrite a newer generation (140.207166ms)
+✔ zero recommended candidates opens Optional apps with Keep selected (118.210542ms)
+✔ Caution defaults are recommended while Unknown defaults move to Optional (134.963542ms)
+✔ protected defaults stay visible and blocked in Optional (157.854291ms)
+✔ a plan containing only Unknown defaults opens Optional after safety resolves (113.306958ms)
+✔ a user's tab choice survives pending safety resolution (159.289125ms)
+✔ optional choices survive tabs and confirmation names every actual action (516.226542ms)
+✔ protected and unresolved optional actions remain blocked while Unknown is explicit (153.204459ms)
+✔ Restore keeps Recommended and All curated tabs with its prior defaults (158.402666ms)
+✔ differing Unknown reasons stay on their own rows (112.684792ms)
+✔ Safe defaults are recommended, selected and actionable (110.73075ms)
+✔ the confirm summary names the Safe verdict rather than calling it Caution (125.498625ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Diagnostics reports the TV's Android version and hardware details (941.578458ms)
+✔ Dashboard shows the Android version beside the address (116.904458ms)
+✔ A property the TV did not report reads as unknown, never as a neighbour's value (116.832458ms)
+✔ A device with no profile says so instead of showing blank rows (113.297584ms)
+✔ Missing health data leaves the totals blank rather than inventing them (118.424834ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Diagnostics header fits 320px at 100% text with every control usable (1083.923625ms)
+✔ Diagnostics header fits 384px at 100% text with every control usable (246.338833ms)
+✔ Diagnostics header fits 320px at 200% text with every control usable (233.410459ms)
+✔ Diagnostics header fits 384px at 200% text with every control usable (232.699167ms)
+✔ non-Shield and disconnected headers keep the applicable controls without overflow (234.836167ms)
+✔ collapses repeated advertisements and separates saved from new hosts (1.533958ms)
+✔ the live endpoint is the only connected row (0.14225ms)
+✔ a connected TV that does not advertise stays one connected saved row (0.116625ms)
+✔ only the saved TV whose id is live claims a shared live endpoint (#115) (0.166333ms)
+✔ two id-less saved TVs sharing the live endpoint never both claim connected (#146) (0.120625ms)
+✔ a stale advert never names the live row after a different saved TV (#115) (0.072916ms)
+✔ a stale advert at an old host never shows the live TV a second time (#115) (0.083625ms)
+✔ a legacy advert sharing the live TV's serial prefix is not dropped as stale (#149) (0.056ms)
+✔ a live TV that reports no id is never named after a stale advert at its address (#115) (0.078625ms)
+✔ dropping a stale advert keeps the TV now advertising from that address (#115) (0.102333ms)
+✔ saved TVs sharing an endpoint that answers unverified each keep their row (#115) (0.081125ms)
+✔ an address change reports a new host and a saved endpoint that is absent (0.073083ms)
+✔ a rotated port keeps the saved endpoint truthful instead of calling it offline (0.0575ms)
+✔ a host advertising only a pairing service is not treated as answering (0.048167ms)
+✔ two saved identities at one endpoint stay two real rows (#115) (0.052042ms)
+✔ a saved TV that shared an address with one that moved stays in the scan (#115) (0.052833ms)
+✔ a stored placeholder id is not a wildcard for serial-less adbd (#116) (0.088125ms)
+✔ a saved id only matches its own advertised serial, not a longer one (#117) (5.953709ms)
+✔ distinct saved endpoints on one host stay distinct rows (0.056083ms)
+✔ malformed advertisements are dropped (0.054417ms)
+✔ instance names are only used when they are unambiguous and not adb ids (0.043625ms)
+✔ legacy connect ports are the only ones flagged as needing no pairing code (0.050292ms)
+✔ an advertised serial verifies a saved TV and names it (0.037167ms)
+✔ a verified serial recognizes a saved TV that moved to a new address (0.034084ms)
+✔ a serial that matches no saved TV leaves the row unclaimed (0.033791ms)
+✔ two TVs advertising only adb ids are each named from their own serial (0.044583ms)
+✔ rows are ordered by usability then recency, not by mDNS answer order (0.058083ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ matrix covers every registered mobile command and opener exactly once (196.920084ms)
+✔ store observations never unlock; stale, duplicate and ack events are isolated (0.555833ms)
+✔ errors/cancel preserve access; revocation preserves independent legacy source (0.14525ms)
+✔ cancel and errors never create access; acknowledgment cannot precede verification (0.114958ms)
+✔ simulated UI keeps recovery usable through pending/error/revocation (948.156833ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ screenshot destination, bytes and Close are truthful at 384px / 100% text (1004.134833ms)
+✔ screenshot destination, bytes and Close are truthful at 320px / 200% text (172.324042ms)
+✔ screenshot failure creates no preview or false saved result and preserves earlier saved bytes (241.186416ms)
+✔ file-copy success identifies the actual private destination and failure adds no copied row (161.305542ms)
+✔ report copy and oversized GitHub fallback use preview text and never claim a saved file (801.366083ms)
+✔ report clipboard failure exposes the selectable preview without false copy success (773.248083ms)
+✔ diagnostic JSON and debug log Copy actions state clipboard-only output and report failures (280.105125ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ file results belong to the live connection that started them (127.7285ms)
+✔ reconnecting to the same endpoint invalidates an old file action (0.102875ms)
+✔ a lost connection cannot accept a file result or delete confirmation (0.044791ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ the catalog is desktop's file, not a copy (193.074584ms)
+✔ a search that could not run never summarizes as no matches (0.209125ms)
+✔ delete is only offered strictly inside /sdcard (0.166917ms)
+✔ Find SmartTube backups searches every catalog dir and copies a hit to the phone (812.112875ms)
+✔ an unsearched directory reads as a failed search, never as no matches (#86) (175.104209ms)
+✔ a rejected search drops the older answer instead of showing it as current (181.639958ms)
+✔ delete asks first, sends the exact /sdcard path, and reloads the folder (493.391ms)
+✔ no delete control outside /sdcard (145.060333ms)
+✔ a delete confirmed after a TV switch is not sent to the new TV (185.218292ms)
+✔ reconnecting to the same endpoint clears an old delete confirmation (152.087291ms)
+✔ a copy completing after a TV switch does not mark the new TV's row copied (205.439625ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ RAM uses explicit used/total or available complement; zero/full are real values (188.301583ms)
+✔ missing and invalid memory is not painted as zero/full (0.1445ms)
+✔ storage retains reported percentages and distinguishes missing/invalid from zero (0.081916ms)
+✔ temperature comparison uses only a matching sensor own threshold (0.368375ms)
+✔ reported device status is independent of hottest sensor status; no temperature-derived grade (0.1525ms)
+✔ both visible bars mean used, share neutral styling and show 0/50/100 honestly (781.681667ms)
+✔ legacy100C stays unknown; a device-reported critical status is shown even at30C (131.459292ms)
+✔ below-threshold light/moderate readings do not describe throttling onset or infer HAL severity (0.352334ms)
+✔ threshold provenance stays unspecified for hardware, HIDL-like and unknown sources (0.226333ms)
+✔ visible thresholds retain reported status and never claim onset or a severity without provenance (139.392833ms)
+✔ checked-in Shield meminfo keeps explicit Used despite non-complementary Free accounting (0.798416ms)
+✔ Shield accounting renders explicit used/free without changing the source report (118.499709ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Setup Wraith reads off / on / risk from the launcher rows (196.608292ms)
+✔ a takeover turns Setup Wraith off only when an enabled stock names it (0.175416ms)
+✔ Disable stock launcher stays off until the picked app is Home or stock is in the way (0.209083ms)
+✔ the stock-disable message never claims what wasn't verified or re-read (0.103417ms)
+✔ picker rows hide system apps, search name and package, dedupe and sort (7.827625ms)
+✔ source site links are offered only for http(s) URLs (0.185083ms)
+✔ Setup Wraith on with stock off warns and turns it off, then re-reads the TV (806.738208ms)
+✔ Setup Wraith off offers Re-enable through enable_package (137.979042ms)
+✔ a not-ok default switch re-reads the TV and offers its diagnostics (203.960209ms)
+✔ set any app as Home reports Android's answer, then unlocks the separate stock step (243.389167ms)
+✔ Save snapshot first leaves stock alone when the snapshot fails (215.516416ms)
+✔ a locked Set as Home opens the paywall and calls nothing else (200.639375ms)
+✔ source site hands the launcher's page to the phone's browser, not the app (129.181583ms)
+✔ source site copies the link when the browser can't be opened (128.091083ms)
+✔ after opening the Play Store the list re-reads until the launcher is installed (157.259ms)
+✔ same-endpoint reconnect cancels confirmations and late launcher results (424.047875ms)
+✔ lost connection removes actionable rows and reconnect discards an old list reply (265.413208ms)
+✔ old snapshot completion cannot unlock a newer Home action after reconnect (378.648583ms)
+✔ stock takeover dialog locks scrolling, traps focus and Escape cancels without a mutation (276.96425ms)
+✔ Setup Wraith row uses the guarded helper command and refreshes confirmed success (164.6785ms)
+✔ helper row preserves guarded failure: rolled back (166.59425ms)
+✔ helper row preserves guarded failure: rollback unconfirmed (159.068166ms)
+✔ late helper-row result cannot overwrite a fresh same-endpoint reconnect (542.790333ms)
+✔ late helper-row result cannot overwrite a fresh TV switch (574.580375ms)
+✔ ordinary stock row keeps its launcher disable command (164.642375ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ same-update replacement preserves document lock and original opener across an empty stack (938.145584ms)
+✔ async resolve settles genuine close before any later replacement (101.134958ms)
+✔ async cancel settles genuine close before any later replacement (100.670834ms)
+✔ async reject settles genuine close before any later replacement (101.258667ms)
+✔ genuine empty close clears provenance before an unrelated modal opens (104.501667ms)
+✔ nested out-of-order teardown and replacement retain the document opener (99.810209ms)
+✔ superseded close callbacks cannot steal focus from a new top modal (108.250375ms)
+✔ removed opener and duplicate teardown do not resurrect focus or leak a lock (98.481917ms)
+✔ alertdialog without enabled controls receives focus and Escape releases the genuine close (104.157292ms)
+✔ closing the focused child then a non-top ancestor restores the surviving middle modal (106.772708ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Optimize recommends exactly what desktop pre-selects (163.302792ms)
+✔ an uninstall the store can't give back runs as Disable (0.124583ms)
+✔ review pill only for resolved, unprotected review rows (0.065541ms)
+✔ plan search matches name or package, case-insensitively (0.060459ms)
+✔ row safety never reads unresolved as a verdict (0.638833ms)
+✔ the sheet sees the plan's state and catalog entry (0.060583ms)
+✔ Health: a confirmed catalog app gets the App List's recommendation (0.143458ms)
+✔ Health: a name no installed package carries is a process, not an app (0.079625ms)
+✔ Health: an unreadable installed list confirms nothing and says so (0.087333ms)
+✔ Health: an installed package outside the catalog shows its verdict (0.085833ms)
+✔ snapshot preview: Now is what the TV reported, and matching settings read Already set (0.154209ms)
+✔ snapshot preview: launcher change, skipped launcher, and an unset Now (0.068958ms)
+✔ snapshot preview summary matches desktop's wording (0.057792ms)
+✔ Restore enable plans describe a disabled installed app to the detail sheet (0.040125ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Optimize Back returns to the screen that opened it (956.830875ms)
+✔ Optimize search filters by name and package id (144.107875ms)
+✔ tapping an Optimize row opens the app sheet, not a toggle (180.927125ms)
+✔ Safe to remove and review chips stay on one line at 384px (137.27875ms)
+✔ Health suggests per row: app recommendation, process, and package verdicts (175.537667ms)
+✔ Health never calls a package-shaped name Not an app when installed apps can't be read (111.98975ms)
+✔ Snapshots: Beta, Preview restore, and a real Now column (139.779417ms)
+✔ modal sheet blocks background wheel/edge scroll and restores position, focus and existing styles repeatedly (929.17925ms)
+✔ modal nested confirmation keeps the page locked and Escape/Tab affect only the top layer (498.086625ms)
+✔ modal backdrop, screen teardown and disconnect release the document without leaving a lock (229.14725ms)
+✔ modal paywall dismissal retains the underlying app sheet lock (482.980791ms)
+✔ modal lock survives out-of-order owner teardown and restores the original opener after its child (137.513875ms)
+✔ modal long-sheet keyboard wrap reveals last action and Close without moving the background (442.224833ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Free diagnostics reports are explicit, honest and per-interface (997.214917ms)
+✔ resource_sample ignores stale resolve after reconnect to the same serial (160.264208ms)
+✔ resource_sample ignores stale reject after reconnect to the same serial (157.5425ms)
+✔ media_report ignores stale resolve after reconnect to the same serial (159.720167ms)
+✔ media_report ignores stale reject after reconnect to the same serial (156.596834ms)
+✔ resource sampling admits one request and no live-refresh polling (163.313875ms)
+✔ manual audio toggle preserves unknown and newer encodings through readback (161.848209ms)
+✔ playback errors do not replace existing health metrics (124.482291ms)
+✔ Free audio writes use the existing paywall and do not fabricate readback (137.316875ms)
+✔ late audio mutation failure cannot overwrite another TV's state (154.247542ms)
+✔ report fidelity and wrapping at 320px with 100% text (182.9515ms)
+✔ report fidelity and wrapping at 384px with 100% text (181.589542ms)
+✔ report fidelity and wrapping at 320px with 200% text (183.286291ms)
+✔ empty reports and failed rereads retain honest unavailable states and keyboard access (160.431167ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ the shared sideload catalog is served to the webview (158.633583ms)
+✔ uninstall is only recommended when the store can give the app back (0.784458ms)
+✔ no recommendation label ever says Remove (0.186ms)
+✔ unknown and unresolved safety never read as a default action (0.076ms)
+✔ safety labels match the desktop vocabulary (0.062542ms)
+✔ an app report carries no device identifiers and is labelled mobile (0.8995ms)
+✔ keeps mixed saved and new TVs and deduplicates repeated advertisements (7.754834ms)
+✔ moves one matching hardware identity across an address change (0.178542ms)
+✔ moves one matching hardware identity across a port change (0.104125ms)
+✔ keeps different hardware identities that claim the same address (0.113708ms)
+✔ does not merge a saved id-less row into a live identified TV (0.182125ms)
+✔ does not merge an id-less live TV into a saved identified row (0.193209ms)
+✔ matches id-less rows only at the exact endpoint (0.159834ms)
+✔ forgets identified TVs by id and id-less TVs by exact endpoint (0.20725ms)
+✔ returns cached names only for an unambiguous or matching identity (0.137333ms)
+✔ a reused address never lends an identified TV's name to a TV that reports no id (#117) (0.097833ms)
+✔ a stored placeholder id becomes an id-less row with its own stable key, never merged with another (#116, #146) (0.170417ms)
+✔ reconnecting a TV that reports a placeholder id refreshes its row instead of appending (#116) (0.07525ms)
+✔ never guesses which of two id-less TVs at one endpoint just reconnected (#146) (0.205542ms)
+✔ sorts by lastUsed and truncates the oldest saved rows (0.223625ms)
+✔ ignores corrupt records and normalizes recoverable stored values (0.080375ms)
+✔ builds stable identity keys for host collisions and identical endpoints (0.076375ms)
+✔ a selected reconnect token activates only its saved row (0.045959ms)
+✔ matches the current TV by verified id or an exact id-less endpoint (0.0575ms)
+✔ only an unambiguous match counts as the live connection (#146) (0.071333ms)
+✔ forgets the exact selected identity at an identical endpoint (0.118083ms)
+✔ auto-dials only when the saved list truly has one entry (0.533708ms)
+✔ a lone id-less match stores a fingerprint from the live device's properties (#154) (0.12525ms)
+✔ a different model or manufacturer at a saved id-less row's address is not silently inherited (#154) (0.14425ms)
+✔ a manufacturer-only disagreement also counts as a mismatch (#154) (0.063417ms)
+✔ an empty saved fingerprint (an older row, or a device that reported nothing) never blocks a match (#154) (0.061417ms)
+✔ a matching fingerprint still refreshes the row normally, and is never treated as proof (#154) (0.062875ms)
+✔ a hardware-identified reconnect is never second-guessed by fingerprint (#154) (0.082667ms)
+✔ a stored fingerprint survives a read/normalize round trip and sanitizes stray fields (0.05375ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ hardware Back and direct navigation keep Optimize cancellable (1368.386792ms)
+✔ Tweaks is a bottom tab and Optimize is a pushed screen; Back unwinds both to Home (181.40475ms)
+✔ remote queue is discarded after navigation and a TV switch (195.372416ms)
+✔ ordinary remote taps cannot accumulate an unlimited backlog (157.786375ms)
+✔ failed health refresh preserves the last report and exposes the error (101.040084ms)
+✔ one failed recovery stays lost until an explicit retry (99.123292ms)
+✔ a silent recovery onto a different device does not inherit the old saved row or its name (#154 follow-up) (110.495209ms)
+✔ a silent recovery's different-device note shows immediately on whatever screen is already open, and clears itself (#154 follow-up) (4121.604917ms)
+✔ the Devices screen hands its different-device note on to Dashboard instead of losing it on navigate (#154 follow-up) (4170.810084ms)
+✔ canceled connect cannot update the session when its old reply arrives (139.21775ms)
+✔ stale reboot completion cannot disconnect a newer session (102.871542ms)
+✔ cold single saved TV waits for its profile, then opens a clean dashboard stack (114.528542ms)
+✔ cold multi-TV launch waits for a choice and opens the chosen TV (177.419875ms)
+✔ cold saved TV missing profile stays on onboarding (108.42075ms)
+✔ cold saved TV wrong profile stays on onboarding (101.74225ms)
+✔ cold saved TV rejected request stays on onboarding (103.431166ms)
+✔ authorization failure stays honest and a deliberate retry can open Dashboard (151.234375ms)
+✔ explicit disconnect suppresses automatic saved-TV redial (139.264ms)
+✔ first-time connection keeps the connected interstitial (150.252416ms)
+✔ add-TV connection keeps the connected interstitial (149.605333ms)
+✔ saved TV success opens its dashboard once without canceling the connection (111.347167ms)
+✔ leaving onboarding cancels a saved TV connection that is still pending (146.264ms)
+✔ cancel and retry of the same saved TV ignores the first completion (196.480834ms)
+✔ a late transport error from A cannot start recovery on B (181.7045ms)
+✔ a health load that lands after its profile vanished cannot wedge later loads (#118) (95.661792ms)
+✔ cancelling a saved-TV reconnect never reports a connection failure (#118) (178.42025ms)
+✔ Diagnostics keeps its safety badges when two top apps swap rank (#118) (162.176792ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ diagnostics: disconnect requires a new sheet selection before any action (1654.254834ms)
+✔ diagnostics: reconnect requires a new sheet selection before any action (828.304583ms)
+✔ diagnostics: switch requires a new sheet selection before any action (824.1875ms)
+✔ diagnostics: old pending safety cannot open a confirmation after switch or a fresh same-connection selection (880.719625ms)
+✔ diagnostics: Disable nested confirmation is cleared by same-endpoint reconnect (501.729625ms)
+✔ diagnostics: Uninstall nested confirmation is cleared by same-endpoint reconnect (491.386917ms)
+✔ diagnostics: paywall and pending measurements cannot follow the opening identity (566.464292ms)
+✔ optimize: disconnect requires a new sheet selection before any action (820.038958ms)
+✔ optimize: reconnect requires a new sheet selection before any action (815.167917ms)
+✔ optimize: switch requires a new sheet selection before any action (826.619916ms)
+✔ optimize: old pending safety cannot open a confirmation after switch or a fresh same-connection selection (860.79975ms)
+✔ optimize: Disable nested confirmation is cleared by same-endpoint reconnect (491.623958ms)
+✔ optimize: Uninstall nested confirmation is cleared by same-endpoint reconnect (475.76975ms)
+✔ optimize: paywall and pending measurements cannot follow the opening identity (559.23075ms)
+✔ diagnostics: a failed reconnect or transient liveness loss still invalidates the opening (239.077708ms)
+✔ optimize: a failed reconnect or transient liveness loss still invalidates the opening (224.74475ms)
+✔ diagnostics: Disable landing with a false response discards the stale selection (801.71425ms)
+✔ diagnostics: Uninstall landing with a false response discards the stale selection (816.484125ms)
+✔ optimize: Disable landing with a false response discards the stale selection (808.144333ms)
+✔ optimize: Uninstall landing with a false response discards the stale selection (806.954208ms)
+✔ Restore detail offers Enable and dispatches only enable_package (524.042166ms)
+✔ diagnostics: successful uninstall retains the explicit Reinstall path (772.374375ms)
+✔ optimize: successful uninstall retains the explicit Reinstall path (769.069458ms)
+✔ mobile production and demo builds need no desktop generated files or dependencies (2893.428625ms)
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✔ Free users see every current value, including hooks, mic and screensaver (1005.498833ms)
+✔ Turning the hooks back on is free; turning them off opens the paywall (216.073084ms)
+✔ hooks row is hidden when the package is missing and on non-Shield read failures (294.080541ms)
+✔ Assistant button revokes the mic through set_app_permission and re-reads (147.183917ms)
+✔ screensaver: Basic Daydream, Off, then Restore previous brings the vendor one back (197.590708ms)
+✔ a refused screensaver flag stops before the component is written (156.298875ms)
+✔ Dashboard has one Optimize call to action and Tune tiles for Tweaks and Launcher (186.235542ms)
+✔ Pro dashboard drops the PRO tags (117.614625ms)
+✔ More is titled More, lists Optimize, and no longer duplicates the Tweaks tab (142.153334ms)
+✔ endpoint reuse never restores another TV's screensaver and interrupted writes stop (359.7455ms)
+✔ verified TV retains originals across a rotated port, replacement hardware does not (211.968584ms)
+✔ a reconnect between screensaver writes prevents the second write (272.267542ms)
+✔ current gap: Pro loss blocks restoring an app-changed screensaver even with the original known (188.961792ms)
+✔ Free users retain emergency recovery without an unlock or payment (159.773292ms)
+✔ scaling readback matches both resolution and density and clears stale selection on failure (195.061291ms)
+✔ Custom DNS editing does not claim the TV has applied it; failed read clears selection (169.289334ms)
+✔ equivalent Android animation number formats select the same speed (165.847625ms)
+✔ DNS confirmed changes survive navigation and reconnect, while unset stays explicit (190.491917ms)
+✔ Daydream component refuse never enables an off screensaver with previous component (136.266ms)
+✔ Daydream component reject never enables an off screensaver with previous component (132.643625ms)
+✔ Daydream component refuse never enables an off screensaver with unset component (133.882625ms)
+✔ Daydream component reject never enables an off screensaver with unset component (142.22675ms)
+✔ Basic Daydream does not enable after a refused component; failed enable retains off with configured component (181.168292ms)
+✔ Restore previous does not enable after a refused component; failed enable retains off with configured component (199.206625ms)
+✔ Off keeps the switch disabled if component clearing fails (143.683375ms)
+✔ a reconnect after the Daydream component write prevents enabling (166.511292ms)
+✔ screensaver names preserve raw known, custom, disabled and missing component states (1095.904333ms)
+✔ catalog failure stays custom and late old catalog names cannot cross connections (234.00675ms)
+✔ density-only readback shows the override instead of physical density or device default (156.034166ms)
+✔ density-only matching preset, absent size and reset readbacks retain their distinct states (224.312291ms)
+✔ scaling preset row fits 320px at 100% text and preserves controls (1433.993583ms)
+✔ scaling preset row fits 384px at 100% text and preserves controls (1458.666125ms)
+✔ scaling preset row fits 320px at 200% text and preserves controls (1431.741958ms)
+✔ scaling preset row fits 384px at 200% text and preserves controls (1442.354417ms)
+✔ records uncatalogued packages and unresolved native processes distinctly (2.282167ms)
+✔ deduplicates repeat polls, saturates counts, and separates device context (0.212458ms)
+✔ drops stale scheduled observations after a device changes (0.095584ms)
+✔ rejects paths, addresses, control strings, and malformed package tokens (0.123917ms)
+✔ bounds record count and serialized byte size while marking truncation (0.252875ms)
+✔ fails harmlessly for corrupt or full storage (0.143916ms)
+✔ exports an immutable exact snapshot with allowlisted fields only (0.168542ms)
+✔ clear prevents a queued old save from resurrecting records (0.091583ms)
+✔ clear failures remain visible and do not claim deletion (0.103667ms)
+ℹ tests 344
+ℹ suites 0
+ℹ pass 344
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 122085.915834

@@ -1,0 +1,720 @@
+   Compiling shield-optimizer-core v2.3.0 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/crates/core)
+   Compiling tauri-plugin-atv-adb v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/mobile/tauri-plugin-atv-adb)
+   Compiling shield-optimizer-v2 v2.3.0 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/src-tauri)
+   Compiling atv-optimizer-mobile v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/mobile/src-tauri)
+   Compiling adb_client v3.2.2 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/vendor/adb_client)
+   Compiling registry-triage v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/tools/registry-triage)
+   Compiling atvopt-license v0.1.0 (/Users/bryanroscoe/Developer/shield-mobile-209-20261022/v2/tools/atvopt-license)
+    Finished `test` profile [unoptimized] target(s) in 14.74s
+     Running unittests src/lib.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/atv_optimizer_mobile_lib-354c841cea3930c4)
+
+running 26 tests
+test file_commands::tests::complete_bundle_round_trips ... ok
+test file_commands::tests::concurrent_downloads_publish_distinct_complete_files ... ok
+test file_commands::tests::delete_target_must_be_a_top_level_backup ... ok
+test file_commands::tests::download_names_dedupe_instead_of_clobbering ... ok
+test file_commands::tests::failed_download_removes_partial_output_and_preserves_existing_files ... ok
+test file_commands::tests::parses_every_split_apk_path ... ok
+test file_commands::tests::rejects_unsafe_reported_apk_path ... ok
+test file_commands::tests::restore_path_must_stay_inside_backup_root ... ok
+test license_tests::persisted_valid_license_round_trips ... ok
+test license_tests::persistence_failure_is_reported ... ok
+test limited_writer::tests::preserves_destination_errors ... ok
+test limited_writer::tests::rejects_growth_without_writing_past_the_limit ... ok
+test remote_lifecycle::tests::current_background_epoch_can_claim_cleanup_once ... ok
+test remote_lifecycle::tests::newer_suspend_invalidates_an_older_timer ... ok
+test remote_lifecycle::tests::resume_invalidates_pending_cleanup ... ok
+test scrcpy_resource::tests::embedded_server_matches_audited_release ... ok
+test scrcpy_resource::tests::materialize_creates_and_repairs_server ... ok
+test wireless_adb::tests::canceled_handshakes_cannot_publish_or_supersede_a_retry ... ok
+test wireless_adb::tests::connect_timeout_explains_the_tv_approval_prompt ... ok
+test wireless_adb::tests::installs_get_the_slow_shell_timeout ... ok
+test wireless_adb::tests::only_socket_level_errors_are_fatal ... ok
+test wireless_adb::tests::pairing_codes_are_normalized_before_the_one_allowed_guess ... ok
+test wireless_adb::tests::pairing_errors_name_the_next_step ... ok
+test wireless_adb::tests::refused_connect_explains_network_debugging ... ok
+test wireless_adb::tests::requested_serial_must_match_active_connection ... ok
+test wireless_commands::tests::find_remote_requires_a_successful_shell_result ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/atv_optimizer_mobile-f9318574c2dbaf8e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/atvopt_license-ae39b7a189fbf8a8)
+
+running 2 tests
+test tests::private_key_file_round_trips ... ok
+test tests::rejects_a_key_file_that_is_not_hex ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/registry_triage-8414bee1b54060de)
+
+running 9 tests
+test tests::a_batch_aggregates_by_package_and_reports_today_without_promoting ... ok
+test tests::a_desktop_app_report_is_read_and_never_promotes_the_app ... ok
+test tests::a_truncated_export_is_named_and_its_counts_are_lower_bounds ... ok
+test tests::desktop_bundles_yield_home_handlers_and_never_the_serial ... ok
+test tests::mobile_records_that_break_the_contract_are_rejected ... ok
+test tests::overlapping_folders_count_each_report_once ... ok
+test tests::the_verdict_names_the_source_that_decided_it ... ok
+test tests::tokens_follow_the_mobile_collector_rules ... ok
+test tests::triage_leaves_the_report_folder_untouched ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/lib.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/shield_optimizer_core-29c4a2a32901dc1d)
+
+running 494 tests
+test adb::batch::tests::checked_batch_records_each_real_shell_exit_even_if_the_last_succeeds ... ok
+test adb::batch::tests::checked_reads_reject_failed_or_missing_required_sections ... ok
+test adb::batch::tests::empty_batch_is_empty ... ok
+test adb::batch::tests::empty_sections_stay_empty_and_keep_position ... ok
+test adb::batch::tests::extra_sections_beyond_n_are_dropped ... ok
+test adb::batch::tests::joins_with_semicolons_and_discards_stderr ... ok
+test adb::batch::tests::preserves_interior_indentation_and_blank_lines ... ok
+test adb::batch::tests::round_trips_a_realistic_batch ... ok
+test adb::batch::tests::single_command_gets_no_separator ... ok
+test adb::batch::tests::splits_into_exactly_n_sections ... ok
+test adb::batch::tests::tolerates_sentinel_at_the_very_end ... ok
+test adb::batch::tests::truncated_output_pads_with_empty_sections ... ok
+test adb::driver::bounded_shell_tests::drivers_without_bounded_execution_are_unsupported ... ok
+test adb::lifetimes::tests::a_closed_counter_refuses_new_leases_but_keeps_counting_old_ones ... ok
+test adb::lifetimes::tests::a_closed_snapshot_refuses_every_spawning_method ... ok
+test adb::lifetimes::tests::a_leased_snapshot_forwards_every_method_to_its_own_counterpart ... ok
+test adb::lifetimes::tests::processes::a_child_dropped_with_no_runtime_to_reap_it_stays_counted ... ok
+test adb::lifetimes::tests::processes::a_dropped_child_is_reaped_before_its_lease_goes ... ok
+test adb::lifetimes::tests::processes::kill_and_reap_releases_once_the_process_is_gone ... ok
+test adb::lifetimes::tests::processes::waiting_out_the_process_releases_it ... ok
+test adb::lifetimes::tests::waiting_ends_when_the_last_lease_goes ... ok
+test adb::lifetimes::tests::waiting_gives_up_at_the_deadline ... ok
+test adb::parse::tests::a_bracketed_ipv6_transport_is_a_network_connection ... ok
+test adb::parse::tests::audio_device_missing_returns_none ... ok
+test adb::parse::tests::display_mode_sdr_only_when_hdr_list_empty ... ok
+test adb::parse::tests::display_modes_degrade_to_empty_rather_than_guessing ... ok
+test adb::parse::tests::display_reports_scope_modes_and_hdr_to_the_same_default_record ... ok
+test adb::parse::tests::duplicate_modes_collapse_but_keep_the_active_flag ... ok
+test adb::parse::tests::empty_mdns_output_is_not_an_error ... ok
+test adb::parse::tests::hardware_properties_temp_none_when_empty ... ok
+test adb::parse::tests::hardware_reading_pairs_limits_by_family_index_and_exact_length ... ok
+test adb::parse::tests::ignores_header_and_blank_lines ... ok
+test adb::parse::tests::instance_serial_rejects_malformed_or_unknown_names ... ok
+test adb::parse::tests::ipv6_endpoint_is_bracketed_like_the_adb_transport_key ... ok
+test adb::parse::tests::ls_parse_returns_empty_on_error_output ... ok
+test adb::parse::tests::mdns_endpoint_keeps_an_ipv6_host_intact ... ok
+test adb::parse::tests::mdns_wireless_debugging_serial_is_network_not_usb ... ok
+test adb::parse::tests::meminfo_returns_empty_when_section_missing ... ok
+test adb::parse::tests::multiple_displays_without_a_unique_default_are_unavailable ... ok
+test adb::parse::tests::net_dev_preserves_interfaces_and_skips_loopback ... ok
+test adb::parse::tests::net_dev_with_no_usable_interfaces_is_empty ... ok
+test adb::parse::tests::one_eligible_display_does_not_prove_the_current_default ... ok
+test adb::parse::tests::package_for_process_strips_only_a_subprocess_suffix ... ok
+test adb::parse::tests::pairing_service_is_not_offered_as_a_connect_endpoint ... ok
+test adb::parse::tests::parses_active_audio_device ... ok
+test adb::parse::tests::parses_device_list_with_mixed_states ... ok
+test adb::parse::tests::parses_df_data_storage ... ok
+test adb::parse::tests::parses_df_data_storage_when_filesystem_name_wraps ... ok
+test adb::parse::tests::parses_display_mode_shield_4k60_hdr10 ... ok
+test adb::parse::tests::parses_every_display_mode_and_flags_the_active_one ... ok
+test adb::parse::tests::parses_hardware_properties_temp_from_cpu_and_gpu ... ok
+test adb::parse::tests::parses_ls_rows_including_spaced_names_and_symlinks ... ok
+test adb::parse::tests::parses_meminfo_summary_kb ... ok
+test adb::parse::tests::parses_multiple_hdr_types ... ok
+test adb::parse::tests::parses_permission_grant_state ... ok
+test adb::parse::tests::parses_pm_list_packages_output ... ok
+test adb::parse::tests::parses_real_mdns_services_output ... ok
+test adb::parse::tests::parses_real_shield_df_output ... ok
+test adb::parse::tests::parses_thermal_max_temp ... ok
+test adb::parse::tests::parses_thermal_rejects_garbage_values ... ok
+test adb::parse::tests::parses_total_pss_section_and_sums_per_package ... ok
+test adb::parse::tests::parses_usage_stats_last_used_and_never_opened ... ok
+test adb::parse::tests::path_named_processes_are_kept_not_dropped ... ok
+test adb::parse::tests::pm_list_packages_skips_garbage_lines ... ok
+test adb::parse::tests::proc_stat_counts_iowait_as_idle ... ok
+test adb::parse::tests::proc_stat_ignores_per_core_lines_and_missing_input ... ok
+test adb::parse::tests::proc_stat_rejects_invalid_or_overflowing_counters ... ok
+test adb::parse::tests::real_meminfo_keeps_every_row_with_its_full_name_and_pid ... ok
+test adb::parse::tests::real_meminfo_package_map_never_trims_a_hal_into_a_package ... ok
+test adb::parse::tests::real_top_names_only_yield_candidates_of_package_shape ... ok
+test adb::parse::tests::repeated_single_display_records_do_not_create_ambiguity ... ok
+test adb::parse::tests::thermal_current_hal_wins_equal_temperature_with_new_status ... ok
+test adb::parse::tests::thermal_current_hal_wins_even_when_cache_is_hotter ... ok
+test adb::parse::tests::thermal_empty_current_section_does_not_resurrect_cache_but_legacy_falls_back ... ok
+test adb::parse::tests::thermal_reading_preserves_sensor_context_and_excludes_non_celsius_objects ... ok
+test adb::parse::tests::thermal_unknown_context_and_invalid_status_never_become_cpu_or_normal ... ok
+test adb::parse::tests::unparseable_mdns_rows_are_dropped_not_guessed ... ok
+test adb::remote_input::tests::android_resident_server_command_is_exact ... ok
+test adb::remote_input::tests::format_scid_is_8_hex_digits_with_high_bit_cleared ... ok
+test adb::remote_input::tests::forward_and_push_args_are_well_formed ... ok
+test adb::remote_input::tests::inject_keycode_down_select_is_exact_14_bytes ... ok
+test adb::remote_input::tests::inject_keycode_up_dpad_with_repeat_and_meta ... ok
+test adb::remote_input::tests::inject_text_clamps_to_300_chars ... ok
+test adb::remote_input::tests::inject_text_encodes_type_len_then_utf8 ... ok
+test adb::remote_input::tests::inject_text_length_is_utf8_byte_count_not_char_count ... ok
+test adb::remote_input::tests::pick_free_local_port_returns_a_usable_port ... ok
+test adb::remote_input::tests::server_spawn_args_match_phase0_launch_line ... ok
+test adb::remote_input::tests::start_fails_when_driver_cannot_spawn ... ok
+test adb::sim::replay::tests::a_recorded_cached_limit_survives_a_generated_profile ... ok
+test adb::sim::replay::tests::batches_split_back_into_reads ... ok
+test adb::sim::replay::tests::pins_compare_redacted ... ok
+test adb::sim::replay::tests::polls_stay_in_their_phase_and_u_packages_survive ... ok
+test adb::sim::replay::tests::reads_may_swap_but_writes_keep_their_order ... ok
+test adb::sim::replay::tests::remote_ports_and_scids_match_by_shape_and_extra_calls_diverge ... ok
+test adb::sim::replay::tests::replays_in_order_and_reports_divergence ... ok
+test adb::sim::shell::tests::globs ... ok
+test adb::sim::shell::tests::last_command_status_wins_and_status_markers_expand ... ok
+test adb::sim::shell::tests::quotes_and_and_or ... ok
+test adb::sim::tests::a_phone_answering_no_to_leanback_still_profiles ... ok
+test adb::sim::tests::a_replayed_screenshot_is_a_png ... ok
+test adb::sim::tests::disable_setup_helper_is_guarded_and_verified ... ok
+test adb::sim::tests::faults_fire_on_one_batched_section ... ok
+test adb::sim::tests::forget_drops_every_transport_of_one_device ... ok
+test adb::sim::tests::google_tv_takeover_disables_setup_wraith_with_stock ... ok
+test adb::sim::tests::google_tv_takeover_failure_re_enables_stock_and_wraith ... ok
+test adb::sim::tests::google_tv_without_the_paired_disable_wraith_takes_home_back ... ok
+test adb::sim::tests::launcher_rows_are_home_handlers_and_switching_moves_home ... ok
+test adb::sim::tests::setup_wraith_outranking_the_role_holder_is_not_the_current_launcher ... ok
+test adb::sim::tests::shield_profile_lists_as_a_shield ... ok
+test adb::sim::tests::shield_takeover_is_unchanged ... ok
+test adb::sim::tests::takeover_without_setup_wraith_never_touches_it ... ok
+test adb::sim::tests::the_background_process_limit_key_does_not_move_the_real_limit ... ok
+test adb::sim::tests::unknown_commands_are_named ... ok
+test adb::storage::tests::a_misaligned_column_is_dropped_not_guessed ... ok
+test adb::storage::tests::a_negative_size_is_unknown_not_zero ... ok
+test adb::storage::tests::diskstats_data_includes_cache_on_real_output ... ok
+test adb::storage::tests::diskstats_reads_every_column_for_a_package ... ok
+test adb::storage::tests::diskstats_without_a_package_table_is_unavailable ... ok
+test adb::storage::tests::pm_path_and_stat_sum_a_split_apk ... ok
+test adb::storage::tests::pm_path_refuses_shell_metacharacters ... ok
+test adb::storage::tests::stat_short_of_one_size_per_file_is_unavailable ... ok
+test commands::apps::tests::a_process_name_never_inherits_a_catalog_verdict ... ok
+test commands::apps::tests::a_process_that_looks_protected_is_still_flagged ... ok
+test commands::apps::tests::an_unreadable_handler_list_does_not_block_disabling ... ok
+test commands::apps::tests::app_apk_size_refuses_an_invalid_package ... ok
+test commands::apps::tests::app_apk_size_sums_the_split_apks ... ok
+test commands::apps::tests::app_memory_map_parses_running_processes ... ok
+test commands::apps::tests::app_memory_map_without_a_pss_table_is_an_error_not_empty ... ok
+test commands::apps::tests::app_permission_state_missing_when_not_listed ... ok
+test commands::apps::tests::app_permission_state_reads_grant ... ok
+test commands::apps::tests::app_storage_map_reads_diskstats ... ok
+test commands::apps::tests::app_storage_map_without_a_table_is_an_error_not_empty ... ok
+test commands::apps::tests::app_usage_map_reports_last_used ... ok
+test commands::apps::tests::app_usage_map_without_rows_is_an_error_not_empty ... ok
+test commands::apps::tests::decodes_not_installed_for_user ... ok
+test commands::apps::tests::decodes_protected_system_app ... ok
+test commands::apps::tests::disabled_read_failure_never_becomes_enabled_state ... ok
+test commands::apps::tests::disabling_a_launcher_is_allowed_while_another_remains ... ok
+test commands::apps::tests::disabling_the_only_launcher_is_refused_from_the_app_list ... ok
+test commands::apps::tests::free_entitlement_blocks_appops_before_adb ... ok
+test commands::apps::tests::free_entitlement_blocks_permission_writes_before_adb ... ok
+test commands::apps::tests::free_user_can_reenable_a_package_after_downgrade ... ok
+test commands::apps::tests::installed_view_includes_catalog_and_other_packages_without_changing_other_view ... ok
+test commands::apps::tests::known_names_never_change_a_verdict ... ok
+test commands::apps::tests::list_installed_packages_errors_when_the_primary_listing_is_empty ... ok
+test commands::apps::tests::list_other_packages_attaches_known_friendly_names ... ok
+test commands::apps::tests::list_other_packages_errors_when_the_primary_listing_is_empty ... ok
+test commands::apps::tests::package_states_categorizes_from_one_batched_call ... ok
+test commands::apps::tests::package_states_errors_when_the_installed_section_is_empty ... ok
+test commands::apps::tests::play_installed_vendor_packages_read_as_third_party ... ok
+test commands::apps::tests::safety_info_consults_the_shipped_catalog ... ok
+test commands::apps::tests::set_app_permission_rejects_injection ... ok
+test commands::apps::tests::set_app_permission_revoke_succeeds_silently ... ok
+test commands::apps::tests::unknown_is_not_the_answer_for_curated_apps ... ok
+test commands::apps::tests::unrecognized_returns_none ... ok
+test commands::devices::tests::a_bracketed_ipv6_transport_still_counts_as_advertised ... ok
+test commands::devices::tests::a_collapsed_alias_resolves_to_its_row_by_hardware_id ... ok
+test commands::devices::tests::a_device_that_answers_no_to_leanback_is_still_profiled ... ok
+test commands::devices::tests::a_disconnected_twin_does_not_merge_with_a_live_one ... ok
+test commands::devices::tests::a_shell_that_prints_nothing_is_still_a_failure ... ok
+test commands::devices::tests::a_stale_advertisement_pointing_at_another_attached_device_is_refused ... ok
+test commands::devices::tests::a_usb_serial_is_never_displaced_by_an_address ... ok
+test commands::devices::tests::an_alias_without_a_verified_id_resolves_to_nothing ... ok
+test commands::devices::tests::an_attached_transport_is_accepted_only_when_its_serial_matches ... ok
+test commands::devices::tests::an_identified_device_never_absorbs_an_unidentified_one ... ok
+test commands::devices::tests::an_offline_alias_does_not_resolve_to_a_live_twin ... ok
+test commands::devices::tests::connect_paired_drops_a_different_device ... ok
+test commands::devices::tests::connect_paired_keeps_the_device_whose_serial_matches ... ok
+test commands::devices::tests::connect_paired_refuses_without_a_parseable_serial ... ok
+test commands::devices::tests::device_name_quoting_and_validation ... ok
+test commands::devices::tests::device_profile_answers_for_a_collapsed_alias ... ok
+test commands::devices::tests::devices_without_an_id_are_never_merged_into_each_other ... ok
+test commands::devices::tests::different_hardware_ids_stay_separate_however_alike_the_addresses_look ... ok
+test commands::devices::tests::every_property_read_maps_to_a_field ... ok
+test commands::devices::tests::explicit_connection_port_is_used_instead_of_the_pairing_port ... ok
+test commands::devices::tests::failed_pair_remains_a_failure_and_does_not_connect ... ok
+test commands::devices::tests::forget_drops_every_transport_of_the_same_hardware ... ok
+test commands::devices::tests::forget_never_matches_an_alias_on_address_or_missing_id ... ok
+test commands::devices::tests::forget_reports_a_disconnect_adb_refused ... ok
+test commands::devices::tests::forget_says_plainly_when_adb_will_reattach_it ... ok
+test commands::devices::tests::invalid_pairing_pin_fails_before_adb ... ok
+test commands::devices::tests::list_devices_impl_parses_authorized_and_unauthorized ... ok
+test commands::devices::tests::lost_socket_during_profiling_is_not_an_authorized_device ... ok
+test commands::devices::tests::multiline_settings_exception_stays_inside_its_own_section ... ok
+test commands::devices::tests::normalize_accepts_a_scoped_ipv6_endpoint_from_discovery ... ok
+test commands::devices::tests::normalize_accepts_an_mdns_service_name_from_discovery ... ok
+test commands::devices::tests::normalize_accepts_bare_ip ... ok
+test commands::devices::tests::normalize_accepts_ip_and_port ... ok
+test commands::devices::tests::normalize_keeps_a_bracketed_ipv6_host_whole ... ok
+test commands::devices::tests::normalize_rejects_bad_port ... ok
+test commands::devices::tests::normalize_rejects_empty ... ok
+test commands::devices::tests::normalize_rejects_non_ipv4 ... ok
+test commands::devices::tests::normalize_still_rejects_things_that_are_not_endpoints ... ok
+test commands::devices::tests::normalize_trims_whitespace ... ok
+test commands::devices::tests::one_device_reached_two_ways_collapses_to_the_usable_address ... ok
+test commands::devices::tests::pair_records_the_instance_advertised_on_that_pairing_port ... ok
+test commands::devices::tests::pairing_address_requires_the_tv_supplied_port ... ok
+test commands::devices::tests::pairing_instance_is_the_service_on_that_exact_pairing_port ... ok
+test commands::devices::tests::placeholder_hardware_ids_are_not_identities ... ok
+test commands::devices::tests::probe_brackets_an_ipv6_connect_endpoint_and_sees_it_attached ... ok
+test commands::devices::tests::probe_does_not_guess_between_two_connect_ports ... ok
+test commands::devices::tests::probe_matches_the_connect_service_by_its_embedded_serial ... ok
+test commands::devices::tests::probe_never_takes_another_device_on_the_same_address ... ok
+test commands::devices::tests::probe_picks_the_paired_serial_when_two_connect_services_share_an_ip ... ok
+test commands::devices::tests::probe_reports_a_transport_adb_already_attached ... ok
+test commands::devices::tests::probe_waits_until_the_connect_service_appears ... ok
+test commands::devices::tests::probe_with_a_malformed_pairing_instance_claims_nothing ... ok
+test commands::devices::tests::probe_without_an_instance_claims_nothing ... ok
+test commands::devices::tests::silent_device_name_read_does_not_shift_the_android_version ... ok
+test commands::devices::tests::successful_pair_establishes_trust_without_connecting_to_5555 ... ok
+test commands::devices::tests::the_property_batch_exits_zero_when_the_last_read_says_no ... ok
+test commands::devices::tests::the_service_name_survives_when_it_is_the_only_transport ... ok
+test commands::files::tests::a_failed_call_or_a_cut_off_stream_is_unsearched ... ok
+test commands::files::tests::accepts_sdcard_paths ... ok
+test commands::files::tests::delete_is_confined_and_quoted ... ok
+test commands::files::tests::delete_reports_device_side_failures ... ok
+test commands::files::tests::find_patterns_validated ... ok
+test commands::files::tests::find_rejects_bad_dirs_before_touching_the_device ... ok
+test commands::files::tests::hits_are_capped_and_deduplicated ... ok
+test commands::files::tests::missing_directories_are_no_matches_not_unsearched ... ok
+test commands::files::tests::power_user_mode_allows_system_paths_but_keeps_injection_guards ... ok
+test commands::files::tests::protected_paths_are_never_deletable ... ok
+test commands::files::tests::rejects_escapes_and_system_paths ... ok
+test commands::health::tests::a_failed_batch_preserves_the_transport_error ... ok
+test commands::health::tests::codec_glob_preserves_readable_xml_among_missing_paths ... ok
+test commands::health::tests::health_report_prefers_current_hardware_to_cached_only_then_marks_cached_fallback ... ok
+test commands::health::tests::health_report_reads_every_section_from_one_batched_call ... ok
+test commands::health::tests::health_report_retains_status_and_matching_fallback_limits_without_new_reads ... ok
+test commands::health::tests::health_report_uses_current_hal_context_instead_of_cached_ties ... ok
+test commands::health::tests::media_report_decodes_every_section_from_one_round_trip ... ok
+test commands::health::tests::media_report_errors_when_the_device_returns_nothing ... ok
+test commands::health::tests::media_report_keeps_codecs_when_optional_display_read_fails ... ok
+test commands::health::tests::media_report_rejects_failed_and_truncated_settings_reads ... ok
+test commands::health::tests::media_report_survives_an_unreadable_codec_file ... ok
+test commands::health::tests::media_report_treats_a_null_setting_as_unset ... ok
+test commands::health::tests::one_empty_section_does_not_blank_the_rest_of_the_report ... ok
+test commands::health::tests::proc_meminfo_fallback_needs_no_extra_round_trip ... ok
+test commands::health::tests::resource_sample_degrades_when_proc_is_unreadable ... ok
+test commands::health::tests::resource_sample_derives_rates_from_two_device_side_reads ... ok
+test commands::health::tests::resource_sample_keeps_tunnels_separate_and_missing_interfaces_unknown ... ok
+test commands::health::tests::resource_sample_rejects_invalid_cpu_deltas_and_elapsed_time ... ok
+test commands::health::tests::resource_sample_rejects_truncated_batches ... ok
+test commands::health::tests::resource_sample_reports_none_rather_than_a_bogus_spike ... ok
+test commands::health::tests::the_codec_glob_covers_the_path_a_real_shield_uses ... ok
+test commands::health::tests::top_memory_keeps_each_process_whole ... ok
+test commands::health::tests::truncated_batch_only_blanks_the_sections_that_never_arrived ... ok
+test commands::home_tracking::tests::record_then_prune_round_trip ... ok
+test commands::home_tracking::tests::unreadable_or_missing_file_degrades_to_empty ... ok
+test commands::input::tests::encodes_spaces_as_percent_s ... ok
+test commands::input::tests::quotes_shell_specials ... ok
+test commands::input::tests::rejects_unicode_control_and_empty ... ok
+test commands::input::tests::remote_keys_map_to_android_keycodes ... ok
+test commands::launcher::tests::a_failed_switch_records_every_stage_it_went_through ... ok
+test commands::launcher::tests::a_leanback_only_app_is_not_listed_as_a_home_app ... ok
+test commands::launcher::tests::a_rejected_cmd_package_setter_still_tries_the_pm_spelling ... ok
+test commands::launcher::tests::android_8_registers_home_before_disabling_stock ... ok
+test commands::launcher::tests::disable_stock_behind_the_active_target_restores_if_home_moves ... ok
+test commands::launcher::tests::disable_stock_hands_home_over_when_stock_holds_it ... ok
+test commands::launcher::tests::disable_stock_refuses_a_settings_recovery_handler ... ok
+test commands::launcher::tests::disable_stock_refuses_a_stock_target ... ok
+test commands::launcher::tests::disable_stock_refuses_when_the_target_has_no_home_screen ... ok
+test commands::launcher::tests::ignores_unrelated_lines_with_slashes_or_paths ... ok
+test commands::launcher::tests::invalid_target_package_runs_no_commands ... ok
+test commands::launcher::tests::launcher_verification_122::a_failed_helper_re_enable_is_visible_on_a_successful_switch ... ok
+test commands::launcher::tests::launcher_verification_122::a_failed_helper_rollback_is_reported_not_called_re_enabled ... ok
+test commands::launcher::tests::launcher_verification_122::a_failed_stock_enable_never_turns_the_helper_on ... ok
+test commands::launcher::tests::launcher_verification_122::a_failed_stock_restore_after_a_helper_error_is_reported ... ok
+test commands::launcher::tests::launcher_verification_122::a_generic_stock_disable_leaves_the_helper_on_without_another_home ... ok
+test commands::launcher::tests::launcher_verification_122::a_generic_stock_disable_turns_the_paired_helper_off_too ... ok
+test commands::launcher::tests::launcher_verification_122::a_landed_disable_with_a_lost_reply_still_settles_the_helper ... ok
+test commands::launcher::tests::launcher_verification_122::a_shared_enable_with_a_failed_helper_restore_is_not_reported_as_done ... ok
+test commands::launcher::tests::launcher_verification_122::an_empty_home_inventory_never_leaves_stock_off_with_the_helper_on ... ok
+test commands::launcher::tests::launcher_verification_122::an_unreadable_stock_preflight_still_restores_the_helper ... ok
+test commands::launcher::tests::launcher_verification_122::enable_and_set_default_on_stock_re_enables_the_paired_helper ... ok
+test commands::launcher::tests::launcher_verification_122::helper_disable_re_enables_after_home_verification_fails ... ok
+test commands::launcher::tests::launcher_verification_122::resolver_lag_then_target_confirms_without_rollback ... ok
+test commands::launcher::tests::launcher_verification_122::restores_stock_when_the_resolver_never_answers_during_verification ... ok
+test commands::launcher::tests::launcher_verification_122::role_holder_confirms_through_a_stuck_resolver_value ... ok
+test commands::launcher::tests::launcher_verification_122::rolls_back_only_when_stock_positively_still_holds_home ... ok
+test commands::launcher::tests::launcher_verification_122::the_advanced_picker_restores_the_paired_helper_with_stock ... ok
+test commands::launcher::tests::launcher_verification_122::the_shared_enable_command_restores_the_paired_helper ... ok
+test commands::launcher::tests::launcher_verification_122::unreadable_home_apps_never_leave_stock_off_with_the_helper_on ... ok
+test commands::launcher::tests::list_launchers_degrades_when_the_home_query_is_empty ... ok
+test commands::launcher::tests::list_launchers_errors_when_the_installed_section_is_empty ... ok
+test commands::launcher::tests::list_launchers_reads_every_section_from_one_batched_call ... ok
+test commands::launcher::tests::list_launchers_rejects_failed_disabled_reads_before_pruning_tracking ... ok
+test commands::launcher::tests::parses_home_handler_packages_from_resolveinfo ... ok
+test commands::launcher::tests::protected_package_guidance_requires_explicit_matching_security_evidence ... ok
+test commands::launcher::tests::protected_stock_rejection_preserves_errors_restore_and_home_readback ... ok
+test commands::launcher::tests::protection_behind_the_active_target_keeps_precautionary_restore_and_readback ... ok
+test commands::launcher::tests::restore_failure_variants_keep_primary_failure_and_fresh_home_observation ... ok
+test commands::launcher::tests::set_home_any_refuses_honestly_for_an_app_without_a_home_screen ... ok
+test commands::launcher::tests::set_home_any_rejects_injected_activity_names ... ok
+test commands::launcher::tests::set_home_any_reports_stock_holding_home_without_taking_it_over ... ok
+test commands::launcher::tests::set_home_any_succeeds_when_home_verifies_and_tries_the_given_activity_first ... ok
+test commands::launcher::tests::set_launcher_falls_back_to_set_home_activity_when_role_unsupported ... ok
+test commands::launcher::tests::set_launcher_first_strategy_wins_and_skips_the_rest ... ok
+test commands::launcher::tests::set_launcher_from_stock_offers_takeover_without_grinding_the_ladder ... ok
+test commands::launcher::tests::set_launcher_reports_failure_with_reason_when_all_strategies_fail ... ok
+test commands::launcher::tests::set_launcher_stock_takeover_does_not_revert_when_it_verifies ... ok
+test commands::launcher::tests::set_launcher_stock_takeover_reverts_when_it_does_not_verify ... ok
+test commands::launcher::tests::stock_disable_uncertainty_restores_once_and_reports_unavailable_home ... ok
+test commands::launcher::tests::target_enable_failures_stop_before_any_launcher_mutation ... ok
+test commands::launcher::tests::unrelated_exit_255_does_not_claim_protection_even_if_restore_is_rejected ... ok
+test commands::loader::tests::channel_provider_entry_has_high_risk ... ok
+test commands::loader::tests::cleartv_shared_package_has_one_exact_identity_and_preserves_row_states ... ok
+test commands::loader::tests::device_scope_uses_known_families_and_agrees_with_its_list ... ok
+test commands::loader::tests::embedded_data_includes_known_defunct_apps ... ok
+test commands::loader::tests::embedded_json_loads_and_parses ... ok
+test commands::loader::tests::embedded_launchers_parse_with_every_shipped_entry ... ok
+test commands::loader::tests::every_custom_launcher_has_a_source_url_and_no_package_repeats ... ok
+test commands::loader::tests::every_shipped_catalog_entry_gets_a_reviewed_verdict ... ok
+test commands::loader::tests::every_shipped_entry_has_a_usable_description ... ok
+test commands::loader::tests::find_resolves_every_package_exactly_once ... ok
+test commands::loader::tests::known_names_accept_a_bare_name_or_a_described_entry ... ok
+test commands::loader::tests::known_names_do_not_duplicate_catalog_entries ... ok
+test commands::loader::tests::known_names_map_parses_and_has_expected_entries ... ok
+test commands::loader::tests::no_duplicate_packages_within_any_bundled_list ... ok
+test commands::loader::tests::no_shipped_entry_overrides_the_protected_list ... ok
+test commands::loader::tests::non_reinstallable_uninstall_entries_are_gated_to_disable ... ok
+test commands::loader::tests::review_apps_are_never_auto_selected ... ok
+test commands::loader::tests::review_dates_parse_and_are_not_in_the_future ... ok
+test commands::loader::tests::safe_entries_carry_a_review_date_or_are_listed_as_gaps ... ok
+test commands::loader::tests::shipped_known_names_are_display_only ... ok
+test commands::logcat::tests::app_capture_resolves_the_main_pid_each_time ... ok
+test commands::logcat::tests::device_failure_is_not_an_empty_success ... ok
+test commands::logcat::tests::failed_or_ambiguous_pid_never_reads_all_logs ... ok
+test commands::logcat::tests::invalid_filter_never_touches_the_driver ... ok
+test commands::logcat::tests::unsuccessful_pid_command_never_uses_its_stdout ... ok
+test commands::optimize::tests::prepare_optimize_builds_plan_from_device_state ... ok
+test commands::optimize::tests::prepare_optimize_errors_when_the_installed_section_is_empty ... ok
+test commands::optimize::tests::restore_refuses_a_failed_disabled_read_even_when_memory_succeeds ... ok
+test commands::recovery::tests::free_user_can_recover_disabled_packages_after_downgrade ... ok
+test commands::screenshot::tests::accepts_png_bytes ... ok
+test commands::screenshot::tests::concurrent_same_timestamp_captures_never_replace_each_other ... ok
+test commands::screenshot::tests::exhausted_names_fail_without_overwriting_or_leaving_staging_files ... ok
+test commands::screenshot::tests::existing_symlink_target_is_not_followed_or_overwritten ... ok
+test commands::screenshot::tests::failed_partial_write_publishes_nothing_and_preserves_prior_capture ... ok
+test commands::screenshot::tests::flattens_serial_for_filenames ... ok
+test commands::screenshot::tests::rejects_empty_output ... ok
+test commands::screenshot::tests::rejects_error_text_with_message ... ok
+test commands::screenshot::tests::same_timestamp_retains_each_capture ... ok
+test commands::screenshot::tests::unavailable_directory_returns_an_error_without_a_saved_path ... ok
+test commands::shell::tests::a_blocked_command_never_reaches_the_device ... ok
+test commands::shell::tests::a_chained_command_hiding_a_disable_is_still_refused_whole ... ok
+test commands::shell::tests::a_transport_failure_surfaces_as_an_error_not_an_empty_result ... ok
+test commands::shell::tests::an_empty_command_is_rejected_before_the_driver ... ok
+test commands::shell::tests::disabling_an_unprotected_package_is_allowed_through ... ok
+test commands::shell::tests::runs_a_plain_command_and_returns_both_streams ... ok
+test commands::snapshot::tests::current_settings_map_pairs_keys_to_values_in_order ... ok
+test commands::snapshot::tests::disable_from_plan_records_invalid_name_without_aborting ... ok
+test commands::snapshot::tests::disable_from_plan_records_pm_failure_without_aborting ... ok
+test commands::snapshot::tests::installed_and_disabled_errors_when_the_installed_section_is_empty ... ok
+test commands::snapshot::tests::installed_and_disabled_reads_both_lists_in_one_round_trip ... ok
+test commands::snapshot::tests::installed_and_disabled_surfaces_a_transport_failure ... ok
+test commands::snapshot::tests::setting_apply_distinguishes_empty_put_delete_and_failure ... ok
+test commands::snapshot::tests::settings_capture_rejects_failed_and_truncated_reads ... ok
+test commands::snapshot::tests::snapshot_plan_requires_a_successful_disabled_read ... ok
+test commands::state::tests::a_driver_without_a_server_skips_stop_without_dispatching_commands ... ok
+test commands::state::tests::closing_admission_refuses_new_snapshots_but_not_running_ones ... ok
+test commands::state::tests::every_snapshot_counts_until_its_last_clone_goes ... ok
+test commands::state::tests::snapshots_of_a_swapped_driver_share_one_count ... ok
+test commands::tuning::tests::accepts_real_dot_hostnames ... ok
+test commands::tuning::tests::an_unreadable_cached_limit_is_unknown_not_fatal ... ok
+test commands::tuning::tests::basic_daydream_is_the_aosp_component_name ... ok
+test commands::tuning::tests::builds_put_with_quoted_value ... ok
+test commands::tuning::tests::cached_limit_parses_only_the_current_value ... ok
+test commands::tuning::tests::empty_value_deletes ... ok
+test commands::tuning::tests::rejects_bad_namespace_and_bad_key ... ok
+test commands::tuning::tests::rejects_bad_or_unsafe_hostnames ... ok
+test commands::tuning::tests::tweaks_preserve_empty_values_without_shifting_audio_settings ... ok
+test commands::tuning::tests::tweaks_reject_failed_or_truncated_readback ... ok
+test commands::tuning::tests::value_metacharacters_are_quoted_not_rejected ... ok
+test commands::tuning::tests::value_quoting_handles_spaces_and_single_quotes ... ok
+test engine::app_lists::tests::device_specific_overrides_common ... ok
+test engine::app_lists::tests::duplicate_packages_within_a_list_are_collapsed ... ok
+test engine::app_lists::tests::googletv_excludes_shield_entries ... ok
+test engine::app_lists::tests::shield_merges_common_and_shield ... ok
+test engine::app_lists::tests::unknown_returns_common_only ... ok
+test engine::detection::tests::a_device_that_said_nothing_either_way_is_unknown ... ok
+test engine::detection::tests::a_leanback_no_outweighs_nothing_else ... ok
+test engine::detection::tests::a_phone_says_so_and_we_believe_it ... ok
+test engine::detection::tests::detects_googletv_by_onn_brand ... ok
+test engine::detection::tests::detects_googletv_chromecast ... ok
+test engine::detection::tests::detects_googletv_streamer ... ok
+test engine::detection::tests::detects_shield_by_brand ... ok
+test engine::detection::tests::detects_shield_by_codename_only ... ok
+test engine::detection::tests::generic_box_reporting_tv_characteristic_is_google_tv ... ok
+test engine::detection::tests::google_branded_phone_is_not_google_tv ... ok
+test engine::detection::tests::google_branded_tv_with_tv_characteristic_is_google_tv ... ok
+test engine::detection::tests::leanback_alone_is_enough_to_call_it_a_tv ... ok
+test engine::detection::tests::non_tv_tokens_are_matched_per_token_and_case_insensitively ... ok
+test engine::detection::tests::shield_friendly_model_known ... ok
+test engine::detection::tests::shield_friendly_model_unknown_passes_through ... ok
+test engine::detection::tests::tv_characteristic_still_wins_over_a_leanback_no ... ok
+test engine::detection::tests::unknown_when_no_signals ... ok
+test engine::diagnostics::tests::a_host_only_bundle_says_no_device_rather_than_inventing_one ... ok
+test engine::diagnostics::tests::a_package_inventory_is_never_part_of_the_bundle ... ok
+test engine::diagnostics::tests::an_unreadable_device_claims_nothing_about_itself ... ok
+test engine::diagnostics::tests::setup_helper_state_says_not_installed_or_unknown_without_guessing ... ok
+test engine::diagnostics::tests::the_device_section_carries_both_tv_signals_and_the_verdict ... ok
+test engine::launcher::tests::a_pairing_must_name_a_catalogued_transient_holder ... ok
+test engine::launcher::tests::current_home_agreeing_sources_keep_the_activity ... ok
+test engine::launcher::tests::current_home_disagreement_shows_the_role_holder_with_a_note ... ok
+test engine::launcher::tests::current_home_falls_back_to_the_resolver_without_a_role ... ok
+test engine::launcher::tests::current_home_keeps_a_stock_launcher_that_overrides_the_role ... ok
+test engine::launcher::tests::current_home_prefers_the_role_holder_over_a_transient_resolver_answer ... ok
+test engine::launcher::tests::current_home_role_without_a_resolver_answer_is_the_role ... ok
+test engine::launcher::tests::disabled_setup_wraith_keeps_its_row_without_being_tracked ... ok
+test engine::launcher::tests::last_enabled_home_handler_guard ... ok
+test engine::launcher::tests::launcher_rows_carry_the_catalog_source_url ... ok
+test engine::launcher::tests::launcher_rows_include_other_home_handlers_but_never_safe_fallbacks ... ok
+test engine::launcher::tests::launcher_rows_keep_tracked_disabled_handlers_visible ... ok
+test engine::launcher::tests::launcher_rows_mark_disabled_stock ... ok
+test engine::launcher::tests::launcher_rows_mark_setup_wraith_as_a_setup_helper ... ok
+test engine::launcher::tests::launcher_rows_omit_stock_not_on_device ... ok
+test engine::launcher::tests::launcher_rows_put_installed_stock_first ... ok
+test engine::launcher::tests::package_name_validation_accepts_valid ... ok
+test engine::launcher::tests::package_name_validation_rejects_invalid ... ok
+test engine::launcher::tests::paired_holders_come_only_from_the_stock_being_disabled ... ok
+test engine::launcher::tests::wraith_alone_is_not_a_home_so_it_is_never_the_survivor ... ok
+test engine::logcat::tests::a_tag_is_an_allowlist_not_an_additional_global_filter ... ok
+test engine::logcat::tests::filters_cannot_inject_shell_words_or_logcat_flags ... ok
+test engine::logcat::tests::process_resolution_is_strict ... ok
+test engine::logcat::tests::snapshots_are_finite_and_never_clear_or_change_logging ... ok
+test engine::logcat::tests::unresolved_app_filter_never_falls_back_to_all_apps ... ok
+test engine::media::tests::absent_frame_setting_and_display_data_stay_unknown ... ok
+test engine::media::tests::audio_codes_preserve_unknowns_and_do_not_confuse_mpegh_with_dts ... ok
+test engine::media::tests::duplicate_documents_do_not_duplicate_decoders ... ok
+test engine::media::tests::empty_and_malformed_xml_do_not_panic_or_invent_support ... ok
+test engine::media::tests::reads_multiline_nested_types_comments_and_concatenated_documents ... ok
+test engine::media::tests::software_metadata_and_mixed_decoders_preserve_presence ... ok
+test engine::media::tests::vendor_name_does_not_prove_hardware_acceleration ... ok
+test engine::optimize::tests::memory_map_propagated ... ok
+test engine::optimize::tests::optimize_skips_uninstalled_and_disabled ... ok
+test engine::optimize::tests::restore_skips_enabled_and_uninstalled ... ok
+test engine::optimize::tests::uninstall_downgraded_to_disable_when_not_reinstallable ... ok
+test engine::optimize::tests::uninstall_method_chosen_when_optimize_and_installed ... ok
+test engine::safety::tests::a_catalog_entry_with_no_description_still_reads_cleanly ... ok
+test engine::safety::tests::a_hand_written_caution_outranks_a_generic_risk_tier ... ok
+test engine::safety::tests::a_reviewed_safe_app_is_safe_not_unknown ... ok
+test engine::safety::tests::a_risky_reviewed_app_is_caution_and_says_why ... ok
+test engine::safety::tests::all_verdicts_serialize_with_tag_and_reason ... ok
+test engine::safety::tests::an_uncatalogued_package_is_still_unknown ... ok
+test engine::safety::tests::caution_rules_keep_their_reasons_unless_protected_precedence_wins ... ok
+test engine::safety::tests::channel_provider_is_caution_not_never ... ok
+test engine::safety::tests::every_protected_rule_keeps_its_reason_and_membership ... ok
+test engine::safety::tests::framework_is_never_disable ... ok
+test engine::safety::tests::gms_is_never_disable ... ok
+test engine::safety::tests::representative_protected_packages_remain_protected ... ok
+test engine::safety::tests::safe_fallback_settings_is_never_disable ... ok
+test engine::safety::tests::safe_is_never_reached_without_a_catalog_entry ... ok
+test engine::safety::tests::shell_is_never_disable_for_obvious_reasons ... ok
+test engine::safety::tests::shell_runner_allows_disabling_an_unprotected_package ... ok
+test engine::safety::tests::shell_runner_allows_reading_a_protected_package ... ok
+test engine::safety::tests::shell_runner_blocks_chained_and_quoted_attempts ... ok
+test engine::safety::tests::shell_runner_blocks_disabling_a_never_disable_package ... ok
+test engine::safety::tests::shell_runner_blocks_every_destructive_spelling ... ok
+test engine::safety::tests::shell_runner_blocks_literal_clear_updates_and_component_targets ... ok
+test engine::safety::tests::shell_runner_gate_agrees_with_the_never_disable_list ... ok
+test engine::safety::tests::shell_runner_gate_does_not_pretend_to_stop_deliberate_evasion ... ok
+test engine::safety::tests::system_keyboards_are_never_disable ... ok
+test engine::safety::tests::the_protected_list_outranks_any_catalog_entry ... ok
+test engine::safety::tests::unmatched_packages_are_unknown_with_the_exact_reason ... ok
+test engine::snapshot::tests::absent_and_empty_settings_roundtrip_and_plan_separately ... ok
+test engine::snapshot::tests::apply_plan_categorizes_packages ... ok
+test engine::snapshot::tests::apply_plan_skips_settings_already_at_target ... ok
+test engine::snapshot::tests::apply_plan_warns_on_cross_device ... ok
+test engine::snapshot::tests::current_values_cover_every_setting_the_snapshot_mentions ... ok
+test engine::snapshot::tests::label_roundtrips ... ok
+test engine::snapshot::tests::launcher_already_home_is_not_a_change ... ok
+test engine::snapshot::tests::launcher_not_installed_is_skipped_and_named ... ok
+test engine::snapshot::tests::launcher_that_differs_or_is_unknown_is_set ... ok
+test engine::snapshot::tests::legacy_omissions_never_become_deletions ... ok
+test engine::snapshot::tests::rejects_conflicting_present_and_absent_values ... ok
+test engine::snapshot::tests::rejects_future_schema ... ok
+test engine::snapshot::tests::rejects_malformed_json ... ok
+test engine::snapshot::tests::rejects_missing_schema_version ... ok
+test engine::snapshot::tests::rejects_zero_schema_version ... ok
+test engine::snapshot::tests::roundtrip_json ... ok
+test engine::snapshot::tests::v1_snapshot_loads_with_no_label ... ok
+test license::tests::base32_round_trips_arbitrary_bytes ... ok
+test license::tests::dev_test_key_is_accepted_in_debug_builds ... ok
+test license::tests::expired_license_is_rejected ... ok
+test license::tests::issue_then_verify_round_trips ... ok
+test license::tests::issued_license_length_stays_typeable ... ok
+test license::tests::issuing_rejects_bad_licensee ... ok
+test license::tests::license_survives_lowercase_and_confusable_characters ... ok
+test license::tests::malformed_strings_are_rejected ... ok
+test license::tests::perpetual_license_has_no_expiry ... ok
+test license::tests::production_key_id_is_trusted ... ok
+test license::tests::signature_from_another_key_is_rejected ... ok
+test license::tests::tampered_payload_is_rejected ... ok
+test license::tests::unknown_key_id_is_rejected ... ok
+
+test result: ok. 494 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.14s
+
+     Running unittests src/lib.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/shield_optimizer_v2_lib-42621b022cfda0c9)
+
+running 110 tests
+test adb::driver::tests::a_pairing_pin_never_reaches_the_log ... ok
+test adb::driver::tests::a_server_target_override_is_left_alone ... ok
+test adb::driver::tests::a_session_line_carries_the_schema_the_replay_parser_reads ... ok
+test adb::driver::tests::a_session_line_never_carries_the_pin_or_typed_text ... ok
+test adb::driver::tests::a_timeout_is_recorded_as_an_error_without_an_exit_code ... ok
+test adb::driver::tests::binary_output_is_recorded_as_its_size ... ok
+test adb::driver::tests::bounded_shell_deadline_keeps_partial_output ... ok
+test adb::driver::tests::bounded_shell_preserves_nonzero_and_both_streams ... ok
+test adb::driver::tests::bounded_shell_stops_continuous_output ... ok
+test adb::driver::tests::bounded_utf8_handles_incomplete_and_invalid_characters ... ok
+test adb::driver::tests::discovery_does_not_search_path_after_valid_managed_install ... ok
+test adb::driver::tests::discovery_does_not_search_path_after_valid_override ... ok
+test adb::driver::tests::discovery_never_touches_the_launch_directory_when_adb_is_installed ... ok
+test adb::driver::tests::discovery_uses_path_after_higher_priority_candidates_fail ... ok
+test adb::driver::tests::logged_stdout_is_capped_without_splitting_a_character ... ok
+test adb::driver::tests::missing_binary_returns_typed_error ... ok
+test adb::driver::tests::ordinary_subprocess_nonzero_contract_is_unchanged ... ok
+test adb::driver::tests::output_success_check ... ok
+test adb::driver::tests::package_listing_stdout_is_redacted_not_truncated ... ok
+test adb::driver::tests::process_lifetimes::a_cancelled_call_stays_counted_until_its_process_is_reaped ... ok
+test adb::driver::tests::process_lifetimes::a_resident_child_counts_until_it_is_reaped ... ok
+test adb::driver::tests::process_lifetimes::a_stop_that_times_out_is_killed_and_reported_unknown ... ok
+test adb::driver::tests::process_lifetimes::a_timed_out_call_is_reaped_before_it_returns ... ok
+test adb::driver::tests::process_lifetimes::closed_process_admission_refuses_to_spawn ... ok
+test adb::driver::tests::process_lifetimes::inherited_output_pipes_respect_timeout_after_direct_child_exit ... ok
+test adb::driver::tests::process_lifetimes::replacement_and_old_driver_clones_share_closed_process_admission ... ok
+test adb::driver::tests::process_lifetimes::the_stop_reports_what_kill_server_exited_with ... ok
+test adb::driver::tests::repeated_discovery_resolves_once_until_explicitly_forgotten ... ok
+test adb::driver::tests::the_expert_shell_is_recorded_without_its_command_or_output ... ok
+test adb::driver::tests::typed_remote_text_never_reaches_the_log ... ok
+test adb::install::tests::extract_zip_rejects_zip_slip ... ok
+test adb::install::tests::install_root_is_under_data_local_dir ... ok
+test adb::install::tests::platform_tools_url_matches_current_os ... ok
+test adb::scan::tests::parses_dotted_prefix ... ok
+test adb::scan::tests::parses_linux_le_hex_ip ... ok
+test adb::scan::tests::rejects_bad_hex ... ok
+test adb::scan::tests::rejects_malformed_prefix ... ok
+test commands::app_report::tests::writes_a_report_and_nothing_else ... ok
+test commands::backup::tests::ignores_noise_lines ... ok
+test commands::backup::tests::names_single_and_split_backups ... ok
+test commands::backup::tests::parses_single_apk_path ... ok
+test commands::backup::tests::parses_split_apk_paths ... ok
+test commands::backup::tests::parses_version_name_from_dumpsys ... ok
+test commands::diagnostics::tests::an_empty_installed_list_is_unknown_not_absent ... ok
+test commands::diagnostics::tests::home_handlers_are_read_from_the_real_resolveinfo_shape ... ok
+test commands::diagnostics::tests::session_recordings_never_reach_the_bug_report_tail ... ok
+test commands::diagnostics::tests::the_tail_is_the_last_n_lines_and_an_absent_log_is_empty ... ok
+test commands::diagnostics::tests::ui_breadcrumbs_are_one_clean_bounded_line ... ok
+test commands::files::tests::quotes_single_quotes_in_paths ... ok
+test commands::install::tests::restart_adb_reports_failure_when_network_reconnect_fails ... ok
+test commands::install::tests::restart_adb_reports_failure_when_start_server_errors ... ok
+test commands::install::tests::restart_adb_retries_a_reconnect_that_fails_immediately ... ok
+test commands::quit::tests::a_change_from_an_outdated_view_cannot_turn_the_stop_on ... ok
+test commands::quit::tests::a_restart_for_an_update_leaves_the_server_running ... ok
+test commands::quit::tests::after_admission_closes_new_work_is_refused_before_it_reaches_adb ... ok
+test commands::quit::tests::an_adb_process_still_alive_leaves_the_server_running ... ok
+test commands::quit::tests::an_operation_that_outlasts_the_drain_leaves_the_server_running ... ok
+test commands::quit::tests::canceled_install_waiter_keeps_blocking_extraction_counted ... ok
+test commands::quit::tests::canceled_pending_install_releases_admission_without_replacing_driver ... ok
+test commands::quit::tests::install_after_closed_admission_has_no_installer_effects ... ok
+test commands::quit::tests::once_quit_has_begun_the_setting_no_longer_changes ... ok
+test commands::quit::tests::pending_install_prevents_stop_until_driver_replacement_finishes ... ok
+test commands::quit::tests::quit_waits_for_an_operation_already_running_then_stops ... ok
+test commands::quit::tests::quit_waits_for_old_snapshot_after_replacement_then_stops_live_driver ... ok
+test commands::quit::tests::quitting_twice_stops_at_most_once ... ok
+test commands::quit::tests::the_setting_starts_off ... ok
+test commands::quit::tests::with_a_real_process::spoofed_start_output_and_restarts_do_not_stop_the_server ... ok
+test commands::quit::tests::with_a_real_process::with_the_setting_on_quit_runs_kill_server_once ... ok
+test commands::quit::tests::with_the_setting_off_quit_never_stops_the_server ... ok
+test commands::scan::live::live_forget_then_auto_connect ... ignored
+test commands::scan::tests::a_device_adb_already_holds_is_not_connected_a_second_time ... ok
+test commands::scan::tests::a_device_adb_does_not_hold_is_still_connected ... ok
+test commands::scan::tests::a_device_attached_at_the_very_endpoint_we_would_dial_is_still_dialled ... ok
+test commands::scan::tests::a_pairing_only_device_is_reported_rather_than_connected_to ... ok
+test commands::scan::tests::a_redial_drops_the_offline_alias_of_the_same_service_only ... ok
+test commands::scan::tests::a_similar_instance_name_is_not_treated_as_the_same_device ... ok
+test commands::scan::tests::an_advertised_host_adb_already_holds_is_still_not_probed_on_5555 ... ok
+test commands::scan::tests::an_advertised_host_is_not_also_probed_on_5555 ... ok
+test commands::scan::tests::an_advertised_port_is_used_instead_of_guessing_5555 ... ok
+test commands::scan::tests::an_already_paired_device_is_not_asked_to_pair_again ... ok
+test commands::scan::tests::an_offline_transport_does_not_stop_the_scan_redialling ... ok
+test commands::scan::tests::an_unauthorized_transport_is_not_dialled_again_and_reports_unauthorized ... ok
+test commands::scan::tests::classifies_connected_despite_daemon_startup_noise ... ok
+test commands::scan::tests::classifies_failures ... ok
+test commands::scan::tests::classifies_fresh_and_already_connected ... ok
+test commands::scan::tests::classifies_unauthorized ... ok
+test commands::scan::tests::legacy_devices_still_reach_5555_when_nothing_is_advertised ... ok
+test commands::scan::tests::legacy_sweep_targets_are_unaffected_by_the_attached_list ... ok
+test commands::scan::tests::real_world_scan_output_connects_the_shield_and_leaves_the_phone_alone ... ok
+test commands::scan::tests::repeated_advertisements_produce_one_target_each ... ok
+test commands::scan::tests::summary_mentions_unauthorized_devices ... ok
+test commands::scan::tests::summary_plain_when_all_connected ... ok
+test commands::scan::tests::summary_says_nothing_about_pairing_when_nothing_is_waiting ... ok
+test commands::scan::tests::summary_tells_the_user_how_to_pair_a_waiting_device ... ok
+test commands::sideload::tests::a_manifest_package_id_with_shell_syntax_is_treated_as_unreadable ... ok
+test commands::sideload::tests::decodes_common_install_failures ... ok
+test commands::update::tests::a_build_with_no_published_release_has_no_notes ... ok
+test commands::update::tests::an_empty_release_body_is_not_notes ... ok
+test commands::update::tests::drafts_are_ignored_for_both_answers ... ok
+test commands::update::tests::finds_the_notes_for_the_version_actually_running ... ok
+test commands::update::tests::higher_core_beats_any_prerelease ... ok
+test commands::update::tests::newer_patch_and_minor ... ok
+test commands::update::tests::non_v2_tags_are_skipped ... ok
+test commands::update::tests::prerelease_numeric_segments_compare_numerically ... ok
+test commands::update::tests::stable_beats_prerelease_same_core ... ok
+test session::tests::an_unwritable_dir_is_swallowed ... ok
+test session::tests::file_names_are_filesystem_safe_utc_timestamps ... ok
+test session::tests::nothing_is_created_until_the_first_line_then_a_header_leads ... ok
+test session::tests::rotation_keeps_the_newest_ten_files ... ok
+test session::tests::the_size_cap_writes_one_notice_and_stops ... ok
+
+test result: ok. 109 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 4.18s
+
+     Running unittests src/main.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/shield_optimizer_v2-7e20e0fcff340859)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/Users/bryanroscoe/Developer/shield-issue205-20261019/v2/target/debug/deps/tauri_plugin_atv_adb-1564aed60f182287)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests atv_optimizer_mobile_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shield_optimizer_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests shield_optimizer_v2_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests tauri_plugin_atv_adb
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

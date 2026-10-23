@@ -11,3 +11,8 @@ key.properties
 *.jks
 *.keystore
 *.p12
+__pycache__/
+
+# Screenshot frames — regenerable via `npm run screenshots`. gallery.gif and
+# contact-sheet.png are committed.
+/screenshots/frames/

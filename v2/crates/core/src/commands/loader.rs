@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn embedded_launchers_parse_with_every_shipped_entry() {
         let cat = load_embedded_launchers().expect("launchers.json must parse");
-        assert_eq!(cat.custom.len(), 8, "custom launcher count");
+        assert_eq!(cat.custom.len(), 7, "custom launcher count");
         assert_eq!(cat.stock.len(), 4, "stock launcher count");
 
         // Critical correctness: the Dispatch package name change from v1's
@@ -465,57 +465,38 @@ mod tests {
     }
 
     #[test]
-    fn cleartv_shared_package_has_one_exact_identity_and_preserves_row_states() {
+    fn uncurated_shared_package_remains_a_generic_home_handler() {
         let catalog = load_embedded_launchers().expect("parse");
-        let package = "com.gathin.tvhome";
-        let entries: Vec<_> = catalog
-            .custom
-            .iter()
-            .chain(&catalog.stock)
-            .filter(|entry| entry.package == package)
-            .collect();
-        assert_eq!(
-            entries.len(),
-            1,
-            "forks sharing an application id must not duplicate rows"
-        );
-        assert_eq!(entries[0].name, "ClearTV Islamic / CleanYourTV");
-        assert_eq!(
-            entries[0].source_url.as_deref(),
-            Some("https://github.com/Pokka99/cleartv-Islamic")
-        );
-        for (installed, disabled) in [(false, false), (true, false), (true, true)] {
-            let installed_packages = if installed {
-                vec![package.to_string()]
-            } else {
+        let package = "com.gathin.tvhome".to_string();
+        assert!(!catalog.contains(&package));
+        let missing = crate::engine::launcher_rows(&catalog, &[], &[], &[], &[]);
+        assert!(!missing.iter().any(|row| row.entry.package == package));
+        for disabled in [false, true] {
+            let installed = vec![package.clone()];
+            let disabled_packages = if disabled { installed.clone() } else { vec![] };
+            let handlers = if disabled {
                 vec![]
-            };
-            let disabled_packages = if disabled {
-                vec![package.to_string()]
             } else {
-                vec![]
+                vec![package.clone(), package.clone()]
             };
-            let handlers = vec![package.to_string(), package.to_string()];
             let rows = crate::engine::launcher_rows(
                 &catalog,
-                &installed_packages,
+                &installed,
                 &disabled_packages,
                 &handlers,
-                &handlers,
+                &installed,
             );
             let matching: Vec<_> = rows
                 .iter()
                 .filter(|row| row.entry.package == package)
                 .collect();
-            assert_eq!(
-                matching.len(),
-                1,
-                "catalog + discovered/tracked HOME rows must deduplicate"
-            );
+            assert_eq!(matching.len(), 1);
             let row = matching[0];
-            assert_eq!(row.installed, installed);
-            assert_eq!(row.enabled, installed && !disabled);
-            assert!(!row.stock && !row.other && !row.setup_helper);
+            assert_eq!(row.entry.name, package);
+            assert_eq!(row.entry.source_url, None);
+            assert!(row.installed && row.other);
+            assert!(!row.stock && !row.setup_helper);
+            assert_eq!(row.enabled, !disabled);
         }
     }
 

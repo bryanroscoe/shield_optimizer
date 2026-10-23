@@ -1,0 +1,17 @@
+✔ report safety: failed sheet overrides old caution catalog and retries honestly (5026.216916ms)
+✔ report safety: failed sheet overrides old safe catalog and retries honestly (3518.316125ms)
+✔ report safety: failed sheet overrides old never_disable catalog and retries honestly (3563.247833ms)
+✔ report safety: late retry cannot cross reopen (1233.52775ms)
+✔ report safety: late retry cannot cross package (1501.292375ms)
+✔ report safety: late retry cannot cross reconnect (1548.170583ms)
+✔ report safety: an absent sheet result retains the catalog fallback without retry (800.531833ms)
+✔ report safety: late sheet lookup cannot cross package and overwrite the current result (1141.48425ms)
+✔ report safety: late sheet lookup cannot cross reconnect and overwrite the current result (1157.218083ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 9
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 19789.955709

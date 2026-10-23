@@ -1,11 +1,24 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import { tierOf } from "../lib/safety";
-  import type { ResourceSample, Safety } from "../lib/types";
-  import { formatSupport, matchContentLabel, type MediaCapabilities } from "../../../shared/media";
+  import { safetyLabel, safetyReason, type SafetyStatus } from "../lib/safety";
+  import type { PackageState } from "../lib/recommendation";
+  import {
+    memorySuggestion,
+    safetyQuery,
+    suggestionDisplay,
+    type CatalogState,
+    type InstalledState,
+  } from "../lib/memorySuggestion";
+  import { catalogItem, otherItem, type AppItem } from "../lib/appsList";
+  import type { MemoryEntry, OtherPackage, ResourceSample } from "../lib/types";
+  import AppSheetHost from "../components/AppSheetHost.svelte";
+  import Toast from "../components/Toast.svelte";
+  import DiagnosticReports from "../components/DiagnosticReports.svelte";
+  import { type MediaCapabilities } from "../../../shared/media";
+  import { memoryUsage, storageUsage, temperatureContext, metricNumber } from "../lib/healthPresentation";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
 
   let { navigate, back }: {
@@ -13,14 +26,40 @@
     back: () => void;
   } = $props();
 
-  // Safety tags come from the backend `safety_info` command — the one audited
-  // classifier. No inline package→risk table (that violated the "one detection
-  // function" invariant and could disagree with the engine).
-  let safetyMap = $state<Record<string, Safety>>({});
-  let safetyLoading = $state(false);
-  let safetyFailed = $state(false);
+  // Verdicts come from the backend — `safety_info` for a row the TV confirms
+  // is an installed package, `process_safety_info` (catalog-free) for any
+  // other name — keyed by the full process name. No inline classifier.
+  let memorySafety = $state<Record<string, SafetyStatus>>({});
+  let installed = $state<InstalledState>({ status: "loading" });
+  let catalog = $state<CatalogState>({ status: "loading" });
+  let installedRows = new Map<string, OtherPackage>();
   let safetyRetry = $state(0);
   let safetyRequest = 0;
+  let sheetApp = $state<AppItem | null>(null);
+
+  let toast = $state("");
+  let toastType = $state<"success" | "error" | "info">("info");
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
+  function showToast(message: string, type: "success" | "error" | "info" = "info") {
+    toast = message;
+    toastType = type;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ""), 4200);
+  }
+
+  /// Open a confirmed package in the app sheet, as desktop's Health opens it
+  /// in the App List. Only rows the TV confirmed are tappable.
+  function openSheet(pkg: string) {
+    const row = installedRows.get(pkg);
+    if (!row || installed.status !== "ready") return;
+    const entry = catalog.status === "ready" ? catalog.entries.get(pkg) : undefined;
+    sheetApp = entry ? catalogItem(entry, installed.packages.get(pkg) ?? null) : otherItem(row);
+  }
+
+  function afterSheetChange() {
+    ++safetyRetry;
+    void session.loadHealth(true);
+  }
   // Real catalog names (app_list_for_device). Missing package = no name, and we
   // then show the package itself rather than inventing one from its last dot
   // segment ("…youtube.tv" is not an app called "Tv").
@@ -88,7 +127,6 @@
     }
   }
 
-  const rate = (value: number | null) => value == null ? "Unavailable" : `${(value / 1024).toFixed(1)} KiB/s`;
 
   let liveMode = $state(false);
   let liveTimer: ReturnType<typeof setInterval> | undefined;
@@ -110,41 +148,74 @@
   // Driven by data, not by the awaited loadHealth() call — `loadHealth`
   // resolves immediately when another load is already in flight, which is why
   // the old `await loadHealth(); loadSafety()` never found any packages.
+  //
+  // A process name is not an app until the TV confirms a package by that name
+  // is installed (desktop's Health does the same), so the installed list is
+  // read first and each row is then asked about as a package or a process.
   $effect(() => {
     const key = topKey;
-    const pkgs = key ? key.split(",") : [];
+    const names = key ? key.split(",") : [];
     const device = session.connectedDevice;
     const liveness = session.liveness;
     const generation = session.generation;
     void safetyRetry;
     const request = ++safetyRequest;
     const serial = device?.serial ?? "";
-    safetyMap = {};
-    safetyFailed = false;
-    safetyLoading = pkgs.length > 0 && liveness === "live";
-    if (pkgs.length === 0 || !device || liveness !== "live") return;
+    memorySafety = {};
+    installed = { status: "loading" };
+    if (names.length === 0 || !device || liveness !== "live") return;
+    const rows = untrack(() => {
+      const byName = new Map<string, MemoryEntry>();
+      for (const m of session.health?.top_memory ?? []) if (!byName.has(m.process)) byName.set(m.process, m);
+      return names.map((n) => byName.get(n)).filter((m): m is MemoryEntry => m !== undefined);
+    });
     const current = () =>
       !destroyed &&
       request === safetyRequest &&
       serial === session.serial &&
       generation === session.generation &&
       session.isConnected;
-    Promise.all(pkgs.map(async (p) => [p, await api.safetyInfo(p)] as const))
-      .then((pairs) => {
-        if (!current()) return;
-        const map: Record<string, Safety> = {};
-        for (const [p, s] of pairs) map[p] = s;
-        safetyMap = map;
-      })
-      .catch(() => {
-        if (!current()) return;
-        safetyMap = {};
-        safetyFailed = true;
-      })
-      .finally(() => {
-        if (current()) safetyLoading = false;
-      });
+    void (async () => {
+      let next: InstalledState;
+      try {
+        const list = await api.listInstalledPackages(serial);
+        const packages = new Map<string, PackageState>();
+        for (const p of list) packages.set(p.package, p.enabled ? "enabled" : "disabled");
+        next = { status: "ready", packages };
+        if (current()) installedRows = new Map(list.map((p) => [p.package, p]));
+      } catch {
+        // No installed list means nothing is confirmed as an app.
+        next = { status: "failed" };
+      }
+      if (!current()) return;
+      installed = next;
+      const queries = rows.map((m) => [m.process, safetyQuery(m, next)] as const);
+      memorySafety = Object.fromEntries(
+        queries.map(([name]) => [name, { status: "checking" } satisfies SafetyStatus]),
+      );
+      const results = await Promise.allSettled(
+        queries.map(([, q]) =>
+          q?.kind === "package" ? api.safetyInfo(q.name) : api.processSafetyInfo(q?.name ?? ""),
+        ),
+      );
+      if (!current()) return;
+      memorySafety = Object.fromEntries(
+        queries.map(([name], i) => {
+          const r = results[i];
+          return [
+            name,
+            r.status === "fulfilled"
+              ? ({ status: "ready", verdict: r.value } satisfies SafetyStatus)
+              : ({ status: "unavailable", reason: String(r.reason) } satisfies SafetyStatus),
+          ];
+        }),
+      );
+    })();
   });
+
+  const safetyFailed = $derived(
+    Object.values(memorySafety).some((status) => status.status === "unavailable"),
+  );
 
   $effect(() => {
     const device = session.connectedDevice;
@@ -152,6 +223,7 @@
     const generation = session.generation;
     const request = ++catalogRequest;
     catalogNames = {};
+    catalog = { status: "loading" };
     if (!device || liveness !== "live") return;
     const serial = device.serial;
     api
@@ -167,9 +239,12 @@
         const map: Record<string, string> = {};
         for (const e of entries) map[e.package] = e.name;
         catalogNames = map;
+        catalog = { status: "ready", entries: new Map(entries.map((e) => [e.package, e])) };
       })
       .catch(() => {
-        if (request === catalogRequest) catalogNames = {};
+        if (request !== catalogRequest) return;
+        catalogNames = {};
+        catalog = { status: "failed" };
       });
   });
 
@@ -200,45 +275,18 @@
     ++playbackRequest;
     ++resourceRequest;
     stopLive();
+    clearTimeout(toastTimer);
   });
 
   async function refresh() {
     await session.loadHealth(true);
   }
 
-  // --- Memory (real values or "—"; no fabricated 2966/1512 fallbacks) ---
+  // Both capacity bars represent USED space, with neutral color (not severity).
+  const memory = $derived(memoryUsage(health?.ram));
+  const storagePercent = $derived(storageUsage(health?.storage));
+  const thermal = $derived(temperatureContext(health));
   const totalRam = $derived(health?.ram?.total_mb ?? null);
-  const freeRam = $derived(health?.ram?.free_mb ?? null);
-  const usedRam = $derived(
-    health?.ram?.used_mb ??
-      (totalRam != null && freeRam != null ? Math.max(0, totalRam - freeRam) : null),
-  );
-  const ramText = $derived(
-    usedRam != null && totalRam != null
-      ? `${Math.round(usedRam)} / ${Math.round(totalRam)} MB used`
-      : "—",
-  );
-  const ramUsedPercent = $derived(
-    usedRam != null && totalRam
-      ? Math.min(100, Math.max(0, Math.round((usedRam / totalRam) * 100)))
-      : 0,
-  );
-
-  // --- Storage ---
-  const storageText = $derived(
-    health?.storage?.used != null && health?.storage?.total != null
-      ? `${health.storage.used} / ${health.storage.total} used`
-      : "—",
-  );
-  const storageUsedPercent = $derived(health?.storage?.used_percent ?? 0);
-
-  // --- Temperature ---
-  // The sensor is real; the "warm / throttle" cut-offs we used to print were
-  // invented. Show the reading on a neutral, explicitly-approximate scale.
-  const tempC = $derived(health?.temperature_c ?? null);
-  const tempPercent = $derived(
-    tempC == null ? 0 : Math.min(100, Math.max(0, ((tempC - 20) / 80) * 100)),
-  );
 
   // --- Display & audio ---
   const displayRes = $derived(health?.display?.resolution ?? "—");
@@ -336,57 +384,65 @@
       </div>
     {/if}
     <div class="diagnostics-content">
-      <!-- Memory -->
-      <div class="diagnostic-card">
+      <section class="diagnostic-card" aria-label="RAM usage">
         <div class="card-header">
-          <span class="card-title">Memory</span>
-          <span class="mono card-value">{ramText}</span>
+          <span class="card-title">RAM used</span>
+          <span class="mono card-value">{memory ? `${memory.percent}% used` : "Unavailable"}</span>
         </div>
-        <div class="progress-track">
-          <div class="progress-fill ram-gradient" style="width: {ramUsedPercent}%"></div>
-        </div>
-      </div>
-
-      <!-- Storage -->
-      <div class="diagnostic-card">
-        <div class="card-header">
-          <span class="card-title">Storage</span>
-          <span class="mono card-value">{storageText}</span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill storage-gradient" style="width: {storageUsedPercent}%"></div>
-        </div>
-      </div>
-
-      <!-- Temperature -->
-      <div class="diagnostic-card">
-        <div class="card-header">
-          <span class="card-title inline-title">
-            <span class="msr temp-icon">thermostat</span>Temperature
-          </span>
-          <span class="mono card-value">approximate</span>
-        </div>
-        {#if tempC != null}
-          <div class="temp-readout">
-            <span class="mono temp-value">{Math.round(tempC)}<span class="temp-unit"> °C</span></span>
+        {#if memory}
+          <div class="progress-track" role="progressbar" aria-label="RAM used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={memory.percent} aria-valuetext={`${memory.percent}% used`}>
+            <div class="progress-fill usage-fill" style={`width: ${memory.percent}%`}></div>
           </div>
-          <div class="temp-bar-wrap">
-            <div class="temp-neutral-bar"></div>
-            <span class="temp-indicator-dot" style="left: {tempPercent}%"></span>
-          </div>
-          <div class="temp-labels">
-            <span>20°</span>
-            <span>60°</span>
-            <span>100°</span>
-          </div>
-          <p class="temp-note">
-            One sensor reading from the TV. Throttling points differ per device, so this app doesn't
-            grade it as normal or hot.
-          </p>
-        {:else}
-          <span class="mono card-value">Unavailable</span>
+          <p class="metric-detail mono">{metricNumber(memory.used)} / {metricNumber(memory.total)} MB used</p>
+          <p class="metric-detail">{memory.free == null ? "Free/available RAM not reported" : `${metricNumber(memory.free)} MB reported free/available`}</p>
         {/if}
-      </div>
+        <p class="temp-note">Android can reclaim cached memory. High RAM use alone does not establish memory pressure.</p>
+      </section>
+
+      <section class="diagnostic-card" aria-label="Storage usage">
+        <div class="card-header">
+          <span class="card-title">Storage used</span>
+          <span class="mono card-value">{storagePercent == null ? "Percentage unavailable" : `${storagePercent}% used`}</span>
+        </div>
+        {#if storagePercent != null}
+          <div class="progress-track" role="progressbar" aria-label="Storage used" aria-valuemin="0" aria-valuemax="100" aria-valuenow={storagePercent} aria-valuetext={`${storagePercent}% used`}>
+            <div class="progress-fill usage-fill" style={`width: ${storagePercent}%`}></div>
+          </div>
+        {/if}
+        <p class="metric-detail mono">{health.storage?.used != null && health.storage?.total != null ? `${health.storage.used} / ${health.storage.total} used` : "Used size not reported"}</p>
+        <p class="metric-detail">{health.storage?.available != null ? `${health.storage.available} available on /data` : "Available storage not reported"}</p>
+      </section>
+
+      <section class="diagnostic-card" aria-label="Temperature context">
+        <div class="card-header thermal-header">
+          <span class="card-title inline-title"><span class="msr temp-icon">thermostat</span>{thermal.value == null ? "Temperature" : "Highest reported temperature"}</span>
+          {#if thermal.source}<span class="mono card-value">{thermal.source}</span>{/if}
+        </div>
+        {#if thermal.value != null}
+          <div class="temp-readout"><span class="mono temp-value">{metricNumber(thermal.value)} °C</span></div>
+        {:else}
+          <p class="metric-detail">Temperature unavailable</p>
+        {/if}
+        {#if thermal.value != null}<p class="metric-detail">{thermal.sensor}</p>{/if}
+        {#if thermal.cached}<p class="temp-note">No current sensor reading was supplied; showing a cached value.</p>{/if}
+        {#if thermal.value != null || thermal.status != null}
+        <p class="thermal-status" class:thermal-warning={thermal.status != null && thermal.status >= 2} class:thermal-critical={thermal.status != null && thermal.status >= 4}>
+          {thermal.status == null ? thermal.statusLabel : `${thermal.statusScope}: ${thermal.statusLabel}`}
+        </p>
+        {#if thermal.deviceStatus != null && thermal.sensorStatus != null && thermal.deviceStatus !== thermal.sensorStatus}
+          <p class="thermal-status" class:thermal-warning={thermal.sensorStatus >= 2} class:thermal-critical={thermal.sensorStatus >= 4}>{thermal.cached ? "Cached sensor" : "Selected sensor"}: {thermal.sensorStatusLabel}</p>
+        {/if}
+        <p class="temp-note">{thermal.statusHelp}</p>
+        {#if thermal.value != null && thermal.throttle != null}
+          <p class="metric-detail">Reported sensor threshold: <strong>{metricNumber(thermal.throttle)} °C</strong></p>
+          <p class="metric-detail" class:threshold-exceeded={thermal.value != null && thermal.value >= thermal.throttle}>{thermal.comparison}</p>
+          <p class="temp-note">{thermal.thresholdHelp}</p>
+        {:else if thermal.value != null}
+          <p class="metric-detail">Matching sensor threshold not reported</p>
+        {/if}
+        {#if thermal.shutdown != null}<p class="metric-detail">Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
+        {:else}<p class="temp-note">Sensor and thermal-status data were not supplied.</p>{/if}
+      </section>
 
       <!-- Display & Audio -->
       <div class="grid2">
@@ -427,12 +483,20 @@
       <div class="top-memory-section">
         <span class="section-label">Top memory consumers</span>
         <p class="consumers-note">
-          These are process names, so the app behind each one isn't confirmed. Inspection only.
+          The suggestion for an app is the same one the Apps and Optimize screens give it — tap it
+          for details. Names we can't tie to an installed package are processes, not apps, and
+          there is nothing to remove.
         </p>
-        {#if safetyFailed}
+        {#if installed.status === "failed"}
           <div class="stale-warning" role="alert">
             <span class="msr">warning</span>
-            <span>Couldn't check these names against the safety list.</span>
+            <span>Couldn't read the TV's installed apps, so no row is confirmed as an app.</span>
+            <button class="retry-link" onclick={() => ++safetyRetry}>Retry</button>
+          </div>
+        {:else if safetyFailed}
+          <div class="stale-warning" role="alert">
+            <span class="msr">warning</span>
+            <span>Couldn't check some names against the safety list.</span>
             <button class="retry-link" onclick={() => ++safetyRetry}>Retry</button>
           </div>
         {/if}
@@ -441,9 +505,19 @@
         {:else}
           <div class="consumers-list">
             {#each health.top_memory.slice(0, 8) as consumer, index (`${consumer.process}#${consumer.pid ?? index}`)}
-              {@const tier = tierOf(safetyMap[consumer.process])}
-              <div class="consumer-row">
-                <div class="consumer-details">
+              {@const status = memorySafety[consumer.process]}
+              {@const suggestion = memorySuggestion(consumer, installed, catalog, status)}
+              {@const shownSuggestion = suggestionDisplay(suggestion)}
+              {@const appPkg = suggestion.kind === "recommendation" || suggestion.kind === "verdict" ? suggestion.pkg : null}
+              <svelte:element
+                this={appPkg ? "button" : "div"}
+                class="consumer-row"
+                class:tappable={appPkg !== null}
+                role={appPkg ? undefined : "group"}
+                aria-label={appPkg ? `Details for ${consumer.process}` : undefined}
+                onclick={appPkg ? () => openSheet(appPkg) : undefined}
+              >
+                <span class="consumer-details">
                   <span class="mono consumer-name">{consumer.process}</span>
                   {#if consumer.pid !== null}
                     <span class="consumer-pkg">pid {consumer.pid}</span>
@@ -451,18 +525,18 @@
                   {#if catalogNames[consumer.process]}
                     <span class="consumer-pkg">Looks like {catalogNames[consumer.process]}</span>
                   {/if}
-                </div>
-                {#if tier}
-                  <span class="risk-badge {tier.cls}" title="Rule lookup for the reported name only">
-                    {tier.label}
-                  </span>
-                {:else if safetyLoading}
-                  <span class="risk-badge pending">Checking safety…</span>
-                {:else}
-                  <span class="risk-badge pending">Safety unavailable</span>
-                {/if}
+                  {#if suggestion.kind === "recommendation"}
+                    <span class="consumer-pkg">Safety: {safetyLabel(status)}</span>
+                  {/if}
+                </span>
+                <span
+                  class="risk-badge {shownSuggestion.tone}"
+                  title={suggestion.kind === "checking" ? undefined : safetyReason(status)}
+                >
+                  {shownSuggestion.label}
+                </span>
                 <span class="mono consumer-mb">{Math.round(consumer.mb)} MB</span>
-              </div>
+              </svelte:element>
             {/each}
           </div>
         {/if}
@@ -471,72 +545,47 @@
   {/if}
 
   {#if session.connectedDevice}
-    <div class="diagnostics-content reports">
-      <section class="diagnostic-card" aria-label="Playback report">
-        <div class="card-header">
-          <span class="card-title">Playback report</span>
-          <button class="retry-link" disabled={playbackBusy || resourceBusy || !session.isConnected} onclick={readPlayback}>{playbackBusy ? "Reading…" : "Read playback report"}</button>
-        </div>
-        <p class="temp-note">Advertised configuration, not a playback test. Actual decoding and passthrough depend on the app, content and connected display or receiver.</p>
-        {#if playbackError}<p class="error" role="alert">{playbackError}</p>{/if}
-        {#if playback}
-          <dl class="about-list">
-            {#each playback.video as format (format.mime)}
-              <dt>{format.label}</dt><dd>{formatSupport(format).label}</dd>
-            {/each}
-            <dt>Advertised HDR</dt><dd>{playback.hdr_types.length ? playback.hdr_types.join(", ") : "Unknown / not reported"}</dd>
-            <dt>Display modes</dt><dd>{playback.modes.length ? playback.modes.map((mode) => `${mode.width}×${mode.height} @ ${mode.fps} Hz${mode.active ? " (active)" : ""}`).join(", ") : "Unknown / not reported"}</dd>
-            <dt>Surround policy</dt><dd>{playback.audio.mode === "unset" ? "Default / unset" : playback.audio.mode}</dd>
-            <dt>Manual formats</dt><dd>{playback.audio.enabled_formats.join(", ") || "None / unset"}</dd>
-            <dt>Frame-rate policy</dt><dd>{playback.match_content_frame_rate == null ? "Default / unset" : (matchContentLabel[playback.match_content_frame_rate] ?? `Unknown (${playback.match_content_frame_rate})`)}</dd>
-          </dl>
-          {#each playback.verdicts as verdict}
-            <p class="temp-note"><strong>{verdict.title}</strong> {verdict.detail}</p>
-          {/each}
-        {/if}
-      </section>
-      <section class="diagnostic-card" aria-label="Resource sample">
-        <div class="card-header">
-          <span class="card-title">CPU &amp; network</span>
-          <button class="retry-link" disabled={resourceBusy || playbackBusy || !session.isConnected} onclick={sampleResources}>{resourceBusy ? "Sampling…" : "Sample resources"}</button>
-        </div>
-        <p class="temp-note">One device-side sample per tap. Interfaces are shown separately because VPN traffic can also appear on the physical interface.</p>
-        {#if resourceError}<p class="error" role="alert">{resourceError}</p>{/if}
-        {#if resources}
-          <dl class="about-list">
-            <dt>CPU use</dt><dd>{resources.cpu_percent == null ? "Unavailable" : `${resources.cpu_percent.toFixed(1)}%`}</dd>
-            <dt>Sample duration</dt><dd>{resources.interval_ms == null ? "Unavailable" : `${(resources.interval_ms / 1000).toFixed(2)} s`}</dd>
-            {#each resources.interfaces as network (network.name)}
-              <dt>{network.name}</dt><dd>Receive {rate(network.rx_bytes_per_s)} · Send {rate(network.tx_bytes_per_s)}</dd>
-            {/each}
-          </dl>
-          {#if resources.interfaces.length === 0}<p class="temp-note">No network counters available.</p>{/if}
-        {/if}
-      </section>
-    </div>
+    <DiagnosticReports {playback} {resources} {playbackBusy} {resourceBusy} {playbackError} {resourceError} connected={session.isConnected} onReadPlayback={readPlayback} onSampleResources={sampleResources} />
   {/if}
+
+  <AppSheetHost
+    app={sheetApp}
+    {navigate}
+    onClose={() => (sheetApp = null)}
+    onChanged={afterSheetChange}
+    onToast={showToast}
+  />
+  <Toast message={toast} type={toastType} />
 </div>
 
 <style>
-  .reports {
-    margin-top: 16px;
+  .topline {
+    flex-wrap: wrap;
   }
   .header-left {
+    flex: none;
     display: flex;
     gap: 8px;
     align-items: center;
   }
   .header-title {
+    flex: 1 1 8rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
     margin: 0;
-    font-size: 22px;
+    font-size: 1.375rem;
+    line-height: 1.2;
     font-weight: 700;
     letter-spacing: -0.01em;
   }
   .live-refresh-btn {
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
     background: transparent;
     border: none;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: .6875rem;
     color: var(--muted);
     display: inline-flex;
     align-items: center;
@@ -643,12 +692,12 @@
   .progress-fill {
     height: 100%;
   }
-  .ram-gradient {
-    background: linear-gradient(90deg, var(--teal), #8ce6c6);
-  }
-  .storage-gradient {
-    background: linear-gradient(90deg, var(--amber), #f7cb7a);
-  }
+  .thermal-header { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .usage-fill { background: var(--text-soft); }
+  .metric-detail { margin: 8px 0 0; color: var(--text-soft); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+  .thermal-status { margin: 12px 0 0; font-size: 13px; color: var(--text-soft); font-weight: 600; }
+  .thermal-warning, .threshold-exceeded { color: var(--amber); }
+  .thermal-critical { color: var(--danger); }
 
   .temp-readout {
     display: flex;
@@ -659,42 +708,6 @@
     font-size: 32px;
     font-weight: 600;
     line-height: 0.9;
-  }
-  .temp-unit {
-    font-size: 15px;
-    color: var(--muted);
-  }
-  .temp-bar-wrap {
-    position: relative;
-    height: 8px;
-    margin-top: 4px;
-  }
-  .temp-neutral-bar {
-    position: absolute;
-    inset: 0;
-    height: 100%;
-    border-radius: 5px;
-    background: color-mix(in srgb, var(--text) 12%, transparent);
-  }
-  .temp-indicator-dot {
-    position: absolute;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--text);
-    border: 3px solid var(--canvas);
-    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
-    transition: left 0.3s ease;
-  }
-  .temp-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--dim);
-    font-family: var(--mono);
-    margin-top: -4px;
   }
   .temp-note {
     margin: 0;
@@ -787,12 +800,31 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .consumer-row.tappable {
+    width: 100%;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
   .risk-badge {
     font-size: 11px;
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 6px;
     flex: none;
+    white-space: nowrap;
+    max-width: 46%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .risk-badge.act {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .risk-badge.warn {
+    color: var(--amber);
+    background: color-mix(in srgb, var(--amber) 12%, transparent);
   }
   .risk-badge.safe {
     color: var(--teal);
@@ -807,7 +839,7 @@
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   .risk-badge.unknown,
-  .risk-badge.pending {
+  .risk-badge.muted {
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 7%, transparent);
   }

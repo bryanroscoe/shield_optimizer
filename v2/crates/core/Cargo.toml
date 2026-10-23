@@ -6,6 +6,7 @@ authors = ["Bryan Roscoe"]
 edition = "2021"
 rust-version = "1.81"
 license = "LicenseRef-Proprietary"
+publish = false
 
 [features]
 test-support = []
@@ -23,8 +24,8 @@ chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 ed25519-dalek = "2"
 tracing = "0.1"
+tempfile = "3"
 async-trait = "0.1"
 
 [dev-dependencies]
 pretty_assertions = "1"
-tempfile = "3"

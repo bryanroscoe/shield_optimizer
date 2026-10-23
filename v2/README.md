@@ -1,50 +1,14 @@
-# ATV Optimizer v2 (formerly Shield Optimizer)
+# ATV Optimizer — developer guide
 
-A ground-up rewrite of Shield Optimizer as a **native installable desktop app** with **built-in auto-update** and a **mobile companion** (`mobile/`) — replacing the v1 PowerShell script while preserving every behavior catalogued in [`docs/FEATURES.md`](../docs/FEATURES.md).
+This is the source for **ATV Optimizer**, the official desktop app (Tauri 2 + Rust + Svelte 5), and
+for ATV Optimizer for Android in [`mobile/`](mobile/). Both share one audited engine in
+[`crates/core`](crates/core).
 
-<img alt="ATV Optimizer v2 walkthrough (dark)" src="screenshots/gallery.gif" />
+**Looking to install it?** See the [main README](../README.md). This page is for building from
+source and contributing.
 
-<details>
-<summary>Light theme</summary>
-
-<img alt="ATV Optimizer v2 walkthrough (light)" src="screenshots/gallery-light.gif" />
-
-</details>
-
-> Walkthroughs show demo data, not a live device. The app ships **dark and light themes** with a Light / Dark / Auto toggle. Regenerate the GIFs with `npm run screenshots` — see [`screenshots/README.md`](screenshots/README.md).
-
-This directory is the v2 workspace. v1 (`Shield-Optimizer.ps1` at the repo root) continues to ship and accept patches until v2 reaches parity.
-
-## Status
-
-✅ **Shipping — v2-2.1.0.** Full feature set landed. v2 currently:
-
-- Builds: `cargo build -p shield-optimizer-v2` and `npm run build` both produce artifacts
-- Tests: Rust tests (engine + ADB parsers + loader sanity), all passing
-- Runs as an installable desktop app (`npm run tauri dev` for dev; download from [Releases](https://github.com/bryanroscoe/shield_optimizer/releases) or `brew install --cask shield-optimizer`)
-- Lists ADB devices with friendly model names + device-type detection
-- Full device management: profile, health report, launcher wizard (install/request default/guarded stock disable where firmware permits), optimize wizard with per-app defaults, full app list with disable/enable/force-stop/uninstall, Tweaks (HDMI-CEC, animations, display scaling), APK sideload, APK backup and cross-device clone, file manager, device screenshots, reboot + recovery, and snapshot save/preview/apply
-
-**Launcher compatibility:** device detection and a launcher catalog entry do not guarantee that firmware accepts Home changes. Some Fire TV builds reject changing protected Amazon stock packages; even the precautionary re-enable can be rejected. Failures retain raw diagnostics, a separate restore outcome and the final Home readback. No firmware-protection bypass is provided, and a successful command is not itself proof of the final Home app. [Issue #205](https://github.com/bryanroscoe/shield_optimizer/issues/205) remains unverified on hardware pending reporter version/build information. This shared-core behavior applies to desktop and mobile once each branch includes the fix.
-
-**Remaining feature gaps vs. aTV Tools:** see [`ATVTOOLS-PARITY.md`](ATVTOOLS-PARITY.md). Screen recording and a permissions viewer remain unimplemented. The unreleased desktop adds playback configuration reports, CPU/per-interface network samples, and an opt-in expert shell. Playback and resource reports plus audio policy controls are also available in the mobile companion; mobile does not expose arbitrary shell.
-
-Expert shell can erase data or make a device unusable. Its obvious-command checks are not a security boundary. Execution stops the local ADB client after 30 seconds or 256 KiB from either output stream, which does not guarantee remote work has stopped. Saved bookmarks stay in local app preferences; commands and output are not added to diagnostics logs.
-
-The behavior spec is at [`docs/FEATURES.md`](../docs/FEATURES.md). The ATV Optimizer Android app plan is in [`ATV-OPTIMIZER-ANDROID-PLAN.md`](ATV-OPTIMIZER-ANDROID-PLAN.md).
-
-## Install
-
-Installers for each `v2-*` tag land on [the Releases page](https://github.com/bryanroscoe/shield_optimizer/releases) — `.dmg` for macOS, `.msi` / `.exe` for Windows, `.deb` / `.AppImage` / `.rpm` for Linux. Builds are unsigned; the release body lists the one-time first-launch dismissal steps for each OS.
-
-**macOS users: install via Homebrew** to skip the Gatekeeper dance entirely:
-
-```sh
-brew tap bryanroscoe/shield-optimizer
-brew install --cask shield-optimizer
-```
-
-The cask strips the quarantine bit in a postflight, so the app opens with a normal double-click — no `xattr`, no Settings dance. Upgrades follow with `brew upgrade --cask shield-optimizer`. The tap is auto-bumped by [the release workflow](../.github/workflows/v2-release.yml) on every `v2-*` tag push.
+[`HANDOFF.md`](HANDOFF.md) carries the current roadmap and priorities; read it before starting work.
+Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Technology choices
 
@@ -54,14 +18,13 @@ The cask strips the quarantine bit in a postflight, so the app opens with a norm
 | Backend language | **Rust** | Tauri's host language. Engine + ADB driver written in Rust, exposed to the frontend via Tauri commands. |
 | Frontend framework | **Svelte 5 + SvelteKit** (locked) | Picked for small bundle, rune-based reactivity, and minimal boilerplate. React and Solid would also have been reasonable; switching after the first views land is the expensive moment so we lock here. |
 | Build / package mgmt | `cargo` (Rust) + `npm` (Node, for frontend bundling) | Standard Tauri layout |
-| Update channel | Tauri Updater plugin → GitHub Releases JSON manifest | Signed, automatic on desktop; manual-confirm on Android due to Google's APK-install policy |
-| Mobile distribution | GitHub Releases APK + F-Droid + recommend [Obtainium](https://obtainium.imranr.dev/) | Skipping Play Store — they reject apps that disable other apps via ADB-style mechanisms |
+| Update channel | Tauri Updater plugin → GitHub Releases JSON manifest | Signed (Ed25519), automatic on desktop |
 
-See the conversation history in commit `0362933`'s parent thread for the full Go-vs-Rust-vs-Compose discussion. Short version: Rust + Tauri 2 is the only stack that covers "installable desktop + mobile from one codebase" without paying tax for features we don't use.
+Rust + Tauri 2 was picked because it is the only stack that covers "installable desktop + mobile from one codebase" without paying for features we don't use.
 
 ## Architecture
 
-Three-layer separation. v1's main pain point is that policy, I/O, and UI are tangled inside one PowerShell file. v2 keeps them apart.
+Three-layer separation. The legacy v1 script tangles policy, I/O and UI in one PowerShell file; v2 keeps them apart.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -83,7 +46,7 @@ Three-layer separation. v1's main pain point is that policy, I/O, and UI are tan
 │  - App lists       │   │  - subprocess: `adb` binary      │
 │  - Snapshot schema │   │  - Parses dumpsys outputs        │
 │  - Policy rules    │   │  - Returns structured types      │
-│  - No I/O          │   │  - Single impl per platform      │
+│  - No I/O          │   │  - One impl per transport        │
 └────────────────────┘   └──────────────────────────────────┘
 ```
 
@@ -104,7 +67,7 @@ v2/
 │           ├── adb/          # shared driver trait + parsers
 │           └── commands/     # driver-generic Tauri commands
 ├── src/                      # desktop Svelte frontend (TypeScript)
-├── mobile/                   # ATV Optimizer Android app scaffold
+├── mobile/                   # ATV Optimizer for Android (see mobile/HANDOFF.md)
 └── src-tauri/                # desktop Tauri app
     ├── Cargo.toml, build.rs, tauri.conf.json
     ├── icons/, capabilities/, resources/
@@ -120,25 +83,21 @@ v2/
 These are non-negotiable; deviating is a regression:
 
 1. **Engine has no I/O.** It returns plans and inspects results — does not call `adb`, does not read files, does not make HTTP requests, does not log. The tests prove this by injecting a mock ADB driver.
-2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the shared command layer (next to the command bridge, not in the engine). The loader is responsible for: shipping with embedded JSON defaults; embedding them at compile time via `include_str!`. The engine accepts app lists as inputs and is
-agnostic to where they came from, which leaves the door open to fetching a newer list at runtime
-— **not built.** Editing the JSON currently requires a rebuild and a release. If runtime fetching
+2. **App lists are runtime data, not embedded code.** A separate **loader** lives in the shared command layer (next to the command bridge, not in the engine) and embeds the JSON at compile time via `include_str!`. The engine accepts app lists as inputs and doesn't care where they came from, which leaves the door open to fetching a newer list at runtime — **not built.** Editing the JSON currently requires a rebuild and a release. If runtime fetching
 is ever added it needs signature verification and an offline fallback to embedded.
 3. **All ADB output goes through one wrapper.** Single point for tracing, retries, structured logging. No naked `adb ...` calls scattered through the codebase.
-4. **The detection logic exists exactly once.** v1 has two device-type-detection paths that don't agree on edge cases (see `docs/FEATURES.md` §13.1). v2 must have one.
+4. **The detection logic exists exactly once.** v1 grew two device-type-detection paths that disagree on edge cases (see `docs/FEATURES.md` §13.1). v2 has one.
 5. **Snapshots are versioned.** `schemaVersion` in every snapshot file. The reader handles old versions or rejects them with a clear error.
 6. **Strict mode everywhere.** Rust's compiler catches the equivalent of v1's `Set-StrictMode -Version Latest`; preserve that. No `unwrap()` on values that can fail at runtime — propagate `Result`.
 7. **Reversibility model preserved.** Same disable/uninstall/settings tiers as v1. Recovery requests re-enable/reset actions and reports failures; firmware restrictions can prevent a backout.
 
 ## Explicit non-goals
 
-To bound scope expectations:
-
-- **Not a root or Magisk tool.** v2 makes only ADB-shell-level changes. If a user wants on-device root operations, they should keep using Magisk modules.
+- **Not a root or Magisk tool.** Only ADB-shell-level changes. On-device root operations belong in Magisk modules.
 - **Not a custom-ROM flasher.** No fastboot, no recovery image flashing, no Project Treble manipulation.
-- **No cloud sync.** Snapshots are local-file JSON. No account, no telemetry, no opt-in cloud backup.
-- **No crash/usage telemetry.** This is a privacy-adjacent tool; users opt in to *us*, not to a third-party analytics vendor. Sentry-style crash uploads are out — diagnostics live in local log files the user can choose to share.
-- **No Play Store distribution.** Google bans tools that disable other apps via ADB-style mechanisms. Distribution is sideload-only.
+- **No cloud sync.** Snapshots are local JSON files. No account, no cloud backup.
+- **No crash/usage telemetry.** Diagnostics live in local log files the user can choose to share.
+- **No firmware-protection bypass.** When firmware refuses a change (for example a protected Fire TV stock launcher, [#205](https://github.com/bryanroscoe/shield_optimizer/issues/205)), the app reports the command error, restore outcome and actual Home readback; it doesn't work around the refusal.
 
 ## Local setup
 
@@ -166,22 +125,14 @@ The development flow is:
 - `cd v2 && cargo test -p shield-optimizer-core -p shield-optimizer-v2` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
 
-## Frontend framework decision
-
-The choice between **Svelte / React / Solid** doesn't affect what the app *does*. It affects:
-
-- Learning curve (Svelte ~ Solid < React for greenfield)
-- Bundle size (Svelte / Solid << React)
-- Hiring pool / ecosystem (React >> Svelte ~ Solid)
-- Tooling maturity (React >> Svelte ~ Solid)
-
-Default in the plan is **Svelte**. Override before running `create-tauri-app` if preferred.
-
 ## See also
 
-- [ATV-OPTIMIZER-ANDROID-PLAN.md](ATV-OPTIMIZER-ANDROID-PLAN.md) — Android app implementation plan
-- [`../docs/FEATURES.md`](../docs/FEATURES.md) — behavior spec (the source of truth)
-- v1: `Shield-Optimizer.ps1` at repo root
+- [`HANDOFF.md`](HANDOFF.md) — current roadmap and priorities; read before changing anything
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes (the release workflow reads each `## v2-X.Y.Z` section)
+- [`ATVTOOLS-PARITY.md`](ATVTOOLS-PARITY.md) — remaining feature gaps vs. aTV Tools
+- [`mobile/README.md`](mobile/README.md) — ATV Optimizer for Android
+- [`e2e/README.md`](e2e/README.md) and [`screenshots/README.md`](screenshots/README.md) — UI tests and the generated gallery
+- [`../docs/LEGACY-V1.md`](../docs/LEGACY-V1.md) — the legacy PowerShell script
 
 ## Third-party components
 

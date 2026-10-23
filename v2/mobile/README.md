@@ -3,6 +3,19 @@
 An Android phone/tablet app that drives an Android TV over **wireless ADB** — no PC in the loop.
 Tauri 2 + Rust + Svelte 5, sharing the audited engine (`v2/crates/core`) with the desktop app.
 
+<img alt="ATV Optimizer phone app walkthrough" src="screenshots/gallery.gif" width="300" />
+
+<details>
+<summary>Every screen at once</summary>
+
+<img alt="All ATV Optimizer phone screens" src="screenshots/contact-sheet.png" />
+
+</details>
+
+> Screenshots show demo data, not a live device. Regenerate with `npm run screenshots` from this
+> directory (needs `ffmpeg` and `npx playwright install chromium`); see
+> [`screenshots/capture.mjs`](screenshots/capture.mjs).
+
 **[`HANDOFF.md`](HANDOFF.md) is the authoritative document.** Read it before doing any work here;
 this file is only an orientation. [`BACKLOG.md`](BACKLOG.md) is the ordered queue.
 

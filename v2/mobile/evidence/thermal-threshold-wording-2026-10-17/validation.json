@@ -1,0 +1,63 @@
+{
+  "base": "557247e78357d4798aabc0d36fcfe45f81db52bc",
+  "full_mobile": {
+    "passed": 286,
+    "failed": 0,
+    "skipped": 0
+  },
+  "focused_with_capture": 25,
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "build": "passed",
+  "sha256": {
+    "v2/mobile/src/lib/healthPresentation.ts": "62ab4d8d85fc832f088cd0116b749596f4b2b0bf9e3c2e8d2f929bf80ef56481",
+    "v2/mobile/src/screens/Diagnostics.svelte": "0145554557666cc192d90b50ce1c7a092eb6f1781c2b30ccd3c742e6b2a4aee6",
+    "v2/mobile/tests/health-presentation.test.mjs": "20cc08db6e1b0843ac2a494a483747215342625bae025aff7f352047bd10ebc2",
+    "v2/mobile/evidence/thermal-threshold-wording-2026-10-17/light-below-threshold-simulated.png": "b8d96240910c7da3316ccecdc810fe9bda2148f990d1a84c692f45e2b65f0535",
+    "v2/mobile/evidence/thermal-threshold-wording-2026-10-17/moderate-below-threshold-simulated.png": "6db2549cb33be7312d32ae117bec24dc7fd2838da78228f6a8e6dcfb29e5feb6",
+    "v2/mobile/evidence/thermal-threshold-wording-2026-10-17/unknown-provenance-simulated.png": "a446f06bae86fabce89e9942b02b07546d8f9af510c649c04a164775a7b9acb2",
+    "v2/mobile/evidence/thermal-threshold-wording-2026-10-17/threshold-statuses-simulated.webm": "f441c0f1260444036614813c953d8193c92d69a30cae62f8c3d61522d189012f"
+  },
+  "limitations": [
+    "Simulated Tauri replies only; no device operations.",
+    "Unchanged Diagnostics header overflows at320px; thermal-card wrapping passes.",
+    "No HAL transport/severity provenance is retained by this payload.",
+    "Independent review and CI pending."
+  ],
+  "original_base": "56aa7c56450464b2060c27838373029b6b90c14f",
+  "original_full_mobile": {
+    "passed": 266,
+    "failed": 0,
+    "skipped": 0
+  },
+  "integration": {
+    "merge": "c9e681ae4cc8ab999150249363005b09218ef267",
+    "product_code_and_tests_unchanged_from": "60556a104c9acadb2a1d8d69ba61422c5c1124b8",
+    "conflict_resolution": "Current release checklist retained; thermal row carried forward.",
+    "retained_hashes_revalidated": true,
+    "check": "0 errors / 0 warnings",
+    "build": "passed",
+    "diff_check": "passed"
+  },
+  "integration_history": [
+    {
+      "base": "83f69b77e2b19b643e21ae456d0f597e90ef7d83",
+      "full_mobile": {
+        "passed": 278,
+        "failed": 0,
+        "skipped": 0
+      },
+      "integration": {
+        "merge": "4472c788d3ad7e645418459229cf6ed053b3f041",
+        "product_code_and_tests_unchanged_from": "60556a104c9acadb2a1d8d69ba61422c5c1124b8",
+        "captures_retained_from_original_base": true,
+        "retained_hashes_revalidated": true,
+        "check": "0 errors / 0 warnings",
+        "build": "passed",
+        "diff_check": "passed"
+      }
+    }
+  ]
+}

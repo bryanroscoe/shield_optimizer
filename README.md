@@ -1,63 +1,51 @@
 # ATV Optimizer
 
-Debloat and tune Android TV devices — disable bloat, switch launchers, sideload APKs, tweak HDMI-CEC and frame-rate matching, and pull health reports. Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer**, and other Android TV devices. Available actions depend on the device firmware and its permissions.
+Debloat and tune your Android TV from your computer. Disable bloat, switch launchers, sideload
+APKs, adjust HDMI-CEC and frame-rate matching, and check device health, all from a desktop app.
+Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
+Android TV devices.
 
-**Fire TV compatibility is build-dependent.** Some Fire OS builds reject changes to the protected Amazon stock launcher, including attempts to re-enable it. Recognizing Projectivy or another supported launcher does not establish that the firmware permits changing Home or disabling stock. The app reports the command error, precautionary restore outcome and actual Home readback separately; it does not bypass firmware protection. See [issue #205](https://github.com/bryanroscoe/shield_optimizer/issues/205) for a Toshiba Fire TV report still awaiting version/build details.
-
-## Which version should I use?
-
-There are two ways to run it. Pick one — you only need to read that version's section.
-
-| | **v2 — Desktop app** *(recommended)* | **v1 — PowerShell script** |
-|---|---|---|
-| **Best for** | Most people. Click-to-install, no terminal. | Terminal users, scripting, headless/Docker. |
-| **Interface** | Native windowed GUI | Text UI in your terminal |
-| **Install** | Homebrew or a downloaded installer | Install PowerShell 7, run the script |
-| **Platforms** | macOS, Windows, Linux | macOS, Windows, Linux (PowerShell 7+) |
-| **Status** | Public beta | Stable, still maintained |
-
-Both drive the same `adb` commands under the hood and share the same [feature catalog](docs/FEATURES.md). v1 isn't going away — it's the supported path if you'd rather stay in a terminal.
-
-## Before you start (both versions)
-
-Enable ADB on the TV — once, regardless of which version you use:
-
-1. **Settings → Device Preferences → About →** click **Build** 7 times (enables Developer Options).
-2. **Settings → Developer Options →** turn on **Network Debugging** (a.k.a. USB/Network debugging).
-
-The first time the tool connects, your TV shows an **"Allow debugging?"** prompt — accept it.
-
----
-
-# v2 — Desktop app (recommended)
-
-<img alt="ATV Optimizer v2 walkthrough (dark)" src="v2/screenshots/gallery.gif" />
+<img alt="ATV Optimizer walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
 <details>
 <summary>Light theme</summary>
 
-<img alt="ATV Optimizer v2 walkthrough (light)" src="v2/screenshots/gallery-light.gif" />
+<img alt="ATV Optimizer walkthrough (light)" src="v2/screenshots/gallery-light.gif" />
 
 </details>
 
-A native desktop app — no PowerShell, no terminal, no scripting. It bundles its own `adb` (auto-downloaded on first launch), scans your network for devices on startup, and walks you through everything with a GUI. Dark and light themes with a Light / Dark / Auto toggle.
+It's a native app for macOS, Windows and Linux. It downloads its own `adb` on first launch, finds
+TVs on your network, and updates itself. You don't need a terminal or any scripting.
 
-> **Renamed:** the desktop app is now **ATV Optimizer** (it was Shield Optimizer). Same app, same settings, same update channel — only the name and icon changed. The Homebrew tap and cask are still `bryanroscoe/shield-optimizer` / `shield-optimizer`, so `brew upgrade` keeps working. macOS users who installed from the `.dmg` will still have the old `Shield Optimizer.app` until they reinstall; it is safe to drag to the Trash afterwards.
+> **📱 Coming soon: ATV Optimizer for Android.** A phone and tablet version that runs the same
+> cleanup over Wi-Fi, with no computer involved. It's in testing now.
+> [Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
+
+<details>
+<summary>Preview the phone app</summary>
+
+<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
+
+Demo data, not a live device. See [`v2/mobile/`](v2/mobile/README.md).
+
+</details>
 
 ## Install
 
-### macOS — Homebrew (easiest)
+### macOS: Homebrew (easiest)
 
 ```sh
 brew tap bryanroscoe/shield-optimizer
 brew install --cask shield-optimizer
 ```
 
-Homebrew strips the macOS quarantine flag for you, so the app opens with a normal double-click. Upgrade later with `brew upgrade --cask shield-optimizer`.
+Homebrew clears the macOS quarantine flag for you, so the app opens with a normal double-click.
+Upgrade with `brew upgrade --cask shield-optimizer`, or let the app update itself.
 
-### Any platform — download an installer
+### Any platform: download an installer
 
-Grab the latest from the [**Releases page**](https://github.com/bryanroscoe/shield_optimizer/releases) (current builds are tagged `v2-…` and marked *pre-release* during the beta):
+Get an installer from the [**Releases page**](https://github.com/bryanroscoe/shield_optimizer/releases).
+Choose the newest stable `v2-*` desktop release; `v0.*` releases contain the legacy PowerShell script:
 
 | OS | File |
 |----|------|
@@ -65,187 +53,76 @@ Grab the latest from the [**Releases page**](https://github.com/bryanroscoe/shie
 | macOS | `_universal.dmg` (Apple Silicon + Intel) |
 | Linux | `.AppImage`, `.deb`, or `.rpm` |
 
-### First launch (unsigned builds)
+### First launch
 
-These builds aren't code-signed yet, so your OS may warn on first launch. One-time dismissal:
+The builds aren't code-signed yet, so your OS may warn you the first time you open the app. You
+only have to dismiss it once:
 
-- **macOS** (if you used the `.dmg` instead of Homebrew): the macOS 15+ dialog only offers *Move to Trash* / *Done*. Click **Done**, then run `xattr -dr com.apple.quarantine "/Applications/ATV Optimizer.app"`, **or** go to System Settings → Privacy & Security → **Open Anyway**. (Homebrew installs skip this entirely.)
+- **macOS** (`.dmg` only, Homebrew skips this): on macOS 15+ the dialog only offers *Move to
+  Trash* / *Done*. Click **Done**, then either go to System Settings → Privacy & Security →
+  **Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/ATV Optimizer.app"`.
 - **Windows** (SmartScreen): **More info → Run anyway**.
 - **Linux**: `chmod +x ATV.Optimizer*.AppImage` before running the AppImage.
 
+## Before you start
+
+Turn on ADB on the TV. You only do this once:
+
+1. **Settings → Device Preferences → About →** select **Build** 7 times to unlock Developer Options.
+2. **Settings → Developer Options →** turn on **Network debugging**, or **Wireless debugging** if
+   that's what your TV offers. Many Google TV devices only have Wireless debugging.
+
+The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
+
 ## Using it
 
-1. Launch the app. It scans your network and lists any Android TV devices found. (Or use **Connect IP**, **Scan Network**, or **Pair PIN** for Android 11+ devices.)
-2. Accept the debugging prompt on your TV if asked.
-3. Click your device to open it. Each tab is a feature:
-
-**Scan Network** finds devices two ways: a sweep of your subnet on the standard ADB port (5555), which is what older devices like the Shield use, and the mDNS services ADB itself has discovered. The second one matters on Android 11+, where Wireless debugging listens on a *random* port that changes every time you toggle it — a port sweep alone can never see it. If a TV is advertising only its pairing service, the scan says so and fills in its pairing address for you.
-
-For Android 11+ Wireless debugging, **Pair PIN** establishes trust using the IP:port and code in **Pair device with pairing code**. Pairing does not connect the TV. Return to the main Wireless debugging screen and enter the separate IP:port shown there in **Connect IP**; do not reuse the pairing port. If ADB connects the paired device automatically through mDNS, it will appear after the device list refreshes.
-
-There is no minimum or maximum Android version. If a device is not showing up, it is a discovery or pairing problem, not a supported-version one.
+1. Launch the app. It scans your network and lists the Android TV devices it finds.
+2. Accept the debugging prompt on the TV if one appears.
+3. Click your device. Each tab is a feature:
 
 | Tab | What it does |
 |-----|--------------|
-| **Overview** | Device profile — model, Android version, build, hardware ID. |
-| **Health** | Temperature, CPU and network sampling, RAM and storage meters, display mode + HDR, audio, and the top memory consumers (with safety verdicts). |
-| **Playback** | What the TV is actually outputting — resolution, refresh, HDR and audio passthrough. |
-| **Launcher** | Install supported launchers, request a default, and explicitly confirm a guarded stock-launcher disable where the firmware permits it. |
-| **App List** | Per-app Disable / Enable / Uninstall, or install via the Play Store. |
-| **Optimize** | The debloat wizard — review each app's recommended action with its RAM usage, untick anything you want to keep, then **Run**. Reversible via Restore. |
-| **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough. |
-| **Remote** | An on-screen D-pad and live typing, over a low-latency channel. Paste a long URL or password instead of typing it. |
-| **Files** | Browse `/sdcard`, pull files to this computer, upload, and find an app's exported backups. |
+| **Overview** | Model, Android version, build and hardware ID. |
+| **Health** | Temperature, CPU and network sampling, RAM and storage, display mode and HDR, audio, and the apps using the most memory, each with a safety verdict. |
+| **Playback** | What the TV is actually outputting: resolution, refresh rate, HDR and audio passthrough. |
+| **Launcher** | Install a supported launcher, make it the default, and, where the firmware allows it, disable the stock launcher after you confirm. |
+| **App List** | Disable, enable or uninstall any app, or install one from the Play Store. |
+| **Optimize** | The debloat wizard. Review each app's recommended action and RAM use, untick anything you want to keep, then **Run**. Undo it later with Restore. |
+| **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough, Private DNS. |
+| **Remote** | An on-screen D-pad and live typing over a low-latency channel. Paste a long URL or password instead of typing it on the TV. |
+| **Files** | Browse `/sdcard`, copy files to and from your computer, and find an app's exported backups. |
 | **Install APK** | Sideload an `.apk` from a folder. |
-| **Snapshot** | Save a device's state and re-apply it later — to the same device (rollback) or a different one (clone). |
+| **Snapshot** | Save a device's state and re-apply it later, to the same device (rollback) or a different one (clone). |
 | **Shell** | Run an ADB shell command directly, for anything the UI doesn't cover. |
 
-A curated **do-not-disable list** blocks brick-tier disables from every path, and **Recovery** re-enables every disabled package if you ever need a clean slate.
+### Can't find your TV?
 
-Building from source / contributing? See [`v2/README.md`](v2/README.md).
+Use **Scan Network**, **Connect IP** or **Pair PIN**.
 
----
+**Scan Network** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
+devices like the Shield use. It also checks the devices ADB has discovered over mDNS. That second
+check matters on Android 11+, where Wireless debugging listens on a random port that changes every
+time you toggle it, so a port sweep can't find it. If a TV is only advertising its pairing service,
+the scan tells you and fills in the pairing address for you.
 
-# v1 — PowerShell script
+**Pair PIN** is for Android 11+ Wireless debugging. On the TV, open **Pair device with pairing
+code** and enter the IP:port and code it shows. Pairing makes the TV trust your computer but doesn't
+connect to it. Go back to the main Wireless debugging screen and enter the IP:port shown *there* in
+**Connect IP**. It's a different port from the pairing one. If ADB connects the paired TV on its
+own, it shows up when the device list refreshes.
 
-<img alt="v1 screenshot gallery" src="screenshots/gallery.gif" />
+## Safety
 
-The original cross-platform PowerShell tool. Same features, terminal UI. Requires **PowerShell 7+**.
+- **Disable, don't uninstall.** Disabled apps can usually be re-enabled, but firmware permissions
+  may prevent it. Uninstalling can remove data that Restore can't bring back.
+- A curated **do-not-disable list** blocks disables that would break the device, in every curated
+  action: Optimize, App List, the Launcher wizard and Snapshot apply.
+- **Recovery** asks the TV to re-enable every disabled package and reports any it refused.
+- The **Shell** tab is the exception: it runs whatever you type. Its warnings are there for a
+  reason. A bad command can erase data or leave the device unusable.
 
-## Install PowerShell 7 + get the script
-
-<details>
-<summary><b>Windows</b></summary>
-
-PowerShell 7 is required; Windows Terminal is recommended.
-
-**winget (recommended)**
-```powershell
-winget install --id Microsoft.PowerShell; winget install --id Microsoft.WindowsTerminal
-```
-
-**Or download installers**
-- PowerShell 7: [GitHub releases](https://github.com/PowerShell/PowerShell/releases/latest) — get the `.msi`
-- Windows Terminal: [Microsoft Store](https://aka.ms/terminal)
-
-Then open Windows Terminal → PowerShell 7 and run `pwsh .\Shield-Optimizer.ps1`.
-</details>
-
-<details>
-<summary><b>macOS</b></summary>
-
-```bash
-# Install Homebrew if you don't have it
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# Install PowerShell
-brew install powershell
-```
-
-Alternative: the `.pkg` installer from [PowerShell releases](https://github.com/PowerShell/PowerShell/releases/latest).
-</details>
-
-<details>
-<summary><b>Linux (Debian/Ubuntu)</b></summary>
-
-```bash
-sudo apt-get update
-sudo apt-get install -y wget apt-transport-https software-properties-common
-wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
-sudo dpkg -i packages-microsoft-prod.deb
-sudo apt-get update
-sudo apt-get install -y powershell
-
-pwsh ./Shield-Optimizer.ps1
-```
-</details>
-
-<details>
-<summary><b>Linux (Docker)</b></summary>
-
-> *Should work, but not verified end-to-end.* Based on the workflow @shawly reported in [#9](https://github.com/bryanroscoe/shield_optimizer/issues/9).
-
-`--network host` is required so the script can scan your LAN; `iproute2` is needed inside the container for auto-discovery.
-
-```bash
-docker run -it --rm --network host mcr.microsoft.com/powershell:latest
-
-# Inside the container:
-apt-get update && apt-get install -y iproute2
-Invoke-WebRequest -Uri https://github.com/bryanroscoe/shield_optimizer/raw/refs/heads/main/Shield-Optimizer.ps1 -OutFile Shield-Optimizer.ps1
-./Shield-Optimizer.ps1
-```
-
-> **Note:** `--network host` only works on native Linux. On Docker Desktop for macOS/Windows, auto-discovery won't see your LAN — install PowerShell natively or use **Connect IP**.
-</details>
-
-**Get the script:** download `Source code (zip)` from the [Releases page](https://github.com/bryanroscoe/shield_optimizer/releases/latest), or `git clone https://github.com/bryanroscoe/shield_optimizer.git`. Run it from the folder it lives in.
-
-## Run it
-
-```powershell
-pwsh ./Shield-Optimizer.ps1
-```
-
-ADB tools download automatically on first run. A few flags:
-
-```powershell
-pwsh ./Shield-Optimizer.ps1 -ForceAdbDownload   # re-download ADB tools
-pwsh ./Shield-Optimizer.ps1 -LightMode          # force light theme
-pwsh ./Shield-Optimizer.ps1 -DarkMode           # force dark theme
-```
-
-(Theme auto-detects your system setting; the flags only override it.)
-
-<details>
-<summary><b>Keyboard shortcuts</b></summary>
-
-| Key | Action |
-|-----|--------|
-| `↑` `↓` | Navigate menu |
-| `←` `→` | Toggle options (YES/NO) |
-| `1-9` | Select device by number |
-| `A-Z` | Select option by highlighted letter |
-| `Enter` | Confirm |
-| `ESC` | Back / Cancel / Abort |
-</details>
-
-<details>
-<summary><b>Troubleshooting</b></summary>
-
-**Windows — "Running scripts is disabled on this system"**
-
-PowerShell blocks unsigned scripts by default. Either set the execution policy once (PowerShell 7 as Administrator):
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-or bypass for a single run: `pwsh -ExecutionPolicy Bypass -File .\Shield-Optimizer.ps1`.
-
-**Windows — script errors or won't run**
-
-Make sure you're on **PowerShell 7**, not Windows PowerShell 5.x (blue icon). Check with `$PSVersionTable.PSVersion` — major version should be 7+. Launch it from Windows Terminal's dropdown → "PowerShell" (not "Windows PowerShell").
-
-**Other issues**
-
-| Problem | Solution |
-|---------|----------|
-| Device not found | Enable Network Debugging, try Scan Network, check TV for auth prompt |
-| Device shows UNAUTHORIZED | Accept the "Allow USB debugging?" prompt on your TV |
-| Launcher won't switch | Review the Launcher Wizard diagnostics and actual Home readback. Some firmware rejects changing its protected stock launcher; retrying takeover does not remove that restriction. |
-| Something broke | Recovery can request re-enabling disabled packages; check reported failures because firmware may refuse changes. |
-| Wrong device type | Check Profile view; detection uses brand/model/packages |
-| Scan finds nothing (macOS/Linux) | Ensure Network Debugging is on; try Connect IP |
-| Colors hard to read | Try `-LightMode` or `-DarkMode` |
-</details>
-
-### Experimental (v1, untested on real devices)
-
-| Feature | Notes |
-|---------|-------|
-| **USB device support** | `[USB]` tag in the device list. Shield TV doesn't support USB debugging (host ports only); works with phones/tablets. |
-| **PIN pairing** | For Android 11+ / Google TV devices that require pairing codes. Not needed for Shield (use Connect IP). |
-
----
+**Use at your own risk.** Changing system apps always carries some risk, but the app favors safe,
+reversible changes.
 
 ## Tested devices
 
@@ -255,18 +132,39 @@ Make sure you're on **PowerShell 7**, not Windows PowerShell 5.x (blue icon). Ch
 | Onn 4K Pro (Walmart) | Fully tested |
 | Chromecast with Google TV | Should work (Google TV profile) |
 | Google TV Streamer (2024) | Should work (Google TV profile) |
+| Amazon Fire TV | Varies by Fire OS build (see [Known limitations](#known-limitations)) |
 
-## Safety
+What's available depends on each device's firmware and the permissions it grants ADB. Android
+version alone doesn't decide it. Discovery and pairing need the firmware to expose a working ADB
+service, authorize the connection, and be reachable on your network.
 
-- **Disable over uninstall** — re-enabling a disabled app depends on firmware permissions; uninstalling may remove data that Restore cannot recover.
-- **Recovery** — requests emergency re-enabling of disabled packages and reports failures.
-- A **do-not-disable list** guards system-critical packages from every code path.
+## Known limitations
 
-**Use at your own risk.** Modifying system apps carries some risk, but this tool prioritizes safe, reversible changes.
+**Fire TV launcher changes depend on the build.** Some Fire OS builds refuse changes to Amazon's
+protected stock launcher, including attempts to re-enable it. The app recognizing Projectivy or
+another supported launcher doesn't mean the firmware will let you change Home or disable stock.
+When a change fails, the app reports three things separately: the command error, whether its
+precautionary restore worked, and which Home app the TV actually reports. It doesn't try to get
+around firmware protection. [Issue #205](https://github.com/bryanroscoe/shield_optimizer/issues/205)
+tracks a Toshiba Fire TV report that's still waiting on version and build details.
 
-## Feature catalog
+**Unsigned builds.** See [First launch](#first-launch) above.
 
-[docs/FEATURES.md](docs/FEATURES.md) is the canonical, language-agnostic spec of every behavior — bloat lists, ADB commands, edge cases. Both versions are built against it; PRs that add or change a feature update it in the same commit.
+**Renamed from Shield Optimizer.** It's the same app with the same settings and update channel.
+The Homebrew tap and cask are still called `shield-optimizer`, so `brew upgrade` keeps working. If
+you installed from the `.dmg`, you'll still have the old `Shield Optimizer.app` until you
+reinstall. After that you can drag the old one to the Trash.
+
+## Legacy: PowerShell script (v1)
+
+This project started as a PowerShell script, `Shield-Optimizer.ps1`. It's now **legacy**: it still
+works and still gets fixes for serious bugs, but new features only go into the desktop app. If you
+need a terminal tool for scripting, a headless box or Docker, see
+**[docs/LEGACY-V1.md](docs/LEGACY-V1.md)** for setup and usage.
+
+## Contributing
+
+Building from source, architecture and release process: [`v2/README.md`](v2/README.md).
 
 ## Credits
 

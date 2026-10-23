@@ -1,0 +1,1 @@
+Protected-package message fixture: exact error text, separate restore/Home outcomes, raw diagnostics and wrapping at 980/384px and 200% text pass. No app/device calls.

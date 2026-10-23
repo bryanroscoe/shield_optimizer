@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-17",
+  "base": "5e80c0efd6620060bb03d5c354815990303628ab",
+  "reviewed_ram_head": "eafd6960ee31d3e8acb7f0b1bcfd2582fc15cd07",
+  "changes": "Merge approved header base and update checklist/evidence provenance; reviewed RAM implementation and tests unchanged.",
+  "mobile_browser_tests": {
+    "passed": 300,
+    "failed": 0
+  },
+  "svelte_check": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "mobile_build": "passed",
+  "retained_evidence": "RAM screenshots and video are byte-for-byte unchanged historical captures from before header integration. Current header evidence retained from PR191.",
+  "fixture": "Checked-in Shield TV Pro meminfo is byte-for-byte unchanged.",
+  "limitations": [
+    "Browser simulation and macOS host only",
+    "No phone/TV query or mutation",
+    "No physical accessibility scaling or pinch gesture acceptance claimed"
+  ],
+  "separate_work": "PR193 screenshot retention remains on its own branch."
+}

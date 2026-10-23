@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { modal } from "../lib/modal";
   // In-app styled confirm dialog — replaces native confirm(), which is
   // unreliable/ugly in the Android webview.
   let {
@@ -28,9 +29,9 @@
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="dialog-overlay" onclick={onCancel}>
+  <div class="dialog-overlay" use:modal={{ onClose: onCancel }} onclick={onCancel}>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="dialog-card" onclick={(e) => e.stopPropagation()}>
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onclick={(e) => e.stopPropagation()}>
       {#if icon}
         <span class="dialog-icon msr" class:danger>{icon}</span>
       {/if}

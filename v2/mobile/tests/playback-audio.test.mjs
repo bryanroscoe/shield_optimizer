@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
+import { playbackFixture, resourceFixture } from "./helpers/report-fixtures.mjs";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -15,8 +17,8 @@ after(async () => {
   await server?.close();
 });
 
-async function open(t, screen = "diagnostics", pro = false) {
-  const page = await browser.newPage({ viewport: { width: 384, height: 812 } });
+async function open(t, screen = "diagnostics", pro = false, options = {}) {
+  const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...options });
   t.after(() => page.close());
   await page.addInitScript(({ pro }) => {
     localStorage.clear();
@@ -80,8 +82,10 @@ test("Free diagnostics reports are explicit, honest and per-interface", async (t
   assert.equal(await page.getByText("Unknown / not reported", { exact: true }).count(), 2);
   assert.equal(await page.getByText("Default / unset", { exact: true }).count(), 2);
   await page.getByRole("button", { name: "Sample resources" }).click();
-  await page.getByText("Receive 2.0 KiB/s · Send 1.0 KiB/s", { exact: true }).waitFor();
-  await page.getByText("Receive Unavailable · Send Unavailable", { exact: true }).waitFor();
+  const wlan = page.getByRole("listitem", { name: "Interface wlan0", exact: true });
+  await wlan.getByText("2.0 KiB/s", { exact: true }).waitFor();
+  await wlan.getByText("1.0 KiB/s", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("listitem", { name: "Interface tun0", exact: true }).getByText("Unavailable", { exact: true }).count(), 2);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 });
 
@@ -175,4 +179,74 @@ test("late audio mutation failure cannot overwrite another TV's state", async (t
   await page.getByRole("button", { name: "Surround Auto", exact: true }).waitFor();
   assert.equal(await page.getByText("Old write failed", { exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => calls.find((call) => call.command === "write_setting").args.serial), "A:5555");
+});
+
+for (const [width, scale] of [[320, 1], [384, 1], [320, 2]]) {
+  test(`report fidelity and wrapping at ${width}px with ${scale * 100}% text`, async (t) => {
+    const evidence = process.env.REPORTS_EVIDENCE === "1";
+    const dir = "evidence/report-readability-2026-10-17";
+    if (evidence) await mkdir(dir, { recursive: true });
+    const record = evidence && width === 384;
+    const page = await open(t, "diagnostics", false, {
+      viewport: { width, height: 812 },
+      ...(record ? { recordVideo: { dir: `${dir}/raw`, size: { width, height: 812 } } } : {}),
+    });
+    await page.evaluate(({ playbackFixture, resourceFixture, scale }) => {
+      window.media = playbackFixture;
+      window.resourceData = resourceFixture;
+      handlers.resource_sample = () => window.resourceData;
+      document.documentElement.style.fontSize = `${16 * scale}px`;
+    }, { playbackFixture, resourceFixture, scale });
+    await page.getByRole("button", { name: "Read playback report" }).click();
+    const playback = page.getByRole("region", { name: "Playback report", exact: true });
+    for (const label of ["Listed; acceleration unknown", "Not advertised in available configuration", "Software decoder listed", "3840×2160 @ 59.94006 Hz", "1920×1080 @ 23.976024 Hz", "(active)", "Unknown (vendor-policy-999)", ...playbackFixture.verdicts.map(v => v.detail)]) await playback.getByText(label, { exact: true }).waitFor();
+    await playback.getByText(playbackFixture.hdr_types.join(", "), { exact: true }).waitFor();
+    await playback.getByText(playbackFixture.audio.enabled_formats.join(", "), { exact: true }).waitFor();
+    assert.equal(await playback.locator(".mode-list li").count(), 3);
+    assert.equal(await playback.locator(".verdict.warn").count(), 1);
+    if (evidence) {
+      await playback.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${dir}/playback-${width}-${scale * 100}-simulated.png`, fullPage: true });
+    }
+    await page.getByRole("button", { name: "Sample resources" }).click();
+    const resources = page.getByRole("region", { name: "Resource sample", exact: true });
+    for (const value of ["22.6%", "1.12 s", "123456789.3 KiB/s", "Unavailable", "0.0 KiB/s", "0.5 KiB/s"]) await resources.getByText(value, { exact: true }).waitFor();
+    for (const network of resourceFixture.interfaces) await resources.getByRole("listitem", { name: `Interface ${network.name}`, exact: true }).waitFor();
+    assert.deepEqual(await page.evaluate(() => ({ playback: media, resources: resourceData })), { playback: playbackFixture, resources: resourceFixture });
+    assert.deepEqual(await page.locator(".reports").evaluate(root => [...root.querySelectorAll("*")].filter(el => el.scrollWidth > el.clientWidth + 1).map(el => el.className)), []);
+    assert.equal(await page.locator('meta[name="viewport"]').getAttribute("content"), "width=device-width, initial-scale=1.0, viewport-fit=cover");
+    assert.equal(await playback.locator("h3").evaluate(el => getComputedStyle(el).fontSize), `${17 * scale}px`);
+    if (evidence) {
+      await resources.scrollIntoViewIfNeeded();
+      await resources.screenshot({ path: `${dir}/resources-${width}-${scale * 100}-simulated.png` });
+    }
+    if (record) {
+      for (const region of [playback.locator("h3"), playback.getByRole("heading", { name: "Display", exact: true }), playback.getByRole("heading", { name: "Interpretation", exact: true }), resources.locator("h3"), resources.getByRole("heading", { name: "Network interfaces", exact: true })]) {
+        await region.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(1000);
+      }
+      const video = page.video(); await page.close();
+      await video.saveAs(`${dir}/reports-simulated.webm`);
+    }
+  });
+}
+
+test("empty reports and failed rereads retain honest unavailable states and keyboard access", async (t) => {
+  const page = await open(t);
+  await page.evaluate(() => {
+    media = { video: [], hdr_types: [], modes: [], audio: { mode: "unset", enabled_formats: [], raw_formats: null }, match_content_frame_rate: null, verdicts: [] };
+    handlers.resource_sample = () => ({ cpu_percent: null, interval_ms: null, interfaces: [] });
+  });
+  const read = page.getByRole("button", { name: "Read playback report" });
+  await read.focus();
+  await page.keyboard.press("Enter");
+  await page.getByText("None / unset", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Unknown / not reported", { exact: true }).count(), 2);
+  await page.getByRole("button", { name: "Sample resources" }).click();
+  await page.getByText("No network counters available.", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "Resource sample" }).getByText("Unavailable", { exact: true }).count(), 2);
+  await page.evaluate(() => { handlers.media_report = () => Promise.reject("Configuration could not be read from this TV."); });
+  await read.click();
+  await page.getByRole("alert").getByText("Configuration could not be read from this TV.", { exact: true }).waitFor();
+  assert.equal(await page.getByText("None / unset", { exact: true }).count(), 0);
 });

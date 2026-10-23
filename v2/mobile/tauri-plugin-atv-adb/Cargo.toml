@@ -6,6 +6,7 @@ authors = ["Bryan Roscoe"]
 edition = "2021"
 rust-version = "1.81"
 license = "LicenseRef-Proprietary"
+publish = false
 links = "tauri-plugin-atv-adb"
 build = "build.rs"
 

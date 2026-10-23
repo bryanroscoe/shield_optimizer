@@ -1,0 +1,41 @@
+▲ [WARNING] Cannot find base config file "./.svelte-kit/tsconfig.json" [tsconfig.json]
+
+    ../tsconfig.json:2:13:
+      2 │   "extends": "./.svelte-kit/tsconfig.json",
+        ╵              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+✖ report includes the successful APK fallback visible in the detail sheet (1621.245084ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1903.480959
+
+✖ failing tests:
+
+test at tests/apps-catalog.test.mjs:372:1
+✖ report includes the successful APK fallback visible in the detail sheet (1621.245084ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+  + null
+  - {
+  -   app_bytes: 2048,
+  -   cache_bytes: null,
+  -   data_bytes: null,
+  -   source: 'apk_files'
+  - }
+
+      at TestContext.<anonymous> (file://<workspace>/v2/mobile/tests/apps-catalog.test.mjs:375:10)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: { source: 'apk_files', app_bytes: 2048, data_bytes: null, cache_bytes: null },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
