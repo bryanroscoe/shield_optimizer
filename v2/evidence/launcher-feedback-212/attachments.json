@@ -1,0 +1,72 @@
+{
+  "comment": "https://github.com/bryanroscoe/shield_optimizer/pull/213#issuecomment-6355858736",
+  "captured_revision": "fccb8da03195218f6f2ca3ed1723426585744214",
+  "assets": [
+    {
+      "file": "cancel-takeover-simulated.png",
+      "url": "https://github.com/user-attachments/assets/7d99d759-80d5-419c-8b9d-413384b25930",
+      "sha256": "c7d7a57cfd9eda0eab47f83028f61bf40035779c73b04861b2fd0c53b7575528",
+      "bytes": 155783
+    },
+    {
+      "file": "channel-refresh-simulated.png",
+      "url": "https://github.com/user-attachments/assets/3eea0cd7-349b-4854-afdd-fbe95954149d",
+      "sha256": "fbd516f911f0b1e8a8700155fbfe686b234163cac01298bbdd8b092466d5fdea",
+      "bytes": 83215
+    },
+    {
+      "file": "current-refresh-simulated.png",
+      "url": "https://github.com/user-attachments/assets/9e867d1d-c25a-4d31-9f43-cff2c703878d",
+      "sha256": "5fd6eb467eb5674f511387999d995d88accd9f8463bcf233ee30366e64bf4281",
+      "bytes": 82942
+    },
+    {
+      "file": "failure-refresh-simulated.png",
+      "url": "https://github.com/user-attachments/assets/614e1021-e793-4821-936c-287149131740",
+      "sha256": "7c756bed07cd66f0c3a1cde3182a9088372c71695284f77929482e5f9b845b4b",
+      "bytes": 97889
+    },
+    {
+      "file": "failure-simulated.png",
+      "url": "https://github.com/user-attachments/assets/edd0c740-0c39-4057-a902-2eaf21d85f28",
+      "sha256": "e6ba46266eefc8f767788cf419b37b097edb57a781a7c0a1f111aa5948f53f83",
+      "bytes": 156510
+    },
+    {
+      "file": "interrupted-simulated.png",
+      "url": "https://github.com/user-attachments/assets/5f65da88-df66-4021-b716-531eaf5f9cff",
+      "sha256": "978a1dac009390949727f15466e31b9875776ce3f67513ac84c7fe8d24103d8a",
+      "bytes": 154611
+    },
+    {
+      "file": "list-refresh-simulated.png",
+      "url": "https://github.com/user-attachments/assets/a718829b-8ae2-4231-836e-06c60fcad98f",
+      "sha256": "ae36f118aa14cdafce3ceb8de979eb3c42d523a78d8015fc42e80a95a57ace75",
+      "bytes": 83570
+    },
+    {
+      "file": "noop-simulated.png",
+      "url": "https://github.com/user-attachments/assets/74320570-63cd-4446-8c21-df73d3fdbc67",
+      "sha256": "2be452869f30f331d3c02df6275a4ed3a465b4a6627e9c6d978067ec6b8dd4e3",
+      "bytes": 158606
+    },
+    {
+      "file": "success-simulated.png",
+      "url": "https://github.com/user-attachments/assets/dff006e8-8331-4726-baec-b8dfc0f68573",
+      "sha256": "4c625538d3ef2de5b33685b8fef28067fb2ed75bfa9f4387e89f13a6366f44ec",
+      "bytes": 153985
+    },
+    {
+      "file": "unverified-simulated.png",
+      "url": "https://github.com/user-attachments/assets/daa8d5e5-edd4-412f-bfb2-1bdb2a6f00c7",
+      "sha256": "361e8c666fbffe21821d19b99215b81f46f8f0c6ce00f2ed3461be87f0f98c9d",
+      "bytes": 159395
+    },
+    {
+      "file": "launcher-feedback-simulated.webm",
+      "url": "https://github.com/user-attachments/assets/24131cf2-561e-4ed4-84ba-c097efc1508f",
+      "sha256": "29584b91a439dd4d9da268754dd80eef112f1fada04eba8836a57fc42f726137",
+      "bytes": 1948306
+    }
+  ]
+}

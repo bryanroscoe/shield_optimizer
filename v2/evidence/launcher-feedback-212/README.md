@@ -37,12 +37,10 @@ production frontend build, and regenerated 16 dark + 16 light gallery frames/GIF
 Exact-head CI and independent review are the merge gates. No claim of
 cross-platform or real-device validation is made from local browser checks.
 
-Representative frames: [success](success-simulated.png),
-[refusal](failure-simulated.png), [no-op](noop-simulated.png),
-[refresh failure with diagnostic fallback](failure-refresh-simulated.png), and
-[interruption](interrupted-simulated.png). The
-[short recording](launcher-feedback-simulated.webm) includes the simulated outcome
-sequence. SHA256 hashes in `visual-sha256.json` identify the submitted assets.
+Evidence is attached directly to [PR213’s evidence comment](https://github.com/bryanroscoe/shield_optimizer/pull/213#issuecomment-6355858736), captured at `fccb8da03195218f6f2ca3ed1723426585744214`.
+All ten screenshots and the short video were downloaded from those attachments and verified byte-for-byte against the committed originals before duplicate media were removed in a normal follow-up commit. `attachments.json` records each durable attachment URL, SHA256 and byte length; `visual-sha256.json` preserves the original capture hashes. The earlier commit retains the original files without rewriting history.
+
+The attachment migration changes no runtime or test behavior. Regenerated media remain local/CI artifacts and are ignored by Git. Use `LAUNCHER_FEEDBACK_EVIDENCE=1 npm run test:launcher-feedback` to recreate simulated captures; subsequent runs may differ visually from the original capture hashes.
 
 The migration-sensitive `com.shieldoptimizer.app` identifier and data paths remain
 unchanged. PR211's experiment merge hold, PR180's approval gate and PR163's
