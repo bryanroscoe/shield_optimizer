@@ -142,6 +142,12 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 
 - **Commits**: always create a new commit. Never `--amend` unless explicitly asked. No `Co-Authored-By` trailers on commits.
 - **PRs**: keep the problem/behavior summary short. Agent-authored PRs must complete the evidence checklist in `.github/pull_request_template.md` and follow [CONTRIBUTING.md](CONTRIBUTING.md#agent-authored-pr-evidence). Include completed validation evidence, not boilerplate test plans. This rule does not impose retroactive requirements on external contributor PRs.
+- **PR screenshots and videos are attached with `gh --attach`** (gh ≥ 2.99): `gh pr create`,
+  `gh pr edit <n>` or `gh pr comment <n>` with `--attach ./file.webm` (repeatable; `'./shot.png#alt text'`
+  for images). Attachments get `user-attachments` URLs that GitHub renders inline, videos as a player.
+  A body that already references `./file` has that reference rewritten. Never link evidence by a
+  repo-relative path (`v2/evidence/…`): in a PR it resolves under `/pull/<n>/` and 404s. Branch
+  links break when the branch is deleted. Committing evidence to the repo is optional; attaching it is not.
 - **Roadmap markers**: closing a roadmap or parity item updates its status in the same commit
   (`v2/ATVTOOLS-PARITY.md`, `v2/ATV-OPTIMIZER-ANDROID-PLAN.md`, `v2/mobile/BACKLOG.md`). Docs that
   claim shipped work is unbuilt send the next reader to rebuild it — that has happened here.
