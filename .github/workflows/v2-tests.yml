@@ -1,4 +1,5 @@
-# Shield Optimizer v2 CI — Rust engine + ADB layer tests and frontend type check.
+# Shield Optimizer v2 CI — Rust tests, frontend checks and regression suites,
+# simulated-device e2e, and the mobile frontend.
 #
 # This workflow does NOT run Tauri's full bundle build (that lives in
 # v2-release.yml). It does run `cargo clippy --all-targets -- -D warnings` and
@@ -105,9 +106,8 @@ jobs:
         working-directory: v2
         run: npm run build
 
-      # Guards the SmartTube backup-path catalog (#86) and the pairing flow
-      # that stopped guessing HOST:5555 (#88). Both were written as durable
-      # harnesses and then never wired into CI.
+      # Guards the SmartTube backup-path catalog (#86) and the pairing flow,
+      # which never guesses HOST:5555 (#88).
       - name: App-files catalog
         working-directory: v2
         run: npm run test:app-files-catalog
@@ -166,20 +166,20 @@ jobs:
         working-directory: v2
         run: npm run test:adb-errors
 
-      # The Remote box could be typed into but not pasted into (#91), which is
-      # backwards for the long URLs and passwords it exists for.
+      # The Remote box accepts paste (#91) — it exists for long URLs and
+      # passwords.
       - name: Remote paste
         working-directory: v2
         run: npm run test:remote-paste
 
-      # Memory-table verdicts stuck on "Checking" for a week without throwing
-      # or logging; only rendering the table catches that.
+      # Memory-table verdicts must resolve instead of sitting on "Checking".
+      # That failure throws and logs nothing; only rendering the table catches it.
       - name: Memory safety verdicts
         working-directory: v2
         run: npm run test:memory-safety
 
-      # The debloat wizard recommended nothing at all for a week — every row
-      # stuck on "Checking safety", which forces Skip. Silent; only rendering
+      # Debloat wizard rows must resolve instead of sitting on "Checking
+      # safety", which leaves the plan with no actions. Silent; only rendering
       # the wizard catches it.
       - name: Optimize plan
         working-directory: v2
