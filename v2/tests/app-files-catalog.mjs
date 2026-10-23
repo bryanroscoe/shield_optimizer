@@ -14,10 +14,10 @@ const ids = new Set();
 for (const entry of catalog) {
   const label = entry.id ?? entry.package ?? "Catalog entry";
   // `id` keys the UI rows and the results map. It is deliberately separate
-  // from `package`: the SmartTube entry was once keyed by the string in its
-  // backup *filename* (org.smarttube.stable), which is not the installed
-  // package id, so anything that later filtered this catalog by installed
-  // packages would have silently dropped it.
+  // from `package`, which must be the installed package id — not a string from
+  // the app's backup *filename* (SmartTube's is org.smarttube.stable) — or
+  // anything that filters this catalog by installed packages silently drops
+  // the entry.
   assert.ok(
     typeof entry.id === "string" && entry.id.trim() !== "",
     `${label} must have an id`,
@@ -36,8 +36,8 @@ for (const entry of catalog) {
     entry.search_dirs.every(
       (directory) => typeof directory === "string" && directory.startsWith("/sdcard"),
     ),
-    // find_files refuses anything outside /sdcard, so a dir elsewhere is a
-    // silent no-op rather than a search.
+    // find_files refuses anything outside /sdcard, so one dir elsewhere fails
+    // the entry's whole search.
     `${label} has a search directory outside /sdcard`,
   );
   assert.ok(
@@ -54,7 +54,7 @@ assert.equal(
   "SmartTube Stable's installed package id",
 );
 
-// The reporter's path in #86 was /storage/emulated/0/Documents/SmartTubeBackup,
+// #86 reports the backup at /storage/emulated/0/Documents/SmartTubeBackup,
 // which is /sdcard/Documents/SmartTubeBackup. The legacy app-data location
 // stays so older builds keep working.
 const expectedDirs = [

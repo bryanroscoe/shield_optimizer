@@ -1,6 +1,6 @@
 // Regression guard for icon/label vertical alignment.
 //
-// d35781a centred every Material Symbols glyph on its label with two rules:
+// Two rules centre every Material Symbols glyph on its label:
 // `button:has(> .msr)` / `h1,h2,h3:has(> .msr)` become flex containers with
 // `align-items: center`, and `.msr` carries `vertical-align: middle` as the
 // inline fallback. Both are easy to lose by accident — a new button that nests
@@ -15,9 +15,9 @@
 // It also runs a sibling check. For every horizontal flex row that holds a
 // button, the direct children that are controls (a button, a field, a
 // wrapper around one, or an icon on its own) must share a centre line. That
-// is the Forget-vs-chevron case on the Devices list: `align-self: flex-start`
-// on the actions wrapper parked Forget above the chevron beside it, and the
-// icon-vs-label check never looked across siblings.
+// catches a control parked above its neighbour on the same row (Forget beside
+// the chevron on the Devices list), which the icon-vs-label check cannot see
+// because it never looks across siblings.
 //
 // Run via `npm run test:icon-alignment` from v2/.
 
@@ -187,9 +187,8 @@ const COLLECT_SIBLINGS = (max) => {
 
 // Runs in the page. A Devices row's actions must sit on the device icon's
 // centre line whatever the row's own `align-items` says. The sibling check
-// skips rows that ask for top alignment, which is exactly how the not-a-TV
-// row's Open anyway / Copy diagnostics / Forget drifted above the icon's
-// centre (`.device-row.not-clickable { align-items: flex-start }`).
+// skips rows that ask for top alignment (`.device-row.unauthorized`), so it
+// cannot catch a row's actions drifting above the icon's centre.
 const COLLECT_ROW_ACTIONS = (max) => {
   const results = [];
   let checked = 0;

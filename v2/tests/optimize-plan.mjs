@@ -1,12 +1,12 @@
-// The Optimize wizard is the product's headline feature, and it was silently
-// recommending nothing: every row sat on "Checking safety", which forces Keep,
-// so the plan reported zero actions and running it did nothing at all.
+// The Optimize wizard is the product's headline feature, and it must actually
+// recommend something: a row left on "Checking safety" forces Keep, so a plan
+// whose lookups never resolve reports zero actions and running it does nothing.
 //
-// Cause: `optimizePlan !== plan` compared a Svelte $state deep proxy against
-// the raw object returned by the API. Always true, so the guard meant to drop a
-// superseded load dropped every load and the verdicts were never written.
+// `optimizePlan !== plan` compares a Svelte $state deep proxy against the raw
+// object returned by the API and is always true, so a superseded-load guard
+// written that way drops every load and the verdicts are never written.
 //
-// Nothing threw and nothing logged. Only rendering the wizard catches it.
+// Nothing throws and nothing logs. Only rendering the wizard catches it.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

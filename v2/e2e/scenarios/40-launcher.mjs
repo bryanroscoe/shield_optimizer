@@ -69,7 +69,7 @@ export const scenarios = [
     },
   },
   {
-    // #122 on 2.3.0: stock disabled, Setup Wraith still enabled with a higher
+    // #122: stock disabled, Setup Wraith still enabled with a higher
     // HOME priority. Setting Monet works (it holds the HOME role and the Home
     // key opens it) but resolve-activity keeps naming Setup Wraith.
     name: "launcher-current-is-the-role-holder-not-setup-wraith",

@@ -111,8 +111,8 @@ test("the live endpoint is the only connected row", () => {
 });
 
 test("a connected TV that does not advertise stays one connected saved row", () => {
-  // The Shield's Network debugging on :5555 publishes no mDNS record, so the
-  // only evidence it exists is the live session plus its saved row.
+  // With no mDNS record, the only evidence the TV exists is the live session
+  // plus its saved row.
   const rows = buildDiscoveryRows([], [saved()], liveAt("192.168.1.10", 5555, "shield-a"));
 
   assert.deepEqual(summarize(rows), [

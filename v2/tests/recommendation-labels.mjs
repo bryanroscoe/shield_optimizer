@@ -1,10 +1,9 @@
 // One recommendation vocabulary across App List, Optimize and Health.
 //
-// The three screens used to compute their own suggestion and had drifted: the
-// App List said "Remove" on one row and "Uninstall" on the next, Optimize
-// offered Uninstall on apps the engine had already downgraded to Disable
-// because the store could not give them back, and Health showed a verdict the
-// App List disagreed with. src/lib/recommendation.ts is now the only source.
+// src/lib/recommendation.ts is the only source: the App List uses one word for
+// one action on every row, Optimize never offers Uninstall on an app the engine
+// downgraded to Disable because the store cannot give it back, and Health shows
+// the same verdict as the App List.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,8 +103,7 @@ async function exercise({ browser, base }) {
   );
 
   // Keep is the user's decision and outranks the recommendation: the row stops
-  // offering its Disable, and Health says Kept too. It used to hide only the
-  // Keep button and leave the recommendation armed on both screens.
+  // offering its Disable, and Health says Kept too.
   await appRow.getByRole("button", { name: "Keep", exact: true }).click();
   await appRow.locator('[data-rec="Kept"]').waitFor();
   const keptRecs = await appRow.locator("[data-rec]").evaluateAll((els) => els.map((e) => e.dataset.rec));

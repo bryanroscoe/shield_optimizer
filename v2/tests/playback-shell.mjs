@@ -206,13 +206,10 @@ async function exerciseFeatures(browser, base) {
   await page.getByRole("tab", { name: "Shell", exact: true }).click();
   // The checkbox says "Remembered for this TV until you untick it", and it is
   // keyed on the hardware id, so leaving and re-entering this TV's page brings
-  // it back. This assertion used to read `false` — not because the consent was
-  // scoped to the session, but because the only code that read it back lived
-  // inside `loadApps`, so the stored tick reappeared if and only if you happened
-  // to open the App List. The page now resolves it once per identity, which is
-  // what the label has always promised. What must still never happen is the tick
-  // following the *address* onto a different device; that is enforced by the key
-  // (see getShellAcknowledged in src/lib/prefs.ts) and by tests/shell-acknowledge.mjs.
+  // it back without the App List ever being opened: the page resolves it once
+  // per identity. What must never happen is the tick following the *address*
+  // onto a different device; the key enforces that (see getShellAcknowledged
+  // in src/lib/prefs.ts).
   assert.equal(await shell.getByRole("checkbox", { name: /I understand these risks/ }).isChecked(), true,
     "expert acknowledgment is remembered for this TV, as its label says");
   await page.getByRole("tab", { name: "Health", exact: true }).click();

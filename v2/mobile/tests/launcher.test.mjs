@@ -39,8 +39,6 @@ const stock = (enabled) =>
   row(STOCK, { stock: true, enabled, entry: { name: "Google TV Home", disable_with: [WRAITH] } });
 const wraith = (enabled) => row(WRAITH, { setup_helper: true, other: true, enabled, entry: { name: "Setup Wraith" } });
 
-// ---- pure helper ----
-
 test("Setup Wraith reads off / on / risk from the launcher rows", () => {
   assert.equal(view.setupHelperView([stock(true)]), null);
   assert.equal(view.setupHelperView([stock(true), { ...wraith(true), installed: false }]), null);
@@ -112,8 +110,6 @@ test("source site links are offered only for http(s) URLs", () => {
   assert.equal(view.sourceSiteHost("not a url"), null);
   assert.equal(view.sourceSiteHost(null), null);
 });
-
-// ---- screen ----
 
 async function open(t, setup = {}) {
   const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(setup.modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 420 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });

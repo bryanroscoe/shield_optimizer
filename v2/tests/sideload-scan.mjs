@@ -1,9 +1,7 @@
 // The Sideload tab remembers the APK folder you last picked. It must not read
 // that folder until you ask it to: the remembered path is often on a removable
-// volume or a mounted DMG, and probing it on mount is what made macOS ask for
-// removable-volume access on every visit (GitHub #89).
-//
-// This is the half of that fix that shipped with no regression gate.
+// volume or a mounted DMG, and probing it on mount makes macOS ask for
+// removable-volume access on every visit (#89).
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

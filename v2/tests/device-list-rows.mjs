@@ -1,7 +1,7 @@
 // The Devices list has to be honest about several things at once:
-//   - one physical device reached two ways is ONE row (the duplicate-transport
-//     regression: adb auto-connects a paired mDNS device under its service
-//     name, and dialling it again by address makes a second transport);
+//   - one physical device reached two ways is ONE row (adb auto-connects a
+//     paired mDNS device under its service name, and dialling it again by
+//     address makes a second transport);
 //   - a device that is positively not an Android TV says so and does not open
 //     the TV tools until its owner confirms "Open anyway" (remembered per
 //     hardware id); one that never said either way still opens, labelled
@@ -51,7 +51,7 @@ const tvProperties = {
 };
 
 // A phone SAYS it is a phone. That is the only thing that earns the label —
-// `nosdcard` alone used to be read as "not a TV" and locked out real boxes.
+// `nosdcard` alone is not evidence: real TV boxes report it too.
 const phoneProperties = {
   friendly_name: null, brand: "google", model: "Pixel 10 Pro",
   device_codename: "blazer", manufacturer: "Google", android_release: "16",
@@ -169,8 +169,7 @@ async function exercise({ browser, base }) {
   assert.doesNotMatch(usbHelp, /Click Forget/, "a USB row has no Forget");
   assert.doesNotMatch(usbHelp, /terminal|adb disconnect/);
 
-  // #120: a box that never said what it is still opens, and says so. This is
-  // the row 2.2.0 locked its owner out of.
+  // #120: a box that never said what it is still opens, and says so.
   const odd = rowFor(page, "Living Room Box");
   assert.equal(await odd.locator("a.device-row").count(), 1,
     "a device that said neither way must still open");
@@ -181,7 +180,7 @@ async function exercise({ browser, base }) {
   assert.equal(await odd.getByRole("button", { name: "Copy diagnostics" }).count(), 1,
     "the row we are unsure about is the one worth reporting");
 
-  // Forget is on EVERY network row now, including the online, clickable ones.
+  // Forget is on EVERY network row, including the online, clickable ones.
   for (const name of ["Bedroom Shield", "Bryan Pixel 10 Pro", "192.168.42.143:5555", "Living Room Box", "adb-9XK2-abc._adb-tls-connect._tcp"]) {
     assert.equal(await rowFor(page, name).getByRole("button", { name: "Forget" }).count(), 1,
       `${name} is on the network, so it can be forgotten`);

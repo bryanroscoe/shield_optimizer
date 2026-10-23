@@ -9,9 +9,8 @@ let origin;
 before(async () => {
   // Use the shared harness rather than a bespoke server: it is the only place
   // that turns off the `strictPort: true` pinned in vite.config.ts for
-  // `tauri android dev`. Without that override this suite inherited strict
-  // mode, so a port collision was fatal instead of something Vite stepped
-  // around -- the "Port 5173 is already in use" half of GitHub #113.
+  // `tauri android dev`. Without that override a port collision is fatal
+  // instead of something Vite steps around (GitHub #113).
   ({ server, origin } = await startViteServer());
   browser = await chromium.launch({ headless: true });
 });

@@ -229,8 +229,8 @@ test("protected defaults stay visible and blocked in Optional", async (t) => {
   );
   assert.equal(await choices.getByRole("button", { name: "Disable", exact: true }).isDisabled(), true);
   // The reason only lands once the async safety lookup resolves, and every
-  // assertion above it passes on the fail-closed defaults, so nothing here
-  // waits for that. Snapshotting innerText raced it and read an empty list.
+  // assertion above passes on the fail-closed defaults without waiting for it,
+  // so wait for the reason text itself rather than snapshotting innerText.
   await page.getByText("Required for the TV system interface.", { exact: false }).waitFor();
 });
 
@@ -378,11 +378,9 @@ test("differing Unknown reasons stay on their own rows", async (t) => {
   assert.match(await list.innerText(), /Reviewed registry was unreachable\./);
 });
 
-// The catalog's `safe` verdict is newer than this screen. Every check here was
-// originally written as `kind === "caution"`, which was a correct stand-in for
-// "reviewed" while the only other kinds were `unknown` and `never_disable`.
-// Once `safe` existed those checks silently excluded the apps the catalog
-// rates *safest*: unselectable, and absent from Recommended.
+// `safe` is a reviewed verdict just like `caution`. Treating only
+// `kind === "caution"` as "reviewed" excludes the apps the catalog rates
+// *safest*: unselectable, and absent from Recommended.
 test("Safe defaults are recommended, selected and actionable", async (t) => {
   const safeDefault = item("Safe Default", { defaultOptimize: true });
   const page = await createPage(t, {

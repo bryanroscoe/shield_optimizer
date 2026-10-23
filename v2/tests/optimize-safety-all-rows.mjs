@@ -1,15 +1,12 @@
-// The Optimize wizard queried safety only for the rows it proposed to act on.
+// The Optimize wizard queries safety for every row that is actually on the
+// device, not only the rows it proposes to act on.
 //
-// That set is `naturalAction(item) is disable|uninstall`, which excludes every
-// row the backend already marked skip — including a catalog package that is
-// ALREADY DISABLED. `com.android.providers.tv` is on the Caution list, and a
-// disabled copy of it therefore rendered "SAFETY UNAVAILABLE": the wizard had
-// never asked. The rows whose verdict matters most were the ones with no
-// verdict at all, and nothing failed — the lookup simply never happened.
-//
-// Every row that is actually on the device gets queried now. Only rendering
-// the wizard proves it, because the absent entry was coerced to "unavailable"
-// at the row and looked exactly like a lookup that had failed.
+// The rows it proposes to act on exclude every row the backend marked skip —
+// including a catalog package that is ALREADY DISABLED. `com.android.providers.tv`
+// is on the Caution list, and a disabled copy of it must still show its real
+// verdict rather than "SAFETY UNAVAILABLE". Only rendering the wizard proves
+// it, because an absent entry is coerced to "unavailable" at the row and looks
+// exactly like a lookup that failed.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
