@@ -125,8 +125,7 @@ export function openContextMenu(e: MouseEvent, items: MenuItem[]): boolean {
 }
 
 /// Decide what one `contextmenu` event that no app menu claimed should do.
-/// Exported for the test harness and the dev toggle; the listener below is the
-/// only caller in the app.
+/// The listener below is the only caller in the app.
 export function shouldSuppressDefault(e: MouseEvent, suppress: boolean): boolean {
   if (!suppress || e.defaultPrevented) return false;
   if (isNativeMenuTarget(e.target)) return false;

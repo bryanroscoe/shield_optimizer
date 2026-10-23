@@ -121,7 +121,7 @@
 
   function formatTimestamp(iso: string): string {
     // Snapshot saved_at is "YYYY-MM-DDTHH:MM:SSZ". Replace T with a space and
-    // strip Z for a slightly friendlier display while staying sortable.
+    // Z with " UTC" for a slightly friendlier display while staying sortable.
     return iso.replace("T", " ").replace("Z", " UTC");
   }
 
@@ -248,8 +248,7 @@
   </div>
 {:else}
   <!-- Board 11.12's table: what it is, where it came from, when, and what you
-       can do with it. The old rows stacked four lines each and gave the file
-       name as much weight as the device it came from. -->
+       can do with it. -->
   <div class="snap-table-box">
     <table class="snap-table">
       <thead>
@@ -384,7 +383,7 @@
   /* The name column takes the room; the rest claim only what they need. The
      `max-width: 0` trick used elsewhere does not work here — the Action cell
      holds a <select> whose min-content is its longest option, so the name
-     column collapsed to a word per line instead. Capping the select is what
+     column collapses to a word per line. Capping the select is what
      actually frees the width. */
   .snap-table th:first-child,
   .snap-table td:first-child {
@@ -444,7 +443,7 @@
     vertical-align: middle;
   }
   /* A wrapper, not the cell itself: display:flex on a <td> takes it out of
-     table layout, and its row border stopped short of the table edge. */
+     table layout, and its row border stops short of the table edge. */
   .snap-actions {
     display: flex;
     justify-content: flex-end;

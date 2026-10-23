@@ -57,8 +57,8 @@ const device: Device = {
 
 /// A box that never said what it is. `ro.build.characteristics` reads
 /// `nosdcard` and `pm has-feature` gave no answer, which is exactly what the
-/// Xiaomi TV Box S in #120 reports — 2.2.0 called it "not an Android TV" and
-/// locked its owner out. It is openable, and labelled UNCONFIRMED TV.
+/// Xiaomi TV Box S in #120 reports. Unreadable is not "not a TV": it is
+/// openable, and labelled UNCONFIRMED TV.
 const unconfirmedDevice: Device = {
   id: 2,
   serial: "192.168.1.77:5555",
@@ -404,10 +404,9 @@ const DISABLED = new Set([
   "com.nvidia.diagtools",
   "com.amazon.amazonvideo.livingroom",
   "com.facebook.katana",
-  // A Caution-list package that is already disabled. It exists to keep the
-  // coverage honest: the Optimize tab used to query safety only for the rows
-  // it proposed to act on, so exactly this shape of row — the one whose
-  // verdict matters most — rendered "SAFETY UNAVAILABLE".
+  // A Caution-list package that is already disabled. The Optimize tab must
+  // resolve safety for every row, not only the ones it proposes to act on, and
+  // this is the shape of row whose verdict matters most.
   // tests/optimize-safety-all-rows.mjs reads it.
   "com.android.providers.tv",
 ]);
@@ -439,7 +438,8 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         // medium-risk app, so the plan has a Caution row that is actionable
         // and "Select all safe" has something it must leave alone — plus one
         // uninstall-method app with no store listing, which Optimize must
-        // offer Disable for and never Uninstall.
+        // offer Disable for and never Uninstall — plus TV Recommendations, for
+        // tests/tvrecommendations-safety.mjs.
         index < 16
         || entry.package === "com.android.providers.tv"
         || entry.package === "com.nvidia.tegrazone3"
@@ -553,8 +553,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         update_available: demoFlag("updateAhead"),
         url: "https://github.com/bryanroscoe/shield_optimizer/releases",
         // The app reads its own notes from the bundled CHANGELOG.md and never
-        // from here. Null is what a failed or timed-out GitHub call returns,
-        // which is the launch that used to lose the after-update pop-up.
+        // from here. Null is what a failed or timed-out GitHub call returns.
         current_notes: null,
       };
     case "list_devices":
@@ -686,9 +685,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "safety_info": {
       // Mirrors crates/core/src/engine/safety.rs, including its precedence:
       // protected > caution > reviewed catalog > unknown. It has to, or the
-      // demo layer paints a picture of the product that isn't true — the
-      // catalog-blind version of this mock is what made every curated app in
-      // the screenshots read "Unknown".
+      // demo layer paints a picture of the product that isn't true: a
+      // catalog-blind mock shows every curated app as "Unknown".
       const pkg = String(args.package ?? "");
       const protectedList: Record<string, string> = {
         "com.android.systemui":

@@ -4,10 +4,8 @@
 // (crates/core/src/engine/safety.rs: NeverDisable / Caution / Safe / Unknown).
 // `safe` only ever comes from the reviewed app list, never as a fallback. This
 // maps each to the label, blurb and class every screen renders. Screens must
-// not invent tiers and must not classify packages themselves — before this
-// module there were three separate copies of the mapping and they had already
-// drifted apart, so the same state read "Checking safety" on one screen and
-// "Checking" on another.
+// not invent tiers and must not classify packages themselves, so one state
+// reads the same on every screen.
 //
 // Deliberately not modelled here: the app-list catalog's `risk` field, which
 // is hand-written editorial metadata saying "how much will you miss this",
@@ -19,8 +17,7 @@ import type { Safety } from "../../shared/safety";
 export type { Safety };
 export type SafetyKind = Safety["kind"];
 
-/// Resolution state of an async `safety_info` lookup. Declared once here; it
-/// used to be copy-pasted into the device page and the optimize tab.
+/// Resolution state of an async `safety_info` lookup.
 export type SafetyStatus =
   | { status: "checking" }
   | { status: "ready"; verdict: Safety }

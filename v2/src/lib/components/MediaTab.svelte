@@ -198,8 +198,8 @@
     margin: 0;
   }
   /* Codecs and modes on the left, the format lists on the right — board 11.3.
-     Stacked, the audio section was four scrolls below the codec table it is
-     usually read against. */
+     Side by side, because the audio section is usually read against the codec
+     table. */
   .media-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
@@ -266,7 +266,6 @@
     font-size: 0.85rem;
   }
 
-  /* Media-tab–specific styles. */
   .verdicts {
     list-style: none;
     margin: 0.4rem 0 0;

@@ -74,7 +74,7 @@
   let reportErr = $state<string | null>(null);
   // Set when a device-state change in another tab makes the health report
   // stale, so it re-fetches (in the background, keeping current data on screen)
-  // the next time the Memory tab is opened.
+  // the next time the Health tab is opened.
   let healthStale = $state(false);
   let reportLastRefreshed = $state<Date | null>(null);
   let liveRefresh = $state(false);
@@ -383,9 +383,9 @@
   let mediaResetToken = $state(0);
   /// Remembered per TV by hardware id, and only in this page's state for a TV
   /// without one. Resolved once per identity and written back on every change —
-  /// never re-read over live state. It used to be re-read inside `loadApps`,
-  /// after an await, so the tick vanished the moment the App List or Health
-  /// refreshed underneath it.
+  /// never re-read over live state: re-reading it inside a loader such as
+  /// `loadApps` would clear the tick whenever the App List or Health refreshes
+  /// underneath it (tests/shell-acknowledge.mjs).
   let shellAcknowledged = $state(false);
   let shellAckResolvedFor: string | null = null;
   $effect(() => {
@@ -452,7 +452,7 @@
   const busiestRate = $derived(busiest?.rx_bytes_per_s ?? null);
   const busiestName = $derived(busiest?.name ?? null);
 
-  /// Shared by the RAM tile and the RAM meter, which now live in two separate
+  /// Shared by the RAM tile and the RAM meter, which live in two separate
   /// cards and must not drift apart.
   const ramPct = $derived(
     report?.ram.total_mb && report.ram.used_mb != null
@@ -487,9 +487,7 @@
     }
   }
 
-  /// Colour a usage meter by how full it is. Thresholds are the same ones the
-  /// memory table already uses for its PSS column, so "amber means getting
-  /// full" reads consistently across the Health tab.
+  /// Colour a usage meter by how full it is.
   function meterTone(percent: number | null): string {
     if (percent == null) return "";
     if (percent >= 90) return "danger";
@@ -541,8 +539,8 @@
     // Kick the sample off in parallel and let it land on its own.
     void loadResourceSample();
     // Deliberately NOT clearing memorySafety here: Live Refresh ticks every
-    // three seconds, and wiping the map made the whole Safety column blank to
-    // "Checking" and back twenty times a minute. A process's verdict does not
+    // three seconds, and wiping the map would blank the whole Safety column to
+    // "Checking" and back on every tick. A process's verdict does not
     // change between ticks; the effect below refetches when the *set* of
     // processes changes.
     try {
@@ -578,9 +576,9 @@
       );
       // Deliberately not comparing `report` to `nextReport`: `report` is
       // $state, so assigning an object stores a deep proxy and the identity
-      // check is always true — which bailed out here every time and left every
-      // row stuck on "Checking". The request token already proves this load is
-      // the current one.
+      // check is always true, which would bail out here every time and leave
+      // every row stuck on "Checking". The request token already proves this
+      // load is the current one.
       if (!pageContextIsCurrent(context) || request !== healthRequest) return;
       memorySafety = Object.fromEntries(rows.map((m, index) => {
         const result = results[index];
@@ -710,10 +708,10 @@
       apps = list;
       const packages = list.map((a) => a.package);
       // Merge, never replace. "Everything else" writes into this same map from
-      // its own async loader, and a whole-object assignment here dropped every
-      // verdict that loader had already resolved — leaving those rows with no
-      // entry at all, which renders as "Safety unavailable · could not be
-      // checked" with nothing to say why, because there was no failure.
+      // its own async loader, and a whole-object assignment here would drop
+      // every verdict that loader had already resolved — leaving those rows
+      // with no entry at all, which renders as "Safety unavailable" with
+      // nothing to say why, because there was no failure.
       packageSafety = {
         ...packageSafety,
         ...Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }])),
@@ -907,7 +905,7 @@
   }
 
   /// Re-sync the App List's cached states after the Optimize wizard runs —
-  /// it cached states before the run, same as executeOptimize used to do inline.
+  /// it cached states before the run.
   function beginStatesResync(): number {
     appStatesResyncing = true;
     return ++appStatesResync;
@@ -943,7 +941,7 @@
       }
     }
     // The Optimize wizard can disable launchers and many packages — mark the
-    // Launcher and Memory caches stale so they reload fresh on next visit.
+    // Launcher and Health caches stale so they reload fresh on next visit.
     invalidateDeviceCaches();
   }
 
@@ -1165,7 +1163,8 @@
         setCatalogState(pkg, "enabled");
         invalidateDeviceCaches();
       } else {
-        // Not-ok can still have landed (stock enabled, its setup helper not).
+        // Not-ok is read from pm's output, not from the device, so re-read
+        // rather than assume nothing changed.
         invalidateDeviceCaches();
         void resyncAfterBulkChange();
       }
@@ -1492,7 +1491,7 @@
       if (helperFailures.length > 0) {
         launcherActionMessage += ` Couldn't re-enable Google TV's setup helper (${helperFailures.join("; ")}). Use Re-enable Setup Wraith to retry.`;
       }
-      // A launcher's enabled state changed — the Memory tab's report is now stale.
+      // A launcher's enabled state changed — the Health tab's report is now stale.
       invalidateDeviceCaches();
     } catch (e) {
       launcherActionMessage = String(e);
@@ -1643,7 +1642,7 @@
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than
-        // prefixing "Failed:", which once produced "Failed: Success".
+        // prefixing "Failed:".
         message =
           r.last_error ?? `Android did not verify ${name} as default. No success was confirmed.`;
         // Only on failure: this is the record a reporter can paste back, and
@@ -1664,7 +1663,7 @@
         launcherSetResult = { package: pkg, message: `${message} Launcher status could not be refreshed; the displayed state may be stale. ${launcherErr ?? "Refresh to retry."}` };
       }
       // The takeover may have disabled stock; either way launcher state changed,
-      // so the Memory tab's report is stale.
+      // so the Health tab's report is stale.
       invalidateDeviceCaches();
     } catch (e) {
       if (pageContextIsCurrent(context)) {
@@ -1900,7 +1899,7 @@
 
   // A device-state change (enable/disable/uninstall/launcher switch) in one tab
   // leaves the other tabs' cached snapshots stale — e.g. disabling a launcher
-  // from the Memory tab must show up on the Launchers tab. Mark the *other*
+  // from the Health tab must show up on the Launcher tab. Mark the *other*
   // data tabs for a fresh load on their next visit; the tab the action happened
   // on refreshes itself inline. Existing data stays on screen until each reload
   // finishes, so there's no flash of empty state.
@@ -1939,10 +1938,9 @@
     void loadDevice();
   }
 
-  /// Wipe all per-device state. Used if the route's serial changes under a
-  /// live component (today the only way off this page is "← Back to devices",
-  /// so this is defensive — but it guarantees no device's data or in-flight
-  /// timer can leak onto another if a device→device link is ever added).
+  /// Wipe all per-device state when the route's serial changes under a live
+  /// component (loadDevice moves a collapsed transport alias to the row's own
+  /// key), so no device's data or in-flight timer can leak onto another.
   function resetDeviceState() {
     pageEpoch++;
     deviceRequest++;
@@ -2277,10 +2275,9 @@
           </p>
         </div>
         <div class="header-actions">
-          <!-- Two controls, not three. Refresh already re-runs the resource
-               sample (loadHealth kicks it off), so the separate "Sample again"
-               beside the CPU figure was a third button for a job Refresh
-               already did. -->
+          <!-- Two controls. Refresh already re-runs the resource sample
+               (loadHealth kicks it off), so the sample needs no button of its
+               own. -->
           <span class="live-pill" class:on={liveRefresh}>
             <span class="live-dot" aria-hidden="true"></span>
             {liveRefresh ? "live" : "paused"}
@@ -2305,9 +2302,7 @@
           <div class="muted">{reportLoading ? "Querying…" : "—"}</div>
         {:else}
         <!-- Board 11.2's five cards: a title, the figure, the bar, and the
-             one sub-line that says what the figure is measured against. The
-             old tiles were a glyph and a naked number, so "64%" did not say
-             64% of what. -->
+             one sub-line that says what the figure is measured against. -->
         <div class="stat-tiles">
           <div class="stat-card">
             <div class="stat-head">
@@ -2357,10 +2352,7 @@
           </div>
 
           <!-- Swap reads like CPU and Temperature because it is the same kind
-               of figure: one number with a unit, not a used/total pair. It was
-               rendered as a `.stat-figure` caption in the card's head, which
-               put the most alarming number on the screen in the smallest type
-               on the screen. -->
+               of figure: one number with a unit, not a used/total pair. -->
           <div class="stat-card">
             <div class="stat-head">
               <span class="stat-title">Swap</span>
@@ -2391,8 +2383,8 @@
                 {resource.cpu_percent.toFixed(0)}<span class="stat-unit">%</span>
               {:else}<span class="stat-pending">{resourceLoading ? "…" : "—"}</span>{/if}
             </div>
-            <!-- A bar, like RAM and Storage. A percentage with no track beside
-                 it was the one figure on the row you had to know the scale of. -->
+            <!-- A bar, like RAM and Storage: a percentage with no track beside
+                 it is a figure you have to know the scale of. -->
             {#if resource?.cpu_percent != null}
               <div class="meter" role="presentation">
                 <div
@@ -2447,9 +2439,7 @@
             <h2><Icon name="speed" size={20} /> Network · per interface</h2>
             {#if resourceErr}<p class="error">Resource sample: {resourceErr}</p>{/if}
             {#if trimMessage}<p class="muted small mono trim-note">{trimMessage}</p>{/if}
-            <!-- Every interface as its own row, as the board has it. The old
-                 <dl> packed them into a three-column grid inside one cell,
-                 which put six interfaces into a block you had to decode. -->
+            <!-- Every interface as its own row, as the board has it. -->
             {#if resource?.interfaces.length}
               <table class="net-table">
                 <thead>
@@ -2815,8 +2805,8 @@
             <div class="foot-card" data-tip="What the TV launches when you press Home" title={currentLauncher?.note ?? undefined}>
               <span class="foot-label">Current home app</span>
               <!-- The device reports a `package/activity` component and the
-                   command splits it; showing the activity alone (".MainActivity")
-                   named nothing. Put it back together. -->
+                   command splits it; the activity alone (".MainActivity")
+                   names nothing, so put it back together. -->
               <span class="mono foot-value">
                 {currentLauncher?.package
                   ? currentLauncher.activity
@@ -3088,10 +3078,10 @@
                   {:else if rec.kind === "unavailable"}
                     <span class="muted small" data-rec={rec.label}>{rec.label} — refresh to retry</span>
                   {:else}
-                    <!-- No recommendation. This used to read "Keep", which now
-                         collides with the Keep button one column over: the same
-                         word meant both "we suggest keeping it" and "I have
-                         decided to keep it". -->
+                    <!-- No recommendation. Not "Keep", which would collide with
+                         the Keep button one column over: the same word would
+                         mean both "we suggest keeping it" and "I have decided
+                         to keep it". -->
                     <span class="muted small" data-rec={rec.label}>{rec.label}</span>
                   {/if}
 
@@ -3133,10 +3123,9 @@
                     </div>
                   <!-- One Actions column, split by a hairline: the decision on
                        the left, the always-available tools on the right as
-                       icons. Spelling the three tools out in words cost more
-                       width than the package ids did, which is what pushed the
-                       App column into truncating them. The legend under the
-                       table names them.
+                       icons. Spelled out in words, the three tools take more
+                       width than the package ids and push the App column into
+                       truncating them. The legend under the table names them.
 
                        The tools sit in a fixed three-slot grid, and a tool a
                        row does not have leaves its slot empty rather than
@@ -3338,7 +3327,7 @@
                   {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
                   <!-- The action rides on the title's line so the summary below
                        gets the full width; squeezed beside it, the summary
-                       wrapped onto five lines. -->
+                       wraps onto five lines. -->
                   <span class="snap-actions">
                     {#if selected}
                       <span class="tag installed">SELECTED</span>
@@ -3611,14 +3600,9 @@
     font-family: var(--mono);
     font-size: 0.85rem;
   }
-  /* Controls that now pair an icon with a label. */
-  /* Scan layer for the Health tab: the three numbers people look for first,
-     duplicated from the Vitals list below rather than moved out of it. The
-     icon carries the threshold colour so the tone is readable before the
-     number is. */
   /* Overview is two cards, not one: a read-only spec sheet and a destructive
-     action. They were sharing a card, which made the recovery button read as
-     a footnote on the device's build id. */
+     action. Sharing a card makes the recovery button read as a footnote on the
+     device's build id. */
   .overview-stack {
     display: flex;
     flex-direction: column;
@@ -3704,16 +3688,11 @@
     text-align: center;
     font-size: 0.74rem;
   }
-  /* Neutral note, not a warning: it qualifies the scope of the action above
-     rather than adding a second alarm. */
   @media (max-width: 1100px) {
     .profile-layout {
       grid-template-columns: minmax(0, 1fr);
     }
   }
-  /* Five tiles on a fill-first grid rather than three stretched across the
-     full width — that stretch was most of the empty space. The icon sits on
-     the number's line instead of on a row of its own. */
   /* Marks a row we could not match to an installed package, so a reader can
      tell "no rule covered this app" apart from "this is not an app". */
   .unconfirmed {
@@ -3727,8 +3706,6 @@
     font-size: 0.68rem;
     white-space: nowrap;
   }
-  /* Hairline between tab groups — twelve tabs at this width have no room for
-     captions, so the rule does the grouping. */
   /* Only on hover: an undo does not need to advertise itself on every
      decided row. */
   .change-keep {
@@ -3840,10 +3817,9 @@
     border-radius: 50%;
     background: currentColor;
   }
-  /* Five cards, each stating what its figure is measured against. */
   /* No min-height: a card with no bar (Swap, which reports a figure and
-     nothing to scale it against) was padded out to match the ones that have
-     one, which is where most of the empty space came from. */
+     nothing to scale it against) is not padded out to match the ones that
+     have one. */
   .stat-card {
     display: flex;
     flex-direction: column;
@@ -3864,8 +3840,8 @@
     font-weight: 600;
   }
   /* The used/total caption on RAM and Storage. It sits beside the card title
-     rather than under it, so at 0.78rem muted it read as a footnote on the one
-     card whose whole point is the pair of numbers. */
+     and is sized as a value, not a footnote: the pair of numbers is the card's
+     whole point. */
   .stat-figure {
     font-size: 0.9rem;
     color: var(--fg-secondary);
@@ -3885,9 +3861,6 @@
   .stat-big.danger {
     color: var(--danger);
   }
-  /* The global tooltip is one nowrap line, which is right for "Copy" and wrong
-     for a sentence. These two are sentences: they say what the number means,
-     which is the whole reason they are there. */
   /* Visually hidden, still announced — the caret column has no visible head. */
   .sr-only {
     position: absolute;
@@ -3952,7 +3925,7 @@
     overflow-wrap: anywhere;
   }
   /* Memory and Suggestion shrink to their content so the package id gets the
-     rest; otherwise the spare width went to the pills and the id broke mid-word. */
+     rest; otherwise the spare width goes to the pills and the id breaks mid-word. */
   .mem-table td.num,
   .mem-table td.suggestion-cell,
   .mem-table th:first-child,
@@ -4020,11 +3993,9 @@
       grid-template-columns: minmax(0, 1fr);
     }
   }
-  /* Five across, as the board has them, collapsing rather than reflowing into
-     an orphan. They sit straight on the page: wrapping them in a card put a
-     border around five bordered things. */
   /* Fit as many as the width allows rather than dropping to a fixed three and
-     orphaning the fifth on a row of its own. */
+     orphaning the fifth on a row of its own. They sit straight on the page: a
+     card around them would put a border around five bordered things. */
   .stat-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
@@ -4079,7 +4050,7 @@
     color: var(--accent);
     border-bottom-color: var(--accent);
   }
-  /* Usage meters, lifted from the mobile Diagnostics screen: a number alone
+  /* Usage meters, as on the mobile Diagnostics screen: a number alone
      makes you do the arithmetic, a bar tells you at a glance. Desktop tokens
      rather than mobile's, so it matches the rest of this app. */
   .meter-value {
@@ -4102,10 +4073,10 @@
     border-radius: var(--radius-xs);
     transition: width 0.3s ease;
   }
-  /* Solid, not a gradient. In dark --accent and --accent-strong are the same
-     lime so the gradient was already flat; in light they are dark olive and
-     lime, which made one bar look like two different states. --accent is the
-     readable one against the track in both themes. */
+  /* Solid, not a gradient: in light --accent and --accent-strong are dark
+     olive and lime, and a gradient between them makes one bar look like two
+     different states. --accent is the readable one against the track in both
+     themes. */
   .meter-fill.ok {
     background: var(--accent);
   }
@@ -4156,7 +4127,7 @@
 
      The flex goes on the inner div and NEVER on the <td>. A flex table cell
      drops out of table layout and sizes to its own content, so its
-     border-bottom landed a dozen pixels above the other cells' — one row
+     border-bottom lands a dozen pixels above the other cells' — one row
      divider drawn at two different heights. */
   .app-table .actions-cell {
     display: flex;
@@ -4165,7 +4136,7 @@
     justify-content: space-between;
   }
   /* Labels and verbs in the action cell are single-line things. Wrapped, they
-     made every row a different height and "Remove if unused" stacked into a
+     make every row a different height and stack "Remove if unused" into a
      three-line block. */
   .app-table .actions-cell button,
   .app-table .row-verbs > .muted,
@@ -4193,7 +4164,7 @@
     display: block;
     width: 2rem;
   }
-  /* The verb buttons keep their own spacing rule; inside a flex row the old
+  /* The verb buttons keep their own spacing rule; inside a flex row their
      margin-right would double up with the gap. */
   .app-table .actions-cell .small-action {
     margin-right: 0;
@@ -4208,7 +4179,7 @@
     background: var(--border);
   }
   /* Icon-only, because the three words cost more width than the package ids
-     they were squeezing out. Every one keeps its title and aria-label, and the
+     they would squeeze out. Every one keeps its title and aria-label, and the
      legend under the table spells them out. */
   .tool-btn {
     display: inline-flex;
@@ -4273,8 +4244,8 @@
     font-family: var(--mono);
   }
   /* Three columns, as board 11.4 has it: who, what state, what you can do.
-     The state tags were sharing a flex row with the buttons, so a row with
-     three tags pushed its own actions off the edge. */
+     Sharing a flex row with the buttons, a row with three state tags would
+     push its own actions off the edge. */
   .launcher-head,
   .launcher-list li {
     display: grid;
@@ -4340,9 +4311,7 @@
   .launcher-callout {
     margin-top: 1rem;
   }
-  /* One reference panel: what the TV actually resolved. The tag legend that
-     used to sit beside it explained the badges to someone already reading
-     them — the badges say it themselves. */
+  /* One reference panel: what the TV actually resolved. */
   .launcher-foot {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
@@ -4391,8 +4360,8 @@
     width: 100%;
   }
   /* One height for the select, the input and both buttons: the row aligns
-     bottoms, so a taller select lifted its label off the Activity label and the
-     short buttons sat below the fields' centre line. */
+     bottoms, so a taller select would lift its label off the Activity label and
+     leave the short buttons below the fields' centre line. */
   .home-picker-field select,
   .home-picker-field input,
   .home-picker-row > button {
@@ -4426,7 +4395,7 @@
   .launcher-get {
     white-space: nowrap;
   }
-  /* The subtitle carries a second thought now, so it wraps onto its own line
+  /* The subtitle carries a second thought, so it wraps onto its own line
      on a narrow window instead of pushing the Refresh button off the card. */
   .launcher-sub {
     display: flex;
@@ -4515,8 +4484,8 @@
     font-size: 0.85rem;
   }
   /* What you have on the left, what applying it would do on the right —
-     board 11.10. The plan used to sit under the list, so choosing a snapshot
-     scrolled the thing you were choosing out of view. */
+     board 11.10 — so choosing a snapshot never scrolls the thing you are
+     choosing out of view. */
   .snap-explainer {
     margin: 0.25rem 0 0;
     max-width: 44rem;
@@ -4848,8 +4817,7 @@
   }
   /* The meta line sits below this row rather than inside its left column, so
      the title and the actions are the only two things in it and can simply be
-     centred on each other. Previously the actions top-aligned against the
-     title-plus-meta block and read a few pixels low. */
+     centred on each other. */
   .device-title-row {
     display: flex;
     align-items: center;

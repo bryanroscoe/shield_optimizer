@@ -439,9 +439,9 @@
             </td>
             <td class="num muted mono">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
             <td class="num muted small mono">{f.modified}</td>
-            <!-- Icon-only, per the board: three verbs spelled out on every row
-                 crowded out the names they belonged to. Each keeps its title
-                 and gains an aria-label, and the legend is under the table. -->
+            <!-- Icon-only, per the board, so the verbs do not crowd out the
+                 names they belong to. Each has a title and an aria-label, and
+                 the legend is under the table. -->
             <td class="row-actions">
               {#if f.is_dir}
                 <button
@@ -513,9 +513,8 @@
     font-weight: 500;
     pointer-events: none;
   }
-  /* --- Shared scoped utilities, duplicated from the page (see CLAUDE.md note
-         on component CSS). Global rules (.muted, button, input) live in the
-         layout and are inherited. --- */
+  /* Shared scoped utilities duplicated from the page; global rules
+     (.muted, button, input) live in the layout and are inherited. */
   .header-actions {
     display: flex;
     gap: 0.8rem;
@@ -671,7 +670,6 @@
     font-size: 0.85em;
   }
 
-  /* --- Files-tab–specific styles. --- */
   .app-backups {
     margin: 0.6rem 0 1rem;
     padding: 0.6rem 0.8rem;

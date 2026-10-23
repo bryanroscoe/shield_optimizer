@@ -2,7 +2,7 @@
   // Resident RAM for an app that's running right now. Renders nothing when the
   // app isn't resident (mb falsy) — most apps aren't, and that's the signal.
   // `label` prefixes a small "RAM" tag so the number is unambiguous; turn it off
-  // where a column header already says RAM (the Optimize table).
+  // where a column header already says RAM (AppRow's RAM column).
   let { mb, label = true }: { mb?: number; label?: boolean } = $props();
 </script>
 

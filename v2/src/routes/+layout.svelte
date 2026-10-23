@@ -91,11 +91,8 @@
   /// GitHub has published a tag the updater manifest has not caught up with.
   ///
   /// There is a real window between a tag push and `latest.json` propagating,
-  /// and the app used to fill it with a second clickable "Update available"
-  /// badge sourced from the GitHub API — which could only open a release page,
-  /// because the updater had nothing to install. Two badges, one of them a
-  /// dead end. Only `pendingUpdate` is clickable now; this says the true thing
-  /// instead, and says it inertly.
+  /// during which the updater has nothing to install. Only `pendingUpdate` is
+  /// clickable; this says the true thing, inertly.
   const rollingOut = $derived(
     update?.update_available && update.latest
       ? !pendingUpdate || isNewerVersion(update.latest, pendingUpdate.version)
@@ -243,11 +240,10 @@
     e.preventDefault();
   }
 
-  // ---- Report a bug -------------------------------------------------
-  //
-  // Everything here is text the user reads before anything leaves the
-  // machine. The app has no upload path: the only way out is the issue URL,
-  // which the user opens and GitHub shows as a form they still have to submit.
+  // Report a bug. Everything here is text the user reads before anything
+  // leaves the machine. The app has no upload path: the only way out is the
+  // issue URL, which the user opens and GitHub shows as a form they still have
+  // to submit.
 
   const ISSUE_BASE =
     "https://github.com/bryanroscoe/shield_optimizer/issues/new" +

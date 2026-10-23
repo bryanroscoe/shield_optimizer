@@ -226,10 +226,9 @@
   /// Do we positively know this is not an Android TV?
   ///
   /// Only when the device said so: a `phone`/`tablet`/`watch` characteristic,
-  /// or a flat "no" to the leanback feature. This used to be inferred from
-  /// `device_type === "unknown"`, which answers a different question — "no
-  /// catalog match" — and so locked people out of perfectly ordinary TV boxes
-  /// that report something unusual (#120).
+  /// or a flat "no" to the leanback feature. `device_type === "unknown"` is not
+  /// evidence: it answers a different question — "no catalog match" — and
+  /// ordinary TV boxes that report something unusual land there (#120).
   function isNotATv(d: Device): boolean {
     return d.tv_evidence === "not_tv";
   }
@@ -366,11 +365,6 @@
     }
   }
 
-  /// What the authorization prompt is called on this device.
-  ///
-  /// Over USB it is reliably "Allow USB debugging?". Over the network the
-  /// title varies by Android version and OEM — plenty of TVs still show the
-  /// USB wording for a Wi-Fi connection — so don't swear to one.
   /// Held under an Android 11+ Wireless debugging key, so it appears in that
   /// screen's Paired devices list. Decided from the adb transport key alone:
   /// a `:5555` address is legacy network debugging and never does.
@@ -378,6 +372,11 @@
     return d.serial.includes("._adb-tls-connect.");
   }
 
+  /// What the authorization prompt is called on this device.
+  ///
+  /// Over USB it is reliably "Allow USB debugging?". Over the network the
+  /// title varies by Android version and OEM — plenty of TVs still show the
+  /// USB wording for a Wi-Fi connection — so don't swear to one.
   function authPromptLabel(d: Device): string {
     return d.connection === "usb" ? '"Allow USB debugging?"' : '"Allow debugging?"';
   }
@@ -449,8 +448,8 @@
 
   /// Watch mDNS for the connect endpoint the just-paired device advertises and
   /// connect to it. Android often holds that back while the pairing dialog is
-  /// still open, which is why the owner only saw his phone after cancelling
-  /// it. Only an advertised port is ever dialled: never a guess, never the
+  /// still open, so the device may only appear once that dialog is dismissed.
+  /// Only an advertised port is ever dialled: never a guess, never the
   /// pairing port.
   async function waitForConnect(pairTarget: string, host: string, instance: string | null) {
     const token = ++pairWaitToken;
@@ -619,9 +618,6 @@
     }
   }
 
-  // Best-effort discovery on boot: if no devices show up after the initial
-  // refresh and adb is available, kick off a scan so users with already-paired
-  // devices don't have to click anything. v1 behaved similarly.
   let forgetBusy = $state<string | null>(null);
 
   /// Drop a network transport so the row stops appearing. Only offered for
@@ -681,6 +677,9 @@
     }
   }
 
+  // Best-effort discovery on boot: if no ready device shows up after the
+  // initial refresh and adb is available, kick off a scan so users with
+  // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
     if (adbMissing) return;
@@ -721,8 +720,8 @@
   </div>
 </section>
 
-<!-- The board leads with Scan LAN and Add by IP. The other four are still
-     here, one row down, because every one of them is the only way to do the
+<!-- The board leads with Scan LAN and Add by IP. The other four stay, one
+     row down, because every one of them is the only way to do the
      thing it does. -->
 <section class="connect-form">
   <input
@@ -938,9 +937,8 @@
             <div class="device-main">
               <div class="device-name">
                 <span>{d.name}</span>
-                <!-- Whether it is reachable belongs with the name, not stranded
-                     at the far edge: it qualifies the device, and reading it
-                     meant crossing the address line to get there. -->
+                <!-- Whether it is reachable belongs with the name, not at the
+                     far edge: it qualifies the device. -->
                 <span class="device-status online">
                   <span class="status-dot" aria-hidden="true"></span> Online
                 </span>
@@ -1201,9 +1199,9 @@
     margin: 0;
   }
   /* Board 11.12's row: a glyph for what it is, the name, the address in mono,
-     whether it is reachable, and the one thing to do about it. The [NET] tag
-     folded into the meta line — a bracketed word beside the name read as part
-     of the name. */
+     whether it is reachable, and the one thing to do about it. The connection
+     type sits in the meta line, not beside the name, where a bracketed word
+     reads as part of the name. */
   .device-row {
     display: flex;
     align-items: center;

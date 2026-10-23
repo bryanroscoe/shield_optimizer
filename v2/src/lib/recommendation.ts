@@ -1,10 +1,8 @@
 // What we suggest doing with one catalog app, in one place.
 //
 // The App List, the Optimize wizard's defaults and Health's Suggestion column
-// all read this. It used to live only in the device page, and the three
-// screens had already drifted: the same app read "Uninstall" on one row and
-// "Remove" on the next, and Optimize offered Uninstall on apps the engine had
-// already downgraded to Disable.
+// all read this, so one app gets the same label and the same method on every
+// screen.
 //
 // Pure: catalog entry, on-device state and safety verdict in, suggestion out.
 

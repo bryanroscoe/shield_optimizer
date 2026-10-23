@@ -68,9 +68,8 @@
   /// Send pasted text as whole lines rather than synthesised keystrokes.
   ///
   /// One `input text` per line is a single round trip instead of one per
-  /// character, which matters most for exactly what this was asked for: long
-  /// URLs, usernames and passwords that are miserable to type on a remote
-  /// (GitHub #91).
+  /// character, which matters most for long URLs, usernames and passwords
+  /// that are miserable to type on a remote (#91).
   ///
   /// Newlines become explicit Enter presses, in order, because `input text`
   /// cannot carry them — sending them literally would silently drop them and
@@ -254,9 +253,8 @@
       <!-- D-pad uses pointerdown/up (not click) so holding a direction
            auto-repeats on the fast channel; pointerleave/cancel stop the
            repeat if the cursor slides off mid-hold. -->
-      <!-- Four wedges, not a 3x3 grid. The grid left the four corners of the
-           disc dead — about a third of the target area did nothing — so each
-           direction is now a quarter of the circle, clipped to a triangle.
+      <!-- Four wedges, not a 3x3 grid, so the disc has no dead corners: each
+           direction is a quarter of the circle, clipped to a triangle.
            `clip-path` clips hit testing too, so the wedges meet exactly and
            there is nowhere inside the disc that is not a direction. -->
       <div class="dpad">
@@ -266,9 +264,9 @@
         <button class="dir left" onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)" aria-label="D-pad left"><Icon name="keyboard_arrow_left" size={24} /></button>
         <button class="ok" onclick={() => sendRemoteKey("select")} title="Select / OK">OK</button>
       </div>
-      <!-- What the status pill's tooltip used to hide. It changes with the
-           transport, and it is the one thing you need to know before you hold
-           a direction down. -->
+      <!-- On screen rather than in the status pill's tooltip: it changes with
+           the transport, and it is the one thing you need to know before you
+           hold a direction down. -->
       {#if transport}
         <p class="pad-caption">
           {transport === "channel"
@@ -295,7 +293,7 @@
       </div>
       <!-- A setting about how this remote talks to the TV, so it sits with the
            remote and with the caption it changes — not in the card header,
-           where it looked like a page-level control. -->
+           where it would look like a page-level control. -->
       <label class="compat-toggle" title="Skip the fast channel and use the slower, universal ADB input — use this if the instant channel misbehaves on your device.">
         <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
         Force compatible mode
@@ -345,11 +343,10 @@
     color: var(--warn);
   }
 
-  /* Remote-specific styles. */
   /* Bounded and centred rather than stretched. Nothing on this screen scales
      with the viewport — a capture box that echoes about sixty characters has
-     no business being 1200px wide — so letting the row fill a wide card left
-     the remote in a narrow rail beside several hundred pixels of nothing. */
+     no business being 1200px wide — so letting the row fill a wide card would
+     leave the remote in a narrow rail beside several hundred pixels of nothing. */
   .remote-layout {
     display: flex;
     gap: 3rem;
@@ -445,7 +442,7 @@
   }
   /* A D-pad should look like one control, not four loose rectangles. The
      ring is a single disc; the four directions are transparent wedges laid
-     over it in a 3x3 grid, with OK as a raised centre. */
+     over it, with OK as a raised centre. */
   .dpad {
     position: relative;
     width: 16rem;

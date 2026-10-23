@@ -1,10 +1,7 @@
 /// Release history bundled into the app at build time.
 ///
 /// The notes for the version a user is running ship inside that version, so
-/// "what changed?" never depends on a network call. It used to: the
-/// after-update pop-up read the running release's notes from the GitHub API,
-/// and a launch where that call failed or timed out showed nothing — while
-/// still recording the version as seen, so the notes were lost for good.
+/// "what changed?" never depends on a network call that can fail or time out.
 ///
 /// Pure: takes the CHANGELOG.md text and returns data. Bodies go through
 /// `parseReleaseNotes` like any other notes, so this and the pre-install
