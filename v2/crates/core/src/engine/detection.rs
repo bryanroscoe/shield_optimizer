@@ -33,8 +33,8 @@ impl DeviceType {
 ///
 /// Deliberately three-valued. `DeviceType::Unknown` answers "which app list
 /// applies", which is not the same question — a TV nobody has catalogued is
-/// still a TV, and saying "not an Android TV" about it was the 2.2.0
-/// regression (#120). Unreadable means unknown, and unknown claims nothing.
+/// still a TV and must never be called "not an Android TV" (#120).
+/// Unreadable means unknown, and unknown claims nothing.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TvEvidence {
@@ -251,10 +251,10 @@ mod tests {
         );
     }
 
-    /// The #120 regression, in one test: a Xiaomi TV Box S reports
-    /// `nosdcard` — not `tv` — in `ro.build.characteristics`, and 2.2.0 read
-    /// that as "not an Android TV" and locked the user out of their own box.
-    /// The leanback feature is the second signal that settles it.
+    /// #120: a Xiaomi TV Box S reports `nosdcard` — not `tv` — in
+    /// `ro.build.characteristics`. Reading that as "not an Android TV" locks
+    /// the user out of their own box; the leanback feature is the second
+    /// signal that settles it.
     #[test]
     fn leanback_alone_is_enough_to_call_it_a_tv() {
         let props = DeviceProperties {

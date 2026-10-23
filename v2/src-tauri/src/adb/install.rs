@@ -207,7 +207,6 @@ mod tests {
         let buf = writer.finish().unwrap();
 
         let temp = tempfile::tempdir().unwrap_or_else(|_| {
-            // Fall back to a known-good temp path if tempfile isn't available.
             panic!("could not get tempdir");
         });
         let cursor = std::io::Cursor::new(buf.into_inner());

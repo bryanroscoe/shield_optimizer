@@ -257,8 +257,7 @@ mod tests {
 
     #[test]
     fn parses_linux_le_hex_ip() {
-        // 192.168.42.1 → little-endian hex bytes: 0xC0,0xA8,0x2A,0x01 → "0102A8C0" (reversed).
-        // Actually /proc/net/route stores it as the bytes appear in memory,
+        // /proc/net/route stores the address as the bytes appear in memory,
         // which on LE is host-low-byte first: 192.168.42.1 → 01 2A A8 C0 → "012AA8C0"
         let parsed = parse_le_hex_ip("012AA8C0").unwrap();
         assert_eq!(parsed.to_string(), "192.168.42.1");

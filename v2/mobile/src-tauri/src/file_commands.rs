@@ -14,8 +14,9 @@
 //!   no power-user mode, so the system-path override is never offered.
 //!
 //! All device I/O rides the shared `AdbDriver` seam (shell + `raw_transfer`),
-//! keeping `crates/core/engine` pure. The transfer itself is implemented by
-//! `WirelessAdb::raw_transfer` via `adb_client`'s sync service.
+//! keeping `crates/core/engine` pure. Transfers are implemented by
+//! `WirelessAdb::pull_limited` and `WirelessAdb::raw_transfer` via
+//! `adb_client`'s sync service.
 
 use std::path::{Path, PathBuf};
 
@@ -239,10 +240,10 @@ pub async fn list_remote_dir(
     Ok(entries)
 }
 
-/// Hard cap on one pulled file — 2 GiB. `AdbDriver` exposes no stat, so the
-/// remote size isn't knowable up front; the limit is enforced after the
-/// transfer by deleting the oversized file rather than leaving it to fill the
-/// phone's app storage.
+/// Hard cap on one pulled file — 2 GiB. `pull_limited` refuses a larger file
+/// before streaming and stops a growing one at the cap, and the size is checked
+/// again before the download is kept, so it never fills the phone's app
+/// storage.
 const MAX_PULL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const BYTES_PER_GIB: f64 = (1024 * 1024 * 1024) as f64;
 

@@ -50,8 +50,9 @@ pub fn safety_info(state: State<'_, AppState>, package: String) -> Safety {
 /// Classify a package against the rule tables *and* the reviewed app lists.
 ///
 /// The catalog is a reviewed source and has to be consulted here: without it,
-/// every curated app that was not also in one of the two rule tables reported
-/// "role and effects unknown" while its own description sat in the next column.
+/// every curated app that is not also in one of the two rule tables would
+/// report "role and effects unknown" while its own description sits in the
+/// next column.
 pub fn safety_for(state: &AppState, package: &str) -> Safety {
     let catalog = state.app_lists.find(package).map(|entry| CatalogVerdict {
         risk: entry.risk,
@@ -439,12 +440,11 @@ pub(crate) async fn disable_package_impl(
             message: format!("Refusing to disable {package}: {reason}"),
         });
     }
-    // The launcher screen has always refused to disable the last enabled HOME
-    // handler, but this is the path the app list and the optimize wizard use,
-    // so the same action was unguarded depending on where it was started from.
-    // A third-party launcher is Unknown to the safety rules, so nothing else
-    // stops it. Best-effort: if the handler query fails we proceed as before
-    // rather than blocking every disable on a transient read.
+    // The launcher screen refuses to disable the last enabled HOME handler,
+    // and this is the path the app list and the optimize wizard use, so the
+    // same guard applies here. A third-party launcher is Unknown to the safety
+    // rules, so nothing else stops it. Best-effort: if the handler query fails
+    // the disable proceeds rather than blocking on a transient read.
     if let Some(refusal) = refuse_last_home_handler(state, serial, package).await {
         return Ok(refusal);
     }
@@ -930,10 +930,9 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 mod tests {
     use super::*;
 
-    /// The bug was in the *wiring*, not the engine: `safety_info` never
-    /// consulted the app lists. An engine-level test passes happily while that
-    /// is broken, so this one goes through the real command path with the real
-    /// shipped catalog in state.
+    /// The catalog lookup is wiring, not engine: an engine-level test passes
+    /// even if `safety_info` ignores the app lists, so this one goes through
+    /// the real command path with the real shipped catalog in state.
     #[test]
     fn safety_info_consults_the_shipped_catalog() {
         let state = AppState::new(
@@ -1144,8 +1143,8 @@ mod tests {
     #[tokio::test]
     async fn play_installed_vendor_packages_read_as_third_party() {
         use crate::commands::test_support::{state_with, MockAdb};
-        // Amazon Music from the Play Store sits in `-3`; its prefix no longer
-        // overrides that. A preinstalled Google app outside `-3` stays system.
+        // Amazon Music from the Play Store sits in `-3`; its prefix doesn't
+        // override that. A preinstalled Google app outside `-3` stays system.
         let all = "package:com.amazon.music.tv\npackage:com.google.android.youtube.tv";
         let third = "package:com.amazon.music.tv";
         let state =

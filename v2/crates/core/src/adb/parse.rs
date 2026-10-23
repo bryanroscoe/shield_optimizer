@@ -468,7 +468,7 @@ pub struct TemperatureReading {
 }
 
 fn current_celsius(value: f64) -> bool {
-    // Preserve the previous parser's sanity range; this is not a health grade.
+    // A plausibility range for a sensor reading; this is not a health grade.
     (10.0..120.0).contains(&value)
 }
 
@@ -1270,7 +1270,7 @@ mod tests {
     #[test]
     fn real_meminfo_package_map_never_trims_a_hal_into_a_package() {
         let map = parse_dumpsys_meminfo(SHIELD_MEMINFO);
-        // `foo@2.0-service` used to be cut at the `@` and filed as `foo`.
+        // `foo@2.0-service` must not be cut at the `@` and filed as `foo`.
         assert!(!map.contains_key("vendor.nvidia.hardware.graphics.composer"));
         assert!(!map.contains_key("android.hardware.audio"));
         assert!(!map.keys().any(|k| k.contains('@') || k.contains(':')));
@@ -1282,8 +1282,8 @@ mod tests {
 
     #[test]
     fn path_named_processes_are_kept_not_dropped() {
-        // Older builds name native daemons by path. The old pattern needed the
-        // name to start with a package character, so these rows vanished.
+        // Older builds name native daemons by path. Those rows must survive
+        // even though the name doesn't start with a package character.
         let input = "Total PSS by process:\n\
                          40,112K: /system/bin/surfaceflinger (pid 312)\n\
                           1,234K: /vendor/bin/hw/android.hardware.audio@2.0-service (pid 400)\n\

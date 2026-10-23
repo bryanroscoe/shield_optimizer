@@ -1,5 +1,5 @@
 //! App list loading — engine-side type definitions and merging logic.
-//! No I/O here; the host layer loads JSON from disk (or remote) and passes it in.
+//! No I/O here; the host layer loads the embedded JSON and passes it in.
 
 use std::collections::HashSet;
 
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::detection::DeviceType;
 use super::types::AppEntry;
 
-/// A named app list — one of common / shield / googletv (or any user/community add).
+/// A named app list — one of common / shield / googletv.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppList {
     pub name: String,
@@ -160,8 +160,8 @@ mod tests {
 
     #[test]
     fn duplicate_packages_within_a_list_are_collapsed() {
-        // A stray repeat inside one list (the catalog regression that blanked the
-        // App List + Optimize tables) must dedup, keeping the first occurrence.
+        // A stray repeat inside one list must dedup, keeping the first
+        // occurrence; a duplicate key blanks the App List and Optimize tables.
         let bundle = AppListBundle {
             common: vec![
                 entry("tv.pluto.android", "Pluto TV"),

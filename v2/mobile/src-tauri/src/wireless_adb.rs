@@ -96,7 +96,8 @@ fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String
 /// phone, so those are explicit methods the mobile-only `wireless_*` commands
 /// call; the trait surface synthesizes `raw(["devices"])`, routes
 /// `shell`/screencap through the owned device, maps `reboot`, and streams
-/// `push`/`pull` through the sync service via `raw_transfer`. `pair` runs the
+/// `push`/`pull` through the sync service via `raw_transfer` and
+/// `pull_limited`. `pair` runs the
 /// Android-11 SPAKE2 code-pairing exchange in-crate; `forward` is structurally
 /// impossible on a phone and reports `Unsupported`.
 pub struct WirelessAdb {

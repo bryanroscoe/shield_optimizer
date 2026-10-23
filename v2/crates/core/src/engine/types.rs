@@ -252,7 +252,7 @@ pub enum SkipReason {
 pub struct OptimizePlanItem {
     pub entry: AppEntry,
     pub action: OptimizeAction,
-    /// Bytes of RAM currently in use by this package's processes, if running.
+    /// MB of RAM currently in use by this package's processes, if running.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory_mb: Option<f64>,
 }

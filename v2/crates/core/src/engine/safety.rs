@@ -14,12 +14,12 @@
 //! - `Unknown` — nothing reviewed covers this package, so we genuinely do not
 //!   know what it does.
 //!
-//! The catalog is a reviewed source. Ignoring it — which this module did until
-//! the lists and the rule tables were connected — meant 82 of 89 hand-curated
-//! apps reported "role and effects unknown" while the row beside them displayed
-//! the role and the effect. It also made `Unknown` meaningless: when almost
-//! everything is unknown, a genuinely unrecognised sideloaded APK no longer
-//! stands out, which is exactly what the verdict exists to do.
+//! The catalog is a reviewed source, so it is consulted. Ignoring it would
+//! report hand-curated apps as "role and effects unknown" while the row beside
+//! them displays the role and the effect. It would also make `Unknown`
+//! meaningless: when almost everything is unknown, a genuinely unrecognised
+//! sideloaded APK no longer stands out, which is exactly what the verdict
+//! exists to do.
 
 use serde::Serialize;
 
@@ -665,8 +665,8 @@ mod tests {
     #[test]
     fn a_reviewed_safe_app_is_safe_not_unknown() {
         use crate::engine::types::RiskTier;
-        // The regression: 82 of 89 curated apps reported "role and effects
-        // unknown" while their own description sat in the next column.
+        // A curated app must not report "role and effects unknown" while its
+        // own description sits in the next column.
         let verdict = classify_with_catalog(
             "com.android.gallery3d",
             Some(catalog(
@@ -678,7 +678,7 @@ mod tests {
             Safety::Safe { reason, source } => {
                 assert_eq!(source, SafetySource::ReviewedCatalog);
                 // The curated sentence is the whole reason; the label carries
-                // "Safe to remove", so repeating it here said it twice.
+                // "Safe to remove", so repeating it here would say it twice.
                 assert_eq!(reason, "Photo gallery — rarely used on TV.");
             }
             other => panic!("expected Safe, got {other:?}"),
@@ -689,7 +689,7 @@ mod tests {
     fn a_risky_reviewed_app_is_caution_and_says_why() {
         use crate::engine::types::RiskTier;
         // com.google.android.tvlauncher: risk "high", and the app has a whole
-        // guarded wizard for it. Reporting "effects unknown" was plainly false.
+        // guarded wizard for it. Reporting "effects unknown" would be false.
         let verdict = classify_with_catalog(
             "com.google.android.tvlauncher",
             Some(catalog(
@@ -759,8 +759,7 @@ mod tests {
 
     #[test]
     fn safe_is_never_reached_without_a_catalog_entry() {
-        // Safe must never be a fallback. That was the original sin the Unknown
-        // change set out to fix, and it must not come back through this door.
+        // Safe must never be a fallback, including through this door.
         for package in [
             "com.example.anything",
             "com.netflix.ninja",

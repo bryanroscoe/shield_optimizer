@@ -304,7 +304,8 @@ pub struct ForgetResult {
 /// adb keeps one transport per key, and a Wireless debugging device is often
 /// held under two: the mDNS service name adb auto-connected, and an `ip:port`
 /// someone dialled. The device list shows one row for both, so disconnecting
-/// only the key that row displays left the other behind and the row stayed.
+/// only the key that row displays would leave the other behind and the row
+/// would stay.
 /// Aliases are matched on verified `ro.serialno` only; a transport whose id
 /// cannot be read is never assumed to be the same device.
 #[tauri::command]
@@ -788,8 +789,8 @@ fn normalize_pairing_address(address: &str) -> Result<String, String> {
 ///   input rather than something the app relies on.
 /// - `[IPv6]:port` — bracketed, as adb and every URL parser expect.
 /// - `adb-XXXX-YYYY._adb-tls-connect._tcp[:port]` — an mDNS service name.
-///   The daemon resolves these itself; rejecting them meant a user could not
-///   paste what discovery had just shown them (GitHub #88).
+///   The daemon resolves these itself; rejecting them would stop a user
+///   pasting what discovery has just shown them (GitHub #88).
 ///
 /// Rejects empty input and any port that is not a positive 16-bit number.
 pub fn normalize_connect_address(address: &str) -> Result<String, String> {
@@ -862,7 +863,7 @@ fn is_mdns_instance(host: &str) -> bool {
 /// `Get-Devices` and `Show-DeviceProfile`.
 ///
 /// Each read is its own sentinel-delimited section rather than one line of a
-/// combined stdout. Positional parsing looked equivalent but was not: the
+/// combined stdout. Positional parsing is not equivalent: the
 /// leading `settings get global device_name` can print nothing at all on some
 /// builds and a multi-line Exception on others, and either one shifts every
 /// later index — so a device would silently report its model as its Android
@@ -893,8 +894,9 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> Result<DeviceP
 /// A batch reports only its LAST command's exit code, and the last read is
 /// `pm has-feature`, which exits 1 to say "no" — an answer, not a failure. The
 /// desktop driver turns any nonzero exit into an error before stdout is
-/// looked at, so a phone that answered every question was refused. The
-/// trailing `true` makes the batch's status say only that the shell ran.
+/// looked at, so without it a phone that answered every question would be
+/// refused. The trailing `true` makes the batch's status say only that the
+/// shell ran.
 fn property_batch_command() -> String {
     format!("{}; true", batch_command(&PROPERTY_READS))
 }
@@ -1135,11 +1137,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_device_that_answers_no_to_leanback_is_still_profiled() {
-        // The live regression: a batch reports only its last command's exit
-        // code, and the last read is `pm has-feature`, which exits 1 to say
-        // "no". A Pixel that answered every question was refused with
-        // "adb process failed (exit code Some(1))". The exit code carries no
-        // information about the reads that came before it.
+        // A batch reports only its last command's exit code, and the last
+        // read is `pm has-feature`, which exits 1 to say "no". A device that
+        // answered every question must not be refused with "adb process
+        // failed (exit code Some(1))". The exit code carries no information
+        // about the reads that came before it.
         let mock = MockAdb::default().on_shell_exit(
             "settings get global device_name",
             &batched_props(&[
@@ -1181,8 +1183,8 @@ mod tests {
     #[tokio::test]
     async fn silent_device_name_read_does_not_shift_the_android_version() {
         // `settings get global device_name` prints nothing on some builds.
-        // Under the old positional parse every later value slid up one, so the
-        // TV reported its brand as its friendly name and its model as its
+        // A positional parse would slide every later value up one, so the TV
+        // would report its brand as its friendly name and its model as its
         // Android version. Sections keep each read in its own slot.
         let mock = MockAdb::default()
             .on_raw(
@@ -1219,8 +1221,8 @@ mod tests {
     #[tokio::test]
     async fn multiline_settings_exception_stays_inside_its_own_section() {
         // The other failure shape: `settings get` throws and prints a
-        // multi-line stack trace, which under positional parsing pushed every
-        // real property down by however many lines the trace happened to be.
+        // multi-line stack trace, which under positional parsing would push
+        // every real property down by however many lines the trace is.
         let mock = MockAdb::default()
             .on_raw(
                 "devices",
@@ -1286,8 +1288,8 @@ mod tests {
 
     #[test]
     fn one_device_reached_two_ways_collapses_to_the_usable_address() {
-        // The live regression: adb auto-connected the device under its mDNS
-        // service name, and the scan then dialled the same device by address.
+        // adb auto-connects the device under its mDNS service name, and the
+        // scan then dials the same device by address.
         let devices = vec![
             row(
                 "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp",
@@ -1531,9 +1533,9 @@ mod tests {
 
     #[test]
     fn normalize_accepts_a_scoped_ipv6_endpoint_from_discovery() {
-        // Codex on #128: mDNS can report a link-local host with its scope,
-        // and endpoint() brackets it as-is. Rejecting it here meant the
-        // auto-connect retried for 45 s and gave up on a device it had found.
+        // #128: mDNS can report a link-local host with its scope, and
+        // endpoint() brackets it as-is. Rejecting it here would make the
+        // auto-connect retry for 45 s and give up on a device it had found.
         assert_eq!(
             normalize_connect_address("[fe80::1%en0]:41541").unwrap(),
             "[fe80::1%en0]:41541"
@@ -1552,8 +1554,8 @@ mod tests {
 
     #[test]
     fn normalize_accepts_an_mdns_service_name_from_discovery() {
-        // Discovery shows these; refusing to accept one back meant a user
-        // could not paste what the app had just told them (GitHub #88).
+        // Discovery shows these; refusing to accept one back would stop a
+        // user pasting what the app has just told them (GitHub #88).
         let instance = "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp";
         assert_eq!(
             normalize_connect_address(&format!("{instance}:41541")).unwrap(),
@@ -1781,9 +1783,9 @@ mod tests {
 
     #[tokio::test]
     async fn forget_drops_every_transport_of_the_same_hardware() {
-        // What the owner's Pixel looked like: adb held it under its mDNS name
-        // *and* under ip:port. The row shows ip:port, so disconnecting only
-        // that left the mDNS transport behind and the row stayed.
+        // adb holds the device under its mDNS name *and* under ip:port. The
+        // row shows ip:port, so disconnecting only that would leave the mDNS
+        // transport behind and the row would stay.
         let mock = MockAdb::default()
             .on_raw(
                 "devices",
@@ -1914,8 +1916,8 @@ mod tests {
 
     #[test]
     fn probe_matches_the_connect_service_by_its_embedded_serial() {
-        // Codex on #128: the instances differ in suffix, so exact equality
-        // never auto-connected. The serial between them is the identity.
+        // #128: the instances differ in suffix, so exact equality would never
+        // auto-connect. The serial between them is the identity.
         let services = parse_mdns_services(&mdns_pixel(46545));
         assert_eq!(
             paired_connect_probe("192.168.42.211:45439", PIXEL_PAIR, &services, &[]),
@@ -2005,7 +2007,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stale_advertisement_pointing_at_another_attached_device_is_refused() {
-        // Codex on #128: the advertised endpoint names a transport adb holds,
+        // #128: the advertised endpoint names a transport adb holds,
         // but that transport is a different device. Its key must not be
         // enough to call it the one just paired.
         let mock = MockAdb::default()
@@ -2127,8 +2129,8 @@ mod tests {
 
     #[test]
     fn a_bracketed_ipv6_transport_still_counts_as_advertised() {
-        // Codex on #128: adb keys the transport `[fe80::1]:41541`, the
-        // advertisement is printed bare. Compared raw, Forget stayed silent.
+        // #128: adb keys the transport `[fe80::1]:41541`, the advertisement
+        // is printed bare. Compared raw, Forget would stay silent.
         let services = parse_mdns_services(
             "List of discovered mdns services\n\
              adb-V6SER-c2\t_adb-tls-connect._tcp\tfe80::1:41541\n",

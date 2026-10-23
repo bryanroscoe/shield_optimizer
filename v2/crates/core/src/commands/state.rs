@@ -75,8 +75,7 @@ impl AppState {
         }
     }
 
-    /// Attach the curated package→name map. Builder-style so the existing
-    /// constructors (and their test callers) stay unchanged.
+    /// Attach the curated package→name map.
     pub fn with_known_names<T: Into<crate::commands::loader::KnownName>>(
         mut self,
         known_names: HashMap<String, T>,
@@ -190,8 +189,8 @@ impl AppState {
     }
 
     /// Inject a single key-down / key-up via the live session. Errors if no
-    /// session exists — Phase 3 calls `ensure_remote_session` first, and on a
-    /// write error should `drop_remote_session` and fall back to `input`.
+    /// session exists — callers run `ensure_remote_session` first, and on a
+    /// write error `drop_remote_session` and fall back to `input`.
     pub async fn remote_send_key(
         &self,
         serial: &str,
@@ -268,8 +267,8 @@ fn entitlement_from_u8(value: u8) -> Entitlement {
 /// Tauri resource directory (production install); falls back to the
 /// crate-relative `resources/` dir for `cargo run` / `cargo test`.
 ///
-/// Phase 3: the remote-input command calls this with its `AppHandle` to get the
-/// jar path, then hands it to `AppState::ensure_remote_session`.
+/// The remote-input command calls this with its `AppHandle` to get the jar
+/// path, then hands it to `AppState::ensure_remote_session`.
 pub fn resolve_scrcpy_server_jar<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
 ) -> Result<PathBuf, String> {
