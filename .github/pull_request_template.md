@@ -9,13 +9,13 @@ Required for our agent-authored PRs; optional for external contributors. Existin
 - Change type: visual/interaction or genuinely non-visual
 - Exact tested commit SHA(s), including any differences from the PR head:
 - Reproduction commands/steps and observed results:
-- Screenshot links/attachments and short video link/attachment (label simulated/fixture, native without a device, or real-device; include platform/model):
+- Screenshot links/attachments and short video link/attachment (label simulated/fixture, native without a device, or real-device; include platform/model). Commit captures under `evidence/<slug>/`; the PR evidence workflow comments with artifact links. No relative paths — they 404 in PRs:
 - If non-visual, why screenshots and video are not applicable, with completed validation evidence:
 - Any capture blocker, redaction, or remaining evidence gap:
 
 ### Agent evidence checklist
 
 - [ ] Observable UI/interaction changes have **both screenshots and a short video**, or a genuine non-visual reason and concrete validation evidence are provided above.
-- [ ] Links/attachments are accessible to reviewers; local paths alone are not used as shared evidence.
+- [ ] Links/attachments are accessible to reviewers (the PR evidence comment, or SHA-pinned absolute URLs); no local or relative paths.
 - [ ] Tested revision, reproduction steps and results are accurate; any captures are labeled by their actual simulation/native/device basis.
 - [ ] Screenshots, videos and logs were reviewed for private content; redactions and capture gaps are disclosed, with no fabricated evidence or claims.
