@@ -2,7 +2,7 @@
 
 Two products live in this tree:
 
-- **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy** since 2026-10-22: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
+- **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy**: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
 - **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`), the official product, shipped as **ATV Optimizer**. Released on `v2-*` tags via `.github/workflows/v2-release.yml`. The root `README.md` is the user-facing page for it; `v2/README.md` is the developer guide.
 
 The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
@@ -13,27 +13,27 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
 
 - **The backlog is GitHub issues labeled [`gastown`](https://github.com/bryanroscoe/shield_optimizer/issues?q=is%3Aissue+is%3Aopen+label%3Agastown)**
   in `bryanroscoe/shield_optimizer`. Each is titled `[<id>] <title>` and carries the original
-  description, acceptance criteria and dependencies. Issues without that label are user reports;
-  some of them duplicate a labeled issue (`#88`, `#89`, `#91` are the known pairs).
-- **[`docs/RELEASE-DECISION-2026-09-09.md`](docs/RELEASE-DECISION-2026-09-09.md)** has the release
-  plan and the step-by-step physical device test script. Read it before tagging anything.
+  description, acceptance criteria and dependencies. Issues without that label are user reports.
+- **[`docs/DEVICE-TEST-SCRIPT.md`](docs/DEVICE-TEST-SCRIPT.md)** is the step-by-step physical
+  device test script. Run it before tagging a v2 release.
 - **[`docs/gastown-shield_optimizer-beads-export.json`](docs/gastown-shield_optimizer-beads-export.json)**
   is the full historical task archive including closed items — useful for "why was this done this
   way", not a live queue.
 - **[`docs/ARCHIVE-INDEX.md`](docs/ARCHIVE-INDEX.md)** points at bulk working material kept outside
-  this repo on Bryan's machine.
+  this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
+  commit that last held it).
 
-### What is in flight right now (2026-10-04)
+### What is in flight right now
 
-`v2-2.3.0` shipped 2026-09-30 (the ATV Optimizer rename plus #88, #119–#124). `v2-2.3.1` is
-prepared on `release-prep-2.3.1`: the Google TV Setup Wraith fixes (#122, #157, #158), Report this
-app (#100), app storage details (#98), restart after updating and patch notes on demand, the
-right-click menu (#129), and the #97/#99/#135/#138/#139/#143/#147 fixes. It waits on the owner's
-go before `v2/release.sh --set 2.3.1`.
+`v2-2.3.0` (2026-09-30) is the latest release. `main` carries a prepared but untagged `v2-2.3.1`
+section in `v2/CHANGELOG.md` (the Google TV Setup Wraith fixes #122/#157/#158, Report this app
+#100, app storage details #98, restart after updating, patch notes on demand, the right-click menu
+#129, and the #97/#99/#135/#138/#139/#143/#147 fixes) and an `Unreleased` section above it (the
+Logs tab, Stop ADB when quitting, more fixes). The next tag waits on the owner's go.
 
-Still open and not code work: #122 needs a reporter on Google TV to confirm the Setup Wraith fix
-once 2.3.1 ships; #123 needs Glance's package id from its reporter; #93 and #105 need a real
-phone and TV.
+Still open and not code work: #122 is closed on the fix, but no Google TV reporter can confirm it
+until that release ships; #123 needs Glance's package id from its reporter; #93 and #105 need a
+real phone and TV.
 
 The mobile companion app (`v2/mobile/`) has its own authoritative handoff at
 [`v2/mobile/HANDOFF.md`](v2/mobile/HANDOFF.md). Its safety story depends on never claiming more
@@ -90,7 +90,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
 
 ```
-cd v2 && npm run screenshots   # captures 15 screens in both themes and rebuilds both GIFs
+cd v2 && npm run screenshots   # captures 16 screens in both themes and rebuilds both GIFs
 ```
 
 It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:
@@ -151,7 +151,7 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
   repo-relative path (`v2/evidence/…`): in a PR it resolves under `/pull/<n>/` and 404s. Branch
   links break when the branch is deleted. Committing evidence to the repo is optional; attaching it is not.
 - **Roadmap markers**: closing a roadmap or parity item updates its status in the same commit
-  (`v2/ATVTOOLS-PARITY.md`, `v2/ATV-OPTIMIZER-ANDROID-PLAN.md`, `v2/mobile/BACKLOG.md`). Docs that
+  (`v2/ATVTOOLS-PARITY.md`, `v2/mobile/BACKLOG.md`). Docs that
   claim shipped work is unbuilt send the next reader to rebuild it — that has happened here.
 - **Comments**: only when the *why* is non-obvious. Don't add docstrings/comments to code you didn't change. No banner / section-divider comments.
 - **Spelling**: the company is "Truemed" — silently correct other casings (TrueMed, TRUEMED, truemed) in writing, except in verbatim quotes, URLs, and code identifiers.

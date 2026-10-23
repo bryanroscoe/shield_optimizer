@@ -56,7 +56,7 @@ The engine is the part that's portable. It knows what the rules are (which packa
 
 ```
 v2/
-├── README.md, ATV-OPTIMIZER-ANDROID-PLAN.md
+├── README.md, HANDOFF.md, CHANGELOG.md
 ├── Cargo.toml, Cargo.lock    # Rust workspace
 ├── package.json              # desktop frontend dependencies
 ├── crates/
