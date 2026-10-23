@@ -4,8 +4,9 @@ The six-digit-code flow, implemented clean-room in Rust inside the vendored `adb
 (`vendor/adb_client/src/message_devices/tcp/pairing/`) and called from
 `WirelessAdb::pair` in `mobile/src-tauri/src/wireless_adb.rs`.
 
-Before this, `pair` returned "isn't supported yet" and users had to fall back to Network
-debugging on `:5555`, which modern Google TV builds do not offer. This closes that gap.
+Modern Google TV builds don't offer Network debugging on `:5555`, so this flow is the only way the
+app can reach them. **It has never run against a real adbd**; until the manual test below passes,
+treat it as unverified and keep Network debugging as the documented fallback.
 
 ## Licensing
 
@@ -22,8 +23,7 @@ protocol facts those sources establish, each of which is cited below.
 
 ## Protocol, point by point, with the file each was verified in
 
-Everything below was read from the live AOSP / BoringSSL trees while implementing, not from
-memory.
+Everything below was read from the live AOSP / BoringSSL trees, not from memory.
 
 ### 1. TLS 1.3 with a self-signed client certificate, any server certificate accepted
 
@@ -244,8 +244,8 @@ adb_client::tcp::pair(addr: SocketAddr, code: &str, private_key_path: &Path)
 `WirelessAdb::pair` normalizes the code (strips spaces and dashes, requires exactly six
 digits — a malformed code is rejected locally rather than burning the single guess the device
 allows per displayed code), ensures the persisted RSA key exists, and runs `pair` on
-`spawn_blocking`. Nothing else in `WirelessAdb` changed; pairing does not create or replace a
-connection, so the frontend still calls `connect` afterwards exactly as before.
+`spawn_blocking`. Pairing does not create or replace a connection, so the frontend calls
+`connect` afterwards.
 
 Timeouts: a 5-second TCP connect bound, then a single 30-second deadline for the whole
 exchange, re-armed onto the socket's read and write timeouts before **every** syscall
@@ -269,7 +269,7 @@ the property that limits an attacker to one password guess per connection, and i
 
 ## What the tests prove, and what they do not
 
-`cd vendor/adb_client && cargo test --lib` (53 tests, all green):
+`cd vendor/adb_client && cargo test --lib`:
 
 **Proven:**
 
@@ -306,27 +306,25 @@ the property that limits an attacker to one password guess per connection, and i
 
 **Not proven — and this is the honest gap:**
 
-- **No end-to-end run against a real device.** There is no Android device reachable from this
-  environment, so the TLS handshake against `adbd`'s pairing server, the exporter value both
-  sides compute, and the device's acceptance of our `PeerInfo` are all unverified in practice.
+- **No end-to-end run against a real device.** The TLS handshake against `adbd`'s pairing server,
+  the exporter value both sides compute, and the device's acceptance of our `PeerInfo` are all
+  unverified in practice.
 - **SPAKE2 wire compatibility with BoringSSL is verified against the *algorithm*, not against
   the *binary*.** The KAT pins the Rust against an independent Python model of the same source,
   which catches transcription and arithmetic mistakes but not a *misreading* shared by both.
   Residual risk is concentrated in three places: (a) that
-  `x25519_ge_scalarmult_small_precomp` really consumes the unreduced 256-bit scalar the way I
-  read it — checked by reading the loop, which walks bits `63..0` of four 64-bit limbs; (b) that
+  `x25519_ge_scalarmult_small_precomp` really consumes the unreduced 256-bit scalar as read
+  here — checked by reading the loop, which walks bits `63..0` of four 64-bit limbs; (b) that
   `password_hash` in the transcript is the full 64 bytes rather than the 32-byte reduced scalar
   — checked in `crypto/curve25519/internal.h`, `uint8_t password_hash[64]`; (c) the
-  little-endian `u64` length prefix in `update_with_length_prefix`. I would rate the odds of a
-  first-try success as good but not certain.
+  little-endian `u64` length prefix in `update_with_length_prefix`. The odds of a first-try
+  success are good but not certain.
 - **The exporter semantics under rustls** (`context: None` versus BoringSSL's
   `use_context = false`) are argued from both implementations' source, not measured.
-- **Pre-existing latent risk, unchanged by this work:** `ADBRsaKey::android_pubkey_encode`
-  builds the modulus and `rr` fields with `BigUint::to_bytes_le`, which drops high-order zero
-  bytes. If `rr` happens to have a zero top byte (~1 chance in 256 per key) the base64 decodes
-  to 523 rather than 524 bytes and *both* pairing and ordinary RSA `A_AUTH` would be rejected by
-  the device. Not introduced here and not fixed here (`adb_rsa_key.rs` is outside this change's
-  file ownership), but worth a follow-up.
+The public-key encoding pairing sends is fixed-width: `ADBRsaInternalPublicKey::into_bytes` pads
+the modulus and `rr` to the full word count, because `BigUint::to_bytes_le` drops high-order zero
+bytes and adbd rejects a 523-byte key (about 1 key in 256) for both pairing and ordinary RSA
+`A_AUTH`.
 
 ## The manual end-to-end test
 
@@ -379,28 +377,14 @@ code is readable on the phone screen rather than across the room.
 4. **Expected:** pairing succeeds and the connect that follows needs no on-TV approval.
 5. Check `tracing` output for `wireless pairing succeeded` and the logged `peer` GUID.
 
-Until at least the Pixel run has been done, treat code pairing as new-and-unproven — which is
-what the onboarding callout now says, alongside the Network-debugging fallback.
+Until at least the Pixel run has been done, treat code pairing as unproven, which is
+what the onboarding callout says, alongside the Network-debugging fallback.
 
-## Files changed
+## Where the code lives
 
-- `vendor/adb_client/src/message_devices/tcp/pairing/{mod,packet,spake2,cipher}.rs` — new
-- `vendor/adb_client/src/message_devices/tcp/mod.rs` — export `pair`, `PairingError`,
-  `PairingOutcome`, `PeerInfo`
-- `vendor/adb_client/Cargo.toml` — add `curve25519-dalek`, `subtle`, `sha2`, `hkdf`, `aes-gcm`
-- `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md` — document the addition
-- `mobile/src-tauri/src/wireless_adb.rs` — implement `pair`, add `normalize_pairing_code` and
-  `pair_error_message` plus their tests
-- `mobile/src/screens/Onboarding.svelte` — the pairing-step callout copy only
-- `mobile/PAIRING-PLAN.md` — this file
-
-## Validation run
-
-```
-cargo fmt --check                                                    # from v2/
-cargo clippy -p atv-optimizer-mobile --all-targets -- -D warnings
-cargo test -p atv-optimizer-mobile                                   # 21 passed
-cargo check -p atv-optimizer-mobile --target aarch64-linux-android    # with the NDK env
-cd vendor/adb_client && cargo clippy --lib -- -D warnings && cargo test --lib   # 53 passed
-cd mobile && npm run check                                           # 0 errors, 0 warnings
-```
+- `vendor/adb_client/src/message_devices/tcp/pairing/{mod,packet,spake2,cipher}.rs`, exported from
+  `vendor/adb_client/src/message_devices/tcp/mod.rs` (`pair`, `PairingError`, `PairingOutcome`,
+  `PeerInfo`); listed in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
+- `mobile/src-tauri/src/wireless_adb.rs` — `WirelessAdb::pair`, `normalize_pairing_code`,
+  `pair_error_message` and their tests.
+- `mobile/src/screens/Onboarding.svelte` — the pairing step and its callout copy.

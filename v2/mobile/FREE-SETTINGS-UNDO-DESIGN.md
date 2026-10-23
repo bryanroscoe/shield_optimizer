@@ -1,8 +1,8 @@
 # Bounded Free settings undo — proposal, not implemented
 
-Base: merged mobile release-preparation `7fe0e6a`. PR170/171 remain unchanged. This branch adds
-only a current-behavior characterization test and this design; it creates no journal, command,
-payment wiring or security rule. Decisions below need review before implementation.
+Status: design only. The repository has a current-behavior characterization test for the gap
+below, and nothing else: no journal, command, payment wiring or security rule. The decisions at the
+end need review before implementation.
 
 ## Demonstrated gap
 

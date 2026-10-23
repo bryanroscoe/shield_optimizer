@@ -1,11 +1,8 @@
 # Screenshot and report export diagnosis
 
-Read-only source investigation, 2026-10-17. Source audit base: `56aa7c56450464b2060c27838373029b6b90c14f`.
-Reconciled with approved modal integration `83f69b77e2b19b643e21ae456d0f597e90ef7d83`; its
-release-checklist completion is retained and it changes none of the export destinations below.
-Approved PR186 is inherited from the current base; product changes in PR187/188 are not included. Open PRs were inspected; none implements Android export.
-SAF export remains explicitly open in `BACKLOG.md`, `HANDOFF.md` and `RELEASE.md`. This document
-proposes scope; it does not implement storage, permission, native or UI changes.
+Where every file and report the app produces actually goes, and the proposed scope for Android
+export. SAF export is open work (`BACKLOG.md` P1). Nothing here is implemented beyond what the
+tables describe.
 
 ## Current destinations and actions
 
@@ -41,30 +38,24 @@ private files. The generated AndroidManifest already declares `androidx.core.con
 `${applicationId}.fileprovider`, with `exported=false` and `grantUriPermissions=true`.
 `gen/android/app/src/main/res/xml/file_paths.xml` maps `external-path` and `cache-path` to `.`.
 A provider exists; screenshot Open/Share UI and the native export/share bridge remain unwired.
-No app-level `ACTION_SEND` or SAF create-document flow was found in the inspected sources. No broad storage permission change is needed
-for existing private saves, and none was made.
+No app-level `ACTION_SEND` or SAF create-document flow was found in the inspected sources. No broad storage permission is needed for the
+existing private saves.
 
 Existing tests cover screenshot PNG/error validation and safe filename conversion in core;
 file-copy feedback, stale-session suppression, collision preservation and partial-file cleanup;
 unknown-diagnostic snapshot fidelity/redaction; and app-report browser/clipboard fallback.
 No mobile browser test stub for native `take_screenshot` was found. Evidence-capture calls to
 Playwright `page.screenshot` are not product screenshot tests. No SAF save/cancel or native Share
-coverage exists because those product flows are not implemented. No tests were rerun for this
-documentation-only investigation; previous unrelated green runs are not export acceptance.
+coverage exists because those product flows are not implemented. Green runs of unrelated tests are not export acceptance.
 
-## Small existing-flow scope
+## Copy rules for the existing flows
 
-A safe first UI-only slice can clarify the screenshot preview's saved filename/private location,
-state that it is absent from public Gallery/Downloads and that Close only dismisses the preview,
-and keep Files' “Copied this session” destination language consistent. It must not add a misleading
-Open/Share button or send users to Files as if that screen listed phone screenshots. Text reports
-should continue saying **Copy**, with clipboard success/error states, rather than claiming file save.
-Opening an oversized app report can also copy its text before browser launch; preserve that feedback.
-
-Add mocked screenshot success/error/close tests and clipboard-failure checks, with narrow/large-text
-screenshots and a short interaction recording. Keep existing warning text, report redaction and
-copy/export fidelity. This slice needs no native bridge, dependency, manifest, Tauri capability or
-storage-permission changes. No such implementation is included here.
+The screenshot preview names the saved file and its private location, says it is absent from the
+public Gallery/Downloads, and says Close only dismisses the preview; Files' "Copied this session"
+uses the same destination language. Don't add an Open/Share button before the native bridge
+exists, and don't send users to Files as if it listed phone screenshots. Text reports say **Copy**,
+with clipboard success/error states, and never claim a file was saved. Opening an oversized app
+report copies its text before the browser launches; keep that feedback.
 
 ## Broader export scope to agree before implementation
 
