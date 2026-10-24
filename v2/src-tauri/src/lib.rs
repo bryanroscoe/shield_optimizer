@@ -13,6 +13,9 @@ pub mod commands;
 pub mod session;
 pub use shield_optimizer_core::engine;
 
+#[cfg(feature = "e2e")]
+pub const DESKTOP_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

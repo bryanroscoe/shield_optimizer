@@ -38,7 +38,7 @@ use shield_optimizer_v2_lib::commands::diagnostics;
 fn intercepted(cmd: &str) -> Option<Value> {
     Some(match cmd {
         "check_for_update" => json!({
-            "current": env!("CARGO_PKG_VERSION"),
+            "current": shield_optimizer_v2_lib::DESKTOP_APP_VERSION,
             "latest": null,
             "update_available": false,
             "url": "https://github.com/bryanroscoe/shield_optimizer/releases",
@@ -629,4 +629,18 @@ fn main() {
             tokio::spawn(serve_conn(server.clone(), stream));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn intercepted_update_reports_the_desktop_release_version() {
+        let desktop_config: Value =
+            serde_json::from_str(include_str!("../../../src-tauri/tauri.conf.json"))
+                .expect("desktop configuration");
+        let response = intercepted("check_for_update").expect("intercepted update");
+        assert_eq!(response["current"], desktop_config["version"]);
+    }
 }
