@@ -618,6 +618,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         { package: "com.teamsmart.videomanager.tv", system: false, enabled: true, name: "SmartTube", description: "An open-source YouTube client for Android TV." },
         { package: "ca.devmesh.overseerrtv", system: false, enabled: true, name: "Overseerr (TV)", description: "Browse and request movies and shows from an Overseerr server." },
         { package: "org.fdroid.fdroid", system: false, enabled: true, name: "F-Droid", description: "A catalog of free and open-source Android apps." },
+        { package: "com.spocky.projengmenu", system: false, enabled: true, name: "Projectivy Launcher", description: "A customizable third-party Home screen for Android TV." },
         { package: "com.android.vending", system: true, enabled: true, name: "Google Play Store", description: "Google's app store." },
         { package: "com.android.providers.media", system: true, enabled: true, name: "Media Storage", description: "Indexes photos, music and video for apps." },
         { package: "com.nvidia.ota", system: true, enabled: false, name: null },
