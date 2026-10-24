@@ -222,7 +222,34 @@ pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<Conn
         .raw(&["connect", &target])
         .await
         .map_err(|e| format!("adb connect: {e}"))?;
-    Ok(connect_result_from(&out))
+    let mut result = connect_result_from(&out);
+    if classify_connect_output(&result.message) == ConnectOutcome::Connected {
+        if let Err(reason) = verify_connected_transport(&*adb, &target).await {
+            result.ok = false;
+            result.message = format!("{} — {reason}", result.message);
+        }
+    }
+    Ok(result)
+}
+
+pub async fn verify_connected_transport(adb: &dyn AdbDriver, target: &str) -> Result<(), String> {
+    let out = adb
+        .raw(&["-s", target, "get-state"])
+        .await
+        .map_err(|e| format!("Could not verify {target} is ready: {e}"))?;
+    if out.success() && out.stdout.trim() == "device" {
+        return Ok(());
+    }
+    let detail = out.combined();
+    let detail = detail.trim();
+    Err(format!(
+        "ADB did not confirm {target} in device state: {}",
+        if detail.is_empty() {
+            "empty response"
+        } else {
+            detail
+        }
+    ))
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -1803,11 +1830,65 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn explicit_connection_port_is_used_instead_of_the_pairing_port() {
-        let mock = MockAdb::default().on_raw(
-            "connect 192.168.42.71:37123",
-            "connected to 192.168.42.71:37123\n",
+    async fn connect_text_does_not_override_a_target_that_is_not_ready() {
+        for state in ["offline", "unauthorized", ""] {
+            let mock = MockAdb::default()
+                .on_raw("connect", "connected to 192.168.42.71:5555")
+                .on_raw("get-state", state);
+            let result = connect_device_impl(&state_with(mock), "192.168.42.71:5555")
+                .await
+                .unwrap();
+            assert!(!result.ok, "{state:?} must not be reported connected");
+        }
+    }
+
+    #[tokio::test]
+    async fn already_connected_requires_ready_state_and_probe_failures_are_visible() {
+        let state = state_with(
+            MockAdb::default()
+                .on_raw("connect", "already connected to 192.168.42.71:5555")
+                .on_raw("get-state", "device"),
         );
+        assert!(
+            connect_device_impl(&state, "192.168.42.71:5555")
+                .await
+                .unwrap()
+                .ok
+        );
+
+        let state = state_with(
+            MockAdb::default()
+                .on_raw("connect", "already connected to 192.168.42.71:5555")
+                .on_raw_err("get-state", "device unauthorized"),
+        );
+        let result = connect_device_impl(&state, "192.168.42.71:5555")
+            .await
+            .unwrap();
+        assert!(!result.ok);
+        assert!(result.message.contains("unauthorized"));
+    }
+
+    #[tokio::test]
+    async fn explicit_authentication_wait_retains_its_approval_instruction() {
+        let mock =
+            MockAdb::default().on_raw("connect", "failed to authenticate to 192.168.42.71:5555");
+        let calls = mock.raw_log();
+        let result = connect_device_impl(&state_with(mock), "192.168.42.71:5555")
+            .await
+            .unwrap();
+        assert!(result.ok);
+        assert!(result.message.contains("approve this computer on the TV"));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn explicit_connection_port_is_used_instead_of_the_pairing_port() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "connect 192.168.42.71:37123",
+                "connected to 192.168.42.71:37123\n",
+            )
+            .on_raw("get-state", "device\n");
         let raw_log = mock.raw_log();
         let state = state_with(mock);
 
@@ -1819,7 +1900,10 @@ mod tests {
         assert_eq!(result.message, "connected to 192.168.42.71:37123");
         assert_eq!(
             *raw_log.lock().unwrap(),
-            vec!["connect 192.168.42.71:37123"]
+            vec![
+                "connect 192.168.42.71:37123",
+                "-s 192.168.42.71:37123 get-state"
+            ]
         );
     }
 
@@ -2363,6 +2447,7 @@ mod tests {
     async fn connect_paired_keeps_the_device_whose_serial_matches() {
         let mock = MockAdb::default()
             .on_raw("connect", &format!("connected to {PIXEL_IP}"))
+            .on_raw("get-state", "device")
             .on_shell_for(PIXEL_IP, "ro.serialno", "58040DLCH005YV\n");
         let log = mock.raw_log();
         let state = state_with(mock);
@@ -2382,6 +2467,7 @@ mod tests {
         let mock = MockAdb::default()
             .on_raw("disconnect", "disconnected")
             .on_raw("connect", &format!("connected to {PIXEL_IP}"))
+            .on_raw("get-state", "device")
             .on_shell_for(PIXEL_IP, "ro.serialno", "OLDTV0001\n");
         let log = mock.raw_log();
         let state = state_with(mock);
