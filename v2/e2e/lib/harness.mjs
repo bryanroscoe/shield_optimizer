@@ -45,7 +45,7 @@ export function serverBinary() {
 export async function buildServer() {
   if (process.env.E2E_SKIP_BUILD === "1" && existsSync(serverBinary())) return;
   console.log("[e2e] building e2e_server (cargo, feature e2e)…");
-  await run("cargo", ["build", "-p", "shield-optimizer-v2", "--features", "e2e", "--bin", "e2e_server"], { cwd: V2 });
+  await run("cargo", ["build", "-p", "e2e-server", "--bin", "e2e_server"], { cwd: V2 });
 }
 
 export async function startServer() {

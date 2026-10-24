@@ -71,7 +71,7 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
 }
 
 /// Every command the desktop frontend can invoke. One list, shared by the app
-/// and the dev-only E2E server (`src/bin/e2e_server.rs`), so the harness
+/// and the dev-only E2E server (`crates/e2e-server`), so the harness
 /// dispatches through exactly the handler table the shipped app uses.
 pub fn invoke_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {

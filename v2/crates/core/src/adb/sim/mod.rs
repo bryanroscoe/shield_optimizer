@@ -1,7 +1,7 @@
 //! `SimulatedAdb` — a stateful, test-only model of the adb server and the
 //! devices behind it, implementing [`AdbDriver`].
 //!
-//! It is the driver the E2E harness (`src-tauri/src/bin/e2e_server.rs`) runs
+//! It is the driver the E2E harness (`crates/e2e-server`) runs
 //! the real command layer against. Unlike the substring `MockAdb` in
 //! `commands::test_support`, it keeps state: disabling a package removes it
 //! from `pm list packages -e`, a `set-home-activity` moves Home, a disconnect

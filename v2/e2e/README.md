@@ -20,7 +20,7 @@ npm run e2e                       # every scenario
 npm run e2e -- launcher snapshot  # scenarios whose name contains a filter
 ```
 
-`npm run e2e` builds `e2e_server` (`cargo build --features e2e --bin e2e_server`),
+`npm run e2e` builds `e2e_server` (`cargo build -p e2e-server`),
 starts it on a free port, starts Vite with `VITE_E2E=1` on another free port,
 and runs `e2e/scenarios/*.mjs` in headless Chromium. Set `E2E_SKIP_BUILD=1` to
 reuse an existing build, and `CARGO_TARGET_DIR` to use a non-default target directory.
@@ -40,7 +40,7 @@ Run it before every release. CI runs it on Ubuntu (the `e2e` job in
 |---|---|
 | `SimulatedAdb` (devices, transports, mDNS, pairing, packages, settings, Home, shell interpreter, faults, replay) | `crates/core/src/adb/sim/`, behind the core `test-support` feature, never in a release build |
 | Device profiles (real, scrubbed, read-only captures) | `crates/core/tests/fixtures/devices/<name>/` |
-| E2E server | `src-tauri/src/bin/e2e_server.rs`, behind the `e2e` feature |
+| E2E server | `crates/e2e-server`, which turns on the app crate's `e2e` feature |
 | Frontend bridge | `src/lib/e2e-bridge.ts`, installed from `src/routes/+layout.ts` when `VITE_E2E=1` |
 | Runner, harness, scenarios | `e2e/run.mjs`, `e2e/lib/`, `e2e/scenarios/` |
 

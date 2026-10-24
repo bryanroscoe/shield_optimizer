@@ -1,6 +1,6 @@
 // E2E bridge. With VITE_E2E=1 the app runs in a plain browser driven by
 // Playwright, and every `invoke()` goes to the dev-only E2E server
-// (`src-tauri/src/bin/e2e_server.rs`), which runs the real Rust command layer
+// (`crates/e2e-server`), which runs the real Rust command layer
 // against a simulated device. Unlike demo mode nothing here answers a
 // command itself: app commands are forwarded verbatim.
 //

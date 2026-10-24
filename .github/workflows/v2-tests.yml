@@ -318,7 +318,7 @@ jobs:
       # The e2e feature is off in every other job, so lint it here.
       - name: Clippy (e2e feature)
         working-directory: v2
-        run: cargo clippy -p shield-optimizer-v2 --features e2e --all-targets -- -D warnings
+        run: cargo clippy -p shield-optimizer-v2 -p e2e-server --features shield-optimizer-v2/e2e --all-targets -- -D warnings
 
       - name: npm run e2e
         working-directory: v2
