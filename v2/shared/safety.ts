@@ -13,6 +13,7 @@ export type SafetySource =
   | "protected_list"
   | "caution_list"
   | "reviewed_catalog"
+  | "launcher_list"
   | "no_record";
 
 export type Safety = { kind: SafetyKind; reason: string; source: SafetySource };
@@ -25,6 +26,7 @@ const SOURCES: readonly SafetySource[] = [
   "protected_list",
   "caution_list",
   "reviewed_catalog",
+  "launcher_list",
   "no_record",
 ];
 
@@ -37,6 +39,8 @@ export function safetySourceLabel(source: SafetySource): string {
       return "On the caution list";
     case "reviewed_catalog":
       return "From the reviewed app list";
+    case "launcher_list":
+      return "On the launcher list";
     case "no_record":
       return "Not in any reviewed list";
   }

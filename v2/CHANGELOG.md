@@ -29,6 +29,18 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
+- **A TV whose debugging prompt was missed could not be asked again.** Android shows the
+  prompt once per connection, and Scan counted a TV still waiting on it as connected. Scan now
+  reports it as needing authorization, and its row has **Ask again**, which reconnects that one
+  TV so it prompts again. No other TV is touched.
+- **Uninstall could remove the only enabled launcher**, leaving the TV without a Home screen.
+  It now refuses, as Disable already did.
+- **Projectivy and the other listed launchers read Unknown in the App List.** They now read
+  Caution, as third-party Home screens, with what removing one actually risks.
+- **The device tabs and page were cut off in windows narrower than about 1100 px.** The page
+  now fits the window, every tab fits at the default size, and the tab strip scrolls with a
+  fade where tabs run past it. The Stop ADB when quitting explanation is now its tooltip.
+
 - **Find app backups said a folder "couldn't be searched" when it simply didn't exist**
   ([#86](https://github.com/bryanroscoe/shield_optimizer/issues/86)). SmartTube can keep
   backups in any of three folders, and most TVs only have one of them. A missing folder now

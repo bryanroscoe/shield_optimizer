@@ -60,9 +60,14 @@ pub enum SafetySource {
     CautionList,
     /// The curated app lists under `crates/core/data/app-lists/`.
     ReviewedCatalog,
+    /// The custom launchers in `launchers.json`: what the app is (a Home
+    /// screen) is known, so the one way removing it goes wrong can be named.
+    LauncherList,
     /// Nothing covers it.
     NoRecord,
 }
+
+const LAUNCHER_REASON: &str = "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. The app refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in the Launcher tab first.";
 
 const UNKNOWN_REASON: &str = "No reviewed app list covers this package, so what it does and what removing it would break are both unknown. Check it yourself before removing it.";
 
@@ -96,6 +101,17 @@ pub struct CatalogVerdict<'a> {
 /// 3. **Reviewed catalog** — a curated entry means somebody assessed it.
 /// 4. **Unknown** — nothing covers it, and we say so plainly.
 pub fn classify_with_catalog(package: &str, catalog: Option<CatalogVerdict<'_>>) -> Safety {
+    classify_with_sources(package, catalog, false)
+}
+
+/// [`classify_with_catalog`], also told whether `package` is a custom launcher
+/// from `launchers.json`. That ranks after the reviewed catalog and before
+/// Unknown: an entry someone wrote about the package still says more.
+pub fn classify_with_sources(
+    package: &str,
+    catalog: Option<CatalogVerdict<'_>>,
+    custom_launcher: bool,
+) -> Safety {
     if let Some(reason) = never_disable_reason(package) {
         return Safety::NeverDisable {
             reason: reason.to_string(),
@@ -110,6 +126,12 @@ pub fn classify_with_catalog(package: &str, catalog: Option<CatalogVerdict<'_>>)
     }
     if let Some(entry) = catalog {
         return from_catalog(entry);
+    }
+    if custom_launcher {
+        return Safety::Caution {
+            reason: LAUNCHER_REASON.to_string(),
+            source: SafetySource::LauncherList,
+        };
     }
     Safety::Unknown {
         reason: UNKNOWN_REASON.to_string(),
@@ -427,6 +449,36 @@ const CAUTION: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_custom_launcher_ranks_after_the_catalog_and_before_unknown() {
+        assert!(matches!(
+            classify_with_sources("com.spocky.projengmenu", None, true),
+            Safety::Caution {
+                source: SafetySource::LauncherList,
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_with_sources("com.spocky.projengmenu", None, false),
+            Safety::Unknown { .. }
+        ));
+        let reviewed = CatalogVerdict {
+            risk: crate::engine::types::RiskTier::Safe,
+            description: "Reviewed.",
+        };
+        assert!(matches!(
+            classify_with_sources("com.example.launcher", Some(reviewed), true),
+            Safety::Safe {
+                source: SafetySource::ReviewedCatalog,
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_with_sources("com.android.systemui", None, true),
+            Safety::NeverDisable { .. }
+        ));
+    }
 
     #[test]
     fn shell_runner_blocks_disabling_a_never_disable_package() {

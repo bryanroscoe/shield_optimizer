@@ -29,8 +29,8 @@ pub use media::{
 };
 pub use optimize::{compute_plan, OptimizeInputs, OptimizePlan};
 pub use safety::{
-    classify as classify_safety, classify_with_catalog, is_never_disable, shell_command_blocked,
-    CatalogVerdict, Safety, SafetySource,
+    classify as classify_safety, classify_with_catalog, classify_with_sources, is_never_disable,
+    shell_command_blocked, CatalogVerdict, Safety, SafetySource,
 };
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
 pub use types::{

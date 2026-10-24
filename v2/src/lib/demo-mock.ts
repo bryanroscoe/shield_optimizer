@@ -725,6 +725,14 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
               : "Reviewed and rated medium risk — removable, but you may notice it go.";
         return { kind: "caution", reason: `${lead}${tail}`, source: "reviewed_catalog" };
       }
+      if (launchers.some((l) => !l.stock && l.entry.package === pkg)) {
+        return {
+          kind: "caution",
+          reason:
+            "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. The app refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in the Launcher tab first.",
+          source: "launcher_list",
+        };
+      }
       return {
         kind: "unknown",
         reason:
