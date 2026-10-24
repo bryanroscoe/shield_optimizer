@@ -628,6 +628,11 @@
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
 
+  const QUIT_ADB_TIP =
+    "Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or " +
+    "any other tool using adb is disconnected too. It is left running while this app is still " +
+    "using it, such as an open Remote, and when the app restarts for an update.";
+
   /// Drops this one TV's connection and dials it again, which is what makes
   /// Android show the debugging prompt a second time. Nothing else is
   /// redialled, so no other TV prompts.
@@ -765,15 +770,17 @@
   <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
-  <label class="quit-toggle" title="Run adb kill-server when this app quits">
+  <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
     <input
       type="checkbox"
+      aria-describedby="quit-adb-tip"
       checked={stopOnQuit.setting?.enabled ?? false}
       indeterminate={stopOnQuit.setting === null}
       disabled={stopOnQuit.setting === null}
       onclick={clickStopOnQuit}
     />
     Stop ADB when quitting
+    <span id="quit-adb-tip" hidden>{QUIT_ADB_TIP}</span>
     {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
       <span class="quit-checking">checking…</span>
     {/if}
@@ -800,13 +807,6 @@
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
-  {/if}
-  {#if stopOnQuit.setting?.enabled}
-    <p class="connect-message plain muted quit-warning">
-      Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or any
-      other tool using adb is disconnected too. It is left running while this app is still using it,
-      such as an open Remote, and when the app restarts for an update.
-    </p>
   {/if}
   {#if stopOnQuit.error}
     <p class="connect-message muted quit-error">

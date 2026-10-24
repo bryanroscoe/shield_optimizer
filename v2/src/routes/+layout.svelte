@@ -608,13 +608,16 @@
 <style>
   .app {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto 1fr auto;
     min-height: 100vh;
   }
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
+    gap: 0.6rem 1.4rem;
     padding: 0.8rem 1.5rem;
     border-bottom: 1px solid var(--border);
     background: var(--bg-surface);
@@ -624,6 +627,7 @@
     align-items: center;
     gap: 0.6rem;
     font-weight: 600;
+    white-space: nowrap;
   }
   .title {
     font-size: 1.05rem;
@@ -809,6 +813,7 @@
   }
   .header-right {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 1.4rem;
   }
@@ -869,6 +874,10 @@
     padding: 1.5rem;
     max-width: 1100px;
     width: 100%;
+    /* A grid item's min-width is its content's, so without this (and the
+       grid's minmax column) one wide child widened the page past the window
+       and clipped its right edge instead of letting that child scroll. */
+    min-width: 0;
     margin: 0 auto;
   }
   footer {

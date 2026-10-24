@@ -66,6 +66,27 @@
   type Tab = "overview" | "health" | "media" | "launcher" | "apps" | "optimize" | "tweaks" | "remote" | "files" | "snapshot" | "sideload" | "shell" | "logs";
   let activeTab = $state<Tab>("overview");
 
+  // macOS hides an idle scrollbar, so a tab strip that overflows a narrow
+  // window looked cut off. Fade whichever edge has more tabs past it.
+  let tabsEl = $state<HTMLDivElement>();
+  let tabsMoreLeft = $state(false);
+  let tabsMoreRight = $state(false);
+  function measureTabs() {
+    if (!tabsEl) return;
+    tabsMoreLeft = tabsEl.scrollLeft > 1;
+    tabsMoreRight = tabsEl.scrollLeft + tabsEl.clientWidth < tabsEl.scrollWidth - 1;
+  }
+  $effect(() => {
+    if (!tabsEl) return;
+    const observer = new ResizeObserver(measureTabs);
+    observer.observe(tabsEl);
+    return () => observer.disconnect();
+  });
+  $effect(() => {
+    void activeTab;
+    tabsEl?.querySelector(".active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+
   let device = $state<Device | null>(null);
   let deviceErr = $state<string | null>(null);
 
@@ -2110,7 +2131,15 @@
     {/if}
   </header>
 
-  <div class="tabs" role="tablist" aria-label="Device sections">
+  <div
+    class="tabs"
+    class:more-left={tabsMoreLeft}
+    class:more-right={tabsMoreRight}
+    role="tablist"
+    aria-label="Device sections"
+    bind:this={tabsEl}
+    onscroll={measureTabs}
+  >
     <!-- Health sits second, right after Overview: "how is this TV doing" is
          the ordinary reason to open a device, not a power-user afterthought.
          The rest follow the shape of the job — the tabs you act in, in roughly
@@ -4027,7 +4056,7 @@
     /* Stretch, not centre: every tab takes the tallest tab's height, so the
        active underline stays on one line even when a tab carries a tag. */
     align-items: stretch;
-    gap: 0.4rem;
+    gap: 0.2rem;
     margin-bottom: 1rem;
     border-bottom: 1px solid var(--border);
     padding-bottom: 0;
@@ -4044,7 +4073,22 @@
     border-bottom: 2px solid transparent;
     border-radius: 0;
     background: transparent;
-    padding: 0.5rem 0.7rem;
+    padding: 0.5rem 0.6rem;
+  }
+  .tabs.more-right {
+    mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent);
+  }
+  .tabs.more-left {
+    mask-image: linear-gradient(to left, #000 calc(100% - 3rem), transparent);
+  }
+  .tabs.more-left.more-right {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 3rem,
+      #000 calc(100% - 3rem),
+      transparent
+    );
   }
   .tabs button.active {
     color: var(--accent);

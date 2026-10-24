@@ -153,7 +153,9 @@ async function exercise({ browser, base }) {
   // bundled adb is not on PATH, and a different one restarts the shared
   // server and drops every device). Wake first; Revoke says what it costs.
   assert.match(netHelp, /Wake the TV; the prompt can be hidden behind the screensaver\./, netHelp);
-  assert.match(netHelp, /Click Forget here, then Add by IP again; the prompt reappears\./, netHelp);
+  assert.match(netHelp, /Click Ask again; this TV, and only this one, shows the prompt again\./, netHelp);
+  assert.equal(await net.getByRole("button", { name: "Ask again" }).count(), 1,
+    "a network row asks again itself instead of making you Forget and re-add it");
   assert.match(netHelp, /Revoke USB debugging authorizations\. That un-trusts every computer, not just this one\./, netHelp);
   assert.doesNotMatch(netHelp, /terminal|adb disconnect/, "no terminal instructions");
   assert.doesNotMatch(netHelp, /Paired devices|tap this computer/,
@@ -167,6 +169,8 @@ async function exercise({ browser, base }) {
   const usbHelp = await usb.locator(".unauthorized-help").innerText();
   assert.match(usbHelp, /"Allow USB debugging\?"/, usbHelp);
   assert.doesNotMatch(usbHelp, /Click Forget/, "a USB row has no Forget");
+  assert.equal(await usb.getByRole("button", { name: "Ask again" }).count(), 0,
+    "a USB row re-prompts by replugging, not by redialling");
   assert.doesNotMatch(usbHelp, /terminal|adb disconnect/);
 
   // #120: a box that never said what it is still opens, and says so.
