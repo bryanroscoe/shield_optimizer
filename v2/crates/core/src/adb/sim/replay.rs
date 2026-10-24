@@ -501,6 +501,7 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
     }
     // Explicit owner evidence is more precise than all-user reads, regardless of order.
     lists.extend(owner_lists);
+    let installed_observed = lists.contains_key("");
     let installed = lists.get("").cloned().unwrap_or_default();
     let disabled = lists.get("-d").cloned().unwrap_or_default();
     let third = lists.get("-3").cloned().unwrap_or_default();
@@ -517,7 +518,7 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
             Package {
                 system: !third.contains(name),
                 enabled: !disabled.contains(name),
-                installed: installed.is_empty() || installed.contains(name),
+                installed: !installed_observed || installed.contains(name),
             },
         ));
     }
@@ -769,6 +770,25 @@ mod tests {
             assert!(!d.package("disabled").unwrap().enabled);
             assert!(d.package("other").is_none());
         }
+    }
+
+    #[test]
+    fn empty_owner_inventory_does_not_mark_known_apks_installed() {
+        let cmd =
+            checked_batch_command(&["pm list packages --user 0", "pm list packages -u --user 0"]);
+        let out = format!("{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:gone\n{BATCH_STATUS}0\n");
+        let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
+        assert!(!d.package("gone").unwrap().installed);
+
+        let unknown = device_from_session(
+            &[line(
+                &["-s", "K", "shell", "pm list packages -u"],
+                "package:gone\n",
+            )],
+            None,
+        )
+        .unwrap();
+        assert!(unknown.package("gone").unwrap().installed);
     }
 
     #[test]
