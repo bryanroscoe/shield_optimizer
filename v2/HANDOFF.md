@@ -1,6 +1,7 @@
 # v2 — current state
 
-v2 is a shipping desktop app. Latest **published** version: **2.4.0** (2026-10-23).
+v2 is a shipping desktop app. Latest **published** version: **2.4.1** (2026-10-23). The `v2-2.4.0` tag's build
+failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 `.github/workflows/v2-release.yml`; macOS is also distributed via the Homebrew tap
@@ -8,8 +9,9 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 ## Unreleased on `main`
 
-Nothing yet. 2.3.1 was prepared but never tagged; its notes shipped in 2.4.0. Add an
-`## Unreleased` section to `v2/CHANGELOG.md` for the next change. Before tagging, run the
+Nothing yet. 2.3.1 was never tagged and 2.4.0 never built; their notes shipped in 2.4.1. Put
+the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
+heading to stay. Before tagging, run the
 physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
 `npm run e2e`.
 

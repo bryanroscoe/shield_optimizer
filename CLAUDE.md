@@ -25,14 +25,15 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
 
 ### What is in flight right now
 
-`v2-2.4.0` (2026-10-23) is the latest release. It folded in the never-published 2.3.1 notes (the
+`v2-2.4.1` (2026-10-23) is the latest release. The `v2-2.4.0` tag exists but its build failed and
+nothing was published. 2.4.1 folded in the never-published 2.3.1 notes (the
 Google TV Setup Wraith fixes #122/#157/#158, Report this app #100, app storage details #98, the
 right-click menu #129 and more) plus the Logs tab, Stop ADB when quitting, Ask again for an
 unauthorized TV, and the last-launcher guard on Uninstall. Ask again has not yet been confirmed
 on a real TV.
 
 Still open and not code work: #122 is closed on the fix and now needs a Google TV reporter to
-confirm it on 2.4.0; #123 needs Glance's package id from its reporter; #93 and #105 need a
+confirm it on 2.4.1; #123 needs Glance's package id from its reporter; #93 and #105 need a
 real phone and TV.
 
 The mobile companion app (`v2/mobile/`) has its own authoritative handoff at
