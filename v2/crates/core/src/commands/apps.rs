@@ -90,7 +90,7 @@ pub enum PackageState {
     Missing,
 }
 
-/// `package_states` — query the device for the current state of each package
+/// `package_states` — query user 0 for the current state of each package
 /// in `packages`. One batched shell call (`pm list packages` +
 /// `pm list packages -d`), then categorize.
 #[tauri::command]
@@ -109,7 +109,8 @@ pub async fn package_states_impl(
     packages: Vec<String>,
 ) -> Result<HashMap<String, PackageState>, String> {
     let adb = state.adb_snapshot().await;
-    let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
+    // Match the user targeted by typed disable and uninstall actions.
+    let cmd = checked_batch_command(&["pm list packages --user 0", "pm list packages -d --user 0"]);
     let out = adb
         .shell(serial, &cmd)
         .await
@@ -210,9 +211,9 @@ async fn list_packages_impl(
     // Third-party classification is optional; installed and disabled state
     // must both be known before exposing app actions.
     let cmd = checked_batch_command(&[
-        "pm list packages",
-        "pm list packages -3",
-        "pm list packages -d",
+        "pm list packages --user 0",
+        "pm list packages -3 --user 0",
+        "pm list packages -d --user 0",
     ]);
     let batched = timeout(Duration::from_secs(15), adb.shell(serial, &cmd))
         .await
@@ -487,7 +488,7 @@ pub(crate) async fn disable_package_impl(
         _ => {
             let adb = state.adb_snapshot().await;
             matches!(
-                adb.shell(serial, &format!("pm list packages -d {package}")).await,
+                adb.shell(serial, &format!("pm list packages -d --user 0 {package}")).await,
                 Ok(out) if out.success()
                     && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
             )
@@ -1195,6 +1196,49 @@ mod tests {
             .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
             .collect::<Vec<_>>()
             .join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
+
+    #[tokio::test]
+    async fn user_zero_inventory_excludes_packages_only_installed_for_another_user() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let owner = "package:com.example.owner";
+        let all_users = "package:com.example.owner\npackage:com.google.android.videos";
+        let scoped_states =
+            checked_batch_command(&["pm list packages --user 0", "pm list packages -d --user 0"]);
+        let scoped_inventory = checked_batch_command(&[
+            "pm list packages --user 0",
+            "pm list packages -3 --user 0",
+            "pm list packages -d --user 0",
+        ]);
+        let state = state_with(
+            MockAdb::default()
+                .on_shell(&scoped_states, &batched(&[owner, ""]))
+                .on_shell(&scoped_inventory, &batched(&[owner, owner, ""]))
+                .on_shell(BATCH_SEPARATOR, &batched(&[all_users, ""])),
+        );
+        let states = package_states_impl(
+            &state,
+            "serial",
+            vec![
+                "com.google.android.videos".into(),
+                "com.example.owner".into(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(states["com.google.android.videos"], PackageState::Missing);
+        assert_eq!(states["com.example.owner"], PackageState::Enabled);
+
+        let installed = list_installed_packages_impl(&state, "serial")
+            .await
+            .unwrap();
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].package, "com.example.owner");
+        assert!(installed[0].enabled && !installed[0].system);
+        let others = list_other_packages_impl(&state, "serial").await.unwrap();
+        assert_eq!(others.len(), 1);
+        assert_eq!(others[0].package, "com.example.owner");
     }
 
     #[test]

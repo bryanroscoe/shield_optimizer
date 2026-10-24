@@ -409,7 +409,26 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
                     }
                 }
             }
-            ["pm", "list", "packages", flags @ ..] if flags.iter().all(|f| f.starts_with('-')) => {
+            ["pm", "list", "packages", args @ ..] => {
+                let mut args = args.iter().copied();
+                let mut flags = Vec::new();
+                let mut supported = true;
+                while let Some(arg) = args.next() {
+                    if arg == "--user" {
+                        if args.next() != Some("0") {
+                            supported = false;
+                            break;
+                        }
+                    } else if arg.starts_with('-') {
+                        flags.push(arg);
+                    } else {
+                        supported = false;
+                        break;
+                    }
+                }
+                if !supported {
+                    continue;
+                }
                 let names = out
                     .lines()
                     .filter_map(|l| l.trim().strip_prefix("package:"))
@@ -693,6 +712,24 @@ mod tests {
         let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
         assert!(!d.package("gone").unwrap().installed);
         assert!(d.package("a").unwrap().installed);
+    }
+
+    #[test]
+    fn owner_scoped_inventory_survives_profile_import_without_other_users() {
+        let cmd = checked_batch_command(&[
+            "pm list packages --user 0",
+            "pm list packages -3 --user 0",
+            "pm list packages -d --user 0",
+            "pm list packages --user 10",
+        ]);
+        let out = format!(
+            "package:owner\npackage:disabled\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:owner\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:disabled\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:other\n{BATCH_STATUS}0\n"
+        );
+        let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
+        assert!(d.package("owner").unwrap().installed);
+        assert!(!d.package("owner").unwrap().system);
+        assert!(!d.package("disabled").unwrap().enabled);
+        assert!(d.package("other").is_none());
     }
 
     #[test]
