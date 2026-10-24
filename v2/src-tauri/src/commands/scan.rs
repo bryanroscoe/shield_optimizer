@@ -227,6 +227,12 @@ async fn offline_serials(adb: &dyn AdbDriver) -> Option<Vec<String>> {
     }
 }
 
+fn held_unauthorized_endpoint(target: &str, attached: &[(String, DeviceStatus)]) -> bool {
+    attached
+        .iter()
+        .any(|(key, status)| key == target && *status == DeviceStatus::Unauthorized)
+}
+
 /// Of the advertised endpoints skipped because adb already holds them, which
 /// are ready and which are waiting for the user to authorize this computer.
 fn split_already_attached(
@@ -328,6 +334,13 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let mut failed = Vec::new();
     let offline = offline_serials(adb.as_ref()).await.unwrap_or_default();
     for target in &targets.connect {
+        // Redialling an endpoint adb already holds unauthorized answers
+        // "already connected" and never re-prompts, so it would be counted as
+        // connected. Asking again is the row's own action, one TV at a time.
+        if held_unauthorized_endpoint(target, &attached_with_status) {
+            unauthorized.push(target.clone());
+            continue;
+        }
         let stale = stale_aliases_for(target, &services, &offline);
         if !stale.is_empty() {
             for key in &stale {
@@ -407,8 +420,8 @@ fn summary_message(
     );
     if !unauthorized.is_empty() {
         message.push_str(&format!(
-            " {} need{} authorization — accept the debugging prompt on the TV, then \
-             Refresh.",
+            " {} need{} authorization — accept the debugging prompt on the TV, or use Ask \
+             again on its row if the prompt is gone.",
             unauthorized.len(),
             if unauthorized.len() == 1 { "s" } else { "" }
         ));
@@ -788,6 +801,23 @@ mod tests {
     }
 
     #[test]
+    fn a_held_unauthorized_5555_endpoint_is_reported_unauthorized_not_redialled() {
+        // A Shield on Network debugging is held as `ip:5555`. Redialling it
+        // answers "already connected" and never re-prompts, which used to
+        // count an unauthorized TV as connected.
+        let attached = vec![
+            (
+                "192.168.42.143:5555".to_string(),
+                DeviceStatus::Unauthorized,
+            ),
+            ("192.168.42.71:5555".to_string(), DeviceStatus::Device),
+        ];
+        assert!(held_unauthorized_endpoint("192.168.42.143:5555", &attached));
+        assert!(!held_unauthorized_endpoint("192.168.42.71:5555", &attached));
+        assert!(!held_unauthorized_endpoint("192.168.42.25:5555", &attached));
+    }
+
+    #[test]
     fn an_advertised_host_adb_already_holds_is_still_not_probed_on_5555() {
         // Skipping the connect must not also forfeit the knowledge that this
         // host told us its real port -- otherwise the sweep guesses :5555 for
@@ -998,7 +1028,8 @@ mod tests {
         assert_eq!(
             msg,
             "Scanned 192.168.42.x — found 4 devices, connected 0. 2 need authorization — \
-             accept the debugging prompt on the TV, then Refresh."
+             accept the debugging prompt on the TV, or use Ask again on its row if the prompt \
+             is gone."
         );
     }
 

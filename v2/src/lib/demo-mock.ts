@@ -902,6 +902,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return { state: "waiting" };
     case "local_address_for":
       return "192.168.1.10";
+    case "reprompt_device":
+      return {
+        ok: true,
+        status: "unauthorized",
+        message:
+          'Asked again. Look at the TV, check "Always allow from this computer" and choose Allow.',
+      };
     case "forget_device":
       return {
         ok: true,

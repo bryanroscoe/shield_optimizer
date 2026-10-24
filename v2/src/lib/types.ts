@@ -116,6 +116,14 @@ export interface ConnectResult {
   message: string;
 }
 
+export interface RepromptResult {
+  ok: boolean;
+  /// What adb holds afterwards: "unauthorized" (the TV is asking again),
+  /// "device" (approved meanwhile) or "none".
+  status: "device" | "unauthorized" | "offline" | "none";
+  message: string;
+}
+
 export interface ForgetResult {
   ok: boolean;
   /// Every adb transport key dropped for this device, the requested one first.

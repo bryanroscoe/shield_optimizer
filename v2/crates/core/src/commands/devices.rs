@@ -401,6 +401,132 @@ pub const READVERTISE_MESSAGE: &str = "Disconnected, but the device is still adv
     this list, turn off Wireless debugging on the device, or remove this computer under Wireless \
     debugging \u{2192} Paired devices there.";
 
+#[derive(Serialize, Debug)]
+pub struct RepromptResult {
+    pub ok: bool,
+    /// What adb holds for this device afterwards: `unauthorized` (the TV is
+    /// asking again), `device` (it was approved meanwhile), or `none`.
+    pub status: String,
+    pub message: String,
+}
+
+/// `reprompt_device` — show the "Allow debugging?" prompt again on one TV.
+///
+/// Android shows the prompt once per connection. Once it is missed or
+/// dismissed, the transport stays `unauthorized` and redialling the same
+/// address is a no-op ("already connected"), so nothing ever asks again. The
+/// prompt needs a fresh connection: drop this one transport and dial it
+/// again. Only this device is touched, so no other TV prompts.
+#[tauri::command]
+pub async fn reprompt_device(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<RepromptResult, String> {
+    let result = reprompt_device_impl(state.inner(), &serial).await;
+    match &result {
+        Ok(r) => tracing::info!(%serial, ok = r.ok, status = %r.status, "reprompt finished"),
+        Err(e) => tracing::info!(%serial, ok = false, error = %e, "reprompt finished"),
+    }
+    result
+}
+
+pub async fn reprompt_device_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<RepromptResult, String> {
+    let adb = state.adb_snapshot().await;
+    let entry = transport_entry(&*adb, serial).await?;
+    let Some(entry) = entry else {
+        return Ok(RepromptResult {
+            ok: false,
+            status: "none".into(),
+            message: format!("{serial} is no longer connected. Add it again to get the prompt."),
+        });
+    };
+    if entry.status != DeviceStatus::Unauthorized {
+        return Ok(RepromptResult {
+            ok: true,
+            status: status_name(Some(entry.status)).into(),
+            message: "This device is already authorized.".into(),
+        });
+    }
+    if entry.connection != ConnectionType::Network {
+        return Ok(RepromptResult {
+            ok: false,
+            status: "unauthorized".into(),
+            message: "Unplug the USB cable and plug it back in; the prompt reappears.".into(),
+        });
+    }
+
+    adb.raw(&["disconnect", serial])
+        .await
+        .map_err(|e| format!("adb disconnect: {e}"))?;
+
+    // A Wireless debugging transport is keyed by its mDNS name, which cannot
+    // be dialled; adb re-attaches it by itself, and that new connection is
+    // what prompts.
+    if !crate::adb::is_network_endpoint(serial) {
+        return Ok(RepromptResult {
+            ok: true,
+            status: "none".into(),
+            message: "Reconnecting. adb re-attaches it within a few seconds and the TV asks \
+                      again then."
+                .into(),
+        });
+    }
+
+    let out = adb
+        .raw(&["connect", serial])
+        .await
+        .map_err(|e| format!("adb connect: {e}"))?;
+    // `adb connect` wording varies by version; what adb now holds is the answer.
+    let after = transport_entry(&*adb, serial).await?.map(|e| e.status);
+    let status = status_name(after);
+    let (ok, message) = match after {
+        Some(DeviceStatus::Unauthorized) => (
+            true,
+            "Asked again. Look at the TV, check \"Always allow from this computer\" and choose \
+             Allow."
+                .to_string(),
+        ),
+        Some(DeviceStatus::Device) => (true, "Connected and authorized.".to_string()),
+        _ => (
+            false,
+            format!(
+                "Could not reconnect: {}",
+                format!("{}\n{}", out.stdout, out.stderr).trim()
+            ),
+        ),
+    };
+    Ok(RepromptResult {
+        ok,
+        status: status.into(),
+        message,
+    })
+}
+
+async fn transport_entry(
+    adb: &dyn AdbDriver,
+    serial: &str,
+) -> Result<Option<crate::adb::parse::DeviceListEntry>, String> {
+    let raw = adb
+        .raw(&["devices"])
+        .await
+        .map_err(|e| format!("adb devices: {e}"))?;
+    Ok(parse_device_list(&raw.stdout)
+        .into_iter()
+        .find(|e| e.serial == serial))
+}
+
+fn status_name(status: Option<DeviceStatus>) -> &'static str {
+    match status {
+        Some(DeviceStatus::Device) => "device",
+        Some(DeviceStatus::Unauthorized) => "unauthorized",
+        Some(DeviceStatus::Offline) => "offline",
+        None => "none",
+    }
+}
+
 async fn read_hardware_id(adb: &dyn AdbDriver, serial: &str) -> Option<String> {
     let out = adb.shell(serial, "getprop ro.serialno").await.ok()?;
     verified_hardware_id(&out.stdout).map(str::to_string)
@@ -1864,6 +1990,98 @@ mod tests {
         assert!(r.still_advertised);
         assert_eq!(r.message, READVERTISE_MESSAGE);
         assert!(r.message.contains("turn off Wireless debugging"));
+    }
+
+    #[tokio::test]
+    async fn reprompt_redials_only_the_one_unauthorized_tv() {
+        let mock = MockAdb::default()
+            .on_raw_seq(
+                "devices",
+                &[
+                    Ok(
+                        "List of devices attached\n192.168.42.143:5555\tunauthorized\n\
+                        192.168.42.196:5555\tunauthorized\n",
+                    ),
+                    Ok(
+                        "List of devices attached\n192.168.42.143:5555\tunauthorized\n\
+                        192.168.42.196:5555\tunauthorized\n",
+                    ),
+                ],
+            )
+            .on_raw("disconnect", "disconnected 192.168.42.143:5555")
+            .on_raw("connect", "failed to authenticate to 192.168.42.143:5555");
+        let log = mock.raw_log();
+        let state = state_with(mock);
+
+        let r = reprompt_device_impl(&state, "192.168.42.143:5555")
+            .await
+            .unwrap();
+
+        assert!(r.ok, "{r:?}");
+        assert_eq!(r.status, "unauthorized");
+        let log = log.lock().unwrap();
+        let dials: Vec<&String> = log.iter().filter(|c| c.contains("connect")).collect();
+        assert_eq!(
+            dials,
+            vec![
+                "disconnect 192.168.42.143:5555",
+                "connect 192.168.42.143:5555"
+            ],
+            "the other unauthorized TV must not be redialled"
+        );
+    }
+
+    #[tokio::test]
+    async fn reprompt_leaves_an_authorized_device_alone() {
+        let mock = MockAdb::default().on_raw(
+            "devices",
+            "List of devices attached\n192.168.42.71:5555\tdevice\n",
+        );
+        let log = mock.raw_log();
+        let state = state_with(mock);
+
+        let r = reprompt_device_impl(&state, "192.168.42.71:5555")
+            .await
+            .unwrap();
+
+        assert!(r.ok);
+        assert_eq!(r.status, "device");
+        assert!(log.lock().unwrap().iter().all(|c| !c.contains("connect")));
+    }
+
+    #[tokio::test]
+    async fn reprompt_does_not_dial_an_mdns_key() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{PIXEL_MDNS}\tunauthorized\n"),
+            )
+            .on_raw("disconnect", "disconnected");
+        let log = mock.raw_log();
+        let state = state_with(mock);
+
+        let r = reprompt_device_impl(&state, PIXEL_MDNS).await.unwrap();
+
+        assert!(r.ok);
+        let log = log.lock().unwrap();
+        assert!(log.contains(&format!("disconnect {PIXEL_MDNS}")));
+        assert!(
+            !log.iter().any(|c| c.starts_with("connect")),
+            "an mDNS name is not dialable; adb re-attaches it: {log:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reprompt_reports_a_device_that_is_gone() {
+        let mock = MockAdb::default().on_raw("devices", "List of devices attached\n");
+        let state = state_with(mock);
+
+        let r = reprompt_device_impl(&state, "192.168.42.9:5555")
+            .await
+            .unwrap();
+
+        assert!(!r.ok);
+        assert_eq!(r.status, "none");
     }
 
     #[tokio::test]

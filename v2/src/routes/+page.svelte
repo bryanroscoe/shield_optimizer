@@ -331,6 +331,13 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
+    if (d.status === "unauthorized" && d.connection === "network") {
+      items.push({
+        label: "Ask again on the TV",
+        disabled: repromptBusy === d.serial,
+        run: () => repromptDevice(d),
+      });
+    }
     if (d.connection === "network") {
       items.push({
         label: "Forget",
@@ -619,6 +626,25 @@
   }
 
   let forgetBusy = $state<string | null>(null);
+  let repromptBusy = $state<string | null>(null);
+
+  /// Drops this one TV's connection and dials it again, which is what makes
+  /// Android show the debugging prompt a second time. Nothing else is
+  /// redialled, so no other TV prompts.
+  async function repromptDevice(d: Device) {
+    repromptBusy = d.serial;
+    connectMessage = "";
+    connectDetail = "";
+    try {
+      const r = await api.repromptDevice(d.serial);
+      connectMessage = r.message;
+      await refresh();
+    } catch (e) {
+      connectMessage = `Could not ask ${d.name} again: ${e}`;
+    } finally {
+      repromptBusy = null;
+    }
+  }
 
   /// Drop a network transport so the row stops appearing. Only offered for
   /// network devices: `adb disconnect` is the only thing "forget" can mean
@@ -1059,7 +1085,7 @@
                   <ol class="small unauthorized-fallback">
                     <li>Wake the TV; the prompt can be hidden behind the screensaver.</li>
                     {#if d.connection === "network"}
-                      <li>Click <strong>Forget</strong> here, then Add by IP again; the prompt reappears.</li>
+                      <li>Click <strong>Ask again</strong>; this TV, and only this one, shows the prompt again.</li>
                     {:else}
                       <li>Unplug the cable and plug it back in; the prompt reappears.</li>
                     {/if}
@@ -1101,6 +1127,16 @@
                   data-tip="Open the tools on this device even though it is not an Android TV"
                 >
                   Open anyway
+                </button>
+              {/if}
+              {#if d.status === "unauthorized" && d.connection === "network"}
+                <button
+                  class="row-action primary"
+                  onclick={() => repromptDevice(d)}
+                  disabled={repromptBusy === d.serial}
+                  data-tip="Reconnects this TV so it shows the debugging prompt again · no other TV is touched"
+                >
+                  {repromptBusy === d.serial ? "Asking…" : "Ask again"}
                 </button>
               {/if}
               <button
