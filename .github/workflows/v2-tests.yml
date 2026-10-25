@@ -240,6 +240,10 @@ jobs:
         working-directory: v2
         run: LAUNCHER_FEEDBACK_EVIDENCE=1 npm run test:launcher-feedback
 
+      - name: Progressive help
+        working-directory: v2
+        run: npm run test:progressive-help
+
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.
       - name: Context menu

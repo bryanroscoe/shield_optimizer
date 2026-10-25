@@ -39,7 +39,8 @@
     "subset-icons": "python3 scripts/subset-material-symbols.py",
     "test:device-logs": "node tests/log-poller.mjs && node tests/device-logs.mjs",
     "test:tvrecommendations-safety": "node tests/tvrecommendations-safety.mjs",
-    "test:launcher-feedback": "node tests/launcher-feedback.mjs"
+    "test:launcher-feedback": "node tests/launcher-feedback.mjs",
+    "test:progressive-help": "node tests/progressive-help.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

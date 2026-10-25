@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onDestroy, untrack } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
@@ -60,8 +61,7 @@
     </button>
   </div>
   <p class="muted small">
-    Device-reported codec configuration, display modes, and audio settings.
-    This is not a runtime playback or hardware-acceleration test.
+    Device-reported capabilities, not a playback or hardware-acceleration test.
   </p>
 
   {#if err}
@@ -167,13 +167,15 @@
       <!-- Two verdict vocabularies meet on this screen and they mean different
            things. Saying so once here is cheaper than a reader concluding that
            a SOFTWARE decoder is a package that is unsafe to remove. -->
-      <div class="callout media-note">
-        <Icon name="info" size={16} />
-        <span>
-          These verdicts describe the decode path only. They are unrelated to the
-          four package safety verdicts used on the App List and Optimize.
-        </span>
-      </div>
+      <HelpDetails label="Codec verdict help">
+        <div class="callout media-note">
+          <Icon name="info" size={16} />
+          <span>
+            These verdicts describe the decode path only. They are unrelated to the
+            four package safety verdicts used on the App List and Optimize.
+          </span>
+        </div>
+      </HelpDetails>
     </aside>
     </div>
   {/if}

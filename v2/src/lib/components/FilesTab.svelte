@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onDestroy, onMount } from "svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api } from "$lib/api";
@@ -482,11 +483,13 @@
         {/each}
       </tbody>
     </table>
-    <p class="tool-legend">
-      <span><Icon name="download" size={14} /> download</span>
-      <span><Icon name="swap_horiz" size={14} /> copy to device</span>
-      <span><Icon name="delete" size={14} /> delete from TV</span>
-    </p>
+    <HelpDetails label="File tools">
+      <p class="tool-legend">
+        <span><Icon name="download" size={14} /> download</span>
+        <span><Icon name="swap_horiz" size={14} /> copy to device</span>
+        <span><Icon name="delete" size={14} /> delete from TV</span>
+      </p>
+    </HelpDetails>
   {/if}
   </div>
 </div>
