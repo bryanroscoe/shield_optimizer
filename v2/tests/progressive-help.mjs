@@ -77,13 +77,21 @@ try {
     const bounds = await summary.boundingBox();
     assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 800);
     if (evidence) await page.screenshot({ path: `${evidence}/after-narrow-help-open.png` });
+    await page.goBack();
+    const connectionSummary = page.locator('.help-details > summary').filter({ hasText: 'Connection help' });
+    await connectionSummary.waitFor();
+    assert.equal(await connectionSummary.evaluate(e => e.parentElement.open), false, 'Back leaves device help and restores Devices');
+    await page.goForward();
+    const profileSummary = page.locator('.help-details > summary').filter({ hasText: 'Device details help' });
+    await profileSummary.waitFor();
+    assert.equal(await profileSummary.evaluate(e => e.parentElement.open), false, 'Forward starts with help collapsed');
   }
   if (evidence && !before) {
     const video = page.video();
     await context.close();
     await video.saveAs(`${evidence}/desktop-help-simulated.webm`);
   } else await context.close();
-  console.log(before ? 'Before desktop fixture captures complete.' : 'Progressive help passed: keyboard, Escape focus return, repeated toggles, six tabs, narrow viewport and visible safeguards.');
+  console.log(before ? 'Before desktop fixture captures complete.' : 'Progressive help passed: keyboard, Escape focus return, repeated toggles, six tabs, narrow viewport, Back/Forward navigation and visible safeguards.');
 } finally {
   await browser?.close();
   await server?.close();
