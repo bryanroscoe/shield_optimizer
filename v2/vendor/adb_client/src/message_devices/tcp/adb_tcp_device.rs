@@ -53,6 +53,22 @@ impl ADBTcpDevice {
         })
     }
 
+    /// Connect using an existing identity, failing rather than generating an
+    /// ephemeral key when the identity disappears before the handshake.
+    pub fn new_with_required_private_key_and_auth_timeout<P: AsRef<Path>, A: Into<SocketAddr>>(
+        address: A,
+        private_key_path: P,
+        auth_timeout: Duration,
+    ) -> Result<Self> {
+        Ok(Self {
+            inner: ADBMessageDevice::new_with_required_key(
+                TcpTransport::new(address, &private_key_path),
+                private_key_path,
+                auth_timeout,
+            )?,
+        })
+    }
+
     /// Run a shell command with a finite timeout for each transport response.
     /// This is useful for liveness probes, where an unbounded read would keep
     /// the owning connection mutex locked forever after a network loss.

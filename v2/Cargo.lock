@@ -372,14 +372,13 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "atv-optimizer-mobile"
 version = "0.1.0"
 dependencies = [
- "adb_client",
  "async-trait",
  "chrono",
  "dirs 5.0.1",
- "rsa",
  "serde",
  "serde_json",
  "sha2",
+ "shield-direct-adb",
  "shield-optimizer-core",
  "tauri",
  "tauri-build",
@@ -4404,6 +4403,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shield-direct-adb"
+version = "0.1.0"
+dependencies = [
+ "adb_client",
+ "async-trait",
+ "rsa",
+ "serde",
+ "shield-optimizer-core",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "shield-optimizer-core"
 version = "2.4.1"
 dependencies = [
@@ -4440,6 +4453,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "shield-direct-adb",
  "shield-optimizer-core",
  "tauri",
  "tauri-build",

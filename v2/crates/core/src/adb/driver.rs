@@ -120,6 +120,16 @@ pub fn process_output(
 /// `SubprocessAdb`.
 #[async_trait]
 pub trait AdbDriver: Send + Sync {
+    /// Direct transports retain this counter inside blocking workers and streams.
+    fn operation_leases(&self) -> Option<std::sync::Arc<super::Leases>> {
+        None
+    }
+
+    /// Prevent host-server commands and installation from changing a direct backend.
+    fn uses_host_server(&self) -> bool {
+        true
+    }
+
     /// Run `adb <args...>` (no `-s` prefix).
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput>;
 

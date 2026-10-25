@@ -77,6 +77,14 @@ jobs:
         working-directory: v2
         run: cargo test --workspace
 
+      - name: Experimental direct desktop backend
+        working-directory: v2
+        run: cargo test -p shield-optimizer-v2 --features direct-adb --lib -- --test-threads=1
+
+      - name: Experimental direct desktop Clippy
+        working-directory: v2
+        run: cargo clippy -p shield-optimizer-v2 --features direct-adb --all-targets -- -D warnings
+
       - name: Vendored transport tests
         working-directory: v2/vendor/adb_client
         run: cargo test --lib
@@ -239,6 +247,10 @@ jobs:
       - name: Launcher feedback
         working-directory: v2
         run: LAUNCHER_FEEDBACK_EVIDENCE=1 npm run test:launcher-feedback
+
+      - name: Direct backend status
+        working-directory: v2
+        run: npm run test:direct-adb-status
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.

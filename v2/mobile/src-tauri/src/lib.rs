@@ -9,7 +9,6 @@
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]
 mod file_commands;
-mod limited_writer;
 mod remote_lifecycle;
 mod scrcpy_resource;
 mod wireless_adb;
@@ -190,10 +189,7 @@ pub fn run() {
             let (entitlement, license_info) = read_persisted_entitlement(&data_dir);
             tracing::info!(?entitlement, "startup entitlement");
 
-            let wireless = Arc::new(WirelessAdb::new(
-                app.handle().clone(),
-                data_dir.join("adb_key"),
-            ));
+            let wireless = Arc::new(WirelessAdb::new(data_dir.join("adb_key")));
             let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
                 .with_entitlement(entitlement);

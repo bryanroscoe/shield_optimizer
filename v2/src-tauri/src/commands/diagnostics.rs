@@ -314,8 +314,12 @@ pub async fn collect_diagnostics(
     logs: State<'_, LogControl>,
     serial: Option<String>,
 ) -> Result<String, String> {
-    let adb_path = crate::adb::cached_adb_binary().map(|p| p.display().to_string());
     let adb = state.adb_snapshot().await;
+    let adb_path = if adb.uses_host_server() {
+        crate::adb::cached_adb_binary().map(|p| p.display().to_string())
+    } else {
+        Some("(not applicable: direct network transport, no host binary)".into())
+    };
     let adb_version = adb
         .raw(&["version"])
         .await

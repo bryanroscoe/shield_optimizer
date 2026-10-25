@@ -428,6 +428,12 @@ impl RemoteInputSession {
         jar_path: &Path,
         serial: &str,
     ) -> Result<Self, String> {
+        if !adb.uses_host_server() {
+            return Err(
+                "Fast Remote is unavailable in desktop direct ADB mode; using shell input instead."
+                    .into(),
+            );
+        }
         let local_jar = jar_path
             .to_str()
             .ok_or_else(|| "scrcpy: server jar path is not valid UTF-8".to_string())?;
@@ -573,6 +579,32 @@ fn as_str_args(args: &[String]) -> Vec<&str> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[cfg(not(target_os = "android"))]
+    #[tokio::test]
+    async fn desktop_direct_remote_declines_before_any_jar_push_or_process() {
+        struct Direct;
+        #[async_trait::async_trait]
+        impl AdbDriver for Direct {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+                panic!("must not invoke host commands or transfers")
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+                panic!("must not launch a resident process")
+            }
+        }
+        let result =
+            RemoteInputSession::start(Arc::new(Direct), Path::new("not-opened"), "192.0.2.1:5555")
+                .await;
+        assert!(matches!(result, Err(message) if message.contains("Fast Remote is unavailable")));
+    }
 
     #[test]
     fn inject_keycode_down_select_is_exact_14_bytes() {

@@ -2,6 +2,7 @@ use serde::Serialize;
 use shield_optimizer_core::adb::AdbOutput;
 use shield_optimizer_core::commands::{devices::ConnectResult, AppState};
 use tauri::State;
+use tauri_plugin_atv_adb::AdbExt;
 
 use crate::wireless_adb::{DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus};
 
@@ -17,8 +18,11 @@ pub struct DiscoveryResult {
 }
 
 #[tauri::command]
-pub async fn wireless_discover(state: State<'_, MobileState>) -> Result<DiscoveryResult, String> {
-    let devices = state.wireless.discover().await?;
+pub async fn wireless_discover(app: tauri::AppHandle) -> Result<DiscoveryResult, String> {
+    let devices = tokio::task::spawn_blocking(move || app.adb().discover(3_000))
+        .await
+        .map_err(|e| format!("wireless discovery task failed: {e}"))?
+        .map_err(|e| e.to_string())?;
     let message = if devices.is_empty() {
         "No wireless-debugging pairing services found. Enter the TV's IP and pairing port manually."
             .to_string()

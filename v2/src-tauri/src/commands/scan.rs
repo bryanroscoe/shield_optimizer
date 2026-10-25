@@ -279,6 +279,13 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
 /// UI can render counts and any per-IP failures.
 #[tauri::command]
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
+    scan_network_impl(state.inner()).await
+}
+
+async fn scan_network_impl(state: &AppState) -> Result<ScanResult, String> {
+    if !state.adb_snapshot().await.uses_host_server() {
+        return Err("Scan LAN is not available in experimental direct ADB mode. Use Add by IP, or Pair PIN with the TV's pairing and connect ports. To use platform-tools discovery, relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess.".into());
+    }
     let Some(prefix) = local_subnet_prefix().await else {
         tracing::info!(subnet = "unknown", found = 0, "scan finished");
         return Ok(ScanResult {

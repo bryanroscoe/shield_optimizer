@@ -403,6 +403,7 @@ export interface FileTransferResult {
 }
 
 export interface AdbStatus {
+  backend?: "direct" | "subprocess";
   available: boolean;
   path: string | null;
   last_probe: string | null;

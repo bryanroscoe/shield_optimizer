@@ -80,8 +80,9 @@
       // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
       if (!status.available) {
-        adbMissing = true;
+        adbMissing = status.backend !== "direct";
         devices = [];
+        if (status.backend === "direct") error = status.last_probe ?? "Direct ADB is unavailable.";
         return;
       }
       adbMissing = false;

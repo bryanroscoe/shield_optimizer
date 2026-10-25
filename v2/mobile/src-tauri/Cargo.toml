@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "ATV Optimizer Android app"
 authors = ["Bryan Roscoe"]
 edition = "2021"
-rust-version = "1.81"
+rust-version = "1.88"
 license = "LicenseRef-Proprietary"
 publish = false
 
@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 shield-optimizer-core = { path = "../../crates/core" }
+shield-direct-adb = { path = "../../crates/direct-adb" }
 tauri-plugin-atv-adb = { path = "../tauri-plugin-atv-adb" }
 tauri = { version = "2", features = [] }
 # Hands http(s) links to the phone's browser (an ACTION_VIEW intent on Android).
@@ -26,14 +27,6 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 async-trait = "0.1"
 dirs = "5"
-# Pure-Rust (MIT) wireless-ADB transport. Drives the TV directly from Rust —
-# no adb binary, no adb server, no GPL Kotlin. `framebuffer` gives screenshots
-# via `framebuffer_bytes()`. Builds on the host (CI) and cross-compiles to
-# aarch64-linux-android, so it stays an unconditional dep.
-adb_client = { version = "3.2.2", default-features = false, features = ["framebuffer"] }
-# Generate/persist the ADB RSA identity (PKCS#8 PEM) that adb_client authenticates
-# with. Kept in sync with adb_client's own `rsa` (one copy, no duplication).
-rsa = { version = "0.9", features = ["std", "pem", "getrandom"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"

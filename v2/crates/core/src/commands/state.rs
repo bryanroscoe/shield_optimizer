@@ -59,9 +59,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(adb: Arc<dyn AdbDriver>, app_lists: AppListBundle, data_dir: PathBuf) -> Self {
+        let adb_operations = adb.operation_leases().unwrap_or_default();
         Self {
             adb: RwLock::new(adb),
-            adb_operations: Leases::new(),
+            adb_operations,
             app_lists,
             snapshot_dir: data_dir.join("snapshots"),
             data_dir,
