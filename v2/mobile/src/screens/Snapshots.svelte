@@ -201,12 +201,8 @@
     <button class="primary" onclick={load}>Retry</button>
     <div class="spacer"></div>
   {:else}
-    <p class="intro">
-      A snapshot records which apps are disabled, your Home app and a set of display, audio,
-      HDMI-CEC and screensaver settings. Restoring it disables those apps again and puts the
-      settings back. It never re-enables anything or reinstalls apps. Restore to the same TV, or to
-      another one to copy its setup.
-    </p>
+    <p class="intro">Restoring disables the recorded apps and restores settings. It never re-enables anything or reinstalls apps.</p>
+    <details class="help-disclosure"><summary>What snapshots include</summary><p>A snapshot records disabled apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Restore to the same TV, or preview on another TV to copy its setup.</p></details>
 
     <!-- Create -->
     <div class="create-card">
