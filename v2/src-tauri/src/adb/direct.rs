@@ -105,7 +105,7 @@ impl DirectNetworkAdb {
             sessions.retain(|_, slot| slot.published.load(Ordering::Acquire));
             if !sessions.contains_key(&serial) && sessions.len() >= MAX_SESSIONS {
                 return Err(AdbError::Transport(
-                    "Direct ADB session limit reached. Disconnect a TV first.".into(),
+                    "Direct ADB session limit reached. Use Forget on a TV row to disconnect it first.".into(),
                 ));
             }
             let slot = sessions.entry(serial.clone()).or_insert_with(|| Slot {
@@ -160,8 +160,8 @@ impl DirectNetworkAdb {
         }
         let mut ready = Vec::new();
         while let Some(probed) = probes.join_next().await {
-            if let Ok(Some(serial)) = probed {
-                ready.push(serial);
+            if let Ok(line) = probed {
+                ready.push(line);
             }
             if let Some(entry) = pending.next() {
                 probes.spawn(ready_entry(entry));
@@ -169,19 +169,20 @@ impl DirectNetworkAdb {
         }
         ready.sort();
         let mut stdout = "List of devices attached\n".to_string();
-        for serial in ready {
-            stdout.push_str(&format!("{serial}\tdevice\n"));
+        for line in ready {
+            stdout.push_str(&line);
         }
         Ok(output(stdout))
     }
 }
 
-async fn ready_entry((serial, session): (String, Session)) -> Option<String> {
-    if session.ready().await {
-        Some(serial)
+async fn ready_entry((serial, session): (String, Session)) -> String {
+    let status = if session.ready().await {
+        "device"
     } else {
-        None
-    }
+        "offline"
+    };
+    format!("{serial}\t{status}\n")
 }
 
 struct PendingConnect {
@@ -676,5 +677,48 @@ mod tests {
             .unwrap();
         first.release.notify_one();
         pending.await.unwrap().unwrap();
+    }
+    #[tokio::test]
+    async fn offline_rows_keep_disconnect_available_to_release_capacity() {
+        let (driver, sessions) = fake_driver();
+        let driver = Arc::new(driver);
+        let state = shield_optimizer_core::commands::AppState::new(
+            driver.clone(),
+            shield_optimizer_core::engine::AppListBundle::default(),
+            PathBuf::from("not-created"),
+        );
+        for port in 1..=(MAX_SESSIONS as u16) {
+            driver
+                .raw(&["connect", &format!("192.0.2.1:{port}")])
+                .await
+                .unwrap();
+        }
+        for session in sessions.lock().unwrap().iter().skip(1) {
+            session.ready.store(false, Ordering::Release);
+        }
+        let listed = driver.raw(&["devices"]).await.unwrap().stdout;
+        assert!(listed.contains("192.0.2.1:1\tdevice"));
+        assert!(
+            listed.contains("192.0.2.1:2\toffline"),
+            "offline TV must retain a visible Forget action"
+        );
+        assert!(driver
+            .raw(&["connect", "192.0.2.2:5555"])
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Use Forget on a TV row"));
+        let forgotten =
+            shield_optimizer_core::commands::devices::forget_device_impl(&state, "192.0.2.1:2")
+                .await
+                .unwrap();
+        assert!(forgotten.ok);
+        assert_eq!(forgotten.disconnected, vec!["192.0.2.1:2"]);
+        driver.raw(&["connect", "192.0.2.2:5555"]).await.unwrap();
+        assert!(driver.shell("192.0.2.1:1", "healthy").await.is_ok());
+        let listed = driver.raw(&["devices"]).await.unwrap().stdout;
+        assert!(!listed.contains("192.0.2.1:2\t"));
+        assert!(listed.contains("192.0.2.1:3\toffline"));
+        assert!(listed.contains("192.0.2.2:5555\tdevice"));
     }
 }

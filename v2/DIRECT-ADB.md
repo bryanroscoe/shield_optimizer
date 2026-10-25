@@ -35,10 +35,10 @@ subprocess build does not acquire this dependency. No Rust toolchain was install
 | --- | --- |
 | Legacy Network debugging, including port 5555 | Reuses mobile RSA AUTH, bounded approval wait and liveness checks; unverified on hardware |
 | Android 11+ TLS/PIN | Reuses mobile pairing; pair success does not invent a connection; user supplies separate pairing/connect ports |
-| Multiple TVs | One owned session per exact endpoint, maximum 32 published sessions; operations on established TVs are independent |
+| Multiple TVs | One owned session per exact endpoint, maximum 32 in-memory transport slots; operations on established TVs are independent |
 | Connect/disconnect transitions | Serialized at the pool boundary; canceled handshakes cannot publish a late row; abandoned attempts do not consume capacity |
 | Discovery | Manual numeric IP and port only; bracketed IPv6 accepted. Desktop Scan LAN/mDNS and USB are explicitly unavailable |
-| Ready state and Refresh | Probes owned sessions before listing; at most four probes run concurrently |
+| Ready state and Refresh | Probes owned sessions before listing; failed liveness remains an offline row with Forget available; at most four probes run concurrently |
 | Curated app actions and profiling | Existing command/engine path and safety checks; shared shell results retain exit status and stderr |
 | File push/pull and bounded downloads | Shared sync transfer and streaming size limit, finite inactivity timeouts; no hardware evidence |
 | Screenshots and reboot | Shared binary screenshot/reboot services; no hardware evidence |
@@ -57,7 +57,10 @@ adapter does not broaden retries or automatically reset a shared server.
 
 Host tests cover two-TV target isolation, binary bytes, pairing remaining disconnected, cancellation
 with a late worker, more than 32 abandoned/unconfirmed attempts, explicit unsupported operations,
-required-key behavior, worker/stream leases and shutdown admission. Android host tests compile the
+required-key behavior, worker/stream leases and shutdown admission. Previously published endpoints
+remain visible as offline after liveness fails, so the existing Forget action can release a slot
+without hiding the connection or evicting another TV. The capacity regression exercises the shared
+Forget command with one healthy TV and offline endpoints; no automatic eviction or reconnect is added. Android host tests compile the
 same extracted code; NSD and Android fast Remote remain platform-specific.
 
 Vendor validation is deliberately limited to inspected fake service-framing tests, ephemeral-loopback
