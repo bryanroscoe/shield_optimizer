@@ -240,24 +240,39 @@ pub fn run() {
 
     let state = default_state(app_lists, data_dir).with_known_names(loader::load_known_names());
 
-    tauri::Builder::default()
+    let local_preview = matches!(
+        std::env::var("SHIELD_OPTIMIZER_LOCAL_PREVIEW").as_deref(),
+        Ok("1")
+    );
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+    if !local_preview {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    builder
+        .setup(move |app| {
+            if local_preview {
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_title("ATV Optimizer — Local Preview (real ADB)")?;
+                }
+            }
+            Ok(())
+        })
         .manage(state)
         .manage(log_control)
         .manage(AdbQuitControl::default())
         .invoke_handler(invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| match event {
+        .run(move |app, event| match event {
             // An update restart arrives as this exit code, ahead of `Exit`.
             tauri::RunEvent::ExitRequested {
                 code: Some(tauri::RESTART_EXIT_CODE),
                 ..
             } => app.state::<AdbQuitControl>().note_restart(),
-            tauri::RunEvent::Exit => {
+            tauri::RunEvent::Exit if !local_preview => {
                 let state = app.state::<AppState>();
                 let control = app.state::<AdbQuitControl>();
                 tauri::async_runtime::block_on(quit::stop_adb_server_on_quit(

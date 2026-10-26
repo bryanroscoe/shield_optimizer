@@ -108,18 +108,20 @@
     getVersion()
       .then((running) => {
         appVersion = running;
-        announceArrival(running);
+        if (import.meta.env.VITE_LOCAL_PREVIEW !== "1") announceArrival(running);
       })
       .catch(() => {});
 
-    api
-      .checkForUpdate()
-      .then((u) => {
-        update = u;
-      })
-      .catch(() => {});
+    if (import.meta.env.VITE_LOCAL_PREVIEW !== "1") {
+      api
+        .checkForUpdate()
+        .then((u) => {
+          update = u;
+        })
+        .catch(() => {});
 
-    checkForUpdate();
+      checkForUpdate();
+    }
   });
 
   function announceArrival(running: string) {

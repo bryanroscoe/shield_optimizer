@@ -722,7 +722,7 @@
 
   onMount(() => {
     void bootDiscovery();
-    void refreshStopOnQuit();
+    if (import.meta.env.VITE_LOCAL_PREVIEW !== "1") void refreshStopOnQuit();
     return () => {
       pairWaitToken++;
       reattachToken++;
