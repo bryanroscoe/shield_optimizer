@@ -20,7 +20,7 @@ pub struct ScanResult {
     pub subnet: Option<String>,
     /// IPs that answered on the ADB port.
     pub found: Vec<String>,
-    /// IPs that `adb connect` succeeded against.
+    /// Endpoints whose exact transport was verified ready after connection.
     pub connected: Vec<String>,
     /// IPs the daemon reached but that haven't authorized this computer's ADB
     /// key — the device shows a debugging authorization prompt and registers
@@ -62,11 +62,149 @@ pub(crate) fn classify_connect_output(combined: &str) -> ConnectOutcome {
     }
 }
 
-/// A nonzero exit surfaces as `Err` from the driver and counts as failed.
-async fn adb_connect(adb: &dyn AdbDriver, target: &str) -> ConnectOutcome {
-    match adb.raw(&["connect", target]).await {
-        Ok(out) => classify_connect_output(&format!("{}\n{}", out.stdout, out.stderr)),
-        Err(_) => ConnectOutcome::Failed,
+struct ConnectAttempt {
+    outcome: ConnectOutcome,
+    detail: String,
+}
+
+impl ConnectAttempt {
+    fn failed(detail: impl Into<String>) -> Self {
+        Self {
+            outcome: ConnectOutcome::Failed,
+            detail: bounded_detail(&detail.into()),
+        }
+    }
+}
+
+async fn verify_target(adb: &dyn AdbDriver, target: &str) -> ConnectAttempt {
+    match adb.raw(&["-s", target, "get-state"]).await {
+        Ok(out) if out.success() && out.stdout.trim() == "device" => ConnectAttempt {
+            outcome: ConnectOutcome::Connected,
+            detail: String::new(),
+        },
+        Ok(out) => {
+            let combined = out.combined();
+            if out.stdout.trim() == "unauthorized" || reports_unauthorized(&combined) {
+                ConnectAttempt {
+                    outcome: ConnectOutcome::Unauthorized,
+                    detail: String::new(),
+                }
+            } else {
+                let detail = if combined.trim().is_empty() {
+                    "empty get-state response"
+                } else {
+                    combined.trim()
+                };
+                ConnectAttempt::failed(if out.success() {
+                    format!("ADB did not confirm readiness: {detail}")
+                } else {
+                    format!("Readiness check exited {:?}: {detail}", out.exit_code)
+                })
+            }
+        }
+        Err(error) => {
+            let detail = error.to_string();
+            if reports_unauthorized(&detail) {
+                ConnectAttempt {
+                    outcome: ConnectOutcome::Unauthorized,
+                    detail: String::new(),
+                }
+            } else {
+                ConnectAttempt::failed(format!("Readiness check failed: {detail}"))
+            }
+        }
+    }
+}
+
+fn reports_unauthorized(text: &str) -> bool {
+    let text = text.to_lowercase();
+    text.contains("failed to authenticate")
+        || text.contains("device unauthorized")
+        || text.contains("device is unauthorized")
+}
+
+async fn adb_connect(adb: &dyn AdbDriver, target: &str) -> ConnectAttempt {
+    let combined = match adb.raw(&["connect", target]).await {
+        Ok(out) => out.combined(),
+        Err(error) => {
+            let detail = error.to_string();
+            return if reports_unauthorized(&detail) {
+                ConnectAttempt {
+                    outcome: ConnectOutcome::Unauthorized,
+                    detail: String::new(),
+                }
+            } else {
+                ConnectAttempt::failed(detail)
+            };
+        }
+    };
+    match classify_connect_output(&combined) {
+        ConnectOutcome::Connected => verify_target(adb, target).await,
+        ConnectOutcome::Unauthorized => ConnectAttempt {
+            outcome: ConnectOutcome::Unauthorized,
+            detail: String::new(),
+        },
+        ConnectOutcome::Failed => ConnectAttempt::failed(if combined.trim().is_empty() {
+            "ADB returned no connection result.".into()
+        } else {
+            combined
+        }),
+    }
+}
+
+const MAX_DETAIL_CHARS: usize = 240;
+const MAX_FAILURE_DETAILS: usize = 6;
+
+fn bounded_detail(text: &str) -> String {
+    let mut detail: String = text
+        .chars()
+        .take(MAX_DETAIL_CHARS)
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if text.chars().nth(MAX_DETAIL_CHARS).is_some() {
+        detail.push('…');
+    }
+    detail.trim().to_string()
+}
+
+fn record_failure(
+    failed: &mut Vec<String>,
+    details: &mut Vec<String>,
+    target: String,
+    reason: &str,
+) {
+    if details.len() < MAX_FAILURE_DETAILS {
+        details.push(bounded_detail(&format!("{target}: {reason}")));
+    }
+    failed.push(target);
+}
+
+fn append_failures(
+    message: &mut String,
+    failed: &[String],
+    details: &[String],
+    startup_error: Option<&str>,
+) {
+    if let Some(error) = startup_error {
+        message.push_str(&format!(
+            " ADB startup was not confirmed: {}.",
+            bounded_detail(error)
+        ));
+    }
+    if !failed.is_empty() {
+        message.push_str(&format!(
+            " {} failed readiness or connection.",
+            failed.len()
+        ));
+        for detail in details.iter().take(MAX_FAILURE_DETAILS) {
+            message.push_str(&format!(" {}", bounded_detail(detail)));
+        }
+        if failed.len() > MAX_FAILURE_DETAILS {
+            message.push_str(&format!(
+                " {} more failed endpoints; use Add by IP for their current result.",
+                failed.len() - MAX_FAILURE_DETAILS
+            ));
+        }
     }
 }
 
@@ -243,18 +381,7 @@ fn split_already_attached(
     let mut ready = Vec::new();
     let mut unauthorized = Vec::new();
     for endpoint in already_attached {
-        let status = services
-            .iter()
-            .filter(|s| &s.endpoint() == endpoint)
-            .find_map(|s| {
-                let prefix = format!("{}.", s.instance);
-                attached
-                    .iter()
-                    .find(|(key, _)| {
-                        key != endpoint && (key == &s.instance || key.starts_with(&prefix))
-                    })
-                    .map(|(_, status)| *status)
-            });
+        let status = held_transport_for(endpoint, services, attached).map(|(_, status)| *status);
         if status == Some(DeviceStatus::Unauthorized) {
             unauthorized.push(endpoint.clone());
         } else {
@@ -262,6 +389,22 @@ fn split_already_attached(
         }
     }
     (ready, unauthorized)
+}
+
+fn held_transport_for<'a>(
+    endpoint: &str,
+    services: &[MdnsService],
+    attached: &'a [(String, DeviceStatus)],
+) -> Option<&'a (String, DeviceStatus)> {
+    services
+        .iter()
+        .filter(|service| service.endpoint() == endpoint)
+        .find_map(|service| {
+            let prefix = format!("{}.", service.instance);
+            attached.iter().find(|(key, _)| {
+                key != endpoint && (key == &service.instance || key.starts_with(&prefix))
+            })
+        })
 }
 
 /// Ask the adb daemon what it has seen advertised over mDNS. Requires
@@ -299,25 +442,36 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let swept: Vec<String> = hits.iter().map(|h| h.ip.clone()).collect();
 
     let adb = state.adb_snapshot().await;
+    scan_command_stage(adb.as_ref(), &subnet_label, &swept).await
+}
 
+async fn scan_command_stage(
+    adb: &dyn AdbDriver,
+    subnet_label: &str,
+    swept: &[String],
+) -> Result<ScanResult, String> {
     // Warm the adb daemon before connecting. The port sweep just opened and
     // dropped raw TCP sockets against each device's adbd; firing `adb connect`
     // immediately afterward — especially against a cold daemon — tends to get
     // a transient refusal, which is why a manual "Restart ADB" (which starts
     // the daemon) makes the same devices connect. Starting the server here, plus
     // a single retry below, makes the scan connect on its own.
-    let _ = adb.raw(&["start-server"]).await;
+    let startup_error = match adb.raw(&["start-server"]).await {
+        Ok(out) if out.success() => None,
+        Ok(out) => Some(bounded_detail(&out.combined())),
+        Err(error) => Some(bounded_detail(&error.to_string())),
+    };
 
     // The daemon has to be up before it can report what it has browsed --
     // and starting it is also what makes adb auto-connect the mDNS devices it
     // already trusts, so read the attached list only after this point.
-    let services = discover_mdns_services(adb.as_ref()).await;
-    let attached_with_status = attached_serials(adb.as_ref()).await;
+    let services = discover_mdns_services(adb).await;
+    let attached_with_status = attached_serials(adb).await;
     let attached: Vec<String> = attached_with_status
         .iter()
         .map(|(k, _)| k.clone())
         .collect();
-    let targets = merge_scan_targets(&swept, &services, &attached);
+    let targets = merge_scan_targets(swept, &services, &attached);
     let (held_ready, held_unauthorized) =
         split_already_attached(&targets.already_attached, &services, &attached_with_status);
 
@@ -329,10 +483,26 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
         .cloned()
         .collect();
 
-    let mut connected = held_ready;
+    let mut connected = Vec::new();
     let mut unauthorized = held_unauthorized;
     let mut failed = Vec::new();
-    let offline = offline_serials(adb.as_ref()).await.unwrap_or_default();
+    let mut failure_details = Vec::new();
+    for endpoint in held_ready {
+        let attempt = match held_transport_for(&endpoint, &services, &attached_with_status) {
+            Some((transport, _)) => verify_target(adb, transport).await,
+            None => {
+                ConnectAttempt::failed("The existing advertised transport could not be verified.")
+            }
+        };
+        match attempt.outcome {
+            ConnectOutcome::Connected => connected.push(endpoint),
+            ConnectOutcome::Unauthorized => unauthorized.push(endpoint),
+            ConnectOutcome::Failed => {
+                record_failure(&mut failed, &mut failure_details, endpoint, &attempt.detail);
+            }
+        }
+    }
+    let offline = offline_serials(adb).await.unwrap_or_default();
     for target in &targets.connect {
         // Redialling an endpoint adb already holds unauthorized answers
         // "already connected" and never re-prompts, so it would be counted as
@@ -348,35 +518,63 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
             }
             // Only redial once the offline key is really gone; otherwise the
             // redial is exactly the duplicate this cleanup exists to prevent.
-            let gone = match offline_serials(adb.as_ref()).await {
+            let gone = match offline_serials(adb).await {
                 Some(still_offline) => !stale.iter().any(|key| still_offline.contains(key)),
                 None => false,
             };
             if !gone {
-                failed.push(target.clone());
+                record_failure(
+                    &mut failed,
+                    &mut failure_details,
+                    target.clone(),
+                    "Could not confirm stale transport removal; reconnect was not attempted.",
+                );
                 continue;
             }
         }
-        let mut outcome = adb_connect(adb.as_ref(), target).await;
+        let mut attempt = adb_connect(adb, target).await;
         // Only a hard failure is worth retrying — "unauthorized" means the
         // device is waiting for the user to approve the prompt on-screen.
-        if outcome == ConnectOutcome::Failed {
+        if attempt.outcome == ConnectOutcome::Failed {
             tokio::time::sleep(Duration::from_millis(400)).await;
-            outcome = adb_connect(adb.as_ref(), target).await;
+            let first_detail = bounded_detail(&attempt.detail);
+            attempt = adb_connect(adb, target).await;
+            if attempt.outcome == ConnectOutcome::Failed
+                && bounded_detail(&attempt.detail) != first_detail
+            {
+                attempt.detail = format!(
+                    "{} (first attempt: {})",
+                    bounded_detail(&attempt.detail),
+                    first_detail
+                );
+            }
         }
-        match outcome {
+        match attempt.outcome {
             ConnectOutcome::Connected => connected.push(target.clone()),
             ConnectOutcome::Unauthorized => unauthorized.push(target.clone()),
-            ConnectOutcome::Failed => failed.push(target.clone()),
+            ConnectOutcome::Failed => {
+                record_failure(
+                    &mut failed,
+                    &mut failure_details,
+                    target.clone(),
+                    &attempt.detail,
+                );
+            }
         }
     }
 
-    let message = summary_message(
-        &subnet_label,
+    let mut message = summary_message(
+        subnet_label,
         found.len(),
         &connected,
         &unauthorized,
         &targets.needs_pairing,
+    );
+    append_failures(
+        &mut message,
+        &failed,
+        &failure_details,
+        startup_error.as_deref(),
     );
     tracing::info!(
         subnet = %subnet_label,
@@ -389,7 +587,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     );
 
     Ok(ScanResult {
-        subnet: Some(subnet_label),
+        subnet: Some(subnet_label.to_string()),
         found,
         connected,
         unauthorized,
@@ -1037,5 +1235,340 @@ mod tests {
     fn summary_plain_when_all_connected() {
         let msg = summary_message("10.0.0", 1, &["10.0.0.5".into()], &[], &[]);
         assert_eq!(msg, "Scanned 10.0.0.x — found 1 device, connected 1.");
+    }
+}
+
+#[cfg(test)]
+mod command_stage_tests {
+    use super::*;
+    use shield_optimizer_core::adb::{AdbError, AdbOutput, AdbResult};
+    use std::collections::{BTreeMap, VecDeque};
+    use std::sync::Mutex;
+
+    #[derive(Clone)]
+    enum Reply {
+        Text(String),
+        Error(String),
+        Nonzero(String),
+    }
+
+    struct ScanFake {
+        replies: Mutex<BTreeMap<String, VecDeque<Reply>>>,
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl Default for ScanFake {
+        fn default() -> Self {
+            Self {
+                replies: Mutex::new(BTreeMap::new()),
+                calls: Mutex::new(Vec::new()),
+            }
+            .on(&["start-server"], &[Ok("")])
+            .on(&["mdns", "services"], &[Ok("")])
+            .on(&["devices"], &[Ok("List of devices attached\n")])
+        }
+    }
+
+    impl ScanFake {
+        fn on(self, args: &[&str], replies: &[Result<&str, &str>]) -> Self {
+            self.replies.lock().unwrap().insert(
+                args.join(" "),
+                replies
+                    .iter()
+                    .map(|reply| match reply {
+                        Ok(text) => Reply::Text((*text).into()),
+                        Err(text) => Reply::Error((*text).into()),
+                    })
+                    .collect(),
+            );
+            self
+        }
+        fn nonzero(self, args: &[&str], stdout: &str) -> Self {
+            self.replies.lock().unwrap().insert(
+                args.join(" "),
+                VecDeque::from([Reply::Nonzero(stdout.into())]),
+            );
+            self
+        }
+        fn emit_fixture(name: &str, result: &ScanResult) {
+            if let Ok(dir) = std::env::var("SHIELD_SCAN_FIXTURE_DIR") {
+                let dir = std::path::PathBuf::from(dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(
+                    dir.join(format!("{name}.json")),
+                    serde_json::to_vec_pretty(result).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        fn count(&self, command: &str) -> usize {
+            self.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|call| *call == command)
+                .count()
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AdbDriver for ScanFake {
+        async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+            let command = args.join(" ");
+            self.calls.lock().unwrap().push(command.clone());
+            let mut routes = self.replies.lock().unwrap();
+            let route = routes
+                .get_mut(&command)
+                .unwrap_or_else(|| panic!("Unexpected mock command: {command}"));
+            let reply = if route.len() > 1 {
+                route.pop_front().unwrap()
+            } else {
+                route.front().unwrap().clone()
+            };
+            match reply {
+                Reply::Text(stdout) => Ok(AdbOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                Reply::Error(message) => Err(AdbError::Transport(message)),
+                Reply::Nonzero(stdout) => Ok(AdbOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: Some(1),
+                }),
+            }
+        }
+        async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+            panic!("Scan command stage must not query a TV profile")
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn positive_connect_text_requires_exact_target_readiness() {
+        for state in ["offline", "unauthorized"] {
+            let fake = ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("already connected to 192.0.2.1:5555")],
+                )
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok(state)]);
+            let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+                .await
+                .unwrap();
+            ScanFake::emit_fixture(&format!("after-{state}"), &result);
+            assert!(result.connected.is_empty(), "{state} is not ready");
+            if state == "unauthorized" {
+                assert_eq!(result.unauthorized, vec!["192.0.2.1:5555"]);
+            } else {
+                assert_eq!(result.failed, vec!["192.0.2.1:5555"]);
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn another_healthy_tv_does_not_confirm_a_missing_target() {
+        let fake = ScanFake::default()
+            .on(&["devices"], &[Ok("192.0.2.2:5555\tdevice\n")])
+            .on(
+                &["connect", "192.0.2.1:5555"],
+                &[Ok("connected to 192.0.2.1:5555")],
+            )
+            .on(
+                &["-s", "192.0.2.1:5555", "get-state"],
+                &[Err("device '192.0.2.1:5555' not found")],
+            );
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert!(result.connected.is_empty());
+        assert!(result.message.contains("not found"));
+        assert_eq!(fake.count("-s 192.0.2.2:5555 get-state"), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn startup_and_target_errors_are_retained_in_scan_feedback() {
+        let fake = ScanFake::default()
+            .on(&["start-server"], &[Err("server startup reply lost")])
+            .on(&["connect", "192.0.2.1:5555"], &[Err("No route to host")]);
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        ScanFake::emit_fixture("after-startup-failure", &result);
+        assert!(result.message.contains("server startup reply lost"));
+        assert!(result.message.contains("192.0.2.1:5555"));
+        assert!(result.message.contains("No route to host"));
+    }
+    #[tokio::test(start_paused = true)]
+    async fn fresh_and_already_connected_targets_must_both_be_ready() {
+        for output in [
+            "connected to 192.0.2.1:5555",
+            "already connected to 192.0.2.1:5555",
+        ] {
+            let fake = ScanFake::default()
+                .on(&["connect", "192.0.2.1:5555"], &[Ok(output)])
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok(" device\n")]);
+            let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+                .await
+                .unwrap();
+            assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+            assert!(result.failed.is_empty());
+            assert_eq!(fake.count("connect 192.0.2.1:5555"), 1);
+            assert_eq!(fake.count("-s 192.0.2.1:5555 get-state"), 1);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn bounded_retry_can_observe_readiness_after_an_offline_result() {
+        let fake = ScanFake::default()
+            .on(
+                &["connect", "192.0.2.1:5555"],
+                &[Ok("connected to 192.0.2.1:5555")],
+            )
+            .on(
+                &["-s", "192.0.2.1:5555", "get-state"],
+                &[Ok("offline"), Ok("device")],
+            );
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+        assert!(result.failed.is_empty());
+        assert_eq!(fake.count("connect 192.0.2.1:5555"), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn authorization_pending_waits_for_a_later_user_scan_without_retrying() {
+        let fake = ScanFake::default()
+            .on(
+                &["connect", "192.0.2.1:5555"],
+                &[Ok("already connected to 192.0.2.1:5555")],
+            )
+            .on(
+                &["-s", "192.0.2.1:5555", "get-state"],
+                &[Ok("unauthorized"), Ok("device")],
+            );
+        let first = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(first.unauthorized, vec!["192.0.2.1:5555"]);
+        assert!(first.connected.is_empty());
+        assert!(first.failed.is_empty());
+        assert!(first.message.contains("Ask again"));
+        assert_eq!(fake.count("connect 192.0.2.1:5555"), 1);
+        let next = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(next.connected, vec!["192.0.2.1:5555"]);
+        assert!(next.unauthorized.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn held_and_failed_authentication_results_are_not_redialled() {
+        let held = ScanFake::default().on(&["devices"], &[Ok("192.0.2.1:5555\tunauthorized\n")]);
+        let result = scan_command_stage(&held, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.unauthorized, vec!["192.0.2.1:5555"]);
+        assert_eq!(held.count("connect 192.0.2.1:5555"), 0);
+        let auth_error = ScanFake::default().on(
+            &["connect", "192.0.2.1:5555"],
+            &[Err("failed to authenticate to 192.0.2.1:5555")],
+        );
+        let result = scan_command_stage(&auth_error, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.unauthorized, vec!["192.0.2.1:5555"]);
+        assert_eq!(auth_error.count("connect 192.0.2.1:5555"), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_existing_advertised_transport_is_probed_by_its_exact_key() {
+        for status in ["device", "offline"] {
+            let fake = ScanFake::default()
+                .on(
+                    &["mdns", "services"],
+                    &[Ok("adb-fixture\t_adb-tls-connect._tcp\t192.0.2.1:40000\n")],
+                )
+                .on(
+                    &["devices"],
+                    &[Ok("adb-fixture._adb-tls-connect._tcp\tdevice\n")],
+                )
+                .on(
+                    &["-s", "adb-fixture._adb-tls-connect._tcp", "get-state"],
+                    &[Ok(status)],
+                );
+            let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+            assert_eq!(result.found, vec!["192.0.2.1:40000"]);
+            if status == "device" {
+                assert_eq!(result.connected, vec!["192.0.2.1:40000"]);
+            } else {
+                assert!(result.connected.is_empty());
+                assert_eq!(result.failed, vec!["192.0.2.1:40000"]);
+            }
+            assert_eq!(fake.count("connect 192.0.2.1:40000"), 0);
+            assert_eq!(fake.count("-s 192.0.2.1:40000 get-state"), 0);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn startup_uncertainty_remains_visible_even_when_the_target_is_ready() {
+        let fake = ScanFake::default()
+            .on(&["start-server"], &[Err("startup response lost")])
+            .on(
+                &["connect", "192.0.2.1:5555"],
+                &[Ok("connected to 192.0.2.1:5555")],
+            )
+            .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]);
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+        assert!(result.message.contains("startup was not confirmed"));
+        assert!(result.message.contains("startup response lost"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn empty_and_nonzero_probes_cannot_confirm_readiness() {
+        let empty = ScanFake::default()
+            .on(
+                &["connect", "192.0.2.1:5555"],
+                &[Ok("connected to 192.0.2.1:5555")],
+            )
+            .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("")]);
+        assert!(scan_command_stage(&empty, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap()
+            .connected
+            .is_empty());
+        let nonzero = ScanFake::default()
+            .on(
+                &["connect", "192.0.2.1:5555"],
+                &[Ok("connected to 192.0.2.1:5555")],
+            )
+            .nonzero(&["-s", "192.0.2.1:5555", "get-state"], "device");
+        let result = scan_command_stage(&nonzero, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert!(result.connected.is_empty());
+        assert!(result.message.contains("exited Some(1)"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn failure_details_are_bounded_while_endpoint_lists_stay_complete() {
+        let long = format!("No route to host \u{001b}{}", "界".repeat(2000));
+        let mut fake = ScanFake::default().on(&["start-server"], &[Err(&long)]);
+        let swept: Vec<String> = (1..=9).map(|n| format!("192.0.2.{n}")).collect();
+        for host in &swept {
+            fake = fake.on(&["connect", &format!("{host}:5555")], &[Err(&long)]);
+        }
+        let result = scan_command_stage(&fake, "192.0.2", &swept).await.unwrap();
+        assert_eq!(result.found.len(), 9);
+        assert_eq!(result.failed.len(), 9);
+        assert!(result.message.contains("9 failed"));
+        assert!(result.message.contains("3 more failed endpoints"));
+        assert!(result.message.chars().count() < 1900);
+        assert!(!result.message.chars().any(char::is_control));
+        assert!(result.message.contains('…'));
     }
 }
