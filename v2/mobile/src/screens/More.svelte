@@ -327,7 +327,6 @@
             {activating ? "…" : "Activate"}
           </button>
         </div>
-        <p class="license-hint">Upper/lower case doesn't matter. Paste it if you can.</p>
         {#if licenseError}
           <p class="license-error">{licenseError}</p>
         {/if}
@@ -352,7 +351,6 @@
             <span class="msr tool-icon">{t.icon}</span>
             <div class="setting-info">
               <span class="setting-title">{t.title}</span>
-              <span class="setting-desc">{t.desc}</span>
             </div>
             {#if t.pro && !session.isPro}
               <span class="msr lock-icon">lock</span>
@@ -482,7 +480,8 @@
     <!-- Debug log -->
     <div class="more-card">
       <span class="card-label">Debug log</span>
-      <p class="card-desc">Recent app activity and the device transport log — useful for support. Copy puts log text on your clipboard; it does not save a file.</p>
+      <p class="card-desc">Copy puts log text on your clipboard; it does not save a file.</p>
+      <details class="help-disclosure"><summary>About debug logs</summary><p class="card-desc">Recent app activity and the device transport log — useful for support.</p></details>
       {#if !showLog}
         <button class="ghost-btn" onclick={loadLog}>
           <span class="msr">description</span>Show debug log
@@ -506,7 +505,6 @@
     <!-- About -->
     <div class="more-card">
       <span class="card-label">About</span>
-      <p class="card-desc">ATV Optimizer uses open-source components. Their licenses and notices are included here.</p>
       <button class="ghost-btn" onclick={toggleNotices}>
         <span class="msr">{showNotices ? "expand_less" : "expand_more"}</span>
         {showNotices ? "Hide third-party notices" : "Third-party notices"}
@@ -676,11 +674,6 @@
   .success-color {
     color: var(--teal);
   }
-  .license-hint {
-    font-size: 11px;
-    color: var(--dim);
-    margin: 0;
-  }
   .license-error {
     font-size: 12px;
     color: var(--danger);
@@ -782,10 +775,6 @@
   .setting-title {
     font-size: 14px;
     font-weight: 600;
-  }
-  .setting-desc {
-    font-size: 12px;
-    color: var(--muted);
   }
   .tool-icon {
     font-size: 22px;

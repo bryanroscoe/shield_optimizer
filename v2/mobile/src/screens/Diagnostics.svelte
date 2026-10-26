@@ -482,11 +482,14 @@
       <!-- Top Memory Consumers -->
       <div class="top-memory-section">
         <span class="section-label">Top memory consumers</span>
-        <p class="consumers-note">
-          The suggestion for an app is the same one the Apps and Optimize screens give it — tap it
-          for details. Names we can't tie to an installed package are processes, not apps, and
-          there is nothing to remove.
-        </p>
+        <details class="help-disclosure">
+          <summary>About process suggestions</summary>
+          <p class="consumers-note">
+            The suggestion for an app is the same one the Apps and Optimize screens give it — tap it
+            for details. Names we can't tie to an installed package are processes, not apps, and
+            there is nothing to remove.
+          </p>
+        </details>
         {#if installed.status === "failed"}
           <div class="stale-warning" role="alert">
             <span class="msr">warning</span>

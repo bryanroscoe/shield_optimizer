@@ -234,7 +234,10 @@
         <button class="dpad-center" onclick={() => sendKey("select")}>OK</button>
       </div>
     </div>
-    <span class="helper-text">Tap direction to move · hold to repeat · center to select</span>
+    <details class="help-disclosure">
+      <summary>Remote controls</summary>
+      <span class="helper-text">Tap direction to move · hold to repeat · center to select</span>
+    </details>
 
     <div class="media-row">
       <button class="media-btn" onclick={() => sendKey("rewind")} aria-label="Rewind">

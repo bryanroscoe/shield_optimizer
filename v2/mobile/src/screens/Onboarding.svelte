@@ -332,7 +332,7 @@
           ? "Your only saved TV — no code needed. Cancel to pick a different one."
           : "Connecting only to the saved entry you selected."}
       {:else}
-        Pick a saved TV to connect. Nothing connects until you choose.
+        Nothing connects until you choose.
       {/if}
     </p>
 
