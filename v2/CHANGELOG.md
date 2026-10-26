@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: move optional explanations into keyboard-accessible help sections while keeping safety warnings, permission consequences and errors visible.
+
 ## v2-2.4.1 — 2026-10-23
 
 Google TV launcher switching works properly now: Setup Wraith, Google TV's setup helper, no longer takes the Home button back after you change launchers (#122, #157, #158). Also new: a Logs tab, Stop ADB when quitting, Report this app, app storage details, restart after updating, patch notes on demand, a proper right-click menu, and Ask again for a TV whose debugging prompt was missed. 2.3.1 was prepared but never published, and the 2.4.0 build failed before anything was

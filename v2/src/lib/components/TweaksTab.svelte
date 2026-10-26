@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onMount, onDestroy } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
@@ -352,10 +353,7 @@
       {tweaksLoading ? "Loading…" : "Refresh"}
     </button>
   </div>
-  <p class="muted small">
-    Change TV settings that Android hides or buries. Reset puts a setting back
-    to the TV's default.
-  </p>
+  <HelpDetails label="Settings help"><p>Reset puts a setting back to the TV's default.</p></HelpDetails>
   {#if tweaksErr}
     <div class="error">{tweaksErr}</div>
   {:else if !tweaks}
@@ -367,15 +365,8 @@
 
     {#if netflixHooksState && netflixHooksState !== "missing"}
       <h3>Nvidia System Hooks</h3>
-      <p class="muted small">
-        Controls Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>), which
-        turn the Xbox controller's Guide button into Home. Turning them off can
-        fix Guide button conflicts in Steam Link and Moonlight.
-        <strong>Note:</strong> this does not change the Netflix button on the
-        Shield remote. That button is handled in firmware and can't be changed
-        over ADB, so use a button remapper app for it. You can turn this back on
-        at any time.
-      </p>
+      <p class="muted small">Off stops the controller's Guide button acting as Home. It does not change the remote's Netflix button.</p>
+      <HelpDetails label="Controller button help"><p>Turning Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>) off can fix Guide button conflicts in Steam Link and Moonlight. The remote's Netflix button is handled in firmware; use a button remapper app for it.</p></HelpDetails>
       <div class="tweak-row">
         <div>
           <div class="current">Current: <strong>{netflixHooksState === "disabled" ? "hooks disabled" : "hooks active"}</strong></div>
@@ -400,13 +391,8 @@
 
     {#if assistantState && assistantState !== "missing"}
       <h3>Remote Assistant Button</h3>
-      <p class="muted small">
-        Turning this off removes the microphone permission from Google's search
-        app (<code>{ASSISTANT_PKG}</code>), so the remote's Assistant button
-        can't hear you. The button may still open the assistant for a moment.
-        <strong>Trade-off:</strong> this also turns off voice search in the Play
-        Store. You can turn it back on at any time.
-      </p>
+      <p class="muted small">Off revokes Google search's microphone access and turns off Play Store voice search.</p>
+      <HelpDetails label="Assistant button help"><p>The remote's Assistant button can still open the assistant briefly, but Google's search app (<code>{ASSISTANT_PKG}</code>) cannot hear you. You can restore access with On.</p></HelpDetails>
       <div class="tweak-row">
         <div>
           <div class="current">Current: <strong>{assistantState === "revoked" ? "mic revoked" : "mic active"}</strong></div>
@@ -431,13 +417,15 @@
 
     {#if privateDns}
       <h3>Private DNS (DNS-over-TLS)</h3>
-      <p class="muted small">
-        Encrypts the TV's DNS lookups. <strong>Automatic</strong> uses encrypted
-        DNS when the network offers it. <strong>Custom</strong> sends lookups to a
-        server you choose, such as AdGuard, NextDNS or Cloudflare. If a test
-        lookup through a custom server fails, the app switches back to Automatic
-        so the TV stays online.
-      </p>
+      <HelpDetails label="Private DNS help">
+        <p class="muted small">
+          Encrypts the TV's DNS lookups. <strong>Automatic</strong> uses encrypted
+          DNS when the network offers it. <strong>Custom</strong> sends lookups to a
+          server you choose, such as AdGuard, NextDNS or Cloudflare. If a test
+          lookup through a custom server fails, the app switches back to Automatic
+          so the TV stays online.
+        </p>
+      </HelpDetails>
       <div class="tweak-row">
         <div>
           <div class="current">Current: <strong>{dnsModeLabel(privateDns.mode, privateDns.hostname)}</strong></div>
@@ -458,6 +446,7 @@
           >Automatic</button>
         </div>
       </div>
+      <p class="muted small">Custom DNS sends the TV's lookups to the server you choose.</p>
       <div class="dns-custom">
         <input
           type="text"
@@ -520,11 +509,13 @@
     </div>
 
     <h3>Match Content Frame Rate</h3>
-    <p class="muted small">
-      Lets apps change the TV's refresh rate to match the video, such as 24 Hz
-      for films. Seamless only switches when the TV can do it without a black
-      screen. The app and the TV both have to support it.
-    </p>
+    <HelpDetails label="Frame rate help">
+      <p class="muted small">
+        Lets apps change the TV's refresh rate to match the video, such as 24 Hz
+        for films. Seamless only switches when the TV can do it without a black
+        screen. The app and the TV both have to support it.
+      </p>
+    </HelpDetails>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{matchContentLabel(tweaks.match_content_frame_rate)}</strong></div>
@@ -610,16 +601,18 @@
     {/if}
 
     <h3>Background Process Limit</h3>
-    <p class="muted small">
-      Android keeps recently used apps in memory so they open faster. This shows
-      how many it will keep. This app can't change that number. Earlier versions
-      wrote a setting for it, but a Shield TV ignored that setting and kept its
-      limit at 32.
-    </p>
-    <p class="muted small">
-      To set a limit, open Developer options on the TV and use Background process
-      limit. In standard Android, that choice is cleared when the TV restarts.
-    </p>
+    <HelpDetails label="Background process help">
+      <p class="muted small">
+        Android keeps recently used apps in memory so they open faster. This shows
+        how many it will keep. This app can't change that number. Earlier versions
+        wrote a setting for it, but a Shield TV ignored that setting and kept its
+        limit at 32.
+      </p>
+      <p class="muted small">
+        To set a limit, open Developer options on the TV and use Background process
+        limit. In standard Android, that choice is cleared when the TV restarts.
+      </p>
+    </HelpDetails>
     <div class="tweak-row">
       <div>
         <div class="current">
@@ -647,11 +640,8 @@
     </div>
 
     <h3>Long Press Timeout</h3>
-    <p class="muted small">
-      How long you hold OK on the remote before it counts as a long press. The
-      default is 400 ms. 300 ms reacts sooner but makes accidental long presses
-      more likely.
-    </p>
+    <p class="muted small">Lower values make accidental long presses more likely.</p>
+    <HelpDetails label="Long press help"><p>How long you hold OK before it counts as a long press. Android's default is 400 ms.</p></HelpDetails>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{longPressLabel(tweaks.long_press_timeout)}</strong></div>
@@ -675,12 +665,8 @@
     </div>
 
     <h3>Screensaver</h3>
-    <p class="muted small">
-      Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is
-      the plain screensaver built into Android. Restore previous puts back the
-      screensaver that was set when this tab opened, including a vendor one this
-      app can't name.
-    </p>
+    <p class="muted small">Restore previous uses the screensaver selected when this tab opened.</p>
+    <HelpDetails label="Screensaver help"><p>Basic Daydream is Android's built-in screensaver. Restore previous also supports a vendor screensaver this app cannot name.</p></HelpDetails>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{screensaverLabel(tweaks.screensaver_components, tweaks.screensaver_enabled)}</strong></div>
@@ -708,10 +694,6 @@
     </div>
 
     <h3>UI Animations</h3>
-    <p class="muted small">
-      Sets Android's three animation speeds together. 0.5× makes menus feel
-      quicker. Off removes the animations.
-    </p>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{animationsLabel(tweaks)}</strong></div>
@@ -743,20 +725,22 @@
     </div>
 
     <h3>Display Scaling</h3>
-    <p class="muted small">
-      Changes the resolution Android draws its menus at, using
-      <code>wm size</code> and <code>wm density</code>. The TV still gets its
-      usual output resolution, and the menus are scaled up to fit.
-    </p>
-    <p class="muted small">
-      <strong>Why lower it:</strong> at 4K, Android draws four times as many
-      pixels as at 1080p. Drawing menus at 1080p puts less load on the graphics
-      chip and memory, but text and icons look softer. Video players decode at
-      the video's own resolution, so playback should look the same.
-      <strong>Why raise it:</strong> to put it back. Density sets how large
-      things are drawn. Each preset pairs a resolution with a density that keeps
-      things about the same size.
-    </p>
+    <HelpDetails label="Display scaling help">
+      <p class="muted small">
+        Changes the resolution Android draws its menus at, using
+        <code>wm size</code> and <code>wm density</code>. The TV still gets its
+        usual output resolution, and the menus are scaled up to fit.
+      </p>
+      <p class="muted small">
+        <strong>Why lower it:</strong> at 4K, Android draws four times as many
+        pixels as at 1080p. Drawing menus at 1080p puts less load on the graphics
+        chip and memory, but text and icons look softer. Video players decode at
+        the video's own resolution, so playback should look the same.
+        <strong>Why raise it:</strong> to put it back. Density sets how large
+        things are drawn. Each preset pairs a resolution with a density that keeps
+        things about the same size.
+      </p>
+    </HelpDetails>
     {#if currentDisplayScaling}
       <div class="current-scaling muted small mono">
         {currentDisplayScaling.size || "Size: unknown"}
