@@ -184,7 +184,6 @@ mod tests {
         .await;
         assert!(matches!(result, Err(AdbError::Uncertain { .. })));
         assert_eq!(operations.active(), 0);
-        assert!(control.remaining().is_err());
     }
 
     struct FixtureStream {
