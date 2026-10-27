@@ -29,6 +29,16 @@ pub(crate) fn open_service_session<T: ADBMessageTransport>(
     local_id: u32,
     timeout: Duration,
 ) -> Result<ADBSession<T>> {
+    open_service_session_with_label(transport, service, service, local_id, timeout)
+}
+
+pub(crate) fn open_service_session_with_label<T: ADBMessageTransport>(
+    transport: &mut T,
+    service: &str,
+    diagnostic_label: &str,
+    local_id: u32,
+    timeout: Duration,
+) -> Result<ADBSession<T>> {
     if service.is_empty() || service.as_bytes().contains(&0) {
         return Err(RustADBError::ADBRequestFailed(
             "ADB service must be non-empty and contain no NUL bytes".to_string(),
@@ -59,24 +69,24 @@ pub(crate) fn open_service_session<T: ADBMessageTransport>(
         skipped += 1;
         if skipped > MAX_FOREIGN_MESSAGES {
             return Err(RustADBError::ADBRequestFailed(format!(
-                "Open service {service:?}: too many messages for other streams"
+                "Open service {diagnostic_label:?}: too many messages for other streams"
             )));
         }
         log::debug!(
-            "skipping message for stream {}:{} while opening {service:?}",
+            "skipping message for stream {}:{} while opening {diagnostic_label:?}",
             candidate.header().arg0(),
             candidate.header().arg1()
         );
     };
     if response.header().command() != MessageCommand::Okay {
         return Err(RustADBError::ADBRequestFailed(format!(
-            "Open service {service:?} failed: got {} instead of OKAY",
+            "Open service {diagnostic_label:?} failed: got {} instead of OKAY",
             response.header().command()
         )));
     }
     if response.header().arg0() == 0 {
         return Err(RustADBError::ADBRequestFailed(format!(
-            "Open service {service:?} returned an invalid remote id"
+            "Open service {diagnostic_label:?} returned an invalid remote id"
         )));
     }
 
@@ -591,15 +601,13 @@ mod tests {
     #[test]
     fn zero_local_id_is_rejected_without_writing() {
         let mut transport = FakeTransport::default();
-        assert!(
-            open_service_session(
-                &mut transport,
-                "localabstract:scrcpy_0a1b2c3d",
-                0,
-                Duration::from_secs(1),
-            )
-            .is_err()
-        );
+        assert!(open_service_session(
+            &mut transport,
+            "localabstract:scrcpy_0a1b2c3d",
+            0,
+            Duration::from_secs(1),
+        )
+        .is_err());
         assert!(transport.state.lock().unwrap().outgoing.is_empty());
     }
 }

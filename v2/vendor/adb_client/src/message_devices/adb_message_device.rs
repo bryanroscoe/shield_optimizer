@@ -2,20 +2,20 @@ use rand::RngExt;
 use std::{path::Path, time::Duration};
 
 use crate::{
-    Result, RustADBError,
     message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
     message_devices::{
         adb_message_transport::ADBMessageTransport,
-        adb_service::open_service_session,
+        adb_service::{open_service_session, open_service_session_with_label},
         adb_session::ADBSession,
         adb_transport_message::{
             ADBTransportMessage, AUTH_RSAPUBLICKEY, AUTH_SIGNATURE, AUTH_TOKEN,
         },
         message_commands::{MessageCommand, MessageSubcommand},
-        models::{ADBRsaKey, read_adb_private_key},
+        models::{read_adb_private_key, ADBRsaKey},
         utils::BinaryEncodable,
     },
     models::ADBLocalCommand,
+    Result, RustADBError,
 };
 
 const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
@@ -49,6 +49,17 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         auth_timeout: Duration,
     ) -> Result<Self> {
         Self::new_inner(transport, adb_private_key_path, Some(auth_timeout), true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_fixture_key(
+        transport: T,
+        private_key: &ADBRsaKey,
+        timeout: Duration,
+    ) -> Result<Self> {
+        let mut device = Self { transport };
+        device.connect(private_key, Some(timeout))?;
+        Ok(device)
     }
 
     fn new_inner<P: AsRef<Path>>(
@@ -214,6 +225,27 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             }
         };
         open_service_session(self.get_transport_mut(), service, local_id, timeout)
+    }
+
+    pub(crate) fn open_bounded_shell_service(
+        &mut self,
+        service: &str,
+        timeout: Duration,
+    ) -> Result<ADBSession<T>> {
+        let mut rng = rand::rng();
+        let local_id = loop {
+            let candidate = rng.random();
+            if candidate != 0 {
+                break candidate;
+            }
+        };
+        open_service_session_with_label(
+            self.get_transport_mut(),
+            service,
+            "<bounded shell command redacted>",
+            local_id,
+            timeout,
+        )
     }
 
     pub(crate) fn open_session(&mut self, cmd: &ADBLocalCommand) -> Result<ADBSession<T>> {

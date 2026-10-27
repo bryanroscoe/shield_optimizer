@@ -281,6 +281,17 @@ impl AdbDriver for DirectNetworkAdb {
         }
     }
 
+    async fn shell_bounded(
+        &self,
+        serial: &str,
+        command: &str,
+    ) -> AdbResult<shield_optimizer_core::adb::driver::BoundedShellOutput> {
+        self.session(serial)
+            .await?
+            .shell_bounded(serial, command)
+            .await
+    }
+
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
         self.session(serial).await?.shell(serial, command).await
     }
@@ -355,6 +366,23 @@ mod tests {
                 self.ready.store(false, Ordering::Release);
             }
             Ok(output("ok".into()))
+        }
+        async fn shell_bounded(
+            &self,
+            serial: &str,
+            command: &str,
+        ) -> AdbResult<shield_optimizer_core::adb::BoundedShellOutput> {
+            assert_eq!(*self.serial.lock().unwrap(), serial);
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("bounded {serial} {command}"));
+            Ok(shield_optimizer_core::adb::BoundedShellOutput {
+                stdout: "bounded stdout".into(),
+                stderr: "bounded stderr".into(),
+                exit_code: Some(7),
+                termination: shield_optimizer_core::adb::ShellTermination::Completed,
+            })
         }
         async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
             assert_eq!(*self.serial.lock().unwrap(), serial);
@@ -507,7 +535,29 @@ mod tests {
             .raw_transfer(&["-s", "192.0.2.1:5555", "install", "file.apk"])
             .await
             .is_err());
-        assert!(driver.shell_bounded("192.0.2.1:5555", "id").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn bounded_shell_delegates_to_the_selected_session() {
+        let (driver, sessions) = fake_driver();
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        let output = driver
+            .shell_bounded("192.0.2.1:5555", "fixture")
+            .await
+            .unwrap();
+        assert_eq!(output.stdout, "bounded stdout");
+        assert_eq!(output.stderr, "bounded stderr");
+        assert_eq!(output.exit_code, Some(7));
+        assert!(sessions.lock().unwrap()[0]
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|call| call == "bounded 192.0.2.1:5555 fixture"));
+        assert!(driver
+            .shell_bounded("192.0.2.2:5555", "fixture")
+            .await
+            .is_err());
     }
 
     #[tokio::test]

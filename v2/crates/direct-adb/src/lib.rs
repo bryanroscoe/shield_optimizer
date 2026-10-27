@@ -1,3 +1,4 @@
+mod bounded_shell;
 mod limited_writer;
 
 use std::net::SocketAddr;
@@ -607,6 +608,14 @@ impl AdbDriver for WirelessAdb {
                 operation: "raw_transfer",
             }),
         }
+    }
+
+    async fn shell_bounded(
+        &self,
+        serial: &str,
+        command: &str,
+    ) -> AdbResult<shield_optimizer_core::adb::driver::BoundedShellOutput> {
+        self.bounded_shell_impl(serial, command).await
     }
 
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {

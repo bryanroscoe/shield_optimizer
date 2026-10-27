@@ -1,18 +1,19 @@
+use super::bounded_shell::BoundedShellControl;
 use rcgen::{CertificateParams, KeyPair, PKCS_RSA_SHA256};
 use rustls::{
-    ClientConfig, ClientConnection, SignatureScheme, StreamOwned,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    pki_types::{CertificateDer, PrivatePkcs8KeyDer, pem::PemObject},
+    pki_types::{pem::PemObject, CertificateDer, PrivatePkcs8KeyDer},
+    ClientConfig, ClientConnection, SignatureScheme, StreamOwned,
 };
 
 use crate::{
-    Result, RustADBError,
     adb_transport::ADBTransport,
     message_devices::{
         adb_message_transport::ADBMessageTransport,
         adb_transport_message::{ADBTransportMessage, ADBTransportMessageHeader},
         message_commands::MessageCommand,
     },
+    Result, RustADBError,
 };
 use std::{
     fs::read_to_string,
@@ -80,6 +81,7 @@ pub struct TcpTransport {
     address: SocketAddr,
     current_connection: Option<Arc<Mutex<CurrentConnection>>>,
     private_key_path: PathBuf,
+    shell_control: Option<BoundedShellControl>,
 }
 
 fn certificate_from_pk(key_pair: &KeyPair) -> Result<Vec<CertificateDer<'static>>> {
@@ -95,7 +97,18 @@ impl TcpTransport {
             address: address.into(),
             current_connection: None,
             private_key_path: private_key_path.as_ref().to_path_buf(),
+            shell_control: None,
         }
+    }
+
+    pub(crate) fn with_shell_control(
+        address: SocketAddr,
+        key: &Path,
+        control: BoundedShellControl,
+    ) -> Self {
+        let mut transport = Self::new(address, key);
+        transport.shell_control = Some(control);
+        transport
     }
 
     fn get_current_connection(&self) -> Result<Arc<Mutex<CurrentConnection>>> {
@@ -113,7 +126,17 @@ impl ADBTransport for TcpTransport {
     fn connect(&mut self) -> Result<()> {
         // A powered-off TV blackholes SYNs; without this the OS SYN timeout
         // (over a minute) is the user's wait.
-        let stream = TcpStream::connect_timeout(&self.address, Duration::from_secs(5))?;
+        let timeout = self
+            .shell_control
+            .as_ref()
+            .map(BoundedShellControl::remaining)
+            .transpose()?
+            .unwrap_or(Duration::from_secs(5))
+            .min(Duration::from_secs(5));
+        let stream = TcpStream::connect_timeout(&self.address, timeout)?;
+        if let Some(control) = &self.shell_control {
+            control.register(&stream)?;
+        }
         self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(stream))));
         Ok(())
     }
@@ -145,6 +168,11 @@ impl ADBMessageTransport for TcpTransport {
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
 
+        let read_timeout = if let Some(control) = &self.shell_control {
+            control.remaining()?.min(read_timeout)
+        } else {
+            read_timeout
+        };
         raw_connection.set_read_timeout(read_timeout)?;
 
         let mut data = [0; 24];
@@ -152,6 +180,11 @@ impl ADBMessageTransport for TcpTransport {
 
         let header = ADBTransportMessageHeader::try_from(data)?;
 
+        if self.shell_control.is_some() && header.data_length() > 1_048_576 {
+            return Err(RustADBError::ADBRequestFailed(
+                "bounded shell ADB payload exceeds negotiated maximum".into(),
+            ));
+        }
         if header.data_length() != 0 {
             let mut msg_data = vec![0_u8; header.data_length() as usize];
             raw_connection.read_exact(&mut msg_data)?;
@@ -182,6 +215,11 @@ impl ADBMessageTransport for TcpTransport {
         let message_bytes = message.header().as_bytes();
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
+        let write_timeout = if let Some(control) = &self.shell_control {
+            control.remaining()?.min(write_timeout)
+        } else {
+            write_timeout
+        };
         raw_connection.set_write_timeout(write_timeout)?;
 
         let mut total_written = 0;
