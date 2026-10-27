@@ -85,14 +85,7 @@ where
         ));
     }
     let mut device = connect(control)?;
-    let probe =
-        BoundedShellControl::new(control.remaining()?.min(std::time::Duration::from_secs(5)))?;
-    let actual = read_hardware_serial_on_current(&mut device, probe)?;
-    if actual.trim() != expected_hardware_id || expected_hardware_id.is_empty() {
-        return Err(RustADBError::ADBRequestFailed(
-            "hardware identity did not match the selected TV; installation not started".into(),
-        ));
-    }
+    verify_hardware_binding(&mut device, expected_hardware_id, control)?;
     let remaining = control.remaining()?;
     let service = format!(
         "exec:cmd package install{} -S {size}",
@@ -176,6 +169,23 @@ where
     Ok(outcome)
 }
 
+pub(crate) fn verify_hardware_binding(
+    device: &mut ADBMessageDevice<TcpTransport>,
+    expected: &str,
+    control: &BoundedShellControl,
+) -> Result<()> {
+    let probe =
+        BoundedShellControl::new(control.remaining()?.min(std::time::Duration::from_secs(5)))?;
+    let actual = read_hardware_serial_on_current(device, probe)?;
+    if actual.trim() != expected || expected.is_empty() {
+        return Err(RustADBError::ADBRequestFailed(
+            "hardware identity did not match the selected TV; requested operation not started"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn read_hardware_serial_on_current(
     device: &mut ADBMessageDevice<TcpTransport>,
     control: BoundedShellControl,
@@ -252,7 +262,7 @@ fn classify_response(response: &[u8]) -> InstallStatus {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::message_devices::{
         adb_transport_message::{ADBTransportMessage, ADBTransportMessageHeader},
@@ -266,7 +276,7 @@ mod tests {
         time::Duration,
     };
 
-    fn fixture_key() -> ADBRsaKey {
+    pub(crate) fn fixture_key() -> ADBRsaKey {
         let source = include_str!("../models/adb_rsa_key.rs");
         let start = source.find("-----BEGIN PRIVATE KEY-----").unwrap();
         let end = source[start..].find("-----END PRIVATE KEY-----").unwrap()
@@ -275,7 +285,7 @@ mod tests {
         ADBRsaKey::new_from_pkcs8(&source[start..end]).unwrap()
     }
 
-    fn receive(socket: &mut TcpStream) -> std::io::Result<ADBTransportMessage> {
+    pub(crate) fn receive(socket: &mut TcpStream) -> std::io::Result<ADBTransportMessage> {
         let mut bytes = [0; 24];
         socket.read_exact(&mut bytes)?;
         let header = ADBTransportMessageHeader::try_from(bytes).unwrap();
@@ -287,7 +297,7 @@ mod tests {
         ))
     }
 
-    fn send(
+    pub(crate) fn send(
         socket: &mut TcpStream,
         command: MessageCommand,
         local: u32,
@@ -357,7 +367,7 @@ mod tests {
         (address, thread)
     }
 
-    fn serve_identity(socket: &mut TcpStream, id: &[u8], code: u8, stderr: &[u8]) {
+    pub(crate) fn serve_identity(socket: &mut TcpStream, id: &[u8], code: u8, stderr: &[u8]) {
         let open = receive(socket).unwrap();
         assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
         let local = open.header().arg0();
@@ -414,7 +424,7 @@ mod tests {
         assert_eq!(received, expected);
     }
 
-    fn reply(socket: &mut TcpStream, local: u32, bytes: &[u8], close: bool) {
+    pub(crate) fn reply(socket: &mut TcpStream, local: u32, bytes: &[u8], close: bool) {
         send(socket, MessageCommand::Write, local, bytes).unwrap();
         assert_eq!(
             receive(socket).unwrap().header().command(),
@@ -771,7 +781,7 @@ mod tests {
         assert_eq!(result.response, b"Success\n");
         assert_eq!(result.status, InstallStatus::Indeterminate);
     }
-    fn hello(socket: &mut TcpStream) {
+    pub(crate) fn hello(socket: &mut TcpStream) {
         socket
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();

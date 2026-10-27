@@ -7,11 +7,37 @@ use thiserror::Error;
 use super::lifetimes::TrackedChild;
 
 /// Blocking byte stream returned by a device service such as a localabstract
-/// socket. Mobile implements this with a dedicated pure-Rust ADB connection;
-/// desktop does not need it because its adb process owns port forwarding.
+/// socket. Direct transports own dedicated connections; the desktop subprocess
+/// backend can continue to use its existing forwarded sockets.
 pub trait AdbByteStream: std::io::Read + std::io::Write + Send + 'static {}
 
 impl<T> AdbByteStream for T where T: std::io::Read + std::io::Write + Send + 'static {}
+
+/// Hardware identity captured on the currently selected owned control connection.
+/// Keep one binding for all dedicated streams in a logical session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdbDeviceBinding {
+    pub serial: String,
+    pub hardware_id: String,
+}
+
+/// Interrupts only the owned service connection, not a host server or another session.
+pub trait AdbServiceCancellation: Send + Sync {
+    fn cancel(&self);
+}
+
+/// The stream keeps its worker lease until actual socket cleanup finishes.
+/// Cancellation does not prove that the remote process has exited.
+pub struct AdbOwnedService {
+    pub stream: Box<dyn AdbByteStream>,
+    pub cancellation: std::sync::Arc<dyn AdbServiceCancellation>,
+}
+
+impl std::fmt::Debug for AdbOwnedService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdbOwnedService").finish_non_exhaustive()
+    }
+}
 
 /// Errors a driver can return.
 #[derive(Debug, Error)]
@@ -36,6 +62,11 @@ pub enum AdbError {
     Transport(String),
     #[error("ADB operation unsupported by this driver: {operation}")]
     Unsupported { operation: &'static str },
+    #[error("{operation} outcome is unknown: {detail}. Do not replay automatically.")]
+    Uncertain {
+        operation: &'static str,
+        detail: String,
+    },
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("the app is quitting, so no new adb work is started")]
@@ -215,6 +246,26 @@ pub trait AdbDriver: Send + Sync {
         })
     }
 
+    /// Captures verified hardware identity from the currently owned control connection.
+    async fn device_binding(&self, _serial: &str) -> AdbResult<AdbDeviceBinding> {
+        Err(AdbError::Unsupported {
+            operation: "device_binding",
+        })
+    }
+
+    /// Opens a dedicated identity-bound, independently cancellable service.
+    /// The finite lifetime includes setup and prevents an abandoned stream living forever.
+    async fn open_bound_device_service(
+        &self,
+        _binding: &AdbDeviceBinding,
+        _service: &str,
+        _lifetime: std::time::Duration,
+    ) -> AdbResult<AdbOwnedService> {
+        Err(AdbError::Unsupported {
+            operation: "bound_device_service",
+        })
+    }
+
     /// Open an arbitrary device-side ADB service as a blocking byte stream.
     /// Default reports unsupported so desktop and test drivers need no extra
     /// implementation.
@@ -276,6 +327,32 @@ mod bounded_shell_tests {
         async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
             panic!("bounded shell must not delegate to shell")
         }
+    }
+
+    #[tokio::test]
+    async fn bound_service_capabilities_default_to_unsupported_without_raw_calls() {
+        assert!(matches!(
+            UnboundedDriver.device_binding("fixture").await,
+            Err(AdbError::Unsupported {
+                operation: "device_binding"
+            })
+        ));
+        let binding = AdbDeviceBinding {
+            serial: "fixture".into(),
+            hardware_id: "known".into(),
+        };
+        assert!(matches!(
+            UnboundedDriver
+                .open_bound_device_service(
+                    &binding,
+                    "localabstract:fixture",
+                    std::time::Duration::from_secs(1)
+                )
+                .await,
+            Err(AdbError::Unsupported {
+                operation: "bound_device_service"
+            })
+        ));
     }
 
     #[tokio::test]

@@ -1,3 +1,4 @@
+mod bound_service;
 mod bounded_shell;
 mod limited_writer;
 mod streamed_install;
@@ -690,6 +691,23 @@ impl AdbDriver for WirelessAdb {
         })
         .await
         .map_err(AdbError::Transport)
+    }
+
+    async fn device_binding(
+        &self,
+        serial: &str,
+    ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
+        self.device_binding_impl(serial).await
+    }
+
+    async fn open_bound_device_service(
+        &self,
+        binding: &shield_optimizer_core::adb::AdbDeviceBinding,
+        service: &str,
+        lifetime: Duration,
+    ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
+        self.open_bound_device_service_impl(binding, service, lifetime)
+            .await
     }
 
     async fn open_device_service(

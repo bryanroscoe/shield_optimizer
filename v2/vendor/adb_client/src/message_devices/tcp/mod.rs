@@ -2,6 +2,7 @@
 
 mod adb_tcp_device;
 mod adb_tcp_service;
+mod bound_service;
 mod bounded_shell;
 mod pairing;
 mod streamed_install;
@@ -18,3 +19,5 @@ pub use pairing::{pair, PairingError, PairingOutcome, PeerInfo};
 pub use streamed_install::{
     run_streamed_install, InstallOutcome, InstallStatus, INSTALL_RESPONSE_LIMIT,
 };
+
+pub use bound_service::{open_bound_service, BoundDeviceService, BoundServiceError};

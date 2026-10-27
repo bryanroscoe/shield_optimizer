@@ -6,7 +6,11 @@ use std::{fs::File, path::Path, time::Duration};
 const INSTALL_DEADLINE: Duration = Duration::from_secs(15 * 60);
 
 impl WirelessAdb {
-    async fn install_hardware_id(&self, serial: &str, budget: Duration) -> AdbResult<String> {
+    pub(crate) async fn verified_owned_hardware_id(
+        &self,
+        serial: &str,
+        budget: Duration,
+    ) -> AdbResult<String> {
         let probe_control = BoundedShellControl::new(budget)?;
         let _cancel_probe = super::bounded_shell::CancelOnDrop(probe_control.clone());
         let raw_id = tokio::time::timeout(
@@ -19,20 +23,22 @@ impl WirelessAdb {
         .await
         .map_err(|_| {
             AdbError::Transport(
-                "Selected TV hardware identity query timed out; installation not started.".into(),
+                "Selected TV hardware identity query timed out; no new operation was started."
+                    .into(),
             )
         })?
         .map_err(AdbError::Transport)?
         .map_err(|e| AdbError::Transport(e.to_string()))?;
-        let expected_hardware_id =
-            shield_optimizer_core::commands::devices::verified_hardware_id(&raw_id)
-                .ok_or_else(|| {
-                    AdbError::Transport(
-                        "Selected TV has no verified hardware identity; installation not started."
-                            .into(),
-                    )
-                })?
-                .to_owned();
+        let expected_hardware_id = shield_optimizer_core::commands::devices::verified_hardware_id(
+            &raw_id,
+        )
+        .ok_or_else(|| {
+            AdbError::Transport(
+                "Selected TV has no verified hardware identity; no new operation was started."
+                    .into(),
+            )
+        })?
+        .to_owned();
         Ok(expected_hardware_id)
     }
 
@@ -72,7 +78,7 @@ impl WirelessAdb {
         }
         let size = metadata.len();
         let expected_hardware_id = self
-            .install_hardware_id(
+            .verified_owned_hardware_id(
                 serial,
                 deadline
                     .saturating_duration_since(tokio::time::Instant::now())
@@ -193,7 +199,7 @@ mod tests {
         });
         held_rx.await.unwrap();
         assert!(driver
-            .install_hardware_id("fixture", Duration::from_millis(20))
+            .verified_owned_hardware_id("fixture", Duration::from_millis(20))
             .await
             .is_err());
         assert_eq!(operations.active(), 1);

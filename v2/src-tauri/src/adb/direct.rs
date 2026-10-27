@@ -355,6 +355,25 @@ impl AdbDriver for DirectNetworkAdb {
         }
     }
 
+    async fn device_binding(
+        &self,
+        serial: &str,
+    ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
+        self.session(serial).await?.device_binding(serial).await
+    }
+
+    async fn open_bound_device_service(
+        &self,
+        binding: &shield_optimizer_core::adb::AdbDeviceBinding,
+        service: &str,
+        lifetime: std::time::Duration,
+    ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
+        self.session(&binding.serial)
+            .await?
+            .open_bound_device_service(binding, service, lifetime)
+            .await
+    }
+
     async fn open_device_service(
         &self,
         serial: &str,
