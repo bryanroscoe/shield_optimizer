@@ -92,13 +92,31 @@ async fn io<T: Send + 'static>(
     cancellation: Arc<dyn AdbServiceCancellation>,
     work: impl FnOnce(&mut dyn AdbByteStream) -> std::io::Result<T> + Send + 'static,
 ) -> Result<T, String> {
+    io_with_completion(stream, cancellation, work, None).await
+}
+
+async fn io_with_completion<T: Send + 'static>(
+    stream: Arc<Mutex<Box<dyn AdbByteStream>>>,
+    cancellation: Arc<dyn AdbServiceCancellation>,
+    work: impl FnOnce(&mut dyn AdbByteStream) -> std::io::Result<T> + Send + 'static,
+    completion: Option<UploadCompletionGuard>,
+) -> Result<T, String> {
     let mut guard = CancelOnDrop(Some(cancellation.clone()));
     let mut worker = tokio::task::spawn_blocking(move || {
-        work(
-            &mut **stream
+        let mut completion = completion;
+        // Declare the stream last so unwinding drops its lease before signalling completion.
+        let owned_stream = stream;
+        if let Some(completion) = completion.as_mut() {
+            completion.started = true;
+        }
+        let result = work(
+            &mut **owned_stream
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
-        )
+        );
+        drop(owned_stream);
+        drop(completion);
+        result
     });
     match tokio::time::timeout(IO_DEADLINE, &mut worker).await {
         Ok(result) => {
@@ -156,6 +174,51 @@ async fn remove_helper(
 
 type CleanupReceipt = Arc<Mutex<Option<Result<(), String>>>>;
 
+enum UploadCompletion {
+    NotStarted,
+    Finished,
+}
+
+struct UploadCompletionGuard {
+    sender: Option<tokio::sync::oneshot::Sender<UploadCompletion>>,
+    started: bool,
+}
+impl Drop for UploadCompletionGuard {
+    fn drop(&mut self) {
+        if let Some(sender) = self.sender.take() {
+            let _ = sender.send(if self.started {
+                UploadCompletion::Finished
+            } else {
+                UploadCompletion::NotStarted
+            });
+        }
+    }
+}
+
+struct CleanupRecord {
+    receipt: CleanupReceipt,
+    completed: bool,
+}
+impl CleanupRecord {
+    fn finish(&mut self, result: Result<(), String>) {
+        *self
+            .receipt
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+        self.completed = true;
+    }
+}
+impl Drop for CleanupRecord {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.finish(Err(
+                "Scoped helper cleanup worker was aborted; file cleanup is unconfirmed.".into(),
+            ));
+            tracing::warn!("Native Remote cleanup worker was aborted; a helper file may remain.");
+        }
+    }
+}
+
 struct HelperCleanup {
     trigger: Option<tokio::sync::oneshot::Sender<()>>,
     worker: Option<tokio::task::JoinHandle<Result<(), String>>>,
@@ -164,6 +227,7 @@ struct HelperCleanup {
 }
 
 impl HelperCleanup {
+    #[cfg(test)]
     fn arm(
         adb: Arc<dyn AdbDriver>,
         binding: AdbDeviceBinding,
@@ -172,11 +236,24 @@ impl HelperCleanup {
         Self::arm_with_deadline(adb, binding, jar, Duration::from_secs(3))
     }
 
+    #[cfg(test)]
     fn arm_with_deadline(
         adb: Arc<dyn AdbDriver>,
         binding: AdbDeviceBinding,
         jar: String,
         deadline: Duration,
+    ) -> Result<Self, String> {
+        let (sender, completion) = tokio::sync::oneshot::channel();
+        let _ = sender.send(UploadCompletion::Finished);
+        Self::arm_waiting_upload(adb, binding, jar, deadline, completion)
+    }
+
+    fn arm_waiting_upload(
+        adb: Arc<dyn AdbDriver>,
+        binding: AdbDeviceBinding,
+        jar: String,
+        deadline: Duration,
+        completion: tokio::sync::oneshot::Receiver<UploadCompletion>,
     ) -> Result<Self, String> {
         let lease = match adb.operation_leases() {
             Some(leases) => Some(leases.try_acquire().ok_or_else(|| {
@@ -186,24 +263,31 @@ impl HelperCleanup {
         };
         let (trigger, start) = tokio::sync::oneshot::channel();
         let receipt: CleanupReceipt = Arc::default();
-        let recorded = receipt.clone();
+        let mut recorded = CleanupRecord {
+            receipt: receipt.clone(),
+            completed: false,
+        };
         let worker = tokio::spawn(async move {
             let _lease = lease;
             let _ = start.await;
-            let result = tokio::time::timeout(deadline, remove_helper(&adb, &binding, &jar))
-                .await
-                .unwrap_or_else(|_| {
-                    Err(
-                        "Scoped helper cleanup deadline expired; file cleanup is unconfirmed."
+            let result = tokio::time::timeout(deadline, async {
+                match completion.await {
+                    Ok(UploadCompletion::NotStarted) => Ok(()),
+                    Ok(UploadCompletion::Finished) => remove_helper(&adb, &binding, &jar).await,
+                    Err(_) => Err(
+                        "Upload worker completion is unknown; helper cleanup was not attempted."
                             .into(),
-                    )
-                });
+                    ),
+                }
+            })
+            .await
+            .unwrap_or_else(|_| {
+                Err("Scoped helper cleanup deadline expired; file cleanup is unconfirmed.".into())
+            });
             if result.is_err() {
                 tracing::warn!("Native Remote scoped helper cleanup was not confirmed; a helper file may remain.");
             }
-            *recorded
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result.clone());
+            recorded.finish(result.clone());
             result
         });
         Ok(Self {
@@ -299,13 +383,24 @@ impl NativeRemoteSession {
         if bytes.len() > 16 * 1024 * 1024 {
             return Err("Remote helper exceeds upload limit.".into());
         }
-        let mut cleanup = None;
+        let (upload_sender, upload_completion) = tokio::sync::oneshot::channel();
+        let upload_finished = UploadCompletionGuard {
+            sender: Some(upload_sender),
+            started: false,
+        };
+        let mut cleanup = Some(HelperCleanup::arm_waiting_upload(
+            adb.clone(),
+            binding.clone(),
+            jar.clone(),
+            Duration::from_secs(3),
+            upload_completion,
+        )?);
         let result = async {
         let upload = open(&adb, &binding, "sync:", &cancel, &connections).await.map_err(|e|e.to_string())?;
         let upload_cancel = upload.cancellation.clone();
         let upload_stream = Arc::new(Mutex::new(upload.stream));
         let upload_path = jar.clone();
-        io(upload_stream, upload_cancel.clone(), move |stream| {
+        io_with_completion(upload_stream, upload_cancel.clone(), move |stream| {
             let target = format!("{upload_path},33261");
             stream.write_all(b"SEND")?;
             stream.write_all(&(target.len() as u32).to_le_bytes())?;
@@ -324,10 +419,9 @@ impl NativeRemoteSession {
                 return Err(std::io::Error::other("helper upload rejected"));
             }
             Ok(())
-        })
+        },Some(upload_finished))
         .await?;
         upload_cancel.cancel();
-        cleanup=Some(HelperCleanup::arm(adb.clone(),binding.clone(),jar.clone())?);
         if cancel.is_cancelled() {
             return Err("Remote startup cancelled.".into());
         }
@@ -562,11 +656,42 @@ mod tests {
         }
     }
     #[derive(Default)]
+    struct HeldUploadGate {
+        released: Mutex<bool>,
+        changed: Condvar,
+        entered: AtomicBool,
+    }
+    struct HeldUpload {
+        inner: Stream,
+        gate: Arc<HeldUploadGate>,
+        _lease: super::super::Lease,
+    }
+    impl Read for HeldUpload {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.gate.entered.store(true, Ordering::Release);
+            let mut released = self.gate.released.lock().unwrap();
+            while !*released {
+                released = self.gate.changed.wait(released).unwrap();
+            }
+            std::io::Read::read(&mut self.inner, out)
+        }
+    }
+    impl Write for HeldUpload {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.inner.write(bytes)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.flush()
+        }
+    }
+    #[derive(Default)]
     struct Fake {
         bindings: Mutex<Vec<AdbDeviceBinding>>,
         services: Mutex<Vec<String>>,
         stops: Mutex<Vec<Arc<Stop>>>,
         control: Arc<Mutex<Vec<u8>>>,
+        upload_writes: Arc<Mutex<Vec<u8>>>,
+        held_upload: Mutex<Option<Arc<HeldUploadGate>>>,
         fail: Arc<AtomicBool>,
         bad_handshake: AtomicBool,
         pending_control: AtomicBool,
@@ -655,28 +780,45 @@ mod tests {
                     cancel.cancel();
                 }
             }
-            Ok(AdbOwnedService {
-                stream: Box::new(Stream {
-                    response: std::io::Cursor::new(if service == "sync:" {
-                        b"OKAY\0\0\0\0".to_vec()
-                    } else if service.starts_with("shell:rm ") {
-                        b"REMOVED".to_vec()
-                    } else {
-                        vec![u8::from(self.bad_handshake.load(Ordering::Acquire))]
-                    }),
-                    writes: if control {
-                        self.control.clone()
-                    } else {
-                        Arc::default()
-                    },
-                    stop: stop.clone(),
-                    resident: service.starts_with("shell:trap "),
-                    fail: if control {
-                        self.fail.clone()
-                    } else {
-                        Arc::default()
-                    },
+            let stream = Stream {
+                response: std::io::Cursor::new(if service == "sync:" {
+                    b"OKAY\0\0\0\0".to_vec()
+                } else if service.starts_with("shell:rm ") {
+                    b"REMOVED".to_vec()
+                } else {
+                    vec![u8::from(self.bad_handshake.load(Ordering::Acquire))]
                 }),
+                writes: if control {
+                    self.control.clone()
+                } else if service == "sync:" {
+                    self.upload_writes.clone()
+                } else {
+                    Arc::default()
+                },
+                stop: stop.clone(),
+                resident: service.starts_with("shell:trap "),
+                fail: if control {
+                    self.fail.clone()
+                } else {
+                    Arc::default()
+                },
+            };
+            let held = if service == "sync:" {
+                self.held_upload.lock().unwrap().clone()
+            } else {
+                None
+            };
+            let stream: Box<dyn AdbByteStream> = if let Some(gate) = held {
+                Box::new(HeldUpload {
+                    inner: stream,
+                    gate,
+                    _lease: self.leases.try_acquire().ok_or(AdbError::ShuttingDown)?,
+                })
+            } else {
+                Box::new(stream)
+            };
+            Ok(AdbOwnedService {
+                stream,
                 cancellation: stop,
             })
         }
@@ -1075,5 +1217,247 @@ mod tests {
             1,
             "closed admission is never bypassed"
         );
+    }
+    #[tokio::test]
+    async fn native_remote_partial_upload_cleanup_waits_for_actual_worker_or_skips_on_deadline() {
+        for expires in [false, true] {
+            let fake = Arc::new(Fake::default());
+            let (sender, completion) = tokio::sync::oneshot::channel();
+            let completed = UploadCompletionGuard {
+                sender: Some(sender),
+                started: false,
+            };
+            let cleanup = HelperCleanup::arm_waiting_upload(
+                fake.clone(),
+                AdbDeviceBinding {
+                    serial: "fixture-partial".into(),
+                    hardware_id: "fixture-hardware".into(),
+                },
+                "/data/local/tmp/shieldopt-remote-partial-owned.jar".into(),
+                if expires {
+                    Duration::from_millis(20)
+                } else {
+                    Duration::from_secs(1)
+                },
+                completion,
+            )
+            .unwrap();
+            let receipt = cleanup.receipt.clone();
+            let gate = Arc::new((Mutex::new(false), Condvar::new()));
+            let entered = Arc::new(AtomicBool::new(false));
+            let stream: Arc<Mutex<Box<dyn AdbByteStream>>> =
+                Arc::new(Mutex::new(Box::new(Stream {
+                    response: std::io::Cursor::new(vec![]),
+                    writes: Arc::default(),
+                    stop: Arc::default(),
+                    resident: false,
+                    fail: Arc::default(),
+                })));
+            let producer_lease = fake.leases.try_acquire().unwrap();
+            let task = tokio::spawn(io_with_completion(
+                stream,
+                Arc::new(Stop::default()),
+                {
+                    let gate = gate.clone();
+                    let entered = entered.clone();
+                    move |stream| {
+                        let _lease = producer_lease;
+                        stream.write_all(b"SEND")?;
+                        entered.store(true, Ordering::Release);
+                        let mut released = gate.0.lock().unwrap();
+                        while !*released {
+                            released = gate.1.wait(released).unwrap();
+                        }
+                        Ok(())
+                    }
+                },
+                Some(completed),
+            ));
+            while !entered.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+            task.abort();
+            let _ = task.await;
+            drop(cleanup);
+            if expires {
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    while receipt.lock().unwrap().is_none() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+                .unwrap();
+                assert!(receipt
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap()
+                    .as_ref()
+                    .unwrap_err()
+                    .contains("deadline expired"));
+            } else {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            assert!(
+                fake.services.lock().unwrap().is_empty(),
+                "unlink cannot race a live upload worker"
+            );
+            assert!(
+                fake.leases.active() > 0,
+                "actual producer retains its own lease after cleanup timeout"
+            );
+            *gate.0.lock().unwrap() = true;
+            gate.1.notify_all();
+            assert!(
+                fake.leases
+                    .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                    .await
+            );
+            let services = fake.services.lock().unwrap();
+            if expires {
+                assert!(
+                    services.is_empty(),
+                    "expired cleanup must not retry after producer finishes"
+                );
+            } else {
+                assert_eq!(services.as_slice(),["shell:rm -f -- '/data/local/tmp/shieldopt-remote-partial-owned.jar' && printf REMOVED"]);
+                assert!(receipt.lock().unwrap().as_ref().unwrap().is_ok());
+                assert!(fake
+                    .bindings
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|binding| binding.serial == "fixture-partial"
+                        && binding.hardware_id == "fixture-hardware"));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn native_remote_unpolled_upload_skips_unlink_and_aborted_cleanup_records_uncertainty() {
+        let fake = Arc::new(Fake::default());
+        let (sender, completion) = tokio::sync::oneshot::channel();
+        let completed = UploadCompletionGuard {
+            sender: Some(sender),
+            started: false,
+        };
+        let cleanup = HelperCleanup::arm_waiting_upload(
+            fake.clone(),
+            AdbDeviceBinding {
+                serial: "fixture-unstarted".into(),
+                hardware_id: "fixture-hardware".into(),
+            },
+            "/data/local/tmp/shieldopt-remote-unstarted-owned.jar".into(),
+            Duration::from_secs(1),
+            completion,
+        )
+        .unwrap();
+        let receipt = cleanup.receipt.clone();
+        let stream: Arc<Mutex<Box<dyn AdbByteStream>>> = Arc::new(Mutex::new(Box::new(Stream {
+            response: std::io::Cursor::new(vec![]),
+            writes: Arc::default(),
+            stop: Arc::default(),
+            resident: false,
+            fail: Arc::default(),
+        })));
+        let upload = io_with_completion(
+            stream,
+            Arc::new(Stop::default()),
+            move |_| Ok(()),
+            Some(completed),
+        );
+        drop(upload);
+        drop(cleanup);
+        assert!(
+            fake.leases
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                .await
+        );
+        assert!(fake.services.lock().unwrap().is_empty());
+        assert!(receipt.lock().unwrap().as_ref().unwrap().is_ok());
+        let cleanup = HelperCleanup::arm(
+            fake.clone(),
+            AdbDeviceBinding {
+                serial: "fixture-aborted".into(),
+                hardware_id: "fixture-hardware".into(),
+            },
+            "/data/local/tmp/shieldopt-remote-aborted-owned.jar".into(),
+        )
+        .unwrap();
+        let receipt = cleanup.receipt.clone();
+        cleanup.worker.as_ref().unwrap().abort();
+        drop(cleanup);
+        assert!(
+            fake.leases
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                .await
+        );
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while receipt.lock().unwrap().is_none() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(receipt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap_err()
+            .contains("worker was aborted"));
+        assert!(fake.services.lock().unwrap().is_empty());
+    }
+    #[tokio::test]
+    async fn native_remote_actual_start_abort_waits_for_partial_upload_stream_drop() {
+        let fake = Arc::new(Fake::default());
+        let gate = Arc::new(HeldUploadGate::default());
+        *fake.held_upload.lock().unwrap() = Some(gate.clone());
+        let task = tokio::spawn({
+            let fake = fake.clone();
+            async move {
+                NativeRemoteSession::start(fake, &fixture(), "fixture-held-upload", Arc::default())
+                    .await
+            }
+        });
+        while !gate.entered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        task.abort();
+        let _ = task.await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            fake.services.lock().unwrap().as_slice(),
+            ["sync:"],
+            "cleanup waits while actual upload worker retains its stream"
+        );
+        assert!(fake.leases.active() > 0);
+        *gate.released.lock().unwrap() = true;
+        gate.changed.notify_all();
+        assert!(
+            fake.leases
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                .await
+        );
+        let upload = fake.upload_writes.lock().unwrap();
+        assert_eq!(&upload[..4], b"SEND");
+        let len = u32::from_le_bytes(upload[4..8].try_into().unwrap()) as usize;
+        let target = std::str::from_utf8(&upload[8..8 + len]).unwrap();
+        let jar = target.strip_suffix(",33261").unwrap();
+        assert_eq!(
+            fake.services.lock().unwrap().as_slice(),
+            [
+                "sync:",
+                &format!("shell:rm -f -- '{jar}' && printf REMOVED")
+            ]
+        );
+        assert!(fake
+            .bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|binding| binding.serial == "fixture-held-upload"
+                && binding.hardware_id == "fixture-hardware"));
     }
 }
