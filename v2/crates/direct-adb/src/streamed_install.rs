@@ -29,16 +29,15 @@ impl WirelessAdb {
         })?
         .map_err(AdbError::Transport)?
         .map_err(|e| AdbError::Transport(e.to_string()))?;
-        let expected_hardware_id = shield_optimizer_core::commands::devices::verified_hardware_id(
-            &raw_id,
-        )
-        .ok_or_else(|| {
-            AdbError::Transport(
+        let expected_hardware_id =
+            shield_optimizer_core::commands::devices::verified_hardware_id(&raw_id)
+                .ok_or_else(|| {
+                    AdbError::Transport(
                 "Selected TV has no verified hardware identity; no new operation was started."
                     .into(),
             )
-        })?
-        .to_owned();
+                })?
+                .to_owned();
         Ok(expected_hardware_id)
     }
 
