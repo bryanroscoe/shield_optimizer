@@ -116,6 +116,40 @@ pub fn process_output(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeServiceKind {
+    LegacyAdb,
+    TlsPairing,
+    TlsConnect,
+}
+
+/// A service advertisement, never evidence of physical device identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeAdvertisement {
+    pub service_kind: NativeServiceKind,
+    pub instance: String,
+    pub address: String,
+    pub port: u16,
+    pub interface_name: Option<String>,
+    /// Observed interface metadata; this does not force an IPv4 route.
+    pub interface_index: Option<u32>,
+    pub scope_id: Option<u32>,
+    pub connect_address: Option<String>,
+    pub observed_age_ms: u64,
+    /// Not resolved again in the current browse window; selection must be disabled.
+    pub cached: bool,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDiscoveryReport {
+    pub advertisements: Vec<NativeAdvertisement>,
+    pub warnings: Vec<String>,
+    /// Local observation limit; this is not the remaining DNS TTL.
+    pub observation_max_age_ms: u64,
+}
+
 /// The driver abstraction. Lets tests inject a mock; production uses
 /// `SubprocessAdb`.
 #[async_trait]
@@ -128,6 +162,13 @@ pub trait AdbDriver: Send + Sync {
     /// Prevent host-server commands and installation from changing a direct backend.
     fn uses_host_server(&self) -> bool {
         true
+    }
+
+    /// Explicit observation-only native discovery; never connects or authorizes a device.
+    async fn discover_network(&self) -> AdbResult<NativeDiscoveryReport> {
+        Err(AdbError::Unsupported {
+            operation: "native_discovery",
+        })
     }
 
     /// Run `adb <args...>` (no `-s` prefix).
@@ -235,6 +276,16 @@ mod bounded_shell_tests {
         async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
             panic!("bounded shell must not delegate to shell")
         }
+    }
+
+    #[tokio::test]
+    async fn native_discovery_defaults_to_unsupported_without_raw_calls() {
+        assert!(matches!(
+            UnboundedDriver.discover_network().await,
+            Err(AdbError::Unsupported {
+                operation: "native_discovery"
+            })
+        ));
     }
 
     #[tokio::test]

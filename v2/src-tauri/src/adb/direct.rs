@@ -59,6 +59,7 @@ pub struct DirectNetworkAdb {
     factory: Arc<Factory>,
     operations: Arc<Leases>,
     lifecycle: Mutex<()>,
+    discovery: Arc<super::discovery::DiscoveryManager>,
 }
 
 impl DirectNetworkAdb {
@@ -77,6 +78,9 @@ impl DirectNetworkAdb {
             factory,
             operations: Leases::new(),
             lifecycle: Mutex::new(()),
+            discovery: super::discovery::DiscoveryManager::new(Arc::new(
+                super::discovery::MdnsProvider::default(),
+            )),
         }
     }
 
@@ -214,6 +218,12 @@ fn unsupported() -> AdbError {
     AdbError::Transport("This operation is unavailable in experimental direct ADB mode. Relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess to use platform-tools; no automatic fallback was performed.".into())
 }
 
+impl Drop for DirectNetworkAdb {
+    fn drop(&mut self) {
+        self.discovery.cancel();
+    }
+}
+
 #[async_trait]
 impl AdbDriver for DirectNetworkAdb {
     fn operation_leases(&self) -> Option<Arc<Leases>> {
@@ -224,8 +234,23 @@ impl AdbDriver for DirectNetworkAdb {
         false
     }
 
-    async fn stop_server(&self, _timeout: std::time::Duration) -> ServerStop {
+    async fn discover_network(
+        &self,
+    ) -> AdbResult<shield_optimizer_core::adb::NativeDiscoveryReport> {
+        let lease = Arc::new(
+            self.operations
+                .try_acquire()
+                .ok_or(AdbError::ShuttingDown)?,
+        );
+        self.discovery.snapshot(lease).await
+    }
+
+    async fn stop_server(&self, timeout: std::time::Duration) -> ServerStop {
         self.operations.close();
+        self.discovery.cancel();
+        if self.discovery.cleanup_pending() && !timeout.is_zero() {
+            let _ = tokio::time::timeout(timeout, self.discovery.retry_cleanup()).await;
+        }
         if self.operations.active() != 0 {
             return ServerStop::Skipped(
                 "Direct ADB work is still running; owned sockets were left alone.".into(),
@@ -827,5 +852,109 @@ mod tests {
         assert!(!listed.contains("192.0.2.1:2\t"));
         assert!(listed.contains("192.0.2.1:3\toffline"));
         assert!(listed.contains("192.0.2.2:5555\tdevice"));
+    }
+    #[tokio::test]
+    async fn native_discovery_is_explicit_and_never_dials_or_uses_adb_commands() {
+        use super::super::discovery::*;
+        struct Provider(AtomicU64);
+        impl DiscoveryProvider for Provider {
+            fn collect(&self, _: &AtomicBool) -> DiscoveryBatch {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                DiscoveryBatch {
+                    events: Vec::new(),
+                    warnings: Vec::new(),
+                    cleanup_confirmed: true,
+                }
+            }
+            fn retry_cleanup(&self) -> bool {
+                true
+            }
+        }
+        let provider = Arc::new(Provider(AtomicU64::new(0)));
+        let mut driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("not-created"),
+            Arc::new(|_, _| panic!("discovery must never dial or authorize")),
+        );
+        driver.discovery = DiscoveryManager::new(provider.clone());
+        assert_eq!(provider.0.load(Ordering::Relaxed), 0);
+        assert!(driver
+            .discover_network()
+            .await
+            .unwrap()
+            .advertisements
+            .is_empty());
+        assert_eq!(provider.0.load(Ordering::Relaxed), 1);
+        assert!(driver.sessions.lock().await.is_empty());
+        driver.operations.close();
+        assert!(matches!(
+            driver.discover_network().await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert_eq!(provider.0.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn native_discovery_shutdown_budget_keeps_unknown_cleanup_and_other_sockets_counted() {
+        use super::super::discovery::*;
+        struct Slow {
+            calls: AtomicU64,
+            started: tokio::sync::Notify,
+            release: StdMutex<std::sync::mpsc::Receiver<()>>,
+        }
+        impl DiscoveryProvider for Slow {
+            fn collect(&self, _: &AtomicBool) -> DiscoveryBatch {
+                DiscoveryBatch {
+                    events: Vec::new(),
+                    warnings: Vec::new(),
+                    cleanup_confirmed: false,
+                }
+            }
+            fn retry_cleanup(&self) -> bool {
+                self.calls.fetch_add(1, Ordering::Relaxed);
+                self.started.notify_one();
+                let _ = self.release.lock().unwrap().recv();
+                true
+            }
+        }
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let provider = Arc::new(Slow {
+            calls: AtomicU64::new(0),
+            started: tokio::sync::Notify::new(),
+            release: StdMutex::new(release_rx),
+        });
+        let (mut driver, sessions) = fake_driver();
+        driver.discovery = DiscoveryManager::new(provider.clone());
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        driver.discover_network().await.unwrap();
+        assert!(matches!(
+            driver.stop_server(std::time::Duration::ZERO).await,
+            ServerStop::Skipped(_)
+        ));
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 0);
+        let start = std::time::Instant::now();
+        assert!(matches!(
+            driver
+                .stop_server(std::time::Duration::from_millis(10))
+                .await,
+            ServerStop::Skipped(_)
+        ));
+        assert!(start.elapsed() < std::time::Duration::from_millis(300));
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            provider.started.notified(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(driver.operations.active(), 1);
+        assert!(sessions.lock().unwrap()[0].ready.load(Ordering::Acquire));
+        release.send(()).unwrap();
+        assert!(
+            driver
+                .operations
+                .wait_idle(tokio::time::Instant::now() + std::time::Duration::from_secs(1))
+                .await
+        );
+        driver.stop_server(std::time::Duration::from_secs(1)).await;
+        assert!(!sessions.lock().unwrap()[0].ready.load(Ordering::Acquire));
     }
 }

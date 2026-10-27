@@ -12,8 +12,8 @@ pub mod storage;
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};
 pub use driver::{
-    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ServerStop,
-    ShellTermination,
+    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput,
+    NativeAdvertisement, NativeDiscoveryReport, NativeServiceKind, ServerStop, ShellTermination,
 };
 pub use lifetimes::{Lease, Leases, TrackedChild};
 pub use parse::{

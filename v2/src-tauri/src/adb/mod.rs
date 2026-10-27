@@ -6,6 +6,8 @@
 
 #[cfg(feature = "direct-adb")]
 pub mod direct;
+#[cfg(feature = "direct-adb")]
+mod discovery;
 pub mod driver;
 pub mod install;
 pub mod scan;

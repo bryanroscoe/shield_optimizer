@@ -210,6 +210,12 @@ impl AdbDriver for LeasedAdb {
         self.inner.uses_host_server()
     }
 
+    async fn discover_network(
+        &self,
+    ) -> super::driver::AdbResult<super::driver::NativeDiscoveryReport> {
+        self.inner.discover_network().await
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.inner.raw(args).await
     }
@@ -265,6 +271,12 @@ pub(crate) struct ClosedAdb;
 
 #[async_trait]
 impl AdbDriver for ClosedAdb {
+    async fn discover_network(
+        &self,
+    ) -> super::driver::AdbResult<super::driver::NativeDiscoveryReport> {
+        Err(AdbError::ShuttingDown)
+    }
+
     async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
         Err(AdbError::ShuttingDown)
     }
@@ -425,6 +437,15 @@ mod tests {
 
     #[async_trait]
     impl AdbDriver for Recorder {
+        async fn discover_network(&self) -> AdbResult<super::super::NativeDiscoveryReport> {
+            self.note("discover_network");
+            Ok(super::super::NativeDiscoveryReport {
+                advertisements: Vec::new(),
+                warnings: Vec::new(),
+                observation_max_age_ms: 30_000,
+            })
+        }
+
         async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
             self.note("raw");
             Ok(empty())
@@ -465,6 +486,7 @@ mod tests {
 
     async fn call_every_method(driver: &dyn AdbDriver) {
         let path = Path::new("x");
+        let _ = driver.discover_network().await;
         let _ = driver.raw(&[]).await;
         let _ = driver.raw_transfer(&[]).await;
         let _ = driver.pull_limited("s", "r", path, 1).await;
@@ -484,6 +506,7 @@ mod tests {
         assert_eq!(
             *recorder.0.lock().unwrap(),
             [
+                "discover_network",
                 "raw",
                 "raw_transfer",
                 "pull_limited",
@@ -500,6 +523,10 @@ mod tests {
     #[tokio::test]
     async fn a_closed_snapshot_refuses_every_spawning_method() {
         let closed = ClosedAdb;
+        assert!(matches!(
+            closed.discover_network().await,
+            Err(AdbError::ShuttingDown)
+        ));
         let path = Path::new("x");
         assert!(matches!(closed.raw(&[]).await, Err(AdbError::ShuttingDown)));
         assert!(matches!(
