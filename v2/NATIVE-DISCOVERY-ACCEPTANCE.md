@@ -13,9 +13,11 @@ prove that a TV is online, paired, authorized or an Android TV. An advertised na
 host address or service instance is not a verified hardware identity and cannot
 merge physical-device rows. Actual connected-device profiling remains canonical.
 
-Native Scan returns observations for explicit manual selection. Selecting an
-address only prepares the existing Connect or Pair form; it never dials or guesses
-a PIN. Pairing success still requires the separate connect port. Existing manual
+Native Scan returns observations for explicit selection through the mobile-style
+TV picker. Clicking Connect attempts only the exact selected endpoint. Pair with
+code prepares the code form and does not send a PIN automatically. Discovery and
+address grouping never initiate connections. Pairing success still requires the
+separate connect port. Existing manual
 IP/port controls remain usable when multicast is unavailable or observes nothing.
 Legacy network debugging may work without advertising any service.
 
