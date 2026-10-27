@@ -1,5 +1,6 @@
 mod bounded_shell;
 mod limited_writer;
+mod streamed_install;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -570,6 +571,18 @@ impl AdbDriver for WirelessAdb {
     /// connection so a phone-storage error cannot evict a healthy TV socket.
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
+            ["-s", serial, "install", local] => {
+                self.streamed_install_impl(serial, local, false).await
+            }
+            ["-s", serial, "install", "-r", local] => {
+                self.streamed_install_impl(serial, local, true).await
+            }
+            ["-s", _, "install", ..] => Err(AdbError::Unsupported {
+                operation: "install_flags",
+            }),
+            ["-s", _, "install-multiple", ..] => Err(AdbError::Unsupported {
+                operation: "install_multiple",
+            }),
             ["-s", serial, "pull", remote, local] => {
                 let remote = remote.to_string();
                 let local = PathBuf::from(local);

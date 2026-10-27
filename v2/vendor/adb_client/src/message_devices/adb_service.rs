@@ -105,6 +105,8 @@ pub(crate) struct ADBService<T: ADBMessageTransport> {
     read_timeout: Duration,
     write_timeout: Duration,
     final_write_ack_pending: bool,
+    pending_limit: Option<usize>,
+    peer_closed: bool,
 }
 
 impl<T: ADBMessageTransport> ADBService<T> {
@@ -120,7 +122,23 @@ impl<T: ADBMessageTransport> ADBService<T> {
             read_timeout,
             write_timeout,
             final_write_ack_pending: false,
+            pending_limit: None,
+            peer_closed: false,
         }
+    }
+
+    pub(crate) fn with_pending_limit(mut self, limit: usize) -> Self {
+        self.pending_limit = Some(limit);
+        self
+    }
+
+    pub(crate) fn take_pending(&mut self, limit: usize) -> Vec<u8> {
+        let count = self.pending.len().min(limit);
+        self.pending.drain(..count).collect()
+    }
+
+    pub(crate) const fn peer_closed(&self) -> bool {
+        self.peer_closed
     }
 
     fn protocol_error(message: impl Into<String>) -> Error {
@@ -197,6 +215,12 @@ impl<T: ADBMessageTransport> ADBService<T> {
     }
 
     fn acknowledge_payload(&mut self, message: ADBTransportMessage) -> std::io::Result<()> {
+        if self
+            .pending_limit
+            .is_some_and(|limit| self.pending.len().saturating_add(message.payload().len()) > limit)
+        {
+            return Err(Self::protocol_error("ADB service output limit reached"));
+        }
         self.send(MessageCommand::Okay, &[])?;
         self.pending.extend(message.into_payload());
         Ok(())
@@ -224,6 +248,7 @@ impl<T: ADBMessageTransport> ADBService<T> {
         // ADB protocol.txt explicitly says the recipient must not reply to
         // CLSE. Any pending local WRTE or CLSE is simply abandoned.
         self.closed = true;
+        self.peer_closed = true;
     }
 
     pub(crate) fn close(&mut self) -> std::io::Result<()> {
@@ -624,13 +649,15 @@ mod tests {
     #[test]
     fn zero_local_id_is_rejected_without_writing() {
         let mut transport = FakeTransport::default();
-        assert!(open_service_session(
-            &mut transport,
-            "localabstract:scrcpy_0a1b2c3d",
-            0,
-            Duration::from_secs(1),
-        )
-        .is_err());
+        assert!(
+            open_service_session(
+                &mut transport,
+                "localabstract:scrcpy_0a1b2c3d",
+                0,
+                Duration::from_secs(1),
+            )
+            .is_err()
+        );
         assert!(transport.state.lock().unwrap().outgoing.is_empty());
     }
 }

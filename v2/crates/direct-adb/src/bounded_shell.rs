@@ -53,13 +53,14 @@ impl WirelessAdb {
     }
 }
 
-async fn run_worker<F>(
+pub(crate) async fn run_worker<T, F>(
     operation: Arc<Lease>,
     control: BoundedShellControl,
     run: F,
-) -> AdbResult<BoundedShellOutput>
+) -> AdbResult<T>
 where
-    F: FnOnce(BoundedShellControl) -> AdbResult<BoundedShellOutput> + Send + 'static,
+    T: Send + 'static,
+    F: FnOnce(BoundedShellControl) -> AdbResult<T> + Send + 'static,
 {
     let _cancel = CancelOnDrop(control.clone());
     tokio::task::spawn_blocking(move || {
@@ -109,7 +110,7 @@ mod tests {
             .is_err());
             started.send(()).unwrap();
             release_rx.recv().unwrap();
-            Err(AdbError::Transport("fixture cleanup complete".into()))
+            Err::<BoundedShellOutput, _>(AdbError::Transport("fixture cleanup complete".into()))
         }));
         started_rx.await.unwrap();
         task.abort();

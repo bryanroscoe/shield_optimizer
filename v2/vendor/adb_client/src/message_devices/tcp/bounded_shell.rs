@@ -190,7 +190,7 @@ impl BoundedShellControl {
     }
 }
 
-struct Finish(BoundedShellControl);
+pub(crate) struct Finish(pub(crate) BoundedShellControl);
 impl Drop for Finish {
     fn drop(&mut self) {
         self.0.finish();
