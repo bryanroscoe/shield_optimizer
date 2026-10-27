@@ -371,38 +371,20 @@ impl RemoteRegistry {
 
     fn prepare_close(cell: Arc<Cell>, generation: Option<u64>) -> ClosePlan {
         let _publication = lock(&cell.publication);
-        if generation
-            .is_some_and(|generation| cell.generation.load(Ordering::Acquire) != generation)
-        {
-            drop(_publication);
-            return ClosePlan {
-                cell,
-                target: None,
-                guard: None,
-                skip: true,
-            };
-        }
-        invalidate(&cell);
-        if let Some(generation) = generation {
-            let _ = cell.generation.compare_exchange(
-                generation,
-                0,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
-        } else {
+        let stale = generation
+            .is_some_and(|generation| cell.generation.load(Ordering::Acquire) != generation);
+        if !stale {
+            invalidate(&cell);
             cell.generation.store(0, Ordering::Release);
         }
         if let Some((tag, cancel)) = lock(&cell.start_cancel).as_ref() {
-            if generation.map_or(true, |generation| generation == *tag) {
+            if !stale || generation == Some(*tag) {
                 cancel.cancel();
             }
         }
-        let target = lock(&cell.live_cancel).as_ref().and_then(|(tag, _)| {
-            generation
-                .map_or(true, |generation| generation == *tag)
-                .then_some(*tag)
-        });
+        let target = lock(&cell.live_cancel)
+            .as_ref()
+            .and_then(|(tag, _)| (!stale || generation == Some(*tag)).then_some(*tag));
         drop(_publication);
         let guard = cell.operation.clone().try_lock_owned().ok();
         if guard.is_none() {
@@ -416,7 +398,6 @@ impl RemoteRegistry {
             cell,
             target,
             guard,
-            skip: false,
         }
     }
     pub async fn close(&self, serial: &str, generation: Option<u64>) -> Result<(), String> {
@@ -446,13 +427,9 @@ struct ClosePlan {
     cell: Arc<Cell>,
     target: Option<u64>,
     guard: Option<OwnedMutexGuard<()>>,
-    skip: bool,
 }
 impl ClosePlan {
     async fn run(self) -> Result<(), String> {
-        if self.skip {
-            return Ok(());
-        }
         let _operation = match self.guard {
             Some(guard) => guard,
             None => self.cell.operation.clone().lock_owned().await,
@@ -901,5 +878,29 @@ mod tests {
         assert_eq!(leases.active(), 0);
         assert_eq!(*lock(&events), vec!["ready:close"]);
         assert!(registry.capture("C").is_err());
+    }
+    #[tokio::test]
+    async fn stale_close_retires_only_its_live_session_before_new_startup() {
+        let registry = RemoteRegistry::default();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let a = registry.begin("A").unwrap();
+        ready(&registry, "A", a, Fixture::simple("old", events.clone())).await;
+        let b = registry.begin("A").unwrap();
+        registry.close("A", Some(a)).await.unwrap();
+        registry.validate("A", b).unwrap();
+        assert_eq!(*lock(&events), vec!["old:close"]);
+        registry.close("A", Some(b)).await.unwrap();
+        assert_eq!(*lock(&events), vec!["old:close"]);
+    }
+    #[tokio::test]
+    async fn closing_current_generation_also_retires_inherited_previous_session() {
+        let registry = RemoteRegistry::default();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let a = registry.begin("A").unwrap();
+        ready(&registry, "A", a, Fixture::simple("old", events.clone())).await;
+        let b = registry.begin("A").unwrap();
+        registry.close("A", Some(b)).await.unwrap();
+        assert_eq!(*lock(&events), vec!["old:close"]);
+        assert!(registry.validate("A", b).is_err());
     }
 }
