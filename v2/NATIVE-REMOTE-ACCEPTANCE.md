@@ -1,54 +1,57 @@
-# Native Remote prerequisites
+# Native Remote lifecycle acceptance
 
-This local stack follows native discovery at `c44f8b7`. Platform-tools remains the
-shipped default, and native fast Remote remains refused before helper push. This
-is a prerequisite slice, not a claim of working native remote control.
+This experimental stack follows the reviewed stream prerequisite at `d53cdf1`.
+Platform-tools remains the shipped default. **Native fast Remote is still disabled
+in production**; fake drivers exercise the compiled orchestration directly.
 
-## Input delivery
+| Area | Implemented and locally simulated | Remaining acceptance |
+| --- | --- | --- |
+| Target ownership | One verified hardware binding across helper upload, resident shell and control services; all use dedicated cancellable connections. | Real AUTH/STLS, firmware and packaged interoperability. |
+| Helper generation | Unique process/time/counter resource names, bound sync upload, resident shell cleanup trap, scoped cleanup requests. No broad process kill or generic transfer fallback. | Abandoned startup after upload but before the resident trap can leave this generation's helper file. Network failure can prevent cleanup. Physical process termination is not confirmed. |
+| Admission | Opaque decimal generation tokens; exact-token close, per-TV operation locks and internal revision fences. Close invalidates before waiting, and stale startup cannot publish. Legacy commands capture one generation per request. | Actual OS/process failure behavior. Already-dispatched shell/input cannot be unsent. |
+| Sessions | Owned startup/cleanup workers, cancellation handles, independent TVs, repeated stop/reopen and driver-swap/quit draining. | Hardware socket-shutdown and helper-exit behavior. |
+| Held input | Track key-down before writing; normal close attempts key-up before cancellation. Failed/partial writes poison the session and report uncertain release, without replay. | No control-message acknowledgement proves Android applied key-up. Real disconnect/held-key acceptance remains required. |
+| Text | UTF-8 chunks preserve accepted text at scalar boundaries, maximum 300 bytes per control message and 64 KiB per request. Failure stops remaining chunks. | Android text-injection/keymap limitations, grapheme/IME behavior on TVs. |
+| UI lifecycle | Lazy logical open; hide, unmount, blur, target/mode change discard unsent work. Late completions cannot change a new session. Keyboard D-pad and Unicode/IME input have browser fixtures. | Native webview and physical input testing across supported platforms. |
 
-A channel startup failure before input can still use shell input through the
-same selected driver. Explicit compatibility mode skips channel startup. Once a
-key or text write is attempted, failure closes the session and reports an unknown
-outcome without automatically resending. The warning asks users to inspect the
-TV before retrying. A failed flush or key-up cannot prove that nothing arrived.
+## Bounds and certainty
 
-Injected dispatch tests cover startup, explicit compatibility, successful channel
-input and failed partial text/write/flush/key-up outcomes. The simulated browser
-shows the warning after one failed gesture and verifies that no automatic second
-invocation occurs. These tests do not prove physical delivery or cancellation of
-already queued later gestures.
+Startup has a 15-second total deadline; streams have a five-minute finite lifetime,
+individual I/O has a two-second deadline, helper upload is capped at 16 MiB and
+pending service output is bounded. Resident output is discarded through a fixed
+buffer, not accumulated. Idle streams remain usable within their total lifetime.
 
-## Dedicated-service prerequisite
+Only a correlated CLSE reply before the initial OKAY is a typed service refusal.
+Control-socket readiness retries only that refusal, at most ten attempts separated
+by a cancellable 150 ms delay. Lost OPEN acknowledgement, handshake failure,
+helper launch/upload and input are never replayed. A canceled or failed worker
+retains its lease until cleanup; cancellation does not prove remote termination.
 
-The service API binds new dedicated connections to a verified hardware identity
-from the currently owned control connection. A new connection must report the
-same identity before the requested service is opened. Lifetime and cancellation
-are explicit; cancellation interrupts only that dedicated socket and does not
-confirm termination of a remote process. Logical session generations must still
-be managed by a future Remote orchestrator.
+A channel startup failure before any input can use shell input through the same
+selected driver. Explicit compatibility mode skips channel startup. Once input
+is attempted, failure reports uncertainty and never resends through shell. Each
+command captures a generation before startup and keeps it across any fallback.
 
-No existing Android raw-service path is silently replaced. No external adb
-fallback, connection retry, service replay, key creation or import is introduced.
-The local tests use existing in-memory identities and self-owned loopback peers.
-Six protocol fixtures cover mismatched/unknown identity, exact bytes, lost OPEN
-acknowledgement, cancellation during OPEN or read, total deadline, stream drop
-and output bounds. Shared bridge tests cover rejected requests, late worker
-results after cancellation and work-lease ownership.
+## Evidence and release gates
 
-## Remaining enablement and release gates
+Deterministic registry, fake-stream, command and browser cases cover repeated
+open/close, stale generations, delayed startup, cancellation, held input, concurrent
+TVs, queued operations and uncertain delivery. The protocol fixtures use only
+self-owned loopback peers and existing in-memory identities. These tests do not
+establish actual TV behavior or eliminate the cleanup limits above.
 
-- Helper launch must use generation-scoped cleanup rather than a broad process
-  pattern; cancelled startup cannot publish a late session.
-- Stop, reopen, disconnect and quit must release owned streams and retain leases
-  until physical cleanup. A stalled TV must not block another TV's registry.
-- Held keys need best-effort release without claiming acknowledgement. Current UI
-  holds repeat full key presses, and tab hiding does not destroy the component.
-- Pending UI sends need target/generation and visibility cancellation. Emoji/IME
-  live typing and keyboard D-pad activation still need focused acceptance; UTF-8
-  framing tests alone do not prove Android text injection support.
-- Real helper/control interoperability, packaged macOS/Windows/Linux behavior,
-  physical TV authorization and user-selected identity onboarding remain untested.
+Targeted screenshots and a short video are labeled simulation and retained outside
+Git. Normal captured gallery layouts are unchanged. No actual helper push, remote
+control, LAN scan, host ADB/server action, credential generation, permissions change
+or publication is required for these local checks.
 
-The normal gallery has no changed layout. Targeted failure-state screenshots and
-video are labeled simulation and retained outside Git. No real ADB server, TV,
-LAN scan, permissions or credentials are changed by this work.
+Before enabling native fast Remote, review the recorded simulated results and
+remaining failure cases. Packaged macOS/Windows/Linux plus physical TV acceptance,
+normal identity onboarding, helper compatibility and meaningful cancellation/
+release verification remain separate gates. Neither this work nor the native
+transport establishes the cause of issue #235's routing failure.
+
+Protocol references: [scrcpy 3.1 control serialization](https://github.com/Genymobile/scrcpy/blob/v3.1/app/src/control_msg.c)
+and [AOSP ADB OPEN/CLOSE protocol](https://github.com/aosp-mirror/platform_system_core/blob/android-10.0.0_r1/adb/protocol.txt).
+Implementation and tests are original; these sources define protocol behavior,
+not evidence of hardware compatibility.
