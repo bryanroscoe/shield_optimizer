@@ -745,7 +745,12 @@ impl AdbDriver for WirelessAdb {
         // Generic consumers inherit the same identity checks and finite owned-stream lifetime.
         let binding = self.device_binding_impl(serial).await?;
         let owned = self
-            .open_bound_device_service_impl(&binding, service, Duration::from_secs(15 * 60))
+            .open_bound_device_service_with_read_policy(
+                &binding,
+                service,
+                Duration::from_secs(15 * 60),
+                Some(Duration::from_secs(2)),
+            )
             .await?;
         Ok(owned.stream)
     }

@@ -40,6 +40,21 @@ impl WirelessAdb {
         service: &str,
         lifetime: Duration,
     ) -> AdbResult<AdbOwnedService> {
+        self.open_bound_device_service_with_read_policy(binding, service, lifetime, None)
+            .await
+    }
+    pub(crate) async fn open_bound_device_service_with_read_policy(
+        &self,
+        binding: &AdbDeviceBinding,
+        service: &str,
+        lifetime: Duration,
+        read_timeout: Option<Duration>,
+    ) -> AdbResult<AdbOwnedService> {
+        if read_timeout.is_some_and(|timeout| timeout.is_zero()) {
+            return Err(AdbError::Transport(
+                "Bound service read timeout must be positive.".into(),
+            ));
+        }
         if lifetime.is_zero() || lifetime > MAX_LIFETIME {
             return Err(AdbError::Transport(
                 "Bound service lifetime must be greater than zero and at most fifteen minutes."
@@ -84,11 +99,8 @@ impl WirelessAdb {
         let key = self.key_path.clone();
         let service = service.to_owned();
         open_worker(operation, control, move |control| {
-            open_bound_service(address, &key, &expected, &service, control)
-                .map(|stream| {
-                    Box::new(stream) as Box<dyn shield_optimizer_core::adb::AdbByteStream>
-                })
-                .map_err(|error| match error {
+            let stream = open_bound_service(address, &key, &expected, &service, control).map_err(
+                |error| match error {
                     BoundServiceError::BeforeOpen(error) => AdbError::Transport(error.to_string()),
                     BoundServiceError::Rejected(_) => AdbError::ServiceRejected {
                         operation: "device service OPEN",
@@ -97,7 +109,13 @@ impl WirelessAdb {
                         operation: "device service OPEN",
                         detail: error.to_string(),
                     },
-                })
+                },
+            )?;
+            let stream = match read_timeout {
+                Some(timeout) => stream.with_read_timeout(timeout)?,
+                None => stream,
+            };
+            Ok(Box::new(stream) as Box<dyn shield_optimizer_core::adb::AdbByteStream>)
         })
         .await
     }
@@ -159,6 +177,15 @@ mod tests {
             serial: "fixture".into(),
             hardware_id: "known-fixture".into(),
         };
+        assert!(driver
+            .open_bound_device_service_with_read_policy(
+                &valid,
+                "localabstract:fixture",
+                Duration::from_secs(1),
+                Some(Duration::ZERO)
+            )
+            .await
+            .is_err());
         for (service, lifetime) in [
             ("", Duration::from_secs(1)),
             ("bad\0service", Duration::from_secs(1)),

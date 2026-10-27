@@ -130,6 +130,17 @@ impl<T: ADBMessageTransport> ADBService<T> {
         }
     }
 
+    pub(crate) fn set_read_timeout(&mut self, timeout: Duration) -> std::io::Result<()> {
+        if timeout.is_zero() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "read timeout must be positive",
+            ));
+        }
+        self.read_timeout = timeout;
+        Ok(())
+    }
+
     pub(crate) fn with_pending_limit(mut self, limit: usize) -> Self {
         self.pending_limit = Some(limit);
         self
@@ -444,6 +455,22 @@ mod tests {
         assert_eq!(message.header().arg0(), arg0);
         assert_eq!(message.header().arg1(), arg1);
         assert_eq!(message.payload(), payload);
+    }
+
+    #[test]
+    fn service_read_policy_changes_only_the_read_budget() {
+        let transport = FakeTransport::default();
+        let mut stream = service(&transport);
+        assert!(stream.set_read_timeout(Duration::ZERO).is_err());
+        stream.set_read_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(stream.read_timeout, Duration::from_secs(2));
+        assert_eq!(stream.write_timeout, Duration::from_millis(456));
+        let mut byte = [0u8; 1];
+        assert!(stream.read(&mut byte).is_err());
+        assert_eq!(
+            transport.state.lock().unwrap().read_timeouts,
+            [Duration::from_secs(2)]
+        );
     }
 
     #[test]

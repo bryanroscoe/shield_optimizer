@@ -41,6 +41,12 @@ impl std::fmt::Debug for BoundDeviceService {
     }
 }
 impl BoundDeviceService {
+    /// Caps each read response without shortening the total stream lifetime.
+    pub fn with_read_timeout(mut self, timeout: Duration) -> std::io::Result<Self> {
+        self.stream.set_read_timeout(timeout)?;
+        Ok(self)
+    }
+
     /// A handle that can interrupt blocking I/O while another worker owns this stream.
     #[must_use]
     pub fn cancellation(&self) -> BoundedShellControl {
