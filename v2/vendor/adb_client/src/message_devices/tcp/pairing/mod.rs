@@ -127,7 +127,7 @@ pub fn pair(
     let deadline = Instant::now() + DEFAULT_TIMEOUT;
     let (certificate, private_key) = client_identity(private_key_path)?;
     let public_key = adb_public_key(private_key_path)?;
-    pair_with_identity(addr, code, certificate, private_key, public_key, deadline)
+    pair_with_identity(addr, code, certificate, private_key, &public_key, deadline)
 }
 
 fn pair_with_identity(
@@ -135,7 +135,7 @@ fn pair_with_identity(
     code: &str,
     certificate: Vec<CertificateDer<'static>>,
     private_key: PrivatePkcs8KeyDer<'static>,
-    public_key: String,
+    public_key: &str,
     deadline: Instant,
 ) -> Result<PairingOutcome, PairingError> {
     let stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT.min(remaining(deadline)?))
@@ -155,7 +155,9 @@ fn pair_with_identity(
     refresh_timeouts(&tls, deadline)?;
     while tls.conn.is_handshaking() {
         refresh_timeouts(&tls, deadline)?;
-        tls.conn.complete_io(&mut tls.sock).map_err(tls_io_error)?;
+        tls.conn
+            .complete_io(&mut tls.sock)
+            .map_err(|e| tls_io_error(&e))?;
     }
 
     let mut exported = [0_u8; EXPORTED_KEY_SIZE];
@@ -284,8 +286,8 @@ fn is_timeout(error: &std::io::Error) -> bool {
     )
 }
 
-fn tls_io_error(error: std::io::Error) -> PairingError {
-    if is_timeout(&error) {
+fn tls_io_error(error: &std::io::Error) -> PairingError {
+    if is_timeout(error) {
         PairingError::Timeout
     } else {
         PairingError::Tls(error.to_string())
@@ -595,7 +597,7 @@ mod tests {
             "123456",
             certificate,
             key,
-            public,
+            &public,
             std::time::Instant::now() + timeout,
         )
     }
