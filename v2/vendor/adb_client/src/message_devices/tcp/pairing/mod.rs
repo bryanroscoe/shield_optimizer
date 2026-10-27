@@ -452,7 +452,7 @@ mod tests {
     use crate::message_devices::models::ADBRsaKey;
     use base64::{Engine, engine::general_purpose::STANDARD};
     use std::{
-        io::Write,
+        io::{Read, Write},
         net::{Ipv4Addr, SocketAddr, TcpListener},
     };
 
@@ -672,7 +672,7 @@ mod tests {
             let mut tls = rustls::StreamOwned::new(connection, socket);
             let bytes = frame(PacketType::Spake2Msg, &[0; 32]);
             for byte in bytes {
-                if tls.write_all(&[byte]).and_then(|_| tls.flush()).is_err() {
+                if tls.write_all(&[byte]).and_then(|()| tls.flush()).is_err() {
                     break;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(40));
@@ -687,6 +687,101 @@ mod tests {
             "elapsed: {elapsed:?}, error: {err:?}"
         );
         assert!(matches!(err, PairingError::Timeout), "{err:?}");
+    }
+
+    fn read_server_packet(
+        tls: &mut rustls::StreamOwned<rustls::ServerConnection, std::net::TcpStream>,
+        expected: PacketType,
+    ) -> Result<Vec<u8>, PairingError> {
+        let mut bytes = [0; HEADER_LEN];
+        tls.read_exact(&mut bytes)?;
+        let header = PairingPacketHeader::parse(bytes)?;
+        assert_eq!(header.packet_type, expected);
+        let mut payload = vec![0; header.payload as usize];
+        tls.read_exact(&mut payload)?;
+        Ok(payload)
+    }
+
+    fn loopback_pairing(
+        server_code: &'static str,
+    ) -> (
+        Result<super::PairingOutcome, PairingError>,
+        Result<String, PairingError>,
+    ) {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (certificates, key, expected_public) = fixture_identity();
+        let config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certificates, key.into())
+            .unwrap();
+        let server = std::thread::spawn(move || -> Result<String, PairingError> {
+            let (socket, _) = listener.accept()?;
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+            socket.set_write_timeout(Some(std::time::Duration::from_secs(2)))?;
+            let connection = rustls::ServerConnection::new(std::sync::Arc::new(config))
+                .map_err(|e| PairingError::Tls(e.to_string()))?;
+            let mut tls = rustls::StreamOwned::new(connection, socket);
+            while tls.conn.is_handshaking() {
+                tls.conn.complete_io(&mut tls.sock)?;
+            }
+            let mut exported = [0; EXPORTED_KEY_SIZE];
+            tls.conn
+                .export_keying_material(&mut exported, EXPORTER_LABEL, None)
+                .map_err(|e| PairingError::Tls(e.to_string()))?;
+            let mut password = server_code.as_bytes().to_vec();
+            password.extend_from_slice(&exported);
+            let spake = Spake2::new(Role::Bob, &password);
+            let client_message = read_server_packet(&mut tls, PacketType::Spake2Msg)?;
+            tls.write_all(&frame(PacketType::Spake2Msg, &spake.msg()))?;
+            tls.flush()?;
+            let material = spake
+                .process(&client_message)
+                .ok_or_else(|| PairingError::Protocol("invalid client curve point".into()))?;
+            let mut cipher = PairingCipher::new(&material);
+            let sealed = read_server_packet(&mut tls, PacketType::PeerInfo)?;
+            let opened = match cipher.decrypt(&sealed) {
+                Ok(opened) => opened,
+                Err(error) => {
+                    tls.conn.send_close_notify();
+                    tls.flush()?;
+                    return Err(error);
+                }
+            };
+            let client = super::PeerInfo::parse(&opened)?;
+            assert_eq!(client.kind, PEER_INFO_RSA_PUB_KEY);
+            assert_eq!(client.data_lossy(), expected_public);
+            let server_info = encode_peer_info(1, b"adb-loopback-fixture")?;
+            tls.write_all(&frame(PacketType::PeerInfo, &cipher.encrypt(&server_info)?))?;
+            tls.flush()?;
+            tls.conn.send_close_notify();
+            tls.flush()?;
+            Ok(client.data_lossy())
+        });
+        let outcome = pair_fixture(addr, std::time::Duration::from_secs(2));
+        (outcome, server.join().unwrap())
+    }
+
+    #[test]
+    fn loopback_tls_exporter_spake2_and_peer_info_pair_successfully() {
+        let (client, server) = loopback_pairing("123456");
+        let outcome = client.unwrap();
+        assert_eq!(outcome.peer_info.kind, 1);
+        assert_eq!(outcome.peer_info.data_lossy(), "adb-loopback-fixture");
+        assert_eq!(server.unwrap(), fixture_identity().2);
+    }
+
+    #[test]
+    fn loopback_tls_pairing_rejects_a_different_code() {
+        let (client, server) = loopback_pairing("123457");
+        assert!(
+            matches!(server, Err(PairingError::CodeMismatch)),
+            "{server:?}"
+        );
+        assert!(
+            matches!(client, Err(PairingError::CodeMismatch)),
+            "{client:?}"
+        );
     }
 
     fn frame(packet_type: PacketType, payload: &[u8]) -> Vec<u8> {
