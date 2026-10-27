@@ -48,7 +48,7 @@ pub struct NativeRemoteSession {
     drain: Option<tokio::task::JoinHandle<()>>,
     held: BTreeSet<u32>,
     poisoned: bool,
-    cleanup: Option<(Arc<dyn AdbDriver>, AdbDeviceBinding, String)>,
+    cleanup: Option<HelperCleanup>,
 }
 
 async fn open(
@@ -154,6 +154,89 @@ async fn remove_helper(
     result
 }
 
+type CleanupReceipt = Arc<Mutex<Option<Result<(), String>>>>;
+
+struct HelperCleanup {
+    trigger: Option<tokio::sync::oneshot::Sender<()>>,
+    worker: Option<tokio::task::JoinHandle<Result<(), String>>>,
+    #[cfg(test)]
+    receipt: CleanupReceipt,
+}
+
+impl HelperCleanup {
+    fn arm(
+        adb: Arc<dyn AdbDriver>,
+        binding: AdbDeviceBinding,
+        jar: String,
+    ) -> Result<Self, String> {
+        Self::arm_with_deadline(adb, binding, jar, Duration::from_secs(3))
+    }
+
+    fn arm_with_deadline(
+        adb: Arc<dyn AdbDriver>,
+        binding: AdbDeviceBinding,
+        jar: String,
+        deadline: Duration,
+    ) -> Result<Self, String> {
+        let lease = match adb.operation_leases() {
+            Some(leases) => Some(leases.try_acquire().ok_or_else(|| {
+                "Helper cleanup admission is closed; file cleanup is unconfirmed.".to_string()
+            })?),
+            None => None,
+        };
+        let (trigger, start) = tokio::sync::oneshot::channel();
+        let receipt: CleanupReceipt = Arc::default();
+        let recorded = receipt.clone();
+        let worker = tokio::spawn(async move {
+            let _lease = lease;
+            let _ = start.await;
+            let result = tokio::time::timeout(deadline, remove_helper(&adb, &binding, &jar))
+                .await
+                .unwrap_or_else(|_| {
+                    Err(
+                        "Scoped helper cleanup deadline expired; file cleanup is unconfirmed."
+                            .into(),
+                    )
+                });
+            if result.is_err() {
+                tracing::warn!("Native Remote scoped helper cleanup was not confirmed; a helper file may remain.");
+            }
+            *recorded
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result.clone());
+            result
+        });
+        Ok(Self {
+            trigger: Some(trigger),
+            worker: Some(worker),
+            #[cfg(test)]
+            receipt,
+        })
+    }
+
+    async fn finish(mut self) -> Result<(), String> {
+        if let Some(trigger) = self.trigger.take() {
+            let _ = trigger.send(());
+        }
+        self.worker
+            .take()
+            .expect("cleanup worker is owned once")
+            .await
+            .map_err(|_| {
+                "Scoped helper cleanup worker failed; file cleanup is unconfirmed.".to_string()
+            })?
+    }
+}
+
+impl Drop for HelperCleanup {
+    fn drop(&mut self) {
+        if let Some(trigger) = self.trigger.take() {
+            let _ = trigger.send(());
+        }
+        // Dropping a JoinHandle detaches the bounded owner, rather than aborting cleanup.
+    }
+}
+
 impl NativeRemoteSession {
     /// Start one isolated, finite-lived helper and control connection.
     pub async fn start(
@@ -216,6 +299,7 @@ impl NativeRemoteSession {
         if bytes.len() > 16 * 1024 * 1024 {
             return Err("Remote helper exceeds upload limit.".into());
         }
+        let mut cleanup = None;
         let result = async {
         let upload = open(&adb, &binding, "sync:", &cancel, &connections).await.map_err(|e|e.to_string())?;
         let upload_cancel = upload.cancellation.clone();
@@ -243,6 +327,7 @@ impl NativeRemoteSession {
         })
         .await?;
         upload_cancel.cancel();
+        cleanup=Some(HelperCleanup::arm(adb.clone(),binding.clone(),jar.clone())?);
         if cancel.is_cancelled() {
             return Err("Remote startup cancelled.".into());
         }
@@ -280,7 +365,7 @@ impl NativeRemoteSession {
         let mut session = Self {
             control: Arc::new(Mutex::new(control.stream)),
             connections: connections.clone(),
-            cleanup: Some((adb.clone(),binding.clone(),jar.clone())),
+            cleanup: None,
             drain: Some(drain),
             held: BTreeSet::new(),
             poisoned: false,
@@ -307,15 +392,24 @@ impl NativeRemoteSession {
         session.poisoned = false;
         Ok(session)
         }.await;
-        if let Err(error) = result {
-            connections.cancel();
-            let cleanup = remove_helper(&adb, &binding, &jar).await;
-            return Err(match cleanup {
-                Ok(()) => error,
-                Err(cleanup) => format!("{error} Helper cleanup not confirmed: {cleanup}"),
-            });
+        match result {
+            Err(error) => {
+                connections.cancel();
+                let removed = if let Some(cleanup) = cleanup.take() {
+                    cleanup.finish().await
+                } else {
+                    remove_helper(&adb, &binding, &jar).await
+                };
+                Err(match removed {
+                    Ok(()) => error,
+                    Err(cleanup) => format!("{error} Helper cleanup not confirmed: {cleanup}"),
+                })
+            }
+            Ok(mut session) => {
+                session.cleanup = cleanup.take();
+                Ok(session)
+            }
         }
-        result
     }
 
     async fn write(&mut self, message: Vec<u8>) -> Result<(), String> {
@@ -393,8 +487,8 @@ impl RemoteSessionIo for NativeRemoteSession {
         if let Some(drain) = self.drain.take() {
             let _ = drain.await;
         }
-        let cleanup = if let Some((adb, binding, jar)) = self.cleanup.take() {
-            remove_helper(&adb, &binding, &jar).await
+        let cleanup = if let Some(cleanup) = self.cleanup.take() {
+            cleanup.finish().await
         } else {
             Ok(())
         };
@@ -476,12 +570,19 @@ mod tests {
         fail: Arc<AtomicBool>,
         bad_handshake: AtomicBool,
         pending_control: AtomicBool,
+        pending_resident: AtomicBool,
+        cleanup_failure: AtomicBool,
+        cleanup_pending: AtomicBool,
+        leases: Arc<super::super::Leases>,
         control_refusals: AtomicU32,
         uncertain_open: AtomicBool,
         cancel_on_control: Mutex<Option<Arc<RemoteStartCancellation>>>,
     }
     #[async_trait]
     impl AdbDriver for Fake {
+        fn operation_leases(&self) -> Option<Arc<super::super::Leases>> {
+            Some(self.leases.clone())
+        }
         fn uses_host_server(&self) -> bool {
             false
         }
@@ -513,6 +614,19 @@ mod tests {
             );
             self.bindings.lock().unwrap().push(binding.clone());
             self.services.lock().unwrap().push(service.into());
+            if service.starts_with("shell:rm ") {
+                if self.cleanup_pending.load(Ordering::Acquire) {
+                    std::future::pending::<()>().await;
+                }
+                let _admitted = self.leases.try_acquire().ok_or(AdbError::ShuttingDown)?;
+                if self.cleanup_failure.load(Ordering::Acquire) {
+                    return Err(AdbError::Transport("fixture cleanup rejected".into()));
+                }
+            }
+            if service.starts_with("shell:trap ") && self.pending_resident.load(Ordering::Acquire) {
+                std::future::pending::<()>().await;
+            }
+
             if service.starts_with("localabstract:") {
                 if self.uncertain_open.load(Ordering::Acquire) {
                     return Err(AdbError::Transport("OPEN acknowledgment lost".into()));
@@ -828,5 +942,138 @@ mod tests {
             .unwrap()
             .iter()
             .all(|stop| *stop.stopped.lock().unwrap()));
+    }
+    #[tokio::test]
+    async fn native_remote_dropped_start_after_upload_cleans_exact_generation_once() {
+        for pending_resident in [true, false] {
+            let fake = Arc::new(Fake::default());
+            fake.pending_resident
+                .store(pending_resident, Ordering::Release);
+            fake.pending_control
+                .store(!pending_resident, Ordering::Release);
+            let task = tokio::spawn({
+                let fake = fake.clone();
+                async move {
+                    NativeRemoteSession::start(
+                        fake,
+                        &fixture(),
+                        "fixture-abandoned",
+                        Arc::default(),
+                    )
+                    .await
+                }
+            });
+            let expected = if pending_resident { 2 } else { 3 };
+            while fake.services.lock().unwrap().len() < expected {
+                tokio::task::yield_now().await;
+            }
+            assert!(
+                fake.leases.active() > 0,
+                "cleanup owner retains an admitted lease"
+            );
+            task.abort();
+            let _ = task.await;
+            assert!(
+                fake.leases
+                    .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                    .await
+            );
+            let services = fake.services.lock().unwrap();
+            let jar = services[1]
+                .split("CLASSPATH=")
+                .nth(1)
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap();
+            assert_eq!(
+                services
+                    .iter()
+                    .filter(|service| service.starts_with("shell:rm "))
+                    .collect::<Vec<_>>(),
+                vec![&format!("shell:rm -f -- '{jar}' && printf REMOVED")]
+            );
+            let bindings = fake.bindings.lock().unwrap();
+            assert!(bindings
+                .iter()
+                .all(|binding| binding.serial == "fixture-abandoned"
+                    && binding.hardware_id == "fixture-hardware"));
+        }
+    }
+
+    #[tokio::test]
+    async fn native_remote_abandoned_cleanup_records_failure_timeout_and_closed_admission() {
+        for pending in [false, true] {
+            let fake = Arc::new(Fake::default());
+            fake.cleanup_failure.store(!pending, Ordering::Release);
+            fake.cleanup_pending.store(pending, Ordering::Release);
+            let cleanup = HelperCleanup::arm_with_deadline(
+                fake.clone(),
+                AdbDeviceBinding {
+                    serial: "fixture-cleanup".into(),
+                    hardware_id: "fixture-hardware".into(),
+                },
+                "/data/local/tmp/shieldopt-remote-fixture-owned.jar".into(),
+                Duration::from_millis(20),
+            )
+            .unwrap();
+            let receipt = cleanup.receipt.clone();
+            drop(cleanup);
+            assert!(
+                fake.leases
+                    .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                    .await
+            );
+            let recorded = receipt.lock().unwrap().clone().unwrap();
+            assert!(recorded.is_err());
+            if pending {
+                assert!(recorded.unwrap_err().contains("deadline expired"));
+            }
+            assert_eq!(
+                fake.services.lock().unwrap().len(),
+                1,
+                "cleanup is attempted once without replay"
+            );
+        }
+        let fake = Arc::new(Fake::default());
+        let cleanup = HelperCleanup::arm(
+            fake.clone(),
+            AdbDeviceBinding {
+                serial: "fixture-cleanup".into(),
+                hardware_id: "fixture-hardware".into(),
+            },
+            "/data/local/tmp/shieldopt-remote-fixture-owned.jar".into(),
+        )
+        .unwrap();
+        let receipt = cleanup.receipt.clone();
+        fake.leases.close();
+        drop(cleanup);
+        assert!(
+            fake.leases
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(1))
+                .await
+        );
+        assert!(receipt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap_err()
+            .contains("quitting"));
+        assert!(HelperCleanup::arm(
+            fake.clone(),
+            AdbDeviceBinding {
+                serial: "fixture-cleanup".into(),
+                hardware_id: "fixture-hardware".into()
+            },
+            "/data/local/tmp/shieldopt-remote-fixture-owned.jar".into()
+        )
+        .is_err());
+        assert_eq!(
+            fake.services.lock().unwrap().len(),
+            1,
+            "closed admission is never bypassed"
+        );
     }
 }
