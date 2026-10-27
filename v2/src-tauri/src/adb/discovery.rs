@@ -14,7 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const WINDOW: Duration = Duration::from_secs(2);
+const WINDOW: Duration = Duration::from_secs(6);
 const MAX_AGE: Duration = Duration::from_secs(30);
 const MAX_ROWS: usize = 256;
 const MAX_EVENTS: usize = 1024;
@@ -213,6 +213,24 @@ fn shutdown(daemon: &ServiceDaemon) -> bool {
         }
     }
 }
+fn collect_window(
+    batch: &mut DiscoveryBatch,
+    cancel: &AtomicBool,
+    mut now: impl FnMut() -> Instant,
+    mut sleep: impl FnMut(Duration),
+    mut poll: impl FnMut(&mut DiscoveryBatch, Instant) -> bool,
+) {
+    let end = now() + WINDOW;
+    loop {
+        let observed = now();
+        if observed >= end || cancel.load(Ordering::Acquire) || batch.events.len() >= MAX_EVENTS {
+            break;
+        }
+        if !poll(batch, observed) {
+            sleep(Duration::from_millis(10).min(end.saturating_duration_since(observed)));
+        }
+    }
+}
 impl DiscoveryProvider for MdnsProvider {
     fn collect(&self, cancel: &AtomicBool) -> DiscoveryBatch {
         let mut batch = DiscoveryBatch {
@@ -252,54 +270,54 @@ impl DiscoveryProvider for MdnsProvider {
                     .push(format!("Could not browse {name}: {error}")),
             }
         }
-        let end = Instant::now() + WINDOW;
-        while Instant::now() < end
-            && !cancel.load(Ordering::Acquire)
-            && batch.events.len() < MAX_EVENTS
-        {
-            let mut received = false;
-            if let Some(monitor) = &monitor {
-                if let Ok(event) = monitor.try_recv() {
-                    received = true;
-                    if let DaemonEvent::Error(error) = event {
-                        if batch.warnings.len() < 8 {
-                            batch
-                                .warnings
-                                .push(format!("mDNS discovery error: {error}"));
+        collect_window(
+            &mut batch,
+            cancel,
+            Instant::now,
+            std::thread::sleep,
+            |batch, observed| {
+                let mut received = false;
+                if let Some(monitor) = &monitor {
+                    if let Ok(event) = monitor.try_recv() {
+                        received = true;
+                        if let DaemonEvent::Error(error) = event {
+                            if batch.warnings.len() < 8 {
+                                batch
+                                    .warnings
+                                    .push(format!("mDNS discovery error: {error}"));
+                            }
                         }
                     }
                 }
-            }
-            for receiver in &receivers {
-                if let Ok(event) = receiver.try_recv() {
-                    received = true;
-                    if let ServiceEvent::ServiceResolved(service) = &event {
-                        let rows = service
-                            .addresses
-                            .iter()
-                            .take(64)
-                            .map(|address| match address {
-                                ScopedIp::V4(v4) => v4.interface_ids().len().max(1),
-                                ScopedIp::V6(_) => 1,
-                                _ => 0,
-                            })
-                            .sum::<usize>();
-                        let interfaces_limited = service.addresses.iter().take(64).any(|address| matches!(address, ScopedIp::V4(v4) if v4.interface_ids().len() > 8));
-                        if (service.addresses.len() > 64 || rows > 64 || interfaces_limited)
-                            && batch.warnings.len() < 8
-                        {
-                            batch.warnings.push("An advertisement exceeded the address limit; results are incomplete.".into());
+                for receiver in &receivers {
+                    if let Ok(event) = receiver.try_recv() {
+                        received = true;
+                        if let ServiceEvent::ServiceResolved(service) = &event {
+                            let rows = service
+                                .addresses
+                                .iter()
+                                .take(64)
+                                .map(|address| match address {
+                                    ScopedIp::V4(v4) => v4.interface_ids().len().max(1),
+                                    ScopedIp::V6(_) => 1,
+                                    _ => 0,
+                                })
+                                .sum::<usize>();
+                            let interfaces_limited = service.addresses.iter().take(64).any(|address| matches!(address, ScopedIp::V4(v4) if v4.interface_ids().len() > 8));
+                            if (service.addresses.len() > 64 || rows > 64 || interfaces_limited)
+                                && batch.warnings.len() < 8
+                            {
+                                batch.warnings.push("An advertisement exceeded the address limit; results are incomplete.".into());
+                            }
+                        }
+                        if let Some(event) = translate(event, observed) {
+                            batch.events.push(event);
                         }
                     }
-                    if let Some(event) = translate(event, Instant::now()) {
-                        batch.events.push(event);
-                    }
                 }
-            }
-            if !received {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        }
+                received
+            },
+        );
         if batch.events.len() >= MAX_EVENTS {
             batch
                 .warnings
@@ -596,6 +614,101 @@ impl DiscoveryManager {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn collection_window_includes_delayed_advertisement_and_stays_bounded() {
+        use std::cell::Cell;
+        let start = Instant::now();
+        let elapsed = Cell::new(Duration::ZERO);
+        let cancel = AtomicBool::new(false);
+        let mut batch = DiscoveryBatch {
+            events: vec![],
+            warnings: vec![],
+            cleanup_confirmed: true,
+        };
+        let mut emitted = false;
+        collect_window(
+            &mut batch,
+            &cancel,
+            || start + elapsed.get(),
+            |duration| elapsed.set(elapsed.get() + duration),
+            |batch, observed| {
+                if !emitted && observed.duration_since(start) >= Duration::from_millis(3500) {
+                    emitted = true;
+                    batch.events.push(DiscoveryEvent::Resolved {
+                        kind: NativeServiceKind::LegacyAdb,
+                        instance: "delayed._adb._tcp.local.".into(),
+                        rows: vec![row(
+                            NativeServiceKind::LegacyAdb,
+                            "delayed._adb._tcp.local.",
+                            "fe80::1234".parse().unwrap(),
+                            5555,
+                            Some("en0".into()),
+                            Some(7),
+                            false,
+                        )],
+                        observed,
+                    });
+                    true
+                } else {
+                    false
+                }
+            },
+        );
+        assert!(
+            emitted,
+            "advertisements arriving after two seconds must be collected"
+        );
+        assert_eq!(batch.events.len(), 1);
+        let DiscoveryEvent::Resolved { rows, observed, .. } = &batch.events[0] else {
+            panic!("expected delayed advertisement");
+        };
+        assert_eq!(observed.duration_since(start), Duration::from_millis(3500));
+        assert_eq!(
+            rows[0].connect_address.as_deref(),
+            Some("[fe80::1234%7]:5555")
+        );
+        assert_eq!(rows[0].interface_name.as_deref(), Some("en0"));
+        assert_eq!(elapsed.get(), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn collection_window_respects_cancellation_and_event_cap() {
+        use std::cell::Cell;
+        for capped in [false, true] {
+            let start = Instant::now();
+            let elapsed = Cell::new(Duration::ZERO);
+            let cancel = AtomicBool::new(false);
+            let mut batch = DiscoveryBatch {
+                events: vec![],
+                warnings: vec![],
+                cleanup_confirmed: true,
+            };
+            let mut polls = 0;
+            collect_window(
+                &mut batch,
+                &cancel,
+                || start + elapsed.get(),
+                |duration| elapsed.set(elapsed.get() + duration),
+                |batch, _| {
+                    polls += 1;
+                    if capped {
+                        for _ in 0..MAX_EVENTS {
+                            batch.events.push(DiscoveryEvent::Removed {
+                                kind: NativeServiceKind::LegacyAdb,
+                                instance: "test".into(),
+                            });
+                        }
+                    } else {
+                        cancel.store(true, Ordering::Release);
+                    }
+                    true
+                },
+            );
+            assert_eq!(polls, 1);
+            assert_eq!(elapsed.get(), Duration::ZERO);
+        }
+    }
+
     use super::*;
     use shield_optimizer_core::adb::Leases;
     use std::collections::VecDeque;

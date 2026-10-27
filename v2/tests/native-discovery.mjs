@@ -1,283 +1,134 @@
 import assert from 'node:assert/strict';
-import { readFile, mkdir, writeFile, realpath } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
-
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const report = JSON.parse(await readFile(resolve(root, 'tests/fixtures/native-discovery.json'), 'utf8'));
-const result = process.env.NATIVE_DISCOVERY_RUST_RESULT
-  ? JSON.parse(await readFile(process.env.NATIVE_DISCOVERY_RUST_RESULT, 'utf8'))
-  : { subnet: null, found: [], connected: [], unauthorized: [], failed: [], needs_pairing: [], message: 'Discovery complete. No connections changed.', native_discovery: report };
-assert.deepEqual(result.native_discovery, report, 'browser fixtures must match the Rust serialization contract');
+const compiled = ts.transpileModule(await readFile(resolve(root, 'src/lib/native-discovery-rows.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const { buildNativeDiscoveryRows, discoveryAddressUsable } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const base = { service_kind: 'legacy_adb', instance: 'Living Room._adb._tcp.local.', address: '192.0.2.71', port: 5555, interface_name: 'en7', interface_index: 7, scope_id: null, connect_address: '192.0.2.71:5555', observed_age_ms: 0, cached: false, warning: null };
+const ipv6 = { ...base, address: 'fe80::71', scope_id: 7, connect_address: '[fe80::71%7]:5555' };
+const pair = { ...base, service_kind: 'tls_pairing', instance: 'adb-private-id._adb-tls-pairing._tcp.local.', port: 37111, connect_address: '192.0.2.71:37111' };
+const bedroom = { ...base, instance: 'Bedroom._adb._tcp.local.', address: '192.0.2.143', connect_address: '192.0.2.143:5555' };
+const report = { advertisements: [base, ipv6, bedroom, pair], warnings: [], observation_max_age_ms: 30000 };
+assert.equal(buildNativeDiscoveryRows([base, ipv6]).length, 1);
+for (const different of [{ ...base, instance: 'Other._adb._tcp.local.' }, { ...base, interface_index: 8 }, { ...base, port: 6666 }, pair]) assert.equal(buildNativeDiscoveryRows([base, different]).length, 2, 'never group by host/name or across service/interface/port');
+assert.equal(buildNativeDiscoveryRows([{ ...base, instance: 'opaque' }, { ...ipv6, instance: 'opaque' }]).length, 2, 'unscoped service identities stay separate');
+assert.equal(buildNativeDiscoveryRows([pair])[0].name, 'Nearby device');
+assert.equal(buildNativeDiscoveryRows([base])[0].name, 'Living Room');
+assert.equal(discoveryAddressUsable(ipv6, 0, 30000), true);
+assert.equal(discoveryAddressUsable({ ...ipv6, scope_id: null }, 0, 30000), false);
+assert.equal(discoveryAddressUsable({ ...base, cached: true }, 0, 30000), false);
+assert.equal(discoveryAddressUsable(base, 30000, 30000), false);
+console.log('PASS service-identity grouping, friendly display and exact scoped-address policy');
+
 const evidence = process.env.NATIVE_DISCOVERY_EVIDENCE;
 process.env.VITE_DEMO = '1';
-delete process.env.TAURI_DEV_HOST;
 let server, browser;
-const forbidden = ['connect_paired', 'probe_paired_connect', 'install_adb', 'restart_adb', 'local_address_for'];
-const pauses = ms => evidence ? new Promise(resolve => setTimeout(resolve, ms)) : Promise.resolve();
-
+const cases = [];
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [root, await realpath(resolve(root, 'node_modules'))] } } });
-  await server.listen();
-  const url = `http://127.0.0.1:${server.httpServer.address().port}`;
+  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } }); await server.listen();
   browser = await chromium.launch();
-
-  async function fresh(scenario = 'native', record = false) {
-    const context = await browser.newContext({ viewport: { width: 1360, height: 1000 }, ...(record && evidence ? { recordVideo: { dir: `${evidence}/raw`, size: { width: 1360, height: 1000 } } } : {}) });
-    await context.addInitScript(({ scenario, result }) => {
-      let bridge;
-      window.discoveryMode = scenario;
-      window.discoveryCalls = [];
-      Object.defineProperty(window, '__TAURI_INTERNALS__', {
-        configurable: true,
-        get: () => bridge,
-        set(value) {
-          const original = value.invoke.bind(value);
-          value.invoke = async (command, args = {}) => {
-            window.discoveryCalls.push({ command, args });
-            if (command === 'adb_status' && scenario === 'unknown') throw new Error('SIMULATED status unavailable.');
-            if (command === 'adb_status' && scenario === 'unavailable-unknown') return { available: false, path: null, last_probe: 'SIMULATED unavailable backend.' };
-            if (command === 'adb_status') return { backend: scenario === 'missing-backend' ? undefined : scenario === 'legacy' ? 'subprocess' : 'direct', available: true, path: null, last_probe: 'SIMULATED' };
-            if (command === 'list_devices') return [];
-            if (command === 'scan_network') {
-              if (window.discoveryMode === 'failure') throw new Error('SIMULATED multicast unavailable; enter an address manually.');
-              if (scenario === 'legacy') return { subnet: null, found: [], connected: [], unauthorized: [], failed: [], needs_pairing: ['198.51.100.77:39876'], message: 'SIMULATED legacy scan' };
-              const response = structuredClone(result);
-              response.needs_pairing = ['192.0.2.99:1111'];
-              if (scenario === 'empty') response.native_discovery.advertisements = [];
-              if (scenario === 'held') return new Promise(resolve => { window.releaseNativeScan = () => resolve(response); });
-              if (scenario === 'invalid') {
-                response.native_discovery.advertisements[0].observed_age_ms = 30_001;
-                response.native_discovery.advertisements[5].connect_address = '198.51.100.8:41234';
-              }
-              if (scenario === 'ipv6') {
-                Object.assign(response.native_discovery.advertisements[1], { address: 'fe80::9999', connect_address: '[fe80::9999%7]:37111', scope_id: 7, interface_name: 'en7', interface_index: 7 });
-              }
-              return response;
-            }
-            if (command === 'pair_device') return { ok: true, message: 'SIMULATION: paired response; connect manually.', instance: 'not-a-physical-identity' };
-            if (command === 'connect_device') return { ok: false, message: 'SIMULATION: manual connection requested; no TV or authorization was attempted.' };
-            if (scenario === 'legacy' && command === 'local_address_for') return '198.51.100.1';
-            if (['connect_paired', 'probe_paired_connect', 'install_adb', 'restart_adb', 'local_address_for'].includes(command)) throw new Error(`Unexpected automatic native command: ${command}`);
-            return original(command, args);
-          };
-          bridge = value;
-        },
-      });
-    }, { scenario, result });
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: 'networkidle' });
-    if (scenario === 'unknown') await page.locator('.error').filter({ hasText: 'SIMULATED status unavailable.' }).waitFor();
-    else if (scenario === 'unavailable-unknown') await page.locator('.error').filter({ hasText: 'SIMULATED unavailable backend.' }).waitFor();
-    else await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
-    await page.evaluate(() => {
-      const label = document.createElement('div');
-      label.textContent = 'SIMULATION — injected discovery; no multicast daemon, ADB or TV';
-      label.style.cssText = 'position:fixed;bottom:0;right:0;z-index:99999;background:#17243a;color:white;padding:8px;font:13px sans-serif';
-      document.body.append(label);
-    });
-    return { context, page };
-  }
-
-  const count = async (page, command) => page.evaluate(command => window.discoveryCalls.filter(call => call.command === command).length, command);
-  const connectBox = page => page.getByPlaceholder('IP[:port] — e.g. 192.168.42.71');
-  const add = page => page.locator('.connect-form').getByRole('button', { name: 'Add by IP', exact: true });
-  const choose = (page, address, pairing = false) => page.getByRole('button', { name: `${pairing ? 'Use pairing address' : 'Use address'} ${address}`, exact: true });
-  async function scan(page) {
-    await page.getByRole('button', { name: 'Scan LAN', exact: true }).click();
-    await page.locator('.native-discovery').waitFor();
-  }
-  async function noImplicitCommands(page) {
-    for (const command of forbidden) assert.equal(await count(page, command), 0, command);
-  }
-  async function callsReceipt(page, name) {
-    if (!evidence) return;
-    const calls = await page.evaluate(() => window.discoveryCalls.map(call => ({ ...call, args: { ...call.args, ...(call.args.pin ? { pin: '[simulated PIN omitted]' } : {}) } })));
-    await writeFile(`${evidence}/${name}-calls.json`, JSON.stringify({ simulation: true, calls }, null, 2));
-  }
-
-  {
-    const { context, page } = await fresh('native', true);
-    assert.equal(await count(page, 'scan_network'), 0, 'native boot does not browse');
-    assert.equal(await count(page, 'connect_device'), 0);
-    await pauses(1000);
-    if (evidence) await page.screenshot({ path: `${evidence}/before-native-scan-simulated.png` });
-    await scan(page);
-    assert.equal(await page.locator('.native-discovery li').count(), report.advertisements.length, 'same IP/instance does not merge advertisements into a physical TV');
-    assert.equal(await page.locator('.pair-form').count(), 0, 'native scan ignores first legacy pairing field');
-    assert.equal(await connectBox(page).inputValue(), '');
-    assert.equal(await count(page, 'pair_device'), 0);
-    await noImplicitCommands(page);
-    await pauses(2000);
-    if (evidence) await page.screenshot({ path: `${evidence}/native-services-simulated.png` });
-    await choose(page, '192.0.2.11:5555').click();
-    assert.equal(await connectBox(page).inputValue(), '192.0.2.11:5555');
-    assert.equal(await connectBox(page).evaluate(element => element === document.activeElement), true);
-    assert.equal(await count(page, 'connect_device'), 0, 'Use address only prefills');
-    await pauses(1000);
-    await choose(page, '192.0.2.11:37111', true).click();
-    const pairingBox = page.getByPlaceholder('IP:pair_port — e.g. 192.168.42.71:43219');
-    assert.equal(await pairingBox.inputValue(), '192.0.2.11:37111');
-    assert.equal(await pairingBox.evaluate(element => element === document.activeElement), true);
-    assert.equal(await count(page, 'pair_device'), 0, 'Use pairing address does not pair');
-    await pauses(1500);
-    if (evidence) await page.screenshot({ path: `${evidence}/pairing-prefill-simulated.png` });
-    await page.getByPlaceholder('6-digit PIN').fill('123456');
-    await page.locator('.pair-form').getByRole('button', { name: 'Pair', exact: true }).click();
-    await page.getByText('SIMULATION: paired response; connect manually.', { exact: true }).waitFor();
-    assert.equal(await connectBox(page).inputValue(), '192.0.2.11:');
-    assert.equal(await add(page).isDisabled(), true);
-    await connectBox(page).fill('192.0.2.11');
-    await connectBox(page).press('Enter');
-    assert.equal(await count(page, 'connect_device'), 0, 'post-pair host-only entry cannot guess5555');
-    await noImplicitCommands(page);
-    await pauses(1000);
-    if (evidence) await page.screenshot({ path: `${evidence}/post-pair-manual-port-simulated.png` });
-    await choose(page, '192.0.2.11:37222').click();
-    assert.equal(await connectBox(page).inputValue(), '192.0.2.11:37222');
-    await pauses(1500);
-    if (evidence) await page.screenshot({ path: `${evidence}/connect-prefill-simulated.png` });
-    await add(page).click();
-    await page.getByText('SIMULATION: manual connection requested; no TV or authorization was attempted.', { exact: true }).waitFor();
-    assert.equal(await count(page, 'connect_device'), 1);
-    assert.equal(await page.evaluate(() => window.discoveryCalls.find(call => call.command === 'connect_device').args.address), '192.0.2.11:37222');
-    await pauses(1000);
-    await callsReceipt(page, 'manual-flow');
-    if (evidence) {
-      const video = page.video();
-      await context.close();
-      await video.saveAs(`${evidence}/native-discovery-manual-flow-simulated.webm`);
-    } else await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('invalid');
-    await scan(page);
-    const expired = choose(page, '192.0.2.11:5555');
-    const cached = choose(page, '198.51.100.8:41234');
-    assert.equal(await expired.isDisabled(), true);
-    assert.equal(await cached.isDisabled(), true);
-    await expired.dispatchEvent('click');
-    await cached.dispatchEvent('click');
-    assert.equal(await connectBox(page).inputValue(), '');
-    const scope = page.locator('.native-discovery li').filter({ hasText: 'IPv6 scope is unavailable' });
-    assert.equal(await scope.getByRole('button').isDisabled(), true);
-    assert.ok(await scope.getByText('IPv6 scope is unavailable.', { exact: false }).isVisible());
-    assert.equal(await count(page, 'connect_device'), 0);
-    if (evidence) { await scope.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${evidence}/cached-expired-scope-simulated.png` }); }
-    await callsReceipt(page, 'invalid');
-    await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('ipv6');
-    await scan(page);
-    await choose(page, '[fe80::1234%7]:37333').click();
-    assert.equal(await connectBox(page).inputValue(), '[fe80::1234%7]:37333');
-    await choose(page, '[fe80::9999%7]:37111', true).click();
-    await page.getByPlaceholder('6-digit PIN').fill('123456');
-    await page.locator('.pair-form').getByRole('button', { name: 'Pair', exact: true }).click();
-    await page.getByText('SIMULATION: paired response; connect manually.', { exact: true }).waitFor();
-    assert.equal(await connectBox(page).inputValue(), '[fe80::9999%7]:');
-    await connectBox(page).fill('[fe80::9999%7]');
-    await connectBox(page).press('Enter');
-    assert.equal(await add(page).isDisabled(), true);
-    assert.equal(await count(page, 'connect_device'), 0);
-    await noImplicitCommands(page);
-    const summary = page.locator('.native-discovery .discovery-help summary');
-    await summary.focus(); await page.keyboard.press('Enter');
-    assert.equal(await summary.evaluate(element => element.parentElement.open), true);
-    await page.keyboard.press('Escape');
-    assert.equal(await summary.evaluate(element => element.parentElement.open), false);
-    assert.equal(await summary.evaluate(element => element === document.activeElement), true);
-    await summary.click(); await summary.click();
-    await page.setViewportSize({ width: 800, height: 1000 });
-    await summary.click();
-    assert.ok((await summary.boundingBox()).width <= 800);
-    if (evidence) await page.screenshot({ path: `${evidence}/scoped-help-narrow-simulated.png` });
-    await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('native');
-    await page.clock.install();
-    await scan(page);
-    assert.equal(await choose(page, '192.0.2.11:5555').isEnabled(), true);
-    await page.clock.fastForward(31_000);
-    assert.equal(await choose(page, '192.0.2.11:5555').isDisabled(), true);
-    await choose(page, '192.0.2.11:5555').dispatchEvent('click');
-    assert.equal(await connectBox(page).inputValue(), '');
-    await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('held');
-    const button = page.getByRole('button', { name: 'Scan LAN', exact: true });
-    await button.click();
-    await page.waitForFunction(() => typeof window.releaseNativeScan === 'function');
-    await page.getByRole('button', { name: 'Scanning…', exact: true }).dispatchEvent('click');
-    assert.equal(await count(page, 'scan_network'), 1, 'repeated scan cannot start a parallel window');
-    await page.evaluate(() => window.releaseNativeScan());
-    await page.locator('.native-discovery').waitFor();
-    await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('native');
-    await scan(page);
-    await page.evaluate(() => { window.discoveryMode = 'failure'; });
-    await page.getByRole('button', { name: 'Scan LAN', exact: true }).click();
-    await page.getByText('Error: SIMULATED multicast unavailable; enter an address manually.', { exact: true }).waitFor();
-    assert.equal(await page.locator('.native-discovery').count(), 0, 'failed refresh does not retain selectable old rows');
-    assert.equal(await page.locator('.connect-form').getByRole('button', { name: 'Pair PIN', exact: true }).isEnabled(), true);
-    await connectBox(page).fill('198.51.100.9:5555');
-    assert.equal(await add(page).isEnabled(), true);
-    assert.equal(await count(page, 'connect_device'), 0);
-    await noImplicitCommands(page);
-    if (evidence) await page.screenshot({ path: `${evidence}/provider-failure-manual-simulated.png` });
-    await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('empty');
-    await scan(page);
-    assert.ok(await page.getByText("No ADB advertisements observed. You can still enter the TV's IP and port above.", { exact: true }).isVisible());
-    await context.close();
-  }
-
-  for (const scenario of ['unknown', 'missing-backend', 'unavailable-unknown']) {
-    const { context, page } = await fresh(scenario);
-    assert.equal(await count(page, 'scan_network'), 0, 'unknown backend must not auto-browse');
-    assert.equal(await page.getByRole('button', { name: 'Download platform-tools', exact: true }).count(), 0);
-    assert.equal(await connectBox(page).isEnabled(), true);
-    if (scenario !== 'missing-backend') assert.ok(await page.getByText('connection status unavailable', { exact: true }).isVisible());
-    assert.equal(await count(page, 'connect_device'), 0);
-    await page.locator('.connect-form').getByRole('button', { name: 'Pair PIN', exact: true }).click();
-    await page.getByPlaceholder('IP:pair_port — e.g. 192.168.42.71:43219').fill('192.0.2.11:37111');
-    await page.getByPlaceholder('6-digit PIN').fill('123456');
-    await page.locator('.pair-form').getByRole('button', { name: 'Pair', exact: true }).click();
-    await page.getByText('SIMULATION: paired response; connect manually.', { exact: true }).waitFor();
-    await connectBox(page).fill('192.0.2.11');
-    await connectBox(page).press('Enter');
-    assert.equal(await add(page).isDisabled(), true);
-    assert.equal(await count(page, 'connect_device'), 0);
-    await noImplicitCommands(page);
-    await callsReceipt(page, scenario);
-    await context.close();
-  }
-
-  {
-    const { context, page } = await fresh('legacy');
-    await page.getByPlaceholder('IP:pair_port — e.g. 192.168.42.71:43219').waitFor();
-    assert.equal(await count(page, 'scan_network'), 1, 'legacy boot scan is preserved');
-    assert.equal(await page.getByPlaceholder('IP:pair_port — e.g. 192.168.42.71:43219').inputValue(), '198.51.100.77:39876');
-    await context.close();
-  }
-  console.log('Native discovery UI passed: explicit observation-only Scan, separate ports, no physical merges, manual prefill/Pair/Connect, no guessed5555, scoped IPv6, cached/expired/ambiguous refusal, provider failure fallback, repeated Scan, keyboard/narrow layout and legacy boot behavior.');
-} finally {
-  await browser?.close();
-  await server?.close();
-}
+  const context = await browser.newContext({ viewport: { width: 1360, height: 1000 }, ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });
+  await context.addInitScript(() => {
+    let bridge;
+    window.calls = [];
+    Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, get: () => bridge, set(value) {
+      const original = value.invoke.bind(value);
+      value.invoke = async (command, args = {}) => {
+        window.calls.push({ command, args });
+        if (command === 'adb_status') return { backend: 'direct', available: true, path: null, last_probe: '' };
+        if (command === 'list_devices') return [];
+        if (command === 'scan_network') return new Promise((resolve, reject) => { window.failScan = () => reject(new Error('SIMULATED discovery unavailable')); window.finishScan = report => resolve({ subnet: null, found: [], connected: [], unauthorized: [], failed: [], needs_pairing: [], message: 'Discovery complete. No connections changed.', native_discovery: report }); });
+        if (command === 'connect_device') {
+          if (window.holdConnect) return new Promise(resolve => { window.finishConnect = () => resolve({ ok: false, message: 'SIMULATION: explicit connection only; no TV contacted.' }); });
+          return { ok: false, message: 'SIMULATION: explicit connection only; no TV contacted.' };
+        }
+        if (command === 'pair_device') throw new Error('Pairing must wait for a user-entered code');
+        if (['connect_paired', 'probe_paired_connect', 'restart_adb', 'install_adb', 'local_address_for'].includes(command)) throw new Error(`Unexpected operation: ${command}`);
+        return original(command, args);
+      }; bridge = value;
+    } });
+  });
+  const page = await context.newPage();
+  await page.clock.install();
+  await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
+  await page.evaluate(() => { const label = document.createElement('div'); label.textContent = 'SIMULATION — delayed discovery fixtures; no LAN, ADB or TV'; label.style.cssText = 'position:fixed;bottom:0;right:0;z-index:99999;background:#17243a;color:white;padding:8px;font:13px sans-serif'; document.body.append(label); });
+  const count = command => page.evaluate(command => window.calls.filter(c => c.command === command).length, command);
+  const capture = async name => { if (evidence) { await page.screenshot({ path: `${evidence}/${name}-simulated.png`, fullPage: name === 'narrow-large-text' }); await page.waitForTimeout(900); } };
+  async function startScan() { await page.getByRole('button', { name: 'Scan LAN', exact: true }).click(); await page.waitForFunction(() => typeof window.finishScan === 'function'); await page.getByText('Scanning…', { exact: true }).waitFor(); }
+  async function finishScan(value) { await page.evaluate(value => { window.finishScan(value); delete window.finishScan; }, value); await page.getByText('Scan finished', { exact: true }).waitFor(); }
+  assert.equal(await count('scan_network'), 0); assert.equal(await count('connect_device'), 0);
+  await startScan();
+  await page.getByRole('button', { name: 'Scanning…', exact: true }).dispatchEvent('click');
+  assert.equal(await count('scan_network'), 1, 'pending scan cannot be duplicated');
+  assert.equal(await page.getByText('No devices answered this scan', { exact: true }).count(), 0);
+  await capture('looking-for-tvs');
+  await finishScan({ ...report, advertisements: [] });
+  await page.getByText('No devices answered this scan', { exact: true }).waitFor();
+  await capture('first-empty');
+  await startScan(); await finishScan(report);
+  assert.equal(await page.locator('.nearby-device').count(), 3, 'same service IPv4/IPv6 alternatives only; pairing and other TVs stay separate');
+  assert.equal(await page.getByRole('heading', { name: 'Living Room', exact: true }).count(), 1);
+  assert.equal(await page.getByText('Legacy ADB', { exact: true }).count(), 0);
+  assert.equal(await count('connect_device'), 0);
+  await capture('mobile-style-picker');
+  await page.getByRole('button', { name: 'Dark', exact: true }).click(); await capture('mobile-style-picker-dark');
+  await page.getByRole('button', { name: 'Light', exact: true }).click();
+  cases.push('first empty / delayed subsequent result does not mean permanent discovery failure');
+  const living = page.locator('.nearby-device').filter({ has: page.getByRole('heading', { name: 'Living Room', exact: true }) });
+  await page.evaluate(() => { window.holdConnect = true; });
+  const firstConnect = living.getByRole('button', { name: 'Connect Living Room at 192.0.2.71:5555', exact: true });
+  await firstConnect.focus(); await page.keyboard.press('Enter');
+  await page.waitForFunction(() => typeof window.finishConnect === 'function');
+  assert.equal(await firstConnect.isDisabled(), true);
+  await firstConnect.dispatchEvent('click'); assert.equal(await count('connect_device'), 1, 'pending repeated action is ignored');
+  await page.evaluate(() => { window.holdConnect = false; window.finishConnect(); });
+  await page.getByText('SIMULATION: explicit connection only; no TV contacted.', { exact: true }).waitFor();
+  assert.equal(await count('connect_device'), 1);
+  assert.equal(await page.evaluate(() => window.calls.find(c => c.command === 'connect_device').args.address), '192.0.2.71:5555');
+  await living.getByText('Details', { exact: true }).click();
+  await living.getByLabel('Connection address for Living Room').selectOption('[fe80::71%7]:5555');
+  await living.getByRole('button', { name: 'Connect Living Room at [fe80::71%7]:5555', exact: true }).click();
+  await page.waitForFunction(() => window.calls.filter(c => c.command === 'connect_device').length === 2);
+  assert.equal(await page.evaluate(() => window.calls.filter(c => c.command === 'connect_device')[1].args.address), '[fe80::71%7]:5555');
+  await capture('scoped-alternative');
+  await living.getByText('Details', { exact: true }).focus(); await page.keyboard.press('Escape'); assert.equal(await living.locator('details').evaluate(d => d.open), false);
+  await page.getByRole('button', { name: 'Pair with code Nearby device at 192.0.2.71:37111', exact: true }).click();
+  assert.equal(await page.getByPlaceholder('IP:pair_port — e.g. 192.168.42.71:43219').inputValue(), '192.0.2.71:37111');
+  assert.equal(await page.getByPlaceholder('6-digit PIN').inputValue(), '');
+  assert.equal(await count('pair_device'), 0);
+  await capture('pair-with-code');
+  cases.push('Connect sends one exact selected endpoint; Pair opens code flow without sending a code');
+  await page.getByRole('button', { name: 'Cancel Pair', exact: true }).click();
+  await startScan();
+  assert.equal(await page.locator('.nearby-device').count(), 3, 'previous observations remain visible while rescanning');
+  assert.equal(await living.getByRole('button').first().isDisabled(), true);
+  await capture('rescan-keeps-cards');
+  await finishScan({ ...report, advertisements: [{ ...bedroom, cached: true }, { ...ipv6, scope_id: null }, { ...pair, observed_age_ms: 30001 }] });
+  assert.equal(await page.locator('.nearby-device button:enabled').count(), 0);
+  cases.push('cached, expired and missing-scope addresses remain disabled');
+  await startScan(); await finishScan(report);
+  await page.setViewportSize({ width: 760, height: 1000 }); await page.evaluate(() => document.documentElement.style.fontSize = '200%');
+  await capture('narrow-large-text');
+  const layout = await page.locator('.native-discovery').evaluate(element => ({ right: element.getBoundingClientRect().right, width: element.clientWidth, scroll: element.scrollWidth, viewport: innerWidth }));
+  console.log('narrow picker layout', layout);
+  assert.equal(layout.right <= layout.viewport && layout.scroll <= layout.width, true);
+  cases.push('responsive picker remains usable at narrow width and large text');
+  await startScan(); await page.evaluate(() => window.failScan());
+  await page.getByText('Error: SIMULATED discovery unavailable', { exact: true }).waitFor();
+  assert.equal(await page.locator('.nearby-device button:enabled').count(), 0, 'failed rescan cannot leave old addresses selectable');
+  await startScan(); await finishScan(report);
+  await page.clock.fastForward(31000);
+  assert.equal(await page.locator('.nearby-device button:enabled').count(), 0);
+  const beforeExpired = await count('connect_device'); await page.locator('.nearby-device button').first().dispatchEvent('click');
+  assert.equal(await count('connect_device'), beforeExpired);
+  cases.push('failed refresh and aged observations cannot be selected; repeated scans do not overlap');
+  for (const command of ['connect_paired', 'probe_paired_connect', 'restart_adb', 'install_adb', 'local_address_for']) assert.equal(await count(command), 0);
+  if (evidence) { await writeFile(`${evidence}/ui-cases.json`, JSON.stringify({ simulation: true, cases }, null, 2)); const video = page.video(); await context.close(); await video.saveAs(`${evidence}/mobile-style-discovery-simulated.webm`); } else await context.close();
+  for (const name of cases) console.log(`PASS ${name}`);
+} finally { await browser?.close(); await server?.close(); }

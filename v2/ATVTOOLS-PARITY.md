@@ -51,3 +51,8 @@ Rust-primary experimental follow-up: Unix first-run app-owned identity storage a
 truthful initialization errors are implemented locally, with fixture validation.
 Production default, Windows identity storage, runtime credential creation and
 hardware acceptance remain gated; see `DIRECT-ADB-PARITY.md`.
+
+Native desktop discovery now uses the mobile-style Find your TV picker with
+explicit Connect/Pair actions and a bounded six-second observation window.
+Delayed-reply and scoped-address behavior have deterministic fixture coverage;
+this is not confirmation of a real-device discovery root cause.

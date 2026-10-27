@@ -138,7 +138,7 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (directUnavailable || !address || nativePairNeedsPort) return;
+    if (connectBusy || directUnavailable || !address || nativePairNeedsPort) return;
     connectBusy = true;
     connectMessage = "";
     connectDetail = "";
@@ -221,14 +221,13 @@
     if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
     scanMessage = adbBackend === "direct" ? "Discovering advertised services…" : "Scanning local network…";
-    nativeDiscovery = null;
     try {
       const r = await api.scanNetwork();
       scanMessage = r.message;
       if (adbBackend !== "subprocess" || r.native_discovery) {
         nativeDiscovery = r.native_discovery ?? null;
         discoveryReceivedAt = performance.now();
-        if (!nativeDiscovery) scanMessage = "No discovery observations returned. Use Add by IP or Pair PIN.";
+        scanMessage = nativeDiscovery ? "" : "No discovery result returned. Scan again or use Add by IP.";
         return;
       }
       // A device advertising only a pairing service cannot be connected to
@@ -246,6 +245,7 @@
       await refresh();
     } catch (e) {
       scanMessage = String(e);
+      if (nativeDiscovery) nativeDiscovery = { ...nativeDiscovery, advertisements: nativeDiscovery.advertisements.map(address => ({ ...address, cached: true })) };
     } finally {
       scanBusy = false;
     }
@@ -438,8 +438,7 @@
       pairOpen = false;
       pairNextStep = false;
       connectAddress = advertisement.connect_address;
-      await tick();
-      focusConnectBox();
+      await connect();
     }
   }
 
@@ -882,8 +881,8 @@
   {/if}
 </section>
 
-{#if nativeDiscovery}
-  <NativeDiscovery report={nativeDiscovery} receivedAt={discoveryReceivedAt} busy={scanBusy || connectBusy || pairBusy || pairStage === "waiting"} onChoose={useNativeAdvertisement} />
+{#if nativeDiscovery || (adbBackend === "direct" && scanBusy)}
+  <NativeDiscovery report={nativeDiscovery} receivedAt={discoveryReceivedAt} scanning={scanBusy} connectingAddress={connectBusy ? connectAddress : null} busy={scanBusy || connectBusy || pairBusy || pairStage === "waiting"} onChoose={useNativeAdvertisement} />
 {/if}
 
 {#if pairOpen}
@@ -1009,6 +1008,7 @@
 {:else if loading && devices.length === 0}
   <div class="muted">Looking for devices…</div>
 {:else if devices.length === 0}
+  {#if !nativeDiscovery && !scanBusy}
   <div class="empty">
     <h2>No devices connected.</h2>
     <p class="muted">
@@ -1016,6 +1016,7 @@
       PIN first.
     </p>
   </div>
+  {/if}
 {:else}
   <ul class="device-list">
     {#each sortedDevices as d (d.serial)}
@@ -1242,7 +1243,7 @@
   </ul>
 {/if}
 
-{#if !adbMissing && !directUnavailable}
+{#if !adbMissing && !directUnavailable && !nativeDiscovery && !scanBusy}
   <div class="callout devices-note">
     <Icon name="info" size={16} />
     <span>
