@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use adb_client::tcp::{ADBTcpDevice, ADBTcpService, PairingError};
+use adb_client::tcp::{ADBTcpDevice, PairingError};
 use adb_client::{ADBDeviceExt, RebootType, RustADBError};
 use async_trait::async_trait;
 use serde::Serialize;
@@ -738,52 +738,16 @@ impl AdbDriver for WirelessAdb {
         serial: &str,
         service: &str,
     ) -> AdbResult<Box<dyn AdbByteStream>> {
-        let Some((active_serial, host, port)) = self.info() else {
-            return Err(AdbError::Transport(
-                "Not connected to a device.".to_string(),
-            ));
+        let Some((active_serial, _, _)) = self.info() else {
+            return Err(AdbError::Transport("Not connected to a device.".into()));
         };
-        if active_serial != serial {
-            return Err(AdbError::Transport(format!(
-                "Connected device is {active_serial}, not {serial}."
-            )));
-        }
-        let addr: SocketAddr = format!("{host}:{port}")
-            .parse()
-            .map_err(|e| AdbError::Transport(format!("invalid device address: {e}")))?;
-        let key_path = self.key_path.clone();
-        let allow_key_creation = self.allow_key_creation;
-        let service = service.to_string();
-        let operation = self.work().map_err(AdbError::Transport)?;
-        tokio::task::spawn_blocking(move || {
-            ensure_adb_key(&key_path, allow_key_creation).map_err(AdbError::Transport)?;
-            if allow_key_creation {
-                ADBTcpService::new_with_timeouts(
-                    addr,
-                    &service,
-                    key_path,
-                    Duration::from_secs(2),
-                    Duration::from_secs(2),
-                )
-            } else {
-                ADBTcpService::new_with_required_key_and_timeouts(
-                    addr,
-                    &service,
-                    key_path,
-                    Duration::from_secs(2),
-                    Duration::from_secs(2),
-                )
-            }
-            .map(|stream| {
-                Box::new(CountedStream {
-                    stream: Box::new(stream),
-                    _operation: operation,
-                }) as Box<dyn AdbByteStream>
-            })
-            .map_err(|e| AdbError::Transport(e.to_string()))
-        })
-        .await
-        .map_err(|e| AdbError::Transport(format!("wireless-adb task failed: {e}")))?
+        validate_requested_serial(&active_serial, serial).map_err(AdbError::Transport)?;
+        // Generic consumers inherit the same identity checks and finite owned-stream lifetime.
+        let binding = self.device_binding_impl(serial).await?;
+        let owned = self
+            .open_bound_device_service_impl(&binding, service, Duration::from_secs(15 * 60))
+            .await?;
+        Ok(owned.stream)
     }
 }
 
@@ -1147,6 +1111,46 @@ mod lifecycle_tests {
         );
     }
 
+    #[tokio::test]
+    async fn generic_service_refuses_missing_original_identity_before_dedicated_connection() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("never-created-service-key");
+        let operations = Leases::new();
+        let driver = WirelessAdb::with_existing_key(missing.clone(), operations.clone());
+        assert!(driver
+            .open_device_service("127.0.0.1:0", "shell:fixture")
+            .await
+            .is_err());
+        *lock_recovering(&driver.identity) = Some(Identity {
+            serial: "127.0.0.1:0".into(),
+            host: "127.0.0.1".into(),
+            port: 0,
+        });
+        let error = driver
+            .open_device_service("127.0.0.1:0", "shell:fixture")
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("Not connected"));
+        assert_eq!(operations.active(), 0);
+        assert!(!missing.exists());
+        let error = driver
+            .open_device_service("127.0.0.1:1", "shell:fixture")
+            .await
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("not 127.0.0.1:1"));
+        operations.close();
+        assert!(driver
+            .open_device_service("127.0.0.1:0", "shell:fixture")
+            .await
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("quitting"));
+        assert!(!missing.exists());
+    }
+
     #[test]
     fn required_identity_constructors_reject_missing_key_before_network_or_generation() {
         let temp = tempfile::tempdir().unwrap();
@@ -1160,7 +1164,7 @@ mod lifecycle_tests {
         assert!(
             matches!(device, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::NotFound)
         );
-        let service = ADBTcpService::new_with_required_key_and_timeouts(
+        let service = adb_client::tcp::ADBTcpService::new_with_required_key_and_timeouts(
             endpoint,
             "shell:id",
             &key,
