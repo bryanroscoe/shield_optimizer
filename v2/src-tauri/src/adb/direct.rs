@@ -298,6 +298,11 @@ impl AdbDriver for DirectNetworkAdb {
 
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
+            ["-s", serial, "install", path] | ["-s", serial, "install", "-r", path]
+                if !path.is_empty() && !path.starts_with('-') =>
+            {
+                self.session(serial).await?.raw_transfer(args).await
+            }
             ["-s", serial, "pull" | "push", ..] => {
                 self.session(serial).await?.raw_transfer(args).await
             }
@@ -531,8 +536,60 @@ mod tests {
                 .to_string()
                 .contains("no automatic fallback"));
         }
+    }
+
+    #[tokio::test]
+    async fn native_install_delegates_only_supported_forms_to_the_selected_session() {
+        let (driver, sessions) = fake_driver();
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        driver.raw(&["connect", "192.0.2.2:5555"]).await.unwrap();
+        for args in [
+            vec!["-s", "192.0.2.2:5555", "install", "simulated input.apk"],
+            vec![
+                "-s",
+                "192.0.2.2:5555",
+                "install",
+                "-r",
+                "simulated input.apk",
+            ],
+        ] {
+            driver.raw_transfer(&args).await.unwrap();
+        }
+        assert!(sessions.lock().unwrap()[0].calls.lock().unwrap().is_empty());
+        assert_eq!(
+            *sessions.lock().unwrap()[1].calls.lock().unwrap(),
+            vec![
+                "-s 192.0.2.2:5555 install simulated input.apk",
+                "-s 192.0.2.2:5555 install -r simulated input.apk",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn native_install_rejects_unsupported_forms_before_session_io() {
+        let (driver, sessions) = fake_driver();
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        for suffix in [
+            vec!["install", "-d", "fixture.apk"],
+            vec!["install", "-g", "fixture.apk"],
+            vec!["install", "-r", "-d", "fixture.apk"],
+            vec!["install", "-r"],
+            vec!["install", "-r", "-g"],
+            vec!["install", ""],
+            vec!["install-multiple", "fixture.apk"],
+        ] {
+            let mut args = vec!["-s", "192.0.2.1:5555"];
+            args.extend(suffix);
+            assert!(driver
+                .raw_transfer(&args)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("no automatic fallback"));
+        }
+        assert!(sessions.lock().unwrap()[0].calls.lock().unwrap().is_empty());
         assert!(driver
-            .raw_transfer(&["-s", "192.0.2.1:5555", "install", "file.apk"])
+            .raw_transfer(&["-s", "192.0.2.2:5555", "install", "fixture.apk"])
             .await
             .is_err());
     }

@@ -11,7 +11,7 @@ pub struct InstallApkResult {
     pub ok: bool,
     /// Path that was installed (or attempted).
     pub path: String,
-    /// adb's verbatim output — surfaces helpful errors like
+    /// adb output from both streams — surfaces helpful errors like
     /// `INSTALL_FAILED_VERSION_DOWNGRADE` to the user.
     pub message: String,
     /// Optional decoded hint for common failure codes.
@@ -27,39 +27,73 @@ pub async fn install_apk(
     apk_path: String,
     reinstall: Option<bool>,
 ) -> Result<InstallApkResult, String> {
-    let path_buf = PathBuf::from(&apk_path);
+    install_apk_impl(state.inner(), &serial, &apk_path, reinstall).await
+}
+
+async fn install_apk_impl(
+    state: &AppState,
+    serial: &str,
+    apk_path: &str,
+    reinstall: Option<bool>,
+) -> Result<InstallApkResult, String> {
+    let path_buf = PathBuf::from(apk_path);
     if !path_buf.is_file() {
         return Ok(InstallApkResult {
             ok: false,
-            path: apk_path,
+            path: apk_path.to_string(),
             message: "APK file does not exist".to_string(),
             hint: None,
         });
     }
 
     let adb = state.adb_snapshot().await;
-    let mut args: Vec<String> = vec!["-s".into(), serial.clone(), "install".into()];
+    let mut args: Vec<String> = vec!["-s".into(), serial.to_string(), "install".into()];
     if reinstall.unwrap_or(true) {
         args.push("-r".into());
     }
-    args.push(apk_path.clone());
+    args.push(apk_path.to_string());
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
 
     let out = adb
         .raw_transfer(&args_ref)
         .await
         .map_err(|e| format!("adb install: {e}"))?;
-    let combined = if out.stdout.trim().is_empty() {
-        out.stderr.clone()
-    } else {
-        out.stdout.clone()
+    let combined = match (out.stdout.trim().is_empty(), out.stderr.trim().is_empty()) {
+        (true, _) => out.stderr.clone(),
+        (_, true) => out.stdout.clone(),
+        _ => format!(
+            "{}{}{}",
+            out.stdout,
+            if out.stdout.ends_with('\n') { "" } else { "\n" },
+            out.stderr
+        ),
     };
-    let ok = combined.contains("Success");
-    let hint = decode_install_error(&combined);
+    let failed = combined.lines().any(|line| {
+        let line = line.trim_start().to_ascii_lowercase();
+        let status = line.split([' ', '\t', ':', '[']).next().unwrap_or_default();
+        matches!(status, "failure" | "error" | "failed" | "exception")
+            || [
+                "install_failed",
+                "install_parse_failed",
+                "delete_failed",
+                ": failed ",
+                ": error:",
+                "exception:",
+            ]
+            .iter()
+            .any(|marker| line.contains(marker))
+    });
+    let ok = out.success() && combined.lines().any(|line| line.trim() == "Success") && !failed;
+    let hint = decode_install_error(&combined).or_else(|| {
+        (!ok).then(|| {
+            "Installation was not confirmed. Check the installed app list before retrying."
+                .to_string()
+        })
+    });
 
     Ok(InstallApkResult {
         ok,
-        path: apk_path,
+        path: apk_path.to_string(),
         message: combined,
         hint,
     })
@@ -350,5 +384,217 @@ mod tests {
             .unwrap()
             .contains("architecture"));
         assert!(decode_install_error("Success").is_none());
+    }
+
+    enum Reply {
+        Output(crate::adb::AdbOutput),
+        Error(String),
+    }
+
+    type InstallCalls = std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>;
+
+    struct InstallMock {
+        reply: Reply,
+        calls: InstallCalls,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::adb::AdbDriver for InstallMock {
+        async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("install must use the existing transfer wrapper, not raw commands")
+        }
+        async fn shell(&self, _: &str, _: &str) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("install must not replay through shell")
+        }
+        async fn raw_transfer(
+            &self,
+            args: &[&str],
+        ) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(args.iter().map(|arg| arg.to_string()).collect());
+            match &self.reply {
+                Reply::Output(output) => Ok(output.clone()),
+                Reply::Error(message) => Err(crate::adb::AdbError::Transport(message.clone())),
+            }
+        }
+    }
+
+    fn mock_state(reply: Reply) -> (super::AppState, InstallCalls) {
+        let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let driver = InstallMock {
+            reply,
+            calls: calls.clone(),
+        };
+        let state = super::AppState::new(
+            std::sync::Arc::new(driver),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("unused-mock-snapshots"),
+        );
+        (state, calls)
+    }
+
+    fn result(stdout: &str, stderr: &str, exit_code: Option<i32>) -> Reply {
+        Reply::Output(crate::adb::AdbOutput {
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            exit_code,
+        })
+    }
+
+    fn save_install_fixture(filename: &str, value: &impl serde::Serialize) {
+        if let Ok(directory) = std::env::var("NATIVE_INSTALL_RESULT_EVIDENCE") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join(filename),
+                serde_json::to_vec_pretty(value).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn install_apk_preserves_replace_flag_and_single_transfer_attempt() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("simulated input.apk");
+        std::fs::write(&file, b"simulation marker, not an executable APK").unwrap();
+        let path = file.to_str().unwrap();
+        for (replace, flag) in [(None, true), (Some(true), true), (Some(false), false)] {
+            let (state, calls) = mock_state(result("Success\n", "", Some(0)));
+            let installed = super::install_apk_impl(&state, "mock-tv", path, replace)
+                .await
+                .unwrap();
+            assert!(installed.ok);
+            assert_eq!(installed.path, path);
+            let mut expected = vec!["-s", "mock-tv", "install"];
+            if flag {
+                expected.push("-r");
+            }
+            expected.push(path);
+            assert_eq!(*calls.lock().unwrap(), vec![expected]);
+            if replace.is_none() {
+                save_install_fixture("success-result.json", &installed);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn install_apk_requires_authoritative_success_without_contradictory_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("simulated.apk");
+        std::fs::write(&file, b"simulation only, not an executable APK").unwrap();
+        let cases = [
+            ("Performing Streamed Install\nSuccess\n", "", Some(0), true),
+            ("", "Success\n", Some(0), true),
+            (
+                "failure-demo.apk: 1 file pushed\nSuccess",
+                "",
+                Some(0),
+                true,
+            ),
+            ("Successfully streamed bytes", "", Some(0), false),
+            ("Not Success", "", Some(0), false),
+            (
+                "Success",
+                "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]",
+                Some(0),
+                false,
+            ),
+            (
+                "Success\nFailure [INSTALL_FAILED_INVALID_APK]",
+                "",
+                Some(0),
+                false,
+            ),
+            ("Success", "Error: install rejected", Some(0), false),
+            (
+                "Success",
+                "adb: error: installation refused",
+                Some(0),
+                false,
+            ),
+            ("Success", "", Some(1), false),
+            ("Success", "", None, false),
+            ("", "", Some(0), false),
+        ];
+        let mut fixtures = Vec::new();
+        for (index, (stdout, stderr, exit, expected)) in cases.into_iter().enumerate() {
+            let (state, calls) = mock_state(result(stdout, stderr, exit));
+            let installed =
+                super::install_apk_impl(&state, "mock-tv", file.to_str().unwrap(), None)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                installed.ok, expected,
+                "stdout={stdout:?}, stderr={stderr:?}, exit={exit:?}"
+            );
+            assert_eq!(calls.lock().unwrap().len(), 1);
+            if !stdout.is_empty() {
+                assert!(installed.message.contains(stdout));
+            }
+            if !stderr.is_empty() {
+                assert!(installed.message.contains(stderr));
+            }
+            if !expected {
+                assert!(installed.hint.is_some());
+            }
+            if stderr.contains("INSTALL_FAILED_VERSION_DOWNGRADE") {
+                assert!(installed.hint.as_deref().unwrap().contains("newer"));
+            }
+            fixtures.push(serde_json::json!({ "case_index": index, "stdout": stdout, "stderr": stderr, "exit_code": exit, "result": &installed }));
+        }
+        save_install_fixture("command-results.json", &fixtures);
+    }
+
+    #[tokio::test]
+    async fn native_indeterminate_install_error_is_preserved_without_replay() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("simulated.apk");
+        std::fs::write(&file, b"simulation only").unwrap();
+        let unknown = "Installation outcome unknown; verify installed apps before retrying. Commit response was lost. Success";
+        let (state, calls) = mock_state(Reply::Error(unknown.into()));
+        let error = super::install_apk_impl(&state, "mock-tv", file.to_str().unwrap(), Some(false))
+            .await
+            .err()
+            .unwrap();
+        assert!(error.contains(unknown));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        save_install_fixture(
+            "unknown-result.json",
+            &serde_json::json!({ "error": error }),
+        );
+    }
+
+    #[tokio::test]
+    async fn native_install_rejection_preserves_actionable_code_without_replay() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("simulated.apk");
+        std::fs::write(&file, b"simulation only").unwrap();
+        let rejected = "APK installation rejected: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]";
+        let (state, calls) = mock_state(Reply::Error(rejected.into()));
+        let error = super::install_apk_impl(&state, "mock-tv", file.to_str().unwrap(), Some(false))
+            .await
+            .err()
+            .unwrap();
+        assert!(error.contains(rejected));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        save_install_fixture(
+            "rejected-error.json",
+            &serde_json::json!({ "error": error }),
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_install_file_never_calls_the_driver() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("absent.apk");
+        let (state, calls) = mock_state(result("Success", "", Some(0)));
+        let installed = super::install_apk_impl(&state, "mock-tv", file.to_str().unwrap(), None)
+            .await
+            .unwrap();
+        assert!(!installed.ok);
+        assert!(calls.lock().unwrap().is_empty());
     }
 }
