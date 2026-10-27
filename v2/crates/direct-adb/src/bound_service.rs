@@ -126,7 +126,10 @@ where
         })
     })
     .await
-    .map_err(|e| AdbError::Transport(format!("Bound service worker failed: {e}")))?;
+    .map_err(|error| AdbError::Uncertain {
+        operation: "device service setup",
+        detail: format!("Bound service worker failed: {error}"),
+    })?;
     if result.is_ok() {
         opening.complete = true;
     }
@@ -169,6 +172,21 @@ mod tests {
         }
         assert_eq!(operations.active(), 0);
     }
+    #[tokio::test]
+    async fn panicked_service_worker_reports_uncertainty_and_releases_its_lease() {
+        let operations = Leases::new();
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let result = open_worker(
+            Arc::new(operations.try_acquire().unwrap()),
+            control.clone(),
+            |_| panic!("simulated worker failure at unknown setup phase"),
+        )
+        .await;
+        assert!(matches!(result, Err(AdbError::Uncertain { .. })));
+        assert_eq!(operations.active(), 0);
+        assert!(control.remaining().is_err());
+    }
+
     struct FixtureStream {
         control: BoundedShellControl,
         dropped: Arc<std::sync::atomic::AtomicBool>,
