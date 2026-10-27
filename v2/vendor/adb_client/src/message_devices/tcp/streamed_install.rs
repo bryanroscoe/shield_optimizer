@@ -115,7 +115,7 @@ where
             let mut buffer = [0; 4096];
             while remaining_bytes != 0 {
                 control.remaining()?;
-                let amount = remaining_bytes.min(buffer.len() as u64) as usize;
+                let amount = usize::try_from(remaining_bytes.min(buffer.len() as u64))?;
                 input.read_exact(&mut buffer[..amount])?;
                 if remaining_bytes == amount as u64 {
                     let mut extra = [0];
@@ -180,10 +180,6 @@ pub(crate) fn read_hardware_serial_on_current(
     device: &mut ADBMessageDevice<TcpTransport>,
     control: BoundedShellControl,
 ) -> Result<String> {
-    let finish = Finish(control);
-    let previous = device
-        .get_transport_mut()
-        .set_current_control(finish.0.clone())?;
     struct Restore<'a> {
         device: &'a mut ADBMessageDevice<TcpTransport>,
         previous: Option<BoundedShellControl>,
@@ -195,6 +191,10 @@ pub(crate) fn read_hardware_serial_on_current(
                 .restore_control(self.previous.take());
         }
     }
+    let finish = Finish(control);
+    let previous = device
+        .get_transport_mut()
+        .set_current_control(finish.0.clone())?;
     let restore = Restore { device, previous };
     read_hardware_serial(restore.device, &finish.0)
 }
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(receive(socket).unwrap().payload(), &[4, 0, 0, 0, 0]);
         for (channel, payload) in [(1, id), (2, stderr), (3, &[code][..])] {
             let mut packet = vec![channel];
-            packet.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            packet.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_le_bytes());
             packet.extend_from_slice(payload);
             reply(socket, local, &packet, false);
         }
@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn streamed_install_preserves_exact_bytes_size_and_replace_flags_without_final_ack() {
         for replace in [false, true] {
-            let bytes: Vec<u8> = (0..8201).map(|n| (n % 251) as u8).collect();
+            let bytes: Vec<u8> = (0_u8..=250).cycle().take(8201).collect();
             let expected = bytes.clone();
             let (address, server) = server(bytes.len() as u64, replace, move |socket, local| {
                 upload(socket, local, &expected);
@@ -523,7 +523,7 @@ mod tests {
             });
             let result = fixture_install(
                 address,
-                &vec![42; size as usize],
+                &vec![42; usize::try_from(size).unwrap()],
                 size,
                 false,
                 BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
@@ -852,7 +852,7 @@ mod tests {
             assert!(receive(&mut socket).is_err());
         });
         let inner = ADBMessageDevice::new_with_fixture_key(
-            TcpTransport::new(address, &Path::new("fixture-never-written")),
+            TcpTransport::new(address, Path::new("fixture-never-written")),
             &fixture_key(),
             Duration::from_secs(2),
         )
@@ -893,7 +893,7 @@ mod tests {
                 assert!(receive(&mut socket).is_err());
             });
             let inner = ADBMessageDevice::new_with_fixture_key(
-                TcpTransport::new(address, &Path::new("fixture-never-written")),
+                TcpTransport::new(address, Path::new("fixture-never-written")),
                 &fixture_key(),
                 Duration::from_secs(2),
             )
@@ -940,7 +940,7 @@ mod tests {
             serve_identity(&mut original, b"original-TV\n", 0, b"");
         });
         let inner = ADBMessageDevice::new_with_fixture_key(
-            TcpTransport::new(address, &Path::new("fixture-never-written")),
+            TcpTransport::new(address, Path::new("fixture-never-written")),
             &fixture_key(),
             Duration::from_secs(2),
         )

@@ -128,10 +128,11 @@ impl BoundedShellControl {
         if state.state == State::Running {
             state.state = reason;
         }
-        if reason != State::Finished || state.close_on_finish {
-            if let Some(socket) = &state.socket {
-                let _ = socket.shutdown(Shutdown::Both);
-            }
+        if let (true, Some(socket)) = (
+            reason != State::Finished || state.close_on_finish,
+            &state.socket,
+        ) {
+            let _ = socket.shutdown(Shutdown::Both);
         }
         state.socket = None;
         self.0.changed.notify_all();
