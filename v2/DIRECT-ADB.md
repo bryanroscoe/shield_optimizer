@@ -44,7 +44,7 @@ subprocess build does not acquire this dependency. No Rust toolchain was install
 | Screenshots and reboot | Shared binary screenshot/reboot services; no hardware evidence |
 | APK installer | Desktop `adb install` adapter is unavailable; no silent conversion to shell install |
 | Remote | Existing shell-input fallback remains in this backend. Desktop fast Remote is explicitly declined before pushing a jar; forwarding/spawn are unavailable |
-| Expert shell | Unavailable because this backend does not implement its required output/runtime bounds |
+| Expert shell and Device Logs | Dedicated shell-v2 connection, 30-second total deadline, 256 KiB retained per stream, partial timeout output and cancellation cleanup; shell-v1-only peers fail without replay |
 | Restart ADB / install platform-tools | Explicitly refused in direct mode; neither resets a host server nor silently changes the selected backend |
 | Quit | Blocking workers and owned streams hold the same operation counter adopted by AppState; after work drains, only owned direct sockets close |
 | Logs/diagnostics | Status identifies direct mode and does not report a discovered host binary; configuration errors remain visible instead of offering an installer |
@@ -63,9 +63,10 @@ without hiding the connection or evicting another TV. The capacity regression ex
 Forget command with one healthy TV and offline endpoints; no automatic eviction or reconnect is added. Android host tests compile the
 same extracted code; NSD and Android fast Remote remain platform-specific.
 
-Vendor validation is deliberately limited to inspected fake service-framing tests, ephemeral-loopback
-physical-EOF tests, and the pure in-memory SPAKE2/peer-info exchange. These are protocol fixtures,
-not a full desktop AUTH/TLS/PIN wire or hardware test. No test contacts the real host ADB server,
+Vendor validation includes inspected fake service-framing tests, ephemeral-loopback physical-EOF
+tests, bounded-shell streams and a loopback TLS/exporter/SPAKE2/peer-info pairing exchange.
+The two pairing peers share this implementation, so success is not Android interoperability
+evidence. Legacy AUTH/STLS transport and hardware acceptance remain pending. No test contacts the real host ADB server,
 connects to a TV, restarts a server, installs an APK or generates a host ADB identity. Browser status
 fixtures are labeled simulation. Cross-platform CI, Android cross-compilation, packaged-app local
 network permission behavior and real-device acceptance remain unverified.

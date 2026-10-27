@@ -87,3 +87,28 @@ existing identity-creation policy remains in the shared first-party caller. This
 check/read race without copying, replacing or generating a desktop ADB identity.
 
 Changed source: `adb_message_device.rs`, `tcp/adb_tcp_device.rs`, `tcp/adb_tcp_service.rs`.
+
+## Pairing total deadline (local parity follow-up, 2026-10-27)
+
+Pairing wraps its owned socket so every underlying read/write refreshes the remaining
+total budget, including repeated I/O inside rustls. Previously a slowly delivered TLS
+record could extend the advertised exchange deadline. Timeout errors retain the
+dedicated pairing-timeout classification. Tests use the existing checked-in public
+test identity and self-owned loopback sockets for refused ports, truly silent peers
+and trickled TLS records; these do not establish Android or TV pairing acceptance.
+
+## Bounded shell-v2 (local parity follow-up, 2026-10-27)
+
+`run_bounded_shell` owns a dedicated required-key connection. Its control handle
+enforces a total deadline and interrupts only that socket on cancellation. Output
+is decoded incrementally with a 256 KiB retention limit per stream and a 1 MiB
+outer ADB-frame ceiling. Timeout returns retained partial output; incomplete exit
+framing remains an error. Service-open diagnostics redact the command. Peers that
+reject shell-v2 fail without replay as legacy shell-v1. Ordinary mobile shell and
+transport construction retain their existing behavior.
+
+Loopback tests use the existing fixture identity only in memory and cover both
+streams, exit status, continuous output, partial payloads, trickled headers,
+cancellation, oversized frames and redaction. These scripted peers do not establish
+AUTH/STLS or TV interoperability. Shared tests separately exercise worker leases,
+target checks and UTF-8 output limits.
