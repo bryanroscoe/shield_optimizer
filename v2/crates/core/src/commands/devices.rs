@@ -106,7 +106,8 @@ fn hardware_id(device: &Device) -> Option<&str> {
     verified_hardware_id(&device.properties.as_ref()?.serial_number)
 }
 
-fn verified_hardware_id(raw: &str) -> Option<&str> {
+/// Accepts only hardware identity evidence used by transport deduplication.
+pub fn verified_hardware_id(raw: &str) -> Option<&str> {
     let id = raw.trim();
     if id.is_empty() || id.eq_ignore_ascii_case("unknown") {
         return None;

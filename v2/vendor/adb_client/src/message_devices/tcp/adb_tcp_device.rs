@@ -8,8 +8,8 @@ use crate::models::RemountInfo;
 use crate::tcp::tcp_transport::TcpTransport;
 use crate::utils::get_default_adb_key_path;
 use crate::{
-    ADBDeviceExt, ADBListItemType, Result,
-    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
+    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT, ADBDeviceExt, ADBListItemType,
+    Result,
 };
 
 /// Represent a device reached and available over TCP.
@@ -67,6 +67,20 @@ impl ADBTcpDevice {
                 auth_timeout,
             )?,
         })
+    }
+
+    /// Reads a bounded, successful shell-v2 hardware identity on this owned connection.
+    /// A successful query preserves the connection; deadline/cancel can close it.
+    pub fn hardware_serial_bounded(
+        &mut self,
+        control: super::BoundedShellControl,
+    ) -> Result<String> {
+        super::streamed_install::read_hardware_serial_on_current(&mut self.inner, control)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_fixture_device(inner: ADBMessageDevice<TcpTransport>) -> Self {
+        Self { inner }
     }
 
     /// Run a shell command with a finite timeout for each transport response.

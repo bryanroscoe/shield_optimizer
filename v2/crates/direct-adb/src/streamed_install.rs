@@ -6,6 +6,36 @@ use std::{fs::File, path::Path, time::Duration};
 const INSTALL_DEADLINE: Duration = Duration::from_secs(15 * 60);
 
 impl WirelessAdb {
+    async fn install_hardware_id(&self, serial: &str, budget: Duration) -> AdbResult<String> {
+        let probe_control = BoundedShellControl::new(budget)?;
+        let _cancel_probe = super::bounded_shell::CancelOnDrop(probe_control.clone());
+        let raw_id = tokio::time::timeout(
+            budget,
+            self.on_device(serial, move |device| {
+                // Identity refusal must not trigger on_device's post-error probe.
+                Ok(device.hardware_serial_bounded(probe_control))
+            }),
+        )
+        .await
+        .map_err(|_| {
+            AdbError::Transport(
+                "Selected TV hardware identity query timed out; installation not started.".into(),
+            )
+        })?
+        .map_err(AdbError::Transport)?
+        .map_err(|e| AdbError::Transport(e.to_string()))?;
+        let expected_hardware_id =
+            shield_optimizer_core::commands::devices::verified_hardware_id(&raw_id)
+                .ok_or_else(|| {
+                    AdbError::Transport(
+                        "Selected TV has no verified hardware identity; installation not started."
+                            .into(),
+                    )
+                })?
+                .to_owned();
+        Ok(expected_hardware_id)
+    }
+
     pub(crate) async fn streamed_install_impl(
         &self,
         serial: &str,
@@ -24,6 +54,7 @@ impl WirelessAdb {
         let address = format!("{host}:{port}")
             .parse()
             .map_err(|e| AdbError::Transport(format!("invalid device address: {e}")))?;
+        let deadline = tokio::time::Instant::now() + INSTALL_DEADLINE;
         let path = Path::new(local);
         if path
             .extension()
@@ -40,14 +71,30 @@ impl WirelessAdb {
             ));
         }
         let size = metadata.len();
+        let expected_hardware_id = self
+            .install_hardware_id(
+                serial,
+                deadline
+                    .saturating_duration_since(tokio::time::Instant::now())
+                    .min(Duration::from_secs(5)),
+            )
+            .await?;
         let operation = self.work().map_err(AdbError::Transport)?;
-        let control = BoundedShellControl::new(INSTALL_DEADLINE)?;
+        let control = BoundedShellControl::new(
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )?;
         let key = self.key_path.clone();
         run_worker(operation, control, move |control| {
-            let outcome = run_streamed_install(address, &key, &mut file, size, replace, control)
-                .map_err(|e| {
-                    AdbError::Transport(format!("Could not start APK installation: {e}"))
-                })?;
+            let outcome = run_streamed_install(
+                address,
+                &key,
+                &mut file,
+                size,
+                replace,
+                &expected_hardware_id,
+                control,
+            )
+            .map_err(|e| AdbError::Transport(format!("Could not start APK installation: {e}")))?;
             match outcome.status {
                 InstallStatus::Success => Ok(AdbOutput {
                     stdout: String::from_utf8_lossy(&outcome.response).into_owned(),
@@ -108,6 +155,7 @@ mod tests {
                 &mut input,
                 3,
                 false,
+                "fixture-hardware",
                 control
             )
             .is_err());
@@ -127,5 +175,35 @@ mod tests {
                 .wait_idle(tokio::time::Instant::now() + Duration::from_secs(2))
                 .await
         );
+    }
+    #[tokio::test]
+    async fn queued_identity_probe_times_out_without_detaching_its_worker_lease() {
+        let operations = Leases::new();
+        let driver = Arc::new(WirelessAdb::with_existing_key(
+            "never-created-key".into(),
+            operations.clone(),
+        ));
+        let conn = driver.conn.clone();
+        let (held, held_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _guard = super::super::lock_recovering(&conn);
+            held.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.await.unwrap();
+        assert!(driver
+            .install_hardware_id("fixture", Duration::from_millis(20))
+            .await
+            .is_err());
+        assert_eq!(operations.active(), 1);
+        operations.close();
+        release.send(()).unwrap();
+        assert!(
+            operations
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(2))
+                .await
+        );
+        holder.join().unwrap();
     }
 }

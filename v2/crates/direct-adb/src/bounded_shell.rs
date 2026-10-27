@@ -11,7 +11,7 @@ use super::{validate_requested_serial, WirelessAdb};
 
 const SHELL_DEADLINE: Duration = Duration::from_secs(30);
 
-struct CancelOnDrop(BoundedShellControl);
+pub(crate) struct CancelOnDrop(pub(crate) BoundedShellControl);
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {
         self.0.cancel();

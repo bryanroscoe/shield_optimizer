@@ -38,25 +38,39 @@ pub struct InstallOutcome {
 
 /// Streams one declared-size APK over a dedicated required-identity connection.
 /// No subprocess, staging path, key creation or automatic retry is used.
-/// Pre-OPEN errors return Err; any error after attempting OPEN is indeterminate.
+/// The expected ID must come from the selected owned control connection.
+/// Errors before the install-service OPEN return Err; later errors are indeterminate.
 pub fn run_streamed_install(
     address: SocketAddr,
     key: &Path,
     input: &mut dyn Read,
     size: u64,
     replace: bool,
+    expected_hardware_id: &str,
     control: BoundedShellControl,
 ) -> Result<InstallOutcome> {
-    run_with_device(input, size, replace, control, |control| {
-        let transport = TcpTransport::with_shell_control(address, key, control.clone());
-        ADBMessageDevice::new_with_required_key(transport, key, control.remaining()?)
-    })
+    run_with_device(
+        input,
+        size,
+        replace,
+        expected_hardware_id,
+        control,
+        |control| {
+            let transport = TcpTransport::with_shell_control(address, key, control.clone());
+            ADBMessageDevice::new_with_required_key(
+                transport,
+                key,
+                control.remaining()?.min(std::time::Duration::from_secs(30)),
+            )
+        },
+    )
 }
 
 fn run_with_device<F>(
     input: &mut dyn Read,
     size: u64,
     replace: bool,
+    expected_hardware_id: &str,
     control: BoundedShellControl,
     connect: F,
 ) -> Result<InstallOutcome>
@@ -71,6 +85,14 @@ where
         ));
     }
     let mut device = connect(control)?;
+    let probe =
+        BoundedShellControl::new(control.remaining()?.min(std::time::Duration::from_secs(5)))?;
+    let actual = read_hardware_serial_on_current(&mut device, probe)?;
+    if actual.trim() != expected_hardware_id || expected_hardware_id.is_empty() {
+        return Err(RustADBError::ADBRequestFailed(
+            "hardware identity did not match the selected TV; installation not started".into(),
+        ));
+    }
     let remaining = control.remaining()?;
     let service = format!(
         "exec:cmd package install{} -S {size}",
@@ -82,7 +104,7 @@ where
         bytes_submitted: 0,
         detail: String::new(),
     };
-    // OPEN may have reached the peer even when its acknowledgement is lost.
+    // The install-service OPEN may reach the peer even when its ACK is lost.
     let result: Result<()> = (|| {
         let session = device.open_raw_service(&service, remaining)?;
         let mut stream = ADBService::new(session, remaining, remaining)
@@ -152,6 +174,65 @@ where
         outcome.detail = "package manager did not return an exact recognized result".into();
     }
     Ok(outcome)
+}
+
+pub(crate) fn read_hardware_serial_on_current(
+    device: &mut ADBMessageDevice<TcpTransport>,
+    control: BoundedShellControl,
+) -> Result<String> {
+    let finish = Finish(control);
+    let previous = device
+        .get_transport_mut()
+        .set_current_control(finish.0.clone())?;
+    struct Restore<'a> {
+        device: &'a mut ADBMessageDevice<TcpTransport>,
+        previous: Option<BoundedShellControl>,
+    }
+    impl Drop for Restore<'_> {
+        fn drop(&mut self) {
+            self.device
+                .get_transport_mut()
+                .restore_control(self.previous.take());
+        }
+    }
+    let restore = Restore { device, previous };
+    read_hardware_serial(restore.device, &finish.0)
+}
+
+pub(crate) fn read_hardware_serial(
+    device: &mut ADBMessageDevice<TcpTransport>,
+    control: &BoundedShellControl,
+) -> Result<String> {
+    use super::bounded_shell::{
+        BoundedShellOutput, BoundedShellTermination, collect_v2_with_limit,
+    };
+    let remaining = control.remaining()?;
+    let session =
+        device.open_bounded_shell_service("shell,v2,raw:getprop ro.serialno", remaining)?;
+    let mut stream = ADBService::new(session, remaining, remaining).with_pending_limit(2048);
+    stream.write_final(&[4, 0, 0, 0, 0])?;
+    let mut output = BoundedShellOutput {
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+        exit_code: None,
+        termination: BoundedShellTermination::Completed,
+    };
+    collect_v2_with_limit(&mut stream, control, &mut output, 1024)?;
+    if output.exit_code != Some(0)
+        || !output.stderr.is_empty()
+        || output.termination != BoundedShellTermination::Completed
+    {
+        return Err(RustADBError::ADBRequestFailed(
+            "hardware identity query was not authoritatively successful".into(),
+        ));
+    }
+    let property = String::from_utf8(output.stdout)?;
+    if property.trim().chars().any(char::is_control) {
+        return Err(RustADBError::ADBRequestFailed(
+            "hardware identity property was not a single readable line".into(),
+        ));
+    }
+    Ok(property)
 }
 
 fn classify_response(response: &[u8]) -> InstallStatus {
@@ -256,6 +337,7 @@ mod tests {
             .unwrap();
             socket.write_all(&hello.header().as_bytes()).unwrap();
             socket.write_all(hello.payload()).unwrap();
+            serve_identity(&mut socket, b"fixture-hardware\n", 0, b"");
             let open = receive(&mut socket).unwrap();
             assert_eq!(open.header().command(), MessageCommand::Open);
             assert_eq!(
@@ -275,6 +357,21 @@ mod tests {
         (address, thread)
     }
 
+    fn serve_identity(socket: &mut TcpStream, id: &[u8], code: u8, stderr: &[u8]) {
+        let open = receive(socket).unwrap();
+        assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
+        let local = open.header().arg0();
+        send(socket, MessageCommand::Okay, local, &[]).unwrap();
+        assert_eq!(receive(socket).unwrap().payload(), &[4, 0, 0, 0, 0]);
+        for (channel, payload) in [(1, id), (2, stderr), (3, &[code][..])] {
+            let mut packet = vec![channel];
+            packet.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            packet.extend_from_slice(payload);
+            reply(socket, local, &packet, false);
+        }
+        send(socket, MessageCommand::Clse, local, &[]).unwrap();
+    }
+
     fn fixture_install(
         address: SocketAddr,
         bytes: &[u8],
@@ -282,14 +379,25 @@ mod tests {
         replace: bool,
         control: BoundedShellControl,
     ) -> InstallOutcome {
-        run_with_device(&mut Cursor::new(bytes), size, replace, control, |control| {
-            let transport = TcpTransport::with_shell_control(
-                address,
-                Path::new("fixture-never-written"),
-                control.clone(),
-            );
-            ADBMessageDevice::new_with_fixture_key(transport, &fixture_key(), control.remaining()?)
-        })
+        run_with_device(
+            &mut Cursor::new(bytes),
+            size,
+            replace,
+            "fixture-hardware",
+            control,
+            |control| {
+                let transport = TcpTransport::with_shell_control(
+                    address,
+                    Path::new("fixture-never-written"),
+                    control.clone(),
+                );
+                ADBMessageDevice::new_with_fixture_key(
+                    transport,
+                    &fixture_key(),
+                    control.remaining()?,
+                )
+            },
+        )
         .unwrap()
     }
 
@@ -568,6 +676,7 @@ mod tests {
             &mut Cursor::new(b"abc"),
             3,
             false,
+            "fixture-hardware",
             BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
         );
         assert!(result.is_err());
@@ -603,6 +712,7 @@ mod tests {
             &mut Cursor::new(b"abc"),
             3,
             false,
+            "fixture-hardware",
             BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
             |control| {
                 let transport = TcpTransport::with_shell_control(
@@ -628,6 +738,7 @@ mod tests {
             &mut Cursor::new([]),
             0,
             false,
+            "fixture-hardware",
             BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
             |_| panic!("empty input must not connect"),
         );
@@ -659,5 +770,289 @@ mod tests {
         assert_eq!(result.bytes_submitted, 8192);
         assert_eq!(result.response, b"Success\n");
         assert_eq!(result.status, InstallStatus::Indeterminate);
+    }
+    fn hello(socket: &mut TcpStream) {
+        socket
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        assert_eq!(
+            receive(socket).unwrap().header().command(),
+            MessageCommand::Cnxn
+        );
+        let response = ADBTransportMessage::try_new(
+            MessageCommand::Cnxn,
+            0x0100_0000,
+            1_048_576,
+            b"device::\0",
+        )
+        .unwrap();
+        socket.write_all(&response.header().as_bytes()).unwrap();
+        socket.write_all(response.payload()).unwrap();
+    }
+
+    #[test]
+    fn streamed_install_mismatched_unknown_or_failed_identity_never_opens_installer() {
+        for (id, code, stderr) in [
+            (&b"different-TV\n"[..], 0, &b""[..]),
+            (b"unknown\n", 0, b""),
+            (b"first\nsecond\n", 0, b""),
+            (b"\xff", 0, b""),
+            (b"", 0, b""),
+            (b"fixture-hardware\n", 1, b""),
+            (b"fixture-hardware\n", 0, b"getprop failed"),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                hello(&mut socket);
+                serve_identity(&mut socket, id, code, stderr);
+                assert!(
+                    receive(&mut socket).is_err(),
+                    "identity failure must send no install OPEN or bytes"
+                );
+            });
+            let result = run_with_device(
+                &mut Cursor::new(b"abc"),
+                3,
+                false,
+                "fixture-hardware",
+                BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+                |control| {
+                    let transport = TcpTransport::with_shell_control(
+                        address,
+                        Path::new("fixture-never-written"),
+                        control.clone(),
+                    );
+                    ADBMessageDevice::new_with_fixture_key(
+                        transport,
+                        &fixture_key(),
+                        control.remaining()?,
+                    )
+                },
+            );
+            server.join().unwrap();
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn borrowed_identity_probe_preserves_original_socket_and_canceled_registration_does_not_close_it()
+     {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            serve_identity(&mut socket, b"original-TV\n", 0, b"");
+            serve_identity(&mut socket, b"original-TV\n", 0, b"");
+            assert!(receive(&mut socket).is_err());
+        });
+        let inner = ADBMessageDevice::new_with_fixture_key(
+            TcpTransport::new(address, &Path::new("fixture-never-written")),
+            &fixture_key(),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        let mut device = super::super::ADBTcpDevice::from_fixture_device(inner);
+        assert_eq!(
+            device
+                .hardware_serial_bounded(BoundedShellControl::new(Duration::from_secs(2)).unwrap())
+                .unwrap(),
+            "original-TV\n"
+        );
+        let canceled = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        canceled.cancel();
+        assert!(device.hardware_serial_bounded(canceled).is_err());
+        assert_eq!(
+            device
+                .hardware_serial_bounded(BoundedShellControl::new(Duration::from_secs(2)).unwrap())
+                .unwrap(),
+            "original-TV\n"
+        );
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn borrowed_identity_probe_deadline_and_cancellation_interrupt_active_socket() {
+        for cancel in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                hello(&mut socket);
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
+                let local = open.header().arg0();
+                send(&mut socket, MessageCommand::Okay, local, &[]).unwrap();
+                assert_eq!(receive(&mut socket).unwrap().payload(), &[4, 0, 0, 0, 0]);
+                assert!(receive(&mut socket).is_err());
+            });
+            let inner = ADBMessageDevice::new_with_fixture_key(
+                TcpTransport::new(address, &Path::new("fixture-never-written")),
+                &fixture_key(),
+                Duration::from_secs(2),
+            )
+            .unwrap();
+            let mut device = super::super::ADBTcpDevice::from_fixture_device(inner);
+            let control = BoundedShellControl::new(if cancel {
+                Duration::from_secs(2)
+            } else {
+                Duration::from_millis(100)
+            })
+            .unwrap();
+            let signal = control.clone();
+            let canceller = cancel.then(|| {
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(100));
+                    signal.cancel();
+                })
+            });
+            let started = std::time::Instant::now();
+            assert!(device.hardware_serial_bounded(control).is_err());
+            assert!(started.elapsed() < Duration::from_millis(400));
+            if let Some(canceller) = canceller {
+                canceller.join().unwrap();
+            }
+            drop(device);
+            server.join().unwrap();
+        }
+    }
+    #[test]
+    fn original_owned_identity_is_not_replaced_by_a_new_tv_at_the_same_endpoint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut original, _) = listener.accept().unwrap();
+            hello(&mut original);
+            serve_identity(&mut original, b"original-TV\n", 0, b"");
+            let (mut replacement, _) = listener.accept().unwrap();
+            hello(&mut replacement);
+            serve_identity(&mut replacement, b"replacement-TV\n", 0, b"");
+            assert!(
+                receive(&mut replacement).is_err(),
+                "replacement must receive no install OPEN or bytes"
+            );
+            serve_identity(&mut original, b"original-TV\n", 0, b"");
+        });
+        let inner = ADBMessageDevice::new_with_fixture_key(
+            TcpTransport::new(address, &Path::new("fixture-never-written")),
+            &fixture_key(),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+        let mut original = super::super::ADBTcpDevice::from_fixture_device(inner);
+        let expected = original
+            .hardware_serial_bounded(BoundedShellControl::new(Duration::from_secs(2)).unwrap())
+            .unwrap();
+        let result = run_with_device(
+            &mut Cursor::new(b"abc"),
+            3,
+            false,
+            expected.trim(),
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            |control| {
+                let transport = TcpTransport::with_shell_control(
+                    address,
+                    Path::new("fixture-never-written"),
+                    control.clone(),
+                );
+                ADBMessageDevice::new_with_fixture_key(
+                    transport,
+                    &fixture_key(),
+                    control.remaining()?,
+                )
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            original
+                .hardware_serial_bounded(BoundedShellControl::new(Duration::from_secs(2)).unwrap())
+                .unwrap(),
+            expected
+        );
+        drop(original);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn missing_identity_service_never_opens_installer() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let open = receive(&mut socket).unwrap();
+            assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
+            send(&mut socket, MessageCommand::Clse, open.header().arg0(), &[]).unwrap();
+            assert!(receive(&mut socket).is_err());
+        });
+        let result = run_with_device(
+            &mut Cursor::new(b"abc"),
+            3,
+            false,
+            "original-TV",
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            |control| {
+                let transport = TcpTransport::with_shell_control(
+                    address,
+                    Path::new("fixture-never-written"),
+                    control.clone(),
+                );
+                ADBMessageDevice::new_with_fixture_key(
+                    transport,
+                    &fixture_key(),
+                    control.remaining()?,
+                )
+            },
+        );
+        server.join().unwrap();
+        assert!(result.is_err());
+    }
+    #[test]
+    fn oversized_identity_output_stops_before_install_open() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let open = receive(&mut socket).unwrap();
+            assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
+            let local = open.header().arg0();
+            send(&mut socket, MessageCommand::Okay, local, &[]).unwrap();
+            assert_eq!(receive(&mut socket).unwrap().payload(), &[4, 0, 0, 0, 0]);
+            let mut packet = vec![1];
+            packet.extend_from_slice(&1024_u32.to_le_bytes());
+            packet.extend_from_slice(&[b'x'; 1024]);
+            reply(&mut socket, local, &packet, false);
+            if let Ok(message) = receive(&mut socket) {
+                assert_eq!(message.header().command(), MessageCommand::Clse);
+            }
+        });
+        let result = run_with_device(
+            &mut Cursor::new(b"abc"),
+            3,
+            false,
+            "original-TV",
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            |control| {
+                let transport = TcpTransport::with_shell_control(
+                    address,
+                    Path::new("fixture-never-written"),
+                    control.clone(),
+                );
+                ADBMessageDevice::new_with_fixture_key(
+                    transport,
+                    &fixture_key(),
+                    control.remaining()?,
+                )
+            },
+        );
+        server.join().unwrap();
+        assert!(result.is_err());
     }
 }

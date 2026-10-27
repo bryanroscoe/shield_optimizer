@@ -111,6 +111,23 @@ impl TcpTransport {
         transport
     }
 
+    pub(crate) fn set_current_control(
+        &mut self,
+        control: BoundedShellControl,
+    ) -> Result<Option<BoundedShellControl>> {
+        let connection = self.get_current_connection()?;
+        let guard = connection.lock()?;
+        match &*guard {
+            CurrentConnection::Tcp(socket) => control.register_borrowed(socket)?,
+            CurrentConnection::Tls(tls) => control.register_borrowed(&tls.sock)?,
+        }
+        Ok(self.shell_control.replace(control))
+    }
+
+    pub(crate) fn restore_control(&mut self, previous: Option<BoundedShellControl>) {
+        self.shell_control = previous;
+    }
+
     fn get_current_connection(&self) -> Result<Arc<Mutex<CurrentConnection>>> {
         self.current_connection
             .as_ref()

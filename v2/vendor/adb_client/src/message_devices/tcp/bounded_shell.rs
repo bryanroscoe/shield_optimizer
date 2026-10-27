@@ -51,6 +51,7 @@ enum State {
 struct ControlState {
     state: State,
     socket: Option<TcpStream>,
+    close_on_finish: bool,
 }
 
 #[derive(Debug)]
@@ -75,6 +76,7 @@ impl BoundedShellControl {
             state: Mutex::new(ControlState {
                 state: State::Running,
                 socket: None,
+                close_on_finish: true,
             }),
             changed: Condvar::new(),
             timer: Mutex::new(None),
@@ -126,9 +128,12 @@ impl BoundedShellControl {
         if state.state == State::Running {
             state.state = reason;
         }
-        if let Some(socket) = &state.socket {
-            let _ = socket.shutdown(Shutdown::Both);
+        if reason != State::Finished || state.close_on_finish {
+            if let Some(socket) = &state.socket {
+                let _ = socket.shutdown(Shutdown::Both);
+            }
         }
+        state.socket = None;
         self.0.changed.notify_all();
     }
 
@@ -150,19 +155,30 @@ impl BoundedShellControl {
     }
 
     pub(crate) fn register(&self, socket: &TcpStream) -> std::io::Result<()> {
+        self.register_kind(socket, true)
+    }
+
+    pub(crate) fn register_borrowed(&self, socket: &TcpStream) -> std::io::Result<()> {
+        self.register_kind(socket, false)
+    }
+
+    fn register_kind(&self, socket: &TcpStream, owned: bool) -> std::io::Result<()> {
         let mut state = self
             .0
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.state != State::Running || Instant::now() >= self.0.deadline {
-            let _ = socket.shutdown(Shutdown::Both);
+            if owned {
+                let _ = socket.shutdown(Shutdown::Both);
+            }
             return Err(Error::new(
                 ErrorKind::TimedOut,
-                "shell operation no longer active",
+                "operation no longer active",
             ));
         }
         state.socket = Some(socket.try_clone()?);
+        state.close_on_finish = owned;
         Ok(())
     }
 
@@ -252,6 +268,15 @@ fn collect_v2(
     control: &BoundedShellControl,
     output: &mut BoundedShellOutput,
 ) -> Result<()> {
+    collect_v2_with_limit(input, control, output, SHELL_OUTPUT_LIMIT)
+}
+
+pub(crate) fn collect_v2_with_limit(
+    input: &mut dyn Read,
+    control: &BoundedShellControl,
+    output: &mut BoundedShellOutput,
+    limit: usize,
+) -> Result<()> {
     loop {
         control.remaining()?;
         let mut header = [0_u8; 5];
@@ -289,9 +314,7 @@ fn collect_v2(
         let mut chunk = [0_u8; 8192];
         while remaining > 0 {
             control.remaining()?;
-            let count = remaining
-                .min(chunk.len())
-                .min(SHELL_OUTPUT_LIMIT - target.len());
+            let count = remaining.min(chunk.len()).min(limit - target.len());
             if count == 0 {
                 output.termination = BoundedShellTermination::OutputLimit;
                 return Ok(());
@@ -304,7 +327,7 @@ fn collect_v2(
             }
             target.extend_from_slice(&chunk[..received]);
             remaining -= received;
-            if target.len() == SHELL_OUTPUT_LIMIT {
+            if target.len() == limit {
                 output.termination = BoundedShellTermination::OutputLimit;
                 return Ok(());
             }
