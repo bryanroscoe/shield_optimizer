@@ -40,8 +40,8 @@ work before a primary-driver default change.
 
 Generic dedicated services now use the identity-bound path too. This is an
 explicit Android compatibility change: authoritative shell-v2 identity is
-required, streams have a fifteen-minute lifetime, and reads may wait within that
-remaining lifetime instead of the old two-second inactivity timeout. Android
+required, streams have a fifteen-minute lifetime, and the original two-second response
+inactivity budget is preserved for generic services. Android
 hardware behavior is unverified; this is not transparent parity certification.
 
 The existing E2E server already installed fixture subnet sweeps. Earlier caution

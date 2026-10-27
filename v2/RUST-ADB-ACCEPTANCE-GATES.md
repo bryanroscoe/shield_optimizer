@@ -12,7 +12,7 @@ disabled and platform-tools remains the shipped default.
   acknowledged uploads have an owned bounded cleanup attempt, not a physical
   deletion guarantee.
 - Android generic-service compatibility after strict identity binding and finite
-  stream lifetime; desktop-owned cancellation does not imply Android parity.
+  stream lifetime (generic response inactivity remains two seconds); desktop-owned cancellation does not imply Android parity.
 
 These are technical gaps, not requests to expand permissions. They must not be
 marked passed by mocks or hidden by fallback.
