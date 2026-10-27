@@ -7,8 +7,8 @@ in production**; fake drivers exercise the compiled orchestration directly.
 | Area | Implemented and locally simulated | Remaining acceptance |
 | --- | --- | --- |
 | Target ownership | One verified hardware binding across helper upload, resident shell and control services; all use dedicated cancellable connections. | Real AUTH/STLS, firmware and packaged interoperability. |
-| Helper generation | Unique process/time/counter resource names, bound sync upload, resident shell cleanup trap, scoped cleanup requests. No broad process kill or generic transfer fallback. | Abandoned startup after upload but before the resident trap can leave this generation's helper file. Network failure can prevent cleanup. Physical process termination is not confirmed. |
-| Admission | Opaque decimal generation tokens; exact-token close, per-TV operation locks and internal revision fences. Close invalidates before waiting, and stale startup cannot publish. Legacy commands capture one generation per request. | Actual OS/process failure behavior. Already-dispatched shell/input cannot be unsent. |
+| Helper generation | Unique process/time/counter resource names, bound sync upload, resident shell cleanup trap, scoped cleanup requests and an owned acknowledged-upload cleanup task that survives startup drop. No broad process kill or generic transfer fallback. | Partial/unobserved upload, closed admission or runtime shutdown can still leave this generation's file; physical deletion and process termination are not confirmed. |
+| Admission | Opaque decimal generation tokens; exact-token close, per-TV operation locks and internal revision fences. Close invalidates before waiting, and stale startup cannot publish. Legacy commands capture one generation per request. | Actual OS/process failure behavior. Desktop forwarded-socket cancellation has blocked-read/write and isolation fixtures; Android cancellation remains unchanged. Already-dispatched shell/input cannot be unsent. |
 | Sessions | Owned startup/cleanup workers, cancellation handles, independent TVs, repeated stop/reopen and driver-swap/quit draining. | Hardware socket-shutdown and helper-exit behavior. |
 | Held input | Track key-down before writing; normal close attempts key-up before cancellation. Failed/partial writes poison the session and report uncertain release, without replay. | No control-message acknowledgement proves Android applied key-up. Real disconnect/held-key acceptance remains required. |
 | Text | UTF-8 chunks preserve accepted text at scalar boundaries, maximum 300 bytes per control message and 64 KiB per request. Failure stops remaining chunks. | Android text-injection/keymap limitations, grapheme/IME behavior on TVs. |
@@ -55,3 +55,15 @@ Protocol references: [scrcpy 3.1 control serialization](https://github.com/Genym
 and [AOSP ADB OPEN/CLOSE protocol](https://github.com/aosp-mirror/platform_system_core/blob/android-10.0.0_r1/adb/protocol.txt).
 Implementation and tests are original; these sources define protocol behavior,
 not evidence of hardware compatibility.
+
+## Consolidation follow-up
+
+The acknowledged-upload cleanup owner retains one admitted lease and exact
+binding/path through bounded cleanup; failure, timeout and closed admission are
+recorded as unconfirmed. Desktop compatibility cancellation shuts down only its
+owned forwarded socket. Neither change resets a host server or replays input.
+
+Remote pending work is capped across old and current frontend generations at
+128 actions and 64 KiB, including buffered text. Paste preflight rejects an
+oversized request before enqueuing any prefix; overflow discards unsent work
+with a visible message. These limits do not cancel already delivered input.
