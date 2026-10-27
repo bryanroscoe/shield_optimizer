@@ -84,13 +84,27 @@ try {
   assert.equal((await inputs()).length,1,'serial change discards old queued work');
   await remote();await key('Back');await page.waitForFunction(()=>window.calls.filter(c=>c.command==='send_key').length===2);
   assert.equal((await inputs())[1].serial,'192.0.2.99:5555','new gesture uses selected target only');
+  await clear();
+  await capture.evaluate(el => { const data=new DataTransfer();data.setData('text/plain','x\n'.repeat(1000));el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true})); });
+  await page.getByText(/Paste exceeds Remote limits/).waitFor();
+  assert.equal((await inputs()).length,0,'oversized action-count paste is rejected before any input');
+  await capture.evaluate(el => { const data=new DataTransfer();data.setData('text/plain','x'.repeat(70000));el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true})); });
+  assert.equal((await inputs()).length,0,'oversized byte paste is rejected without a prefix');
+  await key('Back');await page.waitForFunction(()=>window.calls.filter(c=>c.command==='send_key').length===1);
+  await clear();await hold('send_key');await key('Home');await held();
+  await page.getByRole('button',{name:'Back',exact:true}).evaluate(button=>{for(let i=0;i<140;i++)button.click();});
+  await page.getByText(/Remote queue is full/).waitFor();
+  assert.equal((await inputs()).length,1,'bounded pending queue does not dispatch while first input is held');
+  if(evidence)await page.screenshot({path:`${evidence}/remote-queue-limit-simulated.png`});await pause(1500);
+  await release();await page.waitForTimeout(150);assert.equal((await inputs()).length,1,'overflow discards every unsent queued gesture');
+  await key('Back');await page.waitForFunction(()=>window.calls.filter(c=>c.command==='send_key').length===2);
   await clear();await hold('send_key');await key('Home');await held();await key('Back');await page.getByRole('button',{name:'Back to devices',exact:true}).click();await page.getByRole('heading',{name:'Devices',exact:true}).waitFor();await release();await page.waitForTimeout(150);
   assert.equal((await inputs()).length,1);assert.equal((await calls()).filter(c=>c.command==='remote_close').length,1);
   if(evidence)await writeFile(`${evidence}/remote-lifecycle-calls.json`,JSON.stringify(await calls(),null,2));await pause(1500);
   const video = page.video();
   await context.close();
   if (evidence) await video.saveAs(`${evidence}/remote-lifecycle-simulated.webm`);
-  console.log('Remote lifecycle passed: lazy generations, hide/unmount cancellation, stale open close, no replay, keyboard, Unicode/IME, hold cleanup and compatibility invalidation. Injected simulation only.');
+  console.log('Remote lifecycle passed: lazy generations, hide/unmount cancellation, stale open close, no replay, keyboard, Unicode/IME, hold cleanup, compatibility invalidation and bounded paste/queue admission. Injected simulation only.');
 } finally {
   await browser?.close();
   await server?.close();

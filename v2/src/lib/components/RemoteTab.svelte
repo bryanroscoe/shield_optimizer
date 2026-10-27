@@ -29,6 +29,11 @@
   let transport = $state<"channel" | "shell" | null>(null);
   // Keystrokes are sent strictly in order through one promise chain — a
   // backspace must never overtake the characters typed before it.
+  const MAX_PENDING_ACTIONS = 128;
+  const MAX_PENDING_BYTES = 64 * 1024;
+  let pendingActions = 0;
+  let pendingBytes = 0;
+  const encoder = new TextEncoder();
   let remoteQueue: Promise<void> = Promise.resolve();
   let remoteBuffer = "";
   let remoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,8 +71,19 @@
     return logicalSession.promise;
   }
 
-  function remoteEnqueue(work: (target: string, mode: boolean, generation: string) => Promise<SendTextResult>) {
+  function rejectInput(message: string) {
+    invalidate();
+    remoteMessage = message;
+  }
+
+  function remoteEnqueue(work: (target: string, mode: boolean, generation: string) => Promise<SendTextResult>, bytes = 0) {
     if (!active) return;
+    if (pendingActions >= MAX_PENDING_ACTIONS || pendingBytes + bytes > MAX_PENDING_BYTES) {
+      rejectInput("Remote queue is full. Unsent input was discarded; check the TV before sending more.");
+      return;
+    }
+    pendingActions++;
+    pendingBytes += bytes;
     const version = epoch;
     const target = serial;
     const mode = forceShell;
@@ -84,6 +100,9 @@
       if (!active || epoch !== version) return;
       remoteMessage = String(error);
       invalidate();
+    }).finally(() => {
+      pendingActions--;
+      pendingBytes -= bytes;
     });
   }
 
@@ -93,7 +112,7 @@
     if (!remoteBuffer) return;
     const chunk = remoteBuffer;
     remoteBuffer = "";
-    remoteEnqueue((target, mode, generation) => api.sendText(target, chunk, mode, generation));
+    remoteEnqueue((target, mode, generation) => api.sendText(target, chunk, mode, generation), encoder.encode(chunk).length);
   }
 
   function sendRemoteKey(key: string) {
@@ -111,13 +130,23 @@
   /// cannot carry them — sending them literally would silently drop them and
   /// paste something different from what was on the clipboard.
   function sendPastedText(raw: string) {
+    if (raw.length > MAX_PENDING_BYTES) {
+      rejectInput("Paste exceeds Remote limits. Nothing from this paste was sent; unsent input was discarded.");
+      return;
+    }
     const text = raw.replace(/\r\n?/g, "\n");
     if (!text) return;
-    remoteFlushBuffer();
     const lines = text.split("\n");
+    const actions = lines.filter(line => line.length > 0).length + lines.length - 1;
+    const bytes = encoder.encode(text).length + encoder.encode(remoteBuffer).length;
+    if (pendingActions + actions + (remoteBuffer ? 1 : 0) > MAX_PENDING_ACTIONS || pendingBytes + bytes > MAX_PENDING_BYTES) {
+      rejectInput("Paste exceeds Remote limits. Nothing from this paste was sent; unsent input was discarded.");
+      return;
+    }
+    remoteFlushBuffer();
     lines.forEach((line, i) => {
       if (line) {
-        remoteEnqueue((target, mode, generation) => api.sendText(target, line, mode, generation));
+        remoteEnqueue((target, mode, generation) => api.sendText(target, line, mode, generation), encoder.encode(line).length);
       }
       if (i < lines.length - 1) sendRemoteKey("enter");
     });
@@ -203,7 +232,7 @@
       // The channel injects full UTF-8; the shell fallback re-checks and
       // rejects non-ASCII with a clear message, so don't pre-filter here.
       e.preventDefault();
-      remoteBuffer += e.key;
+      if (!appendBuffered(e.key)) return;
       remoteEcho = Array.from(remoteEcho + e.key).slice(-60).join("");
       // Channel sends are ~ms, so flush almost immediately — characters land
       // on the TV as you type. The shell fallback pays ~700 ms per call, so
@@ -213,9 +242,18 @@
     }
   }
 
+  function appendBuffered(text: string) {
+    if (text.length > MAX_PENDING_BYTES || pendingBytes + encoder.encode(remoteBuffer).length + encoder.encode(text).length > MAX_PENDING_BYTES) {
+      rejectInput("Remote text exceeds queue limits. Unsent input was discarded; check the TV before sending more.");
+      return false;
+    }
+    remoteBuffer += text;
+    return true;
+  }
+
   function compositionEnd(event: CompositionEvent) {
     if (!active || !event.data) return;
-    remoteBuffer += event.data;
+    if (!appendBuffered(event.data)) return;
     remoteEcho = Array.from(remoteEcho + event.data).slice(-60).join("");
     remoteFlushBuffer();
   }
