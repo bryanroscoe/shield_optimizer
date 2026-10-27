@@ -71,6 +71,7 @@ where
         ));
     }
     let mut device = connect(control)?;
+    let remaining = control.remaining()?;
     let service = format!(
         "exec:cmd package install{} -S {size}",
         if replace { " -r" } else { "" }
@@ -83,12 +84,12 @@ where
     };
     // OPEN may have reached the peer even when its acknowledgement is lost.
     let result: Result<()> = (|| {
-        let remaining = control.remaining()?;
         let session = device.open_raw_service(&service, remaining)?;
         let mut stream = ADBService::new(session, remaining, remaining)
             .with_pending_limit(INSTALL_RESPONSE_LIMIT);
         let transfer: Result<()> = (|| {
             let mut remaining_bytes = size;
+            let mut early_response = false;
             let mut buffer = [0; 4096];
             while remaining_bytes != 0 {
                 control.remaining()?;
@@ -104,6 +105,7 @@ where
                     stream.write_final(&buffer[..amount])?;
                 } else {
                     stream.write_all(&buffer[..amount])?;
+                    early_response |= stream.has_pending();
                 }
                 outcome.bytes_submitted += amount as u64;
                 remaining_bytes -= amount as u64;
@@ -124,7 +126,10 @@ where
                     ));
                 }
             }
-            outcome.status = classify_response(&outcome.response);
+            let reported = classify_response(&outcome.response);
+            if reported != InstallStatus::Success || !early_response {
+                outcome.status = reported;
+            }
             Ok(())
         })();
         if transfer.is_err() {
@@ -566,5 +571,93 @@ mod tests {
             BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
         );
         assert!(result.is_err());
+    }
+    #[test]
+    fn streamed_install_cancel_before_open_is_an_error_without_install_attempt() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            assert_eq!(
+                receive(&mut socket).unwrap().header().command(),
+                MessageCommand::Cnxn
+            );
+            let hello = ADBTransportMessage::try_new(
+                MessageCommand::Cnxn,
+                0x0100_0000,
+                1_048_576,
+                b"device::\0",
+            )
+            .unwrap();
+            socket.write_all(&hello.header().as_bytes()).unwrap();
+            socket.write_all(hello.payload()).unwrap();
+            assert!(
+                receive(&mut socket).is_err(),
+                "no OPEN may follow pre-install cancellation"
+            );
+        });
+        let result = run_with_device(
+            &mut Cursor::new(b"abc"),
+            3,
+            false,
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            |control| {
+                let transport = TcpTransport::with_shell_control(
+                    address,
+                    Path::new("fixture-never-written"),
+                    control.clone(),
+                );
+                let device = ADBMessageDevice::new_with_fixture_key(
+                    transport,
+                    &fixture_key(),
+                    control.remaining()?,
+                )?;
+                control.cancel();
+                Ok(device)
+            },
+        );
+        server.join().unwrap();
+        assert!(result.is_err());
+    }
+    #[test]
+    fn streamed_install_empty_input_is_rejected_before_connection() {
+        let result = run_with_device(
+            &mut Cursor::new([]),
+            0,
+            false,
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            |_| panic!("empty input must not connect"),
+        );
+        assert!(result.is_err());
+    }
+    #[test]
+    fn streamed_install_early_success_stays_unknown_even_if_upload_later_finishes() {
+        let (address, server) = server(8192, false, |socket, local| {
+            assert_eq!(
+                receive(socket).unwrap().header().command(),
+                MessageCommand::Write
+            );
+            reply(socket, local, b"Success\n", false);
+            send(socket, MessageCommand::Okay, local, &[]).unwrap();
+            assert_eq!(
+                receive(socket).unwrap().header().command(),
+                MessageCommand::Write
+            );
+            send(socket, MessageCommand::Clse, local, &[]).unwrap();
+        });
+        let result = fixture_install(
+            address,
+            &[42; 8192],
+            8192,
+            false,
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+        );
+        server.join().unwrap();
+        assert_eq!(result.bytes_submitted, 8192);
+        assert_eq!(result.response, b"Success\n");
+        assert_eq!(result.status, InstallStatus::Indeterminate);
     }
 }

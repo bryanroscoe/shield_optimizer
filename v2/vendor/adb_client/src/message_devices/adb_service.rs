@@ -137,6 +137,10 @@ impl<T: ADBMessageTransport> ADBService<T> {
         self.pending.drain(..count).collect()
     }
 
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
     pub(crate) const fn peer_closed(&self) -> bool {
         self.peer_closed
     }

@@ -565,10 +565,9 @@ impl AdbDriver for WirelessAdb {
         }
     }
 
-    /// File transfer over the sync service. Only the two forms the mobile file
-    /// commands emit are supported: `pull` (device → this phone) and `push`
-    /// (this phone → device). Local files are opened before touching the live
-    /// connection so a phone-storage error cannot evict a healthy TV socket.
+    /// File transfer over sync and single-APK installation over a dedicated
+    /// bounded service. Local files are opened before device I/O so a storage
+    /// error cannot evict a healthy TV socket.
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
             ["-s", serial, "install", local] => {
