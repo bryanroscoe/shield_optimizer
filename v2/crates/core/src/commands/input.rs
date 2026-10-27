@@ -4,9 +4,9 @@
 //! 1. The persistent scrcpy control channel (`adb::remote_input`) — per-press
 //!    cost is network RTT (~ms). Lazily started on first use; full UTF-8 text.
 //! 2. `adb shell input …` — the slow (~690 ms/press, ASCII-only) but
-//!    universally-available fallback when the channel can't start or its
-//!    socket dies. A failed channel send drops the session so the next press
-//!    retries a fresh start.
+//!    compatibility path when selected explicitly or the channel cannot start.
+//!    A failed channel send closes the session without replay: delivery is
+//!    uncertain, so the user must check the TV before retrying.
 
 use serde::Serialize;
 use tauri::State;
@@ -102,8 +102,43 @@ fn encode_input_text(text: &str) -> Result<String, String> {
     Ok(format!("'{}'", spaced.replace('\'', r"'\''")))
 }
 
+async fn dispatch_remote_input<Ready, Send, Sent, Cleanup, Cleaned, Fallback, FallbackResult>(
+    force_shell: bool,
+    ready: Ready,
+    send: Send,
+    cleanup: Cleanup,
+    fallback: Fallback,
+) -> Result<SendTextResult, String>
+where
+    Ready: std::future::Future<Output = Result<(), String>>,
+    Send: FnOnce() -> Sent,
+    Sent: std::future::Future<Output = Result<SendTextResult, String>>,
+    Cleanup: FnOnce() -> Cleaned,
+    Cleaned: std::future::Future<Output = ()>,
+    Fallback: FnOnce() -> FallbackResult,
+    FallbackResult: std::future::Future<Output = Result<SendTextResult, String>>,
+{
+    if force_shell {
+        return fallback().await;
+    }
+    if let Err(error) = ready.await {
+        tracing::warn!(%error, "remote channel unavailable before input; using selected driver's shell");
+        return fallback().await;
+    }
+    match send().await {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            cleanup().await;
+            // A failed write or flush may have delivered part or all of the input.
+            Err(format!(
+                "Remote input outcome unknown. It was not resent. Check the TV before retrying. {error}"
+            ))
+        }
+    }
+}
+
 /// `send_text` — type `text` into whatever input field has focus on the TV.
-/// Channel first (full UTF-8, instant); `input text` (ASCII-only) fallback.
+/// Channel first (full UTF-8); shell compatibility only before input is attempted.
 #[tauri::command]
 pub async fn send_text<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -123,35 +158,32 @@ pub async fn send_text<R: tauri::Runtime>(
         });
     }
 
-    let channel = if force_shell {
-        Err("compatibility mode forced".to_string())
-    } else {
-        match channel_ready(&state, &app, &serial).await {
-            Ok(()) => match state.remote_send_text(&serial, &text).await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    state.drop_remote_session(&serial).await;
-                    Err(e)
-                }
-            },
-            Err(e) => Err(e),
-        }
-    };
-    if channel.is_ok() {
-        return Ok(SendTextResult {
-            ok: true,
-            message: format!(
-                "Sent {} character(s) to the focused field.",
-                text.chars().count()
-            ),
-            transport: "channel",
-        });
-    }
-    if !force_shell {
-        tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input text");
-    }
+    dispatch_remote_input(
+        force_shell,
+        channel_ready(&state, &app, &serial),
+        || async {
+            state.remote_send_text(&serial, &text).await?;
+            Ok(SendTextResult {
+                ok: true,
+                message: format!(
+                    "Sent {} character(s) to the focused field.",
+                    text.chars().count()
+                ),
+                transport: "channel",
+            })
+        },
+        || state.drop_remote_session(&serial),
+        || send_compatible_text(&state, &serial, &text),
+    )
+    .await
+}
 
-    let encoded = match encode_input_text(&text) {
+async fn send_compatible_text(
+    state: &AppState,
+    serial: &str,
+    text: &str,
+) -> Result<SendTextResult, String> {
+    let encoded = match encode_input_text(text) {
         Ok(e) => e,
         Err(message) => {
             return Ok(SendTextResult {
@@ -163,7 +195,7 @@ pub async fn send_text<R: tauri::Runtime>(
     };
     let adb = state.adb_snapshot().await;
     let out = adb
-        .shell(&serial, &format!("input text {encoded}"))
+        .shell(serial, &format!("input text {encoded}"))
         .await
         .map_err(|e| format!("input text: {e}"))?;
     // `input` is silent on success and prints usage/exception text on failure.
@@ -213,7 +245,7 @@ fn keycode_for(key: &str) -> Option<u32> {
 }
 
 /// `send_key` — one remote button press. Channel first (instant, real
-/// down/up); `input keyevent` fallback. Used by the Remote panel's D-pad and
+/// down/up); shell compatibility only before input is attempted. Used by the D-pad and
 /// by live typing for Backspace/Enter.
 #[tauri::command]
 pub async fn send_key<R: tauri::Runtime>(
@@ -228,34 +260,32 @@ pub async fn send_key<R: tauri::Runtime>(
         return Err(format!("Unknown remote key: {key:?}"));
     };
 
-    let channel = if force_shell {
-        Err("compatibility mode forced".to_string())
-    } else {
-        match channel_ready(&state, &app, &serial).await {
-            Ok(()) => match state.remote_send_key_press(&serial, code).await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    state.drop_remote_session(&serial).await;
-                    Err(e)
-                }
-            },
-            Err(e) => Err(e),
-        }
-    };
-    if channel.is_ok() {
-        return Ok(SendTextResult {
-            ok: true,
-            message: format!("Sent {key}."),
-            transport: "channel",
-        });
-    }
-    if !force_shell {
-        tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input keyevent");
-    }
+    dispatch_remote_input(
+        force_shell,
+        channel_ready(&state, &app, &serial),
+        || async {
+            state.remote_send_key_press(&serial, code).await?;
+            Ok(SendTextResult {
+                ok: true,
+                message: format!("Sent {key}."),
+                transport: "channel",
+            })
+        },
+        || state.drop_remote_session(&serial),
+        || send_compatible_key(&state, &serial, &key, code),
+    )
+    .await
+}
 
+async fn send_compatible_key(
+    state: &AppState,
+    serial: &str,
+    key: &str,
+    code: u32,
+) -> Result<SendTextResult, String> {
     let adb = state.adb_snapshot().await;
     let out = adb
-        .shell(&serial, &format!("input keyevent {code}"))
+        .shell(serial, &format!("input keyevent {code}"))
         .await
         .map_err(|e| format!("input keyevent: {e}"))?;
     let noise = out.combined().trim().to_string();
@@ -303,6 +333,80 @@ pub async fn open_settings(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    async fn exercise_dispatch(
+        forced: bool,
+        startup_error: Option<&str>,
+        write_error: Option<&str>,
+    ) -> (Result<SendTextResult, String>, Vec<&'static str>) {
+        let calls = std::sync::Mutex::new(Vec::new());
+        let result = dispatch_remote_input(
+            forced,
+            async {
+                calls.lock().unwrap().push("start");
+                startup_error.map_or(Ok(()), |error| Err(error.to_string()))
+            },
+            || async {
+                calls.lock().unwrap().push("write");
+                match write_error {
+                    Some(error) => Err(error.to_string()),
+                    None => Ok(SendTextResult {
+                        ok: true,
+                        message: "Sent é漢字😀.".into(),
+                        transport: "channel",
+                    }),
+                }
+            },
+            || async {
+                calls.lock().unwrap().push("close");
+            },
+            || async {
+                calls.lock().unwrap().push("shell");
+                Ok(SendTextResult {
+                    ok: true,
+                    message: "Explicit or pre-send compatibility path.".into(),
+                    transport: "shell",
+                })
+            },
+        )
+        .await;
+        (result, calls.into_inner().unwrap())
+    }
+
+    #[tokio::test]
+    async fn explicit_compatible_input_never_starts_or_writes_channel() {
+        let (result, calls) = exercise_dispatch(true, None, None).await;
+        assert_eq!(result.unwrap().transport, "shell");
+        assert_eq!(calls, ["shell"]);
+    }
+
+    #[tokio::test]
+    async fn startup_failure_can_use_same_driver_shell_before_any_input() {
+        let (result, calls) = exercise_dispatch(false, Some("unavailable"), None).await;
+        assert_eq!(result.unwrap().transport, "shell");
+        assert_eq!(calls, ["start", "shell"]);
+    }
+
+    #[tokio::test]
+    async fn channel_input_success_is_not_replayed() {
+        let (result, calls) = exercise_dispatch(false, None, None).await;
+        let result = result.unwrap();
+        assert_eq!(result.transport, "channel");
+        assert!(result.message.contains("é漢字😀"));
+        assert_eq!(calls, ["start", "write"]);
+    }
+
+    #[tokio::test]
+    async fn uncertain_partial_write_flush_or_key_up_never_replays_input() {
+        for error in ["partial text write", "flush failed", "key-up failed"] {
+            let (result, calls) = exercise_dispatch(false, None, Some(error)).await;
+            let message = result.err().expect("must not claim input success");
+            assert!(message.contains("outcome unknown"));
+            assert!(message.contains("not resent"));
+            assert!(message.contains(error));
+            assert_eq!(calls, ["start", "write", "close"]);
+        }
+    }
 
     #[test]
     fn encodes_spaces_as_percent_s() {
