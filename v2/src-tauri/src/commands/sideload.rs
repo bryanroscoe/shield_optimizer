@@ -84,12 +84,7 @@ async fn install_apk_impl(
             .any(|marker| line.contains(marker))
     });
     let ok = out.success() && combined.lines().any(|line| line.trim() == "Success") && !failed;
-    let hint = decode_install_error(&combined).or_else(|| {
-        (!ok).then(|| {
-            "Installation was not confirmed. Check the installed app list before retrying."
-                .to_string()
-        })
-    });
+    let hint = decode_install_error(&combined);
 
     Ok(InstallApkResult {
         ok,
@@ -537,11 +532,15 @@ mod tests {
             if !stderr.is_empty() {
                 assert!(installed.message.contains(stderr));
             }
-            if !expected {
-                assert!(installed.hint.is_some());
-            }
             if stderr.contains("INSTALL_FAILED_VERSION_DOWNGRADE") {
                 assert!(installed.hint.as_deref().unwrap().contains("newer"));
+            } else if stdout.contains("INSTALL_FAILED_INVALID_APK") {
+                assert!(installed.hint.as_deref().unwrap().contains("corrupt"));
+            } else {
+                assert!(
+                    installed.hint.is_none(),
+                    "only known failure codes provide a backend hint"
+                );
             }
             fixtures.push(serde_json::json!({ "case_index": index, "stdout": stdout, "stderr": stderr, "exit_code": exit, "result": &installed }));
         }
