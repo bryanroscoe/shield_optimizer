@@ -662,8 +662,8 @@ impl AdbDriver for WirelessAdb {
                     timeout,
                 )?;
                 Ok((
-                    crate::limited_writer::bounded_text(&out, 512 * 1024),
-                    crate::limited_writer::bounded_text(&err, 512 * 1024),
+                    crate::limited_writer::bounded_text(&out, 512 * 1024)?,
+                    crate::limited_writer::bounded_text(&err, 512 * 1024)?,
                     code,
                 ))
             })

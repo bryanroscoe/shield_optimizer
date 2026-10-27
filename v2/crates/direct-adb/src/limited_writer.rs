@@ -29,14 +29,14 @@ impl<W: Write> Write for LimitedWriter<W> {
     }
 }
 
-pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> String {
-    let mut text = String::from_utf8_lossy(bytes).into_owned();
-    let mut end = text.len().min(limit);
-    while !text.is_char_boundary(end) {
-        end -= 1;
+pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> io::Result<String> {
+    let text = String::from_utf8_lossy(bytes);
+    if text.len() > limit {
+        return Err(io::Error::other(
+            "Decoded output exceeds the text byte limit.",
+        ));
     }
-    text.truncate(end);
-    text
+    Ok(text.into_owned())
 }
 
 #[cfg(test)]
@@ -45,8 +45,9 @@ mod tests {
 
     #[test]
     fn replacement_characters_do_not_expand_retained_text_past_byte_limit() {
-        let text = bounded_text(&[0xff; 4], 4);
-        assert_eq!(text, "\u{fffd}");
+        assert!(bounded_text(&[0xff; 4], 4).is_err());
+        assert_eq!(bounded_text("é😀".as_bytes(), 6).unwrap(), "é😀");
+        assert!(bounded_text("é😀".as_bytes(), 5).is_err());
     }
 
     #[test]
