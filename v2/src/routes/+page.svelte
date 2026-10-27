@@ -2,11 +2,12 @@
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { api } from "$lib/api";
-  import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
+  import type { Device, DeviceReport, PairedConnectProbe, NativeAdvertisement, NativeDiscoveryReport } from "$lib/types";
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
+  import NativeDiscovery from "$lib/components/NativeDiscovery.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
   import { openContextMenu, type MenuItem } from "$lib/contextmenu";
@@ -36,6 +37,9 @@
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
+  let adbBackend = $state<"direct" | "subprocess" | null>(null);
+  let nativeDiscovery = $state<NativeDiscoveryReport | null>(null);
+  let discoveryReceivedAt = $state(0);
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -79,10 +83,11 @@
       // Structured probe first so we render the install pane on a clean
       // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
+      adbBackend = status.backend ?? null;
       if (!status.available) {
-        adbMissing = status.backend !== "direct";
+        adbMissing = adbBackend === "subprocess";
         devices = [];
-        if (status.backend === "direct") error = status.last_probe ?? "Direct ADB is unavailable.";
+        if (!adbMissing) error = status.last_probe ?? "The selected ADB backend is unavailable.";
         return;
       }
       adbMissing = false;
@@ -128,7 +133,7 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (!address) return;
+    if (!address || nativePairNeedsPort) return;
     connectBusy = true;
     connectMessage = "";
     connectDetail = "";
@@ -185,6 +190,14 @@
   /// Set after a successful pair: the connect box holds the paired host and
   /// is waiting for the separate connect port (#88).
   let pairNextStep = $state(false);
+  const nativePairNeedsPort = $derived(adbBackend !== "subprocess" && pairNextStep && !explicitConnectPort(connectAddress.trim()));
+
+  function explicitConnectPort(address: string): boolean {
+    const port = address.startsWith("[")
+      ? /^\[[^\]]+\]:(\d+)$/.exec(address)?.[1]
+      : /^[^:\s]+:(\d+)$/.exec(address)?.[1];
+    return port !== undefined && Number(port) > 0 && Number(port) <= 65535;
+  }
 
   /// The host part of a pairing address, without its port. The connect port
   /// is a different one, so only the host carries over.
@@ -199,11 +212,19 @@
   }
 
   async function scan() {
+    if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
-    scanMessage = "Scanning local network…";
+    scanMessage = adbBackend === "direct" ? "Discovering advertised services…" : "Scanning local network…";
+    nativeDiscovery = null;
     try {
       const r = await api.scanNetwork();
       scanMessage = r.message;
+      if (adbBackend !== "subprocess" || r.native_discovery) {
+        nativeDiscovery = r.native_discovery ?? null;
+        discoveryReceivedAt = performance.now();
+        if (!nativeDiscovery) scanMessage = "No discovery observations returned. Use Add by IP or Pair PIN.";
+        return;
+      }
       // A device advertising only a pairing service cannot be connected to
       // until the user enters the code from its screen. Open the pairing form
       // on its real advertised port rather than making them read two
@@ -395,9 +416,34 @@
     pairDetail = explained.summary ? explained.raw : "";
   }
 
+  async function useNativeAdvertisement(advertisement: NativeAdvertisement) {
+    if (scanBusy || connectBusy || pairBusy || pairStage === "waiting" || !advertisement.connect_address || advertisement.cached || !nativeDiscovery
+      || advertisement.observed_age_ms + Math.max(0, performance.now() - discoveryReceivedAt) >= nativeDiscovery.observation_max_age_ms) return;
+    cancelPairWait(false);
+    pairStage = "idle";
+    pairMessage = "";
+    pairDetail = "";
+    pairNextStep = false;
+    if (advertisement.service_kind === "tls_pairing") {
+      pairAddress = advertisement.connect_address;
+      pairPin = "";
+      await openPairPanel();
+    } else {
+      pairOpen = false;
+      pairNextStep = false;
+      connectAddress = advertisement.connect_address;
+      await tick();
+      focusConnectBox();
+    }
+  }
+
   $effect(() => {
     const host = hostOf(pairAddress);
     const token = ++pairWarnToken;
+    if (adbBackend !== "subprocess") {
+      pairWarning = null;
+      return;
+    }
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
       pairWarning = null;
       return;
@@ -437,6 +483,14 @@
         // The manual fallback is ready from the start; the connect port is a
         // different one from the pairing port, so only the host carries over.
         if (host) connectAddress = `${host}:`;
+        if (adbBackend !== "subprocess") {
+          pairStage = "manual";
+          pairMessage = r.message;
+          pairNextStep = true;
+          await tick();
+          focusConnectBox();
+          return;
+        }
         await refresh();
         // The refresh is another await the user can cancel during.
         if (requestToken !== pairWaitToken || !pairOpen) return;
@@ -714,7 +768,7 @@
   // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing) return;
+    if (adbMissing || adbBackend !== "subprocess") return;
     if (devices.some((d) => d.status === "device")) return;
     await scan();
   }
@@ -735,6 +789,8 @@
     <p class="muted small mono header-sub">
       {#if adbMissing}
         adb not found
+      {:else if error && adbBackend !== "subprocess"}
+        connection status unavailable
       {:else if devices.length === 0}
         no TV connected
       {:else}
@@ -743,7 +799,7 @@
     </p>
   </div>
   <div class="header-actions">
-    <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
+    <button onclick={scan} disabled={scanBusy || adbMissing || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title={adbBackend === "direct" ? "Discover advertised services without connecting" : adbBackend === "subprocess" ? "Scan the local /24 subnet for ADB-listening devices" : "Scan using the selected backend"}>
       <Icon name="wifi_tethering" size={16} /> {scanBusy ? "Scanning…" : "Scan LAN"}
     </button>
     <button onclick={refresh} disabled={loading} title="Re-read the list of connected devices">
@@ -762,7 +818,7 @@
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim()}>
+  <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim() || nativePairNeedsPort}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
   <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
@@ -819,6 +875,10 @@
   {/if}
 </section>
 
+{#if nativeDiscovery}
+  <NativeDiscovery report={nativeDiscovery} receivedAt={discoveryReceivedAt} busy={scanBusy || connectBusy || pairBusy || pairStage === "waiting"} onChoose={useNativeAdvertisement} />
+{/if}
+
 {#if pairOpen}
   <section class="pair-form">
     <h3>Pair a new device</h3>
@@ -828,9 +888,13 @@
       device with pairing code. Enter the IP:port and 6-digit PIN from that dialog.
     </p>
     <p class="pair-note small">
-      After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
-      appear, enter the IP:port from the main Wireless debugging screen and click
-      <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {#if adbBackend !== "subprocess"}
+        After pairing, choose a TLS connect address from discovery or enter the port from the main Wireless debugging screen, then use <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {:else}
+        After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
+        appear, enter the IP:port from the main Wireless debugging screen and click
+        <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {/if}
     </p>
     <div class="pair-row">
       <input

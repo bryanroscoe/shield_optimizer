@@ -35,6 +35,8 @@ pub struct ScanResult {
     pub needs_pairing: Vec<String>,
     /// Human-readable summary line — useful diagnostic for the UI.
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_discovery: Option<shield_optimizer_core::adb::NativeDiscoveryReport>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -283,8 +285,22 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
 }
 
 async fn scan_network_impl(state: &AppState) -> Result<ScanResult, String> {
-    if !state.adb_snapshot().await.uses_host_server() {
-        return Err("Scan LAN is not available in experimental direct ADB mode. Use Add by IP, or Pair PIN with the TV's pairing and connect ports. To use platform-tools discovery, relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess.".into());
+    let selected = state.adb_snapshot().await;
+    if !selected.uses_host_server() {
+        let native_discovery = selected
+            .discover_network()
+            .await
+            .map_err(|error| format!("Native discovery: {error}. Use Add by IP or Pair PIN."))?;
+        return Ok(ScanResult {
+            subnet: None,
+            found: Vec::new(),
+            connected: Vec::new(),
+            unauthorized: Vec::new(),
+            failed: Vec::new(),
+            needs_pairing: Vec::new(),
+            message: "Discovery complete. No connections changed.".into(),
+            native_discovery: Some(native_discovery),
+        });
     }
     let Some(prefix) = local_subnet_prefix().await else {
         tracing::info!(subnet = "unknown", found = 0, "scan finished");
@@ -295,6 +311,7 @@ async fn scan_network_impl(state: &AppState) -> Result<ScanResult, String> {
             unauthorized: vec![],
             failed: vec![],
             needs_pairing: vec![],
+            native_discovery: None,
             message: "Could not detect default gateway. Set SHIELD_OPTIMIZER_SUBNET=\"a.b.c\" \
                       to override, or use Add by IP."
                 .to_string(),
@@ -403,6 +420,7 @@ async fn scan_network_impl(state: &AppState) -> Result<ScanResult, String> {
         failed,
         needs_pairing: targets.needs_pairing,
         message,
+        native_discovery: None,
     })
 }
 
@@ -1044,5 +1062,102 @@ mod tests {
     fn summary_plain_when_all_connected() {
         let msg = summary_message("10.0.0", 1, &["10.0.0.5".into()], &[], &[]);
         assert_eq!(msg, "Scanned 10.0.0.x — found 1 device, connected 1.");
+    }
+
+    struct NativeObservationMock {
+        fail: bool,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl AdbDriver for NativeObservationMock {
+        fn uses_host_server(&self) -> bool {
+            false
+        }
+        async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("native discovery must not use host commands or dial endpoints")
+        }
+        async fn shell(&self, _: &str, _: &str) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("native discovery must not query a TV")
+        }
+        async fn discover_network(
+            &self,
+        ) -> crate::adb::AdbResult<shield_optimizer_core::adb::NativeDiscoveryReport> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if self.fail {
+                return Err(crate::adb::AdbError::Transport(
+                    "simulated multicast unavailable".into(),
+                ));
+            }
+            Ok(serde_json::from_str(include_str!(
+                "../../../tests/fixtures/native-discovery.json"
+            ))
+            .unwrap())
+        }
+    }
+
+    fn native_observation_state(
+        fail: bool,
+    ) -> (AppState, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let state = AppState::new(
+            std::sync::Arc::new(NativeObservationMock {
+                fail,
+                calls: calls.clone(),
+            }),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("unused-native-discovery-fixture"),
+        );
+        (state, calls)
+    }
+
+    #[tokio::test]
+    async fn native_scan_returns_typed_observations_without_legacy_actions() {
+        let (state, calls) = native_observation_state(false);
+        let result = scan_network_impl(&state).await.unwrap();
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(result.subnet.is_none());
+        assert!(result.connected.is_empty());
+        assert!(result.found.is_empty());
+        assert!(result.unauthorized.is_empty());
+        assert!(result.failed.is_empty());
+        assert!(result.needs_pairing.is_empty());
+        let serialized = serde_json::to_value(&result).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/native-discovery.json"
+        ))
+        .unwrap();
+        assert_eq!(serialized["native_discovery"], fixture);
+        let ads = &result.native_discovery.unwrap().advertisements;
+        assert_eq!(
+            ads.len(),
+            7,
+            "same address/instance does not merge physical identities"
+        );
+        assert_eq!(ads[1].port, 37111);
+        assert_eq!(ads[2].port, 37222);
+        assert_eq!(
+            ads[3].connect_address.as_deref(),
+            Some("[fe80::1234%7]:37333")
+        );
+        if let Ok(directory) = std::env::var("NATIVE_DISCOVERY_RESULT_EVIDENCE") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("rust-native-scan-result.json"),
+                serde_json::to_vec_pretty(&serialized).unwrap(),
+            )
+            .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn native_scan_failure_preserves_manual_fallback_without_host_commands() {
+        let (state, calls) = native_observation_state(true);
+        let error = scan_network_impl(&state).await.err().unwrap();
+        assert!(error.contains("simulated multicast unavailable"));
+        assert!(error.contains("Add by IP or Pair PIN"));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
     }
 }

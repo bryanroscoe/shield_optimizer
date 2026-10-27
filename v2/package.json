@@ -41,7 +41,8 @@
     "test:device-logs": "node tests/log-poller.mjs && node tests/device-logs.mjs",
     "test:tvrecommendations-safety": "node tests/tvrecommendations-safety.mjs",
     "test:launcher-feedback": "node tests/launcher-feedback.mjs",
-    "test:direct-adb-status": "node tests/direct-adb-status.mjs"
+    "test:direct-adb-status": "node tests/direct-adb-status.mjs",
+    "test:native-discovery": "node tests/native-discovery.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

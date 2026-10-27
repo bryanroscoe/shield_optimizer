@@ -252,6 +252,10 @@ jobs:
         working-directory: v2
         run: npm run test:direct-adb-status
 
+      - name: Native discovery
+        working-directory: v2
+        run: npm run test:native-discovery
+
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.
       - name: Context menu
