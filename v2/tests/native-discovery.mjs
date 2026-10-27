@@ -59,7 +59,7 @@ try {
   await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
   await page.evaluate(() => { const label = document.createElement('div'); label.textContent = 'SIMULATION — delayed discovery fixtures; no LAN, ADB or TV'; label.style.cssText = 'position:fixed;bottom:0;right:0;z-index:99999;background:#17243a;color:white;padding:8px;font:13px sans-serif'; document.body.append(label); });
   const count = command => page.evaluate(command => window.calls.filter(c => c.command === command).length, command);
-  const capture = async name => { if (evidence) { await page.screenshot({ path: `${evidence}/${name}-simulated.png`, fullPage: name === 'narrow-large-text' }); await page.waitForTimeout(900); } };
+  const capture = async name => { if (evidence) { if (name === 'narrow-large-text') await page.getByText('SIMULATION — delayed discovery fixtures; no LAN, ADB or TV', { exact: true }).evaluate(label => { label.style.position = 'static'; document.body.prepend(label); }); await page.screenshot({ path: `${evidence}/${name}-simulated.png`, fullPage: name === 'narrow-large-text' }); await page.waitForTimeout(900); } };
   async function startScan() { await page.getByRole('button', { name: 'Scan LAN', exact: true }).click(); await page.waitForFunction(() => typeof window.finishScan === 'function'); await page.getByText('Scanning…', { exact: true }).waitFor(); }
   async function finishScan(value) { await page.evaluate(value => { window.finishScan(value); delete window.finishScan; }, value); await page.getByText('Scan finished', { exact: true }).waitFor(); }
   assert.equal(await count('scan_network'), 0); assert.equal(await count('connect_device'), 0);
