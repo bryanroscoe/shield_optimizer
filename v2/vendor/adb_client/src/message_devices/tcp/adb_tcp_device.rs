@@ -93,6 +93,45 @@ impl ADBTcpDevice {
         stderr: Option<&mut dyn Write>,
         control: super::BoundedShellControl,
     ) -> Result<Option<u8>> {
+        self.with_control(control, |device, timeout| {
+            device.shell_command_prefer_v2_with_timeout(command, stdout, stderr, timeout)
+        })
+    }
+
+    /// Uploads once under a total deadline, without retrying uncertain transfer results.
+    pub fn push_with_control(
+        &mut self,
+        input: &mut dyn Read,
+        path: &dyn AsRef<str>,
+        control: super::BoundedShellControl,
+    ) -> Result<()> {
+        self.with_control(control, |device, _| device.push(input, path))
+    }
+    /// Downloads once under a total deadline while retaining the caller's output policy.
+    pub fn pull_with_control(
+        &mut self,
+        source: &dyn AsRef<str>,
+        output: &mut dyn Write,
+        control: super::BoundedShellControl,
+    ) -> Result<()> {
+        self.with_control(control, |device, _| {
+            device.pull(source, &mut *output)?;
+            output.flush()?;
+            Ok(())
+        })
+    }
+    /// Sends the reboot request once; acceptance still requires the service OPEN acknowledgement.
+    pub fn reboot_with_control(
+        &mut self,
+        reboot_type: crate::RebootType,
+        control: super::BoundedShellControl,
+    ) -> Result<()> {
+        self.with_control(control, |device, _| device.reboot(reboot_type))
+    }
+    fn with_control<T, F>(&mut self, control: super::BoundedShellControl, run: F) -> Result<T>
+    where
+        F: FnOnce(&mut ADBMessageDevice<TcpTransport>, Duration) -> Result<T>,
+    {
         struct Restore<'a> {
             device: &'a mut ADBMessageDevice<TcpTransport>,
             previous: Option<super::BoundedShellControl>,
@@ -113,12 +152,11 @@ impl ADBTcpDevice {
             device: &mut self.inner,
             previous,
         };
-        restore.device.shell_command_prefer_v2_with_timeout(
-            command,
-            stdout,
-            stderr,
-            finish.0.remaining()?,
-        )
+        let result = run(&mut *restore.device, finish.0.remaining()?);
+        if result.is_ok() {
+            finish.0.remaining()?;
+        }
+        result
     }
 
     /// Reads a bounded, successful shell-v2 hardware identity on this owned connection.
@@ -285,7 +323,7 @@ mod tests {
         let peer = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
             hello(&mut socket);
-            for command in [b"shell,v2:one\0".as_slice(), b"shell,v2:two\0"] {
+            for command in [b"shell,v2,raw:one\0".as_slice(), b"shell,v2,raw:two\0"] {
                 let open = receive(&mut socket).unwrap();
                 assert_eq!(open.payload(), command);
                 let local = open.header().arg0();
@@ -418,7 +456,7 @@ mod tests {
             let (mut socket, _) = listener.accept().unwrap();
             hello(&mut socket);
             let rejected = receive(&mut socket).unwrap();
-            assert_eq!(rejected.payload(), b"shell,v2:legacy\0");
+            assert_eq!(rejected.payload(), b"shell,v2,raw:legacy\0");
             send(
                 &mut socket,
                 MessageCommand::Clse,
@@ -427,7 +465,7 @@ mod tests {
             )
             .unwrap();
             let open = receive(&mut socket).unwrap();
-            assert_eq!(open.payload(), b"shell:legacy\0");
+            assert_eq!(open.payload(), b"shell:legacy");
             let local = open.header().arg0();
             send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
             reply(&mut socket, local, b"legacy", true);
@@ -462,7 +500,7 @@ mod tests {
                 let (mut socket, _) = listener.accept().unwrap();
                 hello(&mut socket);
                 let open = receive(&mut socket).unwrap();
-                assert_eq!(open.payload(), b"shell,v2:once\0");
+                assert_eq!(open.payload(), b"shell,v2,raw:once\0");
                 if malformed {
                     send(
                         &mut socket,
@@ -499,14 +537,14 @@ mod tests {
         use super::super::streamed_install::tests::{fixture_key, hello, receive, send};
         use crate::message_devices::message_commands::MessageCommand;
         use std::time::{Duration, Instant};
-        for download in [false, true] {
+        for (download, borrowed) in [(false, false), (true, false), (true, true)] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let peer = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
                 hello(&mut socket);
                 let open = receive(&mut socket).unwrap();
-                assert_eq!(open.payload(), b"sync:\0");
+                assert_eq!(open.payload(), b"sync:");
                 let local = open.header().arg0();
                 send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
                 for _ in 0..2 {
@@ -558,17 +596,23 @@ mod tests {
                 std::path::Path::new("fixture-in-memory-never-written"),
                 control.clone(),
             );
-            let mut device = ADBTcpDevice::from_fixture_device(
-                super::ADBMessageDevice::new_with_fixture_key(
-                    transport,
-                    &fixture_key(),
-                    Duration::from_secs(2),
+            let mut device = if borrowed {
+                controlled_fixture(address)
+            } else {
+                ADBTcpDevice::from_fixture_device(
+                    super::ADBMessageDevice::new_with_fixture_key(
+                        transport,
+                        &fixture_key(),
+                        Duration::from_secs(2),
+                    )
+                    .unwrap(),
                 )
-                .unwrap(),
-            );
+            };
             let started = Instant::now();
             let mut out = Vec::new();
-            let result = if download {
+            let result = if download && borrowed {
+                device.pull_with_control(&"/fixture", &mut out, control.clone())
+            } else if download {
                 device.pull(&"/fixture", &mut out)
             } else {
                 device.stat(&"/fixture").map(|_| ())
@@ -578,6 +622,208 @@ mod tests {
             if download {
                 assert!(!out.is_empty());
             }
+            peer.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn controlled_owned_pull_preserves_bytes_and_flushes_before_success() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, reply, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        struct Output {
+            bytes: Vec<u8>,
+            flushed: bool,
+        }
+        impl std::io::Write for Output {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                self.flushed = true;
+                Ok(())
+            }
+        }
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let open = receive(&mut socket).unwrap();
+            assert_eq!(open.payload(), b"sync:");
+            let local = open.header().arg0();
+            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            for _ in 0..2 {
+                assert_eq!(
+                    receive(&mut socket).unwrap().header().command(),
+                    MessageCommand::Write
+                );
+                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            }
+            let mut stat = b"STAT".to_vec();
+            for value in [0o100644u32, 3, 0] {
+                stat.extend_from_slice(&value.to_le_bytes());
+            }
+            send(&mut socket, MessageCommand::Write, local, &stat).unwrap();
+            assert_eq!(
+                receive(&mut socket).unwrap().header().command(),
+                MessageCommand::Okay
+            );
+            for _ in 0..2 {
+                assert_eq!(
+                    receive(&mut socket).unwrap().header().command(),
+                    MessageCommand::Write
+                );
+                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            }
+            let mut data = b"DATA".to_vec();
+            data.extend_from_slice(&3u32.to_le_bytes());
+            data.extend_from_slice(b"abcDONE");
+            data.extend_from_slice(&0u32.to_le_bytes());
+            reply(&mut socket, local, &data, false);
+            let quit = receive(&mut socket).unwrap();
+            assert!(quit.payload().starts_with(b"QUIT"));
+            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            send(&mut socket, MessageCommand::Clse, local, b"").unwrap();
+        });
+        let mut device = controlled_fixture(address);
+        let mut output = Output {
+            bytes: Vec::new(),
+            flushed: false,
+        };
+        device
+            .pull_with_control(
+                &"/fixture",
+                &mut output,
+                BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(output.bytes, b"abc");
+        assert!(output.flushed);
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn controlled_owned_push_interrupts_stalled_open_or_data_ack_without_replay() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        for accept_open in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                hello(&mut socket);
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), b"sync:");
+                let local = open.header().arg0();
+                if accept_open {
+                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                    let send_request = receive(&mut socket).unwrap();
+                    assert!(send_request.payload().starts_with(b"SEND"));
+                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                    let data = receive(&mut socket).unwrap();
+                    assert!(data.payload().starts_with(b"DATA"));
+                }
+                assert!(
+                    receive(&mut socket).is_err(),
+                    "stalled upload must not replay sync OPEN or DATA"
+                );
+            });
+            let mut device = controlled_fixture(address);
+            let mut input = std::io::Cursor::new(vec![42u8; 65536]);
+            assert!(
+                device
+                    .push_with_control(
+                        &mut input,
+                        &"/fixture",
+                        BoundedShellControl::new(Duration::from_millis(100)).unwrap()
+                    )
+                    .is_err()
+            );
+            peer.join().unwrap();
+        }
+    }
+    #[test]
+    fn controlled_owned_transfer_pre_cancel_preserves_socket_for_following_command() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, reply, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let open = receive(&mut socket).unwrap();
+            assert_eq!(open.payload(), b"shell,v2,raw:after\0");
+            let local = open.header().arg0();
+            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            reply(&mut socket, local, &shell_packet(3, &[0]), true);
+        });
+        let mut device = controlled_fixture(address);
+        let canceled = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        canceled.cancel();
+        assert!(
+            device
+                .push_with_control(
+                    &mut std::io::Cursor::new(b"fixture"),
+                    &"/fixture",
+                    canceled.clone()
+                )
+                .is_err()
+        );
+        assert!(
+            device
+                .pull_with_control(&"/fixture", &mut Vec::new(), canceled.clone())
+                .is_err()
+        );
+        assert!(!canceled.was_registered());
+        assert_eq!(
+            device
+                .shell_command_with_control(
+                    &"after",
+                    None,
+                    None,
+                    BoundedShellControl::new(Duration::from_secs(2)).unwrap()
+                )
+                .unwrap(),
+            Some(0)
+        );
+        peer.join().unwrap();
+    }
+    #[test]
+    fn controlled_owned_reboot_requires_ack_and_does_not_replay_lost_ack() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        for acknowledge in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                hello(&mut socket);
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), b"reboot:");
+                if acknowledge {
+                    send(&mut socket, MessageCommand::Okay, open.header().arg0(), b"").unwrap();
+                }
+                assert!(
+                    receive(&mut socket).is_err(),
+                    "reboot must send one OPEN only"
+                );
+            });
+            let mut device = controlled_fixture(address);
+            let result = device.reboot_with_control(
+                crate::RebootType::System,
+                BoundedShellControl::new(Duration::from_millis(100)).unwrap(),
+            );
+            assert_eq!(result.is_ok(), acknowledge);
+            drop(device);
             peer.join().unwrap();
         }
     }

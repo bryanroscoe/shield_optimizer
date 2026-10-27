@@ -620,9 +620,10 @@ impl AdbDriver for WirelessAdb {
                     ["bootloader"] => RebootType::Bootloader,
                     _ => RebootType::System,
                 };
-                self.on_device(serial, move |dev| dev.reboot(reboot_type))
-                    .await
-                    .map_err(AdbError::Transport)?;
+                self.on_device_controlled(serial, Duration::from_secs(30), move |dev, control| {
+                    dev.reboot_with_control(reboot_type, control)
+                })
+                .await?;
                 let _ = self.disconnect_serial(Some(serial)).await;
                 Ok(AdbOutput {
                     stdout: "Reboot command sent.".to_string(),
@@ -654,14 +655,16 @@ impl AdbDriver for WirelessAdb {
             ["-s", serial, "pull", remote, local] => {
                 let remote = remote.to_string();
                 let local = PathBuf::from(local);
-                let mut file = std::fs::File::create(&local)
-                    .map_err(|e| AdbError::Transport(format!("create {}: {e}", local.display())))?;
-                self.on_device(serial, move |dev| {
-                    dev.pull(&remote, &mut file)?;
-                    Ok(())
-                })
-                .await
-                .map_err(AdbError::Transport)?;
+                self.on_device_controlled(
+                    serial,
+                    Duration::from_secs(15 * 60),
+                    move |dev, control| {
+                        control.remaining()?;
+                        let mut file = std::fs::File::create(&local)?;
+                        dev.pull_with_control(&remote, &mut file, control)
+                    },
+                )
+                .await?;
                 Ok(AdbOutput {
                     stdout: String::new(),
                     stderr: String::new(),
@@ -671,14 +674,16 @@ impl AdbDriver for WirelessAdb {
             ["-s", serial, "push", local, remote] => {
                 let remote = remote.to_string();
                 let local = PathBuf::from(local);
-                let mut file = std::fs::File::open(&local)
-                    .map_err(|e| AdbError::Transport(format!("open {}: {e}", local.display())))?;
-                self.on_device(serial, move |dev| {
-                    dev.push(&mut file, &remote)?;
-                    Ok(())
-                })
-                .await
-                .map_err(AdbError::Transport)?;
+                self.on_device_controlled(
+                    serial,
+                    Duration::from_secs(15 * 60),
+                    move |dev, control| {
+                        control.remaining()?;
+                        let mut file = std::fs::File::open(&local)?;
+                        dev.push_with_control(&mut file, &remote, control)
+                    },
+                )
+                .await?;
                 Ok(AdbOutput {
                     stdout: String::new(),
                     stderr: String::new(),
