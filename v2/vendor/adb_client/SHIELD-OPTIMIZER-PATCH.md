@@ -112,3 +112,25 @@ streams, exit status, continuous output, partial payloads, trickled headers,
 cancellation, oversized frames and redaction. These scripted peers do not establish
 AUTH/STLS or TV interoperability. Shared tests separately exercise worker leases,
 target checks and UTF-8 output limits.
+
+## Guarded single-APK streaming (local parity follow-up, 2026-10-27)
+
+`run_streamed_install` uses the existing direct package-service protocol with a
+required identity, exact declared input length and explicit replacement flag.
+An opt-in pending-response cap prevents upload acknowledgement waits from buffering
+unbounded peer output. The final chunk is submitted once, without waiting for its
+optional acknowledgement before bounded result collection. Only an exact result
+and clean service closure confirm success or rejection. Lost or ambiguous results
+remain indeterminate and are never retried automatically.
+
+Before install OPEN, a bounded successful shell-v2 query must report the caller's
+expected hardware ID on the new connection. A helper reads the same fixed property
+from the currently owned control socket without creating another connection;
+normal completion preserves that socket, while an active timeout/cancel can close
+it. Refusing an already-canceled borrowed registration does not close the socket.
+The application supplies the expected ID using its existing canonical validation.
+
+Fixture tests use only the existing test identity in memory and scripted loopback
+peers. They do not install APKs, exercise Android's package manager, establish
+AUTH/STLS interoperability or certify hardware compatibility. No upstream source
+or prose was imported for this follow-up; the retained MIT license still applies.

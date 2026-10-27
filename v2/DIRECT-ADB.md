@@ -42,7 +42,7 @@ subprocess build does not acquire this dependency. No Rust toolchain was install
 | Curated app actions and profiling | Existing command/engine path and safety checks; shared shell results retain exit status and stderr |
 | File push/pull and bounded downloads | Shared sync transfer and streaming size limit, finite inactivity timeouts; no hardware evidence |
 | Screenshots and reboot | Shared binary screenshot/reboot services; no hardware evidence |
-| APK installer | Desktop `adb install` adapter is unavailable; no silent conversion to shell install |
+| APK installer | Single local APK with optional replacement, streamed through the native package service; requires verified hardware-ID agreement between the current control session and new install connection. Unknown IDs or unsupported shell-v2 identity queries refuse installation. Split APKs remain unavailable; no replay or cross-driver fallback |
 | Remote | Existing shell-input fallback remains in this backend. Desktop fast Remote is explicitly declined before pushing a jar; forwarding/spawn are unavailable |
 | Expert shell and Device Logs | Dedicated shell-v2 connection, 30-second total deadline, 256 KiB retained per stream, partial timeout output and cancellation cleanup; shell-v1-only peers fail without replay |
 | Restart ADB / install platform-tools | Explicitly refused in direct mode; neither resets a host server nor silently changes the selected backend |
@@ -65,6 +65,8 @@ same extracted code; NSD and Android fast Remote remain platform-specific.
 
 Vendor validation includes inspected fake service-framing tests, ephemeral-loopback physical-EOF
 tests, bounded-shell streams and a loopback TLS/exporter/SPAKE2/peer-info pairing exchange.
+Native install fixtures also cover exact bytes/flags, response bounds, interruption and
+uncertain commit outcomes, plus hardware-ID mismatch refusal before installation starts.
 The two pairing peers share this implementation, so success is not Android interoperability
 evidence. Legacy AUTH/STLS transport and hardware acceptance remain pending. No test contacts the real host ADB server,
 connects to a TV, restarts a server, installs an APK or generates a host ADB identity. Browser status
