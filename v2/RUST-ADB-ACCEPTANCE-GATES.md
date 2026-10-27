@@ -6,9 +6,10 @@ disabled and platform-tools remains the shipped default.
 
 ## Fixture-tested implementation
 
-- Ordinary shell and screenshots now count queue wait, authentication and command
-  I/O against their total budgets (30 seconds, or 180 seconds for slow shell).
+- Ordinary shell and screenshots now count queue wait and command I/O on the existing owned
+  connection against their total budgets (30 seconds, or 180 seconds for slow shell).
   Generic push/pull and limited downloads have fifteen-minute total budgets;
+  dedicated limited downloads include authentication in that budget, and
   reboot acknowledgement has thirty seconds. Cancellation targets only the
   admitted owned socket. Ambiguous delivery is never replayed.
 - Partial helper upload arms cleanup before SEND. Cleanup waits for the actual

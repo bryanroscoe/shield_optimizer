@@ -35,8 +35,9 @@ Ordinary owned-connection shell output is capped at 512 KiB per stream, includin
 lossy UTF-8 expansion; screenshots at 64 MiB plus bounded stderr. Limit failures
 are errors rather than successful truncation. Unbounded framebuffer fallback is
 refused explicitly, not replayed. Ordinary shell and screenshots now use total budgets including queue wait and
-authentication (30 seconds; slow shell 180 seconds). Generic sync and limited
-transfers use fifteen minutes; reboot acknowledgement uses thirty seconds.
+command I/O on the existing owned connection (30 seconds; slow shell 180 seconds). Generic sync and limited
+transfers use fifteen minutes; dedicated limited downloads include authentication
+in that budget. Reboot acknowledgement uses thirty seconds.
 Cancellation closes only the admitted socket. Blocking local filesystem work can
 outlive the caller deadline and retains its lease until completion.
 
