@@ -136,7 +136,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
                 let mut stream = ADBService::new(session, timeout, Duration::from_secs(2));
                 decode_shell_v2(&mut stream, stdout, stderr)
             }
-            Err(RustADBError::ADBRequestFailed(_)) => {
+            Err(RustADBError::ServiceRejected(_)) => {
                 self.shell_command_v1_with_timeout(command, stdout, stderr, timeout)
             }
             Err(error) => Err(error),

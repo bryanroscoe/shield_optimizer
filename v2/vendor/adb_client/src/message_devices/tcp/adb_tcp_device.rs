@@ -69,6 +69,58 @@ impl ADBTcpDevice {
         })
     }
 
+    /// Connect with an existing key and one total deadline across handshake and later services.
+    pub fn new_with_required_key_and_control(
+        address: SocketAddr,
+        key: &Path,
+        control: super::BoundedShellControl,
+    ) -> Result<Self> {
+        let transport = TcpTransport::with_shell_control(address, key, control.clone());
+        Ok(Self {
+            inner: ADBMessageDevice::new_with_required_key(
+                transport,
+                key,
+                control.remaining()?.min(Duration::from_secs(30)),
+            )?,
+        })
+    }
+
+    /// Runs once on this owned connection under a total deadline; normal completion preserves it.
+    pub fn shell_command_with_control(
+        &mut self,
+        command: &dyn AsRef<str>,
+        stdout: Option<&mut dyn Write>,
+        stderr: Option<&mut dyn Write>,
+        control: super::BoundedShellControl,
+    ) -> Result<Option<u8>> {
+        struct Restore<'a> {
+            device: &'a mut ADBMessageDevice<TcpTransport>,
+            previous: Option<super::BoundedShellControl>,
+        }
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                self.device
+                    .get_transport_mut()
+                    .restore_control(self.previous.take());
+            }
+        }
+        let finish = super::bounded_shell::Finish(control);
+        let previous = self
+            .inner
+            .get_transport_mut()
+            .set_current_control(finish.0.clone())?;
+        let restore = Restore {
+            device: &mut self.inner,
+            previous,
+        };
+        restore.device.shell_command_prefer_v2_with_timeout(
+            command,
+            stdout,
+            stderr,
+            finish.0.remaining()?,
+        )
+    }
+
     /// Reads a bounded, successful shell-v2 hardware identity on this owned connection.
     /// A successful query preserves the connection; deadline/cancel can close it.
     pub fn hardware_serial_bounded(
@@ -200,6 +252,335 @@ impl ADBDeviceExt for ADBTcpDevice {
 mod tests {
     use super::ADBTcpDevice;
     use crate::ADBDeviceExt;
+
+    fn controlled_fixture(address: std::net::SocketAddr) -> ADBTcpDevice {
+        let transport = super::TcpTransport::new(
+            address,
+            std::path::Path::new("fixture-in-memory-never-written"),
+        );
+        ADBTcpDevice::from_fixture_device(
+            super::ADBMessageDevice::new_with_fixture_key(
+                transport,
+                &super::super::streamed_install::tests::fixture_key(),
+                std::time::Duration::from_secs(2),
+            )
+            .unwrap(),
+        )
+    }
+    fn shell_packet(channel: u8, bytes: &[u8]) -> Vec<u8> {
+        let mut packet = vec![channel];
+        packet.extend_from_slice(&u32::try_from(bytes.len()).unwrap().to_le_bytes());
+        packet.extend_from_slice(bytes);
+        packet
+    }
+    #[test]
+    fn controlled_owned_shell_normal_completion_preserves_socket_and_queued_cancel_cannot_close_it()
+    {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, reply, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            for command in [b"shell,v2:one\0".as_slice(), b"shell,v2:two\0"] {
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), command);
+                let local = open.header().arg0();
+                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                reply(&mut socket, local, &shell_packet(1, b"ok"), false);
+                reply(&mut socket, local, &shell_packet(3, &[0]), true);
+            }
+        });
+        let mut device = controlled_fixture(address);
+        let first = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(
+            device
+                .shell_command_with_control(&"one", Some(&mut out), None, first.clone())
+                .unwrap(),
+            Some(0)
+        );
+        assert!(first.was_registered());
+        assert_eq!(out, b"ok");
+        let canceled = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        canceled.cancel();
+        assert!(
+            device
+                .shell_command_with_control(&"never", None, None, canceled.clone())
+                .is_err()
+        );
+        assert!(!canceled.was_registered());
+        assert_eq!(
+            device
+                .shell_command_with_control(
+                    &"two",
+                    None,
+                    None,
+                    BoundedShellControl::new(Duration::from_secs(2)).unwrap()
+                )
+                .unwrap(),
+            Some(0)
+        );
+        peer.join().unwrap();
+    }
+    #[test]
+    fn controlled_owned_shell_total_deadline_survives_continuous_output_without_replay() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::{Duration, Instant};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let open = receive(&mut socket).unwrap();
+            let local = open.header().arg0();
+            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            for _ in 0..100 {
+                if send(
+                    &mut socket,
+                    MessageCommand::Write,
+                    local,
+                    &shell_packet(1, b"x"),
+                )
+                .is_err()
+                {
+                    return;
+                }
+                match receive(&mut socket) {
+                    Ok(message) if message.header().command() == MessageCommand::Okay => {}
+                    _ => return,
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("total deadline failed to interrupt continuous output");
+        });
+        let mut device = controlled_fixture(address);
+        let control = BoundedShellControl::new(Duration::from_millis(70)).unwrap();
+        let started = Instant::now();
+        let mut out = Vec::new();
+        assert!(
+            device
+                .shell_command_with_control(&"once", Some(&mut out), None, control)
+                .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!out.is_empty());
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn controlled_owned_shell_cancellation_interrupts_only_admitted_socket() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (started, ready) = std::sync::mpsc::channel();
+        let peer = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let open = receive(&mut socket).unwrap();
+            send(&mut socket, MessageCommand::Okay, open.header().arg0(), b"").unwrap();
+            started.send(()).unwrap();
+            assert!(receive(&mut socket).is_err());
+        });
+        let mut device = controlled_fixture(address);
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let cancel = control.clone();
+        let canceler = std::thread::spawn(move || {
+            ready.recv().unwrap();
+            cancel.cancel();
+        });
+        assert!(
+            device
+                .shell_command_with_control(&"once", None, None, control.clone())
+                .is_err()
+        );
+        assert!(control.was_registered());
+        canceler.join().unwrap();
+        peer.join().unwrap();
+    }
+    #[test]
+    fn controlled_owned_shell_keeps_explicit_v1_rejection_fallback() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, reply, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            hello(&mut socket);
+            let rejected = receive(&mut socket).unwrap();
+            assert_eq!(rejected.payload(), b"shell,v2:legacy\0");
+            send(
+                &mut socket,
+                MessageCommand::Clse,
+                rejected.header().arg0(),
+                b"",
+            )
+            .unwrap();
+            let open = receive(&mut socket).unwrap();
+            assert_eq!(open.payload(), b"shell:legacy\0");
+            let local = open.header().arg0();
+            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+            reply(&mut socket, local, b"legacy", true);
+        });
+        let mut device = controlled_fixture(address);
+        let mut out = Vec::new();
+        assert_eq!(
+            device
+                .shell_command_with_control(
+                    &"legacy",
+                    Some(&mut out),
+                    None,
+                    BoundedShellControl::new(Duration::from_secs(2)).unwrap()
+                )
+                .unwrap(),
+            None
+        );
+        assert_eq!(out, b"legacy");
+        peer.join().unwrap();
+    }
+
+    #[test]
+    fn controlled_owned_shell_ambiguous_open_never_replays_as_v1() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::Duration;
+        for malformed in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                hello(&mut socket);
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), b"shell,v2:once\0");
+                if malformed {
+                    send(
+                        &mut socket,
+                        MessageCommand::Write,
+                        open.header().arg0(),
+                        b"not-an-open-ack",
+                    )
+                    .unwrap();
+                }
+                assert!(
+                    receive(&mut socket).is_err(),
+                    "ambiguous OPEN must not replay as v1"
+                );
+            });
+            let mut device = controlled_fixture(address);
+            assert!(
+                device
+                    .shell_command_with_control(
+                        &"once",
+                        None,
+                        None,
+                        BoundedShellControl::new(Duration::from_millis(70)).unwrap()
+                    )
+                    .is_err()
+            );
+            drop(device);
+            peer.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn controlled_dedicated_sync_deadline_interrupts_stat_and_continuous_download() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{fixture_key, hello, receive, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::{Duration, Instant};
+        for download in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                let (mut socket, _) = listener.accept().unwrap();
+                hello(&mut socket);
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), b"sync:\0");
+                let local = open.header().arg0();
+                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                for _ in 0..2 {
+                    assert_eq!(
+                        receive(&mut socket).unwrap().header().command(),
+                        MessageCommand::Write
+                    );
+                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                }
+                if !download {
+                    assert!(receive(&mut socket).is_err());
+                    return;
+                }
+                let mut stat = b"STAT".to_vec();
+                for value in [0o100644u32, 1000, 0] {
+                    stat.extend_from_slice(&value.to_le_bytes());
+                }
+                send(&mut socket, MessageCommand::Write, local, &stat).unwrap();
+                assert_eq!(
+                    receive(&mut socket).unwrap().header().command(),
+                    MessageCommand::Okay
+                );
+                for _ in 0..2 {
+                    assert_eq!(
+                        receive(&mut socket).unwrap().header().command(),
+                        MessageCommand::Write
+                    );
+                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                }
+                for _ in 0..100 {
+                    let mut data = b"DATA".to_vec();
+                    data.extend_from_slice(&1u32.to_le_bytes());
+                    data.push(b'x');
+                    if send(&mut socket, MessageCommand::Write, local, &data).is_err() {
+                        return;
+                    }
+                    match receive(&mut socket) {
+                        Ok(message) if message.header().command() == MessageCommand::Okay => {}
+                        _ => return,
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                panic!("continuous download outlived total deadline");
+            });
+            let control = BoundedShellControl::new(Duration::from_millis(100)).unwrap();
+            let _finish = super::super::bounded_shell::Finish(control.clone());
+            let transport = super::TcpTransport::with_shell_control(
+                address,
+                std::path::Path::new("fixture-in-memory-never-written"),
+                control.clone(),
+            );
+            let mut device = ADBTcpDevice::from_fixture_device(
+                super::ADBMessageDevice::new_with_fixture_key(
+                    transport,
+                    &fixture_key(),
+                    Duration::from_secs(2),
+                )
+                .unwrap(),
+            );
+            let started = Instant::now();
+            let mut out = Vec::new();
+            let result = if download {
+                device.pull(&"/fixture", &mut out)
+            } else {
+                device.stat(&"/fixture").map(|_| ())
+            };
+            assert!(result.is_err());
+            assert!(started.elapsed() < Duration::from_secs(2));
+            if download {
+                assert!(!out.is_empty());
+            }
+            peer.join().unwrap();
+        }
+    }
 
     #[test]
     #[ignore = "requires ADB_CLIENT_TEST_ADDR and ADB_CLIENT_TEST_KEY"]

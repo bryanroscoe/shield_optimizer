@@ -209,6 +209,68 @@ impl WirelessAdb {
         .map_err(|e| format!("wireless-adb task failed: {e}"))?
     }
 
+    async fn on_device_controlled<T, F>(
+        &self,
+        serial: &str,
+        budget: Duration,
+        run: F,
+    ) -> AdbResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(
+                &mut ADBTcpDevice,
+                adb_client::tcp::BoundedShellControl,
+            ) -> Result<T, RustADBError>
+            + Send
+            + 'static,
+    {
+        let deadline = tokio::time::Instant::now() + budget;
+        let control = adb_client::tcp::BoundedShellControl::new(budget)?;
+        let _cancel = crate::bounded_shell::CancelOnDrop(control.clone());
+        let operation = self.work().map_err(AdbError::Transport)?;
+        let conn = self.conn.clone();
+        let identity = self.identity.clone();
+        let serial = serial.to_owned();
+        let observed = control.clone();
+        let worker = tokio::task::spawn_blocking(move || {
+            let _operation = operation;
+            let mut guard = lock_recovering(&conn);
+            control.remaining()?;
+            let active = guard
+                .as_mut()
+                .ok_or_else(|| AdbError::Transport("Not connected to a device.".into()))?;
+            validate_requested_serial(&active.serial, &serial).map_err(AdbError::Transport)?;
+            let result = run(&mut active.device, control.clone());
+            if result.is_err() && control.was_registered() {
+                *guard = None;
+                *lock_recovering(&identity) = None;
+            }
+            result.map_err(|error| {
+                AdbError::Transport(format!(
+                    "Native operation failed; outcome may be unknown: {error}"
+                ))
+            })
+        });
+        match tokio::time::timeout_at(deadline, worker).await {
+            Ok(result) => result.map_err(|error| AdbError::Uncertain {
+                operation: "native command",
+                detail: error.to_string(),
+            })?,
+            Err(_) => {
+                // Cancellation and socket registration serialize before the certainty decision.
+                observed.cancel();
+                if observed.was_registered() {
+                    Err(AdbError::Uncertain { operation: "native command", detail: "Total deadline reached after socket admission; verify outcome before retrying.".into() })
+                } else {
+                    Err(AdbError::Transport(
+                        "Native command deadline reached while queued; no command was started."
+                            .into(),
+                    ))
+                }
+            }
+        }
+    }
+
     /// Snapshot of the connected device's identity. Reads the mirror, never
     /// the device mutex, so it returns immediately even while a command is
     /// mid-flight on the socket.
@@ -467,48 +529,33 @@ impl AdbDriver for WirelessAdb {
         local: &Path,
         max_bytes: u64,
     ) -> AdbResult<()> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(15 * 60);
+        let control = adb_client::tcp::BoundedShellControl::new(Duration::from_secs(15 * 60))?;
+        let _cancel = crate::bounded_shell::CancelOnDrop(control.clone());
+        let operation = self.work().map_err(AdbError::Transport)?;
         let Some((active, host, port)) = self.info() else {
             return Err(AdbError::Transport("Not connected to a device.".into()));
         };
         validate_requested_serial(&active, serial).map_err(AdbError::Transport)?;
-        let addr: SocketAddr = format!("{host}:{port}")
+        let address: SocketAddr = format!("{host}:{port}")
             .parse()
-            .map_err(|e| AdbError::Transport(format!("invalid download address: {e}")))?;
+            .map_err(|error| AdbError::Transport(format!("invalid download address: {error}")))?;
         let expected = self
             .verified_owned_hardware_id(serial, Duration::from_secs(5))
             .await?;
-        let remote = remote.to_string();
+        let remote = remote.to_owned();
         let local = local.to_path_buf();
         let key = self.key_path.clone();
-        let allow_key_creation = self.allow_key_creation;
-        // A bounded download owns its socket. Aborting on a full disk or a
-        // growing file closes that stream without poisoning the control socket
-        // or blocking the session's heartbeat behind a multi-minute transfer.
-        let operation = self.work().map_err(AdbError::Transport)?;
-        tokio::task::spawn_blocking(move || -> AdbResult<()> {
-            let _operation = operation;
-            if !allow_key_creation {
-                ensure_adb_key(&key, false).map_err(AdbError::Transport)?;
-            }
-            let mut device = if allow_key_creation {
-                ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
-                    addr,
-                    &key,
-                    AUTHORIZATION_TIMEOUT,
-                )
-            } else {
-                ADBTcpDevice::new_with_required_private_key_and_auth_timeout(
-                    addr,
-                    &key,
-                    AUTHORIZATION_TIMEOUT,
-                )
-            }
-            .map_err(|e| AdbError::Transport(e.to_string()))?;
+        let download = crate::bounded_shell::run_worker(operation, control, move |control| {
+            control.remaining()?;
+            let mut device =
+                ADBTcpDevice::new_with_required_key_and_control(address, &key, control.clone())
+                    .map_err(|error| AdbError::Transport(error.to_string()))?;
+            let probe = adb_client::tcp::BoundedShellControl::new(
+                control.remaining()?.min(Duration::from_secs(5)),
+            )?;
             device
-                .verify_hardware_binding_bounded(
-                    &expected,
-                    adb_client::tcp::BoundedShellControl::new(Duration::from_secs(5))?,
-                )
+                .verify_hardware_binding_bounded(&expected, probe)
                 .map_err(|error| {
                     AdbError::Transport(format!(
                         "Download identity check failed before creating a file: {error}"
@@ -516,22 +563,30 @@ impl AdbDriver for WirelessAdb {
                 })?;
             let stat = device
                 .stat(&remote)
-                .map_err(|e| AdbError::Transport(e.to_string()))?;
+                .map_err(|error| AdbError::Transport(error.to_string()))?;
             if u64::from(stat.file_size) > max_bytes {
                 return Err(AdbError::Transport(
                     "Download exceeds the file size limit.".into(),
                 ));
             }
+            control.remaining()?;
             let file = std::fs::File::create(local)?;
             let mut writer = crate::limited_writer::LimitedWriter::new(file, max_bytes);
             device
                 .pull(&remote, &mut writer)
-                .map_err(|e| AdbError::Transport(e.to_string()))?;
+                .map_err(|error| AdbError::Transport(error.to_string()))?;
+            control.remaining()?;
             std::io::Write::flush(&mut writer)?;
+            control.remaining()?;
             Ok(())
-        })
-        .await
-        .map_err(|e| AdbError::Transport(format!("download task: {e}")))?
+        });
+        tokio::time::timeout_at(deadline, download)
+            .await
+            .map_err(|_| {
+                AdbError::Transport(
+                    "Download total deadline reached; local file may be incomplete.".into(),
+                )
+            })?
     }
 
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
@@ -648,18 +703,18 @@ impl AdbDriver for WirelessAdb {
         let command = command.to_string();
         let timeout = shell_timeout_for(&command);
         let (stdout, stderr, code) = self
-            .on_device(serial, move |dev| {
+            .on_device_controlled(serial, timeout, move |dev, control| {
                 let mut out: Vec<u8> = Vec::new();
                 let mut err: Vec<u8> = Vec::new();
                 let mut bounded_out =
                     crate::limited_writer::LimitedWriter::new(&mut out, 512 * 1024);
                 let mut bounded_err =
                     crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
-                let code = dev.shell_command_with_timeout(
+                let code = dev.shell_command_with_control(
                     &command,
                     Some(&mut bounded_out),
                     Some(&mut bounded_err),
-                    timeout,
+                    control,
                 )?;
                 Ok((
                     crate::limited_writer::bounded_text(&out, 512 * 1024)?,
@@ -667,8 +722,7 @@ impl AdbDriver for WirelessAdb {
                     code,
                 ))
             })
-            .await
-            .map_err(AdbError::Transport)?;
+            .await?;
         Ok(AdbOutput {
             stdout,
             stderr,
@@ -689,18 +743,18 @@ impl AdbDriver for WirelessAdb {
                 });
             }
         };
-        self.on_device(serial, |dev| {
+        self.on_device_controlled(serial, SHELL_INACTIVITY_TIMEOUT, |dev, control| {
             // Keep stderr separate from PNG bytes; refuse the unbounded framebuffer path.
             let mut out: Vec<u8> = Vec::new();
             let mut err: Vec<u8> = Vec::new();
             let mut bounded_out =
                 crate::limited_writer::LimitedWriter::new(&mut out, 64 * 1024 * 1024);
             let mut bounded_err = crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
-            let shot = dev.shell_command_with_timeout(
+            let shot = dev.shell_command_with_control(
                 &"screencap -p",
                 Some(&mut bounded_out),
                 Some(&mut bounded_err),
-                SHELL_INACTIVITY_TIMEOUT,
+                control,
             );
             shot?;
             if out.starts_with(b"\x89PNG") {
@@ -713,7 +767,6 @@ impl AdbDriver for WirelessAdb {
             }
         })
         .await
-        .map_err(AdbError::Transport)
     }
 
     async fn device_binding(
@@ -1114,6 +1167,100 @@ mod lifecycle_tests {
             std::fs::read(existing).unwrap(),
             b"public test marker, not a credential"
         );
+    }
+
+    #[tokio::test]
+    async fn controlled_command_deadline_includes_queue_and_retains_lease_until_worker_returns() {
+        let operations = Leases::new();
+        let driver = Arc::new(WirelessAdb::with_existing_key(
+            "never-created".into(),
+            operations.clone(),
+        ));
+        *lock_recovering(&driver.identity) = Some(Identity {
+            serial: "fixture".into(),
+            host: "fixture".into(),
+            port: 0,
+        });
+        let conn = driver.conn.clone();
+        let (held, held_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _guard = lock_recovering(&conn);
+            held.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.await.unwrap();
+        assert!(driver
+            .on_device_controlled(
+                "fixture",
+                Duration::from_millis(20),
+                |_, _| -> Result<(), RustADBError> {
+                    panic!("expired queued command must not execute")
+                }
+            )
+            .await
+            .is_err());
+        assert_eq!(operations.active(), 1);
+        assert_eq!(driver.info().unwrap().0, "fixture");
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(
+            operations
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(2))
+                .await
+        );
+        assert_eq!(driver.info().unwrap().0, "fixture");
+    }
+
+    #[tokio::test]
+    async fn canceled_queued_command_keeps_worker_lease_and_does_not_clear_identity() {
+        let operations = Leases::new();
+        let driver = Arc::new(WirelessAdb::with_existing_key(
+            "never-created".into(),
+            operations.clone(),
+        ));
+        *lock_recovering(&driver.identity) = Some(Identity {
+            serial: "fixture".into(),
+            host: "fixture".into(),
+            port: 0,
+        });
+        let conn = driver.conn.clone();
+        let (held, held_rx) = tokio::sync::oneshot::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _guard = lock_recovering(&conn);
+            held.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        held_rx.await.unwrap();
+        let command = tokio::spawn({
+            let driver = driver.clone();
+            async move {
+                driver
+                    .on_device_controlled(
+                        "fixture",
+                        Duration::from_secs(2),
+                        |_, _| -> Result<(), RustADBError> {
+                            panic!("canceled queued command executed")
+                        },
+                    )
+                    .await
+            }
+        });
+        while operations.active() == 0 {
+            tokio::task::yield_now().await;
+        }
+        command.abort();
+        assert!(command.await.unwrap_err().is_cancelled());
+        assert_eq!(operations.active(), 1);
+        release.send(()).unwrap();
+        holder.join().unwrap();
+        assert!(
+            operations
+                .wait_idle(tokio::time::Instant::now() + Duration::from_secs(2))
+                .await
+        );
+        assert_eq!(driver.info().unwrap().0, "fixture");
     }
 
     #[tokio::test]

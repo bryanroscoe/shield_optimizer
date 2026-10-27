@@ -56,6 +56,7 @@ struct ControlState {
 
 #[derive(Debug)]
 struct ControlInner {
+    registered: std::sync::atomic::AtomicBool,
     deadline: Instant,
     state: Mutex<ControlState>,
     changed: Condvar,
@@ -70,6 +71,7 @@ impl BoundedShellControl {
     /// Starts a total deadline that also interrupts stalled TLS/TCP I/O.
     pub fn new(duration: Duration) -> std::io::Result<Self> {
         let inner = Arc::new(ControlInner {
+            registered: std::sync::atomic::AtomicBool::new(false),
             deadline: Instant::now()
                 .checked_add(duration)
                 .ok_or_else(|| Error::other("shell deadline overflow"))?,
@@ -138,7 +140,8 @@ impl BoundedShellControl {
         self.0.changed.notify_all();
     }
 
-    pub(crate) fn remaining(&self) -> std::io::Result<Duration> {
+    /// Remaining total budget, including time spent queued before socket admission.
+    pub fn remaining(&self) -> std::io::Result<Duration> {
         let state = self
             .0
             .state
@@ -153,6 +156,11 @@ impl BoundedShellControl {
             )),
             _ => Err(Error::new(ErrorKind::Interrupted, "shell operation closed")),
         }
+    }
+
+    /// Whether this operation successfully acquired a socket shutdown handle.
+    pub fn was_registered(&self) -> bool {
+        self.0.registered.load(std::sync::atomic::Ordering::Acquire)
     }
 
     pub(crate) fn register(&self, socket: &TcpStream) -> std::io::Result<()> {
@@ -179,6 +187,9 @@ impl BoundedShellControl {
             ));
         }
         state.socket = Some(socket.try_clone()?);
+        self.0
+            .registered
+            .store(true, std::sync::atomic::Ordering::Release);
         state.close_on_finish = owned;
         Ok(())
     }
