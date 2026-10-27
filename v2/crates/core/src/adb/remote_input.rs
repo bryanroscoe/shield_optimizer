@@ -829,3 +829,27 @@ mod tests {
         );
     }
 }
+
+struct LegacyRemoteCancellation;
+impl crate::adb::AdbServiceCancellation for LegacyRemoteCancellation {
+    fn cancel(&self) {}
+}
+#[async_trait::async_trait]
+impl crate::adb::remote_lifecycle::RemoteSessionIo for RemoteInputSession {
+    fn cancellation(&self) -> Arc<dyn crate::adb::AdbServiceCancellation> {
+        Arc::new(LegacyRemoteCancellation)
+    }
+    async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String> {
+        RemoteInputSession::send_key(self, keycode, down).await
+    }
+    async fn send_key_press(&mut self, keycode: u32) -> Result<(), String> {
+        RemoteInputSession::send_key_press(self, keycode).await
+    }
+    async fn send_text(&mut self, text: &str) -> Result<(), String> {
+        RemoteInputSession::send_text(self, text).await
+    }
+    async fn close(self: Box<Self>) -> Result<(), String> {
+        (*self).close().await;
+        Ok(())
+    }
+}

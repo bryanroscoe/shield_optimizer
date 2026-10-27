@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 use crate::adb::lifetimes::{ClosedAdb, LeasedAdb};
@@ -48,13 +47,8 @@ pub struct AppState {
     /// activation path so `license_info` can show the licensee and term
     /// without keeping the key itself around. `None` on Free.
     license_info: std::sync::Mutex<Option<LicenseInfo>>,
-    /// Live scrcpy control sessions, keyed by device serial. Lazily started on
-    /// the first remote key and held until lifecycle or connection cleanup.
-    pub remote_sessions: Mutex<HashMap<String, RemoteInputSession>>,
-    /// Serializes session startup with teardown. Teardown removes sessions from
-    /// the registry before slow cleanup, so this separate guard prevents a new
-    /// server from starting while the old session's broad process cleanup runs.
-    remote_transition: Mutex<()>,
+    remote_registry: crate::adb::remote_lifecycle::RemoteRegistry,
+    remote_driver_swap: tokio::sync::Mutex<()>,
 }
 
 impl AppState {
@@ -71,8 +65,8 @@ impl AppState {
             // must not silently grant Pro.
             entitlement: AtomicU8::new(entitlement_to_u8(Entitlement::Free)),
             license_info: std::sync::Mutex::new(None),
-            remote_sessions: Mutex::new(HashMap::new()),
-            remote_transition: Mutex::new(()),
+            remote_registry: crate::adb::remote_lifecycle::RemoteRegistry::default(),
+            remote_driver_swap: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -145,6 +139,7 @@ impl AppState {
 
     /// Refuse every later snapshot. Snapshots already handed out keep working.
     pub fn close_adb_admission(&self) {
+        self.remote_registry.refuse_new();
         self.adb_operations.close();
     }
 
@@ -166,84 +161,152 @@ impl AppState {
 
     /// Swap the driver — used by `install_adb` after a successful download.
     pub async fn replace_adb(&self, new_driver: Arc<dyn AdbDriver>) {
+        let _swap = self.remote_driver_swap.lock().await;
+        struct Resume<'a>(&'a crate::adb::remote_lifecycle::RemoteRegistry);
+        impl Drop for Resume<'_> {
+            fn drop(&mut self) {
+                self.0.resume();
+            }
+        }
+        self.remote_registry.pause();
+        let _resume = Resume(&self.remote_registry);
+        self.remote_registry.close_all().await;
         *self.adb.write().await = new_driver;
     }
 
-    /// Get-or-start the scrcpy control session for `serial`. The slow `start()`
-    /// (push + launch + connect) holds the remote-only registry lock. This
-    /// serializes cold starts so a losing duplicate session cannot tear down
-    /// the server belonging to the winning session on Android.
+    pub async fn capture_remote_generation(&self, serial: &str) -> Result<u64, String> {
+        let _admission = self
+            .try_adb_operation()
+            .map_err(|error| error.to_string())?;
+        self.remote_registry.capture(serial)
+    }
+    pub async fn begin_remote_generation(&self, serial: &str) -> Result<u64, String> {
+        let _admission = self
+            .try_adb_operation()
+            .map_err(|error| error.to_string())?;
+        self.remote_registry.begin(serial)
+    }
+    pub async fn validate_remote_generation(
+        &self,
+        serial: &str,
+        generation: u64,
+    ) -> Result<(), String> {
+        self.remote_registry.validate(serial, generation)
+    }
+    pub async fn lock_remote_generation_operation(
+        &self,
+        serial: &str,
+        generation: Option<u64>,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, String> {
+        self.remote_registry.operation(serial, generation).await
+    }
+    pub async fn close_remote_generation(
+        &self,
+        serial: &str,
+        generation: u64,
+    ) -> Result<(), String> {
+        self.remote_registry.close(serial, Some(generation)).await
+    }
+
     pub async fn ensure_remote_session(
         &self,
         adb: Arc<dyn AdbDriver>,
-        jar_path: &Path,
+        jar: &Path,
         serial: &str,
     ) -> Result<(), String> {
-        let _transition = self.remote_transition.lock().await;
-        let mut guard = self.remote_sessions.lock().await;
-        if guard.contains_key(serial) {
-            return Ok(());
-        }
-        let session = RemoteInputSession::start(adb, jar_path, serial).await?;
-        guard.insert(serial.to_string(), session);
-        Ok(())
+        self.ensure_remote_session_for_generation(adb, jar, serial, None)
+            .await
     }
-
-    /// Inject a single key-down / key-up via the live session. Errors if no
-    /// session exists — callers run `ensure_remote_session` first, and on a
-    /// write error `drop_remote_session` and fall back to `input`.
+    pub async fn ensure_remote_session_for_generation(
+        &self,
+        adb: Arc<dyn AdbDriver>,
+        jar: &Path,
+        serial: &str,
+        generation: Option<u64>,
+    ) -> Result<(), String> {
+        #[cfg(not(target_os = "android"))]
+        const NATIVE_FAST_REMOTE_ENABLED: bool = false;
+        let jar = jar.to_owned();
+        let serial_owned = serial.to_owned();
+        self.remote_registry.ensure(serial,generation,move |cancel|async move {
+            #[cfg(target_os = "android")]
+            let _ = &cancel;
+            #[cfg(not(target_os = "android"))]
+            if !adb.uses_host_server() {
+                if !NATIVE_FAST_REMOTE_ENABLED {return Err("Fast Remote is unavailable for direct ADB until its lifecycle acceptance gates pass.".into());}
+                let session=crate::adb::native_remote::NativeRemoteSession::start(adb,&jar,&serial_owned,cancel).await?;
+                return Ok(Box::new(session) as Box<dyn crate::adb::remote_lifecycle::RemoteSessionIo>);
+            }
+            RemoteInputSession::start(adb,&jar,&serial_owned).await.map(|session|Box::new(session) as Box<dyn crate::adb::remote_lifecycle::RemoteSessionIo>)
+        }).await
+    }
     pub async fn remote_send_key(
         &self,
         serial: &str,
         keycode: u32,
         down: bool,
     ) -> Result<(), String> {
-        let mut guard = self.remote_sessions.lock().await;
-        let session = guard
-            .get_mut(serial)
-            .ok_or_else(|| "no active remote session".to_string())?;
-        session.send_key(keycode, down).await
+        self.remote_send_key_for_generation(serial, keycode, down, None)
+            .await
     }
-
-    /// Inject a full key press (down + up) via the live session.
+    pub async fn remote_send_key_for_generation(
+        &self,
+        serial: &str,
+        keycode: u32,
+        down: bool,
+        generation: Option<u64>,
+    ) -> Result<(), String> {
+        self.remote_registry
+            .send(
+                serial,
+                generation,
+                crate::adb::remote_lifecycle::RemoteAction::Key(keycode, down),
+            )
+            .await
+    }
     pub async fn remote_send_key_press(&self, serial: &str, keycode: u32) -> Result<(), String> {
-        let mut guard = self.remote_sessions.lock().await;
-        let session = guard
-            .get_mut(serial)
-            .ok_or_else(|| "no active remote session".to_string())?;
-        session.send_key_press(keycode).await
+        self.remote_send_key_press_for_generation(serial, keycode, None)
+            .await
     }
-
-    /// Inject UTF-8 text via the live session.
+    pub async fn remote_send_key_press_for_generation(
+        &self,
+        serial: &str,
+        keycode: u32,
+        generation: Option<u64>,
+    ) -> Result<(), String> {
+        self.remote_registry
+            .send(
+                serial,
+                generation,
+                crate::adb::remote_lifecycle::RemoteAction::Press(keycode),
+            )
+            .await
+    }
     pub async fn remote_send_text(&self, serial: &str, text: &str) -> Result<(), String> {
-        let mut guard = self.remote_sessions.lock().await;
-        let session = guard
-            .get_mut(serial)
-            .ok_or_else(|| "no active remote session".to_string())?;
-        session.send_text(text).await
+        self.remote_send_text_for_generation(serial, text, None)
+            .await
     }
-
-    /// Tear down and forget the session for `serial`, if any. Removes it from
-    /// the registry first, then closes outside the lock.
+    pub async fn remote_send_text_for_generation(
+        &self,
+        serial: &str,
+        text: &str,
+        generation: Option<u64>,
+    ) -> Result<(), String> {
+        self.remote_registry
+            .send(
+                serial,
+                generation,
+                crate::adb::remote_lifecycle::RemoteAction::Text(text.into()),
+            )
+            .await
+    }
     pub async fn drop_remote_session(&self, serial: &str) {
-        let _transition = self.remote_transition.lock().await;
-        let session = self.remote_sessions.lock().await.remove(serial);
-        if let Some(session) = session {
-            session.close().await;
+        if let Err(error) = self.remote_registry.close(serial, None).await {
+            tracing::warn!(%error,"Remote cleanup incomplete");
         }
     }
-
-    /// Drain all live control sessions, then close them outside the registry
-    /// lock so reconnect/disconnect lifecycle cleanup cannot deadlock.
     pub async fn drop_all_remote_sessions(&self) {
-        let _transition = self.remote_transition.lock().await;
-        let sessions: Vec<_> = {
-            let mut guard = self.remote_sessions.lock().await;
-            guard.drain().map(|(_, session)| session).collect()
-        };
-        for session in sessions {
-            session.close().await;
-        }
+        self.remote_registry.close_all().await;
     }
 }
 
@@ -320,6 +383,98 @@ mod tests {
             AppListBundle::default(),
             std::env::temp_dir(),
         )
+    }
+
+    struct NoopCancel;
+    impl crate::adb::AdbServiceCancellation for NoopCancel {
+        fn cancel(&self) {}
+    }
+    struct ClosingSession {
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+    #[async_trait::async_trait]
+    impl crate::adb::remote_lifecycle::RemoteSessionIo for ClosingSession {
+        fn cancellation(&self) -> Arc<dyn crate::adb::AdbServiceCancellation> {
+            Arc::new(NoopCancel)
+        }
+        async fn send_key(&mut self, _: u32, _: bool) -> Result<(), String> {
+            Ok(())
+        }
+        async fn send_key_press(&mut self, _: u32) -> Result<(), String> {
+            Ok(())
+        }
+        async fn send_text(&mut self, _: &str) -> Result<(), String> {
+            Ok(())
+        }
+        async fn close(self: Box<Self>) -> Result<(), String> {
+            self.started.notify_one();
+            self.release.notified().await;
+            Ok(())
+        }
+    }
+    async fn blocking_session(
+        state: &AppState,
+    ) -> (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>) {
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let generation = state.remote_registry.begin("A").unwrap();
+        let session = ClosingSession {
+            started: started.clone(),
+            release: release.clone(),
+        };
+        state
+            .remote_registry
+            .ensure("A", Some(generation), move |_| async move {
+                Ok(Box::new(session) as Box<dyn crate::adb::remote_lifecycle::RemoteSessionIo>)
+            })
+            .await
+            .unwrap();
+        (started, release)
+    }
+    #[tokio::test]
+    async fn cancelled_driver_swap_preserves_driver_and_resumes_remote_admission() {
+        let state = Arc::new(state());
+        let original = state.adb.read().await.clone();
+        let (started, release) = blocking_session(&state).await;
+        let swap = tokio::spawn({
+            let state = state.clone();
+            async move { state.replace_adb(Arc::new(MockAdb::default())).await }
+        });
+        started.notified().await;
+        swap.abort();
+        assert!(swap.await.unwrap_err().is_cancelled());
+        assert!(Arc::ptr_eq(&original, &*state.adb.read().await));
+        assert!(state.begin_remote_generation("B").await.is_ok());
+        release.notify_one();
+        state.drop_all_remote_sessions().await;
+        state.close_adb_admission();
+        state.replace_adb(Arc::new(MockAdb::default())).await;
+        assert!(state.begin_remote_generation("closed").await.is_err());
+    }
+    #[tokio::test]
+    async fn concurrent_driver_swaps_commit_in_serialized_order() {
+        let state = Arc::new(state());
+        let (started, release) = blocking_session(&state).await;
+        let first: Arc<dyn AdbDriver> = Arc::new(MockAdb::default());
+        let second: Arc<dyn AdbDriver> = Arc::new(MockAdb::default());
+        let a = tokio::spawn({
+            let state = state.clone();
+            async move { state.replace_adb(first).await }
+        });
+        started.notified().await;
+        let b = tokio::spawn({
+            let state = state.clone();
+            let second = second.clone();
+            async move { state.replace_adb(second).await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!b.is_finished());
+        release.notify_one();
+        a.await.unwrap();
+        b.await.unwrap();
+        assert!(Arc::ptr_eq(&second, &*state.adb.read().await));
+        assert!(state.begin_remote_generation("B").await.is_ok());
     }
 
     #[tokio::test]

@@ -3,8 +3,11 @@
 pub mod batch;
 pub mod driver;
 pub mod lifetimes;
+#[cfg(not(target_os = "android"))]
+pub(crate) mod native_remote;
 pub mod parse;
 pub mod remote_input;
+pub mod remote_lifecycle;
 #[cfg(any(test, feature = "test-support"))]
 pub mod sim;
 pub mod storage;
