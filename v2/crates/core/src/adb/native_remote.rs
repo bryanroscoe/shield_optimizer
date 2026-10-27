@@ -583,10 +583,11 @@ mod tests {
                 .unwrap();
         let services = fake.services.lock().unwrap().clone();
         assert_ne!(services[2], services[5]);
-        let bindings = fake.bindings.lock().unwrap();
-        assert!(bindings[..3].iter().all(|b| b.serial == "fixture-a"));
-        assert!(bindings[3..].iter().all(|b| b.serial == "fixture-b"));
-        drop(bindings);
+        {
+            let bindings = fake.bindings.lock().unwrap();
+            assert!(bindings[..3].iter().all(|b| b.serial == "fixture-a"));
+            assert!(bindings[3..].iter().all(|b| b.serial == "fixture-b"));
+        }
         first.send_key(19, true).await.unwrap();
         let text = "é漢字😀".repeat(100);
         first.send_text(&text).await.unwrap();
