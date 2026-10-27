@@ -115,6 +115,7 @@ export function control(url) {
     attach: (key, serial, state = "device") => call("POST", "/control/attach", { key, serial, state }),
     detach: (key) => call("POST", "/control/detach", { key }),
     invokes: () => call("GET", "/control/invokes"),
+    offlinePolicy: () => call("GET", "/control/offline-policy"),
     log: (since = 0) => call("GET", `/control/log?since=${since}`),
     invoke: (cmd, args = {}) => call("POST", "/invoke", { cmd, args }),
     replay: (path, profile = true) => call("POST", "/control/replay", { path, profile }),
@@ -148,6 +149,14 @@ export async function scenarioContext({ browser, base, serverUrl, name, colorSch
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, colorScheme });
+  const networkDenied = [];
+  const allowedOrigins = new Set([new URL(base).origin, new URL(serverUrl).origin]);
+  await context.route("**/*", route => {
+    const url = route.request().url();
+    if (allowedOrigins.has(new URL(url).origin)) return route.continue();
+    networkDenied.push(url);
+    return route.abort("blockedbyclient");
+  });
   const page = await context.newPage();
   page.setDefaultTimeout(20_000);
   const consoleErrors = [];
@@ -173,6 +182,7 @@ export async function scenarioContext({ browser, base, serverUrl, name, colorSch
     dir,
     dialogs,
     consoleErrors,
+    networkDenied,
     ...ctl,
     answerDialogs(accept) {
       dialogAnswer = accept;

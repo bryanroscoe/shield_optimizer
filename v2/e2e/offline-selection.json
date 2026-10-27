@@ -1,0 +1,20 @@
+{
+  "files": [
+    "10-devices.mjs",
+    "20-health.mjs",
+    "30-apps-optimize.mjs",
+    "40-launcher.mjs",
+    "42-setup-wraith.mjs",
+    "50-snapshot.mjs",
+    "60-tweaks-shell-report.mjs",
+    "71-remote-generation.mjs",
+    "90-visual-smoke.mjs"
+  ],
+  "hardware_acceptance_not_run": [
+    "Real LAN/multicast discovery",
+    "Real AUTH/STLS and identity onboarding",
+    "Physical helper termination and held-key release",
+    "Packaged macOS/Windows/Linux acceptance"
+  ],
+  "excluded_files": {}
+}

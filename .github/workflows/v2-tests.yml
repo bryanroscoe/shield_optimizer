@@ -340,9 +340,9 @@ jobs:
         working-directory: v2
         run: cargo clippy -p shield-optimizer-v2 -p e2e-server --features shield-optimizer-v2/e2e --all-targets -- -D warnings
 
-      - name: npm run e2e
+      - name: Offline fixture end-to-end suite
         working-directory: v2
-        run: npm run e2e
+        run: npm run e2e:offline
 
       - name: Upload screenshots
         if: failure()

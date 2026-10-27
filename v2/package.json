@@ -35,6 +35,7 @@
     "test:files-drop": "node tests/files-drop.mjs",
     "test:context-menu": "node tests/context-menu.mjs",
     "e2e": "node e2e/run.mjs",
+    "e2e:offline": "node e2e/run.mjs --offline",
     "e2e:replay": "node e2e/replay.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
     "tauri": "tauri",
