@@ -4,18 +4,26 @@ No publication, hardware action, credential onboarding or default switch is
 approved by a passing fixture suite. The current native fast Remote gate stays
 disabled and platform-tools remains the shipped default.
 
-## Implementation work still pending
+## Fixture-tested implementation
 
-- Total wall-clock deadlines/cancellation for ordinary shell, screenshots and
-  limited transfer paths; current memory caps and inactivity bounds are not that.
-- Partial or unobserved helper-upload cleanup and cleanup during runtime shutdown;
-  acknowledged uploads have an owned bounded cleanup attempt, not a physical
-  deletion guarantee.
-- Android generic-service compatibility after strict identity binding and finite
-  stream lifetime (generic response inactivity remains two seconds); desktop-owned cancellation does not imply Android parity.
+- Ordinary shell and screenshots now count queue wait, authentication and command
+  I/O against their total budgets (30 seconds, or 180 seconds for slow shell).
+  Generic push/pull and limited downloads have fifteen-minute total budgets;
+  reboot acknowledgement has thirty seconds. Cancellation targets only the
+  admitted owned socket. Ambiguous delivery is never replayed.
+- Partial helper upload arms cleanup before SEND. Cleanup waits for the actual
+  local producer to release its stream and lease, within the existing three-second
+  cleanup budget. Expiry records an unconfirmed outcome and never unlinks later
+  while a producer could still write. Dropped cleanup tasks also record uncertainty.
+- Offline aarch64 Android Rust compilation covers core, shared driver, mobile
+  library and plugin with the existing API-24 NDK toolchain. This is compile-only
+  evidence, not Kotlin/JNI, packaged-app, Android cancellation or TV acceptance.
 
-These are technical gaps, not requests to expand permissions. They must not be
-marked passed by mocks or hidden by fallback.
+Local filesystem calls cannot be forcibly interrupted: a timed-out worker keeps
+its lease until it ends. Local producer completion does not prove remote CLOSE
+processing or deletion. Process/runtime termination can still leave helper files.
+Android generic identity binding and finite stream lifetime require runtime
+acceptance; desktop cancellation fixtures do not establish Android parity.
 
 ## Minimal approvals for physical acceptance
 

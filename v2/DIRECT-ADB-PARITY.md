@@ -14,7 +14,7 @@ This inventory records source capabilities, not TV compatibility certification.
 | Discovery | Explicit native DNS-SD observation supports legacy, pairing and connect services with separate ports and scoped addresses. Selection is manual, stale/unusable rows are disabled, and no physical identity is inferred. No subnet sweep or USB discovery. Multicast/router/permission and cross-platform acceptance remain pending. |
 | Refresh and multiple TVs | Pool isolation, offline retention, Forget and cancellation have host tests. Hardware reconnect, DHCP changes and delayed authorization remain unverified. |
 | Bounded shell and Device Logs | The dedicated shell-v2 stream verifies owned/dedicated hardware identity before command OPEN and has a 30-second total deadline and 256 KiB per-stream limit, partial timeout output and cancellation cleanup. It requires shell-v2; unsupported peers fail without replaying the command as shell-v1, which cannot preserve separate stderr/exit semantics. Continuous output, truncation, filters and cleanup have simulated coverage; hardware acceptance remains pending. |
-| Transfers | Push/pull on the owned connection reuse sync services. Dedicated limited downloads now verify the owned and dedicated hardware identity before stat or destination creation. Truncation, interruption, total transfer deadlines, permissions and hardware acceptance remain pending. |
+| Transfers | Push/pull on the owned connection reuse sync services. Dedicated limited downloads now verify the owned and dedicated hardware identity before stat or destination creation. Owned sync transfers and limited downloads now have fifteen-minute total deadlines with cancellation and continuous/stalled-I/O fixtures. Permissions and hardware acceptance remain pending. |
 | APK installation | Single local APK and replacement choice now use the native streaming package service. Bounded responses preserve rejection codes and uncertain outcomes without replay. Verified hardware IDs from the owned control session and dedicated install connection must agree before install OPEN. Split installs, real package-manager compatibility and hardware acceptance remain pending. |
 | Remote | Native helper upload, resident/control streams, generation ownership, held-key release and per-TV isolation are implemented behind a disabled production gate and exercised with injected drivers. Desktop queues now fence hidden/stale generations; uncertain input is never replayed. Startup and I/O are bounded, and only explicit control-service refusal is retried. Physical helper termination, cancellation behavior, text injection and packaged/hardware acceptance remain unverified. |
 | Quit and diagnostics | No shared server is stopped by the direct driver. Leases and backend status have host tests; packaged app lifecycle acceptance remains pending. |
@@ -34,15 +34,19 @@ not substitute for the explicitly pending hardware and packaged-app gates.
 Ordinary owned-connection shell output is capped at 512 KiB per stream, including
 lossy UTF-8 expansion; screenshots at 64 MiB plus bounded stderr. Limit failures
 are errors rather than successful truncation. Unbounded framebuffer fallback is
-refused explicitly, not replayed. Ordinary shell/screenshot/limited-transfer
-inactivity limits are not total wall-clock deadlines; that remains implementation
-work before a primary-driver default change.
+refused explicitly, not replayed. Ordinary shell and screenshots now use total budgets including queue wait and
+authentication (30 seconds; slow shell 180 seconds). Generic sync and limited
+transfers use fifteen minutes; reboot acknowledgement uses thirty seconds.
+Cancellation closes only the admitted socket. Blocking local filesystem work can
+outlive the caller deadline and retains its lease until completion.
 
 Generic dedicated services now use the identity-bound path too. This is an
 explicit Android compatibility change: authoritative shell-v2 identity is
 required, streams have a fifteen-minute lifetime, and the original two-second response
 inactivity budget is preserved for generic services. Android
-hardware behavior is unverified; this is not transparent parity certification.
+Rust libraries compile offline for aarch64 Android using the existing API-24
+toolchain. Hardware, JNI and packaged behavior remain unverified; this is not
+transparent parity certification.
 
 The existing E2E server already installed fixture subnet sweeps. Earlier caution
 about the full suite potentially probing the LAN missed that initialization.
