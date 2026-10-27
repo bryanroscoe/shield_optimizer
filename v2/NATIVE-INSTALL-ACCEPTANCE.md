@@ -18,8 +18,16 @@ replayed with platform-tools or retried automatically after a transport failure.
   declared length and replacement semantics without interpolating local paths into
   a remote shell expression.
 - Use one dedicated required-existing-identity connection, with a finite total
-  deadline and cancellation that closes only that socket. Hold the operation lease
+  network deadline and cancellation scoped to the registered socket. Hold the operation lease
   until worker cleanup finishes, including when the awaiting task is canceled.
+- Read a verified hardware ID from the currently owned selected control session,
+  then require that exact ID on the new connection before installation starts.
+  Both identity queries require bounded, successful shell-v2 results. Unknown,
+  unreadable or mismatched IDs refuse installation; a shared key or matching IP
+  address is not identity evidence. Normal probe completion preserves the existing
+  control socket; cancellation before a borrowed probe starts must not close it.
+  An active borrowed probe may close its selected control socket on timeout or
+  cancellation, without closing another TV's session or a shared server.
 - Bound response buffering during transfer acknowledgements as well as final
   result reading. Continuous early output cannot bypass the cap by withholding an
   acknowledgement.
@@ -36,6 +44,11 @@ replayed with platform-tools or retried automatically after a transport failure.
 No APK is downloaded or executed on the host, and no test installs an APK on a
 real device. Byte fixtures exercise transport framing only. Passing them does not
 establish package-manager compatibility or a successful TV installation.
+
+The watchdog interrupts registered network sockets, not a synchronous local file
+read blocked inside the operating system. The worker remains tracked until that
+read and cleanup return; passing network deadline tests does not establish a
+wall-clock bound for pathological local filesystem failures.
 
 The shipped backend remains platform-tools. Rust-native is still explicitly
 selected and feature-gated; platform-tools is an explicit backup selection, never

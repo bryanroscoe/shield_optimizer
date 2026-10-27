@@ -20,7 +20,16 @@ try {
     viewport: { width: 1440, height: 1000 },
     ...(evidence ? { recordVideo: { dir: resolve(evidence, "raw") } } : {}),
   });
-  await context.addInitScript(() => localStorage.setItem("shieldopt.lastApkFolder", "/simulation"));
+  await context.addInitScript(() => {
+    localStorage.setItem("shieldopt.lastApkFolder", "/simulation");
+    document.addEventListener("DOMContentLoaded", () => {
+      const banner = document.createElement("div");
+      banner.id = "native-install-simulation";
+      banner.textContent = "SIMULATION — demo app and Rust command fixtures; no TV or APK installation";
+      banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#182238;color:white;padding:8px 16px;font:14px system-ui";
+      document.body.append(banner);
+    });
+  });
   const page = await context.newPage();
   const receipts = [];
   for (const fixture of fixtures.cases) {
@@ -39,10 +48,8 @@ try {
         }
         return original(command, args);
       };
-      const banner = document.createElement("div");
+      const banner = document.getElementById("native-install-simulation");
       banner.textContent = `SIMULATION — ${fixture.name}; Rust command fixtures, no TV or APK installation`;
-      banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#182238;color:white;padding:8px 16px;font:14px system-ui";
-      document.body.append(banner);
     }, fixture);
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
@@ -76,7 +83,10 @@ try {
     const calls = await page.evaluate(() => window.__INSTALL_CALLS__);
     assert.deepEqual(calls, [{ serial: "192.168.1.42:5555", apkPath: "/simulation/native-fixture.apk", reinstall: true }]);
     await result.scrollIntoViewIfNeeded();
-    if (evidence) await page.screenshot({ path: resolve(evidence, `${fixture.name}-simulated.png`) });
+    if (evidence) {
+      await page.screenshot({ path: resolve(evidence, `${fixture.name}-simulated.png`) });
+      await page.waitForTimeout(900);
+    }
     receipts.push({ case: fixture.name, text, calls });
     console.log(`PASS ${fixture.name}: truthful result and one explicit install attempt`);
   }
