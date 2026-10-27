@@ -6,6 +6,9 @@ pub type Result<T> = std::result::Result<T, RustADBError>;
 /// Represents all error types that can be thrown by the crate.
 #[derive(Error, Debug)]
 pub enum RustADBError {
+    /// The peer explicitly refused a correlated service OPEN before accepting input.
+    #[error("ADB service OPEN was explicitly rejected: {0}")]
+    ServiceRejected(String),
     /// Indicates that an error occurred with I/O.
     #[error(transparent)]
     IOError(#[from] std::io::Error),

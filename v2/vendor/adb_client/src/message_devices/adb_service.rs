@@ -78,6 +78,9 @@ pub(crate) fn open_service_session_with_label<T: ADBMessageTransport>(
             candidate.header().arg1()
         );
     };
+    if response.header().command() == MessageCommand::Clse {
+        return Err(RustADBError::ServiceRejected(diagnostic_label.to_owned()));
+    }
     if response.header().command() != MessageCommand::Okay {
         return Err(RustADBError::ADBRequestFailed(format!(
             "Open service {diagnostic_label:?} failed: got {} instead of OKAY",

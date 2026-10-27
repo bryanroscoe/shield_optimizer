@@ -62,6 +62,8 @@ pub enum AdbError {
     Transport(String),
     #[error("ADB operation unsupported by this driver: {operation}")]
     Unsupported { operation: &'static str },
+    #[error("{operation} was explicitly rejected by the device")]
+    ServiceRejected { operation: &'static str },
     #[error("{operation} outcome is unknown: {detail}. Do not replay automatically.")]
     Uncertain {
         operation: &'static str,

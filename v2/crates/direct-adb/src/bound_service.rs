@@ -90,6 +90,9 @@ impl WirelessAdb {
                 })
                 .map_err(|error| match error {
                     BoundServiceError::BeforeOpen(error) => AdbError::Transport(error.to_string()),
+                    BoundServiceError::Rejected(_) => AdbError::ServiceRejected {
+                        operation: "device service OPEN",
+                    },
                     BoundServiceError::OpenUncertain(error) => AdbError::Uncertain {
                         operation: "device service OPEN",
                         detail: error.to_string(),

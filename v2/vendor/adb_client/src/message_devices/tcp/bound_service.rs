@@ -20,6 +20,9 @@ pub enum BoundServiceError {
     /// No requested service OPEN was attempted.
     #[error("bound service setup failed: {0}")]
     BeforeOpen(#[source] RustADBError),
+    /// The peer explicitly rejected the requested OPEN before accepting input.
+    #[error("bound service OPEN was rejected: {0}")]
+    Rejected(#[source] RustADBError),
     /// A requested service OPEN may have reached the peer; never replay automatically.
     #[error("bound service OPEN outcome is unknown: {0}")]
     OpenUncertain(#[source] RustADBError),
@@ -108,14 +111,17 @@ where
         .map_err(BoundServiceError::BeforeOpen)?;
     let session = device
         .open_bounded_shell_service(service, remaining)
-        .map_err(BoundServiceError::OpenUncertain)?;
+        .map_err(|error| match error {
+            RustADBError::ServiceRejected(_) => BoundServiceError::Rejected(error),
+            _ => BoundServiceError::OpenUncertain(error),
+        })?;
     finish
         .0
         .remaining()
         .map_err(RustADBError::from)
         .map_err(BoundServiceError::OpenUncertain)?;
-    let stream = ADBService::new(session, Duration::from_secs(5), Duration::from_secs(2))
-        .with_pending_limit(64 * 1024);
+    let stream =
+        ADBService::new(session, remaining, Duration::from_secs(2)).with_pending_limit(64 * 1024);
     Ok(BoundDeviceService {
         stream,
         _device: device,
@@ -188,6 +194,21 @@ mod tests {
         }
     }
     #[test]
+    fn bound_service_explicit_open_refusal_is_distinct_from_lost_acknowledgement() {
+        let (address, server) = server(b"expected-TV\n", |socket, local| {
+            send(socket, MessageCommand::Clse, local, &[]).unwrap();
+        });
+        assert!(matches!(
+            open(
+                address,
+                BoundedShellControl::new(Duration::from_secs(2)).unwrap()
+            ),
+            Err(BoundServiceError::Rejected(_))
+        ));
+        server.join().unwrap();
+    }
+
+    #[test]
     fn bound_service_lost_open_ack_is_uncertain_and_invalid_names_never_connect() {
         let (address, server) = server(b"expected-TV\n", |_, _| {});
         assert!(matches!(
@@ -230,6 +251,26 @@ mod tests {
         drop(service);
         server.join().unwrap();
     }
+    #[test]
+    fn bound_service_idle_read_survives_within_its_total_lifetime() {
+        let (address, server) = server(b"expected-TV\n", |socket, local| {
+            send(socket, MessageCommand::Okay, local, &[]).unwrap();
+            std::thread::sleep(Duration::from_secs(6));
+            reply(socket, local, b"alive", false);
+            assert!(receive(socket).is_err());
+        });
+        let mut service = open(
+            address,
+            BoundedShellControl::new(Duration::from_secs(10)).unwrap(),
+        )
+        .unwrap();
+        let mut bytes = [0; 5];
+        service.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"alive");
+        drop(service);
+        server.join().unwrap();
+    }
+
     #[test]
     fn bound_service_independent_cancel_and_total_deadline_interrupt_owned_reads() {
         for cancel in [false, true] {
