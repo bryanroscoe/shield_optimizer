@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
+  import type { SendTextResult } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
   import { getRemoteForceShell, setRemoteForceShell } from "$lib/prefs";
 
-  let { serial }: { serial: string } = $props();
+  let { serial, active = true }: { serial: string; active?: boolean } = $props();
 
   // Escape hatch: force the slow but universal `input` transport, skipping the
   // fast scrcpy channel. Persisted across sessions.
   let forceShell = $state(getRemoteForceShell());
 
   function toggleForceShell() {
+    invalidate();
     forceShell = !forceShell;
     setRemoteForceShell(forceShell);
     // Reset the cue so it reflects the next send's actual transport.
@@ -31,38 +33,72 @@
   let remoteBuffer = "";
   let remoteFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function noteTransport(t: string) {
-    if (t === "channel" || t === "shell") transport = t;
+  let epoch = 0;
+  let logicalSession: { serial: string; epoch: number; promise: Promise<string> } | null = null;
+
+  function closeSession(session: typeof logicalSession) {
+    if (!session) return;
+    const closingEpoch = epoch;
+    void session.promise.then(generation => api.remoteClose(session.serial, generation), () => undefined).catch(error => {
+      if (epoch === closingEpoch && serial === session.serial) {
+        remoteMessage = [remoteMessage, `Remote cleanup not confirmed: ${String(error)}`].filter(Boolean).join(" ");
+      }
+    });
   }
 
-  function remoteEnqueue(work: () => Promise<void>) {
-    remoteQueue = remoteQueue.then(work).catch((e) => {
-      remoteMessage = String(e);
+  function invalidate() {
+    epoch++;
+    remoteQueue = Promise.resolve();
+    remoteBuffer = "";
+    if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
+    remoteFlushTimer = null;
+    stopRepeat();
+    closeSession(logicalSession);
+    logicalSession = null;
+    transport = null;
+  }
+
+  function sessionFor(target: string, version: number) {
+    if (!logicalSession || logicalSession.epoch !== version) {
+      const session = { serial: target, epoch: version, promise: api.remoteOpen(target).then(r => r.generation) };
+      logicalSession = session;
+    }
+    return logicalSession.promise;
+  }
+
+  function remoteEnqueue(work: (target: string, mode: boolean, generation: string) => Promise<SendTextResult>) {
+    if (!active) return;
+    const version = epoch;
+    const target = serial;
+    const mode = forceShell;
+    remoteQueue = remoteQueue.then(async () => {
+      if (!active || epoch !== version) return;
+      const generation = await sessionFor(target, version);
+      if (!active || epoch !== version) return;
+      const result = await work(target, mode, generation);
+      if (!active || epoch !== version) return;
+      if (result.transport === "channel" || result.transport === "shell") transport = result.transport;
+      remoteMessage = result.ok ? "" : result.message;
+      if (!result.ok) invalidate();
+    }).catch(error => {
+      if (!active || epoch !== version) return;
+      remoteMessage = String(error);
+      invalidate();
     });
   }
 
   function remoteFlushBuffer() {
-    if (remoteFlushTimer) {
-      clearTimeout(remoteFlushTimer);
-      remoteFlushTimer = null;
-    }
+    if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
+    remoteFlushTimer = null;
     if (!remoteBuffer) return;
     const chunk = remoteBuffer;
     remoteBuffer = "";
-    remoteEnqueue(async () => {
-      const r = await api.sendText(serial, chunk, forceShell);
-      noteTransport(r.transport);
-      if (!r.ok) remoteMessage = r.message;
-    });
+    remoteEnqueue((target, mode, generation) => api.sendText(target, chunk, mode, generation));
   }
 
   function sendRemoteKey(key: string) {
     remoteFlushBuffer();
-    remoteEnqueue(async () => {
-      const r = await api.sendKey(serial, key, forceShell);
-      noteTransport(r.transport);
-      remoteMessage = r.ok ? "" : r.message;
-    });
+    remoteEnqueue((target, mode, generation) => api.sendKey(target, key, mode, generation));
   }
 
   /// Send pasted text as whole lines rather than synthesised keystrokes.
@@ -81,16 +117,12 @@
     const lines = text.split("\n");
     lines.forEach((line, i) => {
       if (line) {
-        remoteEnqueue(async () => {
-          const r = await api.sendText(serial, line, forceShell);
-          noteTransport(r.transport);
-          if (!r.ok) remoteMessage = r.message;
-        });
+        remoteEnqueue((target, mode, generation) => api.sendText(target, line, mode, generation));
       }
       if (i < lines.length - 1) sendRemoteKey("enter");
     });
     // Echo shows a newline as a return glyph so a multi-line paste is legible.
-    remoteEcho = (remoteEcho + text.replace(/\n/g, "\u23ce")).slice(-60);
+    remoteEcho = Array.from(remoteEcho + text.replace(/\n/g, "\u23ce")).slice(-60).join("");
   }
 
   /// The capture is a non-editable div, but a focused one still receives paste
@@ -110,14 +142,17 @@
   /// refused, so say what to do instead rather than failing silently.
   async function pasteFromClipboard() {
     remoteMessage = "";
+    const version = epoch;
     try {
       const text = await navigator.clipboard.readText();
+      if (!active || epoch !== version) return;
       if (!text) {
         remoteMessage = "Clipboard is empty.";
         return;
       }
       sendPastedText(text);
     } catch {
+      if (!active || epoch !== version) return;
       remoteMessage =
         "Couldn't read the clipboard. Click the typing box, then press \u2318V / Ctrl+V.";
     }
@@ -127,10 +162,7 @@
   // button is an intent launch, and KEYCODE_SETTINGS/MENU no-op when injected.
   function openSettings() {
     remoteFlushBuffer();
-    remoteEnqueue(async () => {
-      const r = await api.openSettings(serial);
-      remoteMessage = r.ok ? "" : r.message;
-    });
+    remoteEnqueue((target, _mode, generation) => api.openSettings(target, generation));
   }
 
   // Hold-to-repeat for the D-pad: first repeat after 400 ms, then ~7/s. Only
@@ -145,19 +177,19 @@
   }
 
   function pressStart(key: string) {
+    stopRepeat();
     sendRemoteKey(key);
     if (transport !== "channel") return;
-    stopRepeat();
     repeatTimer = setTimeout(() => {
       repeatInterval = setInterval(() => sendRemoteKey(key), 140);
     }, 400);
   }
 
   function remoteKeydown(e: KeyboardEvent) {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing || !active) return;
     if (e.key === "Backspace") {
       e.preventDefault();
-      remoteEcho = remoteEcho.slice(0, -1);
+      remoteEcho = Array.from(remoteEcho).slice(0, -1).join("");
       sendRemoteKey("delete");
       return;
     }
@@ -167,12 +199,12 @@
       sendRemoteKey("enter");
       return;
     }
-    if (e.key.length === 1 && !e.isComposing) {
+    if (Array.from(e.key).length === 1) {
       // The channel injects full UTF-8; the shell fallback re-checks and
       // rejects non-ASCII with a clear message, so don't pre-filter here.
       e.preventDefault();
       remoteBuffer += e.key;
-      remoteEcho = (remoteEcho + e.key).slice(-60);
+      remoteEcho = Array.from(remoteEcho + e.key).slice(-60).join("");
       // Channel sends are ~ms, so flush almost immediately — characters land
       // on the TV as you type. The shell fallback pays ~700 ms per call, so
       // batch rapid typing into one `input text` per pause instead.
@@ -181,11 +213,30 @@
     }
   }
 
-  onDestroy(() => {
-    if (remoteFlushTimer) clearTimeout(remoteFlushTimer);
-    stopRepeat();
+  function compositionEnd(event: CompositionEvent) {
+    if (!active || !event.data) return;
+    remoteBuffer += event.data;
+    remoteEcho = Array.from(remoteEcho + event.data).slice(-60).join("");
+    remoteFlushBuffer();
+  }
+
+  $effect(() => {
+    const target = serial;
+    const visible = active;
+    untrack(() => {
+      invalidate();
+      remoteEcho = "";
+      remoteMessage = "";
+      remoteCaptureFocused = false;
+    });
+    return () => { void target; void visible; invalidate(); };
   });
+
+  onDestroy(invalidate);
 </script>
+
+<svelte:window onblur={invalidate} />
+<svelte:document onvisibilitychange={() => { if (document.hidden) invalidate(); }} />
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-remote" aria-labelledby="tab-remote">
   <div class="remote-header">
@@ -215,6 +266,7 @@
         role="textbox"
         aria-label="Live typing capture — keystrokes and pasted text are sent to the TV"
         onkeydown={remoteKeydown}
+        oncompositionend={compositionEnd}
         onpaste={remotePaste}
         onfocus={() => (remoteCaptureFocused = true)}
         onblur={() => (remoteCaptureFocused = false)}
@@ -258,10 +310,10 @@
            `clip-path` clips hit testing too, so the wedges meet exactly and
            there is nowhere inside the disc that is not a direction. -->
       <div class="dpad">
-        <button class="dir up" onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad up (hold to repeat)" aria-label="D-pad up"><Icon name="keyboard_arrow_up" size={24} /></button>
-        <button class="dir right" onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad right (hold to repeat)" aria-label="D-pad right"><Icon name="keyboard_arrow_right" size={24} /></button>
-        <button class="dir down" onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={24} /></button>
-        <button class="dir left" onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)" aria-label="D-pad left"><Icon name="keyboard_arrow_left" size={24} /></button>
+        <button class="dir up" onpointerdown={() => pressStart("up")} onclick={(event) => { if (event.detail === 0) sendRemoteKey("up"); }} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad up (hold to repeat)" aria-label="D-pad up"><Icon name="keyboard_arrow_up" size={24} /></button>
+        <button class="dir right" onpointerdown={() => pressStart("right")} onclick={(event) => { if (event.detail === 0) sendRemoteKey("right"); }} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad right (hold to repeat)" aria-label="D-pad right"><Icon name="keyboard_arrow_right" size={24} /></button>
+        <button class="dir down" onpointerdown={() => pressStart("down")} onclick={(event) => { if (event.detail === 0) sendRemoteKey("down"); }} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad down (hold to repeat)" aria-label="D-pad down"><Icon name="keyboard_arrow_down" size={24} /></button>
+        <button class="dir left" onpointerdown={() => pressStart("left")} onclick={(event) => { if (event.detail === 0) sendRemoteKey("left"); }} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} title="D-pad left (hold to repeat)" aria-label="D-pad left"><Icon name="keyboard_arrow_left" size={24} /></button>
         <button class="ok" onclick={() => sendRemoteKey("select")} title="Select / OK">OK</button>
       </div>
       <!-- On screen rather than in the status pill's tooltip: it changes with

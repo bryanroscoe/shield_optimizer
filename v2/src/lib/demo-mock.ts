@@ -934,6 +934,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
       return null;
     }
+    case "remote_open":
+      return { generation: "1" };
+    case "remote_close":
+      return null;
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.
