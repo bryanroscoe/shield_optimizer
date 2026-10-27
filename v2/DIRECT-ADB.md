@@ -37,7 +37,7 @@ subprocess build does not acquire this dependency. No Rust toolchain was install
 | Android 11+ TLS/PIN | Reuses mobile pairing; pair success does not invent a connection; user supplies separate pairing/connect ports |
 | Multiple TVs | One owned session per exact endpoint, maximum 32 in-memory transport slots; operations on established TVs are independent |
 | Connect/disconnect transitions | Serialized at the pool boundary; canceled handshakes cannot publish a late row; abandoned attempts do not consume capacity |
-| Discovery | Manual numeric IP and port only; bracketed IPv6 accepted. Desktop Scan LAN/mDNS and USB are explicitly unavailable |
+| Discovery | Explicit bounded DNS-SD observations for legacy ADB, TLS pairing and TLS connect; selection only prefills manual forms. Cached/unusable observations cannot be selected. Interface and numeric IPv6 scope are preserved; no subnet sweep, USB discovery or automatic dialing |
 | Ready state and Refresh | Probes owned sessions before listing; failed liveness remains an offline row with Forget available; at most four probes run concurrently |
 | Curated app actions and profiling | Existing command/engine path and safety checks; shared shell results retain exit status and stderr |
 | File push/pull and bounded downloads | Shared sync transfer and streaming size limit, finite inactivity timeouts; no hardware evidence |
@@ -67,6 +67,8 @@ Vendor validation includes inspected fake service-framing tests, ephemeral-loopb
 tests, bounded-shell streams and a loopback TLS/exporter/SPAKE2/peer-info pairing exchange.
 Native install fixtures also cover exact bytes/flags, response bounds, interruption and
 uncertain commit outcomes, plus hardware-ID mismatch refusal before installation starts.
+Native discovery tests inject events/providers and exercise cache removal/age, scope,
+cancellation and cleanup quarantine without constructing a real multicast daemon.
 The two pairing peers share this implementation, so success is not Android interoperability
 evidence. Legacy AUTH/STLS transport and hardware acceptance remain pending. No test contacts the real host ADB server,
 connects to a TV, restarts a server, installs an APK or generates a host ADB identity. Browser status
@@ -85,3 +87,15 @@ source, copyright and patch notes remain in `vendor/adb_client`; the desktop bun
 include the same full MIT notice. Shared first-party code is extracted from this repository,
 not copied from another transport implementation. The Android notices generator inventories
 313 third-party crates and regenerates byte-identical notices after the internal extraction.
+
+Experimental desktop discovery additionally uses `mdns-sd` 0.19.2 directly. Its four newly
+activated packages are optional behind `direct-adb`; the default desktop dependency graph
+excludes them. Full MIT notices for `mdns-sd`, `flume`, `if-addrs` and `socket-pktinfo` are
+bundled in `resources/native-discovery-MIT-LICENSES.txt`. Android notices remain byte-identical.
+
+Discovery observations are not DNS-freshness, pairing, authorization or physical-identity
+proof. The client API does not expose remaining DNS TTL: the 30-second cap measures local
+observation age, and old records not re-observed in the current window are disabled. Direct
+and unknown backends do not auto-browse at startup; after pairing, an explicit connect port
+is required instead of legacy polling or a guessed port. Multicast/OS permission failures
+retain the manual IP/port path, without changing permissions or selecting another driver.

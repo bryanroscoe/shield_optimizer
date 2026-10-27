@@ -48,7 +48,8 @@
     ],
     "resources": [
       "resources/scrcpy-server-v3.1",
-      "resources/direct-adb-MIT-LICENSE.txt"
+      "resources/direct-adb-MIT-LICENSE.txt",
+      "resources/native-discovery-MIT-LICENSES.txt"
     ],
     "windows": {
       "wix": {
