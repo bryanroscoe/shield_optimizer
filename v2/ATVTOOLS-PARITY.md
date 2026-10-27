@@ -49,5 +49,6 @@ aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 14+) controlling
 
 Rust-primary experimental follow-up: Unix first-run app-owned identity storage and
 truthful initialization errors are implemented locally, with fixture validation.
-Production default, Windows identity storage, runtime credential creation and
-hardware acceptance remain gated; see `DIRECT-ADB-PARITY.md`.
+Windows protected-ACL storage is now implemented in a stacked candidate; Windows
+compilation/runtime, production default, credential creation and hardware
+acceptance remain gated; see `DIRECT-ADB-PARITY.md`.

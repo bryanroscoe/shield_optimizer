@@ -33,8 +33,11 @@ working-directory fallback, validates an existing app-owned identity or publishe
 a complete new identity without overwriting a concurrent winner. Storage uses a
 private directory and file, refuses unsafe or corrupt existing entries, and never
 imports standard ADB keys. Fixture tests do not run production generation.
-Windows secure storage remains unsupported and fails explicitly. Actual persistent
-identity creation and first-run authorization have not been executed or approved.
+Windows secure-storage code and deterministic policy/fixture tests are now staged,
+but no Windows Rust target or runtime is installed here. Windows compilation and
+API/ACL/rename behavior remain unverified; see `WINDOWS-IDENTITY-ACCEPTANCE.md`.
+Actual persistent identity creation and first-run authorization have not been
+executed or approved.
 
 ## Minimal approvals for physical acceptance
 

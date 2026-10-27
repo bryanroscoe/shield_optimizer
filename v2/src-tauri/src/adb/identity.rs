@@ -15,7 +15,11 @@ pub fn validate_existing_identity(path: &Path) -> Result<(), String> {
     {
         unix::validate_path(path, shield_direct_adb::validate_identity_pem)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows::validate_path(path, shield_direct_adb::validate_identity_pem)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
         Err("Secure native ADB identity storage is not yet supported on this platform.".into())
@@ -37,7 +41,11 @@ where
     {
         unix::ensure(app_data, validate, generate, write)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows::ensure(app_data, validate, generate, write)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (app_data, validate, generate, write);
         Err("Secure native ADB identity storage is not yet supported on this platform.".into())
@@ -589,3 +597,10 @@ mod tests {
         assert!(!root.join("native-adb/identity.pkcs8.pem").exists());
     }
 }
+
+#[cfg(any(windows, test))]
+#[path = "identity_policy.rs"]
+mod identity_policy;
+#[cfg(windows)]
+#[path = "identity_windows.rs"]
+mod windows;
