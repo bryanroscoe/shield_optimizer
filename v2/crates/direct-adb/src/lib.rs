@@ -474,6 +474,9 @@ impl AdbDriver for WirelessAdb {
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
             .map_err(|e| AdbError::Transport(format!("invalid download address: {e}")))?;
+        let expected = self
+            .verified_owned_hardware_id(serial, Duration::from_secs(5))
+            .await?;
         let remote = remote.to_string();
         let local = local.to_path_buf();
         let key = self.key_path.clone();
@@ -487,7 +490,6 @@ impl AdbDriver for WirelessAdb {
             if !allow_key_creation {
                 ensure_adb_key(&key, false).map_err(AdbError::Transport)?;
             }
-            let file = std::fs::File::create(local)?;
             let mut device = if allow_key_creation {
                 ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
                     addr,
@@ -502,6 +504,16 @@ impl AdbDriver for WirelessAdb {
                 )
             }
             .map_err(|e| AdbError::Transport(e.to_string()))?;
+            device
+                .verify_hardware_binding_bounded(
+                    &expected,
+                    adb_client::tcp::BoundedShellControl::new(Duration::from_secs(5))?,
+                )
+                .map_err(|error| {
+                    AdbError::Transport(format!(
+                        "Download identity check failed before creating a file: {error}"
+                    ))
+                })?;
             let stat = device
                 .stat(&remote)
                 .map_err(|e| AdbError::Transport(e.to_string()))?;
@@ -510,6 +522,7 @@ impl AdbDriver for WirelessAdb {
                     "Download exceeds the file size limit.".into(),
                 ));
             }
+            let file = std::fs::File::create(local)?;
             let mut writer = crate::limited_writer::LimitedWriter::new(file, max_bytes);
             device
                 .pull(&remote, &mut writer)
@@ -638,15 +651,19 @@ impl AdbDriver for WirelessAdb {
             .on_device(serial, move |dev| {
                 let mut out: Vec<u8> = Vec::new();
                 let mut err: Vec<u8> = Vec::new();
+                let mut bounded_out =
+                    crate::limited_writer::LimitedWriter::new(&mut out, 512 * 1024);
+                let mut bounded_err =
+                    crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
                 let code = dev.shell_command_with_timeout(
                     &command,
-                    Some(&mut out),
-                    Some(&mut err),
+                    Some(&mut bounded_out),
+                    Some(&mut bounded_err),
                     timeout,
                 )?;
                 Ok((
-                    String::from_utf8_lossy(&out).into_owned(),
-                    String::from_utf8_lossy(&err).into_owned(),
+                    crate::limited_writer::bounded_text(&out, 512 * 1024),
+                    crate::limited_writer::bounded_text(&err, 512 * 1024),
                     code,
                 ))
             })
@@ -673,20 +690,26 @@ impl AdbDriver for WirelessAdb {
             }
         };
         self.on_device(serial, |dev| {
-            // `screencap -p` encodes on the TV (~1 MB). The framebuffer service
-            // ships raw RGBA (~33 MB at 4K) and is only a fallback. stderr gets
-            // its own sink so a warning can never be spliced into the PNG.
+            // Keep stderr separate from PNG bytes; refuse the unbounded framebuffer path.
             let mut out: Vec<u8> = Vec::new();
             let mut err: Vec<u8> = Vec::new();
+            let mut bounded_out =
+                crate::limited_writer::LimitedWriter::new(&mut out, 64 * 1024 * 1024);
+            let mut bounded_err = crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
             let shot = dev.shell_command_with_timeout(
                 &"screencap -p",
-                Some(&mut out),
-                Some(&mut err),
+                Some(&mut bounded_out),
+                Some(&mut bounded_err),
                 SHELL_INACTIVITY_TIMEOUT,
             );
-            match shot {
-                Ok(_) if out.starts_with(b"\x89PNG") => Ok(out),
-                _ => dev.framebuffer_bytes(),
+            shot?;
+            if out.starts_with(b"\x89PNG") {
+                Ok(out)
+            } else {
+                Err(adb_client::RustADBError::ADBRequestFailed(
+                    "Screenshot did not return PNG; unbounded framebuffer fallback is unavailable."
+                        .into(),
+                ))
             }
         })
         .await

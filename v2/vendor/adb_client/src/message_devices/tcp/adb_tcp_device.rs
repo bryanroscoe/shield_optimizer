@@ -8,8 +8,8 @@ use crate::models::RemountInfo;
 use crate::tcp::tcp_transport::TcpTransport;
 use crate::utils::get_default_adb_key_path;
 use crate::{
-    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT, ADBDeviceExt, ADBListItemType,
-    Result,
+    ADBDeviceExt, ADBListItemType, Result,
+    message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
 };
 
 /// Represent a device reached and available over TCP.
@@ -76,6 +76,16 @@ impl ADBTcpDevice {
         control: super::BoundedShellControl,
     ) -> Result<String> {
         super::streamed_install::read_hardware_serial_on_current(&mut self.inner, control)
+    }
+
+    /// Verifies this dedicated connection before any caller-selected operation.
+    pub fn verify_hardware_binding_bounded(
+        &mut self,
+        expected: &str,
+        control: super::BoundedShellControl,
+    ) -> Result<()> {
+        let finish = super::bounded_shell::Finish(control);
+        super::streamed_install::verify_hardware_binding(&mut self.inner, expected, &finish.0)
     }
 
     #[cfg(test)]

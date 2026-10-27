@@ -177,7 +177,8 @@ pub(crate) fn verify_hardware_binding(
     let probe =
         BoundedShellControl::new(control.remaining()?.min(std::time::Duration::from_secs(5)))?;
     let actual = read_hardware_serial_on_current(device, probe)?;
-    if actual.trim() != expected || expected.is_empty() {
+    if actual.trim() != expected || expected.is_empty() || expected.eq_ignore_ascii_case("unknown")
+    {
         return Err(RustADBError::ADBRequestFailed(
             "hardware identity did not match the selected TV; requested operation not started"
                 .into(),

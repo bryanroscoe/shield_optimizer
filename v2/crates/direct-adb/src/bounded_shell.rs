@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use adb_client::tcp::{
-    run_bounded_shell, BoundedShellControl, BoundedShellTermination, SHELL_OUTPUT_LIMIT,
+    run_identity_bound_shell, BoundedShellControl, BoundedShellTermination, SHELL_OUTPUT_LIMIT,
 };
 use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
 use shield_optimizer_core::adb::{AdbError, AdbResult, Lease};
@@ -32,11 +32,17 @@ impl WirelessAdb {
             .parse()
             .map_err(|e| AdbError::Transport(format!("invalid device address: {e}")))?;
         let operation = self.work().map_err(AdbError::Transport)?;
-        let control = BoundedShellControl::new(SHELL_DEADLINE)?;
+        let deadline = tokio::time::Instant::now() + SHELL_DEADLINE;
+        let expected = self
+            .verified_owned_hardware_id(serial, Duration::from_secs(5))
+            .await?;
+        let control = BoundedShellControl::new(
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )?;
         let command = command.to_owned();
         let key = self.key_path.clone();
         run_worker(operation, control, move |control| {
-            let output = run_bounded_shell(address, &key, &command, control)
+            let output = run_identity_bound_shell(address, &key, &command, &expected, control)
                 .map_err(|e| AdbError::Transport(e.to_string()))?;
             Ok(BoundedShellOutput {
                 stdout: bounded_utf8(&output.stdout),
@@ -101,7 +107,7 @@ mod tests {
         let task = tokio::spawn(run_worker(operation, control, move |control| {
             // Required-key failure finishes the watchdog without any network I/O.
             let key = tempfile::tempdir().unwrap();
-            assert!(run_bounded_shell(
+            assert!(adb_client::tcp::run_bounded_shell(
                 "127.0.0.1:0".parse().unwrap(),
                 &key.path().join("missing"),
                 "fixture",
