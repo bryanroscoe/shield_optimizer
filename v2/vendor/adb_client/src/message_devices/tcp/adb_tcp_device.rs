@@ -73,7 +73,7 @@ impl ADBTcpDevice {
     pub fn new_with_required_key_and_control(
         address: SocketAddr,
         key: &Path,
-        control: super::BoundedShellControl,
+        control: &super::BoundedShellControl,
     ) -> Result<Self> {
         let transport = TcpTransport::with_shell_control(address, key, control.clone());
         Ok(Self {
@@ -559,7 +559,7 @@ mod tests {
                     return;
                 }
                 let mut stat = b"STAT".to_vec();
-                for value in [0o100644u32, 1000, 0] {
+                for value in [0o100_644_u32, 1000, 0] {
                     stat.extend_from_slice(&value.to_le_bytes());
                 }
                 send(&mut socket, MessageCommand::Write, local, &stat).unwrap();
@@ -663,7 +663,7 @@ mod tests {
                 send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
             }
             let mut stat = b"STAT".to_vec();
-            for value in [0o100644u32, 3, 0] {
+            for value in [0o100_644_u32, 3, 0] {
                 stat.extend_from_slice(&value.to_le_bytes());
             }
             send(&mut socket, MessageCommand::Write, local, &stat).unwrap();

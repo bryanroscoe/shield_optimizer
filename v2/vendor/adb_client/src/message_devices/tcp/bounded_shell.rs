@@ -159,6 +159,7 @@ impl BoundedShellControl {
     }
 
     /// Whether this operation successfully acquired a socket shutdown handle.
+    #[must_use]
     pub fn was_registered(&self) -> bool {
         self.0.registered.load(std::sync::atomic::Ordering::Acquire)
     }

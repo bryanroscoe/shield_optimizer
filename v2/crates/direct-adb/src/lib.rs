@@ -549,7 +549,7 @@ impl AdbDriver for WirelessAdb {
         let download = crate::bounded_shell::run_worker(operation, control, move |control| {
             control.remaining()?;
             let mut device =
-                ADBTcpDevice::new_with_required_key_and_control(address, &key, control.clone())
+                ADBTcpDevice::new_with_required_key_and_control(address, &key, &control)
                     .map_err(|error| AdbError::Transport(error.to_string()))?;
             let probe = adb_client::tcp::BoundedShellControl::new(
                 control.remaining()?.min(Duration::from_secs(5)),
