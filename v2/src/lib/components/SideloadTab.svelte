@@ -196,7 +196,7 @@
       if (m[0].includes("OLDER_SDK")) return "Needs a newer Android version than this device.";
       return `Install failed (${m[0]}).`;
     }
-    return "Install failed.";
+    return "Installation not confirmed. Check installed apps before retrying.";
   }
 
   function formatBytes(n: number): string {
