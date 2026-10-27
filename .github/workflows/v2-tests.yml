@@ -180,6 +180,10 @@ jobs:
         working-directory: v2
         run: npm run test:remote-paste
 
+      - name: Remote lifecycle
+        working-directory: v2
+        run: npm run test:remote-lifecycle
+
       # Memory-table verdicts must resolve instead of sitting on "Checking".
       # That failure throws and logs nothing; only rendering the table catches it.
       - name: Memory safety verdicts

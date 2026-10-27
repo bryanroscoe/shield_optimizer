@@ -248,6 +248,8 @@ pub fn run() {
             apps::set_app_op,
             apps::get_app_op,
             apps::open_play_store,
+            input::remote_open,
+            input::remote_close,
             input::send_text,
             input::send_key,
             input::open_settings,

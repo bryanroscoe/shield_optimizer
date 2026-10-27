@@ -23,15 +23,99 @@ pub struct SendTextResult {
     pub transport: &'static str,
 }
 
+#[derive(Serialize)]
+pub struct RemoteOpenResult {
+    pub generation: String,
+}
+
+fn parse_generation(generation: Option<&str>) -> Result<Option<u64>, String> {
+    generation
+        .map(|value| {
+            if value.is_empty()
+                || value.len() > 20
+                || value.starts_with('0')
+                || !value.bytes().all(|b| b.is_ascii_digit())
+            {
+                return Err("Invalid Remote session generation.".to_string());
+            }
+            value
+                .parse::<u64>()
+                .map_err(|_| "Invalid Remote session generation.".to_string())
+        })
+        .transpose()
+}
+
+async fn validate_generation(
+    state: &AppState,
+    serial: &str,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    if let Some(generation) = generation {
+        state.validate_remote_generation(serial, generation).await?;
+    }
+    Ok(())
+}
+
+async fn request_generation(
+    state: &AppState,
+    serial: &str,
+    generation: Option<&str>,
+) -> Result<u64, String> {
+    let generation = match parse_generation(generation)? {
+        Some(generation) => generation,
+        None => state.capture_remote_generation(serial).await?,
+    };
+    validate_generation(state, serial, Some(generation)).await?;
+    Ok(generation)
+}
+
+#[tauri::command]
+pub async fn remote_open(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<RemoteOpenResult, String> {
+    if serial.trim().is_empty() || serial.len() > 512 || serial.contains('\0') {
+        return Err("Select a TV before opening Remote.".into());
+    }
+    Ok(RemoteOpenResult {
+        generation: state.begin_remote_generation(&serial).await?.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn remote_close(
+    state: State<'_, AppState>,
+    serial: String,
+    generation: String,
+) -> Result<(), String> {
+    let generation = parse_generation(Some(&generation))?
+        .ok_or_else(|| "A Remote session generation is required.".to_string())?;
+    state.close_remote_generation(&serial, generation).await
+}
+
+async fn close_attempted_generation(state: &AppState, serial: &str, generation: Option<u64>) {
+    if let Some(generation) = generation {
+        if let Err(error) = state.close_remote_generation(serial, generation).await {
+            tracing::warn!(%error, "remote cleanup did not confirm completion");
+        }
+    } else {
+        state.drop_remote_session(serial).await;
+    }
+}
+
 /// Make sure the scrcpy session for `serial` is up (starting it if needed).
 async fn channel_ready<R: tauri::Runtime>(
     state: &AppState,
     app: &tauri::AppHandle<R>,
     serial: &str,
+    generation: Option<u64>,
 ) -> Result<(), String> {
+    validate_generation(state, serial, generation).await?;
     let jar = resolve_scrcpy_server_jar(app)?;
     let adb = state.adb_snapshot().await;
-    state.ensure_remote_session(adb, &jar, serial).await
+    state
+        .ensure_remote_session_for_generation(adb, &jar, serial, generation)
+        .await
 }
 
 #[derive(Serialize)]
@@ -57,13 +141,16 @@ pub async fn remote_warm<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     serial: String,
+    generation: Option<String>,
 ) -> Result<RemoteWarmResult, String> {
-    match channel_ready(&state, &app, &serial).await {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
+    match channel_ready(&state, &app, &serial, generation).await {
         Ok(()) => Ok(RemoteWarmResult {
             transport: "channel",
             message: "Fast remote ready.".to_string(),
         }),
         Err(e) => {
+            validate_generation(&state, &serial, generation).await?;
             tracing::warn!(error = %e, %serial, "remote warm-up unavailable; presses will use input");
             Ok(RemoteWarmResult {
                 transport: "shell",
@@ -149,7 +236,9 @@ pub async fn send_text<R: tauri::Runtime>(
     // Remote tab's "Force compatible mode" escape hatch for devices where the
     // channel starts but misbehaves.
     force_shell: bool,
+    generation: Option<String>,
 ) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
     if text.is_empty() {
         return Ok(SendTextResult {
             ok: false,
@@ -160,9 +249,11 @@ pub async fn send_text<R: tauri::Runtime>(
 
     dispatch_remote_input(
         force_shell,
-        channel_ready(&state, &app, &serial),
+        channel_ready(&state, &app, &serial, generation),
         || async {
-            state.remote_send_text(&serial, &text).await?;
+            state
+                .remote_send_text_for_generation(&serial, &text, generation)
+                .await?;
             Ok(SendTextResult {
                 ok: true,
                 message: format!(
@@ -172,8 +263,8 @@ pub async fn send_text<R: tauri::Runtime>(
                 transport: "channel",
             })
         },
-        || state.drop_remote_session(&serial),
-        || send_compatible_text(&state, &serial, &text),
+        || close_attempted_generation(&state, &serial, generation),
+        || send_compatible_text(&state, &serial, &text, generation),
     )
     .await
 }
@@ -182,6 +273,7 @@ async fn send_compatible_text(
     state: &AppState,
     serial: &str,
     text: &str,
+    generation: Option<u64>,
 ) -> Result<SendTextResult, String> {
     let encoded = match encode_input_text(text) {
         Ok(e) => e,
@@ -194,6 +286,9 @@ async fn send_compatible_text(
         }
     };
     let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
     let out = adb
         .shell(serial, &format!("input text {encoded}"))
         .await
@@ -255,24 +350,28 @@ pub async fn send_key<R: tauri::Runtime>(
     key: String,
     // See `send_text` — forces the slow `input keyevent` path.
     force_shell: bool,
+    generation: Option<String>,
 ) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
     let Some(code) = keycode_for(&key) else {
         return Err(format!("Unknown remote key: {key:?}"));
     };
 
     dispatch_remote_input(
         force_shell,
-        channel_ready(&state, &app, &serial),
+        channel_ready(&state, &app, &serial, generation),
         || async {
-            state.remote_send_key_press(&serial, code).await?;
+            state
+                .remote_send_key_press_for_generation(&serial, code, generation)
+                .await?;
             Ok(SendTextResult {
                 ok: true,
                 message: format!("Sent {key}."),
                 transport: "channel",
             })
         },
-        || state.drop_remote_session(&serial),
-        || send_compatible_key(&state, &serial, &key, code),
+        || close_attempted_generation(&state, &serial, generation),
+        || send_compatible_key(&state, &serial, &key, code, generation),
     )
     .await
 }
@@ -282,8 +381,12 @@ async fn send_compatible_key(
     serial: &str,
     key: &str,
     code: u32,
+    generation: Option<u64>,
 ) -> Result<SendTextResult, String> {
     let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
     let out = adb
         .shell(serial, &format!("input keyevent {code}"))
         .await
@@ -308,10 +411,23 @@ async fn send_compatible_key(
 pub async fn open_settings(
     state: State<'_, AppState>,
     serial: String,
+    generation: Option<String>,
+) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
+    open_settings_impl(&state, &serial, generation).await
+}
+
+async fn open_settings_impl(
+    state: &AppState,
+    serial: &str,
+    generation: Option<u64>,
 ) -> Result<SendTextResult, String> {
     let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
     let out = adb
-        .shell(&serial, "am start -a android.settings.SETTINGS")
+        .shell(serial, "am start -a android.settings.SETTINGS")
         .await
         .map_err(|e| format!("am start: {e}"))?;
     // `am start` prints "Starting: Intent { ... }" on success and an
@@ -333,6 +449,140 @@ pub async fn open_settings(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn generation_tokens_preserve_full_integer_precision_and_reject_invalid_input() {
+        assert_eq!(parse_generation(None).unwrap(), None);
+        assert_eq!(
+            parse_generation(Some("18446744073709551615")).unwrap(),
+            Some(u64::MAX)
+        );
+        for invalid in [
+            "",
+            "0",
+            "01",
+            "-1",
+            "+1",
+            "1.0",
+            " 1",
+            "1e3",
+            "18446744073709551616",
+        ] {
+            assert!(parse_generation(Some(invalid)).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_generation_cannot_reach_compatible_text_keys_or_settings() {
+        let mock = super::super::test_support::MockAdb::default();
+        let shell = mock.shell_log();
+        let raw = mock.raw_log();
+        let state = AppState::new(
+            std::sync::Arc::new(mock),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let old = state.begin_remote_generation("fixture-TV").await.unwrap();
+        let current = state.begin_remote_generation("fixture-TV").await.unwrap();
+        assert_ne!(old, current);
+        assert!(
+            send_compatible_text(&state, "fixture-TV", "text", Some(old))
+                .await
+                .is_err()
+        );
+        assert!(
+            send_compatible_key(&state, "fixture-TV", "home", 3, Some(old))
+                .await
+                .is_err()
+        );
+        assert!(open_settings_impl(&state, "fixture-TV", Some(old))
+            .await
+            .is_err());
+        close_attempted_generation(&state, "fixture-TV", Some(old)).await;
+        assert!(validate_generation(&state, "fixture-TV", Some(current))
+            .await
+            .is_ok());
+        assert!(raw.lock().unwrap().is_empty());
+        assert!(shell.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_request_captures_one_generation_before_startup_and_fallback() {
+        let mock = super::super::test_support::MockAdb::default();
+        let shell = mock.shell_log();
+        let state = AppState::new(
+            std::sync::Arc::new(mock),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let captured = request_generation(&state, "fixture-TV", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            request_generation(&state, "fixture-TV", None)
+                .await
+                .unwrap(),
+            captured
+        );
+        state.drop_remote_session("fixture-TV").await;
+        assert!(
+            send_compatible_key(&state, "fixture-TV", "home", 3, Some(captured))
+                .await
+                .is_err()
+        );
+        assert!(shell.lock().unwrap().is_empty());
+        assert_ne!(
+            request_generation(&state, "fixture-TV", None)
+                .await
+                .unwrap(),
+            captured
+        );
+    }
+
+    struct DisabledNativeDriver;
+
+    #[async_trait::async_trait]
+    impl crate::adb::AdbDriver for DisabledNativeDriver {
+        fn uses_host_server(&self) -> bool {
+            false
+        }
+        async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("disabled native Remote must not start a command")
+        }
+        async fn shell(&self, _: &str, _: &str) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("disabled native Remote must not start a helper")
+        }
+        async fn device_binding(
+            &self,
+            _: &str,
+        ) -> crate::adb::AdbResult<crate::adb::AdbDeviceBinding> {
+            panic!("disabled native Remote must not begin dedicated setup")
+        }
+    }
+
+    #[tokio::test]
+    async fn production_native_fast_remote_remains_disabled_before_any_transport_work() {
+        let driver = std::sync::Arc::new(DisabledNativeDriver);
+        let state = AppState::new(
+            driver.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let generation = state.begin_remote_generation("fixture-TV").await.unwrap();
+        let result = state
+            .ensure_remote_session_for_generation(
+                driver,
+                std::path::Path::new("not-opened"),
+                "fixture-TV",
+                Some(generation),
+            )
+            .await;
+        assert!(result.unwrap_err().contains("lifecycle acceptance gates"));
+        state
+            .close_remote_generation("fixture-TV", generation)
+            .await
+            .unwrap();
+    }
 
     async fn exercise_dispatch(
         forced: bool,

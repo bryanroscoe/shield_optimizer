@@ -164,6 +164,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         apps::set_app_permission,
         apps::set_app_op,
         apps::get_app_op,
+        input::remote_open,
+        input::remote_close,
         input::send_text,
         input::send_key,
         input::open_settings,
