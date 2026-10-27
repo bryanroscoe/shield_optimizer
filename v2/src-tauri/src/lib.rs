@@ -75,11 +75,59 @@ impl AdbDriver for ConfigurationError {
         false
     }
     async fn raw(&self, _args: &[&str]) -> AdbResult<AdbOutput> {
-        Err(AdbError::Transport(self.0.clone()))
+        Err(AdbError::Initialization(self.0.clone()))
     }
     async fn shell(&self, _serial: &str, _command: &str) -> AdbResult<AdbOutput> {
-        Err(AdbError::Transport(self.0.clone()))
+        Err(AdbError::Initialization(self.0.clone()))
     }
+    async fn discover_network(
+        &self,
+    ) -> AdbResult<shield_optimizer_core::adb::NativeDiscoveryReport> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn pull_limited(&self, _: &str, _: &str, _: &std::path::Path, _: u64) -> AdbResult<()> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn shell_bounded(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> AdbResult<shield_optimizer_core::adb::BoundedShellOutput> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn raw_bytes(&self, _: &[&str]) -> AdbResult<Vec<u8>> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn device_binding(
+        &self,
+        _: &str,
+    ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn open_bound_device_service(
+        &self,
+        _: &shield_optimizer_core::adb::AdbDeviceBinding,
+        _: &str,
+        _: std::time::Duration,
+    ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn open_device_service(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> AdbResult<Box<dyn shield_optimizer_core::adb::AdbByteStream>> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+    async fn spawn(&self, _: &[&str]) -> AdbResult<shield_optimizer_core::adb::TrackedChild> {
+        Err(AdbError::Initialization(self.0.clone()))
+    }
+}
+
+#[cfg(feature = "direct-adb")]
+fn identity_app_data(root: Option<PathBuf>) -> Result<PathBuf, String> {
+    root.map(|path| path.join("ShieldOptimizer")).ok_or_else(||
+        "Rust ADB could not find the app storage folder. Reopen the app after restoring access to your user profile. Existing identities were not replaced.".to_string())
 }
 
 fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
@@ -91,9 +139,17 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
         Ok(adb::selection::TransportSelection::Direct) => {
             #[cfg(feature = "direct-adb")]
             {
-                match std::env::var_os("SHIELD_OPTIMIZER_DIRECT_KEY").map(PathBuf::from).filter(|path| path.is_file()) {
-                    Some(key) => Arc::new(adb::direct::DirectNetworkAdb::new(key)),
-                    None => Arc::new(ConfigurationError("Experimental direct ADB requires SHIELD_OPTIMIZER_DIRECT_KEY pointing to an existing app-owned PKCS#8 PEM identity. No identity was created and no platform-tools fallback was performed.".into())),
+                let identity = match std::env::var_os("SHIELD_OPTIMIZER_DIRECT_KEY") {
+                    Some(path) => {
+                        let path = PathBuf::from(path);
+                        adb::identity::validate_existing_identity(&path).map(|()| path)
+                    }
+                    None => identity_app_data(dirs::data_local_dir())
+                        .and_then(|root| adb::identity::ensure_app_identity(&root)),
+                };
+                match identity {
+                    Ok(key) => Arc::new(adb::direct::DirectNetworkAdb::new(key)),
+                    Err(message) => Arc::new(ConfigurationError(format!("Rust ADB setup could not finish. Check app storage access and reopen the app. Existing identities were not replaced. Details: {message}"))),
                 }
             }
             #[cfg(not(feature = "direct-adb"))]
@@ -269,4 +325,95 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod initialization_tests {
+    use super::*;
+
+    #[cfg(feature = "direct-adb")]
+    #[test]
+    fn missing_app_data_never_falls_back_to_the_working_directory() {
+        assert!(identity_app_data(None).is_err());
+        assert_eq!(
+            identity_app_data(Some(std::path::PathBuf::from("/fixture-profile"))).unwrap(),
+            std::path::PathBuf::from("/fixture-profile/ShieldOptimizer")
+        );
+    }
+
+    #[tokio::test]
+    async fn initialization_failure_is_preserved_across_native_operations() {
+        let driver = ConfigurationError("Rust ADB setup could not save its identity. Check app storage access and reopen the app. Existing identities were not replaced.".into());
+        let expected = driver.0.clone();
+        let binding = shield_optimizer_core::adb::AdbDeviceBinding {
+            serial: "fixture".into(),
+            hardware_id: "fixture-id".into(),
+        };
+        assert!(!driver.uses_host_server());
+        assert_eq!(
+            driver.raw(&["devices"]).await.unwrap_err().to_string(),
+            expected
+        );
+        assert_eq!(
+            driver
+                .raw_transfer(&["push"])
+                .await
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
+        assert_eq!(
+            driver
+                .shell("fixture", "ignored")
+                .await
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
+        assert_eq!(
+            driver.discover_network().await.unwrap_err().to_string(),
+            expected
+        );
+        assert_eq!(
+            driver
+                .pull_limited("fixture", "ignored", std::path::Path::new("not-created"), 1)
+                .await
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
+        assert_eq!(
+            driver
+                .shell_bounded("fixture", "ignored")
+                .await
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
+        assert_eq!(
+            driver.raw_bytes(&[]).await.unwrap_err().to_string(),
+            expected
+        );
+        assert_eq!(
+            driver
+                .device_binding("fixture")
+                .await
+                .unwrap_err()
+                .to_string(),
+            expected
+        );
+        assert!(
+            matches!(driver.open_device_service("fixture", "ignored").await, Err(AdbError::Initialization(message)) if message == driver.0)
+        );
+        assert!(
+            matches!(driver.open_bound_device_service(&binding, "ignored", std::time::Duration::from_secs(1)).await, Err(AdbError::Initialization(message)) if message == driver.0)
+        );
+        assert!(
+            matches!(driver.spawn(&[]).await, Err(AdbError::Initialization(message)) if message == driver.0)
+        );
+        assert!(matches!(
+            driver.stop_server(std::time::Duration::from_secs(1)).await,
+            shield_optimizer_core::adb::ServerStop::Skipped(_)
+        ));
+    }
 }

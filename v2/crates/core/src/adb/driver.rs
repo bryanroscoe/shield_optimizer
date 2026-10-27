@@ -60,6 +60,8 @@ pub enum AdbError {
     DeviceNotReady { serial: String, state: String },
     #[error("transport error: {0}")]
     Transport(String),
+    #[error("{0}")]
+    Initialization(String),
     #[error("ADB operation unsupported by this driver: {operation}")]
     Unsupported { operation: &'static str },
     #[error("{operation} was explicitly rejected by the device")]

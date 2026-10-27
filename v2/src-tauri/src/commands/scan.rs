@@ -290,7 +290,10 @@ async fn scan_network_impl(state: &AppState) -> Result<ScanResult, String> {
         let native_discovery = selected
             .discover_network()
             .await
-            .map_err(|error| format!("Native discovery: {error}. Use Add by IP or Pair PIN."))?;
+            .map_err(|error| match error {
+                crate::adb::AdbError::Initialization(_) => error.to_string(),
+                _ => format!("Native discovery: {error}. Use Add by IP or Pair PIN."),
+            })?;
         return Ok(ScanResult {
             subnet: None,
             found: Vec::new(),
@@ -1159,5 +1162,23 @@ mod tests {
         assert!(error.contains("simulated multicast unavailable"));
         assert!(error.contains("Add by IP or Pair PIN"));
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+    #[tokio::test]
+    async fn blocked_initialization_is_not_reported_as_unsupported_discovery() {
+        let state = AppState::new(
+            std::sync::Arc::new(crate::ConfigurationError(
+                "Rust ADB setup failed; existing identity preserved.".into(),
+            )),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("unused-initialization-fixture"),
+        );
+        let message = scan_network_impl(&state)
+            .await
+            .err()
+            .expect("initialization must fail");
+        assert!(message.contains("Rust ADB setup failed"));
+        assert!(!message.contains("unsupported"));
+        assert!(!message.contains("Use Add by IP"));
+        assert!(!message.contains("Pair PIN"));
     }
 }

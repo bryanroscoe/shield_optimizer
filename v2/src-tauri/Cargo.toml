@@ -80,3 +80,6 @@ tempfile = "3"
 # `start_paused` — lets the reconnect-backoff tests advance time instantly
 # instead of really sleeping through it.
 tokio = { version = "1", features = ["test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

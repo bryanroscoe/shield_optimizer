@@ -26,6 +26,16 @@ processing or deletion. Process/runtime termination can still leave helper files
 Android generic identity binding and finite stream lifetime require runtime
 acceptance; desktop cancellation fixtures do not establish Android parity.
 
+## First-run identity implementation
+
+Unix Rust-mode startup now resolves the standard app data folder without a
+working-directory fallback, validates an existing app-owned identity or publishes
+a complete new identity without overwriting a concurrent winner. Storage uses a
+private directory and file, refuses unsafe or corrupt existing entries, and never
+imports standard ADB keys. Fixture tests do not run production generation.
+Windows secure storage remains unsupported and fails explicitly. Actual persistent
+identity creation and first-run authorization have not been executed or approved.
+
 ## Minimal approvals for physical acceptance
 
 1. Name the permitted Mac/Windows/Linux packaged builds, TV models/firmware and

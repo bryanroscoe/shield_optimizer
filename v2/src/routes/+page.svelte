@@ -73,6 +73,8 @@
 
   // Triggers the install-platform-tools button rather than a generic error pane.
   let adbMissing = $state(false);
+  let backendUnavailable = $state(false);
+  const directUnavailable = $derived(adbBackend === "direct" && backendUnavailable);
   let installBusy = $state(false);
   let installMessage = $state("");
 
@@ -84,9 +86,12 @@
       // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
       adbBackend = status.backend ?? null;
+      backendUnavailable = !status.available;
       if (!status.available) {
         adbMissing = adbBackend === "subprocess";
         devices = [];
+        nativeDiscovery = null;
+        scanMessage = "";
         if (!adbMissing) error = status.last_probe ?? "The selected ADB backend is unavailable.";
         return;
       }
@@ -133,7 +138,7 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (!address || nativePairNeedsPort) return;
+    if (directUnavailable || !address || nativePairNeedsPort) return;
     connectBusy = true;
     connectMessage = "";
     connectDetail = "";
@@ -212,6 +217,7 @@
   }
 
   async function scan() {
+    if (directUnavailable) return;
     if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
     scanMessage = adbBackend === "direct" ? "Discovering advertised services…" : "Scanning local network…";
@@ -417,7 +423,7 @@
   }
 
   async function useNativeAdvertisement(advertisement: NativeAdvertisement) {
-    if (scanBusy || connectBusy || pairBusy || pairStage === "waiting" || !advertisement.connect_address || advertisement.cached || !nativeDiscovery
+    if (directUnavailable || scanBusy || connectBusy || pairBusy || pairStage === "waiting" || !advertisement.connect_address || advertisement.cached || !nativeDiscovery
       || advertisement.observed_age_ms + Math.max(0, performance.now() - discoveryReceivedAt) >= nativeDiscovery.observation_max_age_ms) return;
     cancelPairWait(false);
     pairStage = "idle";
@@ -459,6 +465,7 @@
   });
 
   async function pair() {
+    if (directUnavailable) return;
     const address = pairAddress.trim();
     if (!address || pairPin.length !== 6) return;
     cancelPairWait(false);
@@ -799,7 +806,7 @@
     </p>
   </div>
   <div class="header-actions">
-    <button onclick={scan} disabled={scanBusy || adbMissing || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title={adbBackend === "direct" ? "Discover advertised services without connecting" : adbBackend === "subprocess" ? "Scan the local /24 subnet for ADB-listening devices" : "Scan using the selected backend"}>
+    <button onclick={scan} disabled={scanBusy || adbMissing || directUnavailable || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title={adbBackend === "direct" ? "Discover advertised services without connecting" : adbBackend === "subprocess" ? "Scan the local /24 subnet for ADB-listening devices" : "Scan using the selected backend"}>
       <Icon name="wifi_tethering" size={16} /> {scanBusy ? "Scanning…" : "Scan LAN"}
     </button>
     <button onclick={refresh} disabled={loading} title="Re-read the list of connected devices">
@@ -818,13 +825,13 @@
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim() || nativePairNeedsPort}>
+  <button class="primary" onclick={connect} disabled={directUnavailable || connectBusy || !connectAddress.trim() || nativePairNeedsPort}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
-  <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
+  <button onclick={togglePair} disabled={adbMissing || directUnavailable} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
-  <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
+  <button onclick={restartAdb} disabled={restartBusy || adbMissing || directUnavailable} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
   <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
@@ -842,7 +849,7 @@
       <span class="quit-checking">checking…</span>
     {/if}
   </label>
-  <button onclick={reportAll} disabled={reportBusy || adbMissing} title="Run a health report against every connected device">
+  <button onclick={reportAll} disabled={reportBusy || adbMissing || directUnavailable} title="Run a health report against every connected device">
     {reportBusy ? "Reporting…" : "Report All"}
   </button>
   {#if pairNextStep}
@@ -998,7 +1005,7 @@
     {/if}
   </div>
 {:else if error}
-  <div class="error">Failed to list devices: {error}</div>
+  <div class="error" role="alert">{directUnavailable ? "Rust ADB unavailable" : "Failed to list devices"}: {error}</div>
 {:else if loading && devices.length === 0}
   <div class="muted">Looking for devices…</div>
 {:else if devices.length === 0}
@@ -1235,7 +1242,7 @@
   </ul>
 {/if}
 
-{#if !adbMissing}
+{#if !adbMissing && !directUnavailable}
   <div class="callout devices-note">
     <Icon name="info" size={16} />
     <span>

@@ -1,3 +1,30 @@
+/// Validates existing identity bytes without generating, replacing, or logging secret material.
+pub fn validate_identity_pem(bytes: &[u8]) -> Result<(), String> {
+    use rsa::{pkcs8::DecodePrivateKey, traits::PublicKeyParts};
+    if bytes.len() > 32768 {
+        return Err("Identity exceeds the PKCS#8 size limit.".into());
+    }
+    let text =
+        std::str::from_utf8(bytes).map_err(|_| "Identity must be UTF-8 PKCS#8 PEM.".to_owned())?;
+    let key = rsa::RsaPrivateKey::from_pkcs8_pem(text)
+        .map_err(|_| "Identity must be RSA PKCS#8 PEM.".to_owned())?;
+    if key.n().bits() != 2048 {
+        return Err("ADB identity must be RSA 2048-bit.".into());
+    }
+    key.validate()
+        .map_err(|_| "RSA identity validation failed.".to_owned())?;
+    Ok(())
+}
+/// Generates bytes for a new app-owned identity; callers must publish them without replacing existing files.
+pub fn generate_identity_pem() -> Result<Vec<u8>, String> {
+    use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+    let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048)
+        .map_err(|_| "RSA identity generation failed.".to_owned())?;
+    key.to_pkcs8_pem(LineEnding::LF)
+        .map(|pem| pem.as_bytes().to_vec())
+        .map_err(|_| "PKCS#8 encoding failed.".to_owned())
+}
+
 mod bound_service;
 mod bounded_shell;
 mod limited_writer;
