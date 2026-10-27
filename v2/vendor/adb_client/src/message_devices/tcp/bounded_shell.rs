@@ -13,6 +13,7 @@ use super::tcp_transport::TcpTransport;
 
 /// Maximum retained bytes in each output stream.
 pub const SHELL_OUTPUT_LIMIT: usize = 256 * 1024;
+const CLOSE_STDIN_PACKET: [u8; 5] = [4, 0, 0, 0, 0];
 
 /// Why a bounded shell command stopped collecting output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,6 +234,8 @@ where
         let session =
             device.open_bounded_shell_service(&format!("shell,v2,raw:{command}"), remaining)?;
         let mut stream = ADBService::new(session, remaining, remaining.min(Duration::from_secs(2)));
+        // Match null stdin without buffering output while waiting for its ACK.
+        stream.write_final(&CLOSE_STDIN_PACKET)?;
         collect_v2(&mut stream, control, &mut output)?;
         Ok(())
     })();
@@ -390,6 +393,13 @@ mod tests {
     where
         F: FnOnce(&mut TcpStream, u32) + Send + 'static,
     {
+        server_with_stdin_ack(true, run)
+    }
+
+    fn server_with_stdin_ack<F>(acknowledge: bool, run: F) -> (SocketAddr, JoinHandle<()>)
+    where
+        F: FnOnce(&mut TcpStream, u32) + Send + 'static,
+    {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let thread = std::thread::spawn(move || {
@@ -417,6 +427,16 @@ mod tests {
             assert!(open.payload().starts_with(b"shell,v2,raw:"));
             let local = open.header().arg0();
             send(&mut socket, MessageCommand::Okay, 7, local, &[]).unwrap();
+            let close_stdin = read_message(&mut socket).unwrap();
+            assert_eq!(close_stdin.header().command(), MessageCommand::Write);
+            assert_eq!(
+                close_stdin.payload(),
+                &[4, 0, 0, 0, 0],
+                "non-interactive bounded commands see stdin EOF before output"
+            );
+            if acknowledge {
+                send(&mut socket, MessageCommand::Okay, 7, local, &[]).unwrap();
+            }
             run(&mut socket, local);
         });
         (address, thread)
@@ -424,7 +444,7 @@ mod tests {
 
     #[test]
     fn bounded_shell_keeps_both_streams_and_nonzero_exit() {
-        let (address, server) = server(|socket, local| {
+        let (address, server) = server_with_stdin_ack(false, |socket, local| {
             write_packet(socket, local, &packet(1, b"stdout")).unwrap();
             write_packet(socket, local, &packet(2, b"stderr")).unwrap();
             write_packet(socket, local, &packet(3, &[7])).unwrap();
@@ -446,7 +466,7 @@ mod tests {
     #[test]
     fn bounded_shell_caps_either_stream_while_output_is_continuous() {
         for channel in [1, 2] {
-            let (address, server) = server(move |socket, local| {
+            let (address, server) = server_with_stdin_ack(channel == 1, move |socket, local| {
                 write_packet(socket, local, &packet(3 - channel, b"other stream")).unwrap();
                 while write_packet(socket, local, &packet(channel, &[b'x'; 8192])).is_ok() {}
             });

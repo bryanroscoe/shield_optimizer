@@ -104,6 +104,7 @@ pub(crate) struct ADBService<T: ADBMessageTransport> {
     closed: bool,
     read_timeout: Duration,
     write_timeout: Duration,
+    final_write_ack_pending: bool,
 }
 
 impl<T: ADBMessageTransport> ADBService<T> {
@@ -118,6 +119,7 @@ impl<T: ADBMessageTransport> ADBService<T> {
             closed: false,
             read_timeout,
             write_timeout,
+            final_write_ack_pending: false,
         }
     }
 
@@ -200,6 +202,24 @@ impl<T: ADBMessageTransport> ADBService<T> {
         Ok(())
     }
 
+    pub(crate) fn write_final(&mut self, payload: &[u8]) -> std::io::Result<()> {
+        if self.closed || self.final_write_ack_pending {
+            return Err(Error::new(
+                ErrorKind::BrokenPipe,
+                "ADB final write is unavailable",
+            ));
+        }
+        if payload.len() > MAX_MESSAGE_PAYLOAD {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "ADB final write is too large",
+            ));
+        }
+        self.send(MessageCommand::Write, payload)?;
+        self.final_write_ack_pending = true;
+        Ok(())
+    }
+
     const fn mark_peer_closed(&mut self) {
         // ADB protocol.txt explicitly says the recipient must not reply to
         // CLSE. Any pending local WRTE or CLSE is simply abandoned.
@@ -247,6 +267,9 @@ impl<T: ADBMessageTransport> Read for ADBService<T> {
                     if !self.pending.is_empty() {
                         return Ok(self.drain_pending(buf));
                     }
+                }
+                MessageCommand::Okay if self.final_write_ack_pending => {
+                    self.final_write_ack_pending = false;
                 }
                 MessageCommand::Clse => {
                     self.mark_peer_closed();
