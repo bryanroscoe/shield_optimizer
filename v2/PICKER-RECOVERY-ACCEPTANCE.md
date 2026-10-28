@@ -67,3 +67,29 @@ Real network discovery, TV authorization/connection, firmware-specific Home
 recovery and cross-platform packaged acceptance remain separate gates. No
 launcher mutation, helper upload, APK installation or server reset is part of
 this local launch.
+
+## Compact picker follow-up
+
+The first mobile-style adaptation introduced an auto-fit two-column grid. That
+was a layout choice, not a transport requirement. Discovery now uses one compact
+full-width row per service, with optional details expanded below the row.
+
+The screenshot's expired rows reproduced the 30-second action lockout. Fresh
+rows connect through the normal selected native driver. Locally expired choices
+with a usable endpoint offer Refresh & connect (or Refresh & pair); backend-cached
+rows without an endpoint require Scan again. Only an exact newly observed service,
+endpoint, interface and IPv6 scope can proceed. A different address, failed
+refresh, changed backend or cancellation cannot silently connect the old choice.
+This does not establish the cause of any physical connection failure.
+
+Desktop names are retained locally for up to 64 verified hardware identities.
+Unidentified/offline transports and advertisements never inherit a name by IP or
+service label. The separate remembered list has timestamps and local alias/forget
+controls, no stored endpoint and no connect action. Forgetting a name does not
+disconnect a TV or prevent a later verified observation from being remembered.
+No historical names are invented for devices that this feature has never read.
+
+The Mac test bundle uses a supported isolated persistent WebKit data store on
+macOS 14+, rather than an incognito store, so saved names can survive relaunch
+without sharing the installed app's browser preferences. Normal product windows
+already use persistent webview storage. This is not identity/key configuration.

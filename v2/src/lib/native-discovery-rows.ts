@@ -37,9 +37,22 @@ export function buildNativeDiscoveryRows(advertisements: NativeAdvertisement[]):
 }
 
 export function discoveryAddressUsable(row: NativeAdvertisement, age: number, maxAge: number): boolean {
-  if (row.cached || !row.connect_address || row.observed_age_ms + Math.max(0, age) >= maxAge) return false;
+  if (row.cached || row.observed_age_ms + Math.max(0, age) >= maxAge) return false;
+  return discoveryEndpointUsable(row);
+}
+
+export function discoveryEndpointUsable(row: NativeAdvertisement): boolean {
+  if (!row.connect_address) return false;
   if (/^fe[89ab][\da-f]:/i.test(row.address)) {
     return Number.isInteger(row.scope_id) && (row.scope_id ?? 0) > 0 && row.connect_address.includes(`%${row.scope_id}]`);
   }
   return true;
+}
+
+export function refreshedDiscoveryChoice(selected: NativeAdvertisement, report: import('./types').NativeDiscoveryReport): NativeAdvertisement | undefined {
+  return report.advertisements.find(row =>
+    row.service_kind === selected.service_kind && row.instance.toLowerCase() === selected.instance.toLowerCase()
+    && row.connect_address === selected.connect_address && row.port === selected.port
+    && row.interface_index === selected.interface_index && row.interface_name === selected.interface_name
+    && row.scope_id === selected.scope_id && discoveryAddressUsable(row, 0, report.observation_max_age_ms));
 }

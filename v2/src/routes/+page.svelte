@@ -6,13 +6,51 @@
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
+  import { readRememberedDevices, writeRememberedDevices, updateRememberedDevices, verifiedDeviceHardwareId, rememberedDeviceLabel, renameRememberedDevice, forgetRememberedDevice, type RememberedDevice } from "$lib/remembered-devices";
   import Icon from "$lib/components/Icon.svelte";
+  import { discoveryAddressUsable, discoveryEndpointUsable, refreshedDiscoveryChoice } from "$lib/native-discovery-rows";
   import NativeDiscovery from "$lib/components/NativeDiscovery.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
   import { openContextMenu, type MenuItem } from "$lib/contextmenu";
 
   let devices = $state<Device[]>([]);
+  let remembered = $state<RememberedDevice[]>([]);
+  let historyWarning = $state("");
+  let editingRememberedId = $state<string | null>(null);
+  let rememberedAlias = $state("");
+  let rememberedOpen = $state(false);
+  let rememberedRenameButtonId = "";
+  let rememberedSummary = $state<HTMLElement>();
+  function persistRemembered() {
+    historyWarning = writeRememberedDevices(remembered) ? "" : "Saved names could not be written on this Mac. They are available in this window only.";
+  }
+  function displayDeviceName(device: Device): string {
+    const id = verifiedDeviceHardwareId(device);
+    const saved = id && remembered.find(row => row.hardwareId === id);
+    return saved ? rememberedDeviceLabel(saved) : device.name;
+  }
+  async function beginRememberedRename(saved: RememberedDevice, buttonId: string) {
+    rememberedRenameButtonId = buttonId;
+    editingRememberedId = saved.hardwareId;
+    rememberedAlias = saved.alias ?? "";
+    await tick(); document.getElementById("remembered-name-input")?.focus();
+  }
+  async function finishRememberedRename(save: boolean) {
+    if (save && editingRememberedId) {
+      remembered = renameRememberedDevice(remembered, editingRememberedId, rememberedAlias);
+      persistRemembered();
+    }
+    editingRememberedId = null;
+    await tick();
+    document.getElementById(rememberedRenameButtonId)?.focus();
+  }
+  async function forgetRememberedName(id: string) {
+    remembered = forgetRememberedDevice(remembered, id);
+    persistRemembered();
+    await tick();
+    if (rememberedSummary) rememberedSummary.focus(); else connectInput?.focus();
+  }
 
   /// Sort priority: authorized first (status === "device"), then unauthorized
   /// (the user can act on them via the inline guidance), then offline. Tiebreak
@@ -23,7 +61,7 @@
       const sa = STATUS_ORDER[a.status] ?? 9;
       const sb = STATUS_ORDER[b.status] ?? 9;
       if (sa !== sb) return sa - sb;
-      return a.name.localeCompare(b.name);
+      return displayDeviceName(a).localeCompare(displayDeviceName(b));
     }),
   );
   let loading = $state(true);
@@ -40,6 +78,10 @@
   let adbBackend = $state<"direct" | "subprocess" | null>(null);
   let nativeDiscovery = $state<NativeDiscoveryReport | null>(null);
   let discoveryReceivedAt = $state(0);
+  let nativeChoiceBusy = $state(false);
+  let nativeChoiceAddress = $state<string | null>(null);
+  let nativeChoiceCancelled = $state(false);
+  let nativeChoiceToken = 0;
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -97,6 +139,8 @@
       }
       adbMissing = false;
       devices = await api.listDevices();
+      remembered = updateRememberedDevices(remembered, devices);
+      persistRemembered();
     } catch (e) {
       error = String(e);
     } finally {
@@ -138,7 +182,7 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (connectBusy || directUnavailable || !address || nativePairNeedsPort) return;
+    if (nativeChoiceBusy || connectBusy || directUnavailable || !address || nativePairNeedsPort) return;
     connectBusy = true;
     connectMessage = "";
     connectDetail = "";
@@ -217,7 +261,7 @@
   }
 
   async function scan() {
-    if (directUnavailable) return;
+    if (directUnavailable || nativeChoiceBusy || (adbBackend === "direct" && (connectBusy || pairBusy || pairStage === "waiting"))) return;
     if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
     scanMessage = adbBackend === "direct" ? "Discovering advertised services…" : "Scanning local network…";
@@ -422,23 +466,67 @@
     pairDetail = explained.summary ? explained.raw : "";
   }
 
-  async function useNativeAdvertisement(advertisement: NativeAdvertisement) {
-    if (directUnavailable || scanBusy || connectBusy || pairBusy || pairStage === "waiting" || !advertisement.connect_address || advertisement.cached || !nativeDiscovery
-      || advertisement.observed_age_ms + Math.max(0, performance.now() - discoveryReceivedAt) >= nativeDiscovery.observation_max_age_ms) return;
-    cancelPairWait(false);
-    pairStage = "idle";
-    pairMessage = "";
-    pairDetail = "";
-    pairNextStep = false;
-    if (advertisement.service_kind === "tls_pairing") {
-      pairAddress = advertisement.connect_address;
-      pairPin = "";
-      await openPairPanel();
-    } else {
-      pairOpen = false;
+  function cancelNativeChoice() {
+    nativeChoiceToken++;
+    nativeChoiceCancelled = true;
+    connectMessage = "Connection cancelled. Discovery will finish without connecting.";
+  }
+
+  async function useNativeAdvertisement(selected: NativeAdvertisement) {
+    if (adbBackend !== "direct" || directUnavailable || scanBusy || nativeChoiceBusy || connectBusy || pairBusy || pairStage === "waiting" || !discoveryEndpointUsable(selected) || !nativeDiscovery) return;
+    const token = ++nativeChoiceToken;
+    nativeChoiceBusy = true;
+    nativeChoiceCancelled = false;
+    connectMessage = "";
+    connectDetail = "";
+    let advertisement = selected;
+    try {
+      if (!discoveryAddressUsable(selected, performance.now() - discoveryReceivedAt, nativeDiscovery.observation_max_age_ms)) {
+        nativeChoiceAddress = selected.connect_address;
+        scanBusy = true;
+        const result = await api.scanNetwork();
+        nativeDiscovery = result.native_discovery ?? null;
+        discoveryReceivedAt = performance.now();
+        scanMessage = "";
+        if (token !== nativeChoiceToken) return;
+        const refreshed = nativeDiscovery && refreshedDiscoveryChoice(selected, nativeDiscovery);
+        if (!refreshed) {
+          connectMessage = "This address was not seen again. Choose a current result or use Add by IP.";
+          return;
+        }
+        advertisement = refreshed;
+      }
+      if (token !== nativeChoiceToken) return;
+      if (adbBackend !== "direct" || directUnavailable) {
+        connectMessage = "Connection cancelled because the ADB backend changed or became unavailable. Scan again before connecting.";
+        return;
+      }
+      cancelPairWait(false);
+      pairStage = "idle";
+      pairMessage = "";
+      pairDetail = "";
       pairNextStep = false;
-      connectAddress = advertisement.connect_address;
-      await connect();
+      nativeChoiceAddress = null;
+      nativeChoiceBusy = false;
+      scanBusy = false;
+      if (advertisement.service_kind === "tls_pairing") {
+        pairAddress = advertisement.connect_address!;
+        pairPin = "";
+        await openPairPanel();
+      } else {
+        pairOpen = false;
+        connectAddress = advertisement.connect_address!;
+        await connect();
+      }
+    } catch (e) {
+      if (token === nativeChoiceToken) {
+        connectMessage = `Couldn't refresh this address: ${String(e)}. Scan again or use Add by IP.`;
+        if (nativeDiscovery) nativeDiscovery = { ...nativeDiscovery, advertisements: nativeDiscovery.advertisements.map(row => ({ ...row, cached: true })) };
+      }
+    } finally {
+      nativeChoiceBusy = false;
+      nativeChoiceAddress = null;
+      scanBusy = false;
     }
   }
 
@@ -464,7 +552,7 @@
   });
 
   async function pair() {
-    if (directUnavailable) return;
+    if (nativeChoiceBusy || directUnavailable) return;
     const address = pairAddress.trim();
     if (!address || pairPin.length !== 6) return;
     cancelPairWait(false);
@@ -633,11 +721,13 @@
   }
 
   function togglePair() {
+    if (nativeChoiceBusy) return;
     if (pairOpen) cancelPairWait(false);
     pairOpen = !pairOpen;
   }
 
   async function openPairPanel() {
+    if (nativeChoiceBusy) return;
     pairOpen = true;
     await tick();
     const input = document.querySelector<HTMLInputElement>(".pair-form input");
@@ -659,6 +749,7 @@
   }
 
   async function restartAdb() {
+    if (nativeChoiceBusy || connectBusy) return;
     if (!confirm("Restart the ADB server? All current device connections will reconnect.")) return;
     restartBusy = true;
     restartMessage = "";
@@ -780,11 +871,14 @@
   }
 
   onMount(() => {
+    remembered = readRememberedDevices();
+    rememberedOpen = remembered.length > 0;
     void bootDiscovery();
     void refreshStopOnQuit();
     return () => {
       pairWaitToken++;
       reattachToken++;
+      nativeChoiceToken++;
     };
   });
 </script>
@@ -800,7 +894,7 @@
       {:else if devices.length === 0}
         no TV connected
       {:else}
-        {devices.length} connected · {devices.filter((d) => d.status === "device").length} ready
+        {devices.length} listed · {devices.filter((d) => d.status === "device").length} ready
       {/if}
     </p>
   </div>
@@ -824,13 +918,13 @@
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={directUnavailable || connectBusy || !connectAddress.trim() || nativePairNeedsPort}>
+  <button class="primary" onclick={connect} disabled={directUnavailable || nativeChoiceBusy || connectBusy || !connectAddress.trim() || nativePairNeedsPort}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
-  <button onclick={togglePair} disabled={adbMissing || directUnavailable} title="PIN pairing, for a device that only offers Wireless debugging">
+  <button onclick={togglePair} disabled={nativeChoiceBusy || adbMissing || directUnavailable} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
-  <button onclick={restartAdb} disabled={restartBusy || adbMissing || directUnavailable} title="adb kill-server then start-server">
+  <button onclick={restartAdb} disabled={nativeChoiceBusy || connectBusy || restartBusy || adbMissing || directUnavailable} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
   <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
@@ -881,8 +975,33 @@
   {/if}
 </section>
 
+{#if remembered.length}
+  <details class="remembered-devices" bind:open={rememberedOpen}>
+    <summary bind:this={rememberedSummary}>Remembered devices ({remembered.length})</summary>
+    {#if rememberedOpen}
+    <p class="muted small">Names saved on this Mac. Use a current discovery or Add by IP to connect; old addresses are not reused.</p>
+    <ul>
+      {#each remembered as saved (saved.hardwareId)}
+        <li>
+          <div><strong>{rememberedDeviceLabel(saved)}</strong> <span class="muted small">{saved.model}</span><br /><span class="muted small">{devices.some(device => verifiedDeviceHardwareId(device) === saved.hardwareId) ? 'Connected now' : `Last connected ${new Date(saved.lastSeen).toLocaleString()}`}</span></div>
+          {#if editingRememberedId === saved.hardwareId}
+            <form onsubmit={(event) => { event.preventDefault(); void finishRememberedRename(true); }}>
+              <label>Name on this Mac <input id="remembered-name-input" aria-label="Name on this Mac" maxlength="64" bind:value={rememberedAlias} /></label>
+              <button type="submit">Save name</button><button type="button" onclick={() => finishRememberedRename(false)}>Cancel rename</button>
+            </form>
+          {:else}
+            <div class="remembered-actions"><button id={`remembered-rename-${encodeURIComponent(saved.hardwareId)}`} onclick={(event) => beginRememberedRename(saved, event.currentTarget.id)}>Rename locally</button><button onclick={() => forgetRememberedName(saved.hardwareId)} aria-label={`Forget saved name ${rememberedDeviceLabel(saved)}`}>Forget name</button></div>
+          {/if}
+        </li>
+      {/each}
+    </ul>
+    {/if}
+  </details>
+{/if}
+{#if historyWarning}<p class="warning small" role="status">{historyWarning}</p>{/if}
+
 {#if nativeDiscovery || (adbBackend === "direct" && scanBusy)}
-  <NativeDiscovery report={nativeDiscovery} receivedAt={discoveryReceivedAt} scanning={scanBusy} connectingAddress={connectBusy ? connectAddress : null} busy={scanBusy || connectBusy || pairBusy || pairStage === "waiting"} onChoose={useNativeAdvertisement} />
+  <NativeDiscovery report={nativeDiscovery} receivedAt={discoveryReceivedAt} scanning={scanBusy} connectingAddress={connectBusy ? connectAddress : null} busy={scanBusy || nativeChoiceBusy || connectBusy || pairBusy || pairStage === "waiting"} refreshingAddress={nativeChoiceAddress} cancelling={nativeChoiceCancelled} onCancelRefresh={cancelNativeChoice} onChoose={useNativeAdvertisement} />
 {/if}
 
 {#if pairOpen}
@@ -1035,7 +1154,7 @@
             </span>
             <div class="device-main">
               <div class="device-name">
-                <span>{d.name}</span>
+                <span>{displayDeviceName(d)}</span>
                 <!-- Whether it is reachable belongs with the name, not at the
                      far edge: it qualifies the device. -->
                 <span class="device-status online">
@@ -1114,7 +1233,7 @@
             </span>
             <div class="device-main">
               <div class="device-name">
-                <span>{d.name}</span>
+                <span>{displayDeviceName(d)}</span>
                 {#if d.status === "unauthorized"}
                   <span class="status-tag unauthorized">UNAUTHORIZED</span>
                 {:else if d.status === "offline"}
@@ -1257,6 +1376,13 @@
 {/if}
 
 <style>
+  .remembered-devices { margin:1rem 0; border:1px solid var(--border); border-radius:var(--radius-md); padding:.7rem .85rem; }
+  .remembered-devices summary { cursor:pointer; width:fit-content; }
+  .remembered-devices ul { list-style:none; padding:0; margin:.6rem 0 0; }
+  .remembered-devices li { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.6rem; padding:.6rem 0; border-top:1px solid var(--border); }
+  .remembered-actions,.remembered-devices form { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+  .remembered-devices input { max-width:100%; }
+
   .header-row {
     display: flex;
     align-items: center;

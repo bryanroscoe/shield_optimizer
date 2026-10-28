@@ -30,8 +30,13 @@ Legacy network debugging may work without advertising any service.
 - Apply removal/goodbye/expiry notifications while browsing and a bounded local
   observation-age cap. `mdns-sd` 0.19.2's resolved client records do not expose DNS
   remaining TTL; publisher-side TTL defaults must not be presented as that data.
-  Cached records not re-observed in the current window remain explicitly cached
-  and nonselectable. A local age cap is not proof of live DNS freshness.
+  Cached or locally expired records cannot connect directly. The explicit
+  Refresh & connect action for locally expired, structurally usable endpoints
+  runs a new bounded observation and requires an exact
+  fresh service/endpoint/interface/scope match. Cancellation prevents the
+  follow-on connection while the started observation finishes. Backend-cached
+  records with no endpoint still require a new Scan. A local age cap
+  is not proof of live DNS freshness.
 - Preserve interface metadata and numeric IPv6 link-local scope. Reject unusable,
   missing-scope or ambiguous routes instead of dropping scope or inventing an
   interface. No OS/network permission or routing setting is changed.
