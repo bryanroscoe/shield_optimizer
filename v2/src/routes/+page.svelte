@@ -20,6 +20,7 @@
   let editingRememberedId = $state<string | null>(null);
   let rememberedAlias = $state("");
   let rememberedOpen = $state(false);
+  let historyDisclosureTouched = false;
   let rememberedRenameButtonId = "";
   let rememberedSummary = $state<HTMLElement>();
   function persistRemembered() {
@@ -31,6 +32,7 @@
     return saved ? rememberedDeviceLabel(saved) : device.name;
   }
   async function beginRememberedRename(saved: RememberedDevice, buttonId: string) {
+    historyDisclosureTouched = true;
     rememberedRenameButtonId = buttonId;
     editingRememberedId = saved.hardwareId;
     rememberedAlias = saved.alias ?? "";
@@ -141,6 +143,7 @@
       devices = await api.listDevices();
       remembered = updateRememberedDevices(remembered, devices);
       persistRemembered();
+      if (!historyDisclosureTouched) rememberedOpen = remembered.length > 0 && !devices.some(device => device.status === "device");
     } catch (e) {
       error = String(e);
     } finally {
@@ -977,7 +980,7 @@
 
 {#if remembered.length}
   <details class="remembered-devices" bind:open={rememberedOpen}>
-    <summary bind:this={rememberedSummary}>Remembered devices ({remembered.length})</summary>
+    <summary bind:this={rememberedSummary} onclick={() => { historyDisclosureTouched = true; }}>Remembered devices ({remembered.length})</summary>
     {#if rememberedOpen}
     <p class="muted small">Names saved on this Mac. Use a current discovery or Add by IP to connect; old addresses are not reused.</p>
     <ul>

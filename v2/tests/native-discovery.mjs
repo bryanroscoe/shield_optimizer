@@ -182,7 +182,7 @@ try {
   await page.evaluate(() => { window.deviceRows = [{ id:1, serial:'192.0.2.71:5555', name:'192.0.2.71:5555', model:'', status:'offline', connection:'network', device_type:'unknown', tv_evidence:'unknown', properties:null }]; });
   await page.getByRole('button', { name:'Refresh', exact:true }).click();
   await page.getByText('1 listed · 0 ready', {exact:true}).waitFor();
-  const history = page.locator('.remembered-devices'); await history.locator('summary').click();
+  const history = page.locator('.remembered-devices'); if (!await history.evaluate(element => element.open)) await history.locator('summary').click();
   await history.getByText('Living room TV', { exact:true }).waitFor();
   assert.equal(await history.getByRole('button', {name:/Connect/}).count(),0, 'history never connects by an old address');
   await history.getByRole('button', {name:'Rename locally'}).click();
