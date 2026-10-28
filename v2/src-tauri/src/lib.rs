@@ -265,6 +265,50 @@ pub fn invoke_handler<R: tauri::Runtime>(
     ]
 }
 
+#[cfg(all(debug_assertions, target_os = "macos"))]
+fn configure_preview_store(config: &mut tauri::utils::config::Config, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    // generate_context currently emits a Vec for this fixed-size array field.
+    // The typed runtime configuration keeps local previews off the installed app's store.
+    for window in &mut config.app.windows {
+        window.incognito = false;
+        window.data_store_identifier = Some([
+            52, 17, 201, 86, 93, 105, 76, 77, 161, 93, 99, 229, 2, 112, 5, 40,
+        ]);
+    }
+}
+
+#[cfg(all(test, debug_assertions, target_os = "macos"))]
+mod preview_store_tests {
+    use super::*;
+
+    #[test]
+    fn normal_launch_preserves_configured_storage() {
+        let mut config = tauri::utils::config::Config::default();
+        config.app.windows = vec![tauri::utils::config::WindowConfig {
+            incognito: true,
+            ..Default::default()
+        }];
+        configure_preview_store(&mut config, false);
+        assert!(config.app.windows[0].incognito);
+        assert!(config.app.windows[0].data_store_identifier.is_none());
+    }
+
+    #[test]
+    fn explicit_preview_uses_an_isolated_persistent_store() {
+        let mut config = tauri::utils::config::Config::default();
+        config.app.windows = vec![tauri::utils::config::WindowConfig::default()];
+        configure_preview_store(&mut config, true);
+        assert!(!config.app.windows[0].incognito);
+        assert_eq!(
+            config.app.windows[0].data_store_identifier.unwrap().len(),
+            16
+        );
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Some Wayland/Mesa setups crash WebKitGTK's DMABUF renderer on startup
@@ -298,6 +342,17 @@ pub fn run() {
 
     let state = default_state(app_lists, data_dir).with_known_names(loader::load_known_names());
 
+    let context = tauri::generate_context!();
+    #[cfg(all(debug_assertions, target_os = "macos"))]
+    let context = {
+        let mut context = context;
+        configure_preview_store(
+            context.config_mut(),
+            std::env::var("SHIELD_OPTIMIZER_PREVIEW_STORE").as_deref() == Ok("1"),
+        );
+        context
+    };
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -307,7 +362,7 @@ pub fn run() {
         .manage(log_control)
         .manage(AdbQuitControl::default())
         .invoke_handler(invoke_handler())
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application")
         .run(|app, event| match event {
             // An update restart arrives as this exit code, ahead of `Exit`.

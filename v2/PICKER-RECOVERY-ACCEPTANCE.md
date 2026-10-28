@@ -93,3 +93,7 @@ The Mac test bundle uses a supported isolated persistent WebKit data store on
 macOS 14+, rather than an incognito store, so saved names can survive relaunch
 without sharing the installed app's browser preferences. Normal product windows
 already use persistent webview storage. This is not identity/key configuration.
+
+The debug-only Mac preview selects that store through typed Tauri configuration
+when explicitly launched in preview mode. This avoids the current SDK macro
+array-generation defect; normal launches and release configuration are unchanged.
