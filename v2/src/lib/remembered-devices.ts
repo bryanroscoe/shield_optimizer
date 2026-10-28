@@ -17,6 +17,7 @@ function hardwareId(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const id = value.trim();
   return id && id.length <= 256 && id.toLowerCase() !== 'unknown' && !/[\u0000-\u001f\u007f]/.test(id)
+    && !Array.from(id).some(character => { const point = character.codePointAt(0)!; return point >= 0xd800 && point <= 0xdfff; })
     ? id : undefined;
 }
 

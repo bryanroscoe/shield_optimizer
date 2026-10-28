@@ -33,6 +33,7 @@ function device(hardwareId, overrides = {}) {
   };
 }
 
+assert.deepEqual(updateRememberedDevices([], [device('\ud800')], firstSeen), [], 'malformed local identity text cannot break DOM label encoding');
 let records = updateRememberedDevices([], [device(' TV-A ')], firstSeen);
 assert.equal(records.length, 1);
 assert.deepEqual(records[0], { hardwareId: 'TV-A', name: 'Living room', model: 'TV model', lastSeen: new Date(firstSeen).toISOString() });

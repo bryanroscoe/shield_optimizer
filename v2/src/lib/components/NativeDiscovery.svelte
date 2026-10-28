@@ -75,7 +75,7 @@
         <div class="details-panel" id={`discovery-panel-${index}`} role="region" aria-labelledby={`discovery-details-${index}`} >
           <p class="muted small">Advertised names are unverified. Connecting checks the device details.</p>
           {#if row.addresses.length > 1}
-            <label>Connection address<select aria-label={`Connection address for ${row.name}`} value={endpoint(address)} onchange={event => { selected[row.key] = event.currentTarget.value; }}>
+            <label>Connection address<select disabled={busy} aria-label={`Connection address for ${row.name}`} value={endpoint(address)} onchange={event => { selected[row.key] = event.currentTarget.value; }}>
               {#each row.addresses as alternative}<option value={endpoint(alternative)} disabled={!discoveryEndpointUsable(alternative)}>{endpoint(alternative)}</option>{/each}
             </select></label>
           {/if}

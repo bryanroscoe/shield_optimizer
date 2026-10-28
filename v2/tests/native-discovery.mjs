@@ -137,6 +137,9 @@ try {
   await expired.click();
   await page.waitForFunction(() => typeof window.finishScan === 'function');
   assert.equal(await count('connect_device'), beforeExpired, 'expired endpoint never dials before revalidation');
+  await living.getByRole('button', {name:'Details', exact:true}).click();
+  assert.equal(await living.getByLabel('Connection address for Living Room').isDisabled(),true,'selected endpoint cannot change during its revalidation');
+  await page.keyboard.press('Escape');
   const pendingScans = await count('scan_network');
   await page.getByRole('button', {name:'Scanning…', exact:true}).dispatchEvent('click');
   await page.getByRole('button', {name:'Pair PIN', exact:true}).dispatchEvent('click');
