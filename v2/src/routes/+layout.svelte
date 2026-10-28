@@ -428,6 +428,7 @@
         data-tip-side="bottom"
       >
         <Icon name="bug_report" size={18} />
+        <span>Report a bug</span>
       </button>
       <label class="auto-update-toggle" title="Automatically download and install updates on launch">
         <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
@@ -760,8 +761,13 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.3rem;
-    color: var(--fg-secondary);
+    gap: 0.35rem;
+    min-height: 2rem;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--fg-primary);
+    font-weight: 600;
   }
   .bug-btn:hover {
     color: var(--fg-primary);

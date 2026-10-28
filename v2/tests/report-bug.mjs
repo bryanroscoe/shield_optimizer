@@ -12,9 +12,11 @@
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdir } from "node:fs/promises";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const V2 = join(HERE, "..");
+const evidence = process.env.REPORT_BUG_EVIDENCE;
 
 function serverURL(server) {
   const address = server.httpServer?.address();
@@ -39,7 +41,8 @@ function setHarnessEnvironment() {
 const stub = (body) => ({ status: 200, contentType: "application/javascript", body });
 
 async function newPage(browser) {
-  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 },
+    ...(evidence ? { recordVideo: { dir: join(evidence, "raw") } } : {}) });
   // The plugins have no Tauri host to talk to; serve replacements at the
   // module level, the same seam the update-notes test uses.
   await page.route(/plugin-updater/, (r) =>
@@ -62,9 +65,29 @@ async function exercise({ browser, base }) {
   const page = await newPage(browser);
   await page.goto(base, { waitUntil: "networkidle" });
 
-  await page.getByRole("button", { name: "Report a bug" }).click();
+  const report = page.getByRole("button", { name: "Report a bug", exact: true });
+  assert.equal((await report.innerText()).includes("Report a bug"), true, "visible text identifies the report action without a tooltip");
+  if (evidence) {
+    await page.evaluate(() => {
+      const label = document.createElement("div");
+      label.textContent = "SIMULATION — demo diagnostics; no TV or upload";
+      label.style.cssText = "position:fixed;bottom:0;right:0;z-index:99999;background:#17243a;color:white;padding:8px;font:13px sans-serif";
+      document.body.append(label);
+    });
+    await page.screenshot({ path: join(evidence, "report-button-simulated.png") });
+  }
+  await page.setViewportSize({ width: 760, height: 900 });
+  await page.evaluate(() => document.documentElement.style.fontSize = "150%");
+  const box = await report.boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 760, "report action stays inside a narrow, enlarged-text header");
+  await report.focus();
+  await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog");
   await dialog.waitFor();
+  if (evidence) {
+    await page.screenshot({ path: join(evidence, "report-dialog-simulated.png") });
+    await page.waitForTimeout(1000);
+  }
 
   const bundle = dialog.getByLabel("Diagnostics");
   await bundle.waitFor();
@@ -154,6 +177,7 @@ async function exerciseOnDevice({ browser, base }) {
 }
 
 async function main() {
+  if (evidence) await mkdir(evidence, { recursive: true });
   const restore = setHarnessEnvironment();
   let server, browser;
   try {
