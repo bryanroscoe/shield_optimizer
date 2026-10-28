@@ -15,6 +15,10 @@ use tokio::sync::Mutex;
 
 const MAX_SESSIONS: usize = 32;
 
+#[cfg(all(test, unix))]
+#[path = "direct_comparison.rs"]
+mod comparison;
+
 #[async_trait]
 trait NetworkSession: AdbDriver {
     async fn connect(&self, host: &str, port: u16, request: u64) -> Result<String, String>;
