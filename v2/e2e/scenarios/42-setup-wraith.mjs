@@ -31,10 +31,18 @@ async function device(ctx) {
   return ctx.device(SHIELD.serial);
 }
 
+function hasRealHome(handlers) {
+  return handlers.some((component) => {
+    const packageName = component.split("/", 1)[0];
+    return !component.includes("FallbackHome") && packageName !== WRAITH
+      && packageName !== "com.android.settings" && packageName !== "com.android.tv.settings";
+  });
+}
+
 async function assertKeepsHome(ctx) {
   const h = (await device(ctx)).home;
   ctx.assert.ok(
-    h.handlers.some((c) => !c.includes("FallbackHome")),
+    hasRealHome(h.handlers),
     `a real Home app is still enabled (handlers: ${h.handlers.join(", ")})`,
   );
 }
@@ -126,6 +134,40 @@ export const scenarios = [
     },
   },
   {
+    name: "setup-wraith-missing-role-persistent-helper-restores-stock",
+    async run(ctx) {
+      await ctx.reset({
+        ...googleTv(),
+        faults: [{ matches: "get-role-holders", effect: { type: "fail", stderr: "Unknown command: role\n", exit_code: 255 } }],
+      });
+      const set = await ctx.invoke("set_home_any", { serial: SHIELD.key, package: PROJECTIVY, activity: null });
+      ctx.assert.equal(set.value.ok, false, "stock still resolves while the role cannot be read");
+      const res = await ctx.invoke("disable_stock_launcher", { serial: SHIELD.key, target: PROJECTIVY });
+      ctx.assert.equal(res.value.ok, false, "Wraith alone never confirms takeover");
+      ctx.assert.match(res.value.last_error, /confirmed enabled/, "stock restoration is read back");
+      const d = await device(ctx);
+      ctx.assert.ok(d.packages.enabled.includes(GTV_HOME), "stock is restored");
+      ctx.assert.ok(d.packages.enabled.includes(WRAITH), "helper is left unchanged");
+      await assertKeepsHome(ctx);
+    },
+  },
+  {
+    name: "setup-wraith-missing-role-generic-disable-restores-stock",
+    async run(ctx) {
+      await ctx.reset({
+        ...googleTv(),
+        faults: [{ matches: "get-role-holders", effect: { type: "fail", stderr: "Unknown command: role\n", exit_code: 255 } }],
+      });
+      const res = await ctx.invoke("disable_package", { serial: SHIELD.key, package: GTV_HOME });
+      ctx.assert.equal(res.value.ok, false, "unconfirmed hand-off is not a successful disable");
+      ctx.assert.match(res.value.message, /confirmed enabled/);
+      const d = await device(ctx);
+      ctx.assert.ok(d.packages.enabled.includes(GTV_HOME), "stock is restored");
+      ctx.assert.ok(d.packages.enabled.includes(WRAITH), "helper is left unchanged");
+      await assertKeepsHome(ctx);
+    },
+  },
+  {
     name: "setup-wraith-callout-states",
     async run(ctx) {
       // Enabled, stock still on: heads-up pointing at the takeover.
@@ -171,7 +213,8 @@ export const scenarios = [
       ctx.assert.ok((await device(ctx)).packages.enabled.includes(WRAITH), "left enabled");
       const notHelper = await ctx.invoke("disable_setup_helper", { serial: SHIELD.key, package: PROJECTIVY });
       ctx.assert.equal(notHelper.value.ok, false, "only a catalogued setup helper is accepted");
-      await assertKeepsHome(ctx);
+      ctx.assert.equal(hasRealHome((await device(ctx)).home.handlers), false,
+        "the unsafe input fixture has no real launcher; Wraith alone must not satisfy the invariant");
     },
   },
   {

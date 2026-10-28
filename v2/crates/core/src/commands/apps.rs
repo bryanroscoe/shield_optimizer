@@ -470,6 +470,16 @@ pub(crate) async fn disable_package_impl(
     } else {
         None
     };
+    if pairs_helper
+        && !inventory
+            .as_ref()
+            .is_some_and(|enabled| enabled.iter().any(|p| p == package))
+    {
+        return Ok(ActionResult {
+            ok: false,
+            message: format!("Couldn't confirm {package} is enabled in this TV's Home apps. Nothing was disabled."),
+        });
+    }
     let outcome = run(
         state,
         serial,
@@ -488,7 +498,7 @@ pub(crate) async fn disable_package_impl(
             let adb = state.adb_snapshot().await;
             matches!(
                 adb.shell(serial, &format!("pm list packages -d {package}")).await,
-                Ok(out) if out.success()
+                Ok(out) if out.success() && !out.shell_reported_failure()
                     && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
             )
         }
@@ -503,7 +513,22 @@ pub(crate) async fn disable_package_impl(
             ok: true,
             message: format!("{package} was disabled (the device's reply was lost)."),
         },
-        other => return other,
+        other => {
+            let detail = match other {
+                Ok(result) => result.message,
+                Err(error) => error,
+            };
+            let adb = state.adb_snapshot().await;
+            let mut diagnostics = Vec::new();
+            let (_, restoration) =
+                super::launcher::restore_stock_launcher(&*adb, serial, package, &mut diagnostics)
+                    .await;
+            tracing::info!(serial, package, diagnostics = ?diagnostics, "stock disable: uncertain delivery recovery");
+            return Ok(ActionResult {
+                ok: false,
+                message: format!("{detail}. {restoration}."),
+            });
+        }
     };
     if result.ok {
         let adb = state.adb_snapshot().await;
@@ -528,16 +553,7 @@ pub(crate) async fn disable_package_impl(
                     "Couldn't turn off Google TV's setup helper after disabling {package}: {reason}."
                 );
             }
-            // Reported as not-ok so every caller shows it: a success toast
-            // would hide that the helper can still take the Home button.
-            Outcome::LeftOn => {
-                result.ok = false;
-                result.message = format!(
-                    "{package} was disabled, but Google TV's setup helper (Setup Wraith) is still \
-                     on and can take the Home button. Set another launcher as Home, then use Turn \
-                     it off on the Launcher tab."
-                );
-            }
+
         }
         tracing::info!(serial, package, diagnostics = ?diagnostics, "stock disable: paired helper");
     }

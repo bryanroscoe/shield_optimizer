@@ -372,6 +372,45 @@ async fn disable_from_plan(
     (packages_disabled, packages_failed)
 }
 
+fn paired_stock_disables_preflight(
+    requested: &[String],
+    installed: &[String],
+    disabled: &[String],
+    home_inventory: Option<&[String]>,
+) -> (Vec<String>, Vec<String>) {
+    let catalog = crate::commands::loader::launchers();
+    let blocked_stocks: Vec<&String> = requested
+        .iter()
+        .filter(|stock| {
+            !catalog.disable_with_for(stock).is_empty()
+                && (!installed.contains(stock)
+                    || disabled.contains(stock)
+                    || !home_inventory.is_some_and(|homes| {
+                        homes.contains(stock)
+                            && homes.iter().any(|home| {
+                                !requested.contains(home)
+                                    && !catalog.is_transient_home_holder(home)
+                                    && !crate::engine::launcher::safe_home_handlers()
+                                        .contains(&home.as_str())
+                            })
+                    }))
+        })
+        .collect();
+    let mut allowed = Vec::new();
+    let mut failed = Vec::new();
+    for package in requested {
+        if blocked_stocks
+            .iter()
+            .any(|stock| *stock == package || catalog.disable_with_for(stock).contains(package))
+        {
+            failed.push(format!("{package} (stock/helper unchanged: an enabled stock launcher and a remaining real Home app could not be confirmed)"));
+        } else {
+            allowed.push(package.clone());
+        }
+    }
+    (allowed, failed)
+}
+
 /// `apply_snapshot` — actually run the previewed plan against the device.
 /// Honors commitment #7 (reversibility): only `pm disable-user` writes,
 /// never re-enables a currently-enabled package the snapshot didn't list.
@@ -450,8 +489,15 @@ pub async fn apply_snapshot(
             _ => None,
         }
     };
+    let (guarded_disables, mut preflight_failures) = paired_stock_disables_preflight(
+        &plan.packages_to_disable,
+        &installed_pkgs,
+        &disabled_pkgs,
+        home_inventory.as_deref(),
+    );
     let (mut packages_disabled, mut packages_failed) =
-        disable_from_plan(adb.as_ref(), &serial, &plan.packages_to_disable).await;
+        disable_from_plan(adb.as_ref(), &serial, &guarded_disables).await;
+    packages_failed.append(&mut preflight_failures);
 
     // 2. Set launcher only when the plan says Home differs from the snapshot's;
     // `None` skips the whole switch ladder.
@@ -494,7 +540,6 @@ pub async fn apply_snapshot(
 
     // 3. Settle each disabled stock launcher's setup helper now that Home is
     // where the snapshot wants it.
-    let mut helper_notes: Vec<String> = Vec::new();
     let landed_stocks: Vec<String> = paired_stocks
         .iter()
         .filter(|s| packages_disabled.contains(s))
@@ -517,31 +562,6 @@ pub async fn apply_snapshot(
                 packages_disabled.retain(|p| p != stock);
                 packages_failed.push(format!("{stock} (setup helper: {reason})"));
             }
-            Outcome::LeftOn => {
-                let helper_also_off = crate::commands::loader::launchers()
-                    .disable_with_for(stock)
-                    .iter()
-                    .any(|h| packages_disabled.contains(h));
-                if helper_also_off {
-                    // The snapshot turned the helper off too, and no other
-                    // launcher took Home: the TV may have no Home screen.
-                    // Bring stock back rather than report the opposite state.
-                    let restore = adb.shell(&serial, &format!("pm enable {stock}")).await;
-                    let restored = matches!(&restore, Ok(out) if out.success() && !out.shell_reported_failure());
-                    packages_disabled.retain(|p| p != stock);
-                    packages_failed.push(if restored {
-                        format!("{stock} (turned back on: no other launcher took Home)")
-                    } else {
-                        format!("{stock} (no other launcher took Home and turning it back on failed; use Emergency Recovery)")
-                    });
-                } else {
-                    helper_notes.push(format!(
-                        "{stock} is off but Google TV's setup helper (Setup Wraith) is still on and \
-                         can take the Home button. Set another launcher as Home, then use Turn it \
-                         off on the Launcher tab."
-                    ));
-                }
-            }
         }
         tracing::info!(serial = %serial, stock = %stock, diagnostics = ?diagnostics, "snapshot: paired helper");
     }
@@ -559,10 +579,6 @@ pub async fn apply_snapshot(
         settings_failed.len()
     );
     if let Some(note) = &launcher_note {
-        summary.push(' ');
-        summary.push_str(note);
-    }
-    for note in &helper_notes {
         summary.push(' ');
         summary.push_str(note);
     }
@@ -829,5 +845,78 @@ mod tests {
         let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
         assert_eq!(disabled, ["com.ok.one", "com.ok.two"]);
         assert_eq!(failed, ["com.fails.pkg"]);
+    }
+}
+
+#[cfg(test)]
+mod paired_stock_preflight_tests {
+    use super::paired_stock_disables_preflight;
+
+    const STOCK: &str = "com.google.android.apps.tv.launcherx";
+    const HELPER: &str = "com.google.android.tungsten.setupwraith";
+    const TARGET: &str = "com.example.launcher";
+
+    fn packages(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn unavailable_inventory_or_pre_disabled_stock_never_mutates_the_stock_or_helper() {
+        let requested = packages(&[STOCK, HELPER, "com.example.unrelated"]);
+        let installed = packages(&[STOCK, HELPER, TARGET]);
+        for (disabled, homes) in [
+            (vec![], None),
+            (packages(&[STOCK]), Some(packages(&[STOCK, HELPER, TARGET]))),
+            (vec![], Some(packages(&[HELPER, TARGET]))),
+        ] {
+            let (allowed, failed) = paired_stock_disables_preflight(
+                &requested,
+                &installed,
+                &disabled,
+                homes.as_deref(),
+            );
+            assert_eq!(allowed, packages(&["com.example.unrelated"]));
+            assert_eq!(failed.len(), 2);
+        }
+    }
+
+    #[test]
+    fn helper_alone_or_a_launcher_also_in_the_disable_plan_is_not_a_remaining_home() {
+        let installed = packages(&[STOCK, HELPER, TARGET]);
+        for requested in [packages(&[STOCK, HELPER, TARGET]), packages(&[STOCK])] {
+            let homes = if requested.len() == 1 {
+                packages(&[STOCK, HELPER])
+            } else {
+                installed.clone()
+            };
+            let (allowed, failed) =
+                paired_stock_disables_preflight(&requested, &installed, &[], Some(&homes));
+            assert!(!allowed.contains(&STOCK.to_string()));
+            assert!(!failed.is_empty());
+        }
+    }
+
+    #[test]
+    fn settings_fallback_home_is_not_a_remaining_launcher() {
+        let requested = packages(&[STOCK]);
+        let homes = packages(&[STOCK, HELPER, "com.android.settings"]);
+        let (allowed, failed) =
+            paired_stock_disables_preflight(&requested, &homes, &[], Some(&homes));
+        assert!(allowed.is_empty());
+        assert_eq!(failed.len(), 1);
+    }
+
+    #[test]
+    fn an_already_disabled_helper_is_not_resurrected_by_preflight() {
+        let requested = packages(&[STOCK]);
+        let installed = packages(&[STOCK, HELPER, TARGET]);
+        let (allowed, failed) = paired_stock_disables_preflight(
+            &requested,
+            &installed,
+            &packages(&[HELPER]),
+            Some(&packages(&[STOCK, TARGET])),
+        );
+        assert_eq!(allowed, requested);
+        assert!(failed.is_empty());
     }
 }
