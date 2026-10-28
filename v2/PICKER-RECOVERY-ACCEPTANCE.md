@@ -75,8 +75,8 @@ was a layout choice, not a transport requirement. Discovery now uses one compact
 full-width row per service, with optional details expanded below the row.
 
 The screenshot's expired rows reproduced the 30-second action lockout. Fresh
-rows connect through the normal selected native driver. Locally expired choices
-with a usable endpoint offer Refresh & connect (or Refresh & pair); backend-cached
+rows connect through the selected driver. Locally expired choices keep the same
+Connect (or Pair with code) label and refresh internally after explicit selection; backend-cached
 rows without an endpoint require Scan again. Only an exact newly observed service,
 endpoint, interface and IPv6 scope can proceed. A different address, failed
 refresh, changed backend or cancellation cannot silently connect the old choice.
@@ -84,8 +84,9 @@ This does not establish the cause of any physical connection failure.
 
 Desktop names are retained locally for up to 64 verified hardware identities.
 Unidentified/offline transports and advertisements never inherit a name by IP or
-service label. The separate remembered list has timestamps and local alias/forget
-controls, no stored endpoint and no connect action. Forgetting a name does not
+service label. The separate remembered list contains only identities absent from the current
+device list, with timestamps and local alias/forget controls, no stored endpoint
+and no connect action. Forgetting a name does not
 disconnect a TV or prevent a later verified observation from being remembered.
 No historical names are invented for devices that this feature has never read.
 
@@ -97,3 +98,28 @@ already use persistent webview storage. This is not identity/key configuration.
 The debug-only Mac preview selects that store through typed Tauri configuration
 when explicitly launched in preview mode. This avoids the current SDK macro
 array-generation defect; normal launches and release configuration are unchanged.
+
+## Explicit discovery and Remote feedback
+
+Both Scan paths only browse advertisements. Platform-tools Scan no longer sweeps
+TCP ports, starts its server, connects responders or disconnects stale transports.
+Only an explicit selected endpoint proceeds to connection or the code-entry form.
+A shared external ADB daemon can independently manage trusted transports; this
+candidate does not change that daemon configuration. Startup refresh reads the
+existing device list, but never automatically starts a discovery scan.
+
+Ready exact transport endpoints suppress their advertisement group alternatives;
+this is endpoint/service association, not hardware identity inferred from IP or
+name. Other services, ports and TVs remain independent. Verified hardware identity
+is still required for remembered-name matching.
+
+Remote's old 0.7-second text was an estimate, not a measurement. The persistent
+last-input cue reports channel versus shell; it does not claim a live channel or
+a measured speed. Native fast Remote remains disabled at its acceptance gate.
+The selected native shell is not a fallback to the platform-tools executable.
+
+CEC setting readback now fetches only the batched Tweaks values instead of five
+unrelated state groups. 4K scaling remains one write followed by one batched
+scaling readback. Simulated call-count coverage verifies that reduction, not
+physical latency. The user's reported latency cause remains unmeasured; no
+real display change or Remote input was repeated for benchmarking.

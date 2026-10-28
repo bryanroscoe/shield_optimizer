@@ -31,7 +31,7 @@ const SERVICES: [(&str, NativeServiceKind); 3] = [
 ];
 
 type Key = (NativeServiceKind, String);
-pub(super) enum DiscoveryEvent {
+pub(crate) enum DiscoveryEvent {
     Resolved {
         kind: NativeServiceKind,
         instance: String,
@@ -43,18 +43,18 @@ pub(super) enum DiscoveryEvent {
         instance: String,
     },
 }
-pub(super) struct DiscoveryBatch {
+pub(crate) struct DiscoveryBatch {
     pub events: Vec<DiscoveryEvent>,
     pub warnings: Vec<String>,
     pub cleanup_confirmed: bool,
 }
-pub(super) trait DiscoveryProvider: Send + Sync {
+pub(crate) trait DiscoveryProvider: Send + Sync {
     fn collect(&self, cancel: &AtomicBool) -> DiscoveryBatch;
     fn retry_cleanup(&self) -> bool;
 }
 
 #[derive(Default)]
-pub(super) struct MdnsProvider {
+pub(crate) struct MdnsProvider {
     pending: Mutex<Option<ServiceDaemon>>,
 }
 fn kind(service: &str) -> Option<NativeServiceKind> {
@@ -456,7 +456,7 @@ impl Cache {
     }
 }
 
-pub(super) struct DiscoveryManager {
+pub(crate) struct DiscoveryManager {
     provider: Arc<dyn DiscoveryProvider>,
     cache: Mutex<Cache>,
     gate: Arc<tokio::sync::Mutex<()>>,

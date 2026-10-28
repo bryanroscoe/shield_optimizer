@@ -60,15 +60,14 @@
   <ul class="nearby-devices">
     {#each rows as row, index (row.key)}
       {@const address = choice(row)}
-      {@const available = usable(address)}
-      {@const action = available ? (address.service_kind === 'tls_pairing' ? 'Pair with code' : 'Connect') : (address.service_kind === 'tls_pairing' ? 'Refresh & pair' : 'Refresh & connect')}
+      {@const action = address.service_kind === 'tls_pairing' ? 'Pair with code' : 'Connect'}
       <li class="nearby-device">
         <div class="device-top">
           <span class="device-icon"><Icon name="cast" size={24} /></span>
           <div class="device-body"><h3>{row.name}</h3><span class="device-address mono">{endpoint(address)}</span>
-            {#if !available}<span class="device-note">{discoveryEndpointUsable(address) ? 'Last scan — refresh required' : 'Address unavailable'}</span>{/if}
+            {#if !discoveryEndpointUsable(address)}<span class="device-note">Address unavailable</span>{/if}
           </div>
-          <button class="primary device-connect" disabled={busy || !discoveryEndpointUsable(address)} onclick={() => choose(row)} aria-label={`${action} ${row.name} at ${endpoint(address)}`}>{connectingAddress === address.connect_address ? 'Connecting…' : refreshingAddress === address.connect_address ? 'Checking…' : !available ? (address.service_kind === 'tls_pairing' ? 'Refresh & pair' : 'Refresh & connect') : address.service_kind === 'tls_pairing' ? 'Pair with code' : 'Connect'}</button>
+          <button class="primary device-connect" disabled={busy || !discoveryEndpointUsable(address)} onclick={() => choose(row)} aria-label={`${action} ${row.name} at ${endpoint(address)}`}>{connectingAddress === address.connect_address ? 'Connecting…' : refreshingAddress === address.connect_address ? 'Checking…' : address.service_kind === 'tls_pairing' ? 'Pair with code' : 'Connect'}</button>
         </div>
         <button class="details-toggle" id={`discovery-details-${index}`} data-details={row.key} aria-expanded={!!expanded[row.key]} aria-controls={`discovery-panel-${index}`} onclick={() => { expanded[row.key] = !expanded[row.key]; }}>Details</button>
         {#if expanded[row.key]}

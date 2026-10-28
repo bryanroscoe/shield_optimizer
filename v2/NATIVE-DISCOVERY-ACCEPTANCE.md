@@ -31,7 +31,7 @@ Legacy network debugging may work without advertising any service.
   observation-age cap. `mdns-sd` 0.19.2's resolved client records do not expose DNS
   remaining TTL; publisher-side TTL defaults must not be presented as that data.
   Cached or locally expired records cannot connect directly. The explicit
-  Refresh & connect action for locally expired, structurally usable endpoints
+  Connect action (internally refreshing when needed) for locally expired, structurally usable endpoints
   runs a new bounded observation and requires an exact
   fresh service/endpoint/interface/scope match. Cancellation prevents the
   follow-on connection while the started observation finishes. Backend-cached

@@ -1,17 +1,117 @@
-//! Network-scan command — matches v1's `Scan-Network` UX.
+//! Observation-only device discovery, independent of the selected ADB transport.
 
-use std::time::Duration;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::State;
 
-use crate::adb::{
-    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, AdbDriver,
-    MdnsService, ADB_NETWORK_PORT,
-};
-use shield_optimizer_core::engine::types::DeviceStatus;
+use crate::adb::discovery::{DiscoveryManager, DiscoveryProvider};
+use shield_optimizer_core::adb::{AdbError, NativeDiscoveryReport};
 
 use super::AppState;
+
+/// The passive browser owns no ADB identity, device session or host server.
+pub struct PassiveDiscoveryState {
+    manager: Arc<DiscoveryManager>,
+}
+
+impl PassiveDiscoveryState {
+    fn with_provider(provider: Arc<dyn DiscoveryProvider>) -> Self {
+        Self {
+            manager: DiscoveryManager::new(provider),
+        }
+    }
+
+    #[cfg(feature = "e2e")]
+    pub fn fixture(mdns: impl Fn() -> String + Send + Sync + 'static) -> Self {
+        Self::with_provider(Arc::new(FixtureDiscoveryProvider(Box::new(mdns))))
+    }
+
+    async fn snapshot(&self, state: &AppState) -> Result<NativeDiscoveryReport, AdbError> {
+        let lease = Arc::new(state.try_adb_operation()?);
+        if self.manager.cleanup_pending() {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                self.manager.retry_cleanup(),
+            )
+            .await;
+        }
+        self.manager.snapshot(lease).await
+    }
+}
+
+impl Drop for PassiveDiscoveryState {
+    fn drop(&mut self) {
+        self.manager.cancel();
+    }
+}
+
+impl Default for PassiveDiscoveryState {
+    fn default() -> Self {
+        #[cfg(not(feature = "e2e"))]
+        {
+            Self::with_provider(Arc::new(crate::adb::discovery::MdnsProvider::default()))
+        }
+        #[cfg(feature = "e2e")]
+        {
+            Self::fixture(String::new)
+        }
+    }
+}
+
+#[cfg(feature = "e2e")]
+struct FixtureDiscoveryProvider(Box<dyn Fn() -> String + Send + Sync>);
+
+#[cfg(feature = "e2e")]
+impl DiscoveryProvider for FixtureDiscoveryProvider {
+    fn collect(&self, _: &std::sync::atomic::AtomicBool) -> crate::adb::discovery::DiscoveryBatch {
+        use crate::adb::discovery::{DiscoveryBatch, DiscoveryEvent};
+        use shield_optimizer_core::adb::{
+            parse_mdns_services, NativeAdvertisement, NativeServiceKind, MDNS_SERVICE_CONNECT,
+            MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
+        };
+        let observed = std::time::Instant::now();
+        let events = parse_mdns_services(&(self.0)())
+            .into_iter()
+            .filter_map(|service| {
+                let kind = match service.service.as_str() {
+                    MDNS_SERVICE_LEGACY => NativeServiceKind::LegacyAdb,
+                    MDNS_SERVICE_CONNECT => NativeServiceKind::TlsConnect,
+                    MDNS_SERVICE_PAIRING => NativeServiceKind::TlsPairing,
+                    _ => return None,
+                };
+                let instance = format!("{}.{}.local.", service.instance, service.service);
+                let row = NativeAdvertisement {
+                    service_kind: kind,
+                    instance: instance.clone(),
+                    address: service.host.clone(),
+                    port: service.port,
+                    interface_name: Some("fixture".into()),
+                    interface_index: Some(1),
+                    scope_id: None,
+                    connect_address: Some(service.endpoint()),
+                    observed_age_ms: 0,
+                    cached: false,
+                    warning: None,
+                };
+                Some(DiscoveryEvent::Resolved {
+                    kind,
+                    instance,
+                    rows: vec![row],
+                    observed,
+                })
+            })
+            .collect();
+        DiscoveryBatch {
+            events,
+            warnings: Vec::new(),
+            cleanup_confirmed: true,
+        }
+    }
+    fn retry_cleanup(&self) -> bool {
+        true
+    }
+}
 
 #[derive(Serialize)]
 pub struct ScanResult {
@@ -39,430 +139,39 @@ pub struct ScanResult {
     pub native_discovery: Option<shield_optimizer_core::adb::NativeDiscoveryReport>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub(crate) enum ConnectOutcome {
-    Connected,
-    /// Device reachable but this host's ADB key isn't approved yet. The
-    /// device is still added to `adb devices` (as `unauthorized`), so this
-    /// is "waiting on the user", not a failure — and retrying won't help.
-    Unauthorized,
-    Failed,
-}
-
-/// Classify `adb connect <target>` output. Detection is text-based on the
-/// combined streams rather than the exit code, since `adb connect` exits 0
-/// even on "failed to authenticate" / "failed to connect" with current
-/// platform-tools, and exit-code conventions vary across versions.
-pub(crate) fn classify_connect_output(combined: &str) -> ConnectOutcome {
-    let s = combined.to_lowercase();
-    if s.contains("failed to authenticate") {
-        ConnectOutcome::Unauthorized
-    } else if s.contains("connected to") && !s.contains("failed") && !s.contains("cannot") {
-        ConnectOutcome::Connected
-    } else {
-        ConnectOutcome::Failed
-    }
-}
-
-/// A nonzero exit surfaces as `Err` from the driver and counts as failed.
-async fn adb_connect(adb: &dyn AdbDriver, target: &str) -> ConnectOutcome {
-    match adb.raw(&["connect", target]).await {
-        Ok(out) => classify_connect_output(&format!("{}\n{}", out.stdout, out.stderr)),
-        Err(_) => ConnectOutcome::Failed,
-    }
-}
-
-/// Where the scan will try to connect, and what still needs pairing first.
-struct ScanTargets {
-    /// `host:port` endpoints to hand to `adb connect`, in a stable order.
-    connect: Vec<String>,
-    /// Advertised endpoints not dialled because adb already holds a ready
-    /// transport for that service. They were found and are connected; they
-    /// just need no second key.
-    already_attached: Vec<String>,
-    /// Pairing `host:port` for devices that advertise no connectable service.
-    needs_pairing: Vec<String>,
-}
-
-/// Would dialling this service hand adb a *second* key for a device it already
-/// holds?
-///
-/// adb auto-connects an already-paired mDNS device by itself and keys that
-/// transport by the *service name*, e.g.
-/// `adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp`. The advertisement gives
-/// us the instance, `adb-58040DLCH005YV-jBeCEe`, so the attached serial is the
-/// instance plus a dot-prefixed service suffix. Connecting the same device
-/// again by `host:port` registers a second transport under a different key,
-/// which puts one device in two rows.
-///
-/// Deliberately *not* checked here: a device already attached under the very
-/// endpoint we would dial. That reconnect is a no-op adb answers with "already
-/// connected to …", it cannot produce a second transport, and skipping it
-/// would drop the device out of the scan's connected count — telling a user
-/// their TV was not found when it is sitting right there.
-fn would_duplicate_transport(service: &MdnsService, attached: &[String]) -> bool {
-    let instance_prefix = format!("{}.", service.instance);
-    let endpoint = service.endpoint();
-    attached
-        .iter()
-        .filter(|serial| *serial != &endpoint)
-        .any(|serial| serial == &service.instance || serial.starts_with(&instance_prefix))
-}
-
-/// Merge mDNS advertisements with the raw `:5555` port sweep.
-///
-/// Android 11+ wireless debugging listens on a random port that changes every
-/// time it is toggled, so a `:5555` sweep cannot see it at all — which is what
-/// "device not supported" actually meant in GitHub #88. mDNS knows the real
-/// port, so when a host advertises one we use it and drop the swept `:5555`
-/// guess for that same host. Legacy devices (Shield with Network debugging)
-/// advertise `_adb._tcp` on 5555 or nothing at all, and keep working either way.
-fn merge_scan_targets(
-    swept_ips: &[String],
-    services: &[MdnsService],
-    attached: &[String],
-) -> ScanTargets {
-    let mut connect: Vec<String> = Vec::new();
-    let mut already_attached: Vec<String> = Vec::new();
-    let mut advertised_hosts: Vec<&str> = Vec::new();
-
-    for service in services.iter().filter(|s| s.is_connectable()) {
-        // The host still counts as spoken-for either way, so the `:5555` sweep
-        // below does not guess at a device that told us its real port.
-        if !advertised_hosts.contains(&service.host.as_str()) {
-            advertised_hosts.push(&service.host);
-        }
-        // Reconnecting under a second key gains nothing and costs a duplicate
-        // row.
-        let endpoint = service.endpoint();
-        if would_duplicate_transport(service, attached) {
-            if !already_attached.contains(&endpoint) {
-                already_attached.push(endpoint);
-            }
-            continue;
-        }
-        if !connect.contains(&endpoint) {
-            connect.push(endpoint);
-        }
-    }
-
-    for ip in swept_ips {
-        // A host that told us its port is not worth guessing at.
-        if advertised_hosts.contains(&ip.as_str()) {
-            continue;
-        }
-        let endpoint = format!("{ip}:{ADB_NETWORK_PORT}");
-        if !connect.contains(&endpoint) {
-            connect.push(endpoint);
-        }
-    }
-
-    // Only report pairing for a device we have no way to reach otherwise;
-    // an already-paired TV advertises both services and needs no code.
-    let mut needs_pairing: Vec<String> = Vec::new();
-    for service in services.iter().filter(|s| s.is_pairing()) {
-        if advertised_hosts.contains(&service.host.as_str()) {
-            continue;
-        }
-        let endpoint = service.endpoint();
-        if !needs_pairing.contains(&endpoint) {
-            needs_pairing.push(endpoint);
-        }
-    }
-
-    ScanTargets {
-        connect,
-        already_attached,
-        needs_pairing,
-    }
-}
-
-/// Transports adb currently holds, with their state, minus offline ones. Used
-/// to avoid handing adb a second key for a device it is already attached to.
-///
-/// Offline is left out: it is the stale state a scan should recover from by
-/// dialling again. Unauthorized stays in: a second key would be a second
-/// unauthorized row that can't be merged (neither exposes `ro.serialno`), and
-/// dialling again can't answer the prompt on the TV.
-async fn attached_serials(adb: &dyn AdbDriver) -> Vec<(String, DeviceStatus)> {
-    match adb.raw(&["devices"]).await {
-        Ok(out) => parse_device_list(&out.stdout)
-            .into_iter()
-            .filter(|entry| entry.status != DeviceStatus::Offline)
-            .map(|entry| (entry.serial, entry.status))
-            .collect(),
-        Err(_) => Vec::new(),
-    }
-}
-
-/// Offline transport keys adb holds for the service advertising `target`.
-///
-/// Redialling an advertised endpoint whose mDNS transport has gone offline
-/// gives adb a second key for the same device. The offline one reports no
-/// `ro.serialno`, so identity-based collapsing can't merge them and the TV
-/// shows up twice. These are the keys to drop before dialling.
-fn stale_aliases_for(target: &str, services: &[MdnsService], offline: &[String]) -> Vec<String> {
-    let mut out = Vec::new();
-    for service in services.iter().filter(|s| s.endpoint() == target) {
-        let prefix = format!("{}.", service.instance);
-        for key in offline {
-            if (key == &service.instance || key.starts_with(&prefix)) && !out.contains(key) {
-                out.push(key.clone());
-            }
-        }
-    }
-    out
-}
-
-/// `None` when adb could not be asked: an unread list proves nothing about
-/// whether a stale alias is gone.
-async fn offline_serials(adb: &dyn AdbDriver) -> Option<Vec<String>> {
-    match adb.raw(&["devices"]).await {
-        Ok(out) => Some(
-            parse_device_list(&out.stdout)
-                .into_iter()
-                .filter(|entry| entry.status == DeviceStatus::Offline)
-                .map(|entry| entry.serial)
-                .collect(),
-        ),
-        Err(_) => None,
-    }
-}
-
-fn held_unauthorized_endpoint(target: &str, attached: &[(String, DeviceStatus)]) -> bool {
-    attached
-        .iter()
-        .any(|(key, status)| key == target && *status == DeviceStatus::Unauthorized)
-}
-
-/// Of the advertised endpoints skipped because adb already holds them, which
-/// are ready and which are waiting for the user to authorize this computer.
-fn split_already_attached(
-    already_attached: &[String],
-    services: &[MdnsService],
-    attached: &[(String, DeviceStatus)],
-) -> (Vec<String>, Vec<String>) {
-    let mut ready = Vec::new();
-    let mut unauthorized = Vec::new();
-    for endpoint in already_attached {
-        let status = services
-            .iter()
-            .filter(|s| &s.endpoint() == endpoint)
-            .find_map(|s| {
-                let prefix = format!("{}.", s.instance);
-                attached
-                    .iter()
-                    .find(|(key, _)| {
-                        key != endpoint && (key == &s.instance || key.starts_with(&prefix))
-                    })
-                    .map(|(_, status)| *status)
-            });
-        if status == Some(DeviceStatus::Unauthorized) {
-            unauthorized.push(endpoint.clone());
-        } else {
-            ready.push(endpoint.clone());
-        }
-    }
-    (ready, unauthorized)
-}
-
-/// Ask the adb daemon what it has seen advertised over mDNS. Requires
-/// platform-tools 30+; older binaries print usage text to stderr, which
-/// parses to no services rather than an error.
-async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
-    match adb.raw(&["mdns", "services"]).await {
-        Ok(out) => parse_mdns_services(&out.stdout),
-        Err(_) => Vec::new(),
-    }
-}
-
-/// `scan_network` — sweep the local /24 for ADB-listening devices and try
-/// `adb connect` against each responder. Returns a structured summary so the
-/// UI can render counts and any per-IP failures.
+/// Observe advertisements only. Connecting and pairing are separate explicit actions.
 #[tauri::command]
-pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
-    scan_network_impl(state.inner()).await
+pub async fn scan_network(
+    state: State<'_, AppState>,
+    discovery: State<'_, PassiveDiscoveryState>,
+) -> Result<ScanResult, String> {
+    scan_network_impl(state.inner(), discovery.inner()).await
 }
 
-async fn scan_network_impl(state: &AppState) -> Result<ScanResult, String> {
+async fn scan_network_impl(
+    state: &AppState,
+    discovery: &PassiveDiscoveryState,
+) -> Result<ScanResult, String> {
     let selected = state.adb_snapshot().await;
-    if !selected.uses_host_server() {
-        let native_discovery = selected
-            .discover_network()
-            .await
-            .map_err(|error| match error {
-                crate::adb::AdbError::Initialization(_) => error.to_string(),
-                _ => format!("Native discovery: {error}. Use Add by IP or Pair PIN."),
-            })?;
-        return Ok(ScanResult {
-            subnet: None,
-            found: Vec::new(),
-            connected: Vec::new(),
-            unauthorized: Vec::new(),
-            failed: Vec::new(),
-            needs_pairing: Vec::new(),
-            message: "Discovery complete. No connections changed.".into(),
-            native_discovery: Some(native_discovery),
-        });
-    }
-    let Some(prefix) = local_subnet_prefix().await else {
-        tracing::info!(subnet = "unknown", found = 0, "scan finished");
-        return Ok(ScanResult {
-            subnet: None,
-            found: vec![],
-            connected: vec![],
-            unauthorized: vec![],
-            failed: vec![],
-            needs_pairing: vec![],
-            native_discovery: None,
-            message: "Could not detect default gateway. Set SHIELD_OPTIMIZER_SUBNET=\"a.b.c\" \
-                      to override, or use Add by IP."
-                .to_string(),
-        });
+    let report = if selected.uses_host_server() {
+        discovery.snapshot(state).await
+    } else {
+        selected.discover_network().await
     };
-    let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
-
-    let hits = scan_subnet(prefix).await;
-    let swept: Vec<String> = hits.iter().map(|h| h.ip.clone()).collect();
-
-    let adb = state.adb_snapshot().await;
-
-    // Warm the adb daemon before connecting. The port sweep just opened and
-    // dropped raw TCP sockets against each device's adbd; firing `adb connect`
-    // immediately afterward — especially against a cold daemon — tends to get
-    // a transient refusal, which is why a manual "Restart ADB" (which starts
-    // the daemon) makes the same devices connect. Starting the server here, plus
-    // a single retry below, makes the scan connect on its own.
-    let _ = adb.raw(&["start-server"]).await;
-
-    // The daemon has to be up before it can report what it has browsed --
-    // and starting it is also what makes adb auto-connect the mDNS devices it
-    // already trusts, so read the attached list only after this point.
-    let services = discover_mdns_services(adb.as_ref()).await;
-    let attached_with_status = attached_serials(adb.as_ref()).await;
-    let attached: Vec<String> = attached_with_status
-        .iter()
-        .map(|(k, _)| k.clone())
-        .collect();
-    let targets = merge_scan_targets(&swept, &services, &attached);
-    let (held_ready, held_unauthorized) =
-        split_already_attached(&targets.already_attached, &services, &attached_with_status);
-
-    let found: Vec<String> = targets
-        .connect
-        .iter()
-        .chain(targets.already_attached.iter())
-        .chain(targets.needs_pairing.iter())
-        .cloned()
-        .collect();
-
-    let mut connected = held_ready;
-    let mut unauthorized = held_unauthorized;
-    let mut failed = Vec::new();
-    let offline = offline_serials(adb.as_ref()).await.unwrap_or_default();
-    for target in &targets.connect {
-        // Redialling an endpoint adb already holds unauthorized answers
-        // "already connected" and never re-prompts, so it would be counted as
-        // connected. Asking again is the row's own action, one TV at a time.
-        if held_unauthorized_endpoint(target, &attached_with_status) {
-            unauthorized.push(target.clone());
-            continue;
-        }
-        let stale = stale_aliases_for(target, &services, &offline);
-        if !stale.is_empty() {
-            for key in &stale {
-                let _ = adb.raw(&["disconnect", key]).await;
-            }
-            // Only redial once the offline key is really gone; otherwise the
-            // redial is exactly the duplicate this cleanup exists to prevent.
-            let gone = match offline_serials(adb.as_ref()).await {
-                Some(still_offline) => !stale.iter().any(|key| still_offline.contains(key)),
-                None => false,
-            };
-            if !gone {
-                failed.push(target.clone());
-                continue;
-            }
-        }
-        let mut outcome = adb_connect(adb.as_ref(), target).await;
-        // Only a hard failure is worth retrying — "unauthorized" means the
-        // device is waiting for the user to approve the prompt on-screen.
-        if outcome == ConnectOutcome::Failed {
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            outcome = adb_connect(adb.as_ref(), target).await;
-        }
-        match outcome {
-            ConnectOutcome::Connected => connected.push(target.clone()),
-            ConnectOutcome::Unauthorized => unauthorized.push(target.clone()),
-            ConnectOutcome::Failed => failed.push(target.clone()),
-        }
-    }
-
-    let message = summary_message(
-        &subnet_label,
-        found.len(),
-        &connected,
-        &unauthorized,
-        &targets.needs_pairing,
-    );
-    tracing::info!(
-        subnet = %subnet_label,
-        found = found.len(),
-        connected = connected.len(),
-        unauthorized = unauthorized.len(),
-        failed = failed.len(),
-        needs_pairing = targets.needs_pairing.len(),
-        "scan finished"
-    );
-
+    let native_discovery = report.map_err(|error| match error {
+        AdbError::Initialization(_) => error.to_string(),
+        _ => format!("Discovery: {error}. Use Add by IP or Pair PIN."),
+    })?;
     Ok(ScanResult {
-        subnet: Some(subnet_label),
-        found,
-        connected,
-        unauthorized,
-        failed,
-        needs_pairing: targets.needs_pairing,
-        message,
-        native_discovery: None,
+        subnet: None,
+        found: Vec::new(),
+        connected: Vec::new(),
+        unauthorized: Vec::new(),
+        failed: Vec::new(),
+        needs_pairing: Vec::new(),
+        message: "Discovery complete. No connections changed.".into(),
+        native_discovery: Some(native_discovery),
     })
-}
-
-fn summary_message(
-    subnet_label: &str,
-    found: usize,
-    connected: &[String],
-    unauthorized: &[String],
-    needs_pairing: &[String],
-) -> String {
-    if found == 0 {
-        return format!(
-            "No devices on {subnet_label}.x answered on the ADB port. Make sure Network \
-             debugging or Wireless debugging is on. A device that only offers Wireless \
-             debugging may need Pair PIN first."
-        );
-    }
-    let mut message = format!(
-        "Scanned {subnet_label}.x — found {found} device{}, connected {}.",
-        if found == 1 { "" } else { "s" },
-        connected.len()
-    );
-    if !unauthorized.is_empty() {
-        message.push_str(&format!(
-            " {} need{} authorization — accept the debugging prompt on the TV, or use Ask \
-             again on its row if the prompt is gone.",
-            unauthorized.len(),
-            if unauthorized.len() == 1 { "s" } else { "" }
-        ));
-    }
-    if !needs_pairing.is_empty() {
-        message.push_str(&format!(
-            " {} waiting to be paired — on the TV open Wireless debugging → Pair device \
-             with pairing code, then use Pair PIN with {}.",
-            needs_pairing.len(),
-            needs_pairing.join(", ")
-        ));
-    }
-    message
 }
 
 /// `local_address_for` — the local IPv4 address this computer would use to
@@ -596,475 +305,166 @@ mod live {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pretty_assertions::assert_eq;
+    use crate::adb::discovery::{DiscoveryBatch, DiscoveryEvent};
+    use crate::adb::AdbDriver;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-    fn service(instance: &str, kind: &str, host: &str, port: u16) -> MdnsService {
-        MdnsService {
-            instance: instance.into(),
-            service: kind.into(),
-            host: host.into(),
-            port,
+    struct PassiveFixture {
+        calls: Arc<AtomicUsize>,
+        unavailable: bool,
+        cleanup: Arc<AtomicBool>,
+    }
+
+    impl DiscoveryProvider for PassiveFixture {
+        fn collect(&self, _: &AtomicBool) -> DiscoveryBatch {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if self.unavailable {
+                return DiscoveryBatch {
+                    events: Vec::new(),
+                    warnings: vec![
+                        "Simulated multicast unavailable; use Add by IP or Pair PIN.".into(),
+                    ],
+                    cleanup_confirmed: true,
+                };
+            }
+            let fixture: NativeDiscoveryReport = serde_json::from_str(include_str!(
+                "../../../tests/fixtures/native-discovery.json"
+            ))
+            .unwrap();
+            let events = fixture
+                .advertisements
+                .into_iter()
+                .take(4)
+                .map(|row| DiscoveryEvent::Resolved {
+                    kind: row.service_kind,
+                    instance: format!("{}-{}-{}", row.instance, row.address, row.port),
+                    observed: std::time::Instant::now(),
+                    rows: vec![row],
+                })
+                .collect();
+            DiscoveryBatch {
+                events,
+                warnings: Vec::new(),
+                cleanup_confirmed: self.cleanup.load(Ordering::Relaxed),
+            }
+        }
+        fn retry_cleanup(&self) -> bool {
+            self.cleanup.load(Ordering::Relaxed)
         }
     }
 
-    #[test]
-    fn a_redial_drops_the_offline_alias_of_the_same_service_only() {
-        let services = vec![
-            service(
-                "adb-SERIALA-abc",
-                "_adb-tls-connect._tcp",
-                "192.168.1.9",
-                41541,
-            ),
-            service(
-                "adb-SERIALB-def",
-                "_adb-tls-connect._tcp",
-                "192.168.1.10",
-                40000,
-            ),
-        ];
-        let offline = vec![
-            "adb-SERIALA-abc._adb-tls-connect._tcp".to_string(),
-            "adb-SERIALB-def._adb-tls-connect._tcp".to_string(),
-            "192.168.1.20:5555".to_string(),
-        ];
-        assert_eq!(
-            stale_aliases_for("192.168.1.9:41541", &services, &offline),
-            vec!["adb-SERIALA-abc._adb-tls-connect._tcp".to_string()]
-        );
-        assert!(stale_aliases_for("192.168.1.30:5555", &services, &offline).is_empty());
+    fn fixture_discovery(unavailable: bool) -> PassiveDiscoveryState {
+        PassiveDiscoveryState::with_provider(Arc::new(PassiveFixture {
+            calls: Arc::new(AtomicUsize::new(0)),
+            unavailable,
+            cleanup: Arc::new(AtomicBool::new(true)),
+        }))
     }
 
-    #[test]
-    fn an_advertised_port_is_used_instead_of_guessing_5555() {
-        // The #88 device: Android 14, wireless debugging on a random port.
-        // A :5555 sweep never sees it, and connecting to :5555 never works.
-        let services = vec![service(
-            "adb-58040DLCH005YV-jBeCEe",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            41541,
-        )];
-
-        let targets = merge_scan_targets(&[], &services, &[]);
-
-        assert_eq!(targets.connect, vec!["192.168.42.211:41541"]);
-        assert!(targets.needs_pairing.is_empty());
+    struct SubprocessSelectionMock;
+    #[async_trait::async_trait]
+    impl AdbDriver for SubprocessSelectionMock {
+        async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("passive scan must not start, probe, connect, pair, disconnect or authenticate through ADB")
+        }
+        async fn shell(&self, _: &str, _: &str) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("passive scan must not query a device")
+        }
+        async fn discover_network(&self) -> crate::adb::AdbResult<NativeDiscoveryReport> {
+            panic!(
+                "subprocess scan must use the standalone observer, not change or invoke the driver"
+            )
+        }
     }
 
-    #[test]
-    fn an_advertised_host_is_not_also_probed_on_5555() {
-        // The sweep can still see the host (some devices listen on both), but
-        // the advertised port is the one that is actually current.
-        let services = vec![service(
-            "adb-tv",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            41541,
-        )];
-        let swept = vec!["192.168.42.211".to_string(), "192.168.42.71".to_string()];
-
-        let targets = merge_scan_targets(&swept, &services, &[]);
-
-        assert_eq!(
-            targets.connect,
-            vec!["192.168.42.211:41541", "192.168.42.71:5555"]
-        );
-        assert!(!targets.connect.iter().any(|t| t == "192.168.42.211:5555"));
-    }
-
-    #[test]
-    fn legacy_devices_still_reach_5555_when_nothing_is_advertised() {
-        // The Shield path, unchanged: no mDNS, swept on the standard port.
-        let targets = merge_scan_targets(&["192.168.42.71".to_string()], &[], &[]);
-
-        assert_eq!(targets.connect, vec!["192.168.42.71:5555"]);
-        assert!(targets.needs_pairing.is_empty());
-    }
-
-    #[test]
-    fn a_pairing_only_device_is_reported_rather_than_connected_to() {
-        // Connecting to the pairing port always fails, and reporting it as a
-        // failure tells the user nothing. It needs a code from the TV.
-        let services = vec![service(
-            "adb-tcl",
-            crate::adb::MDNS_SERVICE_PAIRING,
-            "192.168.42.211",
-            37199,
-        )];
-
-        let targets = merge_scan_targets(&[], &services, &[]);
-
-        assert!(targets.connect.is_empty());
-        assert_eq!(targets.needs_pairing, vec!["192.168.42.211:37199"]);
-    }
-
-    #[test]
-    fn an_already_paired_device_is_not_asked_to_pair_again() {
-        // A paired TV advertises both services; only the connect one matters.
-        let services = vec![
-            service(
-                "adb-tcl-pair",
-                crate::adb::MDNS_SERVICE_PAIRING,
-                "192.168.42.211",
-                37199,
-            ),
-            service(
-                "adb-tcl-connect",
-                crate::adb::MDNS_SERVICE_CONNECT,
-                "192.168.42.211",
-                41541,
-            ),
-        ];
-
-        let targets = merge_scan_targets(&[], &services, &[]);
-
-        assert_eq!(targets.connect, vec!["192.168.42.211:41541"]);
-        assert!(targets.needs_pairing.is_empty());
-    }
-
-    #[test]
-    fn repeated_advertisements_produce_one_target_each() {
-        let services = vec![
-            service("a", crate::adb::MDNS_SERVICE_LEGACY, "192.168.42.71", 5555),
-            service("a", crate::adb::MDNS_SERVICE_LEGACY, "192.168.42.71", 5555),
-        ];
-
-        let targets = merge_scan_targets(&["192.168.42.71".to_string()], &services, &[]);
-
-        assert_eq!(targets.connect, vec!["192.168.42.71:5555"]);
-    }
-
-    /// The regression this whole layer exists for. adb auto-connects a paired
-    /// mDNS device under its service name; connecting the same device again by
-    /// host:port makes adb register a second transport, and the device list
-    /// faithfully renders both.
-    #[test]
-    fn a_device_adb_already_holds_is_not_connected_a_second_time() {
-        let services = vec![service(
-            "adb-58040DLCH005YV-jBeCEe",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            34083,
-        )];
-        let attached = vec!["adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp".to_string()];
-
-        let targets = merge_scan_targets(&[], &services, &attached);
-
-        assert!(
-            targets.connect.is_empty(),
-            "reconnecting by host:port is what creates the duplicate: {:?}",
-            targets.connect
-        );
-        assert!(targets.needs_pairing.is_empty());
-        // #128: not dialling it must not also drop it from the
-        // scan's found/connected counts.
-        assert_eq!(targets.already_attached, vec!["192.168.42.211:34083"]);
-    }
-
-    #[tokio::test]
-    async fn an_offline_transport_does_not_stop_the_scan_redialling() {
-        // #128: a stale offline mDNS transport must not count as attached,
-        // or the advertised endpoint is never dialled again.
-        use shield_optimizer_core::commands::test_support::MockAdb;
-        let mock = MockAdb::default().on_raw(
-            "devices",
-            "List of devices attached\n\
-             adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\toffline\n\
-             192.168.42.71:5555\tdevice\n",
-        );
-        let attached = attached_serials(&mock).await;
-        assert_eq!(
-            attached,
-            vec![("192.168.42.71:5555".to_string(), DeviceStatus::Device)]
-        );
-        let keys: Vec<String> = attached.iter().map(|(k, _)| k.clone()).collect();
-
-        let services = vec![service(
-            "adb-58040DLCH005YV-jBeCEe",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            34083,
-        )];
-        let targets = merge_scan_targets(&[], &services, &keys);
-        assert_eq!(targets.connect, vec!["192.168.42.211:34083"]);
-        assert!(targets.already_attached.is_empty());
-    }
-
-    #[tokio::test]
-    async fn an_unauthorized_transport_is_not_dialled_again_and_reports_unauthorized() {
-        // #128: redialling an unauthorized mDNS key by host:port
-        // makes a second unauthorized row that can never be merged, and
-        // cannot answer the prompt on the TV anyway.
-        use shield_optimizer_core::commands::test_support::MockAdb;
-        let mock = MockAdb::default().on_raw(
-            "devices",
-            "List of devices attached\n\
-             adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\tunauthorized\n\
-             adb-1324619053514-aB1._adb-tls-connect._tcp\tdevice\n",
-        );
-        let attached = attached_serials(&mock).await;
-        let keys: Vec<String> = attached.iter().map(|(k, _)| k.clone()).collect();
-        let services = vec![
-            service(
-                "adb-58040DLCH005YV-jBeCEe",
-                crate::adb::MDNS_SERVICE_CONNECT,
-                "192.168.42.211",
-                34083,
-            ),
-            service(
-                "adb-1324619053514-aB1",
-                crate::adb::MDNS_SERVICE_CONNECT,
-                "192.168.42.196",
-                40001,
-            ),
-        ];
-        let targets = merge_scan_targets(&[], &services, &keys);
-        assert!(targets.connect.is_empty(), "{:?}", targets.connect);
-
-        let (ready, unauthorized) =
-            split_already_attached(&targets.already_attached, &services, &attached);
-        assert_eq!(ready, vec!["192.168.42.196:40001"]);
-        assert_eq!(unauthorized, vec!["192.168.42.211:34083"]);
-    }
-
-    #[test]
-    fn a_held_unauthorized_5555_endpoint_is_reported_unauthorized_not_redialled() {
-        // A Shield on Network debugging is held as `ip:5555`. Redialling it
-        // answers "already connected" and never re-prompts, which used to
-        // count an unauthorized TV as connected.
-        let attached = vec![
-            (
-                "192.168.42.143:5555".to_string(),
-                DeviceStatus::Unauthorized,
-            ),
-            ("192.168.42.71:5555".to_string(), DeviceStatus::Device),
-        ];
-        assert!(held_unauthorized_endpoint("192.168.42.143:5555", &attached));
-        assert!(!held_unauthorized_endpoint("192.168.42.71:5555", &attached));
-        assert!(!held_unauthorized_endpoint("192.168.42.25:5555", &attached));
-    }
-
-    #[test]
-    fn an_advertised_host_adb_already_holds_is_still_not_probed_on_5555() {
-        // Skipping the connect must not also forfeit the knowledge that this
-        // host told us its real port -- otherwise the sweep guesses :5555 for
-        // a device we already know is somewhere else.
-        let services = vec![service(
-            "adb-tv",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            34083,
-        )];
-        let attached = vec!["adb-tv._adb-tls-connect._tcp".to_string()];
-
-        let targets = merge_scan_targets(&["192.168.42.211".to_string()], &services, &attached);
-
-        assert!(targets.connect.is_empty(), "{:?}", targets.connect);
-    }
-
-    #[test]
-    fn a_device_attached_at_the_very_endpoint_we_would_dial_is_still_dialled() {
-        // Redialling the same key cannot duplicate anything — adb just says
-        // "already connected". Skipping it would drop the device from the
-        // scan's connected count and read as "your TV wasn't found".
-        let services = vec![service(
-            "adb-tv",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            34083,
-        )];
-        let attached = vec!["192.168.42.211:34083".to_string()];
-
-        let targets = merge_scan_targets(&[], &services, &attached);
-
-        assert_eq!(targets.connect, vec!["192.168.42.211:34083"]);
-    }
-
-    #[test]
-    fn a_device_adb_does_not_hold_is_still_connected() {
-        // The #88 fix has to survive this layer: an advertised device adb has
-        // never seen must still be dialled at its real port.
-        let services = vec![service(
-            "adb-new-tv",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            34083,
-        )];
-        let attached = vec!["adb-some-other-device._adb-tls-connect._tcp".to_string()];
-
-        let targets = merge_scan_targets(&[], &services, &attached);
-
-        assert_eq!(targets.connect, vec!["192.168.42.211:34083"]);
-    }
-
-    #[test]
-    fn a_similar_instance_name_is_not_treated_as_the_same_device() {
-        // Prefix matching must stop at the dot. `adb-tv-2` is not `adb-tv`.
-        let services = vec![service(
-            "adb-tv",
-            crate::adb::MDNS_SERVICE_CONNECT,
-            "192.168.42.211",
-            34083,
-        )];
-        let attached = vec!["adb-tv-2._adb-tls-connect._tcp".to_string()];
-
-        let targets = merge_scan_targets(&[], &services, &attached);
-
-        assert_eq!(targets.connect, vec!["192.168.42.211:34083"]);
-    }
-
-    #[test]
-    fn legacy_sweep_targets_are_unaffected_by_the_attached_list() {
-        // A Shield on Network debugging advertises nothing and is swept. Being
-        // attached under its own ip:port key is the normal steady state and
-        // must not stop the scan reporting it.
-        let targets = merge_scan_targets(
-            &["192.168.42.196".to_string()],
-            &[],
-            &["192.168.42.196:5555".to_string()],
-        );
-
-        assert_eq!(targets.connect, vec!["192.168.42.196:5555"]);
-    }
-
-    /// End-to-end over output captured verbatim from a real LAN while the
-    /// duplicate was reproducing: a phone adb had auto-connected over mDNS,
-    /// a Shield on legacy network debugging, and three unauthorized hosts.
-    #[test]
-    fn real_world_scan_output_connects_the_shield_and_leaves_the_phone_alone() {
-        let services = parse_mdns_services(
-            "List of discovered mdns services\n\
-             adb-58040DLCH005YV-jBeCEe\t_adb-tls-connect._tcp\t192.168.42.211:34083\n\
-             adb-1324619053514\t_adb._tcp\t192.168.42.196:5555\n\
-             adb-1321920044953\t_adb._tcp\t192.168.42.143:5555\n",
-        );
-        let attached: Vec<String> = parse_device_list(
-            "List of devices attached\n\
-             192.168.42.143:5555\tunauthorized\n\
-             192.168.42.196:5555\tdevice\n\
-             adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp\tdevice\n",
+    fn subprocess_state() -> AppState {
+        AppState::new(
+            Arc::new(SubprocessSelectionMock),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("unused-passive-discovery-no-identity"),
         )
-        .into_iter()
-        .map(|e| e.serial)
-        .collect();
-        let swept = vec![
-            "192.168.42.143".to_string(),
-            "192.168.42.196".to_string(),
-            "192.168.42.25".to_string(),
-        ];
+    }
 
-        let targets = merge_scan_targets(&swept, &services, &attached);
-
+    #[tokio::test]
+    async fn subprocess_scan_observes_all_service_types_without_any_adb_or_device_call() {
+        let state = subprocess_state();
+        let discovery = fixture_discovery(false);
+        let result = scan_network_impl(&state, &discovery).await.unwrap();
+        assert!(result.subnet.is_none());
+        assert!(result.found.is_empty() && result.connected.is_empty());
         assert!(
-            !targets
-                .connect
-                .iter()
-                .any(|t| t.starts_with("192.168.42.211")),
-            "the phone is already attached under its mDNS name: {:?}",
-            targets.connect
+            result.failed.is_empty()
+                && result.unauthorized.is_empty()
+                && result.needs_pairing.is_empty()
         );
-        // Everything else still gets dialled, including a host adb already
-        // holds under the same ip:port key -- reconnecting that is a no-op for
-        // adb and keeps the scan's "connected" count honest.
-        assert!(targets.connect.contains(&"192.168.42.196:5555".to_string()));
-        assert!(targets.connect.contains(&"192.168.42.143:5555".to_string()));
-        assert!(targets.connect.contains(&"192.168.42.25:5555".to_string()));
-        assert!(targets.needs_pairing.is_empty());
+        let report = result.native_discovery.unwrap();
+        assert_eq!(report.advertisements.len(), 4);
+        assert!(report.advertisements.iter().all(|row| !row.cached));
+        assert!(report.advertisements.iter().any(
+            |row| row.service_kind == shield_optimizer_core::adb::NativeServiceKind::TlsPairing
+        ));
+        assert!(report
+            .advertisements
+            .iter()
+            .any(|row| row.connect_address.as_deref() == Some("[fe80::1234%7]:37333")));
+        assert!(
+            state.adb_snapshot().await.uses_host_server(),
+            "the selected transport was not changed"
+        );
+        assert_eq!(state.adb_operations_active(), 0);
     }
 
-    #[test]
-    fn summary_tells_the_user_how_to_pair_a_waiting_device() {
-        let message = summary_message(
-            "192.168.42",
-            1,
-            &[],
-            &[],
-            &["192.168.42.211:37199".to_string()],
-        );
-
-        assert!(message.contains("1 waiting to be paired"));
-        assert!(message.contains("192.168.42.211:37199"));
-        assert!(message.contains("Pair PIN"));
+    #[tokio::test]
+    async fn unavailable_passive_discovery_keeps_manual_fallback_without_adb_fanout() {
+        let state = subprocess_state();
+        let result = scan_network_impl(&state, &fixture_discovery(true))
+            .await
+            .unwrap();
+        let report = result.native_discovery.unwrap();
+        assert!(report.advertisements.is_empty());
+        assert!(report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("Add by IP or Pair PIN")));
+        assert_eq!(state.adb_operations_active(), 0);
     }
 
-    #[test]
-    fn summary_says_nothing_about_pairing_when_nothing_is_waiting() {
-        let message = summary_message(
-            "192.168.42",
-            1,
-            &["192.168.42.71:5555".to_string()],
-            &[],
-            &[],
-        );
-
-        assert!(!message.contains("paired"));
+    #[tokio::test]
+    async fn unresolved_browser_cleanup_blocks_another_browse_and_stays_counted() {
+        let state = subprocess_state();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cleanup = Arc::new(AtomicBool::new(false));
+        let discovery = PassiveDiscoveryState::with_provider(Arc::new(PassiveFixture {
+            calls: calls.clone(),
+            unavailable: false,
+            cleanup: cleanup.clone(),
+        }));
+        scan_network_impl(&state, &discovery).await.unwrap();
+        assert!(state.adb_operations_active() > 0);
+        assert!(scan_network_impl(&state, &discovery)
+            .await
+            .err()
+            .unwrap()
+            .contains("cleanup"));
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        cleanup.store(true, Ordering::Relaxed);
+        scan_network_impl(&state, &discovery).await.unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        assert_eq!(state.adb_operations_active(), 0);
     }
 
-    #[test]
-    fn classifies_fresh_and_already_connected() {
-        assert_eq!(
-            classify_connect_output("connected to 192.168.42.71:5555"),
-            ConnectOutcome::Connected
-        );
-        assert_eq!(
-            classify_connect_output("already connected to 192.168.42.71:5555"),
-            ConnectOutcome::Connected
-        );
-    }
-
-    #[test]
-    fn classifies_connected_despite_daemon_startup_noise() {
-        let out = "* daemon not running; starting now at tcp:5037\n\
-                   * daemon started successfully\nconnected to 192.168.42.71:5555";
-        assert_eq!(classify_connect_output(out), ConnectOutcome::Connected);
-    }
-
-    #[test]
-    fn classifies_unauthorized() {
-        // Real output from platform-tools 37.0.0 against a TV that hasn't
-        // approved this host's key — exits 0, device lands in `adb devices`
-        // as `unauthorized`.
-        assert_eq!(
-            classify_connect_output("failed to authenticate to 192.168.42.143:5555"),
-            ConnectOutcome::Unauthorized
-        );
-    }
-
-    #[test]
-    fn classifies_failures() {
-        assert_eq!(
-            classify_connect_output("failed to connect to '192.168.42.9:5555': Connection refused"),
-            ConnectOutcome::Failed
-        );
-        assert_eq!(
-            classify_connect_output("cannot connect to 192.168.42.9:5555: timeout"),
-            ConnectOutcome::Failed
-        );
-        assert_eq!(classify_connect_output(""), ConnectOutcome::Failed);
-    }
-
-    #[test]
-    fn summary_mentions_unauthorized_devices() {
-        let msg = summary_message(
-            "192.168.42",
-            4,
-            &[],
-            &["192.168.42.143".into(), "192.168.42.25".into()],
-            &[],
-        );
-        assert_eq!(
-            msg,
-            "Scanned 192.168.42.x — found 4 devices, connected 0. 2 need authorization — \
-             accept the debugging prompt on the TV, or use Ask again on its row if the prompt \
-             is gone."
-        );
-    }
-
-    #[test]
-    fn summary_plain_when_all_connected() {
-        let msg = summary_message("10.0.0", 1, &["10.0.0.5".into()], &[], &[]);
-        assert_eq!(msg, "Scanned 10.0.0.x — found 1 device, connected 1.");
+    #[tokio::test]
+    async fn quit_admission_refuses_a_scan_before_any_browser_starts() {
+        let state = subprocess_state();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let discovery = PassiveDiscoveryState::with_provider(Arc::new(PassiveFixture {
+            calls: calls.clone(),
+            unavailable: false,
+            cleanup: Arc::new(AtomicBool::new(true)),
+        }));
+        state.close_adb_admission();
+        assert!(scan_network_impl(&state, &discovery).await.is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
     }
 
     struct NativeObservationMock {
@@ -1118,7 +518,9 @@ mod tests {
     #[tokio::test]
     async fn native_scan_returns_typed_observations_without_legacy_actions() {
         let (state, calls) = native_observation_state(false);
-        let result = scan_network_impl(&state).await.unwrap();
+        let result = scan_network_impl(&state, &fixture_discovery(false))
+            .await
+            .unwrap();
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert!(result.subnet.is_none());
         assert!(result.connected.is_empty());
@@ -1158,7 +560,10 @@ mod tests {
     #[tokio::test]
     async fn native_scan_failure_preserves_manual_fallback_without_host_commands() {
         let (state, calls) = native_observation_state(true);
-        let error = scan_network_impl(&state).await.err().unwrap();
+        let error = scan_network_impl(&state, &fixture_discovery(false))
+            .await
+            .err()
+            .unwrap();
         assert!(error.contains("simulated multicast unavailable"));
         assert!(error.contains("Add by IP or Pair PIN"));
         assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
@@ -1172,7 +577,7 @@ mod tests {
             crate::engine::AppListBundle::default(),
             std::path::PathBuf::from("unused-initialization-fixture"),
         );
-        let message = scan_network_impl(&state)
+        let message = scan_network_impl(&state, &fixture_discovery(false))
             .await
             .err()
             .expect("initialization must fail");

@@ -92,6 +92,12 @@
     }
   }
 
+  async function refreshTweakValues() {
+    const target = serial;
+    const current = await api.getTweaks(target);
+    if (alive && serial === target) tweaks = current;
+  }
+
   // On = enable the hooks (Xbox Guide → Home works); Off = disable them.
   async function setNetflixButton(enabled: boolean) {
     netflixBusy = true;
@@ -223,7 +229,7 @@
     if (enabled === "0") return "Off";
     if (!v) return "None";
     if (v === BASIC_DAYDREAM) return "Basic Daydream";
-    return v;
+    return "Custom screensaver";
   }
   function animationsLabel(t: TweaksState): string {
     const w = t.window_animation_scale;
@@ -254,7 +260,7 @@
     } finally {
       if (alive && serial === target) {
         onSettingsChanged?.();
-        await loadTweaks();
+        try { await refreshTweakValues(); } catch (error) { tweaksActionMessage += ` Refresh failed: ${String(error)}`; }
         tweaksActionBusy = null;
       }
     }
@@ -293,7 +299,7 @@
     } finally {
       if (alive && serial === target) {
         onSettingsChanged?.();
-        await loadTweaks();
+        try { await refreshTweakValues(); } catch (error) { tweaksActionMessage += ` Refresh failed: ${String(error)}`; }
         tweaksActionBusy = null;
       }
     }
@@ -314,7 +320,7 @@
         failed.length === 0
           ? `Animations → ${scale || "default"}`
           : `Animations partially failed (${failed.length}/3): ${failed.map((r) => r.message).join("; ")}`;
-      await loadTweaks();
+      await refreshTweakValues();
     } catch (e) {
       tweaksActionMessage = `Animations: ${e}`;
     } finally {
@@ -367,7 +373,7 @@
 
     {#if netflixHooksState && netflixHooksState !== "missing"}
       <h3>Nvidia System Hooks</h3>
-      <p class="muted small">
+      <details class="tweak-details"><summary>About nvidia system hooks</summary><p class="muted small">
         Controls Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>), which
         turn the Xbox controller's Guide button into Home. Turning them off can
         fix Guide button conflicts in Steam Link and Moonlight.
@@ -375,7 +381,7 @@
         Shield remote. That button is handled in firmware and can't be changed
         over ADB, so use a button remapper app for it. You can turn this back on
         at any time.
-      </p>
+      </p></details>
       <div class="tweak-row">
         <div>
           <div class="current">Current: <strong>{netflixHooksState === "disabled" ? "hooks disabled" : "hooks active"}</strong></div>
@@ -520,11 +526,11 @@
     </div>
 
     <h3>Match Content Frame Rate</h3>
-    <p class="muted small">
+    <details class="tweak-details"><summary>About match content frame rate</summary><p class="muted small">
       Lets apps change the TV's refresh rate to match the video, such as 24 Hz
       for films. Seamless only switches when the TV can do it without a black
       screen. The app and the TV both have to support it.
-    </p>
+    </p></details>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{matchContentLabel(tweaks.match_content_frame_rate)}</strong></div>
@@ -610,12 +616,12 @@
     {/if}
 
     <h3>Background Process Limit</h3>
-    <p class="muted small">
+    <details class="tweak-details"><summary>About background process limit</summary><p class="muted small">
       Android keeps recently used apps in memory so they open faster. This shows
       how many it will keep. This app can't change that number. Earlier versions
       wrote a setting for it, but a Shield TV ignored that setting and kept its
       limit at 32.
-    </p>
+    </p></details>
     <p class="muted small">
       To set a limit, open Developer options on the TV and use Background process
       limit. In standard Android, that choice is cleared when the TV restarts.
@@ -676,15 +682,12 @@
 
     <h3>Screensaver</h3>
     <p class="muted small">
-      Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is
-      the plain screensaver built into Android. Restore previous puts back the
-      screensaver that was set when this tab opened, including a vendor one this
-      app can't name.
+      Choose the idle screensaver. Restore previous uses the setting from when this tab opened.
     </p>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{screensaverLabel(tweaks.screensaver_components, tweaks.screensaver_enabled)}</strong></div>
-        <div class="muted small mono">secure.screensaver_components = {tweaks.screensaver_components ?? "(unset)"}, secure.screensaver_enabled = {tweaks.screensaver_enabled ?? "(unset)"}</div>
+        <details class="tweak-details"><summary>Saved screensaver details</summary><p class="small mono">Current component: {tweaks.screensaver_components ?? "(unset)"}<br />Enabled: {tweaks.screensaver_enabled ?? "(unset)"}<br />Restore previous component: {screensaverOriginal ?? "(unset)"}</p></details>
       </div>
       <div class="row-actions">
         <button
@@ -697,7 +700,7 @@
           class="small-action"
           disabled={tweaksActionBusy === "screensaver_components"}
           onclick={() => writeScreensaver(screensaverOriginal ?? "", screensaverEnabledOriginal ?? "1")}
-        >Restore previous ({screensaverLabel(screensaverOriginal, screensaverEnabledOriginal)})</button>
+        >Restore previous</button>
         <button
           class="small-action"
           class:active={tweaks.screensaver_enabled === "0"}
@@ -708,10 +711,10 @@
     </div>
 
     <h3>UI Animations</h3>
-    <p class="muted small">
+    <details class="tweak-details"><summary>About ui animations</summary><p class="muted small">
       Sets Android's three animation speeds together. 0.5× makes menus feel
       quicker. Off removes the animations.
-    </p>
+    </p></details>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{animationsLabel(tweaks)}</strong></div>
@@ -748,7 +751,7 @@
       <code>wm size</code> and <code>wm density</code>. The TV still gets its
       usual output resolution, and the menus are scaled up to fit.
     </p>
-    <p class="muted small">
+    <details class="tweak-details"><summary>About scaling and picture quality</summary>    <p class="muted small">
       <strong>Why lower it:</strong> at 4K, Android draws four times as many
       pixels as at 1080p. Drawing menus at 1080p puts less load on the graphics
       chip and memory, but text and icons look softer. Video players decode at
@@ -756,7 +759,7 @@
       <strong>Why raise it:</strong> to put it back. Density sets how large
       things are drawn. Each preset pairs a resolution with a density that keeps
       things about the same size.
-    </p>
+    </p></details>
     {#if currentDisplayScaling}
       <div class="current-scaling muted small mono">
         {currentDisplayScaling.size || "Size: unknown"}
@@ -829,6 +832,10 @@
     font-family: var(--mono);
     font-size: 0.85rem;
   }
+  .tweak-row > div { min-width: 0; max-width: 100%; }
+  .current, .tweak-details { overflow-wrap: anywhere; }
+  .tweak-row .row-actions { max-width: 100%; flex-shrink: 0; }
+  .tweak-details { margin-top: .5rem; }
   .row-actions {
     display: flex;
     gap: 0.4rem;
@@ -927,6 +934,7 @@
      need the grouping more than they need the density. */
   .tweak-row {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
     gap: 1rem;

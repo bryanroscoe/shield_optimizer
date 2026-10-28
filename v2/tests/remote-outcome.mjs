@@ -57,7 +57,38 @@ try {
     await page.screenshot({ path: `${evidence}/remote-explicit-next-gesture-simulated.png` });
     await writeFile(`${evidence}/remote-outcome-calls.json`, JSON.stringify(await page.evaluate(() => window.remoteOutcomeCalls), null, 2));
   }
+  await page.evaluate(() => { const previous = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__); window.__TAURI_INTERNALS__.invoke = async (command, args) => command === 'send_key' ? { ok: true, message: '', transport: 'shell' } : previous(command, args); });
+  await page.getByRole('button', {name:'Home', exact:true}).click();
+  await page.getByText('○ Last input: compatible', {exact:true}).waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await page.waitForTimeout(2200);
+  assert.equal(await page.getByText('○ Last input: compatible', {exact:true}).count(), 1, 'last-input mode persists after focus loss without claiming a live channel');
+  assert.equal(await page.getByText('Each press takes about 0.7s', {exact:true}).count(), 0, 'no fabricated latency estimate');
+  const spacing = await page.locator('.remote-header').evaluate(el => ({bottom:el.getBoundingClientRect().bottom, next:el.nextElementSibling.getBoundingClientRect().top}));
+  assert.ok(spacing.next - spacing.bottom >= 16, 'heading is separated from Remote controls');
   await pause(4000);
+  await page.evaluate(() => { const original = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__); window.__TAURI_INTERNALS__.invoke = async (command, args) => { const result = await original(command, args); if (command === 'get_tweaks') return { ...result, screensaver_components: 'com.codingbuffalo.aerialdream/'.repeat(8) }; return result; }; });
+  await page.getByRole('tab', {name:'Tweaks', exact:true}).click();
+  await page.getByRole('button', {name:'Restore previous', exact:true}).waitFor();
+  await page.evaluate(() => { window.tweakCalls = []; const invoke = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__); window.__TAURI_INTERNALS__.invoke = async (command, args) => { window.tweakCalls.push(command); return invoke(command, args); }; });
+  await page.locator('.tweak-row').filter({hasText:'Main switch'}).getByRole('button',{name:'On',exact:true}).click();
+  await page.waitForFunction(() => window.tweakCalls.includes('get_tweaks'));
+  await page.waitForTimeout(150);
+  assert.deepEqual(await page.evaluate(() => window.tweakCalls), ['write_setting','get_tweaks'], 'CEC readback does not reread DNS, app permissions, packages, or display scaling');
+  await page.evaluate(() => window.tweakCalls = []);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', {name:/^4K 3839/}).click();
+  await page.waitForFunction(() => window.tweakCalls.includes('get_display_scaling'));
+  assert.deepEqual(await page.evaluate(() => window.tweakCalls), ['set_display_scaling','get_display_scaling'], '4K only writes scaling and performs its one batched readback');
+
+  for (const width of [1280, 760]) {
+    await page.setViewportSize({width, height:950});
+    const layout = await page.evaluate(() => ({viewport:innerWidth,scroll:document.documentElement.scrollWidth}));
+    assert.ok(layout.scroll <= layout.viewport + 2, 'long screensaver component never forces horizontal overflow');
+    assert.equal(await page.locator('.scale-note').count() > 0, true, 'display recovery warning stays visible');
+    await page.getByRole('heading', {name:'Screensaver',exact:true}).scrollIntoViewIfNeeded();
+    if (evidence) await page.screenshot({path:`${evidence}/tweaks-long-component-${width}-simulated.png`});
+  }
   const video = page.video();
   await context.close();
   if (evidence) await video.saveAs(`${evidence}/remote-outcome-simulated.webm`);

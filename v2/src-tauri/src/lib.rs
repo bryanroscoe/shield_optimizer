@@ -361,6 +361,7 @@ pub fn run() {
         .manage(state)
         .manage(log_control)
         .manage(AdbQuitControl::default())
+        .manage(commands::scan::PassiveDiscoveryState::default())
         .invoke_handler(invoke_handler())
         .build(context)
         .expect("error while building tauri application")

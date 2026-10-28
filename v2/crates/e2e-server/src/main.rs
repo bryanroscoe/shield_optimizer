@@ -613,9 +613,15 @@ fn main() {
     let state = AppState::new(Arc::new(sim.clone()), app_lists, data_dir.clone())
         .with_entitlement(Entitlement::Pro)
         .with_known_names(loader::load_known_names());
+    let discovery_sim = sim.clone();
+    let passive_discovery =
+        shield_optimizer_v2_lib::commands::scan::PassiveDiscoveryState::fixture(move || {
+            discovery_sim.world().mdns_services()
+        });
 
     let app = mock_builder()
         .manage(state)
+        .manage(passive_discovery)
         .manage(log_control)
         .manage(shield_optimizer_v2_lib::commands::quit::AdbQuitControl::default())
         .invoke_handler(shield_optimizer_v2_lib::invoke_handler())

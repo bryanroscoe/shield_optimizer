@@ -60,7 +60,6 @@
     stopRepeat();
     closeSession(logicalSession);
     logicalSession = null;
-    transport = null;
   }
 
   function sessionFor(target: string, version: number) {
@@ -263,6 +262,7 @@
     const visible = active;
     untrack(() => {
       invalidate();
+      transport = null;
       remoteEcho = "";
       remoteMessage = "";
       remoteCaptureFocused = false;
@@ -282,9 +282,9 @@
     {#if transport}
       <span class="transport" class:live={transport === "channel"}
         title={transport === "channel"
-          ? "Low-latency control channel — presses reach the TV in milliseconds, and holding a D-pad button repeats."
-          : "Compatibility mode — each press is a slower ADB call (~0.7s)."}>
-        {transport === "channel" ? "● instant" : "○ compatible (slower)"}
+          ? "Last input used the fast control channel. Holding a D-pad button repeats."
+          : "Last input used compatibility mode. Timing varies by device and connection."}>
+        {transport === "channel" ? "● Last input: fast channel" : "○ Last input: compatible"}
       </span>
     {/if}
   </div>
@@ -361,7 +361,7 @@
         <p class="pad-caption">
           {transport === "channel"
             ? "Hold a direction to repeat"
-            : "Each press takes about 0.7s"}
+            : "Compatibility input — response time varies"}
         </p>
       {/if}
       <div class="remote-keys">
@@ -400,7 +400,9 @@
     align-items: baseline;
     gap: 0.8rem;
     flex-wrap: wrap;
+    margin-bottom: 1.25rem;
   }
+  .remote-header h2 { margin: 0; }
   .transport {
     margin-left: auto;
     font-size: 0.74rem;

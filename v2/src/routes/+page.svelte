@@ -8,7 +8,7 @@
   import { deviceTypeLabel } from "$lib/types";
   import { readRememberedDevices, writeRememberedDevices, updateRememberedDevices, verifiedDeviceHardwareId, rememberedDeviceLabel, renameRememberedDevice, forgetRememberedDevice, type RememberedDevice } from "$lib/remembered-devices";
   import Icon from "$lib/components/Icon.svelte";
-  import { discoveryAddressUsable, discoveryEndpointUsable, refreshedDiscoveryChoice } from "$lib/native-discovery-rows";
+  import { discoveryAddressUsable, discoveryEndpointUsable, refreshedDiscoveryChoice, excludeConnectedAdvertisements } from "$lib/native-discovery-rows";
   import NativeDiscovery from "$lib/components/NativeDiscovery.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
@@ -79,6 +79,9 @@
   let scanMessage = $state("");
   let adbBackend = $state<"direct" | "subprocess" | null>(null);
   let nativeDiscovery = $state<NativeDiscoveryReport | null>(null);
+  let connectedChoices = $state<{ observation: NativeAdvertisement; serial: string }[]>([]);
+  const offlineRemembered = $derived(remembered.filter(saved => !devices.some(device => verifiedDeviceHardwareId(device) === saved.hardwareId)));
+  const visibleDiscovery = $derived(nativeDiscovery ? { ...nativeDiscovery, advertisements: excludeConnectedAdvertisements(nativeDiscovery.advertisements, devices.filter(device => device.status === "device").map(device => device.serial)).filter(ad => !connectedChoices.some(choice => choice.observation.service_kind === ad.service_kind && choice.observation.instance.toLowerCase() === ad.instance.toLowerCase() && choice.observation.connect_address === ad.connect_address && choice.observation.interface_index === ad.interface_index && choice.observation.scope_id === ad.scope_id && devices.some(device => device.serial === choice.serial && device.status === "device"))) } : null);
   let discoveryReceivedAt = $state(0);
   let nativeChoiceBusy = $state(false);
   let nativeChoiceAddress = $state<string | null>(null);
@@ -159,9 +162,6 @@
       installMessage = r.message;
       if (r.ok) {
         await refresh();
-        if (!devices.some((d) => d.status === "device")) {
-          await scan();
-        }
       }
     } catch (e) {
       installMessage = String(e);
@@ -196,7 +196,7 @@
         connectAddress = "";
         pairNextStep = false;
         await refresh();
-        await announceConnected(connectKey(address));
+        return await announceConnected(connectKey(address));
       } else {
         showConnectFailure(address, r.message);
       }
@@ -264,32 +264,14 @@
   }
 
   async function scan() {
-    if (directUnavailable || nativeChoiceBusy || (adbBackend === "direct" && (connectBusy || pairBusy || pairStage === "waiting"))) return;
-    if (adbBackend !== "subprocess" && scanBusy) return;
+    if (directUnavailable || nativeChoiceBusy || scanBusy || connectBusy || pairBusy || pairStage === "waiting") return;
     scanBusy = true;
     scanMessage = adbBackend === "direct" ? "Discovering advertised services…" : "Scanning local network…";
     try {
       const r = await api.scanNetwork();
-      scanMessage = r.message;
-      if (adbBackend !== "subprocess" || r.native_discovery) {
-        nativeDiscovery = r.native_discovery ?? null;
-        discoveryReceivedAt = performance.now();
-        scanMessage = nativeDiscovery ? "" : "No discovery result returned. Scan again or use Add by IP.";
-        return;
-      }
-      // A device advertising only a pairing service cannot be connected to
-      // until the user enters the code from its screen. Open the pairing form
-      // on its real advertised port rather than making them read two
-      // different IP:port pairs off the TV (#88).
-      const waiting = r.needs_pairing?.[0];
-      if (waiting && !pairAddress.trim()) {
-        pairAddress = waiting;
-        pairOpen = true;
-      }
-      // Always refresh: even a "failed" connect can register the device with
-      // the daemon (e.g. unauthorized — waiting for on-TV approval), and the
-      // list is where that state is visible.
-      await refresh();
+      nativeDiscovery = r.native_discovery ?? null;
+      discoveryReceivedAt = performance.now();
+      scanMessage = nativeDiscovery ? "" : "No discovery result returned. Use Add by IP or scan again.";
     } catch (e) {
       scanMessage = String(e);
       if (nativeDiscovery) nativeDiscovery = { ...nativeDiscovery, advertisements: nativeDiscovery.advertisements.map(address => ({ ...address, cached: true })) };
@@ -476,7 +458,8 @@
   }
 
   async function useNativeAdvertisement(selected: NativeAdvertisement) {
-    if (adbBackend !== "direct" || directUnavailable || scanBusy || nativeChoiceBusy || connectBusy || pairBusy || pairStage === "waiting" || !discoveryEndpointUsable(selected) || !nativeDiscovery) return;
+    if (directUnavailable || scanBusy || nativeChoiceBusy || connectBusy || pairBusy || pairStage === "waiting" || !discoveryEndpointUsable(selected) || !nativeDiscovery) return;
+    const selectedBackend = adbBackend;
     const token = ++nativeChoiceToken;
     nativeChoiceBusy = true;
     nativeChoiceCancelled = false;
@@ -500,7 +483,7 @@
         advertisement = refreshed;
       }
       if (token !== nativeChoiceToken) return;
-      if (adbBackend !== "direct" || directUnavailable) {
+      if (adbBackend !== selectedBackend || directUnavailable) {
         connectMessage = "Connection cancelled because the ADB backend changed or became unavailable. Scan again before connecting.";
         return;
       }
@@ -519,7 +502,12 @@
       } else {
         pairOpen = false;
         connectAddress = advertisement.connect_address!;
-        await connect();
+        const connected = await connect();
+        if (connected?.status === "device") {
+          connectedChoices = [...connectedChoices, { observation: advertisement, serial: connected.serial }];
+          const href = deviceHref(connected);
+          if (href) await goto(href);
+        }
       }
     } catch (e) {
       if (token === nativeChoiceToken) {
@@ -863,14 +851,8 @@
     }
   }
 
-  // Best-effort discovery on boot: if no ready device shows up after the
-  // initial refresh and adb is available, kick off a scan so users with
-  // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing || adbBackend !== "subprocess") return;
-    if (devices.some((d) => d.status === "device")) return;
-    await scan();
   }
 
   onMount(() => {
@@ -902,7 +884,7 @@
     </p>
   </div>
   <div class="header-actions">
-    <button onclick={scan} disabled={scanBusy || adbMissing || directUnavailable || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title={adbBackend === "direct" ? "Discover advertised services without connecting" : adbBackend === "subprocess" ? "Scan the local /24 subnet for ADB-listening devices" : "Scan using the selected backend"}>
+    <button class:primary={!devices.some(d => d.status === "device")} onclick={scan} disabled={scanBusy || nativeChoiceBusy || adbMissing || directUnavailable || connectBusy || pairBusy || pairStage === "waiting"} title="Find nearby devices without connecting or requesting authorization">
       <Icon name="wifi_tethering" size={16} /> {scanBusy ? "Scanning…" : "Scan LAN"}
     </button>
     <button onclick={refresh} disabled={loading} title="Re-read the list of connected devices">
@@ -978,13 +960,13 @@
   {/if}
 </section>
 
-{#if remembered.length}
+{#if offlineRemembered.length}
   <details class="remembered-devices" bind:open={rememberedOpen}>
-    <summary bind:this={rememberedSummary} onclick={() => { historyDisclosureTouched = true; }}>Remembered devices ({remembered.length})</summary>
+    <summary bind:this={rememberedSummary} onclick={() => { historyDisclosureTouched = true; }}>Remembered devices ({offlineRemembered.length})</summary>
     {#if rememberedOpen}
     <p class="muted small">Names saved on this Mac. Use a current discovery or Add by IP to connect; old addresses are not reused.</p>
     <ul>
-      {#each remembered as saved (saved.hardwareId)}
+      {#each offlineRemembered as saved (saved.hardwareId)}
         <li>
           <div><strong>{rememberedDeviceLabel(saved)}</strong> <span class="muted small">{saved.model}</span><br /><span class="muted small">{devices.some(device => verifiedDeviceHardwareId(device) === saved.hardwareId) ? 'Connected now' : `Last connected ${new Date(saved.lastSeen).toLocaleString()}`}</span></div>
           {#if editingRememberedId === saved.hardwareId}
@@ -1004,7 +986,7 @@
 {#if historyWarning}<p class="warning small" role="status">{historyWarning}</p>{/if}
 
 {#if nativeDiscovery || (adbBackend === "direct" && scanBusy)}
-  <NativeDiscovery report={nativeDiscovery} receivedAt={discoveryReceivedAt} scanning={scanBusy} connectingAddress={connectBusy ? connectAddress : null} busy={scanBusy || nativeChoiceBusy || connectBusy || pairBusy || pairStage === "waiting"} refreshingAddress={nativeChoiceAddress} cancelling={nativeChoiceCancelled} onCancelRefresh={cancelNativeChoice} onChoose={useNativeAdvertisement} />
+  <NativeDiscovery report={visibleDiscovery} receivedAt={discoveryReceivedAt} scanning={scanBusy} connectingAddress={connectBusy ? connectAddress : null} busy={scanBusy || nativeChoiceBusy || connectBusy || pairBusy || pairStage === "waiting"} refreshingAddress={nativeChoiceAddress} cancelling={nativeChoiceCancelled} onCancelRefresh={cancelNativeChoice} onChoose={useNativeAdvertisement} />
 {/if}
 
 {#if pairOpen}

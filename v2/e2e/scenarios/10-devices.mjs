@@ -36,17 +36,22 @@ export const scenarios = [
       await ctx.open("/");
       await ctx.step("empty list");
       await ctx.page.getByRole("button", { name: "Scan LAN" }).click();
-      await ctx.text("Scanned 192.0.2.x", { exact: false }).waitFor();
-      await ctx.text(SHIELD.name).first().waitFor();
-      await ctx.step("scan connected the Shield and found an unauthorized box");
-      await ctx.text("need", { exact: false }).first().waitFor();
-      ctx.assert.match(await ctx.page.locator(".connect-message").allInnerTexts().then((t) => t.join(" ")), /1 needs authorization/);
+      await ctx.page.getByRole("heading", {name:"Find your TV", exact:true}).waitFor();
+      ctx.assert.deepEqual((await ctx.state()).transports, [], "Scan never connects or prompts any TV");
+      ctx.assert.equal((await ctx.log()).filter(i => ["connect", "disconnect", "start-server"].includes(i.args[0])).length, 0, "Scan performs no ADB lifecycle actions");
+      await ctx.page.getByRole("button", {name:/Connect .*192\.0\.2\.71:5555/}).click();
+      await ctx.page.getByRole("button", {name:"Refresh",exact:true}).click();
       await row(ctx, "192.0.2.71:5555").getByText("UNAUTHORIZED").waitFor();
-      await row(ctx, "192.0.2.71:5555").getByText("This device needs to be authorized", { exact: false }).waitFor();
-      await ctx.step("unauthorized row explains the on-TV prompt");
-      const state = await ctx.state();
-      const keys = state.transports.map((t) => `${t.key}=${t.state}`).sort();
+      ctx.assert.equal((await ctx.log()).filter(i => i.args[0] === "connect").length, 1, "only selected TV is prompted");
+      await ctx.page.getByRole("button", {name:/Connect .*192\.0\.2\.1:5555/}).click();
+      await ctx.page.getByRole("button", {name:"Back to devices",exact:true}).waitFor();
+      await ctx.page.getByRole("button", {name:"Back to devices",exact:true}).click();
+      await ctx.page.getByRole("button", {name:"Scan LAN",exact:true}).click();
+      await ctx.page.getByRole("heading", {name:"Find your TV",exact:true}).waitFor();
+      ctx.assert.equal(await ctx.page.getByRole("button", {name:/Connect .*192\.0\.2\.1:5555/}).count(), 0, "rescan does not offer the ready endpoint again");
+      const keys = (await ctx.state()).transports.map(t => `${t.key}=${t.state}`).sort();
       ctx.assert.deepEqual(keys, ["192.0.2.1:5555=device", "192.0.2.71:5555=unauthorized"]);
+      await ctx.step("passive discovery and one explicit TV connection at a time");
     },
   },
   {

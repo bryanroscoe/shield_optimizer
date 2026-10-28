@@ -17,14 +17,15 @@ export const scenarios = [
       await ctx.reset(shieldScenario());
       await ctx.openDevice(SHIELD.key, "tweaks");
       const page = ctx.page;
-      const section = page.locator(".tweak-row").filter({ hasText: "secure.screensaver_components" }).first();
-      await section.getByText(`secure.screensaver_components = ${BACKDROP}`, { exact: false }).waitFor();
+      const section = page.locator(".tweak-row").filter({ hasText: "Saved screensaver details" }).first();
+      await section.getByText("Saved screensaver details", {exact:true}).click();
+      await section.getByText(`Current component: ${BACKDROP}`, { exact: false }).waitFor();
       await ctx.step("current screensaver read from the device");
 
       await section.getByRole("button", { name: "Basic Daydream" }).click();
       await ctx.waitFor(async () => (await secure(ctx)).screensaver_components === BASIC, { message: "Basic Daydream written" });
       ctx.assert.equal((await secure(ctx)).screensaver_enabled, "1");
-      await section.getByText(`secure.screensaver_components = ${BASIC}`, { exact: false }).waitFor();
+      await section.getByText(`Current component: ${BASIC}`, { exact: false }).waitFor();
       await ctx.step("Basic Daydream");
 
       await section.getByRole("button", { name: "None" }).click();

@@ -56,3 +56,8 @@ export function refreshedDiscoveryChoice(selected: NativeAdvertisement, report: 
     && row.interface_index === selected.interface_index && row.interface_name === selected.interface_name
     && row.scope_id === selected.scope_id && discoveryAddressUsable(row, 0, report.observation_max_age_ms));
 }
+
+export function excludeConnectedAdvertisements(advertisements: NativeAdvertisement[], readyEndpoints: string[]): NativeAdvertisement[] {
+  const ready = new Set(readyEndpoints);
+  return buildNativeDiscoveryRows(advertisements).filter(group => !group.addresses.some(ad => ad.service_kind !== 'tls_pairing' && ad.connect_address !== null && ready.has(ad.connect_address))).flatMap(group => group.addresses);
+}

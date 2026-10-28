@@ -7,7 +7,7 @@ import { createServer } from 'vite';
 import { chromium } from 'playwright';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const compiled = ts.transpileModule(await readFile(resolve(root, 'src/lib/native-discovery-rows.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { buildNativeDiscoveryRows, discoveryAddressUsable } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const { buildNativeDiscoveryRows, discoveryAddressUsable, excludeConnectedAdvertisements } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
 const base = { service_kind: 'legacy_adb', instance: 'Living Room._adb._tcp.local.', address: '192.0.2.71', port: 5555, interface_name: 'en7', interface_index: 7, scope_id: null, connect_address: '192.0.2.71:5555', observed_age_ms: 0, cached: false, warning: null };
 const ipv6 = { ...base, address: 'fe80::71', scope_id: 7, connect_address: '[fe80::71%7]:5555' };
 const pair = { ...base, service_kind: 'tls_pairing', instance: 'adb-private-id._adb-tls-pairing._tcp.local.', port: 37111, connect_address: '192.0.2.71:37111' };
@@ -22,6 +22,7 @@ assert.equal(discoveryAddressUsable(ipv6, 0, 30000), true);
 assert.equal(discoveryAddressUsable({ ...ipv6, scope_id: null }, 0, 30000), false);
 assert.equal(discoveryAddressUsable({ ...base, cached: true }, 0, 30000), false);
 assert.equal(discoveryAddressUsable(base, 30000, 30000), false);
+assert.deepEqual(excludeConnectedAdvertisements(report.advertisements, [base.connect_address]), [bedroom, pair], 'connected exact endpoint suppresses only its reliable service-group alternatives, not another TV or pairing port');
 console.log('PASS service-identity grouping, friendly display and exact scoped-address policy');
 
 const evidence = process.env.NATIVE_DISCOVERY_EVIDENCE;
@@ -122,7 +123,7 @@ try {
   cases.push('responsive picker remains usable at narrow width and large text');
   await startScan(); await page.evaluate(() => window.failScan());
   await page.getByText('Error: SIMULATED discovery unavailable', { exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: /^Connect / }).count(), 0, 'failed rescan cannot leave old addresses directly selectable');
+  assert.equal(await count('connect_device'), 2, 'failed rescan never initiates a connection; stale choices require internal revalidation');
   await startScan(); await finishScan(report);
   await page.setViewportSize({ width: 1360, height: 1000 }); await page.evaluate(() => document.documentElement.style.fontSize = '100%');
   const bounds = await page.locator('.nearby-device').evaluateAll(rows => rows.map(row => { const r = row.getBoundingClientRect(); return { x:r.x, right:r.right, height:r.height }; }));
@@ -132,7 +133,7 @@ try {
   await page.keyboard.press('Escape');
   await page.clock.fastForward(31000);
   await capture('expired-refresh-action');
-  const expired = page.getByRole('button', { name: 'Refresh & connect Living Room at 192.0.2.71:5555', exact: true });
+  const expired = page.getByRole('button', { name: 'Connect Living Room at 192.0.2.71:5555', exact: true });
   const beforeExpired = await count('connect_device');
   await expired.click();
   await page.waitForFunction(() => typeof window.finishScan === 'function');
@@ -179,6 +180,10 @@ try {
   await page.evaluate(known => { window.deviceRows = [known]; }, known);
   await page.getByRole('button', { name:'Refresh', exact:true }).click();
   await page.waitForFunction(() => !!localStorage.getItem('atv.desktop.rememberedDevices.v1')?.includes('VERIFIED-A'));
+  assert.equal(await page.locator('.remembered-devices').count(), 0, 'verified connected identity has no separate remembered row');
+  await startScan(); await finishScan(report);
+  assert.equal(await page.getByRole('button', {name: /^Connect Living Room at/}).count(), 0, 'rescan never offers connected service or its alternate address again');
+  assert.equal(await page.getByRole('button', {name: /^Connect Bedroom at/}).count(), 1, 'unrelated TV stays selectable');
   await page.evaluate(() => { window.deviceRows = [{ id:1, serial:'192.0.2.71:5555', name:'192.0.2.71:5555', model:'', status:'offline', connection:'network', device_type:'unknown', tv_evidence:'unknown', properties:null }]; });
   await page.getByRole('button', { name:'Refresh', exact:true }).click();
   await page.getByText('1 listed · 0 ready', {exact:true}).waitFor();
@@ -203,6 +208,20 @@ try {
   assert.equal(await count('rename_device'),0,'local rename never changes TV settings');
   assert.equal(await count('forget_device'),0,'forgetting a saved name never disconnects a TV');
   cases.push('verified names persist through offline state and reload, with local-only rename/forget and no stale reconnect');
+  await startScan(); await finishScan(report);
+  const beforeSuccess = await count('connect_device');
+  await page.evaluate(known => { window.deviceRows = [known]; window.connectSucceeds = true; }, known);
+  await page.getByRole('button', {name:'Connect Living Room at 192.0.2.71:5555', exact:true}).click();
+  await page.waitForURL(/\/devices\//);
+  assert.equal(await count('connect_device'), beforeSuccess + 1, 'successful selection connects exactly one target');
+  await page.getByRole('button', {name:'Back to devices', exact:true}).click();
+  await startScan(); await finishScan(report);
+  assert.equal(await page.getByRole('button', {name:/^Connect Living Room at/}).count(),0,'successful connection and repeated scan remove only that service group');
+  assert.equal(await page.locator('.remembered-devices').count(),0,'connected identity has no separate remembered entry');
+  assert.equal(await page.getByRole('button',{name:/^Connect Bedroom at/}).count(),1);
+  await capture('connected-rescan');
+  cases.push('successful selection opens normal device view; repeated scan suppresses connected service alternatives without hiding another TV');
+
   for (const command of ['connect_paired', 'probe_paired_connect', 'restart_adb', 'install_adb']) assert.equal(await count(command), 0);
   if (evidence) { await writeFile(`${evidence}/ui-cases.json`, JSON.stringify({ simulation: true, cases }, null, 2)); const video = page.video(); await context.close(); await video.saveAs(`${evidence}/mobile-style-discovery-simulated.webm`); } else await context.close();
   for (const name of cases) console.log(`PASS ${name}`);
