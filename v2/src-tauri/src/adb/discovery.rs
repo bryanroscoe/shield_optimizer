@@ -1016,6 +1016,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn discovery_manager_returns_usable_fresh_rows_and_requires_each_scan_to_reobserve() {
+        let provider = Arc::new(FakeProvider::default());
+        let manager = DiscoveryManager::new(provider.clone());
+        let leases = Leases::new();
+        let kind = NativeServiceKind::LegacyAdb;
+        let name = "Living Room._adb._tcp.local.";
+        provider.batches.lock().unwrap().push_back(batch(vec![event(
+            kind,
+            name,
+            "192.0.2.71",
+            5555,
+            Instant::now() - WINDOW,
+        )]));
+        let first = manager
+            .snapshot(Arc::new(leases.try_acquire().unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(first.observation_max_age_ms, 30_000);
+        assert_eq!(first.advertisements.len(), 1);
+        let fresh = &first.advertisements[0];
+        assert!(!fresh.cached);
+        assert_eq!(fresh.connect_address.as_deref(), Some("192.0.2.71:5555"));
+        assert!(fresh.observed_age_ms >= WINDOW.as_millis() as u64);
+        assert!(fresh.observed_age_ms < first.observation_max_age_ms);
+        let serialized = serde_json::to_value(&first).unwrap();
+        assert_eq!(serialized["observation_max_age_ms"], 30_000);
+        assert_eq!(
+            serialized["advertisements"][0]["observed_age_ms"],
+            fresh.observed_age_ms
+        );
+
+        let unconfirmed = manager
+            .snapshot(Arc::new(leases.try_acquire().unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(unconfirmed.advertisements.len(), 1);
+        assert!(unconfirmed.advertisements[0].cached);
+        assert!(unconfirmed.advertisements[0].connect_address.is_none());
+        assert!(unconfirmed.advertisements[0].observed_age_ms >= fresh.observed_age_ms);
+
+        provider.batches.lock().unwrap().push_back(batch(vec![event(
+            kind,
+            name,
+            "192.0.2.71",
+            5555,
+            Instant::now(),
+        )]));
+        let renewed = manager
+            .snapshot(Arc::new(leases.try_acquire().unwrap()))
+            .await
+            .unwrap();
+        assert_eq!(renewed.advertisements.len(), 1);
+        assert!(!renewed.advertisements[0].cached);
+        assert_eq!(
+            renewed.advertisements[0].connect_address.as_deref(),
+            Some("192.0.2.71:5555")
+        );
+        assert!(renewed.advertisements[0].observed_age_ms < renewed.observation_max_age_ms);
+
+        // Advance only the injected observation's age, without sleeping or browsing the LAN.
+        manager
+            .cache
+            .lock()
+            .unwrap()
+            .services
+            .get_mut(&(kind, name.to_ascii_lowercase()))
+            .unwrap()
+            .observed = Instant::now() - MAX_AGE;
+        let expired = manager
+            .snapshot(Arc::new(leases.try_acquire().unwrap()))
+            .await
+            .unwrap();
+        assert!(expired.advertisements.is_empty());
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 4);
+        assert_eq!(leases.active(), 0);
+    }
+
+    #[tokio::test]
     async fn discovery_provider_failure_returns_only_disabled_cache_observations() {
         let provider = Arc::new(FakeProvider::default());
         let now = Instant::now();
