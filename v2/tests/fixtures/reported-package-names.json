@@ -1,0 +1,107 @@
+[
+  {
+    "package": "by4a.setedit22",
+    "name": "SetEdit SettingsDatabaseEditor",
+    "source_url": "https://play.google.com/store/apps/details?id=by4a.setedit22",
+    "verified_at": "2026-10-29",
+    "issue": 240
+  },
+  {
+    "package": "com.cxinventor.file.explorer",
+    "name": "Cx File Explorer",
+    "source_url": "https://play.google.com/store/apps/details?id=com.cxinventor.file.explorer",
+    "verified_at": "2026-10-29",
+    "issue": 241
+  },
+  {
+    "package": "com.espn.score_center",
+    "name": "ESPN",
+    "source_url": "https://play.google.com/store/apps/details?id=com.espn.score_center",
+    "verified_at": "2026-10-29",
+    "issue": 242
+  },
+  {
+    "package": "com.fox.foxone",
+    "name": "FOX One",
+    "source_url": "https://play.google.com/store/apps/details?id=com.fox.foxone",
+    "verified_at": "2026-10-29",
+    "issue": 243
+  },
+  {
+    "package": "com.getchannels.dvr.app",
+    "name": "Channels: Whole Home DVR",
+    "source_url": "https://play.google.com/store/apps/details?id=com.getchannels.dvr.app",
+    "verified_at": "2026-10-29",
+    "issue": 244
+  },
+  {
+    "package": "com.handmark.sportscaster.androidtv",
+    "name": "CBS Sports: Watch Live",
+    "source_url": "https://play.google.com/store/apps/details?id=com.handmark.sportscaster.androidtv",
+    "verified_at": "2026-10-29",
+    "issue": 245
+  },
+  {
+    "package": "com.hoopladigital.android",
+    "name": "Hoopla",
+    "source_url": "https://play.google.com/store/apps/details?id=com.hoopladigital.android",
+    "verified_at": "2026-10-29",
+    "issue": 246
+  },
+  {
+    "package": "com.kanopy.tvapp",
+    "name": "Kanopy for Android TV",
+    "source_url": "https://play.google.com/store/apps/details?id=com.kanopy.tvapp",
+    "verified_at": "2026-10-29",
+    "issue": 247
+  },
+  {
+    "package": "com.klevico.monet",
+    "name": "Monet Launcher - Android TV",
+    "source_url": "https://play.google.com/store/apps/details?id=com.klevico.monet",
+    "verified_at": "2026-10-29",
+    "issue": 248
+  },
+  {
+    "package": "com.moviesanywhere.goo",
+    "name": "Movies Anywhere",
+    "source_url": "https://play.google.com/store/apps/details?id=com.moviesanywhere.goo",
+    "verified_at": "2026-10-29",
+    "issue": 249
+  },
+  {
+    "package": "com.neilturner.aerialviews",
+    "name": "Aerial Views screensaver",
+    "source_url": "https://play.google.com/store/apps/details?id=com.neilturner.aerialviews",
+    "verified_at": "2026-10-29",
+    "issue": 250
+  },
+  {
+    "package": "com.silicondust.view",
+    "name": "HDHomeRun",
+    "source_url": "https://play.google.com/store/apps/details?id=com.silicondust.view",
+    "verified_at": "2026-10-29",
+    "issue": 251
+  },
+  {
+    "package": "com.surfshark.vpnclient.android",
+    "name": "Surfshark",
+    "source_url": "https://play.google.com/store/apps/details?id=com.surfshark.vpnclient.android",
+    "verified_at": "2026-10-29",
+    "issue": 252
+  },
+  {
+    "package": "com.turner.tbs.android.networkapp",
+    "name": "Watch TBS",
+    "source_url": "https://play.google.com/store/apps/details?id=com.turner.tbs.android.networkapp",
+    "verified_at": "2026-10-29",
+    "issue": 253
+  },
+  {
+    "package": "com.turner.tnt.android.networkapp",
+    "name": "Watch TNT",
+    "source_url": "https://play.google.com/store/apps/details?id=com.turner.tnt.android.networkapp",
+    "verified_at": "2026-10-29",
+    "issue": 254
+  }
+]

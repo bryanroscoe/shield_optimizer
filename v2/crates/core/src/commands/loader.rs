@@ -548,6 +548,26 @@ mod tests {
     }
 
     #[test]
+    fn known_names_for_reported_packages_are_display_only() {
+        let evidence: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reported-package-names.json"
+        ))
+        .unwrap();
+        let names = load_known_names();
+        let mut unique = std::collections::HashSet::new();
+        assert_eq!(evidence.len(), 15);
+        for entry in evidence {
+            let package = entry["package"].as_str().unwrap();
+            assert!(unique.insert(package.to_owned()));
+            assert_eq!(names[package].name, entry["name"].as_str().unwrap());
+            assert!(names[package]
+                .description
+                .as_ref()
+                .is_some_and(|text| !text.is_empty()));
+        }
+    }
+
+    #[test]
     fn known_names_accept_a_bare_name_or_a_described_entry() {
         let parsed: HashMap<String, KnownName> = serde_json::from_str(
             r#"{

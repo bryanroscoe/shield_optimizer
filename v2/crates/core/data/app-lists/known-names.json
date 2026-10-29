@@ -313,5 +313,65 @@
   "com.nvidia.shield.smbserver": {
     "name": "SMB Server",
     "description": "Shares SHIELD storage on your network as a Windows (SMB) share."
+  },
+  "by4a.setedit22": {
+    "name": "SetEdit SettingsDatabaseEditor",
+    "description": "An editor for Android settings database entries."
+  },
+  "com.cxinventor.file.explorer": {
+    "name": "Cx File Explorer",
+    "description": "A file manager for local, network and cloud storage."
+  },
+  "com.espn.score_center": {
+    "name": "ESPN",
+    "description": "Sports scores, news and streaming coverage."
+  },
+  "com.fox.foxone": {
+    "name": "FOX One",
+    "description": "Streaming access to FOX sports, news and entertainment."
+  },
+  "com.getchannels.dvr.app": {
+    "name": "Channels: Whole Home DVR",
+    "description": "A client for watching live TV and recordings from Channels DVR."
+  },
+  "com.handmark.sportscaster.androidtv": {
+    "name": "CBS Sports: Watch Live",
+    "description": "Live sports and sports coverage from CBS."
+  },
+  "com.hoopladigital.android": {
+    "name": "Hoopla",
+    "description": "Digital library borrowing for books, audio and video."
+  },
+  "com.kanopy.tvapp": {
+    "name": "Kanopy for Android TV",
+    "description": "A library-supported film streaming app for Android TV."
+  },
+  "com.klevico.monet": {
+    "name": "Monet Launcher - Android TV",
+    "description": "A customizable Android TV Home screen with Material You colors, wallpapers and widgets."
+  },
+  "com.moviesanywhere.goo": {
+    "name": "Movies Anywhere",
+    "description": "A player and library for movies linked through Movies Anywhere."
+  },
+  "com.neilturner.aerialviews": {
+    "name": "Aerial Views screensaver",
+    "description": "A video and photo screensaver for Android TV."
+  },
+  "com.silicondust.view": {
+    "name": "HDHomeRun",
+    "description": "Live TV and DVR viewing with a network-connected HDHomeRun tuner."
+  },
+  "com.surfshark.vpnclient.android": {
+    "name": "Surfshark",
+    "description": "A VPN client for connecting through Surfshark servers."
+  },
+  "com.turner.tbs.android.networkapp": {
+    "name": "Watch TBS",
+    "description": "Streaming access to TBS shows and live programming."
+  },
+  "com.turner.tnt.android.networkapp": {
+    "name": "Watch TNT",
+    "description": "Streaming access to TNT shows and live programming."
   }
 }
