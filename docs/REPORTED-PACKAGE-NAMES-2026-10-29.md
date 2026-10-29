@@ -28,3 +28,19 @@ presentation, not hardware behavior or classification. Existing Rust safety
 regressions compare every known name against an unnamed state; the separate
 custom-launcher regression verifies launcher Caution. Captured gallery screens
 use their existing demo packages and are unaffected by these registry additions.
+
+## Existing streaming-app brand corrections, reports 255–256
+
+The exact Google Play package URLs were checked on 2026-10-29:
+https://play.google.com/store/apps/details?id=air.com.vudu.air.DownloaderTablet
+https://play.google.com/store/apps/details?id=com.wbd.stream
+
+The first listing currently says Fandango: Movies & Series, published by Fandango
+Media; it is the reported Vudu package, not an inferred match to a ticketing app.
+The second says HBO Max: Stream TV & Movies, published by WarnerMedia Global
+Digital Services, LLC. The concise catalog name is HBO Max. Existing package IDs,
+risk/method/default/review/source fields are preserved exactly; only names and
+brand references in consequence/restoration descriptions change. Their previous
+reviewed safety classifications are not reassessed or broadened by store metadata.
+The demo catalog is regenerated from common plus shield. The rename fixture
+records every preserved field and the UI test checks both rendered names.

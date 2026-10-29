@@ -548,6 +548,25 @@ mod tests {
     }
 
     #[test]
+    fn reported_streaming_names_preserve_catalog_safety_fields() {
+        let changes: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reported-package-renames.json"
+        ))
+        .unwrap();
+        let lists = load_embedded_app_lists().unwrap();
+        assert_eq!(changes.len(), 2);
+        for change in changes {
+            let package = change["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, change["name"].as_str().unwrap());
+            let actual = serde_json::to_value(entry).unwrap();
+            for (key, expected) in change["preserved_fields"].as_object().unwrap() {
+                assert_eq!(&actual[key], expected, "{package}: {key}");
+            }
+        }
+    }
+
+    #[test]
     fn known_names_for_reported_packages_are_display_only() {
         let evidence: Vec<serde_json::Value> = serde_json::from_str(include_str!(
             "../../../../tests/fixtures/reported-package-names.json"

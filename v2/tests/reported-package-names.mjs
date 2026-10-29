@@ -9,6 +9,10 @@ const entries=JSON.parse(await readFile(resolve(root,'tests/fixtures/reported-pa
 const names=JSON.parse(await readFile(resolve(root,'crates/core/data/app-lists/known-names.json'),'utf8'));
 assert.equal(new Set(entries.map(e=>e.package)).size,15);
 for(const e of entries){assert.equal(names[e.package].name,e.name);assert.equal(new URL(e.source_url).searchParams.get('id'),e.package);for(const file of ['common','shield','googletv'])assert.ok(!JSON.parse(await readFile(resolve(root,`crates/core/data/app-lists/${file}.json`),'utf8')).some(row=>row.package===e.package));}
+const renames=JSON.parse(await readFile(resolve(root,'tests/fixtures/reported-package-renames.json'),'utf8'));
+const common=JSON.parse(await readFile(resolve(root,'crates/core/data/app-lists/common.json'),'utf8'));
+for(const change of renames){const entry=common.find(e=>e.package===change.package);assert.equal(entry.name,change.name);assert.deepEqual(Object.fromEntries(Object.entries(entry).filter(([key])=>!['name','optimize_description','restore_description'].includes(key))),change.preserved_fields,'rename must preserve safety, method, review, source and default fields');}
+assert.deepEqual(JSON.parse(await readFile(resolve(root,'src/lib/demo-apps.json'),'utf8')), [...common,...JSON.parse(await readFile(resolve(root,'crates/core/data/app-lists/shield.json'),'utf8'))], 'demo catalog stays synchronized');
 const evidence=process.env.REPORTED_NAMES_EVIDENCE;if(evidence)await mkdir(evidence,{recursive:true});
 process.env.VITE_DEMO='1';delete process.env.TAURI_DEV_HOST;
 let server,browser;
@@ -22,5 +26,6 @@ await openApps();await page.locator('.other-apps').evaluate(el=>el.scrollIntoVie
 await page.evaluate(()=>localStorage.setItem('reportedNamesEnabled','1'));await openApps();
 for(const e of entries){const row=page.locator('.other-apps tbody tr').filter({has:page.getByText(e.package,{exact:true})});assert.equal(await row.count(),1);assert.ok((await row.innerText()).includes(e.name));assert.ok((await row.innerText()).includes(names[e.package].description));await row.getByText(e.package==='com.klevico.monet'?'Caution':'Unknown',{exact:true}).waitFor({timeout:5000});}
 await page.locator('.other-apps').evaluate(el=>el.scrollIntoView({block:'start'}));await page.waitForTimeout(1200);if(evidence)await page.locator('.other-apps').screenshot({path:evidence+'/after-simulated.png'});
-const video=page.video();await context.close();if(evidence)await video.saveAs(evidence+'/reported-names-simulated.webm');console.log('PASS 15 identities, display names and unchanged Unknown/Caution fixtures; no curated/default additions. Browser simulation only.');
+for(const change of renames){const row=page.locator('tr').filter({has:page.getByText(change.package,{exact:true})});await row.getByText(change.name,{exact:true}).waitFor({timeout:5000});await row.scrollIntoViewIfNeeded();await page.waitForTimeout(1000);if(evidence)await page.screenshot({path:evidence+`/rename-${change.issue}-simulated.png`});}
+const video=page.video();await context.close();if(evidence)await video.saveAs(evidence+'/reported-names-simulated.webm');console.log('PASS 15 display identities plus 2 verified catalog renames; safety/default fields and demo parity preserved. Browser simulation only.');
 }finally{await browser?.close();await server?.close();}
