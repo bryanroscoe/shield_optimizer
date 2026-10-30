@@ -23,6 +23,7 @@
     "test:app-report": "node tests/app-report.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
     "test:memory-safety": "node tests/memory-safety.mjs",
+    "test:app-status-filter": "node tests/app-status-filter.mjs",
     "test:recommendation-labels": "node tests/recommendation-labels.mjs",
     "test:optimize-plan": "node tests/optimize-plan.mjs",
     "test:playback-shell": "node tests/playback-shell.mjs",

@@ -223,6 +223,9 @@ jobs:
       - name: Recommendation labels
         working-directory: v2
         run: npm run test:recommendation-labels
+      - name: Desktop app status filters and snapshot navigation
+        working-directory: v2
+        run: npm run test:app-status-filter
 
       - name: Device log snapshots and lifecycle
         working-directory: v2

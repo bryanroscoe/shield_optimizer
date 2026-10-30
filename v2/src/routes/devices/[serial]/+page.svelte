@@ -120,6 +120,7 @@
   /// Hides rows that are already decided — kept, or already disabled/removed —
   /// so the list works as a shrinking worklist.
   let hideDecided = $state(false);
+  let appStatus = $state<"all" | "enabled" | "disabled">("all");
 
   /// A placeholder serial (`unknown`, blank) identifies nothing: two such TVs
   /// would share Keep choices and expert-shell consent. The backend treats
@@ -349,10 +350,11 @@
 
   let visibleApps = $derived(
     apps.filter((a) => {
+      if (appStatus !== "all" && appStates[a.package] !== appStatus) return false;
       if (hideNotInstalled && appStates[a.package] === "missing") return false;
       // "Decided" is kept-by-you or already off the device; hiding both turns
       // the list into a worklist that shrinks as you work.
-      if (hideDecided) {
+      if (hideDecided && appStatus === "all") {
         const st = appStates[a.package];
         if (keptPackages.has(a.package) || st === "disabled" || st === "missing") return false;
       }
@@ -361,6 +363,7 @@
   );
   let visibleOthers = $derived(
     otherPackages.filter((o) => {
+      if (appStatus !== "all" && (o.enabled ? "enabled" : "disabled") !== appStatus) return false;
       if (!showSystemOthers && o.system) return false;
       return matchesSearch(o.name ?? o.package, o.package);
     }),
@@ -1231,6 +1234,7 @@
 
   /// Open the App List on exactly this package.
   function openInAppList(pkg: string) {
+    appStatus = "all";
     appSearch = pkg;
     hideNotInstalled = false;
     hideDecided = false;
@@ -1997,7 +2001,7 @@
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
-    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
+    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; appStatus = "all"; hideDecided = false; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
@@ -2976,7 +2980,15 @@
           Hide not installed
         </label>
         <label class="inline-check">
-          <input type="checkbox" bind:checked={hideDecided} />
+          Status
+          <select aria-label="App status" bind:value={appStatus}>
+            <option value="all">All</option>
+            <option value="enabled">Enabled</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </label>
+        <label class="inline-check">
+          <input type="checkbox" bind:checked={hideDecided} disabled={appStatus !== "all"} />
           Hide decided
         </label>
         <label class="inline-check">
@@ -3337,6 +3349,7 @@
             disabled apps, Home app &amp; system settings for this device
           </p>
         </div>
+        <a href="/snapshots">Manage snapshots</a>
         <button class="primary" onclick={saveSnapshot} disabled={saveBusy}>
           <Icon name="save" size={16} /> {saveBusy ? "Saving…" : "Save snapshot"}
         </button>
