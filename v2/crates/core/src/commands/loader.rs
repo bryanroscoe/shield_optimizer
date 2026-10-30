@@ -567,23 +567,65 @@ mod tests {
     }
 
     #[test]
-    fn known_names_for_reported_packages_are_display_only() {
+    fn reported_packages_have_reviewed_safety_without_default_removal() {
         let evidence: Vec<serde_json::Value> = serde_json::from_str(include_str!(
             "../../../../tests/fixtures/reported-package-names.json"
         ))
         .unwrap();
         let names = load_known_names();
+        let lists = load_embedded_app_lists().unwrap();
         let mut unique = std::collections::HashSet::new();
+        let mut safe_count = 0;
         assert_eq!(evidence.len(), 15);
-        for entry in evidence {
-            let package = entry["package"].as_str().unwrap();
+        for item in evidence {
+            let package = item["package"].as_str().unwrap();
             assert!(unique.insert(package.to_owned()));
-            assert_eq!(names[package].name, entry["name"].as_str().unwrap());
-            assert!(names[package]
-                .description
-                .as_ref()
-                .is_some_and(|text| !text.is_empty()));
+            if item["expected_safety"] == "safe" {
+                safe_count += 1;
+                let entry = lists.find(package).unwrap();
+                assert_eq!(entry.name, item["name"].as_str().unwrap());
+                assert!(!names.contains_key(package));
+                assert!(!entry.default_optimize && !entry.default_restore && !entry.review);
+                assert_eq!(entry.method, crate::engine::ActionMethod::Disable);
+                assert_eq!(entry.reviewed_at.as_deref(), Some("2026-10-30"));
+                assert!(!entry.sources.is_empty());
+                assert!(entry.optimize_description.starts_with("Disabling stops"));
+                assert!(entry.restore_description.contains("if still installed"));
+                assert!(matches!(
+                    classify_with_catalog(
+                        package,
+                        Some(CatalogVerdict {
+                            risk: entry.risk,
+                            description: &entry.optimize_description,
+                        })
+                    ),
+                    Safety::Safe {
+                        source: SafetySource::ReviewedCatalog,
+                        ..
+                    }
+                ));
+            } else {
+                assert!(lists.find(package).is_none());
+                assert_eq!(names[package].name, item["name"].as_str().unwrap());
+                let verdict = crate::engine::classify_with_sources(
+                    package,
+                    None,
+                    item["expected_safety"] == "caution",
+                );
+                assert!(matches!(
+                    (item["expected_safety"].as_str(), verdict),
+                    (Some("unknown"), Safety::Unknown { .. })
+                        | (
+                            Some("caution"),
+                            Safety::Caution {
+                                source: SafetySource::LauncherList,
+                                ..
+                            }
+                        )
+                ));
+            }
         }
+        assert_eq!(safe_count, 10);
     }
 
     #[test]

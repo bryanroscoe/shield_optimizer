@@ -1120,5 +1120,175 @@
     "sources": [
       "git history (b929e15)"
     ]
+  },
+  {
+    "package": "com.espn.score_center",
+    "name": "ESPN",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops ESPN scores, sports news and streaming in this app. It does not cancel a subscription.",
+    "restore_description": "Re-enables ESPN if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.espn.score_center",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.fox.foxone",
+    "name": "FOX One",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops FOX One viewing in this app. It does not cancel a subscription.",
+    "restore_description": "Re-enables FOX One if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.fox.foxone",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.getchannels.dvr.app",
+    "name": "Channels: Whole Home DVR",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops Channels viewing and access to its DVR server from this app. It does not remove or back up server recordings.",
+    "restore_description": "Re-enables Channels: Whole Home DVR if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.getchannels.dvr.app",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.handmark.sportscaster.androidtv",
+    "name": "CBS Sports: Watch Live",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops CBS Sports viewing and sports coverage in this app.",
+    "restore_description": "Re-enables CBS Sports: Watch Live if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.handmark.sportscaster.androidtv",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.hoopladigital.android",
+    "name": "Hoopla",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops access to Hoopla borrowing and playback in this app. Uninstalling can delete local downloads; borrowing and account eligibility are separate.",
+    "restore_description": "Re-enables Hoopla if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.hoopladigital.android",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.kanopy.tvapp",
+    "name": "Kanopy for Android TV",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops Kanopy film viewing in this app. Library eligibility and account access are separate.",
+    "restore_description": "Re-enables Kanopy for Android TV if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.kanopy.tvapp",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.moviesanywhere.goo",
+    "name": "Movies Anywhere",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops Movies Anywhere playback in this app. Uninstalling can delete local downloads; linked accounts and library access are separate.",
+    "restore_description": "Re-enables Movies Anywhere if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.moviesanywhere.goo",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.silicondust.view",
+    "name": "HDHomeRun",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops HDHomeRun tuner viewing and DVR access from this app. It does not remove or back up recordings on a separate tuner or DVR server.",
+    "restore_description": "Re-enables HDHomeRun if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.silicondust.view",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.turner.tbs.android.networkapp",
+    "name": "Watch TBS",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops Watch TBS viewing in this app. Availability depends on the service and provider; a store listing does not guarantee access.",
+    "restore_description": "Re-enables Watch TBS if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.turner.tbs.android.networkapp",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.turner.tnt.android.networkapp",
+    "name": "Watch TNT",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops Watch TNT viewing in this app. Availability depends on the service and provider; a store listing does not guarantee access.",
+    "restore_description": "Re-enables Watch TNT if still installed. Does not restore deleted downloads, server recordings or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-30",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.turner.tnt.android.networkapp",
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
   }
 ]
