@@ -4,9 +4,12 @@
 //! owns only the subprocess driver plus desktop-only platform-tools install and
 //! network scan helpers.
 
+#[cfg(feature = "direct-adb")]
+pub mod direct;
 pub mod driver;
 pub mod install;
 pub mod scan;
+pub mod selection;
 
 use std::sync::{Arc, LazyLock};
 

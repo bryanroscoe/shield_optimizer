@@ -55,8 +55,8 @@ impl AdbDriver for NoAdbDriver {
     }
 }
 
-fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
-    let adb: Arc<dyn AdbDriver> = match adb::cached_adb_binary() {
+fn subprocess_driver() -> Arc<dyn AdbDriver> {
+    match adb::cached_adb_binary() {
         Some(path) => {
             tracing::info!(adb = %path.display(), "adb located");
             Arc::new(SubprocessAdb::new(path))
@@ -65,6 +65,43 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
             tracing::warn!("no adb binary located; commands will return BinaryNotFound");
             Arc::new(NoAdbDriver)
         }
+    }
+}
+struct ConfigurationError(String);
+
+#[async_trait::async_trait]
+impl AdbDriver for ConfigurationError {
+    fn uses_host_server(&self) -> bool {
+        false
+    }
+    async fn raw(&self, _args: &[&str]) -> AdbResult<AdbOutput> {
+        Err(AdbError::Transport(self.0.clone()))
+    }
+    async fn shell(&self, _serial: &str, _command: &str) -> AdbResult<AdbOutput> {
+        Err(AdbError::Transport(self.0.clone()))
+    }
+}
+
+fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
+    let selection = adb::selection::parse_selection(
+        std::env::var("SHIELD_OPTIMIZER_TRANSPORT").ok().as_deref(),
+    );
+    let adb: Arc<dyn AdbDriver> = match selection {
+        Ok(adb::selection::TransportSelection::Subprocess) => subprocess_driver(),
+        Ok(adb::selection::TransportSelection::Direct) => {
+            #[cfg(feature = "direct-adb")]
+            {
+                match std::env::var_os("SHIELD_OPTIMIZER_DIRECT_KEY").map(PathBuf::from).filter(|path| path.is_file()) {
+                    Some(key) => Arc::new(adb::direct::DirectNetworkAdb::new(key)),
+                    None => Arc::new(ConfigurationError("Experimental direct ADB requires SHIELD_OPTIMIZER_DIRECT_KEY pointing to an existing app-owned PKCS#8 PEM identity. No identity was created and no platform-tools fallback was performed.".into())),
+                }
+            }
+            #[cfg(not(feature = "direct-adb"))]
+            {
+                Arc::new(ConfigurationError("Direct ADB was selected but this build lacks the experimental direct-adb feature.".into()))
+            }
+        }
+        Err(message) => Arc::new(ConfigurationError(message)),
     };
     // The desktop app has no paywall; every feature is unlocked.
     AppState::new(adb, app_lists, data_dir).with_entitlement(Entitlement::Pro)

@@ -76,3 +76,14 @@ in `mobile/PAIRING-PLAN.md`.
 
 The protocol is implemented from the Apache-2.0 AOSP and BoringSSL sources cited in each module's
 header comment. No code was copied from them, and nothing was taken from any GPL implementation.
+
+## Required existing identity (desktop experiment, 2026-10-25)
+
+`ADBTcpDevice::new_with_required_private_key_and_auth_timeout` and
+`ADBTcpService::new_with_required_key_and_timeouts` opt out of the upstream ephemeral RSA-key
+fallback. They share the existing protocol implementation and return NotFound before connecting
+when the configured identity disappears. Existing constructors retain their behavior; Android's
+existing identity-creation policy remains in the shared first-party caller. This closes a
+check/read race without copying, replacing or generating a desktop ADB identity.
+
+Changed source: `adb_message_device.rs`, `tcp/adb_tcp_device.rs`, `tcp/adb_tcp_service.rs`.

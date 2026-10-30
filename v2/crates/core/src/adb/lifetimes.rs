@@ -202,6 +202,14 @@ impl LeasedAdb {
 
 #[async_trait]
 impl AdbDriver for LeasedAdb {
+    fn operation_leases(&self) -> Option<Arc<Leases>> {
+        self.inner.operation_leases()
+    }
+
+    fn uses_host_server(&self) -> bool {
+        self.inner.uses_host_server()
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.inner.raw(args).await
     }

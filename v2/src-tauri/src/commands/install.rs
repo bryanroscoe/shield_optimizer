@@ -14,8 +14,9 @@ use super::AppState;
 
 #[derive(Serialize)]
 pub struct AdbStatus {
-    /// Is an adb binary currently configured?
+    /// Can the selected backend report its device list?
     pub available: bool,
+    pub backend: &'static str,
     /// Path to the binary if discovery resolves one — useful in the UI for
     /// "Using adb at /opt/homebrew/bin/adb" diagnostics.
     pub path: Option<String>,
@@ -27,17 +28,32 @@ pub struct AdbStatus {
 /// `adb_status` — fast diagnostic the UI shows when devices fail to list.
 #[tauri::command]
 pub async fn adb_status(state: State<'_, AppState>) -> Result<AdbStatus, String> {
+    adb_status_impl(state.inner()).await
+}
+
+async fn adb_status_impl(state: &AppState) -> Result<AdbStatus, String> {
     let adb = state.adb_snapshot().await;
-    let path = cached_adb_binary().map(|p| p.display().to_string());
+    let backend = if adb.uses_host_server() {
+        "subprocess"
+    } else {
+        "direct"
+    };
+    let path = if adb.uses_host_server() {
+        cached_adb_binary().map(|p| p.display().to_string())
+    } else {
+        None
+    };
     let probe = adb.raw(&["devices"]).await;
     match probe {
         Ok(out) => Ok(AdbStatus {
             available: true,
+            backend,
             path,
             last_probe: Some(out.stdout),
         }),
         Err(e) => Ok(AdbStatus {
             available: false,
+            backend,
             path,
             last_probe: Some(e.to_string()),
         }),
@@ -79,8 +95,11 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     // The user reaching for Restart ADB is the one moment they expect a fresh
     // look at the machine — if they just installed adb elsewhere, this is how
     // they tell us to go find it again.
-    forget_cached_adb_binary();
     let adb = state.adb_snapshot().await;
+    if !adb.uses_host_server() {
+        return Ok(RestartResult { ok: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess.".into() });
+    }
+    forget_cached_adb_binary();
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
     // their own after the daemon restarts; network devices (ip:port) do not —
@@ -188,6 +207,9 @@ where
     F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
+    if !state.adb_snapshot().await.uses_host_server() {
+        return Err("Installing platform-tools would change the selected direct backend. Relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess first.".into());
+    }
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
     match installer(Arc::clone(&operation)).await {
         Ok(path) => {
@@ -214,6 +236,58 @@ where
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    struct DirectOnly;
+    #[async_trait::async_trait]
+    impl AdbDriver for DirectOnly {
+        fn uses_host_server(&self) -> bool {
+            false
+        }
+        async fn raw(
+            &self,
+            args: &[&str],
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            assert_eq!(args, &["devices"]);
+            Err(shield_optimizer_core::adb::AdbError::Transport(
+                "direct configuration failed".into(),
+            ))
+        }
+        async fn shell(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            panic!("no shell call expected")
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_status_does_not_claim_host_binary_or_allow_restart_or_installer() {
+        let state = AppState::new(
+            Arc::new(DirectOnly),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("not-created"),
+        );
+        let status = adb_status_impl(&state).await.unwrap();
+        assert!(!status.available);
+        assert_eq!(status.backend, "direct");
+        assert!(status.path.is_none());
+        assert!(status
+            .last_probe
+            .unwrap()
+            .contains("direct configuration failed"));
+        let restarted = restart_adb_impl(&state).await.unwrap();
+        assert!(!restarted.ok);
+        assert!(restarted.message.contains("no host server"));
+        let installed = install_with(&state, |_| async {
+            panic!("installer must not run in direct mode")
+        })
+        .await;
+        assert!(
+            matches!(installed, Err(message) if message.contains("would change the selected direct backend"))
+        );
+        assert!(!state.adb_snapshot().await.uses_host_server());
+    }
 
     #[tokio::test(start_paused = true)]
     async fn restart_adb_reports_failure_when_network_reconnect_fails() {
