@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -2230,10 +2231,12 @@
               </span>
             </div>
           </div>
-          <p class="muted small prop-note">
-            Read-only — sourced from <code>getprop</code>. The friendly name is the
-            only field this app can change, with Rename above.
-          </p>
+          <HelpDetails label="Device details help">
+            <p class="muted small prop-note">
+              Read-only — sourced from <code>getprop</code>. The friendly name is the
+              only field this app can change, with Rename above.
+            </p>
+          </HelpDetails>
         {:else}
           <p class="muted small">
             This device hasn't reported its details. It's usually still waiting on
@@ -2525,11 +2528,13 @@
 
         <div class="card health-memory">
           <h2><Icon name="memory" size={20} /> Top memory users</h2>
-        <p class="muted small consumers-note">
-          The suggestion for an app is the same one the App List gives it —
-          click a row to open it there. Names we cannot tie to an installed
-          package are processes, not apps, and there is nothing to remove.
-        </p>
+        <HelpDetails label="Memory report help">
+          <p class="muted small consumers-note">
+            The suggestion for an app is the same one the App List gives it —
+            click a row to open it there. Names we cannot tie to an installed
+            package are processes, not apps, and there is nothing to remove.
+          </p>
+        </HelpDetails>
         {#if report.top_memory.length === 0}
           <p class="muted">No process data.</p>
         {:else}
@@ -2654,8 +2659,7 @@
           <button class="link-button" onclick={copyLauncherDiagnostics}>
             {launcherDiagnosticsCopied ? "Copied" : "Copy diagnostic details"}
           </button>
-          — every command this attempt ran and what your TV replied. Paste it into a
-          GitHub issue; it is what makes a launcher report fixable.
+
         </p>
       {/if}
       {#if launcherActionMessage}
@@ -3209,20 +3213,24 @@
         </table>
         <!-- The board puts the tool legend here rather than in a column head:
              three icons repeated down hundreds of rows only need naming once. -->
-        <p class="tool-legend">
-          <span><Icon name="download" size={14} /> back up APK</span>
-          <span><Icon name="swap_horiz" size={14} /> copy to TV</span>
-          <span><Icon name="shop" size={14} /> Play Store</span>
-        </p>
+        <HelpDetails label="App tools">
+          <p class="tool-legend">
+            <span><Icon name="download" size={14} /> back up APK</span>
+            <span><Icon name="swap_horiz" size={14} /> copy to TV</span>
+            <span><Icon name="shop" size={14} /> Play Store</span>
+          </p>
+        </HelpDetails>
 
         <div class="other-apps">
           <h3>Everything else {othersLoaded ? `(${visibleOthers.length})` : ""}</h3>
-          <p class="muted small">
-            Installed apps that aren't in the curated list — sideloaded apps (SmartTube etc.)
-            get the same <strong>Backup</strong> and <strong>Copy to…</strong> tools.
-            Removals here still go through the same safety checks as the curated list.
-            {showSystemOthers ? "Showing system packages too." : "System packages are hidden; tick \"Show system packages\" to include them."}
-          </p>
+          <HelpDetails label="Other apps help">
+            <p class="muted small">
+              Installed apps that aren't in the curated list — sideloaded apps (SmartTube etc.)
+              get the same <strong>Backup</strong> and <strong>Copy to…</strong> tools.
+              Removals here still go through the same safety checks as the curated list.
+              {showSystemOthers ? "Showing system packages too." : "System packages are hidden; tick \"Show system packages\" to include them."}
+            </p>
+          </HelpDetails>
           {#if othersErr}
             <div class="error">
               {othersErr}
@@ -3310,10 +3318,12 @@
                 {/each}
               </tbody>
             </table>
-            <p class="tool-legend">
-              <span><Icon name="download" size={14} /> back up APK</span>
-              <span><Icon name="swap_horiz" size={14} /> copy to TV</span>
-            </p>
+            <HelpDetails label="Other app tools">
+              <p class="tool-legend">
+                <span><Icon name="download" size={14} /> back up APK</span>
+                <span><Icon name="swap_horiz" size={14} /> copy to TV</span>
+              </p>
+            </HelpDetails>
           {/if}
         </div>
       {/if}
@@ -3331,11 +3341,12 @@
           <Icon name="save" size={16} /> {saveBusy ? "Saving…" : "Save snapshot"}
         </button>
       </div>
-      <p class="muted small snap-explainer">
-        A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
-        Restoring it disables those apps again and puts the settings back. It never
-        re-enables anything or reinstalls apps.
-      </p>
+      <HelpDetails label="Snapshot contents">
+        <p class="muted small snap-explainer">
+          A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
+        </p>
+      </HelpDetails>
+      <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps.</p>
       {#if saveResult}<p class="muted small">{saveResult}</p>{/if}
       {#if snapshotsErr}<div class="error">{snapshotsErr}</div>{/if}
 
