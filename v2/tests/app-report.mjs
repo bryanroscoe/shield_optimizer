@@ -8,7 +8,7 @@
 //   - nothing is sent: the only exits are the clipboard, a file the user
 //     picked, and a URL the user opens and still has to submit.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -212,7 +212,29 @@ async function exercise({ browser, base }) {
   assert.equal(url.searchParams.get("package"), UNCATALOGUED);
   assert.equal(url.searchParams.get("reason"), "Wrong description");
   assert.equal(url.searchParams.get("report"), text);
+  assert.equal(url.searchParams.get("details"), JSON.parse(text).records[0].note);
   assertNothingIdentifying(url.toString(), "the issue URL");
+  if (process.env.APP_REPORT_EVIDENCE_DIR) {
+    const dir = process.env.APP_REPORT_EVIDENCE_DIR;
+    mkdirSync(dir, { recursive: true });
+    await page.evaluate(() => {
+      const label = document.createElement("div");
+      label.id = "simulation-label";
+      label.textContent = "SIMULATION — fixture app; no TV; no issue submitted";
+      label.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#ffda7b;color:#111;padding:8px;text-align:center;font:16px system-ui";
+      document.body.append(label);
+    });
+    await page.screenshot({ path: join(dir, "desktop-report-simulated.png") });
+    await page.locator("#simulation-label").evaluate((el) => el.remove());
+    const form = await browser.newPage({ viewport: { width: 960, height: 760 }, recordVideo: { dir, size: { width: 960, height: 760 } } });
+    await form.setContent(`<style>body{font:18px system-ui;padding:32px;background:#131921;color:#edf3ff}textarea{display:block;width:95%;height:140px;margin:12px 0;background:#263446;color:white;padding:12px}strong{color:#ffda7b}</style><strong>SIMULATION — local issue-form preview; nothing submitted</strong><h1>App report</h1><label>Details<textarea id="details" readonly></textarea></label><label>Report<textarea id="report" readonly></textarea></label>`);
+    await form.waitForTimeout(700);
+    await form.locator("#details").evaluate((el, value) => el.value = value, url.searchParams.get("details"));
+    await form.locator("#report").evaluate((el, value) => el.value = value, url.searchParams.get("report"));
+    await form.screenshot({ path: join(dir, "issue-form-simulated.png") });
+    await form.waitForTimeout(1800);
+    await form.close();
+  }
 
   // Too long to prefill: the form opens without the report and asks for a paste.
   await dialog.getByLabel("Note (optional)").fill("€".repeat(1000));
@@ -316,15 +338,64 @@ async function resyncingState(server) {
   console.log("App report passed (resync): state read before an Optimize run is never reported during the re-read.");
 }
 
+async function issueNotePrefill(server) {
+  for (const path of ["/src/lib/app-report.ts", "/mobile/src/lib/app-report.ts"]) {
+    const { appReportIssueUrl, buildAppReport, APP_REPORT_PREFILL_LIMIT } = await server.ssrLoadModule(path);
+    const make = (note) => JSON.stringify(buildAppReport({
+      package: "org.fdroid.fdroid", appName: "F-Droid", reason: "other", note,
+      appVersion: "2.4.1", device: { family: "shield", androidVersion: "11", redact: ["SECRET123"] },
+      verdict: null, includeState: false,
+      state: { status: null, running: null, ramMb: null, storage: null },
+      now: new Date("2026-10-30T00:00:00Z"),
+    }));
+    for (const note of ["", "  ", "First line\nSecond line", "电视 🎬 café & ? # + = %", "SECRET123 at 192.168.1.42 with com.private.app"]) {
+      const text = make(note);
+      const result = appReportIssueUrl("org.fdroid.fdroid", "other", text);
+      const url = new URL(result.url);
+      assert.equal(result.prefilled, true, path);
+      assert.equal(url.searchParams.get("report"), text, "report JSON remains byte-for-byte intact");
+      assert.equal(url.searchParams.get("details"), JSON.parse(text).records[0].note, path);
+      assert.ok(result.url.length <= APP_REPORT_PREFILL_LIMIT);
+      assert.ok(!result.url.includes("SECRET123"));
+      assert.ok(!result.url.includes("192.168.1.42"));
+      assert.ok(!result.url.includes("com.private.app"));
+    }
+    for (const text of ["{invalid", "null", "{}", '{"records":[{"note":42}]}']) {
+      const result = appReportIssueUrl("org.fdroid.fdroid", "other", text);
+      assert.equal(new URL(result.url).searchParams.get("details"), null, path);
+      assert.equal(new URL(result.url).searchParams.get("report"), text);
+    }
+    // Report alone fits, but duplicating its note into Details exceeds the shared budget.
+    let overflow;
+    for (let size = 1; size <= 1000; size++) {
+      const text = make("€".repeat(size));
+      const result = appReportIssueUrl("org.fdroid.fdroid", "other", text);
+      if (!result.prefilled) {
+        const reportOnly = new URL(result.url);
+        reportOnly.searchParams.set("report", text);
+        assert.ok(reportOnly.toString().length <= APP_REPORT_PREFILL_LIMIT, "duplicate note triggers fallback");
+        assert.equal(new URL(result.url).searchParams.get("report"), null);
+        assert.equal(new URL(result.url).searchParams.get("details"), null);
+        assert.equal(new URL(result.url).searchParams.get("package"), "org.fdroid.fdroid");
+        overflow = size;
+        break;
+      }
+    }
+    assert.ok(overflow, path);
+    console.log(`Issue-note prefill passed: ${path}, empty/multiline/Unicode/privacy/invalid JSON/shared overflow.`);
+  }
+}
+
 async function main() {
   const restore = setHarnessEnvironment();
   let server, browser;
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false, fs: { allow: [V2, realpathSync(join(V2, "node_modules"))] } } });
     await server.listen();
     browser = await chromium.launch();
+    await issueNotePrefill(server);
     await placeholderSerials(server);
     await noteRedactionGaps(server);
     await resyncingState(server);
