@@ -4,7 +4,7 @@
 //! builds compile the same code with a stub transport so CI can validate the
 //! Rust command surface before Android hardware is available.
 
-// clippy 1.99 added `double_must_use`, which fires on the futures that
+// clippy's `double_must_use` fires on the futures that
 // `#[async_trait]` generates for every trait method. The attribute is the
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]
@@ -130,7 +130,7 @@ fn default_data_dir() -> PathBuf {
         .join("ATVOptimizer")
 }
 
-/// Install the tracing subscriber: logcat/stdout as before, PLUS a plain-text
+/// Install the tracing subscriber: logcat/stdout plus a plain-text
 /// file layer at `data_dir/debug.log` that the More screen can surface. Called
 /// once from `setup`, after the data dir is known.
 fn init_logging(data_dir: &Path) {

@@ -17,18 +17,8 @@ Android TV devices.
 It's a native app for macOS, Windows and Linux. It downloads its own `adb` on first launch, finds
 TVs on your network, and updates itself. You don't need a terminal or any scripting.
 
-> **📱 Coming soon: ATV Optimizer for Android.** A phone and tablet version that runs the same
-> cleanup over Wi-Fi, with no computer involved. It's in testing now.
-> [Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
-
-<details>
-<summary>Preview the phone app</summary>
-
-<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
-
-Demo data, not a live device. See [`v2/mobile/`](v2/mobile/README.md).
-
-</details>
+> **📱 Coming soon: [ATV Optimizer for Android](#atv-optimizer-for-android).** A phone and tablet
+> version that runs the same cleanup over Wi-Fi, with no computer involved. It's in testing now.
 
 ## Install
 
@@ -44,7 +34,8 @@ Upgrade with `brew upgrade --cask shield-optimizer`, or let the app update itsel
 
 ### Any platform: download an installer
 
-Get the latest from the [**Releases page**](https://github.com/bryanroscoe/shield_optimizer/releases/latest):
+Get an installer from the [**Releases page**](https://github.com/bryanroscoe/shield_optimizer/releases).
+Choose the newest stable `v2-*` desktop release; `v0.*` releases contain the legacy PowerShell script:
 
 | OS | File |
 |----|------|
@@ -112,8 +103,8 @@ own, it shows up when the device list refreshes.
 
 ## Safety
 
-- **Disable, don't uninstall.** Disabled apps can be re-enabled. Uninstalling can remove data that
-  Restore can't bring back.
+- **Disable, don't uninstall.** Disabled apps can usually be re-enabled, but firmware permissions
+  may prevent it. Uninstalling can remove data that Restore can't bring back.
 - A curated **do-not-disable list** blocks disables that would break the device, in every curated
   action: Optimize, App List, the Launcher wizard and Snapshot apply.
 - **Recovery** asks the TV to re-enable every disabled package and reports any it refused.
@@ -153,6 +144,17 @@ tracks a Toshiba Fire TV report that's still waiting on version and build detail
 The Homebrew tap and cask are still called `shield-optimizer`, so `brew upgrade` keeps working. If
 you installed from the `.dmg`, you'll still have the old `Shield Optimizer.app` until you
 reinstall. After that you can drag the old one to the Trash.
+
+## ATV Optimizer for Android
+
+**Coming soon.** A phone and tablet version that drives your TV over Wi-Fi with no computer
+involved: the same app list, safety checks, launcher switching and tweaks as the desktop app. It's
+in testing now and hasn't been released.
+[Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
+
+<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
+
+The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
 ## Legacy: PowerShell script (v1)
 

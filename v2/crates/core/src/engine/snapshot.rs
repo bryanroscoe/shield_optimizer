@@ -41,7 +41,7 @@ pub struct Snapshot {
     /// ISO-8601 UTC timestamp.
     pub saved_at: String,
     /// Optional user-given name for the snapshot (e.g. "before debloat").
-    /// Added in schema v2 — `serde(default)` loads v1 snapshots with `None`.
+    /// Schema v1 snapshots have none; `serde(default)` loads them with `None`.
     #[serde(default)]
     pub label: Option<String>,
     pub device_name: String,
@@ -166,7 +166,7 @@ pub struct ApplyPlanInputs<'a> {
 }
 
 /// Compute the plan for applying `snap` to a device in `inputs`' state.
-/// Per commitment #2: this function is pure; the host layer executes the plan.
+/// Per commitment #1: this function is pure; the host layer executes the plan.
 pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> SnapshotApplyPlan {
     let disabled_set: std::collections::HashSet<&str> = inputs
         .currently_disabled

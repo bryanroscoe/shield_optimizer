@@ -1,14 +1,10 @@
-// Ticking the expert-shell box did not reliably arm Run.
+// Ticking the expert-shell box arms Run, and the tick holds.
 //
-// The wiring was reactive, but two places re-read the stored consent over live
-// state: `loadApps` did it after an await, and `resetDeviceState` did it from a
-// device that had just been nulled. `setShellAcknowledged` also no-opped when
-// there was no hardware id, so the tick was never written in the first place.
-// Between them, visiting Health or the App List — which reload constantly —
-// silently unticked the box, or left it ticked with Run still disabled.
-//
-// Nothing threw. The box just stopped meaning anything, which on the one tab
-// that runs arbitrary commands is a consent control that does not hold.
+// Health and the App List reload constantly; neither may re-read the stored
+// consent over live state, untick the box, or leave it ticked with Run still
+// disabled. Nothing would throw if they did. On the one tab that runs
+// arbitrary commands, a box that does not hold is a consent control that
+// means nothing.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,8 +63,7 @@ async function exercise({ browser, base }) {
     "an armed Run carries no blocked reason",
   );
 
-  // Ticked but empty: the other half of the reason, which the old hint never
-  // mentioned — it only ever explained the checkbox.
+  // Ticked but empty: the other half of the reason.
   await editor.fill("");
   assert.equal(await run.isDisabled(), true, "an empty command still blocks Run");
   assert.equal(
@@ -78,8 +73,8 @@ async function exercise({ browser, base }) {
   );
   await editor.fill("uptime");
 
-  // The regression itself: Health reloads the device report and the App List
-  // reloads package states, and both used to stamp the consent back to false.
+  // Health reloads the device report and the App List reloads package states;
+  // neither may stamp the consent back to false.
   for (const tab of ["Health", "App List", "Shell"]) {
     await page.getByRole("tab", { name: tab, exact: true }).click();
   }

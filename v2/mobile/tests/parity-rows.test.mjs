@@ -217,7 +217,7 @@ test("snapshot preview: launcher change, skipped launcher, and an unset Now", ()
   assert.equal(skipped.unchanged[0].result, "com.gone isn't installed; skipped");
   // No recorded launcher: no Home row at all.
   assert.equal(snap.previewRows(plan(), null).unchanged.length, 0);
-  // An older backend without current_values says "unset", never invents one.
+  // A plan without current_values says "unset", never invents one.
   const legacy = plan({ settings_already_set: ["k"] });
   delete legacy.current_values;
   assert.equal(snap.previewRows(legacy, null).unchanged[0].now, "unset");

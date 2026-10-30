@@ -58,8 +58,8 @@
     }
   }
 
-  // Real Pro activation — calls the backend activate_license and updates the
-  // shared entitlement. No more cosmetic `=== "pro"` string match.
+  // Pro activation goes through the backend's activate_license and updates the
+  // shared entitlement.
   async function activate() {
     const key = licenseKey.trim();
     if (!key || activating) return;

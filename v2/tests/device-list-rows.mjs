@@ -1,7 +1,7 @@
 // The Devices list has to be honest about several things at once:
-//   - one physical device reached two ways is ONE row (the duplicate-transport
-//     regression: adb auto-connects a paired mDNS device under its service
-//     name, and dialling it again by address makes a second transport);
+//   - one physical device reached two ways is ONE row (adb auto-connects a
+//     paired mDNS device under its service name, and dialling it again by
+//     address makes a second transport);
 //   - a device that is positively not an Android TV says so and does not open
 //     the TV tools until its owner confirms "Open anyway" (remembered per
 //     hardware id); one that never said either way still opens, labelled
@@ -51,7 +51,7 @@ const tvProperties = {
 };
 
 // A phone SAYS it is a phone. That is the only thing that earns the label —
-// `nosdcard` alone used to be read as "not a TV" and locked out real boxes.
+// `nosdcard` alone is not evidence: real TV boxes report it too.
 const phoneProperties = {
   friendly_name: null, brand: "google", model: "Pixel 10 Pro",
   device_codename: "blazer", manufacturer: "Google", android_release: "16",
@@ -153,7 +153,9 @@ async function exercise({ browser, base }) {
   // bundled adb is not on PATH, and a different one restarts the shared
   // server and drops every device). Wake first; Revoke says what it costs.
   assert.match(netHelp, /Wake the TV; the prompt can be hidden behind the screensaver\./, netHelp);
-  assert.match(netHelp, /Click Forget here, then Add by IP again; the prompt reappears\./, netHelp);
+  assert.match(netHelp, /Click Ask again; this TV, and only this one, shows the prompt again\./, netHelp);
+  assert.equal(await net.getByRole("button", { name: "Ask again" }).count(), 1,
+    "a network row asks again itself instead of making you Forget and re-add it");
   assert.match(netHelp, /Revoke USB debugging authorizations\. That un-trusts every computer, not just this one\./, netHelp);
   assert.doesNotMatch(netHelp, /terminal|adb disconnect/, "no terminal instructions");
   assert.doesNotMatch(netHelp, /Paired devices|tap this computer/,
@@ -167,10 +169,11 @@ async function exercise({ browser, base }) {
   const usbHelp = await usb.locator(".unauthorized-help").innerText();
   assert.match(usbHelp, /"Allow USB debugging\?"/, usbHelp);
   assert.doesNotMatch(usbHelp, /Click Forget/, "a USB row has no Forget");
+  assert.equal(await usb.getByRole("button", { name: "Ask again" }).count(), 0,
+    "a USB row re-prompts by replugging, not by redialling");
   assert.doesNotMatch(usbHelp, /terminal|adb disconnect/);
 
-  // #120: a box that never said what it is still opens, and says so. This is
-  // the row 2.2.0 locked its owner out of.
+  // #120: a box that never said what it is still opens, and says so.
   const odd = rowFor(page, "Living Room Box");
   assert.equal(await odd.locator("a.device-row").count(), 1,
     "a device that said neither way must still open");
@@ -181,7 +184,7 @@ async function exercise({ browser, base }) {
   assert.equal(await odd.getByRole("button", { name: "Copy diagnostics" }).count(), 1,
     "the row we are unsure about is the one worth reporting");
 
-  // Forget is on EVERY network row now, including the online, clickable ones.
+  // Forget is on EVERY network row, including the online, clickable ones.
   for (const name of ["Bedroom Shield", "Bryan Pixel 10 Pro", "192.168.42.143:5555", "Living Room Box", "adb-9XK2-abc._adb-tls-connect._tcp"]) {
     assert.equal(await rowFor(page, name).getByRole("button", { name: "Forget" }).count(), 1,
       `${name} is on the network, so it can be forgotten`);

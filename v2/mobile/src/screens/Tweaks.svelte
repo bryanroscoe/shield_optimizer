@@ -803,11 +803,9 @@
             </div>
             <details class="help-disclosure">
               <summary>About long presses</summary>
-              <p class="t-note">
-                How long you hold OK before it counts as a long press. Shorter reacts sooner but
-                makes accidental long presses more likely.
-              </p>
+              <p class="t-note">How long you hold OK before it counts as a long press.</p>
             </details>
+            <p class="t-note">Shorter reacts sooner but makes accidental long presses more likely.</p>
             <div class="segmented">
               {#each longPressPresets as ms (ms)}
                 <button

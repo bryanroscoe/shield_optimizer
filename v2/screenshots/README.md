@@ -33,7 +33,7 @@ not connect to a device. CI leaves the branch unchanged.
 
 ## Automatic regeneration on release
 
-The `refresh-screenshots` job in [`../../.github/workflows/v2-release.yml`](../../.github/workflows/v2-release.yml) reruns this whole pipeline on every `v2-*` tag and commits the refreshed `gallery.gif` + `gallery-light.gif` back to the default branch — so a release never ships stale screenshots. Those captures render on Linux (font stack falls through to Roboto rather than macOS's `-apple-system`), so the release-generated GIF can look subtly different from one you regenerate locally on a Mac. Both are fine; it's the same UI.
+The `refresh-screenshots` job in [`../../.github/workflows/v2-release.yml`](../../.github/workflows/v2-release.yml) reruns this whole pipeline on every `v2-*` tag and commits the refreshed `gallery.gif` + `gallery-light.gif` back to the default branch — so a release never ships stale screenshots. Those captures render on Linux. The fonts are bundled (see [`../src/fonts/README.md`](../src/fonts/README.md)), so fonts match, but rendering can still differ subtly from a GIF regenerated on a Mac. Both are fine; it's the same UI.
 
 ## Tuning
 

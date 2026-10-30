@@ -160,12 +160,11 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
    answers. Include user-initiated external navigation and review the resolved SDK graph.
 4. Promote internal → closed → production once a real device has been exercised end to end.
 
-## Testing-candidate gates (feature freeze, 2026-10-16)
+## Testing-candidate gates
 
 This is a preparation checklist, not approval to create credentials, upload or install a build.
-No purchase, trial or pricing policy is selected. Keep the existing feature set frozen.
+No purchase, trial or pricing policy is selected. Release polish takes priority over new features.
 
-- [ ] Integrate the independently reviewed reconnect fix (PR167) into the chosen candidate.
 - [ ] Record exact commit, lockfiles, SDK/NDK/JDK versions and selected ABIs.
 - [ ] Run host Rust fmt/clippy/tests, mobile `npm test`, check and build. Host CI is not an Android build.
 - [ ] Resolve and review the Android release runtime dependency graph and its notices (see
@@ -202,14 +201,13 @@ No purchase, trial or pricing policy is selected. Keep the existing feature set 
 
 Android 11+ SPAKE2 code pairing is implemented in `src-tauri/src/wireless_adb.rs` and the vendored
 transport. Signed Ed25519 offline licensing, persistence and debug-only development keys are
-implemented; see `LICENSING.md`. The old claims that these implementations were missing were stale.
-Neither implementation establishes current phone/TV end-to-end readiness.
+implemented; see `LICENSING.md`. Neither implementation establishes current phone/TV end-to-end readiness.
 
 ### Still missing or unresolved
 
 SAF import/export, mobile release automation, verified signed APK/AAB evidence, complete resolved
 Android dependency notices, privacy/store disclosures, and a selected commerce channel remain open.
-The preflight-tools workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
+The `mobile-release-preflight.yml` workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
 it does not build/sign an APK, validate the native Android transport, or publish anything.
 
 ### Current external requirements to verify at submission
@@ -226,41 +224,15 @@ Check current rules again before submission:
 For local-network access, SDK36 and SDK37 have different requirements; do not add/request a
 future permission speculatively: https://developer.android.com/privacy-and-security/local-network-permission
 
-## Open Shield issues at the 2026-10-16 release audit
+## Open issues to recheck before a candidate
 
-This is a dated triage snapshot, not a claim that an open issue is resolved. Re-read the tracker
-before cutting a candidate; close only after its actual acceptance evidence is reviewed.
+Re-read the tracker before cutting a candidate; close an issue only after its actual acceptance
+evidence is reviewed.
 
 | Issue | Release disposition / exact remaining evidence |
 |---|---|
 | [#93 Saved-TV discovery/reconnect](https://github.com/bryanroscoe/shield_optimizer/issues/93) | Physical gate: Shield without mDNS, rotated Google TV port, changed address, cached identity/name isolation and honest reconnect results. Browser coverage does not close this. |
 | [#105 Restart/lifecycle report](https://github.com/bryanroscoe/shield_optimizer/issues/105) | Physical gate: distinguish Home/background, Back, Recents, recreation and process death. Do not claim restored live state or replay mutations from browser reconstruction. |
 | [#123 Glance/Daydream](https://github.com/bryanroscoe/shield_optimizer/issues/123) | Current screensaver controls are not proof that the reporter's server-delivered Glance variant is covered. Obtain exact package/device behavior and reporter confirmation; retain vendor restore/reconnect tests. |
-| [#161 Launcher sources/default](https://github.com/bryanroscoe/shield_optimizer/issues/161) | Desktop source-site work merged in PR165; mobile parity includes source links. Confirm the requested installed/current-default case and release availability; do not reimplement or auto-close. |
-| [#162 Logcat](https://github.com/bryanroscoe/shield_optimizer/issues/162) | Desktop Logs merged in PR166. Confirm requested filtering/live-display acceptance and release availability; it is not a reason to add mobile features during this freeze. |
-
-PR167 reconnect safety was merged into `mobile-parity-pass` at
-`f7897c1292d702fdfad1b77c3193312a641475b2` after independent review and six passing PR checks.
-Its integration does not clear the physical gates above. Release-preparation PR169 includes that
-ancestry by a normal merge. The existing test workflow triggers pushes to `main`, not feature
-branches; a missing postmerge feature-branch run must not be reported as a passing run.
-
-### Preparation validation receipt (2026-10-16)
-
-On the release-preparation branch after merging `f7897c1`: 218 mobile browser/unit tests passed,
-13 APK-verifier tests passed, mobile check reported 0 errors / 0 warnings and build succeeded.
-The neutral paywall was inspected at 384×812. Notices regeneration inventoried 313 Cargo crates;
-Android/JVM declarations are listed separately without claiming full transitive resolution.
-The installed SDK apksigner rejected an unsigned synthetic archive through the CLI (exit 1,
-no success receipt). Positive signing/SDK outcomes in unit tests are mocked: no genuine signed
-release artifact or Android runtime was validated. This receipt is not release authorization.
-
-### Modal polish follow-up (2026-10-17, merged PR186)
-
-The separate modal follow-up registers `StockTakeoverDialog` with shared scroll/focus ownership
-and preserves original-row focus through sequential `AppActionMenu` → Report transitions.
-Regression coverage includes cancellation, async replacements, nested/out-of-order teardown,
-short-screen keyboard access and restored scroll. See
-[evidence and verification limits](evidence/modal-handoffs-2026-10-17/README.md).
-These two P2s passed independent source review and all six CI jobs, and PR186 merged at
-`83f69b77e2b19b643e21ae456d0f597e90ef7d83`. Host simulation does not clear physical-device gates.
+| [#161 Launcher sources/default](https://github.com/bryanroscoe/shield_optimizer/issues/161) | Desktop shows source-site links for installed and current-default launchers, and mobile parity includes them. Confirm the requested case and release availability; do not reimplement or auto-close. |
+| [#162 Logcat](https://github.com/bryanroscoe/shield_optimizer/issues/162) | Desktop has a read-only Logs tab; mobile does not expose it. Confirm the requested filtering/live-display acceptance and release availability; it is not a reason to add mobile features before release. |

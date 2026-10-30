@@ -309,15 +309,17 @@ $Script:CommonAppList = @(
 
 # NVIDIA Shield-specific apps
 $Script:ShieldAppList = @(
-    # --- SAFE: Shield telemetry ---
+    # Shield data services and recommendations
     @{ Package = "com.nvidia.stats"; Name = "Nvidia Telemetry"; Method = "DISABLE"; Risk = "Safe"
        OptimizeDescription = "Stops Nvidia data collection."; RestoreDescription = "Restores Nvidia telemetry."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.diagtools"; Name = "Nvidia Diagnostics"; Method = "DISABLE"; Risk = "Safe"
        OptimizeDescription = "Stops diagnostic logging."; RestoreDescription = "Restores diagnostic tools."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
     @{ Package = "com.nvidia.feedback"; Name = "Nvidia Feedback"; Method = "DISABLE"; Risk = "Safe"
        OptimizeDescription = "Stops Nvidia feedback collection."; RestoreDescription = "Restores Nvidia feedback."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
-    @{ Package = "com.google.android.tvrecommendations"; Name = "Sponsored Content"; Method = "DISABLE"; Risk = "Safe"
-       OptimizeDescription = "Removes Sponsored / Top Picks rows on the stock Google TV home. Also removes the home-screen Watch Next rows that surface Apple TV / Netflix Continue Watching. No effect if you've switched to a custom launcher."; RestoreDescription = "Restores sponsored and Watch Next rows on stock launcher."; DefaultOptimize = "Y"; DefaultRestore = "Y" }
+    # External reboot report on darcy/foster_e Android 11; not reproduced by this project.
+    # https://github.com/Gathin23/cleanyourtv/blob/30626a8e4714f86bf837384b109b5c73ee736917/docs/TROUBLESHOOTING.md#shield-tv-phone-app-connects-but-no-key-does-anything
+    @{ Package = "com.google.android.tvrecommendations"; Name = "TV Recommendations"; Method = "DISABLE"; Risk = "High Risk"
+       OptimizeDescription = "Disabling can remove stock-home recommendation rows and may stop key input from NVIDIA's SHIELD TV phone app after a reboot, even with a custom launcher. An external report covers darcy and foster_e devices on Android 11; other models and firmware are unverified. Keep enabled if you use the phone remote."; RestoreDescription = "Re-enables TV Recommendations, including the reported phone-remote dependency. Recovery on your model and firmware has not been verified here."; DefaultOptimize = "N"; DefaultRestore = "Y" }
 
     # --- MEDIUM: Shield-specific services ---
     @{ Package = "com.nvidia.osc"; Name = "Nvidia OSC"; Method = "DISABLE"; Risk = "Medium"

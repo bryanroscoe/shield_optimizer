@@ -751,7 +751,7 @@
                   <span class="msr">download</span>Install
                 </button>
               {:else if l.setup_helper}
-                <!-- A setup helper can claim Home, so both controls use the guarded helper command. -->
+                <!-- A setup helper can claim Home, so its Disable goes through the guarded helper command. -->
                 {#if l.enabled}
                   <button class="l-btn" disabled={anyBusy} onclick={() => (disableConfirm = l)}>
                     Disable

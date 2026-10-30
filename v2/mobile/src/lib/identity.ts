@@ -82,8 +82,8 @@ export function deviceFingerprintOf(
 
 /// Whether a saved id-less row's fingerprint clearly disagrees with the live
 /// device's -- a different model or manufacturer reported. A missing field on
-/// either side is unknown, not a disagreement, so a row saved before this
-/// fingerprint existed (or a TV that didn't report a field) never blocks a
+/// either side is unknown, not a disagreement, so a row with no saved
+/// fingerprint (or a TV that didn't report a field) never blocks a
 /// match on that account; it only ever rules a match *out*, never confirms
 /// one in.
 export function fingerprintMismatch(

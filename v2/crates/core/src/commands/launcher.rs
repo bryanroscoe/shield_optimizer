@@ -49,8 +49,8 @@ pub async fn list_launchers_impl(
     serial: &str,
 ) -> Result<Vec<LauncherStatus>, String> {
     // Installed + disabled package lists and HOME handlers in one round-trip.
-    // The old `tokio::join!` bought no concurrency on the mobile transport,
-    // which serializes every shell behind one connection.
+    // Separate reads would buy no concurrency on the mobile transport, which
+    // serializes every shell behind one connection.
     let adb = state.adb_snapshot().await;
     let cmd = crate::adb::checked_batch_command(&[
         "pm list packages",
@@ -77,7 +77,7 @@ pub async fn list_launchers_impl(
     }
     // HOME handlers only. Every TV app's launch activity declares
     // LEANBACK_LAUNCHER — that category is how an app gets a tile on the home
-    // screen, not a claim to *be* the home screen — so listing it turned
+    // screen, not a claim to *be* the home screen — so listing it would turn
     // YouTube, Plex and the Play Store into "Home apps". An app that doesn't
     // declare HOME can still be tried from the Advanced picker, which says
     // honestly when Android won't accept it.
@@ -1610,8 +1610,8 @@ async fn stock_takeover(
         // with the last poll), a transient holder still settling, or some
         // third app — means disabling stock is not what's keeping the switch
         // from landing, so restoring it would only undo real progress
-        // (GitHub #122: the onn 4K Pro reported this as a failure and rolled
-        // stock back even though the switch had actually worked).
+        // (GitHub #122: on the onn 4K Pro that reports a working switch as a
+        // failure and rolls stock back).
         if let Some(reason) = paired_failure {
             reason
         } else if let Some(holder) = verification
@@ -1726,7 +1726,7 @@ fn command_failure(result: &crate::adb::AdbResult<crate::adb::AdbOutput>) -> Opt
             let detail = command_output_detail(output);
             // `{:?}` on an Option renders as `Some(13)` / `None`, and this
             // string goes straight into the launcher error banner and a
-            // confirm() body. Users were reading "exit code 13".
+            // confirm() body, so it must read as a bare number.
             let code = match output.exit_code {
                 Some(code) => format!("exit code {code}"),
                 None => "no exit code".to_string(),
@@ -1752,8 +1752,8 @@ fn command_output_detail(output: &crate::adb::AdbOutput) -> String {
 
 /// `cmd package set-home-activity` / `pm set-home-activity` acknowledge with a
 /// bare "Success" line on many builds (and stay silent on others). That's an
-/// acceptance, not a diagnostic — surfacing it as an error produced the
-/// infamous "Failed: Success" message.
+/// acceptance, not a diagnostic — surfacing it as an error would read
+/// "Failed: Success".
 fn is_success_ack(s: &str) -> bool {
     s.trim().eq_ignore_ascii_case("success")
 }
@@ -1775,8 +1775,8 @@ async fn focus_home(adb: &dyn crate::adb::AdbDriver, serial: &str, progress: &Pr
 
 /// Backoff schedule for [`verify_active`], summing to ~5s — long enough for
 /// Android to settle after a role/set-home-activity change on real hardware
-/// (GitHub #122: the onn 4K Pro hadn't finished switching within the old
-/// ~1.6s window). Tiny under `cfg(test)` so the polling loop doesn't make the
+/// (GitHub #122: the onn 4K Pro can take longer than ~1.6s to finish
+/// switching). Tiny under `cfg(test)` so the polling loop doesn't make the
 /// test suite slow.
 #[cfg(not(test))]
 fn verify_poll_delays() -> &'static [u64] {
@@ -1801,7 +1801,7 @@ struct VerifyOutcome {
 /// Poll the active-HOME resolver — and the HOME role's holder list — until
 /// one names `package`, with backoff. Propagation after set-home-activity /
 /// role changes isn't instant on every build — a single immediate check
-/// produced false "failed" results even when the device had accepted the
+/// reports false "failed" results even when the device has accepted the
 /// change.
 ///
 /// A device may hand HOME through a transient holder while it settles on the
@@ -1904,8 +1904,6 @@ async fn active_launcher(adb: &dyn crate::adb::AdbDriver, serial: &str) -> Optio
         .map(|(p, _)| p.to_string())
 }
 
-/// Find a HOME activity for `package` via `cmd package query-activities`.
-/// Returns a `pkg/activity` component string ready for set-home-activity.
 /// Components to try registering as the HOME activity, best first.
 ///
 /// The discovered component is authoritative when we can get one, but
@@ -1968,8 +1966,8 @@ async fn try_home_setters(
             };
             // set-home-activity prints a bare "Success" on many builds and
             // nothing on others — both are acceptance, NOT diagnostics. Only
-            // real error text goes into last_error; recording the ack produced
-            // "Failed: Success".
+            // real error text goes into last_error; recording the ack would
+            // read "Failed: Success".
             let msg = if out.stderr.trim().is_empty() {
                 out.stdout.trim()
             } else {
@@ -1990,6 +1988,8 @@ async fn try_home_setters(
     outcome
 }
 
+/// Find a HOME activity for `package` via `cmd package query-activities`.
+/// Returns a `pkg/activity` component string ready for set-home-activity.
 async fn discover_home_activity(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
@@ -2608,8 +2608,8 @@ mod tests {
     async fn a_leanback_only_app_is_not_listed_as_a_home_app() {
         // Every TV app (YouTube, Plex, the Play Store) declares
         // LEANBACK_LAUNCHER so it gets a tile on the home screen. Treating that
-        // as a Home handler flooded the Launcher tab with "HOME APP" rows for
-        // ordinary apps. It is installed and enabled, but it must not get a row,
+        // as a Home handler would flood the Launcher tab with "HOME APP" rows
+        // for ordinary apps. It is installed and enabled, but it must not get a row,
         // and the leanback category must not be queried at all.
         let mock = MockAdb::default().on_shell(
             BATCH_SEPARATOR,
@@ -2876,12 +2876,12 @@ mod tests {
     /// GitHub #87 — Sony XBR-55X850D, Android 8.0, stock holding HOME.
     ///
     /// `cmd package query-activities` is Android 9+ and `cmd role` is Android
-    /// 10+, so on this device both come back "Unknown command". The stock fast
-    /// path used to call set-home-activity only for a component
-    /// `query-activities` had found, which meant no setter ran at all and the
-    /// first thing that actually happened was disabling the stock launcher —
-    /// handing HOME to a package nothing had registered. It has to try the
-    /// conventional component names before it touches stock.
+    /// 10+, so on this device both come back "Unknown command". Calling
+    /// set-home-activity only for a component `query-activities` found would
+    /// mean no setter runs at all and the first thing that happens is disabling
+    /// the stock launcher — handing HOME to a package nothing has registered.
+    /// The stock fast path has to try the conventional component names before
+    /// it touches stock.
     #[tokio::test]
     async fn android_8_registers_home_before_disabling_stock() {
         let mock = MockAdb::default()
@@ -3060,9 +3060,9 @@ mod tests {
         );
     }
 
-    /// GitHub #122 — onn 4K Pro: setting Projectivy as default reported a
-    /// failure and rolled stock back even though the switch had actually
-    /// worked. Three cases from the issue's polling/rollback fix.
+    /// GitHub #122 — onn 4K Pro: setting Projectivy as default must not report
+    /// a failure and roll stock back when the switch has worked. Three
+    /// polling/rollback cases.
     mod launcher_verification_122 {
         use super::*;
 
@@ -3602,7 +3602,7 @@ mod tests {
 
         #[tokio::test]
         async fn rolls_back_only_when_stock_positively_still_holds_home() {
-            // The negative case this whole fix has to preserve: if stock
+            // The negative case the polling has to preserve: if stock
             // genuinely never let go of HOME, that's a real failure and
             // stock must be restored.
             let mock = MockAdb::default()

@@ -43,4 +43,4 @@ The first parallel process-suite run hit PID-startup failures in three existing 
 
 Evidence is from macOS host tests. Linux/Windows CI and independent review remain gates; these logs do not establish physical shared-client, updater or Android-device acceptance. Mobile-main integration remains a separate task.
 
-There is no visible UI change, so screenshots/video are not applicable. Historical simulated settings evidence and all six draft PR links are preserved in [ADB-QUIT-HARDENING.md](../../ADB-QUIT-HARDENING.md); those drafts and branches remain intact.
+There is no visible UI change, so screenshots/video are not applicable. Historical simulated settings evidence and all six draft PR links are preserved in the archived [ADB-QUIT-HARDENING.md](https://github.com/bryanroscoe/shield_optimizer/blob/ae0436e/v2/ADB-QUIT-HARDENING.md) (the current quit rules are in [`v2/HANDOFF.md`](../../HANDOFF.md)); those drafts and branches remain intact.

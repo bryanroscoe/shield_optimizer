@@ -284,11 +284,10 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
 
     let adb = state.adb_snapshot().await;
 
-    // One round-trip for the whole report. This was six concurrent shells
-    // plus a seventh `/proc/meminfo` call on the RAM fallback path; the mobile
-    // transport serializes everything behind one connection, so the fan-out
-    // bought no concurrency and cost 6-7 × Wi-Fi RTT. `/proc/meminfo` is tiny,
-    // so it rides along unconditionally and serves as the fallback without an
+    // One round-trip for the whole report: the mobile transport serializes
+    // everything behind one connection, so separate reads would buy no
+    // concurrency and cost 6-7 × Wi-Fi RTT. `/proc/meminfo` is tiny, so it
+    // rides along unconditionally and serves as the RAM fallback without an
     // extra round-trip.
     let cmd = batch_command(&[
         "dumpsys display",
@@ -353,8 +352,8 @@ async fn health_report_for(state: &AppState, serial: &str) -> Result<HealthRepor
     let thermal = parse_thermal_reading(thermal_text);
     let hardware = parse_hardware_properties_reading(hwprops_text);
     // A cached framework value is only a last-known fallback; an available
-    // current hardware reading is preferable. Legacy unsectioned formats keep
-    // their prior precedence because their freshness cannot be classified.
+    // current hardware reading is preferable. Unsectioned thermal output still
+    // wins, because its freshness cannot be classified.
     let temperature_reading = if thermal
         .as_ref()
         .is_some_and(|reading| reading.source == "thermalservice_cached")

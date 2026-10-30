@@ -1,11 +1,11 @@
 // Theme preference: Light / Dark / System (follow OS).
 //
-// The actual colors live in CSS variables in +layout.svelte. This drives a
+// The actual colors live in CSS variables in app.css. This drives a
 // `data-theme` attribute on <html>, which is always present and always
 // concrete — "system" is resolved here rather than left to CSS. That lets the
 // stylesheet carry exactly one light block instead of duplicating it between
-// `[data-theme="light"]` and a `prefers-color-scheme` media query, which had
-// already drifted apart once.
+// `[data-theme="light"]` and a `prefers-color-scheme` media query, where the
+// two copies could drift.
 //
 // The preference itself (which may be "system") stays in localStorage, so the
 // Auto/Light/Dark toggle still reflects what the user actually chose.
@@ -24,8 +24,7 @@ export function getThemePref(): ThemePref {
   return v === "light" || v === "dark" ? v : "system";
 }
 
-/// What the OS is asking for. Defaults to dark when the query is unavailable,
-/// matching the app's historical default.
+/// What the OS is asking for. Defaults to dark when the query is unavailable.
 function osTheme(): ResolvedTheme {
   if (typeof window === "undefined" || !window.matchMedia) return "dark";
   return window.matchMedia(LIGHT_QUERY).matches ? "light" : "dark";

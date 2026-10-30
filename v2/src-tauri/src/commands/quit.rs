@@ -528,8 +528,8 @@ mod tests {
         use super::*;
 
         /// A stand-in adb that logs its arguments and claims, on every call,
-        /// to have started the server: the text that could once be spoofed
-        /// into an ownership claim.
+        /// to have started the server: text that must never be read as an
+        /// ownership claim.
         fn fake_adb(dir: &Path) -> (PathBuf, PathBuf) {
             let log = dir.join("calls");
             let adb = dir.join("adb");
@@ -560,8 +560,8 @@ mod tests {
                 AppListBundle::default(),
                 dir.to_path_buf(),
             );
-            // History that once read as "this app owns the server": a device
-            // shell printing the start message, and a restart.
+            // Call history that must not read as "this app owns the server": a
+            // device shell printing the start message, and a restart.
             let adb = state.adb_snapshot().await;
             adb.shell("tv", "echo '* daemon started successfully'")
                 .await

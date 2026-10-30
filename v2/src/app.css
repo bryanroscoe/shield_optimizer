@@ -492,6 +492,17 @@ textarea:focus-visible {
   right: 0;
   transform: none;
 }
+/* A sentence or two, not a label: wrap it instead of running off the window. */
+[data-tip][data-tip-wrap]::after {
+  width: max-content;
+  max-width: 22rem;
+  white-space: normal;
+  line-height: 1.4;
+}
+[data-tip][data-tip-wrap]:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+}
 /* Controls in the top bar have no room above them — the tooltip left the
    window. These open downward instead. */
 [data-tip][data-tip-side="bottom"]::after {

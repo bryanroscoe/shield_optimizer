@@ -80,8 +80,9 @@ export function setShellBookmarks(bookmarks: ShellBookmark[]): void {
 
 const LAST_SEEN_VERSION_KEY = "shieldopt.lastSeenVersion";
 
-/// The pre-2.3.1 key, written on every launch whether or not any notes were
-/// shown. Read only to tell an existing install from a first run; see
+/// The superseded per-launch key. It was set on every launch whether or not
+/// any notes were shown, and nothing writes it now. Read only to tell an
+/// existing install from a first run; see
 /// `decideArrival` in `notes-seen.ts`.
 export function getLegacyLastSeenVersion(): string | null {
   if (typeof localStorage === "undefined") return null;

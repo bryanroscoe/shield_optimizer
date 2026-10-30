@@ -70,6 +70,11 @@ for (const [width, scale] of [[360, 1], [320, 2]]) test(`tap and keyboard help s
   const audioRisk = page.getByText(/Manual overrides can cause silence/);
   assert.equal(await audioRisk.isVisible(), true);
   assert.equal(await audioRisk.evaluate(el => !!el.closest("details")), false);
+  const longPressRisk = page.getByText("Shorter reacts sooner but makes accidental long presses more likely.", { exact: true });
+  await longPressRisk.scrollIntoViewIfNeeded();
+  assert.equal(await longPressRisk.isVisible(), true);
+  assert.equal(await longPressRisk.evaluate(el => !!el.closest("details")), false);
+  assert.equal(await page.getByText("About long presses", { exact: true }).evaluate(el => el.parentElement.open), false);
   if (evidence) {
     await summary.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${evidence}/tweaks-help-${width}-${scale * 100}-simulated.png` });

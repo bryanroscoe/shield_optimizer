@@ -193,7 +193,7 @@ async fn a_replayed_screenshot_is_a_png() {
     assert!(sim.world().replay.as_ref().unwrap().report().is_empty());
 }
 
-/// #122 on v2.3.0: stock disabled, Setup Wraith still enabled with a higher
+/// #122: stock disabled, Setup Wraith still enabled with a higher
 /// HOME filter priority, and Monet set as default. Monet holds the HOME role
 /// and the Home key opens it, but `resolve-activity` still names Setup
 /// Wraith. The current launcher is the role holder.
@@ -225,7 +225,7 @@ async fn setup_wraith_outranking_the_role_holder_is_not_the_current_launcher() {
         let mut w = sim.world();
         let d = w.devices.get_mut("1324619053514").unwrap();
         assert_eq!(d.home.role_holder.as_deref(), Some(MONET));
-        // The resolver alone, which 2.3.0 displayed, still names Setup Wraith.
+        // The resolver alone still names Setup Wraith.
         assert!(d.resolve_home(&stock).unwrap().starts_with(WRAITH));
     }
 
@@ -367,8 +367,7 @@ async fn google_tv_takeover_failure_re_enables_stock_and_wraith() {
     assert!(enabled(&sim, WRAITH_PKG), "Setup Wraith re-enabled");
 }
 
-/// A device without Setup Wraith behaves exactly as before: no command ever
-/// names the setup helper.
+/// A device without Setup Wraith: no command ever names the setup helper.
 #[tokio::test]
 async fn takeover_without_setup_wraith_never_touches_it() {
     let sim = google_tv_world(false);

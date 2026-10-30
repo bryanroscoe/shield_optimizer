@@ -1,12 +1,12 @@
-// Every row of Top Memory Users sat on "Checking" forever.
+// Every row of Top Memory Users resolves out of "Checking".
 //
-// The cause is a Svelte 5 trap worth a permanent guard: `report` is $state, so
-// assigning an object stores a deep *proxy*. A later `report !== nextReport`
-// identity check therefore compares a proxy against the raw object and is
-// always true — so the guard meant to drop a superseded load dropped every
-// load, and the resolved verdicts were never written.
+// A Svelte 5 trap makes this worth a permanent guard: `report` is $state, so
+// assigning an object stores a deep *proxy*. A `report !== nextReport`
+// identity check compares a proxy against the raw object and is always true,
+// so a superseded-load guard written that way drops every load and the
+// resolved verdicts are never written.
 //
-// Nothing threw and nothing logged; the table just never finished. Only
+// Nothing throws and nothing logs; the table just never finishes. Only
 // rendering it catches that.
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
@@ -112,7 +112,7 @@ async function exercise({ browser, base }) {
   }
 
   // An installed catalog app carries a recommendation, and the reviewed
-  // catalog verdict behind it is no longer downgraded on this screen.
+  // catalog verdict behind it is not downgraded on this screen.
   const recs = rows.filter((r) => r.suggestion === "recommendation");
   assert.ok(recs.length > 0, `installed catalog apps get a recommendation: ${JSON.stringify(rows)}`);
   assert.ok(

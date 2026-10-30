@@ -649,9 +649,9 @@ test("auto-dials only when the saved list truly has one entry", () => {
   );
 });
 
-// #154: a lone id-less match used to be trusted on endpoint alone, so a
-// *different* id-less TV that later answers at the same address silently
-// inherited the saved row's name instead of being recognized as distinct.
+// #154: a lone id-less match is not trusted on endpoint alone, so a
+// *different* id-less TV that later answers at the same address is recognized
+// as distinct instead of silently inheriting the saved row's name.
 
 test("a lone id-less match stores a fingerprint from the live device's properties (#154)", () => {
   seed([saved({ hardwareId: undefined, name: "Living room TV" })]);

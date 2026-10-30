@@ -26,10 +26,9 @@ use super::AppState;
 /// pick the device-appropriate app list, and run the engine planner.
 ///
 /// `device_type` comes from the caller (the page already profiled the device on
-/// load) instead of re-detecting here. Re-detection went through
-/// `list_devices_impl`, which sequentially harvests properties for *every*
-/// connected device — slow with several devices, and worse when an unauthorized
-/// one stalls. The planner only needs the type, so the caller passes it.
+/// load) instead of re-detecting here. Re-detecting through
+/// `list_devices_impl` would harvest properties for *every* connected device —
+/// slow with several devices, and worse when an unauthorized one stalls.
 #[tauri::command]
 pub async fn prepare_optimize(
     state: State<'_, AppState>,
@@ -52,8 +51,8 @@ pub async fn prepare_optimize_impl(
 
     let adb = state.adb_snapshot().await;
     // One round-trip: the mobile transport serializes concurrent shells behind
-    // a single connection, so the old `tokio::join!` cost three Wi-Fi RTTs for
-    // no concurrency.
+    // a single connection, so three separate reads would cost three Wi-Fi RTTs
+    // for no concurrency.
     let cmd =
         checked_batch_command(&["pm list packages", "pm list packages -d", "dumpsys meminfo"]);
     let out = adb
@@ -199,7 +198,7 @@ mod tests {
             shield: vec![],
             googletv: vec![],
         };
-        // All three reads ride one batched shell now, so the mock answers the
+        // All three reads ride one batched shell, so the mock answers the
         // sentinel with the concatenated sections (installed / disabled /
         // meminfo) instead of one rule per sub-command — a per-command needle
         // would match the whole compound command.

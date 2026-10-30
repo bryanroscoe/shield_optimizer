@@ -131,8 +131,8 @@ pub struct FindResult {
     /// Directories the search could not be run against at all, because the ADB
     /// call itself failed. A directory that simply does not exist is *not*
     /// listed here — that is a real "no matches". Without this split, a
-    /// dropped connection rendered as "export from the app first", telling the
-    /// user to redo something that had worked (GitHub #86).
+    /// dropped connection would read as "export from the app first", telling
+    /// the user to redo something that had worked (GitHub #86).
     pub unsearched: Vec<String>,
 }
 

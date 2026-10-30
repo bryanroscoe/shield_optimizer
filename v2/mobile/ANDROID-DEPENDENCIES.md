@@ -1,8 +1,8 @@
 # Android dependency notice inventory — release preparation
 
 Sources: app and ADB-plugin `build.gradle.kts`, plus the Android build files from locked
-Tauri 2.11.2 and opener 2.5.4 Cargo registry packages. This inventory adds the previously omitted
-AndroidX Browser dependency. It is not a resolved Gradle dependency report.
+Tauri 2.11.2 and opener 2.5.4 Cargo registry packages. It is a declaration-level list, not a
+resolved Gradle dependency report.
 
 | Declaration site | Maven coordinates / declared version |
 |---|---|
@@ -31,9 +31,8 @@ configuration name in that generated project). Inventory every resolved artifact
 upstream NOTICE, including transitive Kotlin/Jackson dependencies; preserve any required texts.
 Reconcile selected versions with this declaration inventory and regenerate notices. This final
 resolved-graph/license-text gate remains OPEN; it cannot be cleared by the declaration table.
-No Gradle dependency or package version is changed by this preparation.
 
-## Locked published-crate evidence
+## Locked published-crate check
 
 The cached `tauri-2.11.2.crate` archive SHA-256 is
 `437404997acf375d85f1177afa7e11bb971f274ed6a7b83a2a3e339015f4cc28`, exactly matching
@@ -41,5 +40,5 @@ The cached `tauri-2.11.2.crate` archive SHA-256 is
 `aab1b0ecb929ea70b33ad42d7df55c185a3485f9609ec998047232b45df76a4d`; line 43 declares
 `com.fasterxml.jackson.core:jackson-databind:2.15.3`. The local extracted file is byte-identical.
 It does NOT declare jackson-datatype-json-org. A declaration seen in a newer cached Tauri version
-must not be attributed to this locked package. This receipt verifies declarations, not Gradle
-transitive resolution or packaged contents.
+must not be attributed to this locked package. Re-check when the Tauri pin changes. This verifies
+declarations, not Gradle transitive resolution or packaged contents.

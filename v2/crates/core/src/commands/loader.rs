@@ -12,8 +12,7 @@ use serde::Deserialize;
 use crate::engine::{AppListBundle, LauncherCatalog};
 
 /// Embedded JSON for the three default app lists. Loaded at compile time so
-/// the binary works offline. Future versions will additionally check a
-/// versioned URL and prefer fresher copies; that goes here.
+/// the binary works offline.
 const COMMON_JSON: &str = include_str!("../../data/app-lists/common.json");
 const SHIELD_JSON: &str = include_str!("../../data/app-lists/shield.json");
 const GOOGLETV_JSON: &str = include_str!("../../data/app-lists/googletv.json");
@@ -122,9 +121,55 @@ mod tests {
 
     use crate::engine::{classify_with_catalog, CatalogVerdict, Safety, SafetySource};
 
-    /// The shipped lists, not a fixture. This is the assertion that would have
-    /// caught the regression where 82 of 89 curated apps reported "role and
-    /// effects unknown" beside their own description.
+    #[test]
+    fn tvrecommendations_is_not_a_default_removal_and_explains_remote_risk() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        let entry = bundle
+            .shield
+            .iter()
+            .find(|e| e.package == "com.google.android.tvrecommendations")
+            .expect("SHIELD recommendations entry exists");
+        assert!(
+            !entry.default_optimize,
+            "phone-remote dependency must not be selected automatically"
+        );
+        assert!(entry.default_restore);
+        let verdict = classify_with_catalog(
+            &entry.package,
+            Some(CatalogVerdict {
+                risk: entry.risk,
+                description: &entry.optimize_description,
+            }),
+        );
+        match verdict {
+            Safety::Caution { reason, source } => {
+                assert_eq!(source, SafetySource::ReviewedCatalog);
+                for evidence in [
+                    "phone app",
+                    "reboot",
+                    "custom launcher",
+                    "darcy",
+                    "foster_e",
+                    "Android 11",
+                    "unverified",
+                ] {
+                    assert!(
+                        reason.contains(evidence),
+                        "missing consequence or evidence limit: {evidence}"
+                    );
+                }
+            }
+            other => panic!("expected Caution, got {other:?}"),
+        }
+        assert!(entry
+            .sources
+            .iter()
+            .any(|s| s.contains("30626a8e4714f86bf837384b109b5c73ee736917")));
+        assert!(!entry.optimize_description.contains("No effect"));
+    }
+
+    /// The shipped lists, not a fixture: no curated app may report "role and
+    /// effects unknown" beside its own description.
     #[test]
     fn every_shipped_catalog_entry_gets_a_reviewed_verdict() {
         let bundle = load_embedded_app_lists().expect("embedded lists parse");
@@ -237,9 +282,8 @@ mod tests {
     /// lists `AppListBundle::for_device` knows about.
     const DEVICE_SCOPES: &[&str] = &["shield", "googletv"];
 
-    /// Safe entries with no `reviewed_at`. Every entry was dated from git
-    /// history when the field was introduced (#101), so this is empty; a new
-    /// safe entry goes in with a date, not on this list.
+    /// Safe entries with no `reviewed_at` (#101). Empty: a new safe entry goes
+    /// in with a date, not on this list.
     const SAFE_WITHOUT_REVIEW_DATE: &[&str] = &[];
 
     fn named_lists(bundle: &AppListBundle) -> [(&'static str, &[crate::engine::AppEntry]); 3] {
@@ -373,7 +417,7 @@ mod tests {
     }
 
     /// The shipped launcher catalog, not a fixture — the engine takes the
-    /// catalog as an argument now, so this file is the only place the real
+    /// catalog as an argument, so this file is the only place the real
     /// entries are checked.
     #[test]
     fn embedded_launchers_parse_with_every_shipped_entry() {
@@ -381,8 +425,7 @@ mod tests {
         assert_eq!(cat.custom.len(), 7, "custom launcher count");
         assert_eq!(cat.stock.len(), 4, "stock launcher count");
 
-        // Critical correctness: the Dispatch package name change from v1's
-        // launcher selection fix.
+        // Dispatch's real package id; a wrong one breaks launcher selection.
         let dispatch = cat
             .custom
             .iter()

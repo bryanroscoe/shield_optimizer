@@ -3,10 +3,9 @@ import { createServer } from "vite";
 
 /// Start a Vite dev server for a browser suite.
 ///
-/// Every browser suite must come through here. `session.test.mjs` once built
-/// its own server and so inherited the pinned `strictPort`, which turned a
-/// port collision into a hard failure and took its whole file down with it
-/// (GitHub #113).
+/// Every browser suite must come through here (GitHub #113): a suite that
+/// builds its own server inherits the pinned `strictPort`, so a port collision
+/// becomes a hard failure that takes its whole file down with it.
 ///
 /// `vite.config.ts` pins port 1421 with `strictPort: true` because `tauri
 /// android dev` expects the app there. Test suites must not inherit that: the

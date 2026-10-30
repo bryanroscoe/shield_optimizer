@@ -116,6 +116,14 @@ export interface ConnectResult {
   message: string;
 }
 
+export interface RepromptResult {
+  ok: boolean;
+  /// What adb holds afterwards: "unauthorized" (the TV is asking again),
+  /// "device" (approved meanwhile) or "none".
+  status: "device" | "unauthorized" | "offline" | "none";
+  message: string;
+}
+
 export interface ForgetResult {
   ok: boolean;
   /// Every adb transport key dropped for this device, the requested one first.
@@ -405,8 +413,9 @@ export interface UpdateInfo {
   latest: string | null;
   update_available: boolean;
   url: string;
-  /// Notes for the version currently running — shown once after an update
-  /// lands, including one installed by Homebrew or by hand.
+  /// The running version's notes from the GitHub API, null when that call
+  /// fails. The UI does not read it: the after-update pop-up shows the notes
+  /// bundled from CHANGELOG.md.
   current_notes: string | null;
 }
 
@@ -485,8 +494,8 @@ export interface TweaksState {
   window_animation_scale: string | null;
   transition_animation_scale: string | null;
   animator_duration_scale: string | null;
-  /// global.background_process_limit, written by earlier versions. Android
-  /// ignores it (#99); read only so a leftover value can be removed.
+  /// global.background_process_limit. Android ignores it (#99); read only so
+  /// a leftover value can be removed.
   background_process_limit: string | null;
   /// The cached background process limit Android is applying
   /// (CUR_MAX_CACHED_PROCESSES), or null when the device did not report it.

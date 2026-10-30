@@ -35,33 +35,22 @@ emulator registers with.
 - `dumpsys meminfo`, `screencap`
 - 10 catalogued packages are present, spanning `safe`/`medium`/`high` and both
   `disable` and `uninstall`, plus about 130 uncatalogued packages — a good surface
-  for the Unknown-safety work (#97)
+  for Unknown-safety labelling
 - None of this needs root
 
 ### Two limits that bite
 
-**1. The image is not classified as a TV.** It reports
-`ro.build.characteristics=emulator`, with no `tv`. Confirmed by running
-`detect_device_type()` from `crates/core` against the harvested properties:
-
-```
-emulator as shipped      -> Unknown
-with `tv` characteristic -> GoogleTv
-```
-
-`AppListBundle::for_device` serves the `common` list only for `Unknown`
-(`unknown_returns_common_only` in `engine/app_lists.rs` pins this), so the 3
-`shield` entries above are not offered and the `googletv` list is never reached.
-`emulator -prop ro.build.characteristics=tv` does **not** fix it — init refuses to
-overwrite a `ro.*` property the image already set, and the property still reads
-`emulator` after a boot with that flag.
-
-The real TV signal on this image is the package-manager feature set
-(`android.hardware.type.television`, `android.software.leanback`), which
-`DeviceProperties` does not currently carry. Teaching detection to read it would
-make the emulator classify correctly and is arguably a more honest TV signal than
-a build string — but it changes the one canonical detection function, so it is a
-deliberate decision, not a test-harness convenience.
+**1. TV classification comes from the leanback feature, not the build string.** The image
+reports `ro.build.characteristics=emulator`, with no `tv`, and
+`emulator -prop ro.build.characteristics=tv` does **not** change that: init refuses to overwrite a
+`ro.*` property the image already set. Its real TV signal is the package-manager feature set
+(`android.hardware.type.television`, `android.software.leanback`). Detection
+(`crates/core/src/engine/detection.rs`) reads `pm has-feature android.software.leanback` as well
+as the characteristics, and a leanback `true` is enough to call a device a TV, so the image should
+classify as a TV and get the matching app lists. That has not been re-measured on the emulator;
+check the profile the app shows after `./tv-emulator.sh start`. If it comes back Unknown,
+`AppListBundle::for_device` serves the `common` list only (`unknown_returns_common_only` in
+`engine/app_lists.rs` pins this).
 
 **2. `adb root` is refused.** The API 34 `android-tv` image is a `user` build
 (`ro.debuggable=0`, `ro.build.type=user`). So adbd cannot be told to listen on
@@ -96,13 +85,13 @@ since the scan will find nothing. Unlike the Playwright browser loop, the
 emulator renders real safe-area insets, so layout at the top and bottom edges is
 trustworthy here.
 
-What this does **not** cover, and still needs the Pixel:
+What this does **not** cover, and still needs a real phone:
 
 - **mDNS discovery.** QEMU user-mode networking does not carry multicast, so the
   scan flow finds nothing. Add the TV by IP:port instead. This is expected from how
   the NAT works; it was not measured here.
 - Real background/doze transitions — relevant to the fast-remote 30-second
-  background grace and to restart feedback #7 (#105). The emulator reproduces the
+  background grace and to the app-restart report (#105). The emulator reproduces the
   *JavaScript* lifecycle faithfully, which is what
   `evidence/lifecycle/reproduce.mjs` already models; it does not reproduce Android
   killing the process under real memory pressure.
@@ -110,13 +99,10 @@ What this does **not** cover, and still needs the Pixel:
 
 ## What the emulator cannot settle
 
-The three unconfirmed user reports are all vendor-firmware specific and stay on the
-physical script in `docs/RELEASE-DECISION-2026-09-09.md` §4:
+Vendor-firmware and host-OS behavior stays on the physical script in
+`docs/DEVICE-TEST-SCRIPT.md`: Sony Android 8 launcher switching, the TCL Android 14
+pairing service, and macOS removable-volume (TCC) prompts, which are a host-side issue
+with nothing to do with the device.
 
-- **#87 / #112** Sony XBR-55X850D launcher — Android 8 Sony firmware
-- **#88 / #94** TCL QM7L Pro pairing — the TCL Android 14 pairing service
-- **#89 / #92** macOS removable-volume prompts — a host-side TCC issue, nothing to
-  do with the device
-
-The emulator does let you rehearse the mechanics of D5–D9 before you touch the
-Shield, which is worth doing since the script has never been run.
+The emulator does let you rehearse the mechanics of desktop steps D5–D9 before you
+touch a Shield.

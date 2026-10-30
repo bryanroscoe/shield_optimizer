@@ -4,7 +4,7 @@
 //! This crate keeps the desktop-only subprocess ADB driver, installer/updater,
 //! host-network scan, and file-path based commands.
 
-// clippy 1.99 added `double_must_use`, which fires on the futures that
+// clippy's `double_must_use` fires on the futures that
 // `#[async_trait]` generates for every trait method. The attribute is the
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]
@@ -71,7 +71,7 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
 }
 
 /// Every command the desktop frontend can invoke. One list, shared by the app
-/// and the dev-only E2E server (`src/bin/e2e_server.rs`), so the harness
+/// and the dev-only E2E server (`crates/e2e-server`), so the harness
 /// dispatches through exactly the handler table the shipped app uses.
 pub fn invoke_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
@@ -82,6 +82,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         devices::disconnect_device,
         devices::pair_device,
         devices::forget_device,
+        devices::reprompt_device,
         devices::probe_paired_connect,
         devices::connect_paired,
         scan::local_address_for,

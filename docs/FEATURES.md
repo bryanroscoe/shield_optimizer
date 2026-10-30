@@ -1,20 +1,12 @@
-# Shield Optimizer — Feature Catalog
+# Shield Optimizer v1 — feature catalog
 
-> **This is the catalog for the legacy v1 (PowerShell) script.** It was intended to become the cross-version spec and
-> never did — it has no v2 coverage and no parity column, and has not been updated since
-> 2026-05-20. For v2 behaviour use `v2/README.md`, `v2/ATVTOOLS-PARITY.md` and `v2/CHANGELOG.md`.
-> Line references into `Shield-Optimizer.ps1` have drifted; re-check before trusting one.
+> This catalogs the **legacy v1 PowerShell script** (`Shield-Optimizer.ps1`): every behavior, ADB
+> command and edge case it handles. It does not cover the v2 desktop app; for v2 behavior use
+> `v2/README.md`, `v2/ATVTOOLS-PARITY.md` and `v2/CHANGELOG.md`. v2 code comments cite its section
+> numbers (for example §12 recovery and §13.1 detection) for the v1 behavior v2 was built to match.
 
-This document is the **source of truth** for what Shield Optimizer does. It exists for two reasons:
-
-1. **Reference for the v2 (Tauri/Rust) rewrite** — a language-agnostic spec of every behavior, every ADB command, and every edge case the current v1 PowerShell implementation handles, so v2 can reach behavioral parity without reverse-engineering.
-2. **Living changelog of capabilities** — every PR that adds, removes, or changes a feature is expected to update this doc in the same commit. If a feature isn't here, it doesn't exist as far as the project is concerned.
-
-> **Maintenance rule:** when you add a feature to v1 *or* v2, you update this doc. When the two implementations diverge, that's a regression — flag it in the **Parity** column.
-
-> **Source-of-truth precedence:** if the script and this doc disagree, the script wins for v1 behavior; the doc wins for v2 specification. Resolve drift by updating whichever side is wrong.
-
-Catalog tracks v1's current `main`. Function and line references point at `Shield-Optimizer.ps1` at HEAD — re-verify them when touching this doc to catch drift.
+If the script and this doc disagree, the script wins. Function and line references point at
+`Shield-Optimizer.ps1` and drift as the script changes; re-check one before trusting it.
 
 ---
 
@@ -533,7 +525,7 @@ The two paths can disagree on edge cases. v2 should pick the union of inputs (ma
 
 ## 15. Data catalogs
 
-These are the structured arrays that drive Optimize behavior. **In v2 they should be runtime-fetched JSON, not embedded code.**
+These are the structured arrays that drive Optimize behavior. v2 keeps the same catalogs as JSON in `v2/crates/core/data/app-lists/`, embedded at compile time.
 
 ### 15.1 CommonAppList — universal Android TV bloat
 
@@ -644,16 +636,13 @@ The script supports multiple connected devices simultaneously. The main menu (§
 
 ---
 
-## Maintenance checklist (for PR authors)
+## Maintenance checklist (for v1 PRs)
 
-When opening a PR that affects user-visible behavior, **at minimum**:
+When a v1 fix changes user-visible behavior, **at minimum**:
 
-- [ ] Add or update the corresponding section here
-- [ ] If you added a new menu item, update §2 (main menu) or §3 (device action menu)
-- [ ] If you added a new ADB call, add it to the relevant feature's "ADB calls" row
-- [ ] If you added a new setting key, update §7 (Tweaks) and §9.1 (snapshot setting keys)
-- [ ] If you added a new app or list, update §15 (data catalogs)
-- [ ] If you fixed a previously-broken edge case, update the "Edge cases" row to reflect the fix
-- [ ] Cross-link from v1 implementation to this doc by referencing section numbers in commit messages where useful
-
-If v2 (Rust/Tauri) work is in flight, also note which sections have parity vs. v1 in a status table here (to be added once v2 has structure).
+- [ ] Update the corresponding section here
+- [ ] If you added a menu item, update §2 (main menu) or §3 (device action menu)
+- [ ] If you added an ADB call, add it to the relevant feature's "ADB calls" row
+- [ ] If you added a setting key, update §7 (Tweaks) and §9.1 (snapshot setting keys)
+- [ ] If you added an app or list, update §15 (data catalogs)
+- [ ] If you fixed a broken edge case, update the "Edge cases" row to reflect the fix

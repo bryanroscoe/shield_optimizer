@@ -25,10 +25,10 @@ pub struct TweaksState {
     pub window_animation_scale: Option<String>,
     pub transition_animation_scale: Option<String>,
     pub animator_duration_scale: Option<String>,
-    /// `global.background_process_limit`, which earlier versions wrote. Android
-    /// does not read this key: on a Shield TV (Android 11) setting it to 1
-    /// left the cached-process limit at 32 (#99). Read only so the UI can
-    /// offer to remove a leftover value.
+    /// `global.background_process_limit`. Android does not read this key: on a
+    /// Shield TV (Android 11) setting it to 1 left the cached-process limit at
+    /// 32 (#99). Read only so the UI can offer to remove a value an older app
+    /// version left behind.
     pub background_process_limit: Option<String>,
     /// The limit Android is actually applying to cached background processes,
     /// `CUR_MAX_CACHED_PROCESSES` from `dumpsys activity settings`. Developer
@@ -214,8 +214,7 @@ pub async fn get_display_scaling(
     serial: String,
 ) -> Result<CurrentDisplayScaling, String> {
     let adb = state.adb_snapshot().await;
-    // One round-trip; both sections still degrade to an empty string, which is
-    // what the individual failures produced.
+    // One round-trip; a failed read degrades its section to an empty string.
     let cmd = crate::adb::batch_command(&["wm size", "wm density"]);
     let out = adb
         .shell(&serial, &cmd)
@@ -231,11 +230,10 @@ pub async fn get_display_scaling(
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
 pub enum DisplayScalePreset {
-    // Explicit renames: `rename_all = "snake_case"` produces `uhd4k` /
-    // `fhd1080p` (no underscore before the digit), which mismatched the
-    // frontend's `uhd_4k` / `fhd_1080p` and made every scaling click fail with
-    // "unknown variant `uhd_4k`". Keep in lockstep with DisplayScalePreset in
-    // src/lib/types.ts.
+    // Explicit renames: `rename_all = "snake_case"` would produce `uhd4k` /
+    // `fhd1080p` (no underscore before the digit), which doesn't match the
+    // frontend's `uhd_4k` / `fhd_1080p`. Keep in lockstep with
+    // DisplayScalePreset in src/lib/types.ts.
     /// 3839x2160 @ density 640. Shield TV won't accept 3840 width, and density
     /// 540 breaks some app menus (Disney+, HBO) — see issue #24.
     #[serde(rename = "uhd_4k")]
@@ -626,7 +624,7 @@ mod tests {
 
     #[test]
     fn value_metacharacters_are_quoted_not_rejected() {
-        // Values containing shell metacharacters are now quoted rather than
+        // Values containing shell metacharacters are quoted rather than
         // rejected — the device shell cannot interpret them inside single quotes.
         assert!(build_setting_command("global", "k", "1; rm -rf /").is_ok());
         assert!(build_setting_command("global", "k", "a|b").is_ok());

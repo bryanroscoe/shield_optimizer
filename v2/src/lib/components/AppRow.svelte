@@ -162,9 +162,8 @@
   oncontextmenu={(e) => openContextMenu(e, [{ label: "Copy package name", run: copyPkgFromMenu }])}
 >
   <!-- A disclosure looks like one: a caret in its own narrow column, pointing
-       right when closed and down when open. It used to sit inside the verdict
-       chip, where it read as decoration on the verdict rather than as the
-       control for the row. -->
+       right when closed and down when open, so it reads as the control for
+       the row rather than as decoration on the verdict. -->
   <td class="caret-cell">
     <button
       class="row-caret"
@@ -218,8 +217,7 @@
     data-verdict={lookup.status === "ready" ? lookup.verdict.kind : lookup.status}
   >
     <!-- Still a button: the verdict is the thing you came to read, so it opens
-         the reason too. The caret it used to carry now lives in its own column
-         at the head of the row. -->
+         the reason too. -->
     <button
       class="safety-toggle"
       class:open={detailOpen}
@@ -284,11 +282,9 @@
   /* The table chrome (th/td borders, padding, .center) is owned by the host
      table; this row only styles the cells it fully owns.
      `--bg-button` is a button FILL, not a line — against a card it is about
-     1.1:1 and effectively invisible. These cells drew their divider with it
-     while the actions cell, which comes in from the host, drew the same
-     divider with `--border`. The result was one visible short line under the
-     actions and nothing under the rest, which reads as a stray line rather
-     than as a row divider. */
+     1.1:1 and effectively invisible. These cells draw their divider with
+     `--border`, the same as the actions cell that comes in from the host, so
+     the row reads as one divider rather than a stray short line. */
   td {
     text-align: left;
     padding: 0.5rem 0.6rem;
@@ -314,7 +310,7 @@
   .caret-cell {
     width: 1%;
     /* The column pays for itself out of the App column's share rather than
-       widening the table — the App List already ran right up to the card's
+       widening the table — the App List already runs right up to the card's
        edge, and a table that overflows its card is worse than a tight caret. */
     padding-left: 0.25rem;
     padding-right: 0;
@@ -342,7 +338,7 @@
     transform: none;
   }
   /* The glyph turns, not the button: rotating the button rotates its `data-tip`
-     pseudo-element with it, and the tooltip came out running down the page one
+     pseudo-element with it, and the tooltip would run down the page one
      letter per line. */
   .caret-glyph {
     display: inline-flex;
@@ -356,8 +352,8 @@
   .row-caret.open .caret-glyph {
     transform: rotate(90deg);
   }
-  /* Two lines per row, fixed. Three stacked lines showed about five apps at a
-     time on a list that runs to hundreds. */
+  /* The description and package id are held to one line each, so a list that
+     runs to hundreds shows more than a handful of apps at a time. */
   .app-cell {
     /* The flexible column: every other cell is width:1% + nowrap, so this one
        takes what is left. Without max-width:0 its min-content is the full
@@ -380,7 +376,7 @@
     min-width: 0;
     /* At narrow widths the tags drop under the name instead of being clipped
        out of existence: ENABLED and REVIEW are the two things the row is read
-       for, and a hidden overflow simply deleted them. The clip stays — it is
+       for, and a hidden overflow would delete them. The clip stays — it is
        what stops a long name widening the table. */
     flex-wrap: wrap;
     row-gap: 0.25rem;
@@ -389,7 +385,7 @@
   /* The name never wraps and never shrinks: it is the one thing you read to
      decide, and `.app-cell`'s inherited `overflow-wrap: anywhere` will happily
      break "Funimation" across two lines if the item is allowed to narrow. The
-     package id beside it absorbs whatever width is left and ellipsises. */
+     tags beside it wrap under it instead. */
   .app-name {
     flex: none;
     white-space: nowrap;
@@ -503,8 +499,8 @@
     align-items: center;
     gap: 0.3rem;
   }
-  /* Filled chip, per the board — the old treatment coloured the text only, so
-     PROTECTED and UNKNOWN were typographically identical at a glance. */
+  /* Filled chip, per the board — coloured text alone leaves PROTECTED and
+     UNKNOWN typographically identical at a glance. */
   .verdict-chip {
     display: inline-flex;
     align-items: center;
@@ -537,7 +533,7 @@
   }
   .tag {
     /* `.app-cell` sets `overflow-wrap: anywhere` so long package ids can break,
-       and that inherits. In a flex row it let REVIEW break between every
+       and that inherits. In a flex row it would let REVIEW break between every
        letter and render as a vertical column of six characters — so the tag
        opts back out and refuses to shrink. */
     flex: none;
@@ -565,10 +561,9 @@
     font-family: var(--mono);
   }
   /* Optimize-row emphasis (passed via rowClass): skipped rows recede; rows that
-     WILL be acted on get a left accent bar. The full-row tint went with the
-     select: now that the armed segment is visible on every row, tinting the
-     row as well said the same thing twice and made a plan of twelve rows read
-     as one solid block of lime. */
+     WILL be acted on get a left accent bar. No full-row tint: the armed pill
+     is already visible on every row, and tinting the row as well would say
+     the same thing twice and make a plan read as one solid block of lime. */
   tr.dim {
     opacity: 0.78;
   }

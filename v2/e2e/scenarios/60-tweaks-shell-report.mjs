@@ -53,7 +53,7 @@ export const scenarios = [
     },
   },
   {
-    // #99: on a real Shield the global key changed nothing, so the tab reports
+    // #99: on a real Shield the global key changes nothing, so the tab reports
     // Android's own limit and only offers to remove a leftover key.
     name: "tweaks-background-limit",
     async run(ctx) {

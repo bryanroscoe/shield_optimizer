@@ -1,6 +1,6 @@
 <script lang="ts">
   import { modal } from "../lib/modal";
-  // In-app styled confirm dialog — replaces native confirm(), which is
+  // In-app styled confirm dialog, used instead of native confirm(), which is
   // unreliable/ugly in the Android webview.
   let {
     open,

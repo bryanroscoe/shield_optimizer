@@ -41,7 +41,7 @@ async function exercise({ browser, base }) {
   await page.goto(base, { waitUntil: "networkidle" });
 
   const box = page.getByRole("checkbox", { name: "Stop ADB when quitting" });
-  const warning = page.locator(".quit-warning");
+  const tip = () => page.locator(".quit-toggle").getAttribute("data-tip");
   const problem = page.locator(".quit-error");
   const saved = () => page.evaluate((key) => localStorage.getItem(key), SAVED);
   const flag = (name, on) =>
@@ -83,11 +83,10 @@ async function exercise({ browser, base }) {
 
   await confirmed();
   assert.equal(await box.isChecked(), false, "the stop is off until someone turns it on");
-  assert.equal(await warning.count(), 0, "and there is nothing to warn about yet");
+  assert.match(await tip(), /Android Studio, scrcpy/, "before it is turned on, it names who else loses adb");
 
   await click();
   assert.equal(await box.isChecked(), true, "a confirmed change ticks the box");
-  assert.match(await warning.innerText(), /Android Studio, scrcpy/, "turning it on names who else loses adb");
   assert.equal(await saved(), "true", "and the confirmed choice is saved");
 
   // A fresh launch: the native side starts off again, and the saved choice
@@ -99,7 +98,6 @@ async function exercise({ browser, base }) {
   await flag("stopAdbOnQuitFails", true);
   await click();
   assert.equal(await box.isChecked(), true, "a failed change cannot make the box read off");
-  assert.equal(await warning.count(), 1, "and the warning stays up with it");
   assert.match(await problem.innerText(), /Couldn't change Stop ADB when quitting/);
   assert.equal(await saved(), "true", "nothing unconfirmed is saved");
   await flag("stopAdbOnQuitFails", false);
@@ -129,7 +127,6 @@ async function exercise({ browser, base }) {
   await release("oldest");
   await confirmed();
   assert.deepEqual(await shown(), { checked: true, unknown: false, disabled: false }, "then shows the stop is on");
-  assert.equal(await warning.count(), 1);
   await flag("stopAdbOnQuitHeld", false);
 
   // A read that fails after a reload stays unknown, with a way to ask again.
@@ -149,7 +146,6 @@ async function exercise({ browser, base }) {
   await flag("stopAdbOnQuitHeld", true);
   await remount();
   assert.deepEqual(await shown(), { checked: true, unknown: false, disabled: false }, "a page change keeps the confirmed state");
-  assert.equal(await warning.count(), 1);
   await release("oldest");
   assert.equal(await held(), 0);
   await flag("stopAdbOnQuitHeld", false);

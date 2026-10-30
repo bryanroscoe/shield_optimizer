@@ -1,9 +1,8 @@
 //! Batched device-side shell invocation.
 //!
-//! Several read paths used to fan out N separate `adb shell` calls where one
-//! compound shell would do. On the desktop driver each call is a process
-//! spawn; on the mobile driver every call is serialized behind a single TCP
-//! connection, so the fan-out costs N × Wi-Fi RTT for zero concurrency.
+//! On the desktop driver each `adb shell` call is a process spawn; on the
+//! mobile driver every call is serialized behind a single TCP connection, so
+//! N separate reads cost N × Wi-Fi RTT for zero concurrency.
 //! `batch_command` folds them into one invocation whose stdout `split_batch`
 //! cuts back apart on a sentinel.
 
@@ -76,8 +75,7 @@ pub fn parse_checked_batch(
 /// transport, which merges stdout and stderr into one stream.
 ///
 /// No double quotes are emitted, so the result survives being passed as a
-/// single `adb -s <serial> shell <cmd>` argument the same way the compound
-/// commands already in the tree (`devices.rs::harvest_properties`) do.
+/// single `adb -s <serial> shell <cmd>` argument.
 pub fn batch_command(cmds: &[&str]) -> String {
     let mut out = String::new();
     for (i, cmd) in cmds.iter().enumerate() {

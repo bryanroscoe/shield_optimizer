@@ -1,6 +1,6 @@
 # Current mobile command and UI entitlement matrix
 
-Audited base: `f7897c1`. This is current behavior, not a pricing/gate migration. All 77 registered/invoked commands are listed. Free means no Pro entitlement prerequisite; connection, permission, safety and path restrictions still apply. Signed-key activation remains validated, not an unrestricted unlock.
+This is current behavior, not a pricing/gate migration. Every registered/invoked command is listed; `BILLING-COMMAND-MATRIX.json` holds the same rows, and `tests/entitlement-preview.test.mjs` fails when a command is registered or removed without updating it. Keep this table in step with the JSON. Free means no Pro entitlement prerequisite; connection, permission, safety and path restrictions still apply. Signed-key activation remains validated, not an unrestricted unlock.
 
 Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devices connections and Dashboard/Diagnostics caches. Screens can show Pro badges without blocking navigation. An unused API wrapper is explicitly shown as having no direct caller.
 
@@ -93,32 +93,22 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 - Settings, permission and Home before-value restore remain gated or incomplete. A bounded journal/undo mechanism needs separate review. This slice creates no persistent journal and does not make arbitrary writes free.
 - FileManager/BackupClone enum labels do not imply enforcement: mobile file/backup handlers currently have no Pro prerequisite. No gate changes are proposed here.
 - Remote basic input, file paths, package names, safety checks and connection-generation fencing remain independent safety boundaries.
-- The new entitlement preview is isolated and unused by session/backend authorization; store purchase callbacks alone cannot grant real Pro. No real billing adapter or service exists in this slice.
+- The new entitlement preview is isolated and unused by session/backend authorization; store purchase callbacks alone cannot grant real Pro. No real billing adapter or service exists.
 
-## Slice boundary and validation
+## Entitlement preview boundary
 
 `entitlementPreview.ts` is a pure, ephemeral reducer. `EntitlementPreview.svelte` is an isolated
 presentation component and is not imported into the running app. Only the test harness mounts
 it; the simulated store lives under tests and cannot emit a verified verdict. Neither modifies
 `session.entitlement`, AppState, license files, TV state or purchase history. Verified/revoked
 reducer events are simulation inputs, not an implemented security boundary or provider verdict.
-No persisted entitlement, purchase verification service, account system, product, price, payment
-call, offline cache policy, tip URL or before-value journal is added. Production integration
-requires the separately reviewed Play verification and free-undo design.
+There is no persisted entitlement, purchase verification service, account system, product, price,
+payment call, offline cache policy, tip URL or before-value journal. Production integration
+requires the separately reviewed Play verification ([`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md))
+and Free undo ([`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md)) designs.
 
-Run `npm test`, `npm run check` and `npm run build` in mobile. Shared-core tests
-`free_user_can_` exercise actual recovery implementations against mock ADB after entitlement
-downgrade, not physical devices. The emergency recovery wrapper now delegates unchanged behavior
-to a private helper so the Free-state path can be called in a unit test. No command gate changes.
-The matrix coverage test detects added/removed registered commands; it is not a substitute for
-reviewing future gate changes or auditing every indirect call chain.
-
-The approved product direction is documented separately in PR170: free compatibility checks,
-$2.99 one-time Pro, no timed trial, optional benefit-free tips and normal Play promos for existing
-supporters. This slice does not configure any of those products or change current gates.
-
-Local evidence: 450 shared-core tests and strict core Clippy pass; integrated mobile full suite 224/224
-(including cancellation and Free-recovery UI checks) passes.
-Mobile check reports 0 errors / 0 warnings; build, Rust formatting and diff checks pass. These are
-Mac host/mock/browser results, not Android transport or purchase-validation evidence. The branch
-preserves merged release-preparation ancestry `7fe0e6a` through normal merge `a75605c`.
+Shared-core tests named `free_user_can_` exercise the real recovery implementations against mock
+ADB after an entitlement downgrade (not physical devices). The emergency recovery wrapper delegates
+to a private helper so the Free-state path can be called in a unit test. The matrix coverage test
+detects added/removed registered commands; it is not a substitute for reviewing future gate
+changes or auditing every indirect call chain.

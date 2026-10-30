@@ -5,15 +5,13 @@
 ///
 /// The rule: show once for each version increase. The stored version is the
 /// last one whose notes the user was actually shown, and it is written only
-/// once the pop-up has been seen — never merely because a launch happened.
-/// Through v2-2.3.0 the app wrote the running version on every launch, before
-/// it knew whether it had anything to show, so one launch without notes (the
-/// GitHub API call they came from failed or timed out) used the pop-up up for
-/// good.
+/// once the pop-up has been seen — never merely because a launch happened, or
+/// a launch that had nothing to show would use the pop-up up for good.
 ///
-/// `legacyLastSeen` is that old per-launch key. Its presence proves this is
-/// not a first run; its value can't be trusted to mean "shown", so a user
-/// carrying only the old key sees the running version's notes once.
+/// `legacyLastSeen` is the superseded per-launch key, set on every launch
+/// whether or not anything was shown. Its presence proves this is not a first
+/// run; its value can't be trusted to mean "shown", so a user carrying only
+/// that key sees the running version's notes once.
 
 export type ArrivalDecision =
   /// Open the pop-up; record `running` once it has been seen.

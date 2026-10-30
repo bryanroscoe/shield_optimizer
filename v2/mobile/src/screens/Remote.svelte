@@ -18,8 +18,8 @@
     }
   }
 
-  // Transport / latency come from the backend's real SendTextResult — no
-  // fabricated "12 ms". null until the first press.
+  // Transport / latency come from the backend's real SendTextResult, never a
+  // placeholder figure. null until the first press.
   let transport = $state<"channel" | "shell" | null>(null);
   let latency = $state<number | null>(null);
   let forceShell = $state(loadForceShell());

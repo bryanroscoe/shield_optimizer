@@ -13,7 +13,7 @@ const { explainAdbFailure, subnetWarning, hostOf } = await import(
   "data:text/javascript," + encodeURIComponent(stripTypeScriptTypes(source, { mode: "strip" }))
 );
 
-// The owner's typo: 182.168… instead of 192.168…
+// A mistyped address: 182.168… instead of 192.168…
 {
   const raw =
     "adb pair: adb process failed (exit code Some(1)): error: protocol fault (couldn't read status message): Undefined error: 0";

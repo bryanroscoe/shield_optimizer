@@ -424,8 +424,8 @@ pub async fn apply_snapshot(
     // 1. Disable packages from the plan (additive only — never re-enable).
     // A stock launcher with a paired setup helper (Google TV's Setup Wraith)
     // needs the Home apps read before it goes off, so the helper can follow
-    // once Home is settled (#159). Snapshots taken before that fix list stock
-    // without its helper.
+    // once Home is settled (#159). Snapshots from older app versions list
+    // stock without its helper.
     let paired_stocks: Vec<String> = plan
         .packages_to_disable
         .iter()
@@ -587,10 +587,10 @@ async fn apply_settings_from_plan(
     let mut settings_written = Vec::new();
     let mut settings_deleted = Vec::new();
     let mut settings_failed = Vec::new();
-    // Apply one setting per shell call. Batching with `;` meant a single failing
-    // `settings put` (e.g. a SecurityException on a protected key) was invisible
-    // — `adb shell` still exits 0, so the old code reported every key written.
-    // Per-key lets us report exactly which succeeded, and check the output.
+    // Apply one setting per shell call. In a `;` batch a single failing
+    // `settings put` (e.g. a SecurityException on a protected key) is invisible
+    // — `adb shell` exits 0 even when the write fails, so success is read back
+    // per key rather than assumed for the batch.
     let writes = plan
         .settings_to_write
         .iter()

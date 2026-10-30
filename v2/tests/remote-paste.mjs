@@ -1,6 +1,6 @@
-// GitHub #91: you could type into the Remote box but not paste into it, which
-// is exactly backwards for what it is used for — long URLs, usernames and
-// passwords that nobody wants to enter a character at a time on a TV remote.
+// #91: the Remote box accepts paste as well as typing. What it is used for is
+// long URLs, usernames and passwords that nobody wants to enter a character at
+// a time on a TV remote.
 //
 // The capture is a non-editable div. A focused one does receive paste with
 // clipboardData populated (verified in Chromium and in WebKit, which is what
@@ -111,7 +111,7 @@ async function exercise({ browser, base }) {
   assert.equal(calls[0].text, "a");
 
   // Cmd/Ctrl chords must never reach the TV as literal characters — that is
-  // why the keydown handler ignores them, and why paste needed its own path.
+  // why the keydown handler ignores them, and why paste has its own path.
   await page.evaluate(() => (window.__SENT__ = []));
   await capture.press("ControlOrMeta+v");
   await page.waitForTimeout(150);
@@ -128,9 +128,9 @@ async function exercise({ browser, base }) {
   await page.getByRole("button", { name: "Paste", exact: true }).waitFor();
 
   // Finally, a real OS-level paste rather than a constructed event: put text
-  // on the actual clipboard and press the actual shortcut. This is what the
-  // reporter does, and it only works because a focused non-editable div still
-  // receives paste.
+  // on the actual clipboard and press the actual shortcut. This is what a user
+  // does, and it only works because a focused non-editable div still receives
+  // paste.
   await page.evaluate(() => (window.__SENT__ = []));
   await page.evaluate(async (value) => {
     const scratch = document.createElement("input");

@@ -331,7 +331,6 @@
     font-size: 0.85em;
   }
 
-  /* Shell-tab–specific styles. */
   .shell-input {
     width: 100%;
     resize: vertical;
@@ -370,8 +369,8 @@
     gap: 0.4rem;
   }
   /* Command and output on the left, the library of commands on the right —
-     board 11.11. Presets and bookmarks were a wrapped row of buttons above the
-     output, which pushed the thing you had just run below the fold. */
+     board 11.11. Presets and bookmarks sit beside the output, not above it,
+     so they never push the thing you just ran below the fold. */
   .shell-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
@@ -414,7 +413,7 @@
     outline: none;
   }
   /* Aligned to the top of the input rather than stretched down its side: a
-     resizable textarea made the button grow into a lime slab. */
+     resizable textarea would make the button grow into a lime slab. */
   .run-btn {
     flex: none;
     padding-inline: 1.4rem;

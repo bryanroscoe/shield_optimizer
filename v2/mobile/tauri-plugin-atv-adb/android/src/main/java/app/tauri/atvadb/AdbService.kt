@@ -66,10 +66,10 @@ class AdbService(private val context: Context) {
         }
       }.also { nsd.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, it) }
     }
-    // Exit as soon as we're confident we've seen the TV: either both service types
-    // resolved (a TV in pairing mode advertises both) or at least one device has
-    // resolved and a short grace window has passed to let a second one arrive. This
-    // keeps a common connect-only scan under ~1.5s instead of always burning timeoutMs.
+    // Exit as soon as we're confident we've seen the TV: either every service type
+    // resolved, or at least one device has resolved and a short grace window has
+    // passed to let others arrive. This keeps a common connect-only scan under
+    // ~1.5s instead of always burning timeoutMs.
     val pollMs = 100L
     val graceMs = 1_500L
     var waited = 0L

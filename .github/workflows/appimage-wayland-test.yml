@@ -8,9 +8,8 @@
 #                             EGL display: EGL_BAD_PARAMETER"
 #   2. libwayland stripped  → must boot clean
 #
-# Verified 2026-06-11 against v2-2.0.0-beta.12: run 1 reproduced the
-# reporter's crash exactly; run 2 booted clean. Releases built after the
-# strip-libwayland step shipped should pass BOTH runs (nothing to strip).
+# A release built with v2-release.yml's strip-libwayland step passes both
+# runs (run 2 has nothing to strip).
 name: AppImage Wayland repro test
 
 on:

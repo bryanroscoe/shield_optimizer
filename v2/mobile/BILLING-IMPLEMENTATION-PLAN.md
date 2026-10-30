@@ -1,8 +1,8 @@
-# Android commerce implementation plan — 2026-10-16
+# Android commerce implementation plan
 
-Status: draft plan only. No purchase code, product, account, credential, backend, payment or tip
-link is configured by this change. Base: merged mobile safety work `f7897c1`. Release-preparation
-PR169 remains a separate review. Nothing here authorizes a store submission or real charge.
+Status: draft plan, not built. No purchase code, product, account, credential, backend, payment or
+tip link is configured. Today's mobile Pro unlock is the signed offline license key in
+[`LICENSING.md`](LICENSING.md). Nothing here authorizes a store submission or a real charge.
 
 ## Approved product direction
 
@@ -146,7 +146,7 @@ claimed complete until ownership is reverified. Do not promise lifetime offline 
    Tips remain disabled until approved; prove no benefit/entitlement change when tipped. A tip
    exception is not assumed merely because a button says "support".
 
-## Official references checked 2026-10-16
+## Official references
 
 - Purchase integration: https://developer.android.com/google/play/billing/integrate
 - Verification/ack/voided purchases: https://developer.android.com/google/play/billing/security

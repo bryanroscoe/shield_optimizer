@@ -39,11 +39,9 @@ function randomLocalId(): string {
 
 /// Sanitize a stored fingerprint back to known string fields only, trimmed,
 /// with blanks dropped -- the same "empty means unknown, never a mismatch"
-/// rule as a freshly captured one. A row saved before this field existed (or
-/// one stripped by corruption) normalizes to `undefined`, which is exactly
-/// the "nothing to compare" case `fingerprintMismatch` already treats as no
-/// disagreement, so older rows migrate for free: there is no separate
-/// migration step to run.
+/// rule as a freshly captured one. A row with no stored fingerprint (or a
+/// corrupt one) normalizes to `undefined`, which `fingerprintMismatch` treats
+/// as nothing to compare, so such rows need no separate migration.
 function normalizeFingerprint(value: unknown): DeviceFingerprint | undefined {
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Record<string, unknown>;

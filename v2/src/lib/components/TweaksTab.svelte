@@ -860,8 +860,8 @@
   }
   /* This must out-specify `.tweak-row .row-actions .small-action` above, which
      is (0,3,0) and blanks the background. A bare `.small-action.active` is
-     only (0,2,0), so it lost — and every segmented control in Tweaks rendered
-     with neither side selected, making live settings look inert. */
+     only (0,2,0) and would lose, leaving every segmented control in Tweaks
+     with neither side selected. */
   .tweak-row .row-actions .small-action.active {
     background: var(--accent-strong);
     border-color: var(--accent);
@@ -916,7 +916,6 @@
     font-size: 0.85em;
   }
 
-  /* Tweaks-tab–specific styles. */
   .tweak-grid {
     display: flex;
     flex-direction: column;

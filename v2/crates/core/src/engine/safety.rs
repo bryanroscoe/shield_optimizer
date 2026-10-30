@@ -14,12 +14,12 @@
 //! - `Unknown` — nothing reviewed covers this package, so we genuinely do not
 //!   know what it does.
 //!
-//! The catalog is a reviewed source. Ignoring it — which this module did until
-//! the lists and the rule tables were connected — meant 82 of 89 hand-curated
-//! apps reported "role and effects unknown" while the row beside them displayed
-//! the role and the effect. It also made `Unknown` meaningless: when almost
-//! everything is unknown, a genuinely unrecognised sideloaded APK no longer
-//! stands out, which is exactly what the verdict exists to do.
+//! The catalog is a reviewed source, so it is consulted. Ignoring it would
+//! report hand-curated apps as "role and effects unknown" while the row beside
+//! them displays the role and the effect. It would also make `Unknown`
+//! meaningless: when almost everything is unknown, a genuinely unrecognised
+//! sideloaded APK no longer stands out, which is exactly what the verdict
+//! exists to do.
 
 use serde::Serialize;
 
@@ -60,9 +60,14 @@ pub enum SafetySource {
     CautionList,
     /// The curated app lists under `crates/core/data/app-lists/`.
     ReviewedCatalog,
+    /// The custom launchers in `launchers.json`: what the app is (a Home
+    /// screen) is known, so the one way removing it goes wrong can be named.
+    LauncherList,
     /// Nothing covers it.
     NoRecord,
 }
+
+const LAUNCHER_REASON: &str = "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. The app refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in the Launcher tab first.";
 
 const UNKNOWN_REASON: &str = "No reviewed app list covers this package, so what it does and what removing it would break are both unknown. Check it yourself before removing it.";
 
@@ -96,6 +101,17 @@ pub struct CatalogVerdict<'a> {
 /// 3. **Reviewed catalog** — a curated entry means somebody assessed it.
 /// 4. **Unknown** — nothing covers it, and we say so plainly.
 pub fn classify_with_catalog(package: &str, catalog: Option<CatalogVerdict<'_>>) -> Safety {
+    classify_with_sources(package, catalog, false)
+}
+
+/// [`classify_with_catalog`], also told whether `package` is a custom launcher
+/// from `launchers.json`. That ranks after the reviewed catalog and before
+/// Unknown: an entry someone wrote about the package still says more.
+pub fn classify_with_sources(
+    package: &str,
+    catalog: Option<CatalogVerdict<'_>>,
+    custom_launcher: bool,
+) -> Safety {
     if let Some(reason) = never_disable_reason(package) {
         return Safety::NeverDisable {
             reason: reason.to_string(),
@@ -110,6 +126,12 @@ pub fn classify_with_catalog(package: &str, catalog: Option<CatalogVerdict<'_>>)
     }
     if let Some(entry) = catalog {
         return from_catalog(entry);
+    }
+    if custom_launcher {
+        return Safety::Caution {
+            reason: LAUNCHER_REASON.to_string(),
+            source: SafetySource::LauncherList,
+        };
     }
     Safety::Unknown {
         reason: UNKNOWN_REASON.to_string(),
@@ -429,6 +451,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_custom_launcher_ranks_after_the_catalog_and_before_unknown() {
+        assert!(matches!(
+            classify_with_sources("com.spocky.projengmenu", None, true),
+            Safety::Caution {
+                source: SafetySource::LauncherList,
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_with_sources("com.spocky.projengmenu", None, false),
+            Safety::Unknown { .. }
+        ));
+        let reviewed = CatalogVerdict {
+            risk: crate::engine::types::RiskTier::Safe,
+            description: "Reviewed.",
+        };
+        assert!(matches!(
+            classify_with_sources("com.example.launcher", Some(reviewed), true),
+            Safety::Safe {
+                source: SafetySource::ReviewedCatalog,
+                ..
+            }
+        ));
+        assert!(matches!(
+            classify_with_sources("com.android.systemui", None, true),
+            Safety::NeverDisable { .. }
+        ));
+    }
+
+    #[test]
     fn shell_runner_blocks_disabling_a_never_disable_package() {
         let (pkg, reason) =
             shell_command_blocked("pm disable-user --user 0 com.android.systemui").unwrap();
@@ -665,8 +717,8 @@ mod tests {
     #[test]
     fn a_reviewed_safe_app_is_safe_not_unknown() {
         use crate::engine::types::RiskTier;
-        // The regression: 82 of 89 curated apps reported "role and effects
-        // unknown" while their own description sat in the next column.
+        // A curated app must not report "role and effects unknown" while its
+        // own description sits in the next column.
         let verdict = classify_with_catalog(
             "com.android.gallery3d",
             Some(catalog(
@@ -678,7 +730,7 @@ mod tests {
             Safety::Safe { reason, source } => {
                 assert_eq!(source, SafetySource::ReviewedCatalog);
                 // The curated sentence is the whole reason; the label carries
-                // "Safe to remove", so repeating it here said it twice.
+                // "Safe to remove", so repeating it here would say it twice.
                 assert_eq!(reason, "Photo gallery — rarely used on TV.");
             }
             other => panic!("expected Safe, got {other:?}"),
@@ -689,7 +741,7 @@ mod tests {
     fn a_risky_reviewed_app_is_caution_and_says_why() {
         use crate::engine::types::RiskTier;
         // com.google.android.tvlauncher: risk "high", and the app has a whole
-        // guarded wizard for it. Reporting "effects unknown" was plainly false.
+        // guarded wizard for it. Reporting "effects unknown" would be false.
         let verdict = classify_with_catalog(
             "com.google.android.tvlauncher",
             Some(catalog(
@@ -759,8 +811,7 @@ mod tests {
 
     #[test]
     fn safe_is_never_reached_without_a_catalog_entry() {
-        // Safe must never be a fallback. That was the original sin the Unknown
-        // change set out to fix, and it must not come back through this door.
+        // Safe must never be a fallback, including through this door.
         for package in [
             "com.example.anything",
             "com.netflix.ninja",

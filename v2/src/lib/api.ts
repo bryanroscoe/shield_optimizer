@@ -12,6 +12,7 @@ import type {
   CloneAppResult,
   ConnectResult,
   ForgetResult,
+  RepromptResult,
   PairedConnectProbe,
   PairResult,
   PairedConnectResult,
@@ -86,6 +87,8 @@ export const api = {
     invoke<PairResult>("pair_device", { pairAddress, pin }),
   forgetDevice: (serial: string) =>
     invoke<ForgetResult>("forget_device", { serial }),
+  repromptDevice: (serial: string) =>
+    invoke<RepromptResult>("reprompt_device", { serial }),
   probePairedConnect: (pairAddress: string, instance: string | null) =>
     invoke<PairedConnectProbe>("probe_paired_connect", { pairAddress, instance }),
   connectPaired: (address: string, instance: string) =>

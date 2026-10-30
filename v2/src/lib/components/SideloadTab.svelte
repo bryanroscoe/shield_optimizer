@@ -36,10 +36,9 @@
   /// plain browser), so the pane simply never highlights there.
   let dragging = $state(false);
   let dropError = $state("");
-  /// A dropped APK is staged, never installed. Dropping a file used to install
-  /// it outright, so the first you knew of what you had installed was the
-  /// result message — the gesture is easy to make by accident and impossible
-  /// to take back.
+  /// A dropped APK is staged, never installed: the gesture is easy to make by
+  /// accident and an install is impossible to take back, so you see what the
+  /// file is before anything reaches the device.
   let staged = $state<ApkInspection | null>(null);
   let staging = $state(false);
 
@@ -56,7 +55,7 @@
   }
   let unlistenDrop: (() => void) | null = null;
   // Every opened tab stays mounted, hidden, and the webview's drop stream is
-  // window-wide — without this a file dropped on Files was also staged here.
+  // window-wide — without this a file dropped on Files would also be staged here.
   let rootEl = $state<HTMLElement | undefined>(undefined);
 
   function isShowing(): boolean {
@@ -427,7 +426,7 @@
               <span class="tag disabled">INSTALLED (disabled)</span>
             {/if}
             <!-- This opens a web page; it does not download or install
-                 anything. A download glyph here promised otherwise. -->
+                 anything, so it carries no download glyph. -->
             <button
               class="catalog-get"
               onclick={() => openDownloadPage(entry.url)}
@@ -468,9 +467,7 @@
   .header-sub {
     margin: 0;
   }
-  /* What you have on the left, what you could have on the right — board 11.9.
-     The catalog was a closed <details> at the bottom, which is the wrong place
-     for the answer to "what do I even install". */
+  /* What you have on the left, what you could have on the right — board 11.9. */
   .sideload-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 24rem);
@@ -547,7 +544,7 @@
   .catalog-pkg {
     overflow-wrap: anywhere;
   }
-  /* A link out, not an install — the icon says "fetch it", and the title says
+  /* A link out, not an install — the icon says "opens elsewhere", and the title says
      where from, because sideloading somebody else's build deserves a name. */
   .catalog-get {
     flex: none;
@@ -595,7 +592,6 @@
     font-size: 0.85em;
   }
 
-  /* Install-APK–specific styles. */
   .apk-folder {
     margin: 0.4rem 0;
     padding: 0.4rem 0.6rem;

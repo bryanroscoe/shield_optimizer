@@ -357,7 +357,7 @@ async function exercisePairingFlow({ browser, base }) {
     await page.close();
   }
 
-  // 4. The owner's typo: a warning before sending, then plain guidance after,
+  // 4. A mistyped address: a warning before sending, then plain guidance after,
   // with adb's words behind Details.
   {
     const page = await freshPage(browser, base);

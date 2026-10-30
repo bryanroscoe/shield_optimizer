@@ -1,7 +1,7 @@
 //! Logging to disk, and the bug-report bundle.
 //!
-//! A packaged app has nowhere for stdout to go, so until now every `tracing`
-//! line the app emitted was thrown away on the machines where it mattered.
+//! A packaged app has nowhere for stdout to go, so without a file every
+//! `tracing` line is lost on the machines where it matters.
 //! [`init_logging`] adds a rolling daily file under the app data dir and keeps
 //! its filter behind a `reload` handle, so "Debug logging" can be switched on
 //! from the UI without a restart — which is the only way someone reproducing a
@@ -262,8 +262,8 @@ fn log_tail(dir: &Path, lines: usize) -> Vec<String> {
 /// the packages it reported. Reuses the launcher tab's own parser rather than
 /// a second one: Android's ResolveInfo dump exposes the class under `name=`
 /// and the package separately under `packageName=` — `name=` has no slash, so
-/// treating it as a flattened `pkg/activity` component silently dropped every
-/// real handler.
+/// treating it as a flattened `pkg/activity` component would drop every real
+/// handler.
 fn home_handler_components(stdout: &str) -> Vec<String> {
     launcher::parse_home_handler_packages(stdout)
 }

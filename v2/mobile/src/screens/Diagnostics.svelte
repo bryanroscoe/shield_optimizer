@@ -145,9 +145,9 @@
     void session.loadHealth();
   });
 
-  // Driven by data, not by the awaited loadHealth() call — `loadHealth`
-  // resolves immediately when another load is already in flight, which is why
-  // the old `await loadHealth(); loadSafety()` never found any packages.
+  // Driven by data, not by awaiting loadHealth(): `loadHealth` resolves
+  // immediately when another load is already in flight, so a safety lookup
+  // chained after it would run before any top-memory rows exist.
   //
   // A process name is not an app until the TV confirms a package by that name
   // is installed (desktop's Health does the same), so the installed list is

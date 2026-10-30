@@ -1,4 +1,4 @@
-// Repeatable screenshot capture for Shield Optimizer v2.
+// Repeatable screenshot capture for the ATV Optimizer desktop app (v2).
 //
 // Boots the SvelteKit dev server in demo mode (VITE_DEMO=1 → fixture-backed
 // invoke(), no device needed), drives a headless Chromium through every screen
@@ -126,8 +126,8 @@ async function captureScreens(page, shot) {
 
     // 11. Files.
     await page.locator("#tab-files").click();
-    // The row tools are icons now, and the legend's text node sits beside an
-    // icon ligature, so wait on a listing row landing instead.
+    // The row tools are icons, and the legend's text node sits beside an icon
+    // ligature, so the wait is on a listing row landing.
     await page.locator(".files-table tbody tr").first().waitFor();
     await shot("files");
 

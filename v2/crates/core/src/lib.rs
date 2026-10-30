@@ -1,9 +1,9 @@
 //! Shared Shield Optimizer / ATV Optimizer core.
 //!
 //! This crate owns the pure safety engine, driver-generic ADB abstractions, and
-//! shared Tauri command handlers used by the desktop and future Android app.
+//! shared Tauri command handlers used by the desktop and Android apps.
 
-// clippy 1.99 added `double_must_use`, which fires on the futures that
+// clippy's `double_must_use` fires on the futures that
 // `#[async_trait]` generates for every trait method. The attribute is the
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]

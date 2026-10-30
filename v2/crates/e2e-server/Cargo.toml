@@ -1,0 +1,21 @@
+[package]
+name = "e2e-server"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Dev-only: runs the real desktop command layer against simulated devices for npm run e2e"
+
+# Its own crate, not a [[bin]] in src-tauri: the Tauri bundler packages every
+# binary target of the app crate and ignores required-features, so a release
+# build looked for an e2e_server that was never built and failed.
+[[bin]]
+name = "e2e_server"
+path = "src/main.rs"
+
+[dependencies]
+shield-optimizer-v2 = { path = "../../src-tauri", features = ["e2e"] }
+shield-optimizer-core = { path = "../core", features = ["test-support"] }
+tauri = { version = "2", features = ["test"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["net", "io-util", "macros", "rt-multi-thread", "sync", "time"] }

@@ -82,14 +82,6 @@ struct ScanTargets {
     needs_pairing: Vec<String>,
 }
 
-/// Merge mDNS advertisements with the raw `:5555` port sweep.
-///
-/// Android 11+ wireless debugging listens on a random port that changes every
-/// time it is toggled, so a `:5555` sweep cannot see it at all — which is what
-/// "device not supported" actually meant in GitHub #88. mDNS knows the real
-/// port, so when a host advertises one we use it and drop the swept `:5555`
-/// guess for that same host. Legacy devices (Shield with Network debugging)
-/// advertise `_adb._tcp` on 5555 or nothing at all, and keep working either way.
 /// Would dialling this service hand adb a *second* key for a device it already
 /// holds?
 ///
@@ -99,7 +91,7 @@ struct ScanTargets {
 /// us the instance, `adb-58040DLCH005YV-jBeCEe`, so the attached serial is the
 /// instance plus a dot-prefixed service suffix. Connecting the same device
 /// again by `host:port` registers a second transport under a different key,
-/// which is how one device came to occupy two rows.
+/// which puts one device in two rows.
 ///
 /// Deliberately *not* checked here: a device already attached under the very
 /// endpoint we would dial. That reconnect is a no-op adb answers with "already
@@ -115,6 +107,14 @@ fn would_duplicate_transport(service: &MdnsService, attached: &[String]) -> bool
         .any(|serial| serial == &service.instance || serial.starts_with(&instance_prefix))
 }
 
+/// Merge mDNS advertisements with the raw `:5555` port sweep.
+///
+/// Android 11+ wireless debugging listens on a random port that changes every
+/// time it is toggled, so a `:5555` sweep cannot see it at all — which is what
+/// "device not supported" actually meant in GitHub #88. mDNS knows the real
+/// port, so when a host advertises one we use it and drop the swept `:5555`
+/// guess for that same host. Legacy devices (Shield with Network debugging)
+/// advertise `_adb._tcp` on 5555 or nothing at all, and keep working either way.
 fn merge_scan_targets(
     swept_ips: &[String],
     services: &[MdnsService],
@@ -227,6 +227,12 @@ async fn offline_serials(adb: &dyn AdbDriver) -> Option<Vec<String>> {
     }
 }
 
+fn held_unauthorized_endpoint(target: &str, attached: &[(String, DeviceStatus)]) -> bool {
+    attached
+        .iter()
+        .any(|(key, status)| key == target && *status == DeviceStatus::Unauthorized)
+}
+
 /// Of the advertised endpoints skipped because adb already holds them, which
 /// are ready and which are waiting for the user to authorize this computer.
 fn split_already_attached(
@@ -298,7 +304,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     // dropped raw TCP sockets against each device's adbd; firing `adb connect`
     // immediately afterward — especially against a cold daemon — tends to get
     // a transient refusal, which is why a manual "Restart ADB" (which starts
-    // the daemon) made the same devices connect. Starting the server here, plus
+    // the daemon) makes the same devices connect. Starting the server here, plus
     // a single retry below, makes the scan connect on its own.
     let _ = adb.raw(&["start-server"]).await;
 
@@ -328,6 +334,13 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let mut failed = Vec::new();
     let offline = offline_serials(adb.as_ref()).await.unwrap_or_default();
     for target in &targets.connect {
+        // Redialling an endpoint adb already holds unauthorized answers
+        // "already connected" and never re-prompts, so it would be counted as
+        // connected. Asking again is the row's own action, one TV at a time.
+        if held_unauthorized_endpoint(target, &attached_with_status) {
+            unauthorized.push(target.clone());
+            continue;
+        }
         let stale = stale_aliases_for(target, &services, &offline);
         if !stale.is_empty() {
             for key in &stale {
@@ -407,8 +420,8 @@ fn summary_message(
     );
     if !unauthorized.is_empty() {
         message.push_str(&format!(
-            " {} need{} authorization — accept the debugging prompt on the TV, then \
-             Refresh.",
+            " {} need{} authorization — accept the debugging prompt on the TV, or use Ask \
+             again on its row if the prompt is gone.",
             unauthorized.len(),
             if unauthorized.len() == 1 { "s" } else { "" }
         ));
@@ -716,15 +729,15 @@ mod tests {
             targets.connect
         );
         assert!(targets.needs_pairing.is_empty());
-        // Codex on #128: not dialling it must not also drop it from the
+        // #128: not dialling it must not also drop it from the
         // scan's found/connected counts.
         assert_eq!(targets.already_attached, vec!["192.168.42.211:34083"]);
     }
 
     #[tokio::test]
     async fn an_offline_transport_does_not_stop_the_scan_redialling() {
-        // Codex on #128: a stale offline mDNS transport used to count as
-        // attached, so the advertised endpoint was never dialled again.
+        // #128: a stale offline mDNS transport must not count as attached,
+        // or the advertised endpoint is never dialled again.
         use shield_optimizer_core::commands::test_support::MockAdb;
         let mock = MockAdb::default().on_raw(
             "devices",
@@ -752,7 +765,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unauthorized_transport_is_not_dialled_again_and_reports_unauthorized() {
-        // Codex on #128: redialling an unauthorized mDNS key by host:port
+        // #128: redialling an unauthorized mDNS key by host:port
         // makes a second unauthorized row that can never be merged, and
         // cannot answer the prompt on the TV anyway.
         use shield_optimizer_core::commands::test_support::MockAdb;
@@ -785,6 +798,23 @@ mod tests {
             split_already_attached(&targets.already_attached, &services, &attached);
         assert_eq!(ready, vec!["192.168.42.196:40001"]);
         assert_eq!(unauthorized, vec!["192.168.42.211:34083"]);
+    }
+
+    #[test]
+    fn a_held_unauthorized_5555_endpoint_is_reported_unauthorized_not_redialled() {
+        // A Shield on Network debugging is held as `ip:5555`. Redialling it
+        // answers "already connected" and never re-prompts, which used to
+        // count an unauthorized TV as connected.
+        let attached = vec![
+            (
+                "192.168.42.143:5555".to_string(),
+                DeviceStatus::Unauthorized,
+            ),
+            ("192.168.42.71:5555".to_string(), DeviceStatus::Device),
+        ];
+        assert!(held_unauthorized_endpoint("192.168.42.143:5555", &attached));
+        assert!(!held_unauthorized_endpoint("192.168.42.71:5555", &attached));
+        assert!(!held_unauthorized_endpoint("192.168.42.25:5555", &attached));
     }
 
     #[test]
@@ -998,7 +1028,8 @@ mod tests {
         assert_eq!(
             msg,
             "Scanned 192.168.42.x — found 4 devices, connected 0. 2 need authorization — \
-             accept the debugging prompt on the TV, then Refresh."
+             accept the debugging prompt on the TV, or use Ask again on its row if the prompt \
+             is gone."
         );
     }
 

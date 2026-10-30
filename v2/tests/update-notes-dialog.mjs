@@ -151,9 +151,9 @@ async function exercise({ browser, base }) {
     "dismissing must not install",
   );
 
-  // There is exactly one clickable update badge, and it is the updater's.
-  // The GitHub-API badge used to sit beside it offering a release page the
-  // updater could not install from — two badges, one a dead end (#119).
+  // There is exactly one clickable update badge, and it is the updater's. The
+  // GitHub API never gets a clickable badge of its own: a release page the
+  // updater cannot install from is a dead end (#119).
   assert.equal(await page.getByRole("button", { name: /Update available/ }).count(), 0,
     "the release-page badge is gone; only the updater offers an update");
 
@@ -210,8 +210,8 @@ async function exercise({ browser, base }) {
 ///
 /// Each "launch" is a fresh page in one browser context, so localStorage
 /// carries over exactly as it does between real launches. The demo layer's
-/// `check_for_update` returns no notes, like the GitHub call that timed out on
-/// the owner's first 2.3.0 launch — the pop-up must not depend on it.
+/// `check_for_update` returns no notes, as a failed or timed-out GitHub call
+/// does — the pop-up must not depend on it.
 async function launcher(browser, seed = {}) {
   const stub = (body) => ({ status: 200, contentType: "application/javascript", body });
   const context = await browser.newContext({ viewport: { width: 1100, height: 900 } });
@@ -272,14 +272,14 @@ async function exerciseArrived({ browser, base }) {
   await expectQuiet(await launch(base, "2.3.0"), "2.3.0's notes show once");
   await expectQuiet(await launch(base, "2.3.0"), "and stay shown");
 
-  // The owner's upgrade: 2.2.0 had left its per-launch key behind, and the
-  // first 2.3.0 launch got no notes from GitHub.
+  // Upgrading from a build that wrote only the per-launch key, with GitHub
+  // returning no notes.
   const owner = await launcher(browser, { "shieldopt.lastSeenVersion": "2.2.0" });
   await expectArrival(await owner(base, "2.3.0"), "2.3.0", /now called ATV Optimizer/);
   await expectQuiet(await owner(base, "2.3.0"), "once, not on the next launch");
 
-  // Someone the bug already skipped: the old key says 2.3.0 but nothing was
-  // ever shown. They see the 2.3.0 notes on their next launch, once.
+  // The per-launch key already says 2.3.0 but no notes were recorded as
+  // shown: they show on the next launch, once.
   const skipped = await launcher(browser, { "shieldopt.lastSeenVersion": "2.3.0" });
   await expectArrival(await skipped(base, "2.3.0"), "2.3.0", /Renamed to ATV Optimizer/i);
   await expectQuiet(await skipped(base, "2.3.0"), "migrated users see it once");
@@ -351,12 +351,12 @@ async function exerciseHistory({ browser, base }) {
 }
 
 /// Between a tag push and `latest.json` propagating, the GitHub API knows
-/// about a version the in-app updater cannot install yet. The app used to
-/// offer that as a clickable "Update available" badge whose only destination
-/// was a release page — a dead end presented as an action (#119).
+/// about a version the in-app updater cannot install yet. Offering that as a
+/// clickable "Update available" badge whose only destination is a release page
+/// is a dead end presented as an action (#119).
 ///
-/// One source of truth now drives anything clickable: the updater. The API's
-/// head start is reported, inertly, as news.
+/// Only the updater drives anything clickable. The API's head start is
+/// reported, inertly, as news.
 async function exerciseRollingOut({ browser, base }) {
   const stub = (body) => ({ status: 200, contentType: "application/javascript", body });
   const newPage = async (updaterBody) => {

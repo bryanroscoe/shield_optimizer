@@ -12,8 +12,8 @@
   .state-badge {
     display: inline-block;
     /* Hosts set `overflow-wrap: anywhere` so long package ids can break, and it
-       inherits. In a flex row that let ENABLED render as a vertical column of
-       seven letters and tripled the row's height. */
+       inherits. In a flex row that would let ENABLED render as a vertical
+       column of seven letters and triple the row's height. */
     flex: none;
     white-space: nowrap;
     overflow-wrap: normal;

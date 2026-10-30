@@ -1,11 +1,11 @@
-// The Launcher tab listed every TV app as a "HOME APP": YouTube, Plex and the
-// Play Store all declare LEANBACK_LAUNCHER, which is how an app gets a tile on
-// the home screen, not a claim to be the home screen. The engine now lists
-// HOME handlers only, and anything else can be tried from the Advanced picker,
-// which never disables the stock launcher as a side effect.
+// The Launcher tab lists HOME handlers only. YouTube, Plex and the Play Store
+// all declare LEANBACK_LAUNCHER, which is how an app gets a tile on the home
+// screen, not a claim to be the home screen. Anything else can be tried from
+// the Advanced picker, which never disables the stock launcher as a side
+// effect.
 //
-// The same round fixed two Snapshot bugs a fresh snapshot exposed: it always
-// listed the launcher as a change, and the preview's "Now" column was blank.
+// A fresh snapshot does not list the launcher as a change, and the preview's
+// "Now" column is filled in.
 //
 // Runs against the demo fixture layer. Plex is installed there
 // (list_installed_packages) but declares no Home screen, so it must reach the

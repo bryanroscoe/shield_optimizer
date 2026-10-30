@@ -47,7 +47,7 @@ impl SubprocessAdb {
         discover_adb_binary().map(Self::new)
     }
 
-    /// Back-compat alias for the old PATH-only discovery.
+    /// Alias for [`Self::discover`]: searches every location, not only PATH.
     pub fn from_path() -> Option<Self> {
         Self::discover()
     }
@@ -244,12 +244,6 @@ fn redact_stdout_for_log(command_text: &str, stdout: &str) -> String {
     }
 }
 
-/// Strip the pairing PIN out of an argument list before it is logged.
-///
-/// `adb pair <host:port> <pin>` is the one call this app makes that carries a
-/// secret the user read off their own screen. Debug logging is meant to be
-/// pasted into a public issue, so the PIN must never reach the file in the
-/// first place — redacting at the read end would be too late.
 /// Typed text rides as `input text '<payload>'`, and that payload is whatever
 /// the user typed or pasted into Remote — passwords and URLs included. The
 /// debug log feeds the bug-report bundle, so the payload never reaches it.
@@ -260,6 +254,12 @@ fn redact_typed_text(arg: &str) -> String {
     }
 }
 
+/// Strip the pairing PIN out of an argument list before it is logged.
+///
+/// `adb pair <host:port> <pin>` is the one call this app makes that carries a
+/// secret the user read off their own screen. Debug logging is meant to be
+/// pasted into a public issue, so the PIN must never reach the file in the
+/// first place — redacting at the read end would be too late.
 fn redact_args(args: &[&str]) -> Vec<String> {
     let Some(pair_at) = args.iter().position(|a| *a == "pair") else {
         return args.iter().map(|a| redact_typed_text(a)).collect();
@@ -684,8 +684,8 @@ fn custom_server_target(var: impl Fn(&str) -> Option<OsString>) -> Option<&'stat
 /// "not found". Discovery is not free and, on a machine with no adb installed,
 /// its last resort is probing the launch directory — which is a removable
 /// volume when the app was opened straight from its DMG. `adb_status` runs on
-/// every Devices refresh, so an uncached lookup re-probed that volume every
-/// few seconds and kept macOS asking for permission (GitHub #89).
+/// every Devices refresh, so an uncached lookup would re-probe that volume
+/// every few seconds and keep macOS asking for permission (GitHub #89).
 static CACHED_ADB_PATH: std::sync::RwLock<Option<Option<PathBuf>>> = std::sync::RwLock::new(None);
 
 /// [`discover_adb_binary`], resolved at most once per process until
@@ -732,8 +732,8 @@ pub fn forget_cached_adb_binary() {
 ///    - Linux: `/usr/bin/adb`, `/usr/local/bin/adb`,
 ///      `~/Android/Sdk/platform-tools/adb`
 ///    - Windows: `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe`
-/// 6. Repo-local fallback for v1 coexistence: `../adb` relative to the
-///    Cargo workspace, since the v1 repo ships an adb binary there.
+/// 6. Repo-local fallback for v1 coexistence: `adb` in the launch directory
+///    or its parent, where v1 downloads its adb binary (the repo root).
 pub fn discover_adb_binary() -> Option<PathBuf> {
     let sources = AdbDiscoverySources {
         explicit_override: std::env::var_os("SHIELD_OPTIMIZER_ADB").map(PathBuf::from),
@@ -798,7 +798,7 @@ where
         }
     }
 
-    // Repo-local fallback: the v1 repo ships `./adb` at the top level. Only
+    // Repo-local fallback: v1 downloads `adb` into the repo root. Only
     // inspect the launch CWD after every installed location has failed.
     if let Some(cwd) = sources.cwd {
         for candidate in [Some(cwd.join("adb")), cwd.parent().map(|p| p.join("adb"))]
@@ -1402,10 +1402,10 @@ mod tests {
         );
     }
 
-    /// `adb_status` runs on every Devices refresh. Before memoization that
-    /// meant a full re-walk — PATH included, launch directory included — every
-    /// few seconds on a machine with no adb installed, which is what kept
-    /// macOS re-asking for removable-volume access (GitHub #89).
+    /// `adb_status` runs on every Devices refresh. Without memoization that
+    /// is a full re-walk — PATH included, launch directory included — every
+    /// few seconds on a machine with no adb installed, which keeps macOS
+    /// re-asking for removable-volume access (GitHub #89).
     #[test]
     fn repeated_discovery_resolves_once_until_explicitly_forgotten() {
         use std::sync::atomic::{AtomicUsize, Ordering};

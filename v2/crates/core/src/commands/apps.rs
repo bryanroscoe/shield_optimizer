@@ -17,7 +17,7 @@ use crate::adb::{
     AppStorage, AppUsage,
 };
 use crate::engine::{
-    classify_safety, classify_with_catalog, is_last_enabled_home_handler, is_valid_package_name,
+    classify_safety, classify_with_sources, is_last_enabled_home_handler, is_valid_package_name,
     CatalogVerdict, Safety,
 };
 use crate::license::Feature;
@@ -50,14 +50,19 @@ pub fn safety_info(state: State<'_, AppState>, package: String) -> Safety {
 /// Classify a package against the rule tables *and* the reviewed app lists.
 ///
 /// The catalog is a reviewed source and has to be consulted here: without it,
-/// every curated app that was not also in one of the two rule tables reported
-/// "role and effects unknown" while its own description sat in the next column.
+/// every curated app that is not also in one of the two rule tables would
+/// report "role and effects unknown" while its own description sits in the
+/// next column.
 pub fn safety_for(state: &AppState, package: &str) -> Safety {
     let catalog = state.app_lists.find(package).map(|entry| CatalogVerdict {
         risk: entry.risk,
         description: entry.optimize_description.as_str(),
     });
-    classify_with_catalog(package, catalog)
+    let custom_launcher = super::loader::launchers()
+        .custom
+        .iter()
+        .any(|entry| entry.package == package);
+    classify_with_sources(package, catalog, custom_launcher)
 }
 
 /// `process_safety_info` — classify a *process* name from a memory report.
@@ -439,13 +444,12 @@ pub(crate) async fn disable_package_impl(
             message: format!("Refusing to disable {package}: {reason}"),
         });
     }
-    // The launcher screen has always refused to disable the last enabled HOME
-    // handler, but this is the path the app list and the optimize wizard use,
-    // so the same action was unguarded depending on where it was started from.
-    // A third-party launcher is Unknown to the safety rules, so nothing else
-    // stops it. Best-effort: if the handler query fails we proceed as before
-    // rather than blocking every disable on a transient read.
-    if let Some(refusal) = refuse_last_home_handler(state, serial, package).await {
+    // The launcher screen refuses to disable the last enabled HOME handler,
+    // and this is the path the app list and the optimize wizard use, so the
+    // same guard applies here. A third-party launcher is only Caution to the
+    // safety rules, so nothing else stops it. Best-effort: if the handler query fails
+    // the disable proceeds rather than blocking on a transient read.
+    if let Some(refusal) = refuse_last_home_handler(state, serial, package, "disable").await {
         return Ok(refusal);
     }
     state.require_pro(Feature::CuratedDebloat)?;
@@ -548,6 +552,7 @@ async fn refuse_last_home_handler(
     state: &AppState,
     serial: &str,
     package: &str,
+    verb: &str,
 ) -> Option<ActionResult> {
     let adb = state.adb_snapshot().await;
     let handlers = adb
@@ -559,7 +564,7 @@ async fn refuse_last_home_handler(
         ActionResult {
             ok: false,
             message: format!(
-                "Refusing to disable {package}: it's the only enabled launcher left on this \
+                "Refusing to {verb} {package}: it's the only enabled launcher left on this \
              device. Enable another launcher first."
             ),
         }
@@ -835,17 +840,30 @@ pub async fn uninstall_package(
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
-    if let Some(rejection) = reject_invalid_package(&package) {
+    uninstall_package_impl(state.inner(), &serial, &package).await
+}
+
+pub(crate) async fn uninstall_package_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(package) {
         return Ok(rejection);
     }
-    if let Safety::NeverDisable { reason, .. } = classify_safety(&package) {
+    if let Safety::NeverDisable { reason, .. } = classify_safety(package) {
         return Ok(ActionResult {
             ok: false,
             message: format!("Refusing to uninstall {package}: {reason}"),
         });
     }
+    // Uninstalling the only enabled launcher strands the TV without a Home
+    // screen exactly as disabling it does.
+    if let Some(refusal) = refuse_last_home_handler(state, serial, package, "uninstall").await {
+        return Ok(refusal);
+    }
     state.require_pro(Feature::CuratedDebloat)?;
-    let mut result = run(&state, &serial, &format!("pm uninstall --user 0 {package}")).await?;
+    let mut result = run(state, serial, &format!("pm uninstall --user 0 {package}")).await?;
     if !result.ok {
         if let Some(hint) = decode_uninstall_error(&result.message) {
             result.message = format!("{}\n→ {hint}", result.message.trim());
@@ -930,10 +948,9 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 mod tests {
     use super::*;
 
-    /// The bug was in the *wiring*, not the engine: `safety_info` never
-    /// consulted the app lists. An engine-level test passes happily while that
-    /// is broken, so this one goes through the real command path with the real
-    /// shipped catalog in state.
+    /// The catalog lookup is wiring, not engine: an engine-level test passes
+    /// even if `safety_info` ignores the app lists, so this one goes through
+    /// the real command path with the real shipped catalog in state.
     #[test]
     fn safety_info_consults_the_shipped_catalog() {
         let state = AppState::new(
@@ -1057,6 +1074,69 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn uninstalling_the_only_launcher_is_refused_too() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let mock = MockAdb::default().on_shell(
+            "category.HOME",
+            &home_handlers(&["com.spocky.projengmenu", "com.android.tv.settings"]),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let result = uninstall_package_impl(&state, "serial", "com.spocky.projengmenu")
+            .await
+            .unwrap();
+
+        assert!(!result.ok, "{}", result.message);
+        assert!(result.message.contains("Refusing to uninstall"));
+        let issued = log.lock().unwrap().clone();
+        assert!(
+            !issued.iter().any(|c| c.contains("pm uninstall")),
+            "the uninstall must not reach the device: {issued:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn uninstalling_a_launcher_is_allowed_while_another_remains() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let state = state_with(MockAdb::default().on_shell(
+            "category.HOME",
+            &home_handlers(&[
+                "com.spocky.projengmenu",
+                "com.google.android.tvlauncher",
+                "com.android.tv.settings",
+            ]),
+        ));
+
+        let result = uninstall_package_impl(&state, "serial", "com.spocky.projengmenu")
+            .await
+            .unwrap();
+
+        assert!(result.ok, "{}", result.message);
+    }
+
+    #[test]
+    fn every_custom_launcher_is_named_as_a_launcher_not_unknown() {
+        let state = crate::commands::test_support::state_with(
+            crate::commands::test_support::MockAdb::default(),
+        );
+        for entry in &crate::commands::loader::launchers().custom {
+            match safety_for(&state, &entry.package) {
+                Safety::Caution { source, reason } => {
+                    assert_eq!(
+                        source,
+                        crate::engine::SafetySource::LauncherList,
+                        "{}",
+                        entry.package
+                    );
+                    assert!(reason.contains("Home screen"), "{reason}");
+                }
+                other => panic!("{} should be a launcher, got {other:?}", entry.package),
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn disabling_a_launcher_is_allowed_while_another_remains() {
         use crate::commands::test_support::{state_with, MockAdb};
         let state = state_with(MockAdb::default().on_shell(
@@ -1144,8 +1224,8 @@ mod tests {
     #[tokio::test]
     async fn play_installed_vendor_packages_read_as_third_party() {
         use crate::commands::test_support::{state_with, MockAdb};
-        // Amazon Music from the Play Store sits in `-3`; its prefix no longer
-        // overrides that. A preinstalled Google app outside `-3` stays system.
+        // Amazon Music from the Play Store sits in `-3`; its prefix doesn't
+        // override that. A preinstalled Google app outside `-3` stays system.
         let all = "package:com.amazon.music.tv\npackage:com.google.android.youtube.tv";
         let third = "package:com.amazon.music.tv";
         let state =

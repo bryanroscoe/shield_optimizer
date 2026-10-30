@@ -1,11 +1,11 @@
 //! Persistent scrcpy control-socket session for low-latency remote input.
 //!
-//! Today each remote key press shells out `adb shell "input keyevent N"`, which
-//! cold-starts a JVM on the TV (~690 ms per press). This module replaces the
-//! transport with scrcpy's control-only server: push the jar once, run it
-//! resident via `app_process`, and stream fixed binary control messages over a
-//! persistent socket — dropping per-press cost to network RTT. Desktop reaches
-//! that socket through `adb forward`; Android opens the device service directly.
+//! `adb shell "input keyevent N"` cold-starts a JVM on the TV for every press
+//! (~690 ms). This module uses scrcpy's control-only server instead: push the
+//! jar once, run it resident via `app_process`, and stream fixed binary control
+//! messages over a persistent socket — dropping per-press cost to network RTT.
+//! Desktop reaches that socket through `adb forward`; Android opens the device
+//! service directly.
 //!
 //! Layering note: every adb invocation goes through the `AdbDriver` trait, per
 //! the one-wrapper rule. Desktop's raw `TcpStream` to its adb-forwarded local
@@ -714,7 +714,6 @@ mod tests {
     // Honest error-path coverage: with a driver that can't spawn a child
     // (MockAdb uses the trait's default `spawn`, which returns unsupported),
     // start() must surface the spawn failure rather than hang or fake success.
-    // The live socket path is left for the lead's on-device check.
     #[tokio::test]
     async fn start_fails_when_driver_cannot_spawn() {
         use crate::commands::test_support::MockAdb;
@@ -731,11 +730,12 @@ mod tests {
         }
     }
 
-    // Live end-to-end test against a real device — ignored in CI, run by hand:
-    //   SHIELD_TEST_SERIAL=192.168.x.x:5555 cargo test remote_input_live -- --ignored --nocapture
-    // Starts a real session, injects SLEEP (223) and verifies via `dumpsys
-    // power` that the device went to sleep, then WAKEUP (224) and verifies it
-    // woke, then tears down and checks no server process is left behind.
+    // Live end-to-end test against a real device. Compiled out with
+    // `cfg(any())`: it builds a `SubprocessAdb`, which lives in the desktop
+    // crate, not this one. Starts a real session, injects SLEEP (223) and
+    // verifies via `dumpsys power` that the device went to sleep, then WAKEUP
+    // (224) and verifies it woke, then tears down and checks no server process
+    // is left behind.
     #[cfg(any())]
     #[tokio::test]
     #[ignore]

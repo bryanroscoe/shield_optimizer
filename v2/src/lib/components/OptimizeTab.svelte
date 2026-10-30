@@ -58,7 +58,7 @@
   let optimizePlanErr = $state<string | null>(null);
   /// Per-package action override. A package absent from the map follows the
   /// safety-gated default; a present value is the user's explicit pick
-  /// from the per-row dropdown (including "skip"). The execute loop dispatches
+  /// from the per-row action pills (including "skip"). The execute loop dispatches
   /// on effectiveAction(), so disable/uninstall/enable/skip all just work.
   type RowAction = "disable" | "uninstall" | "enable" | "skip";
   let optimizeOverrides = $state<Record<string, RowAction>>({});
@@ -78,8 +78,7 @@
   let safetyByPackage = $state<Record<string, SafetyStatus>>({});
   /// Package whose safety detail is expanded, or null. The wizard's own copy
   /// tells you to review safety before choosing, so the reason has to be
-  /// reachable here — without this the verdict rendered a caret that did
-  /// nothing and the reason was unreachable anywhere in the tab.
+  /// reachable here.
   let expandedSafety = $state<string | null>(null);
 
   let componentEpoch = 0;
@@ -159,11 +158,9 @@
       if (!contextIsCurrent(context) || request !== loadRequest) return;
       optimizePlan = plan;
       // Every package the device actually has, not just the ones the plan
-      // proposes to remove. Filtering to disable/uninstall rows meant a
-      // catalog package that is ALREADY disabled — com.android.providers.tv,
-      // which is on the Caution list — was never queried, and the absent entry
-      // was then coerced to "unavailable" at the row. The most cautionary rows
-      // in the plan were the ones reading "SAFETY UNAVAILABLE".
+      // proposes to remove. A catalog package that is already disabled (such
+      // as com.android.providers.tv, on the Caution list) still needs its
+      // verdict; a package left out here reads "unavailable" at the row.
       const packages = plan.items
         .filter((item) => rowState(item) !== "missing")
         .map((item) => item.entry.package);
@@ -171,10 +168,9 @@
       const results = await Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg)));
       // Deliberately not comparing `optimizePlan` to `plan`: `optimizePlan` is
       // $state, so assigning an object stores a deep proxy and the identity
-      // check is always true. That bailed out here on every load and left every
-      // row on "Checking safety" — which forces Skip, so the wizard reported
-      // "0 items will be acted on" and Run Optimize did nothing at all. The
-      // request token already proves this load is the current one.
+      // check never matches. Bailing out on it would leave every row on
+      // "Checking safety", which forces Skip. The request token already
+      // proves this load is the current one.
       if (!contextIsCurrent(context) || request !== loadRequest) return;
       safetyByPackage = Object.fromEntries(packages.map((pkg, index) => {
         const result = results[index];
@@ -194,7 +190,7 @@
   /// The natural action the engine computed for an actionable row (disable /
   /// uninstall in optimize mode, enable in restore mode), or null for rows the
   /// backend marked skip (not installed / already in target state) — those
-  /// aren't actionable and get no dropdown.
+  /// aren't actionable and get no action pills.
   function naturalAction(item: OptimizePlanItem): RowAction | null {
     if (item.action.kind === "skip") return null;
     // The engine already applies `safe_method`; this repeats it so a plan
@@ -203,7 +199,7 @@
     return item.action.kind;
   }
 
-  /// What the dropdown defaults to. This mirrors v1's per-app defaults: only
+  /// The action a row is armed with by default. This mirrors v1's per-app defaults: only
   /// apps flagged default_optimize / default_restore are pre-selected for
   /// action; everything else defaults to Skip so the wizard never removes a
   /// streaming app (or anything not on the curated default list) unless the
@@ -223,7 +219,7 @@
     return item.entry.default_restore ? natural : "skip";
   }
 
-  /// The action that will actually run: the user's dropdown pick if they made
+  /// The action that will actually run: the user's pick if they made
   /// one, otherwise the per-app default (or skip for non-actionable rows).
   function effectiveAction(item: OptimizePlanItem): RowAction {
     const action = optimizeOverrides[item.entry.package] ?? defaultAction(item) ?? "skip";
@@ -234,11 +230,11 @@
     return action;
   }
 
-  /// Dropdown choices for a row, in mode-appropriate order. Restore only ever
-  /// produces enable rows, so its menu is Enable / Skip; optimize rows can be
-  /// downgraded (uninstall→disable) or upgraded (disable→uninstall).
-  /// Keep first, then the actions that change the device — reading left to
-  /// right is then "do nothing, do a little, do the irreversible one".
+  /// Action choices for a row, in mode-appropriate order. Restore only ever
+  /// produces enable rows, so its choices are Keep / Enable; optimize rows can
+  /// be downgraded (uninstall→disable) or upgraded (disable→uninstall).
+  /// Keep first, then the actions that change the device — read in order,
+  /// that is "do nothing, do a little, do the irreversible one".
   function actionOptions(item: OptimizePlanItem): RowAction[] {
     if (naturalAction(item) === "enable") return ["skip", "enable"];
     const safety = safetyByPackage[item.entry.package];
@@ -531,11 +527,10 @@
   <div class="card-header">
     <h2><Icon name="auto_fix_high" size={20} /> Optimize / Restore Wizard</h2>
     <div class="header-actions">
-      <!-- A mode switch, not an action pair. It was two buttons with the lime
-           fill marking the current mode, but lime means "press this" — using
-           it for state makes the app's one action colour ambiguous. A
-           segmented control shows which mode you are in without borrowing
-           the action colour, and matches the two-choice settings in Tweaks. -->
+      <!-- A mode switch, not an action pair. Lime means "press this", so it
+           never marks the current mode. A segmented control shows which mode
+           you are in without borrowing the action colour, and matches the
+           two-choice settings in Tweaks. -->
       <span class="mode-label" id="plan-mode-label">Mode</span>
       <div class="mode-box" role="group" aria-labelledby="plan-mode-label">
         <button
@@ -584,10 +579,8 @@
     {@const totalRunning = optimizePlan.items
       .filter((i) => naturalAction(i) !== null)
       .reduce((acc, i) => acc + (i.memory_mb ?? 0), 0)}
-    <!-- Two steps, numbered. The wizard had a Run button at the foot and a
-         table in between, and nothing on screen said the table came first —
-         so "Plan · 3 of 16 selected" was the only cue that there was anything
-         to do before pressing the green button. -->
+    <!-- Two steps, numbered, so the screen says the table comes before the
+         Run button at its foot. -->
     <ol class="plan-steps">
       <li class="plan-step">
         <span class="step-num mono" aria-hidden="true">1</span>
@@ -651,9 +644,8 @@
     {/if}
     {#if optimizeRunning}
       {@const done = Object.values(optimizeProgress).filter((v) => v !== "pending").length}
-      <!-- The board's running panel. The package id used to live inside the
-           button's label, which reflowed the button on every step and put the
-           Abort control somewhere new each time. -->
+      <!-- The current package lives in this panel, not in a button label, so
+           nothing reflows per step and Cancel stays in one place. -->
       <div class="run-card" role="status" aria-live="polite">
         <div class="run-count"><strong>{done}</strong> of {actionable} applied</div>
         <div class="run-bar"><span style={`width:${actionable ? (done / actionable) * 100 : 0}%`}></span></div>
@@ -667,9 +659,8 @@
       </div>
     {/if}
 
-    <!-- The board promises "a snapshot is written before the first change".
-         This app writes none, so the callout says what is actually true and
-         points at the tab that does it. -->
+    <!-- A run writes no snapshot first, so the callout says so rather than
+         implying one exists. -->
     <div class="callout callout-warn optimize-note">
       <Icon name="warning" size={16} />
       <span>
@@ -744,9 +735,8 @@
               {:else}
                 {@const opts = actionOptions(item)}
                 {#if opts.length === 1}
-                  <!-- One option is not a choice. A lone greyed-out "Keep" pill
-                       looked like a control that had failed; the sentence says
-                       which of protected / unchecked / still-checking it is. -->
+                  <!-- One option is not a choice, so instead of a lone greyed-out
+                       "Keep" pill the sentence says why the row has no choice. -->
                   <span class="terminal-reason">{singleOptionReason(item)}</span>
                 {:else}
                   <!-- One pill per option with a radio mark, so the armed state
@@ -810,8 +800,8 @@
       </tbody>
     </table>
 
-    <!-- The action sits after the list it acts on. Above it, Run was reachable
-         before you had read a single row of the plan you were running. -->
+    <!-- The action sits after the list it acts on, so Run is not reachable
+         before the plan has been read. -->
     <div class="apply-row apply-foot">
       <!-- A disabled button never gets :hover, so the reason it is disabled has
            to hang off something that does. -->
@@ -928,11 +918,6 @@
     white-space: nowrap;
   }
 
-  /* Optimize-specific styles. */
-  /* The running total of what this run will do — accent-tinted so it reads as
-     the consequence of the button beneath it rather than another grey note. */
-  /* Recessed trough, filled active segment — the same idiom as a two-choice
-     setting in Tweaks. */
   /* A pill track with a raised thumb, so it reads as a two-way switch rather
      than as two buttons that happen to sit together. */
   .mode-box {
@@ -958,10 +943,9 @@
     color: var(--fg-primary);
   }
   /* A segmented control with both halves in surface grey reads as chrome, not
-     as a choice you have made. The armed half now carries a visible edge and a
+     as a choice you have made. The armed half carries a visible edge and a
      shadow so it looks pressed, and the label beside it says what is being
-     chosen — without this, "Optimize | Restore" looked like a toggle switch
-     someone else had already set. */
+     chosen. */
   .mode-btn.active {
     background: var(--bg-surface);
     border-color: var(--accent);
@@ -1112,7 +1096,7 @@
     margin-top: 0.2rem;
     color: var(--warn);
   }
-  /* Width-capped to the dropdown's footprint so the text centers under the
+  /* Width-capped to the action pills' footprint so the text centers under the
      control rather than the (wider) table cell. */
   .review-hint {
     margin-top: 0.2rem;
@@ -1194,8 +1178,8 @@
     white-space: nowrap;
   }
   /* Terminal rows (not installed / already in target state) can't be acted on —
-     a neutral pill, distinct from the italic "Skip (recommended)" dropdown so
-     "nothing to do here" doesn't read like "you chose to skip this". */
+     a neutral pill, distinct from an armed Keep pill so "nothing to do here"
+     doesn't read like "you chose to skip this". */
   .terminal-reason {
     display: inline-block;
     font-size: 0.74rem;

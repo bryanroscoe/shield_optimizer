@@ -1333,6 +1333,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "e2e-server"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "shield-optimizer-core",
+ "shield-optimizer-v2",
+ "tauri",
+ "tokio",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4393,7 +4405,7 @@ dependencies = [
 
 [[package]]
 name = "shield-optimizer-core"
-version = "2.3.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4414,7 +4426,7 @@ dependencies = [
 
 [[package]]
 name = "shield-optimizer-v2"
-version = "2.3.0"
+version = "2.4.1"
 dependencies = [
  "anyhow",
  "async-trait",

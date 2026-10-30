@@ -2,9 +2,9 @@
   import type { Screen } from "../lib/router.svelte";
   import { session } from "../lib/session.svelte";
 
-  // Tabs map directly to router screens. The Home tab routes to "dashboard"
-  // (the old id was "home", which the router had no screen for — a blank
-  // screen bug). `active` is the current screen so highlighting is correct.
+  // Tabs map directly to router screens. The Home tab routes to "dashboard";
+  // the router has no "home" screen. `active` is the current screen so
+  // highlighting is correct.
   let { active, navigate }: { active: Screen; navigate: (tab: Screen) => void } =
     $props();
 

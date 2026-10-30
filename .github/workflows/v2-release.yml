@@ -11,8 +11,8 @@
 #
 # Signing: intentionally unsigned. Users will see the macOS "unidentified
 # developer" Gatekeeper prompt and the Windows SmartScreen warning on first
-# launch — both are dismissible. See README's release section for the
-# documented workaround. When we're ready to add signing:
+# launch — both are dismissible. The README's "First launch" section
+# documents the workaround. When we're ready to add signing:
 #   - SIGNING(macOS): set APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
 #     APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID as
 #     repo secrets and tauri-action picks them up automatically.
@@ -40,8 +40,7 @@ jobs:
   # every per-OS bundler job. Two sources:
   #   1. If v2/CHANGELOG.md contains a section for this tag, use it verbatim.
   #      Format: a `## v2-X.Y.Z` heading followed by Markdown until the next
-  #      `## ` heading. This is the rich, human-written path — mirrors how
-  #      v1 wrote its release bodies.
+  #      `## ` heading. This is the rich, human-written path.
   #   2. Otherwise auto-generate from `git log <prev-v2-tag>..<this-tag>`.
   notes:
     name: Build release notes
@@ -209,8 +208,7 @@ jobs:
       # The AppImage bundles Ubuntu 22.04's libwayland-*, which shadows the
       # host's copy and breaks EGL display creation on newer Wayland stacks
       # ("Could not create default EGL display: EGL_BAD_PARAMETER" on
-      # CachyOS/Arch + KDE — issue #60; the reporter's LD_PRELOAD of the
-      # system libwayland-client confirmed the diagnosis). Upstream
+      # CachyOS/Arch + KDE — issue #60). Upstream
       # linuxdeploy excludes libwayland for exactly this reason; Tauri's
       # bundler doesn't yet, so strip it here, repack, and replace the asset
       # tauri-action already uploaded.
@@ -332,13 +330,12 @@ jobs:
             echo "Tap updated to $version."
           fi
 
-  # Merge the per-OS latest.json files that tauri-action uploaded and commit the
-  # result to v2/updater/latest.json on the default branch. The Tauri updater
-  # plugin reads this file to decide whether an update is available. Each matrix
-  # leg uploads its own latest.json (last writer wins on the release asset), so
-  # we download the release asset, which already contains the merged platforms
-  # from tauri-action's built-in asset-update logic. We then commit it to the
-  # repo so the raw.githubusercontent endpoint in tauri.conf.json resolves.
+  # Commit the release's latest.json to v2/updater/latest.json on the default
+  # branch. The Tauri updater plugin reads this file to decide whether an
+  # update is available. Each matrix leg's tauri-action run merges its platform
+  # into the single latest.json release asset, so the asset already lists every
+  # platform. Committing it makes the raw.githubusercontent endpoint in
+  # tauri.conf.json resolve.
   merge-updater:
     needs: [notes, build]
     name: Publish updater manifest
@@ -387,8 +384,7 @@ jobs:
             git commit -m "Update updater manifest for ${TAG}"
             # `merge-updater` and `refresh-screenshots` both commit to the
             # default branch and can finish at the same time, so the loser of
-            # the race gets a non-fast-forward rejection. That is what failed
-            # the v2-2.1.0 gallery job. Rebase and retry instead.
+            # the race gets a non-fast-forward rejection. Rebase and retry instead.
             branch="${{ github.event.repository.default_branch }}"
             for attempt in 1 2 3 4 5; do
               if git push origin "HEAD:$branch"; then break; fi
@@ -404,10 +400,10 @@ jobs:
   # Runs after the build succeeds (no point refreshing for a release that
   # failed to bundle). Uses the demo fixture layer (VITE_DEMO=1) — no device.
   #
-  # NOTE: captures render on Linux, so the font stack falls through to Roboto
-  # (installed below) rather than macOS's -apple-system. The GIF will look
-  # slightly different from one regenerated locally on a Mac; that's expected
-  # and accepted as the price of hands-off release-time refresh.
+  # NOTE: captures render on Linux, so the GIF can look slightly different
+  # from one regenerated locally on a Mac; that's expected and accepted as the
+  # price of hands-off release-time refresh. The UI fonts are bundled
+  # (v2/src/fonts/), so the typeface itself matches.
   refresh-screenshots:
     needs: [notes, build]
     name: Regenerate gallery GIF
@@ -444,8 +440,6 @@ jobs:
         working-directory: v2
         run: npm run screenshots
 
-      # The phone app lives on the default branch only once it has merged;
-      # until then there is nothing to capture.
       - name: Regenerate phone gallery
         working-directory: v2
         run: |
@@ -476,8 +470,7 @@ jobs:
           git commit -m "Regenerate gallery GIFs for ${TAG}"
           # `merge-updater` and `refresh-screenshots` both commit to the
           # default branch and can finish at the same time, so the loser of
-          # the race gets a non-fast-forward rejection. That is what failed
-          # the v2-2.1.0 gallery job. Rebase and retry instead.
+          # the race gets a non-fast-forward rejection. Rebase and retry instead.
           branch="${{ github.event.repository.default_branch }}"
           for attempt in 1 2 3 4 5; do
             if git push origin "HEAD:$branch"; then break; fi

@@ -1,12 +1,11 @@
 // The after-update pop-up must open once per version increase and never on a
 // relaunch at the same version.
 //
-// Regression: through v2-2.3.0 the app read the running release's notes from
-// the GitHub API and wrote the running version as "seen" on every launch,
-// before it knew whether it had anything to show. The owner's first launch of
-// 2.3.0 got no notes back from that call, the pop-up stayed shut, and
-// `shieldopt.lastSeenVersion` was already "2.3.0" — so it never showed. These
-// tests drive the pure rule and the bundled CHANGELOG.md it now reads.
+// A version is recorded as seen only once its notes have actually been shown,
+// never merely because a launch happened, and the notes come from the bundled
+// CHANGELOG.md rather than a network call that can fail. `legacy` in the fake
+// store is `shieldopt.lastSeenVersion`, the per-launch key builds through
+// v2-2.3.0 wrote. These tests drive the pure rule and the bundled changelog.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
@@ -96,9 +95,8 @@ function launcher(store) {
   assert.equal(launch("2.3.0"), false, "or the one after");
 }
 
-// The owner's exact path: 2.2.0 had written the old key, and the first 2.3.0
-// launch saw no notes from GitHub. The old code then wrote "2.3.0" and the
-// pop-up was gone. The bundled notes don't depend on that call.
+// Upgrading from a build that wrote only the per-launch key: the bundled notes
+// show once, with no network call involved.
 {
   const store = { legacy: "2.2.0" };
   const launch = launcher(store);
@@ -106,8 +104,8 @@ function launcher(store) {
   assert.equal(launch("2.3.0"), false, "once");
 }
 
-// Already burned by the bug: the old key reads "2.3.0" but nothing was shown.
-// Migrating shows the 2.3.0 notes on the next launch, once.
+// The per-launch key already reads "2.3.0" but no notes were recorded as
+// shown: the 2.3.0 notes show on the next launch, once.
 {
   const store = { legacy: "2.3.0" };
   const launch = launcher(store);

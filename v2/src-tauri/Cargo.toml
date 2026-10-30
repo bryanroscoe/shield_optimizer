@@ -1,6 +1,6 @@
 [package]
 name = "shield-optimizer-v2"
-version = "2.3.0"
+version = "2.4.1"
 description = "Shield Optimizer v2 — Tauri/Rust rewrite of the Android TV debloater"
 authors = ["Bryan Roscoe"]
 edition = "2021"
@@ -14,14 +14,9 @@ name = "shield_optimizer_v2_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-# Dev-only: the E2E server (src/bin/e2e_server.rs) runs the real command
-# layer against the simulated adb. Never enabled in a release build.
+# Dev-only: the E2E server (crates/e2e-server) runs the real command layer
+# against the simulated adb. Never enabled in a release build.
 e2e = ["shield-optimizer-core/test-support", "tauri/test"]
-
-[[bin]]
-name = "e2e_server"
-path = "src/bin/e2e_server.rs"
-required-features = ["e2e"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
