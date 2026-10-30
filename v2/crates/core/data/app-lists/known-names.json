@@ -313,5 +313,25 @@
   "com.nvidia.shield.smbserver": {
     "name": "SMB Server",
     "description": "Shares SHIELD storage on your network as a Windows (SMB) share."
+  },
+  "by4a.setedit22": {
+    "name": "SetEdit SettingsDatabaseEditor",
+    "description": "An editor for Android settings database entries."
+  },
+  "com.cxinventor.file.explorer": {
+    "name": "Cx File Explorer",
+    "description": "A file manager for local, network and cloud storage."
+  },
+  "com.klevico.monet": {
+    "name": "Monet Launcher - Android TV",
+    "description": "A customizable Android TV Home screen with Material You colors, wallpapers and widgets."
+  },
+  "com.neilturner.aerialviews": {
+    "name": "Aerial Views screensaver",
+    "description": "A video and photo screensaver for Android TV."
+  },
+  "com.surfshark.vpnclient.android": {
+    "name": "Surfshark",
+    "description": "A VPN client for connecting through Surfshark servers."
   }
 }

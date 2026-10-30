@@ -1,0 +1,44 @@
+[
+  {
+    "package": "com.wbd.stream",
+    "name": "HBO Max",
+    "old_name": "Max (HBO)",
+    "issue": 256,
+    "source_url": "https://play.google.com/store/apps/details?id=com.wbd.stream",
+    "verified_at": "2026-10-29",
+    "preserved_fields": {
+      "package": "com.wbd.stream",
+      "method": "uninstall",
+      "risk": "safe",
+      "default_optimize": false,
+      "default_restore": false,
+      "play_store": true,
+      "review": true,
+      "reviewed_at": "2026-09-19",
+      "sources": [
+        "git history (115ded0)"
+      ]
+    }
+  },
+  {
+    "package": "air.com.vudu.air.DownloaderTablet",
+    "name": "Fandango: Movies & Series",
+    "old_name": "Vudu",
+    "issue": 255,
+    "source_url": "https://play.google.com/store/apps/details?id=air.com.vudu.air.DownloaderTablet",
+    "verified_at": "2026-10-29",
+    "preserved_fields": {
+      "package": "air.com.vudu.air.DownloaderTablet",
+      "method": "uninstall",
+      "risk": "safe",
+      "default_optimize": false,
+      "default_restore": false,
+      "play_store": true,
+      "review": true,
+      "reviewed_at": "2026-09-19",
+      "sources": [
+        "git history (115ded0)"
+      ]
+    }
+  }
+]
