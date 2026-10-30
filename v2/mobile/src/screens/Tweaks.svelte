@@ -658,10 +658,13 @@
     </div>
   </div>
 
-  <p class="intro">
-    Settings Android hides or buries, read straight from the TV. Reset puts a setting back to the
-    TV's default.
-  </p>
+  <details class="help-disclosure">
+    <summary>About these settings</summary>
+    <p class="intro">
+      Settings Android hides or buries, read straight from the TV. Reset puts a setting back to the
+      TV's default.
+    </p>
+  </details>
 
   {#if !session.isPro}
     <div class="pro-banner">
@@ -698,12 +701,16 @@
                 </span>
               </div>
             </div>
-            <p class="t-note">
-              Turns the Xbox controller's Guide button into Home. Turning the hooks off can fix
-              Guide button conflicts in Steam Link and Moonlight. This doesn't change the Shield
-              remote's Netflix button, which is handled in firmware; use a button remapper app for
-              that. Turning the hooks back on is always free.
-            </p>
+            <p class="t-note">Controls whether the Xbox Guide button acts as Home.</p>
+            <details class="help-disclosure">
+              <summary>About System Hooks</summary>
+              <p class="t-note">
+                Turning the hooks off can fix
+                Guide button conflicts in Steam Link and Moonlight. This doesn't change the Shield
+                remote's Netflix button, which is handled in firmware; use a button remapper app for
+                that. Turning the hooks back on is always free.
+              </p>
+            </details>
             {#if hooksError}
               {@render readError(hooksError)}
             {:else}
@@ -745,9 +752,7 @@
               </div>
             </div>
             <p class="t-note">
-              Off removes the microphone permission from Google's search app, so the remote's
-              Assistant button can't hear you. The button may still open the assistant for a
-              moment. Trade-off: voice search in the Play Store stops working too.
+              Off revokes Google's microphone permission. Voice search in the Play Store also stops working; the Assistant may still open briefly.
             </p>
             {#if assistantError}
               {@render readError(assistantError)}
@@ -796,10 +801,11 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <p class="t-note">
-              How long you hold OK before it counts as a long press. Shorter reacts sooner but
-              makes accidental long presses more likely.
-            </p>
+            <details class="help-disclosure">
+              <summary>About long presses</summary>
+              <p class="t-note">How long you hold OK before it counts as a long press.</p>
+            </details>
+            <p class="t-note">Shorter reacts sooner but makes accidental long presses more likely.</p>
             <div class="segmented">
               {#each longPressPresets as ms (ms)}
                 <button
@@ -877,10 +883,13 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <p class="t-note">
-              Lets apps switch the TV's refresh rate to match the video, such as 24 Hz for films.
-              Seamless only switches without a black screen. The app and TV both have to support it.
-            </p>
+            <details class="help-disclosure">
+              <summary>About frame-rate matching</summary>
+              <p class="t-note">
+                Lets apps switch the TV's refresh rate to match the video, such as 24 Hz for films.
+                Seamless only switches without a black screen. The app and TV both have to support it.
+              </p>
+            </details>
             <div class="segmented">
               {#each framePresets as p (p.value)}
                 <button
@@ -912,8 +921,7 @@
               </button>
             </div>
             <p class="t-note">
-              Auto uses what the connected equipment advertises. Manual overrides can cause silence
-              on unsupported equipment. Receiver and app support determine actual playback.
+              Manual overrides can cause silence on unsupported equipment. Actual playback depends on receiver and app support.
             </p>
             <div class="segmented">
               {#each surroundModes as mode (mode.value)}
@@ -977,10 +985,13 @@
                 <span class="t-desc">Current: <span class="state wrap">{screensaverLabel(ssComponent, ssEnabled)}</span></span>
               </div>
             </div>
-            <p class="t-note">
-              Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is the plain one
-              built into Android.
-            </p>
+            <details class="help-disclosure">
+              <summary>About screensavers</summary>
+              <p class="t-note">
+                Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is the plain one
+                built into Android.
+              </p>
+            </details>
             <div class="segmented">
               <button
                 class="seg"
@@ -1046,7 +1057,10 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <p class="t-note">Sets Android's three animation speeds together. 0.5× makes menus feel quicker.</p>
+            <details class="help-disclosure">
+              <summary>About animation speed</summary>
+              <p class="t-note">Sets Android's three animation speeds together. 0.5× makes menus feel quicker.</p>
+            </details>
             <div class="segmented">
               {#each animPresets as p (p.value)}
                 <button
@@ -1115,9 +1129,7 @@
             </div>
           </div>
           <p class="t-note">
-            Encrypts the TV's DNS lookups. Custom sends them to a server you choose, such as AdGuard
-            or NextDNS. If a test lookup through it fails, the TV is switched back to Automatic so it
-            stays online.
+            Custom uses your chosen DNS server. A failed test switches the TV back to Automatic.
           </p>
           <div class="segmented">
             <button class="seg" class:active={dnsMode === "off"} aria-pressed={dnsMode === "off"} class:busy={busy === "dns-off"} disabled={busy !== ""} onclick={() => setDns("off")}>Off</button>

@@ -750,11 +750,11 @@
         {mode === "optimize" ? "Optional apps" : "All curated"}
       </button>
     </div>
-    <p class="tab-hint">
-      {mode === "optimize" && activeTab === "optional"
-        ? "Do you use these apps? Keep anything you use. Nothing changes until you confirm."
-        : "These are curated choices for this TV. Everything else installed on the device lives in the Apps tab."}
-    </p>
+    {#if mode === "optimize" && activeTab === "optional"}
+      <p class="tab-hint">Keep anything you use. Nothing changes until you confirm.</p>
+    {:else}
+      <details class="help-disclosure"><summary>About this plan</summary><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></details>
+    {/if}
     {#if sharedUnknownReason}
       <p class="tab-hint">
         <b>Unknown</b> means no safety rule matched the app — not that removing it

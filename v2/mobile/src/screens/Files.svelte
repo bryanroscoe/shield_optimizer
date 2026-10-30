@@ -311,8 +311,7 @@
     </button>
     {#if showCatalog}
       <p class="catalog-lede">
-        Most apps can export their settings to the TV's storage. Export in the app first, then
-        find the file here and copy it to this phone.
+        Export settings in the TV app first, then find and copy the file here.
       </p>
       {#each appFilesCatalog as entry (entry.id)}
         {@const result = appResults[entry.id]}

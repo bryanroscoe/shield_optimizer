@@ -225,7 +225,7 @@ test("endpoint reuse never restores another TV's screensaver and interrupted wri
   await card.getByRole("button", { name: "Off", exact: true }).click();
   await page.waitForFunction(() => window.tweaks.screensaver_enabled === "0");
   await page.evaluate(async () => { window.tweaks.screensaver_components = "replacement/.Dream"; window.tweaks.screensaver_enabled = "1"; await window.session.connect("A", 5555); });
-  await card.locator("summary").click();
+  await card.getByText("Component details", { exact: true }).click();
   await card.getByText("replacement/.Dream", { exact: true }).first().waitFor();
   assert.equal(await card.getByText("com.google.android.backdrop/.Backdrop", { exact: true }).count(), 0);
   await page.evaluate(() => { window.handlers.write_setting = () => new Promise(resolve => { window.finishWrite = resolve; }); });
@@ -251,7 +251,7 @@ test("verified TV retains originals across a rotated port, replacement hardware 
   await card.getByRole("button", { name: /Restore previous/ }).click();
   await page.waitForFunction(() => window.tweaks.screensaver_components === "com.google.android.backdrop/.Backdrop" && window.tweaks.screensaver_enabled === "1");
   await page.evaluate(async () => { window.hardware = "verified-B"; window.tweaks.screensaver_components = "different/.Dream"; await window.session.connect("A", 4321); });
-  await card.locator("summary").click();
+  await card.getByText("Component details", { exact: true }).click();
   await card.getByText("different/.Dream", { exact: true }).first().waitFor();
   assert.equal(await card.getByText("com.google.android.backdrop/.Backdrop", { exact: true }).count(), 0);
 });
@@ -520,8 +520,8 @@ test("screensaver names preserve raw known, custom, disabled and missing compone
     const card = page.locator('[data-tweak="screensaver"]');
     await card.locator('.state').getByText(fixture.label, { exact: true }).waitFor();
     assert.match(await card.getByRole('button', { name: /Restore previous/ }).innerText(), new RegExp(fixture.label));
-    const summary = card.locator('summary'); await summary.focus(); await page.keyboard.press('Enter');
-    assert.equal(await card.locator('details').getAttribute('open'), '');
+    const summary = card.getByText('Component details', { exact: true }); await summary.focus(); await page.keyboard.press('Enter');
+    assert.equal(await card.locator('details:not(.help-disclosure)').getAttribute('open'), '');
     assert.deepEqual(await card.locator('details p .mono').allTextContents(), [fixture.raw, fixture.raw]);
     assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineStyle), 'solid');
     assert.deepEqual(await writes(page, 'write_setting'), []);
@@ -546,7 +546,7 @@ test("catalog failure stays custom and late old catalog names cannot cross conne
   await page.evaluate(() => finishOldCatalog([{ package: 'vendor.other', name: 'Old connection name' }]));
   await page.waitForTimeout(50);
   assert.equal(await card.locator('.state').innerText(), 'Custom screensaver');
-  await card.locator('summary').click();
+  await card.getByText('Component details', { exact: true }).click();
   assert.deepEqual(await card.locator('details p .mono').allTextContents(), ['vendor.other/.Dream', 'vendor.other/.Dream']);
   assert.deepEqual(await writes(page, 'write_setting'), []);
 });
@@ -555,8 +555,8 @@ if (process.env.SCREENSAVER_LABEL_EVIDENCE === '1') test("capture named and cust
   const dir = 'evidence/screensaver-labels-2026-10-17'; await mkdir(dir, { recursive: true });
   for (const [name, component, enabled] of [['known', VENDOR, '1'], ['custom', 'vendor.example.really_long_component_owner/.ScreensaverWithALongServiceName', '1'], ['off', VENDOR, '0'], ['missing', null, null]]) {
     const page = await open(t, 'tweaks', { screensaver: component, screensaverEnabled: enabled });
-    const card = page.locator('[data-tweak="screensaver"]'); await card.locator('summary').waitFor();
-    await page.setViewportSize({ width: 320, height: 812 }); await card.locator('summary').click();
+    const card = page.locator('[data-tweak="screensaver"]'); await card.getByText('Component details', { exact: true }).waitFor();
+    await page.setViewportSize({ width: 320, height: 812 }); await card.getByText('Component details', { exact: true }).click();
     assert.equal(await card.evaluate(el => el.scrollWidth <= el.clientWidth), true);
     await card.screenshot({ path: `${dir}/${name}-320-simulated.png` });
     await page.close();
