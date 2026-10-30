@@ -391,6 +391,7 @@ async function exercisePairingFlow({ browser, base }) {
   // connect box.
   {
     const page = await freshPage(browser, base);
+    await page.locator(".help-details > summary").filter({ hasText: "Connection help" }).click();
     await page.locator(".devices-note").getByRole("button", { name: "Pair PIN" }).click();
     await page.locator(".pair-form").waitFor();
     assert.equal(await page.getByPlaceholder("IP:pair_port — e.g. 192.168.42.71:43219")

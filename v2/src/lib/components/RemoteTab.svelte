@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onDestroy } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
@@ -204,10 +205,12 @@
       <div class="typing-header">
         <h3>Live typing</h3>
       </div>
-      <p class="muted small">
-        Click the box and type; keystrokes go to whatever has focus on the TV.
-        ⌘V / Ctrl+V pastes.
-      </p>
+      <p class="muted small">Sends typing to the focused TV app.</p>
+      <HelpDetails label="Typing help">
+        <p class="muted small">
+          Click the box and type. ⌘V / Ctrl+V pastes.
+        </p>
+      </HelpDetails>
       <div
         class="type-capture"
         class:focused={remoteCaptureFocused}
