@@ -873,7 +873,10 @@
     />
   </div>
 
-  <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions.</p>
+  <details class="help-disclosure">
+    <summary>Using the app list</summary>
+    <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; Everything else does not. All removals use the same safety checks.</p>
+  </details>
 
   <div class="filters-row">
     <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>
@@ -946,9 +949,6 @@
             {#if app.name}
               <span class="mono app-pkg-text">{app.package}</span>
             {/if}
-            {#if app.entry && app.description}
-              <span class="app-desc">{app.description}</span>
-            {/if}
             {#if app.entry}
               <span class="row-meta">
                 {#if app.state === "missing"}
@@ -979,7 +979,6 @@
       {#if visibleCatalog.length > 0}
         <div class="section-head">
           <h4>Recognised apps <span class="mono">{visibleCatalog.length}</span></h4>
-          <p>Apps we have notes on, with what removing each one costs.</p>
         </div>
         {#each visibleCatalog as app (app.package)}
           {@render row(app)}
@@ -995,7 +994,6 @@
       {#if visibleOthers.length > 0}
         <div class="section-head">
           <h4>Everything else <span class="mono">{visibleOthers.length}</span></h4>
-          <p>Installed apps we have no notes on. Removals still go through the same safety checks.</p>
         </div>
         {#each visibleOthers as app (app.package)}
           {@render row(app)}
@@ -1404,12 +1402,6 @@
     font-size: 11px;
     font-weight: 500;
     color: var(--muted);
-  }
-  .section-head p {
-    margin: 0;
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.4;
   }
   .section-error {
     display: flex;
