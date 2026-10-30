@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "source_observations": 4766,
+  "discovered_unique_ids": 4766,
+  "duplicate_observations_collapsed": 0,
+  "baseline_curated_ids": 89,
+  "baseline_known_name_ids": 81,
+  "baseline_union_ids": 170,
+  "overlap_curated_ids": 6,
+  "overlap_known_name_ids": 1,
+  "new_ids_beyond_baseline": 4759,
+  "classification_counts": {
+    "classified": 4274,
+    "partial": 285,
+    "unknown": 207
+  },
+  "category_counts_nonexclusive": {
+    "communication": 272,
+    "development": 141,
+    "finance": 183,
+    "games": 527,
+    "graphics": 177,
+    "health": 367,
+    "location": 261,
+    "media": 674,
+    "network": 990,
+    "productivity": 760,
+    "reading": 311,
+    "security": 323,
+    "system": 914,
+    "unknown": 207
+  },
+  "tv_evidence_counts": {
+    "required_tv_feature_reported": 3,
+    "unknown": 4763
+  },
+  "shield_verified_ids": 0,
+  "removal_safety_reviewed_ids": 0,
+  "scope": "F-Droid active index snapshot only; not an Android TV population estimate. Baseline excludes launcher and sideload catalogs."
+}
