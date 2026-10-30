@@ -3,10 +3,11 @@
   import Icon from "$lib/components/Icon.svelte";
   import { getShellBookmarks, setShellBookmarks, type ShellBookmark } from "$lib/prefs";
   import type { ShellRunResult } from "$lib/types";
-  import { onDestroy } from "svelte";
+  import { onDestroy, tick } from "svelte";
 
-  let { serial, acknowledged = false, onacknowledge, onexecuted }: {
+  let { serial, active = true, acknowledged = false, onacknowledge, onexecuted }: {
     serial: string;
+    active?: boolean;
     acknowledged?: boolean;
     /// The consent is remembered per TV by the page, not by this component —
     /// it is the one that knows the hardware id.
@@ -22,6 +23,21 @@
   let err = $state<string | null>(null);
   let bookmarks = $state<ShellBookmark[]>(getShellBookmarks());
   let bookmarkLabel = $state("");
+  let editingIndex = $state<number | null>(null);
+  let editLabel = $state("");
+  let editCommand = $state("");
+  let bookmarkError = $state<string | null>(null);
+  let editNameInput = $state<HTMLInputElement>();
+  let editReturnFocus: HTMLButtonElement | null = null;
+
+  $effect(() => {
+    serial;
+    active;
+    editingIndex = null;
+    editLabel = "";
+    editCommand = "";
+    bookmarkError = null;
+  });
 
   let outputCopied = $state(false);
 
@@ -83,21 +99,75 @@
     }
   }
 
+  function persistBookmarks(next: ShellBookmark[]): boolean {
+    try {
+      setShellBookmarks(next);
+      bookmarks = next;
+      bookmarkError = null;
+      return true;
+    } catch {
+      bookmarkError = "Couldn't save bookmarks on this computer. Your changes haven't been saved. Try again.";
+      return false;
+    }
+  }
+
   function saveBookmark() {
     const label = bookmarkLabel.trim() || command.trim();
     const cmd = command.trim();
     if (!label || !cmd) return;
-    // Same label overwrites rather than accumulating near-duplicates.
-    const next = [...bookmarks.filter((b) => b.label !== label), { label, command: cmd }];
-    bookmarks = next;
-    setShellBookmarks(next);
-    bookmarkLabel = "";
+    if (bookmarks.some((b) => b.label === label)) {
+      bookmarkError = "A custom bookmark already has that name. Edit it or choose another name.";
+      return;
+    }
+    if (persistBookmarks([...bookmarks, { label, command: cmd }])) bookmarkLabel = "";
   }
 
-  function removeBookmark(label: string) {
-    const next = bookmarks.filter((b) => b.label !== label);
-    bookmarks = next;
-    setShellBookmarks(next);
+  async function editBookmark(index: number, trigger: HTMLButtonElement) {
+    editingIndex = index;
+    editLabel = bookmarks[index].label;
+    editCommand = bookmarks[index].command;
+    bookmarkError = null;
+    editReturnFocus = trigger;
+    await tick();
+    editNameInput?.focus();
+  }
+
+  async function cancelEdit() {
+    editingIndex = null;
+    editLabel = "";
+    editCommand = "";
+    bookmarkError = null;
+    await tick();
+    if (editReturnFocus?.isConnected) editReturnFocus.focus();
+    editReturnFocus = null;
+  }
+
+  function saveEdit() {
+    if (editingIndex === null) return;
+    const label = editLabel.trim();
+    const cmd = editCommand.trim();
+    if (!label || !cmd) {
+      bookmarkError = "Enter a bookmark name and command.";
+      return;
+    }
+    if (bookmarks.some((b, index) => index !== editingIndex && b.label === label)) {
+      bookmarkError = "A custom bookmark already has that name. Choose another name.";
+      return;
+    }
+    const next = bookmarks.map((b, index) => index === editingIndex ? { label, command: cmd } : b);
+    if (persistBookmarks(next)) void cancelEdit();
+  }
+
+  function onEditKeydown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      void cancelEdit();
+    }
+  }
+
+  function removeBookmark(index: number) {
+    persistBookmarks(bookmarks.filter((_, position) => position !== index));
   }
 
   /// Why Run is refusing, or undefined when it is not. Both halves, in the
@@ -263,7 +333,7 @@
             </button>
           </div>
         {/each}
-        {#each bookmarks as b (b.label)}
+        {#each bookmarks as b, index (index)}
           <div class="rail-item">
             <button
               class="rail-pick"
@@ -278,15 +348,33 @@
               <span class="rail-go" aria-hidden="true"><Icon name="chevron_right" size={16} /></span>
             </button>
             <button
+              class="small-action subtle"
+              aria-label={`Edit the bookmark ${b.label}`}
+              disabled={editingIndex !== null}
+              onclick={(event) => editBookmark(index, event.currentTarget)}
+            >Edit</button>
+            <button
               class="rail-run rail-remove"
               data-tip="Remove bookmark"
               data-tip-align="end"
               aria-label={`Remove the bookmark ${b.label}`}
-              onclick={() => removeBookmark(b.label)}
+              disabled={editingIndex !== null}
+              onclick={() => removeBookmark(index)}
             ><Icon name="close" size={16} /></button>
           </div>
         {/each}
       </div>
+      {#if bookmarkError}<p class="error" role="alert">{bookmarkError}</p>{/if}
+      {#if editingIndex !== null}
+        <form class="bookmark-editor" aria-label="Edit custom bookmark" onsubmit={(event) => { event.preventDefault(); saveEdit(); }}>
+          <label>Name<input bind:this={editNameInput} bind:value={editLabel} aria-label="Edit bookmark name" onkeydown={onEditKeydown} /></label>
+          <label>Command<textarea class="mono" bind:value={editCommand} rows="5" aria-label="Edit bookmark command" spellcheck="false" onkeydown={onEditKeydown}></textarea></label>
+          <div class="bookmark-edit-actions">
+            <button type="submit" class="small-action" onkeydown={onEditKeydown}>Save changes</button>
+            <button type="button" class="small-action subtle" onkeydown={onEditKeydown} onclick={cancelEdit}>Cancel</button>
+          </div>
+        </form>
+      {:else}
       <div class="bookmark-bar">
         <input
           bind:value={bookmarkLabel}
@@ -297,6 +385,7 @@
           Bookmark current command
         </button>
       </div>
+      {/if}
     </aside>
   </div>
 </div>
@@ -465,6 +554,19 @@
   .exit-ok {
     color: var(--ok);
   }
+  .bookmark-editor, .bookmark-editor label {
+    display: grid;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+  .bookmark-editor { margin-top: 0.75rem; }
+  .bookmark-editor input, .bookmark-editor textarea {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .bookmark-editor textarea { resize: vertical; overflow-wrap: anywhere; }
+  .bookmark-edit-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
   .shell-rail {
     min-width: 0;
   }

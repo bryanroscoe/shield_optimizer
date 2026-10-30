@@ -25,6 +25,7 @@
     "test:memory-safety": "node tests/memory-safety.mjs",
     "test:recommendation-labels": "node tests/recommendation-labels.mjs",
     "test:optimize-plan": "node tests/optimize-plan.mjs",
+    "test:shell-bookmarks": "node tests/shell-bookmarks.mjs",
     "test:playback-shell": "node tests/playback-shell.mjs",
     "test:optimize-safety-all-rows": "node tests/optimize-safety-all-rows.mjs",
     "test:shell-acknowledge": "node tests/shell-acknowledge.mjs",

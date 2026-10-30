@@ -3589,6 +3589,7 @@
     <div hidden={activeTab !== "shell"}>
       <ShellTab
         {serial}
+        active={activeTab === "shell"}
         acknowledged={shellAcknowledged}
         onacknowledge={(next) => {
           shellAcknowledged = next;
