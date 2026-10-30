@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onDestroy, onMount } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -237,10 +238,12 @@
       </button>
     </div>
   </div>
-  <p class="muted small">
-    Pick a file directly, or point at a folder and we'll list every APK inside.
-    Either way, install runs <code>adb install -r &lt;file&gt;</code>.
-  </p>
+  <HelpDetails label="Install help">
+    <p class="muted small">
+      Pick a file directly, or point at a folder and we'll list every APK inside.
+      Either way, install runs <code>adb install -r &lt;file&gt;</code>.
+    </p>
+  </HelpDetails>
 
   <div class="sideload-layout">
     <div class="sideload-main">
@@ -437,8 +440,7 @@
         {/each}
       </ul>
       <p class="muted small rail-note">
-        Apps people ask for that aren't on the Play Store; links go to the official
-        source only. Download there, then install with the buttons on the left.
+        Official download pages. Download a file, then choose Pick file.
         <button class="link-button" onclick={() => openDownloadPage(ISSUES_URL)}>
           Suggest one on GitHub
         </button>

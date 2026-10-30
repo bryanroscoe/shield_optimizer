@@ -63,7 +63,7 @@
     <label>Tag (optional)<input bind:value={tag} placeholder="ActivityManager" maxlength="64" /></label>
     <label>App package (optional)<input bind:value={packageName} placeholder="com.example.app" maxlength="255" /></label>
   </fieldset>
-  <p class="muted small">App filtering covers the currently running main process only; helper processes are excluded.</p>
+
   <div class="actions">
     <button onclick={() => poller.once()} disabled={pollState.busy || pollState.running || !visible}>Read logs</button>
     {#if pollState.running}
@@ -75,6 +75,7 @@
   </div>
   <details class="capture-details small">
     <summary>Capture limits and app scope</summary>
+    <p>App filtering covers the currently running main process only; helper processes are excluded.</p>
     <p>Refreshes 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream; resolving an app adds a separate bounded read. Stop prevents further refreshes; an in-flight read finishes within its limits. Leaving this tab or hiding the app stops refreshes.</p>
     <p>Android can reuse process IDs, so older entries may belong to a previous process. Filters and logcat options depend on the TV's Android version. Snapshots can overlap or miss high-volume traffic; this is not a lossless recording. Raw logs are not added to automatic bug reports.</p>
   </details>

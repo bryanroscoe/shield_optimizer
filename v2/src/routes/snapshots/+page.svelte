@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onMount } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -145,12 +146,14 @@
   </div>
 </section>
 
-<p class="muted">
-  A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
-  Restoring it disables those apps again and puts the settings back. It never
-  re-enables anything or reinstalls apps. Restore to the same device, or to another
-  one to copy its setup. Files live at <code>{snapshotDir || "(unknown)"}</code> — copy them anywhere to share.
-</p>
+<HelpDetails label="Snapshot help">
+  <p class="muted">
+    A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
+    Restore to the same device, or to another
+    one to copy its setup. Files live at <code>{snapshotDir || "(unknown)"}</code> — copy them anywhere to share.
+  </p>
+</HelpDetails>
+<p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps.</p>
 
 {#if actionMsg}
   <pre class="action-msg">{actionMsg}</pre>
@@ -308,13 +311,15 @@
       </tbody>
     </table>
   </div>
-  <div class="callout snapshots-note">
-    <Icon name="content_copy" size={16} />
-    <span>
-      Restoring a snapshot to a different device is a clone — the restore plan names
-      every package the target is missing before anything runs.
-    </span>
-  </div>
+  <HelpDetails label="Copying a setup">
+    <div class="callout snapshots-note">
+      <Icon name="content_copy" size={16} />
+      <span>
+        Restoring a snapshot to a different device is a clone — the restore plan names
+        every package the target is missing before anything runs.
+      </span>
+    </div>
+  </HelpDetails>
 {/if}
 
 <style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { api } from "$lib/api";
@@ -1172,16 +1173,18 @@
 {/if}
 
 {#if !adbMissing}
-  <div class="callout devices-note">
-    <Icon name="info" size={16} />
-    <span>
-      <strong>Don't see your device?</strong> Some devices, mostly newer ones that only offer
-      Wireless debugging, need a one-time pairing: use
-      <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>. Devices with Network
-      debugging connect directly with
-      <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
-    </span>
-  </div>
+  <HelpDetails label="Connection help">
+    <div class="callout devices-note">
+      <Icon name="info" size={16} />
+      <span>
+        <strong>Don't see your device?</strong> Some devices, mostly newer ones that only offer
+        Wireless debugging, need a one-time pairing: use
+        <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>. Devices with Network
+        debugging connect directly with
+        <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
+      </span>
+    </div>
+  </HelpDetails>
 {/if}
 
 <style>
