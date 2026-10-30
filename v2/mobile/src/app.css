@@ -665,3 +665,30 @@ input:focus-visible {
     transform: scale(1.4);
   }
 }
+
+.help-disclosure {
+  margin: 8px 0 14px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.help-disclosure > summary {
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 10px 0;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-weight: 500;
+}
+.help-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.help-disclosure[open] > :not(summary) {
+  margin: 0 0 10px;
+  font-size: inherit;
+  line-height: inherit;
+}

@@ -1169,7 +1169,8 @@
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.getchannels.dvr.app",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "https://getchannels.com/dvr-server/"
     ]
   },
   {
@@ -1245,7 +1246,7 @@
     "name": "HDHomeRun",
     "method": "disable",
     "risk": "safe",
-    "optimize_description": "Disabling stops HDHomeRun tuner viewing and DVR access from this app. It does not remove or back up recordings on a separate tuner or DVR server.",
+    "optimize_description": "Disabling stops HDHomeRun viewing and DVR features in this installation. Check any local recording or storage setup first; recordings are not backed up.",
     "restore_description": "Re-enables HDHomeRun if still installed. Does not restore deleted downloads, server recordings or account access.",
     "default_optimize": false,
     "default_restore": false,
@@ -1254,7 +1255,8 @@
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.silicondust.view",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "https://info.hdhomerun.com/info/dvr:storage"
     ]
   },
   {

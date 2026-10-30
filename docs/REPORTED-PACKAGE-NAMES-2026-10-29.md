@@ -96,3 +96,10 @@ That fork is not used as identity or installed-behavior evidence for the reporte
 The VPN dependency concern is grounded in Android's always-on and lockdown VPN
 behavior, not an observed Surfshark failure on this reporter's TV:
 https://developer.android.com/develop/connectivity/vpn
+
+DVR dependency cross-check, 2026-10-30: Channels describes its DVR server as a
+separate computer/NAS component (https://getchannels.com/dvr-server/). HDHomeRun
+lists separate network DVR storage options (https://info.hdhomerun.com/info/dvr:storage).
+These describe current vendor architecture, not every installed version. HDHomeRun's
+consequence therefore covers DVR features in the installation and explicitly asks
+users to check local recording/storage; no recording continuity or backup is promised.
