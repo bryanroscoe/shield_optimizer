@@ -627,14 +627,14 @@ async fn scan_command_stage(
         std::collections::BTreeMap::new()
     } else {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
-        stream::iter(targets.connect.iter().map(|target| {
+        stream::iter(targets.connect.clone().into_iter().map(|target| {
             let attached = &attached_with_status;
             let snapshot = native_snapshot.as_ref();
             async move {
                 let attempt = if tokio::time::Instant::now() >= deadline {
                     ConnectAttempt::failed("Native scan connection deadline reached; use Add by IP to try this TV.")
                 } else {
-                    tokio::time::timeout_at(deadline, native_connect_attempt(adb, target, attached, snapshot, swept))
+                    tokio::time::timeout_at(deadline, native_connect_attempt(adb, &target, attached, snapshot, swept))
                         .await
                         .unwrap_or_else(|_| ConnectAttempt::failed("Native scan connection deadline reached; check the TV approval prompt and use Add by IP to try again."))
                 };
