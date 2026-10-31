@@ -61,6 +61,19 @@ These are load-bearing — break them and the safety story falls over.
 - **Tauri commands return `Result<T, String>`.** The error type is serialized to the frontend. Convert with `.map_err(|e| e.to_string())`.
 - **Frontend is Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) on SvelteKit in SPA mode (`adapter-static`). No legacy stores.
 
+## CI usage policy
+
+- Open agent PRs as drafts and keep them draft through implementation, review fixes,
+  and local validation. Keep committing and pushing finished milestones.
+- Mark ready only when intended for merge. Ready PR updates run the full applicable
+  CI suites; `skip-ci` pauses them during batches of fixes. Remove it before merge.
+- Verify latest-revision checks actually ran and passed before merging; skipped jobs
+  and local-only checks are not cross-platform CI evidence. Record any explicit
+  owner-approved exception. Do not use `[skip ci]` as the normal workflow.
+- CI cancels superseded runs and does not repeat tests on pushes to `main`.
+  Direct pushes need an explicit test workflow dispatch. Release jobs are unchanged.
+- See [CONTRIBUTING.md](CONTRIBUTING.md#ci-usage) for commands and trigger behavior.
+
 ## Local validation before claiming done
 
 CI runs all of this across ubuntu-22.04 / macos-latest / windows-latest plus a frontend type-check job. Don't claim green based on one OS.

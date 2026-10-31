@@ -2,6 +2,46 @@
 
 Keep PR summaries focused on the problem and resulting behavior. Follow the repository's [agent and implementation guidance](CLAUDE.md) for architecture and relevant validation.
 
+## CI usage
+
+Open agent-authored PRs as **drafts** (`gh pr create --draft`) and keep them draft
+while implementing, reviewing and running focused local checks. Push finished
+milestones as usual; draft PRs allocate no runners in the three test workflows.
+Mark a PR ready only when it is intended for merge and local validation is recorded.
+
+| Action | Test workflow behavior |
+| --- | --- |
+| Open or update a draft PR | Skip all jobs; no runner minutes |
+| Mark ready, open/reopen a ready PR, or push to a ready PR | Run the applicable full suites, subject to existing path/base filters |
+| Add `skip-ci` | Skip jobs and cancel an older run for that PR/workflow |
+| Remove `skip-ci` from a ready PR | Run the applicable suites for the current revision |
+| Convert to draft or close | Skip jobs and cancel an older run for that PR/workflow |
+| Change an unrelated label | No tests and no cancellation of a useful run |
+| Push/merge to `main` | No duplicate test run |
+| Manually dispatch a test workflow | Run its full suite on the selected ref, even if a PR is draft or labeled `skip-ci` |
+
+Use `skip-ci` to pause CI during a batch of review fixes or while recording local
+validation: `gh pr edit <number> --add-label skip-ci`. Remove it when finished with
+`gh pr edit <number> --remove-label skip-ci`. Prefer draft status for ordinary
+work in progress. If a ready PR needs several fixes, pause **before** pushing.
+Superseded runs are automatically cancelled, and each job has a time limit.
+Older branches must first incorporate this workflow change to use the policy.
+
+Before merging, remove `skip-ci`, mark the PR ready, and verify the applicable
+checks actually **ran and passed for its latest revision**. Local tests do not
+prove other operating systems passed. A skipped job is not validation, even if
+GitHub renders it green. The current repository ruleset does not require checks;
+this is a contributor/agent requirement, not an enforced merge gate. Any explicit
+owner-approved CI exception must be recorded with its scope and local evidence.
+
+The existing test coverage and OS matrices remain intact. The release and manual
+AppImage workflows are unaffected. For an exceptional direct push or integration
+check on `main`, dispatch the relevant test workflow explicitly, for example
+`gh workflow run v2-tests.yml --ref main`; wait for that run before relying on it.
+Avoid commit-message `[skip ci]` as the normal control: GitHub can leave required
+checks pending, whereas draft status and the label are visible and reversible.
+See [GitHub's skip behavior](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs).
+
 ## Agent-authored PR evidence
 
 This checklist is required for our agent-authored PRs and subsequent updates. External contributors may use it voluntarily; it does not retroactively impose requirements on their existing PRs, including PR168.
