@@ -151,6 +151,20 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
   src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk
 ```
 
+## Telemetry endpoint
+
+Anonymous reports are compiled in only when the build environment sets `ATVOPT_TELEMETRY_URL` to
+the owner-operated Worker's base URL (no trailing path). Without it the app never sends reports or
+fetches support tiers, and More shows the setting as unavailable. Set it for the release build:
+
+```bash
+ATVOPT_TELEMETRY_URL=https://telemetry.example.workers.dev npm run tauri android build -- --aab
+```
+
+`option_env!` bakes the value in at compile time, so changing it needs a rebuild of the shared
+core (Cargo tracks the variable). Check the Data safety answers against `DATA-INVENTORY.md` before
+uploading a build that has it set.
+
 ## 6. Upload
 
 1. Play Console → Internal testing → create release → upload the AAB.

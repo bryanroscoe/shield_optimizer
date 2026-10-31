@@ -122,11 +122,31 @@ reversible changes.
 | Onn 4K Pro (Walmart) | Fully tested |
 | Chromecast with Google TV | Should work (Google TV profile) |
 | Google TV Streamer (2024) | Should work (Google TV profile) |
-| Amazon Fire TV | Varies by Fire OS build (see [Known limitations](#known-limitations)) |
+| TCL Google TV | Beta: limited testing so far |
+| Amazon Fire TV | Not supported: Fire OS blocks the changes this app makes (see [Known limitations](#known-limitations)) |
 
 What's available depends on each device's firmware and the permissions it grants ADB. Android
 version alone doesn't decide it. Discovery and pairing need the firmware to expose a working ADB
 service, authorize the connection, and be reachable on your network.
+
+The app shows each connected TV's support status next to its name: **Fully supported**,
+**Supported**, **Beta**, **Not supported**, or **Not verified** for a model nobody has checked yet.
+The status is information only. It never loosens the do-not-disable list, and on an unsupported TV
+the app warns before making changes but still lets you re-enable apps and run Recovery.
+
+## Privacy
+
+The app sends **anonymous device and error reports** by default, so we can learn which TVs it runs
+on and where it fails. A report has your TV's make, model and Android version, the app version and
+your computer's or phone's OS, which actions worked or failed, and error messages with addresses,
+names and file paths removed. It never includes serial numbers or other hardware IDs, IP addresses,
+TV names, your list of installed apps, file paths, license details or snapshot contents. Reports go
+to a server we run on Cloudflare and are kept for 90 days.
+
+Turn this off with **Share anonymous device and error reports**, in the **Report a bug** dialog on
+desktop or on the **More** screen on Android. Turning it off stops sending immediately and discards anything not yet sent; turning it
+back on starts over under a new random ID. Builds made without a report server configured send
+nothing.
 
 ## Known limitations
 
