@@ -31,8 +31,10 @@ const RULES: Array<[RegExp, string]> = [
 // 3A091FDJH000AB), Android ids, hashes, long timestamps.
 const SERIAL = /\b(?=[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d)[a-z0-9]{10,}\b/gi;
 
-// Java package / class shaped tokens: com.example.app, java.lang.SecurityException.
-const PACKAGE = /\b[a-z][a-z0-9_]*(?:\.[a-z0-9_]+){2,}\b/gi;
+// Package / class shaped tokens: com.example.app, java.lang.SecurityException,
+// and two-segment application ids such as com.foo or tv.baz. Only used to
+// detect a list, so file names like a.json in a list-shaped message go too.
+const PACKAGE = /\b[a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+\b/gi;
 // One package name in an error ("disable failed for com.foo.bar") is useful for
 // debugging; three or more is a package list, which is never stored.
 const PACKAGE_LIST_THRESHOLD = 3;

@@ -37,6 +37,7 @@ describe("redactMessage", () => {
     expect(redactMessage("installed: com.a.one, com.b.two, org.c.three")).toBe(
       "installed: [package], [package], [package]",
     );
+    expect(redactMessage("installed: com.foo, org.bar, tv.baz")).toBe("installed: [package], [package], [package]");
   });
 
   it("strips control characters and clamps to the limit", () => {

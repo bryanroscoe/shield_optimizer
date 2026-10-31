@@ -48,7 +48,8 @@ How that is enforced server-side, so a client bug cannot break it:
 - `message` is redacted again: IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails,
   URLs, Windows/UNC/POSIX/home paths, `*.local` names, adb mDNS names and serial-looking tokens
   (10+ letters and digits with at least 4 digits). One package name is kept because it is useful
-  for debugging a failed disable; three or more are treated as a package list and all are replaced.
+  for debugging a failed disable; three or more (including two-part ids like `tv.baz`) are treated
+  as a package list and all are replaced.
   The server cannot recognise a TV's friendly name inside free text, so that stays the client's job.
 
 ## Retention
