@@ -557,28 +557,41 @@ impl Telemetry {
         }
     }
 
+    /// Fetch the published rules. An opt-out while the request is in flight
+    /// cancels it, and a response that arrives after one is discarded, so
+    /// Off never caches or applies anything from the server.
     async fn fetch_support_rules(&self) -> Option<(String, SupportRules)> {
         let base = self.config.base_url.as_deref()?;
-        if !self.is_active() {
+        let generation = self.lock().generation;
+        let cancelled = self.cancel.notified();
+        tokio::pin!(cancelled);
+        cancelled.as_mut().enable();
+        if !self.still_sending(generation) {
             return None;
         }
         let client = self.client()?;
-        let mut resp = client
-            .get(format!("{base}/v1/support-tiers"))
-            .send()
-            .await
-            .ok()?;
-        if !resp.status().is_success() {
-            return None;
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = resp.chunk().await.ok()? {
-            bytes.extend_from_slice(&chunk);
-            if bytes.len() > MAX_SUPPORT_DOC_BYTES {
+        let url = format!("{base}/v1/support-tiers");
+        let download = async {
+            let mut resp = client.get(url).send().await.ok()?;
+            if !resp.status().is_success() {
                 return None;
             }
+            let mut bytes = Vec::new();
+            while let Some(chunk) = resp.chunk().await.ok()? {
+                bytes.extend_from_slice(&chunk);
+                if bytes.len() > MAX_SUPPORT_DOC_BYTES {
+                    return None;
+                }
+            }
+            String::from_utf8(bytes).ok()
+        };
+        let text = tokio::select! {
+            text = download => text?,
+            _ = &mut cancelled => return None,
+        };
+        if !self.still_sending(generation) {
+            return None;
         }
-        let text = String::from_utf8(bytes).ok()?;
         let rules = parse_support_rules(&text).ok()?;
         Some((text, rules))
     }
@@ -1116,6 +1129,31 @@ mod tests {
         assert_eq!(events[1]["action"], "disable");
         assert!(!body.contains("1324619053514"));
         assert!(hub.queued().is_empty());
+    }
+
+    #[tokio::test]
+    async fn opting_out_cancels_a_pending_support_fetch() {
+        // A server that accepts and never answers: the GET stays pending
+        // until the opt-out cancels it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let _hold = tokio::spawn(async move {
+            let (_sock, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some(&base)), dir.path());
+        let fetch = {
+            let hub = Arc::clone(&hub);
+            tokio::spawn(async move { hub.fetch_support_rules().await })
+        };
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        hub.set_enabled(false).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), fetch)
+            .await
+            .expect("the opt-out ends the fetch")
+            .unwrap();
+        assert!(result.is_none());
     }
 
     #[tokio::test]
