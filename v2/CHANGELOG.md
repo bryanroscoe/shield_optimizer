@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
+
 - Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
 
 - Desktop: move optional explanations into keyboard-accessible help sections while keeping safety warnings, permission consequences and errors visible.

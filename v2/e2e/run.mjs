@@ -5,17 +5,25 @@
 // `e2e/scenarios/` through headless Chromium. Each step's full-page
 // screenshot lands in `e2e/artifacts/<scenario>/NN-step.png`.
 
-import { readdirSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { chromium } from "playwright";
 
-import { ARTIFACTS, E2E, buildServer, scenarioContext, startServer, startVite } from "./lib/harness.mjs";
+import { ARTIFACTS, E2E, buildServer, control, scenarioContext, startServer, startVite } from "./lib/harness.mjs";
 
 const filters = process.argv.slice(2).filter((a) => !a.startsWith("--"));
-const files = readdirSync(join(E2E, "scenarios"))
+const offline = process.argv.includes("--offline");
+const selection = JSON.parse(readFileSync(join(E2E, "offline-selection.json"), "utf8"));
+const availableFiles = readdirSync(join(E2E, "scenarios"))
   .filter((f) => f.endsWith(".mjs"))
   .sort();
+const files = offline ? selection.files : availableFiles;
+if (offline) {
+  const unclassified = availableFiles.filter(f => !selection.files.includes(f) && !Object.hasOwn(selection.excluded_files, f));
+  if (unclassified.length) throw new Error(`Offline review missing for: ${unclassified.join(", ")}`);
+}
+for (const file of files) if (!availableFiles.includes(file)) throw new Error(`Missing offline scenario file: ${file}`);
 
 const scenarios = [];
 for (const file of files) {
@@ -35,7 +43,10 @@ const server = await startServer();
 let vite;
 let browser;
 const results = [];
+let policy;
 try {
+  policy = await control(server.url).offlinePolicy();
+  if (policy.driver !== "SimulatedAdb" || !policy.fixture_sweep_installed || !policy.command_allowlist_enforced || policy.fixture_subnet !== "192.0.2") throw new Error("Offline fixture policy is not active; refusing test execution.");
   vite = await startVite(server.url);
   browser = await chromium.launch();
   console.log(`[e2e] server ${server.url}  ui ${vite.url}`);
@@ -52,6 +63,9 @@ try {
     try {
       await scenario.run(ctx);
       const state = await ctx.state();
+      if (ctx.networkDenied.length) throw new Error(`Browser external network refused: ${ctx.networkDenied.join(", ")}`);
+      const denied = (await ctx.invokes()).filter(i => i.offline_denied);
+      if (denied.length) throw new Error(`Offline dispatch refused: ${denied.map(i => i.cmd).join(", ")}`);
       if (state.gaps.length && !scenario.allowGaps) {
         // A flow that reached an unsimulated command was never really tested.
         throw new Error(`unsimulated commands: ${[...new Set(state.gaps)].join(" | ")}`);
@@ -75,6 +89,7 @@ try {
 }
 
 writeFileSync(join(ARTIFACTS, "summary.json"), JSON.stringify(results, null, 2));
+if (offline) writeFileSync(join(ARTIFACTS, "offline-summary.json"), JSON.stringify({ policy, results, excluded_files: selection.excluded_files, hardware_acceptance_not_run: selection.hardware_acceptance_not_run }, null, 2));
 const failed = results.filter((r) => !r.ok);
 console.log(`\n${results.length - failed.length}/${results.length} scenarios passed. Screenshots: ${ARTIFACTS}`);
 for (const f of failed) console.log(`  ✗ ${f.name}: ${f.error}`);

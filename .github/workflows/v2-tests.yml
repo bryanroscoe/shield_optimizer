@@ -93,6 +93,14 @@ jobs:
         working-directory: v2
         run: cargo test --workspace
 
+      - name: Experimental direct desktop backend
+        working-directory: v2
+        run: cargo test -p shield-optimizer-v2 --features direct-adb --lib -- --test-threads=1
+
+      - name: Experimental direct desktop Clippy
+        working-directory: v2
+        run: cargo clippy -p shield-optimizer-v2 --features direct-adb --all-targets -- -D warnings
+
       - name: Vendored transport tests
         working-directory: v2/vendor/adb_client
         run: cargo test --lib
@@ -195,6 +203,10 @@ jobs:
         working-directory: v2
         run: npm run test:remote-paste
 
+      - name: Remote lifecycle
+        working-directory: v2
+        run: npm run test:remote-lifecycle
+
       # Memory-table verdicts must resolve instead of sitting on "Checking".
       # That failure throws and logs nothing; only rendering the table catches it.
       - name: Memory safety verdicts
@@ -266,6 +278,13 @@ jobs:
       - name: Progressive help
         working-directory: v2
         run: npm run test:progressive-help
+      - name: Direct backend status
+        working-directory: v2
+        run: npm run test:direct-adb-status
+
+      - name: Native discovery
+        working-directory: v2
+        run: npm run test:native-discovery
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.
@@ -358,9 +377,9 @@ jobs:
         working-directory: v2
         run: cargo clippy -p shield-optimizer-v2 -p e2e-server --features shield-optimizer-v2/e2e --all-targets -- -D warnings
 
-      - name: npm run e2e
+      - name: Offline fixture end-to-end suite
         working-directory: v2
-        run: npm run e2e
+        run: npm run e2e:offline
 
       - name: Upload screenshots
         if: failure()

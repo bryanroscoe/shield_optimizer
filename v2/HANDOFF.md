@@ -11,9 +11,11 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 Desktop help improvements and ADB connection recovery are pending release. Add by IP,
 Scan LAN and restart now verify transport readiness; the confirmed restart can retry
-one unchanged failed address. The subprocess driver remains the default. Shared native
-ADB PR236 and its parity branches remain experimental, with hardware and Windows
-identity acceptance outstanding. These source fixes do not establish the full root
+one unchanged failed address. The subprocess driver remains the default. The native desktop test integration now shares the mobile Rust ADB transport while
+retaining the existing Devices flow and 5555 LAN scan. Build with `native-adb-default`
+for a Finder-launchable native test app; the driver label confirms the active backend.
+Normal builds remain subprocess by default. Hardware acceptance and Windows native
+identity support remain outstanding; this is not a published native release. These source fixes do not establish the full root
 cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
 their notes shipped in 2.4.1. Put
 the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that

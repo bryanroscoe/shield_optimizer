@@ -6,7 +6,7 @@ use crate::{
     message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
     message_devices::{
         adb_message_transport::ADBMessageTransport,
-        adb_service::open_service_session,
+        adb_service::{open_service_session, open_service_session_with_label},
         adb_session::ADBSession,
         adb_transport_message::{
             ADBTransportMessage, AUTH_RSAPUBLICKEY, AUTH_SIGNATURE, AUTH_TOKEN,
@@ -30,7 +30,7 @@ pub struct ADBMessageDevice<T: ADBMessageTransport> {
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     /// Instantiate a new [`ADBMessageTransport`]
     pub fn new<P: AsRef<Path>>(transport: T, adb_private_key_path: P) -> Result<Self> {
-        Self::new_inner(transport, adb_private_key_path, None)
+        Self::new_inner(transport, adb_private_key_path, None, false)
     }
 
     /// Instantiate a new [`ADBMessageTransport`] with a finite timeout for each
@@ -40,17 +40,43 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         adb_private_key_path: P,
         auth_timeout: Duration,
     ) -> Result<Self> {
-        Self::new_inner(transport, adb_private_key_path, Some(auth_timeout))
+        Self::new_inner(transport, adb_private_key_path, Some(auth_timeout), false)
+    }
+
+    pub(crate) fn new_with_required_key<P: AsRef<Path>>(
+        transport: T,
+        adb_private_key_path: P,
+        auth_timeout: Duration,
+    ) -> Result<Self> {
+        Self::new_inner(transport, adb_private_key_path, Some(auth_timeout), true)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_fixture_key(
+        transport: T,
+        private_key: &ADBRsaKey,
+        timeout: Duration,
+    ) -> Result<Self> {
+        let mut device = Self { transport };
+        device.connect(private_key, Some(timeout))?;
+        Ok(device)
     }
 
     fn new_inner<P: AsRef<Path>>(
         transport: T,
         adb_private_key_path: P,
         auth_timeout: Option<Duration>,
+        require_existing_key: bool,
     ) -> Result<Self> {
         let private_key = if let Some(private_key) = read_adb_private_key(&adb_private_key_path)? {
             private_key
         } else {
+            if require_existing_key {
+                return Err(RustADBError::IOError(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "required ADB identity is missing; no replacement was generated",
+                )));
+            }
             log::warn!(
                 "No private key found at path {}. Generating a new random.",
                 adb_private_key_path.as_ref().display()
@@ -159,6 +185,15 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             return Ok(());
         }
 
+        received_response.assert_command(MessageCommand::Auth)?;
+        if received_response.header().arg0() != AUTH_TOKEN
+            || received_response.payload().len() != 20
+        {
+            return Err(RustADBError::ADBRequestFailed(
+                "Expected a 20-byte AUTH token after signature rejection".into(),
+            ));
+        }
+
         let mut pubkey = private_key.android_pubkey_encode()?.into_bytes();
         pubkey.push(b'\0');
 
@@ -199,6 +234,27 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             }
         };
         open_service_session(self.get_transport_mut(), service, local_id, timeout)
+    }
+
+    pub(crate) fn open_bounded_shell_service(
+        &mut self,
+        service: &str,
+        timeout: Duration,
+    ) -> Result<ADBSession<T>> {
+        let mut rng = rand::rng();
+        let local_id = loop {
+            let candidate = rng.random();
+            if candidate != 0 {
+                break candidate;
+            }
+        };
+        open_service_session_with_label(
+            self.get_transport_mut(),
+            service,
+            "<bounded shell command redacted>",
+            local_id,
+            timeout,
+        )
     }
 
     pub(crate) fn open_session(&mut self, cmd: &ADBLocalCommand) -> Result<ADBSession<T>> {

@@ -163,6 +163,7 @@ async fn quit_stop(
     }
     state.close_adb_admission();
     let deadline = Instant::now() + drain;
+    let _ = tokio::time::timeout_at(deadline, state.drop_all_remote_sessions()).await;
     if !state.wait_adb_operations(deadline).await {
         return QuitStop::OperationsRunning(state.adb_operations_active());
     }

@@ -29,6 +29,16 @@ pub(crate) fn open_service_session<T: ADBMessageTransport>(
     local_id: u32,
     timeout: Duration,
 ) -> Result<ADBSession<T>> {
+    open_service_session_with_label(transport, service, service, local_id, timeout)
+}
+
+pub(crate) fn open_service_session_with_label<T: ADBMessageTransport>(
+    transport: &mut T,
+    service: &str,
+    diagnostic_label: &str,
+    local_id: u32,
+    timeout: Duration,
+) -> Result<ADBSession<T>> {
     if service.is_empty() || service.as_bytes().contains(&0) {
         return Err(RustADBError::ADBRequestFailed(
             "ADB service must be non-empty and contain no NUL bytes".to_string(),
@@ -59,24 +69,27 @@ pub(crate) fn open_service_session<T: ADBMessageTransport>(
         skipped += 1;
         if skipped > MAX_FOREIGN_MESSAGES {
             return Err(RustADBError::ADBRequestFailed(format!(
-                "Open service {service:?}: too many messages for other streams"
+                "Open service {diagnostic_label:?}: too many messages for other streams"
             )));
         }
         log::debug!(
-            "skipping message for stream {}:{} while opening {service:?}",
+            "skipping message for stream {}:{} while opening {diagnostic_label:?}",
             candidate.header().arg0(),
             candidate.header().arg1()
         );
     };
+    if response.header().command() == MessageCommand::Clse {
+        return Err(RustADBError::ServiceRejected(diagnostic_label.to_owned()));
+    }
     if response.header().command() != MessageCommand::Okay {
         return Err(RustADBError::ADBRequestFailed(format!(
-            "Open service {service:?} failed: got {} instead of OKAY",
+            "Open service {diagnostic_label:?} failed: got {} instead of OKAY",
             response.header().command()
         )));
     }
     if response.header().arg0() == 0 {
         return Err(RustADBError::ADBRequestFailed(format!(
-            "Open service {service:?} returned an invalid remote id"
+            "Open service {diagnostic_label:?} returned an invalid remote id"
         )));
     }
 
@@ -94,6 +107,9 @@ pub(crate) struct ADBService<T: ADBMessageTransport> {
     closed: bool,
     read_timeout: Duration,
     write_timeout: Duration,
+    final_write_ack_pending: bool,
+    pending_limit: Option<usize>,
+    peer_closed: bool,
 }
 
 impl<T: ADBMessageTransport> ADBService<T> {
@@ -108,7 +124,39 @@ impl<T: ADBMessageTransport> ADBService<T> {
             closed: false,
             read_timeout,
             write_timeout,
+            final_write_ack_pending: false,
+            pending_limit: None,
+            peer_closed: false,
         }
+    }
+
+    pub(crate) fn set_read_timeout(&mut self, timeout: Duration) -> std::io::Result<()> {
+        if timeout.is_zero() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "read timeout must be positive",
+            ));
+        }
+        self.read_timeout = timeout;
+        Ok(())
+    }
+
+    pub(crate) fn with_pending_limit(mut self, limit: usize) -> Self {
+        self.pending_limit = Some(limit);
+        self
+    }
+
+    pub(crate) fn take_pending(&mut self, limit: usize) -> Vec<u8> {
+        let count = self.pending.len().min(limit);
+        self.pending.drain(..count).collect()
+    }
+
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    pub(crate) const fn peer_closed(&self) -> bool {
+        self.peer_closed
     }
 
     fn protocol_error(message: impl Into<String>) -> Error {
@@ -185,8 +233,32 @@ impl<T: ADBMessageTransport> ADBService<T> {
     }
 
     fn acknowledge_payload(&mut self, message: ADBTransportMessage) -> std::io::Result<()> {
+        if self
+            .pending_limit
+            .is_some_and(|limit| self.pending.len().saturating_add(message.payload().len()) > limit)
+        {
+            return Err(Self::protocol_error("ADB service output limit reached"));
+        }
         self.send(MessageCommand::Okay, &[])?;
         self.pending.extend(message.into_payload());
+        Ok(())
+    }
+
+    pub(crate) fn write_final(&mut self, payload: &[u8]) -> std::io::Result<()> {
+        if self.closed || self.final_write_ack_pending {
+            return Err(Error::new(
+                ErrorKind::BrokenPipe,
+                "ADB final write is unavailable",
+            ));
+        }
+        if payload.len() > MAX_MESSAGE_PAYLOAD {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "ADB final write is too large",
+            ));
+        }
+        self.send(MessageCommand::Write, payload)?;
+        self.final_write_ack_pending = true;
         Ok(())
     }
 
@@ -194,6 +266,7 @@ impl<T: ADBMessageTransport> ADBService<T> {
         // ADB protocol.txt explicitly says the recipient must not reply to
         // CLSE. Any pending local WRTE or CLSE is simply abandoned.
         self.closed = true;
+        self.peer_closed = true;
     }
 
     pub(crate) fn close(&mut self) -> std::io::Result<()> {
@@ -237,6 +310,9 @@ impl<T: ADBMessageTransport> Read for ADBService<T> {
                     if !self.pending.is_empty() {
                         return Ok(self.drain_pending(buf));
                     }
+                }
+                MessageCommand::Okay if self.final_write_ack_pending => {
+                    self.final_write_ack_pending = false;
                 }
                 MessageCommand::Clse => {
                     self.mark_peer_closed();
@@ -379,6 +455,22 @@ mod tests {
         assert_eq!(message.header().arg0(), arg0);
         assert_eq!(message.header().arg1(), arg1);
         assert_eq!(message.payload(), payload);
+    }
+
+    #[test]
+    fn service_read_policy_changes_only_the_read_budget() {
+        let transport = FakeTransport::default();
+        let mut stream = service(&transport);
+        assert!(stream.set_read_timeout(Duration::ZERO).is_err());
+        stream.set_read_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(stream.read_timeout, Duration::from_secs(2));
+        assert_eq!(stream.write_timeout, Duration::from_millis(456));
+        let mut byte = [0u8; 1];
+        assert!(stream.read(&mut byte).is_err());
+        assert_eq!(
+            transport.state.lock().unwrap().read_timeouts,
+            [Duration::from_secs(2)]
+        );
     }
 
     #[test]

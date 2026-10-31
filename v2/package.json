@@ -13,6 +13,7 @@
     "test:pairing-flow": "node tests/pairing-flow.mjs",
     "test:adb-errors": "node tests/adb-errors.mjs",
     "test:sideload-scan": "node tests/sideload-scan.mjs",
+    "test:native-install-results": "node tests/native-install-results.mjs",
     "test:device-list-rows": "node tests/device-list-rows.mjs",
     "test:stop-adb-on-quit": "node tests/stop-adb-on-quit.mjs",
     "test:release-notes": "node tests/release-notes.mjs",
@@ -22,6 +23,7 @@
     "test:report-bug": "node tests/report-bug.mjs",
     "test:app-report": "node tests/app-report.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
+    "test:remote-lifecycle": "node tests/remote-lifecycle.mjs",
     "test:memory-safety": "node tests/memory-safety.mjs",
     "test:recommendation-labels": "node tests/recommendation-labels.mjs",
     "test:optimize-plan": "node tests/optimize-plan.mjs",
@@ -33,6 +35,7 @@
     "test:files-drop": "node tests/files-drop.mjs",
     "test:context-menu": "node tests/context-menu.mjs",
     "e2e": "node e2e/run.mjs",
+    "e2e:offline": "node e2e/run.mjs --offline",
     "e2e:replay": "node e2e/replay.mjs",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
     "tauri": "tauri",
@@ -41,7 +44,9 @@
     "test:tvrecommendations-safety": "node tests/tvrecommendations-safety.mjs",
     "test:launcher-feedback": "node tests/launcher-feedback.mjs",
     "test:progressive-help": "node tests/progressive-help.mjs",
-    "test:restart-onboarding": "node tests/restart-onboarding.mjs"
+    "test:restart-onboarding": "node tests/restart-onboarding.mjs",
+    "test:direct-adb-status": "node tests/direct-adb-status.mjs",
+    "test:native-discovery": "node tests/native-discovery.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

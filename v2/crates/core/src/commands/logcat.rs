@@ -57,6 +57,7 @@ async fn read_device_logs_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adb::{AdbDriver, AdbOutput, AdbResult};
     use crate::commands::test_support::{state_with, MockAdb};
     use crate::engine::logcat::LogPriority;
 
@@ -66,6 +67,62 @@ mod tests {
             lines: 100,
             tag: None,
             package: package.map(str::to_string),
+        }
+    }
+
+    struct PartialLogs(ShellTermination);
+
+    #[async_trait::async_trait]
+    impl AdbDriver for PartialLogs {
+        async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
+            panic!("log snapshots must not use raw commands")
+        }
+
+        async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+            panic!("log snapshots must not fall back to unbounded shell")
+        }
+
+        async fn shell_bounded(
+            &self,
+            serial: &str,
+            command: &str,
+        ) -> AdbResult<BoundedShellOutput> {
+            assert_eq!(serial, "requested-tv");
+            assert_eq!(
+                command,
+                "logcat -d -v threadtime -t 100 'ActivityManager:W' '*:S'"
+            );
+            Ok(BoundedShellOutput {
+                stdout: "partial device log\n".into(),
+                stderr: "partial diagnostic\n".into(),
+                exit_code: None,
+                termination: self.0,
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_partial_logs_keep_filters_streams_and_termination() {
+        for termination in [ShellTermination::Timeout, ShellTermination::OutputLimit] {
+            let mut requested = options(None);
+            requested.tag = Some("ActivityManager".into());
+            let logs = read_device_logs_impl(
+                &AppState::new(
+                    std::sync::Arc::new(PartialLogs(termination)),
+                    crate::engine::AppListBundle::default(),
+                    std::env::temp_dir(),
+                ),
+                "requested-tv",
+                requested,
+            )
+            .await
+            .unwrap();
+            assert_eq!(logs.output.stdout, "partial device log\n");
+            assert_eq!(logs.output.stderr, "partial diagnostic\n");
+            assert_eq!(logs.output.exit_code, None);
+            assert_eq!(logs.output.termination, termination);
+            assert_eq!(logs.package, None);
+            assert_eq!(logs.pid, None);
         }
     }
 

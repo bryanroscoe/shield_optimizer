@@ -6,18 +6,26 @@
 //! directly — it's the only port we care about, it's faster, and many TVs
 //! firewall ICMP but must expose 5555 for adb-over-network to work at all.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
+#[cfg(not(feature = "e2e"))]
+use std::net::SocketAddr;
+#[cfg(not(feature = "e2e"))]
 use std::time::Duration;
 
+#[cfg(not(feature = "e2e"))]
 use futures_util::stream::{FuturesUnordered, StreamExt};
+#[cfg(not(feature = "e2e"))]
 use tokio::net::TcpStream;
 use tokio::process::Command;
+#[cfg(not(feature = "e2e"))]
 use tokio::time::timeout;
 
 /// How long to wait per TCP connect before giving up.
+#[cfg(not(feature = "e2e"))]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// How many simultaneous probes to keep in flight.
+#[cfg(not(feature = "e2e"))]
 const PROBE_CONCURRENCY: usize = 64;
 
 /// ADB-over-network listening port.
@@ -198,32 +206,39 @@ pub async fn scan_subnet(prefix: [u8; 3]) -> Vec<ScanHit> {
     {
         return ips.into_iter().map(|ip| ScanHit { ip }).collect();
     }
-    // Priority sweep mirroring v1: common DHCP range first, then the rest.
-    let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
+    #[cfg(feature = "e2e")]
+    panic!("E2E fixture sweep is missing; live network probing was refused");
 
-    let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
-    let mut iter = ordered_hosts.into_iter();
-    let mut hits = Vec::new();
+    #[cfg(not(feature = "e2e"))]
+    {
+        // Priority sweep mirroring v1: common DHCP range first, then the rest.
+        let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
 
-    // Prime the pump.
-    for _ in 0..PROBE_CONCURRENCY {
-        if let Some(host) = iter.next() {
-            in_flight.push(probe(prefix, host));
+        let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
+        let mut iter = ordered_hosts.into_iter();
+        let mut hits = Vec::new();
+
+        // Prime the pump.
+        for _ in 0..PROBE_CONCURRENCY {
+            if let Some(host) = iter.next() {
+                in_flight.push(probe(prefix, host));
+            }
         }
+
+        while let Some(result) = in_flight.next().await {
+            if let Some(hit) = result {
+                hits.push(hit);
+            }
+            if let Some(host) = iter.next() {
+                in_flight.push(probe(prefix, host));
+            }
+        }
+
+        hits
     }
-
-    while let Some(result) = in_flight.next().await {
-        if let Some(hit) = result {
-            hits.push(hit);
-        }
-        if let Some(host) = iter.next() {
-            in_flight.push(probe(prefix, host));
-        }
-    }
-
-    hits
 }
 
+#[cfg(not(feature = "e2e"))]
 async fn probe(prefix: [u8; 3], host: u8) -> Option<ScanHit> {
     let addr = SocketAddr::from((
         std::net::Ipv4Addr::new(prefix[0], prefix[1], prefix[2], host),
@@ -241,6 +256,14 @@ async fn probe(prefix: [u8; 3], host: u8) -> Option<ScanHit> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[cfg(feature = "e2e")]
+    #[tokio::test]
+    #[should_panic(expected = "live network probing was refused")]
+    async fn missing_e2e_provider_never_falls_through_to_network_probes() {
+        assert!(SWEEP_OVERRIDE.read().unwrap().is_none());
+        scan_subnet([192, 0, 2]).await;
+    }
 
     #[test]
     fn parses_dotted_prefix() {

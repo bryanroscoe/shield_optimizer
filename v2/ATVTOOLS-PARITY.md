@@ -44,3 +44,10 @@ aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 14+) controlling
 ## Idea not yet built
 
 **Snapshot ↔ Optimize convergence.** The snapshot preview is a table. A possible next step is to render it as an *editable* optimize-style plan (per-row apply/skip) so apply-snapshot and Optimize share one mental model, and potentially one component.
+
+## Experimental Rust transport
+
+Rust-primary experimental follow-up: Unix first-run app-owned identity storage and
+truthful initialization errors are implemented locally, with fixture validation.
+Production default, Windows identity storage, runtime credential creation and
+hardware acceptance remain gated; see `DIRECT-ADB-PARITY.md`.

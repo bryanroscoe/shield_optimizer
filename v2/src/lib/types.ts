@@ -357,6 +357,28 @@ export interface CloneAppResult {
   hint: string | null;
 }
 
+export type NativeServiceKind = "legacy_adb" | "tls_pairing" | "tls_connect";
+
+export interface NativeAdvertisement {
+  service_kind: NativeServiceKind;
+  instance: string;
+  address: string;
+  port: number;
+  interface_name: string | null;
+  interface_index: number | null;
+  scope_id: number | null;
+  connect_address: string | null;
+  observed_age_ms: number;
+  cached: boolean;
+  warning: string | null;
+}
+
+export interface NativeDiscoveryReport {
+  advertisements: NativeAdvertisement[];
+  warnings: string[];
+  observation_max_age_ms: number;
+}
+
 export interface ScanResult {
   subnet: string | null;
   found: string[];
@@ -367,6 +389,7 @@ export interface ScanResult {
   /// service. They need the 6-digit code from the TV before they can connect.
   needs_pairing: string[];
   message: string;
+  native_discovery?: NativeDiscoveryReport;
 }
 
 export interface FindResult {
@@ -404,6 +427,7 @@ export interface FileTransferResult {
 }
 
 export interface AdbStatus {
+  backend?: "direct" | "subprocess";
   available: boolean;
   path: string | null;
   last_probe: string | null;

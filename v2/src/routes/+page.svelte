@@ -38,6 +38,7 @@
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
+  let adbBackend = $state<"direct" | "subprocess" | null>(null);
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -71,6 +72,8 @@
 
   // Triggers the install-platform-tools button rather than a generic error pane.
   let adbMissing = $state(false);
+  let backendUnavailable = $state(false);
+  const directUnavailable = $derived(adbBackend === "direct" && backendUnavailable);
   let installBusy = $state(false);
   let installMessage = $state("");
 
@@ -81,9 +84,13 @@
       // Structured probe first so we render the install pane on a clean
       // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
+      adbBackend = status.backend ?? null;
+      backendUnavailable = !status.available;
       if (!status.available) {
-        adbMissing = true;
+        adbMissing = adbBackend === "subprocess";
         devices = [];
+        scanMessage = "";
+        if (!adbMissing) error = status.last_probe ?? "The selected ADB backend is unavailable.";
         return;
       }
       adbMissing = false;
@@ -129,9 +136,9 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (!address) return;
+    if (directUnavailable || connectBusy || scanBusy || restartBusy || !address || nativePairNeedsPort) return;
     connectBusy = true;
-    connectMessage = "";
+    connectMessage = adbBackend === "direct" ? "Connecting… Look for Allow debugging on the TV and approve this app. The native driver uses its own identity, so it may need approval again." : "";
     connectDetail = "";
     try {
       const r = await api.connectDevice(address);
@@ -189,6 +196,14 @@
   /// Set after a successful pair: the connect box holds the paired host and
   /// is waiting for the separate connect port (#88).
   let pairNextStep = $state(false);
+  const nativePairNeedsPort = $derived(adbBackend !== "subprocess" && pairNextStep && !explicitConnectPort(connectAddress.trim()));
+
+  function explicitConnectPort(address: string): boolean {
+    const port = address.startsWith("[")
+      ? /^\[[^\]]+\]:(\d+)$/.exec(address)?.[1]
+      : /^[^:\s]+:(\d+)$/.exec(address)?.[1];
+    return port !== undefined && Number(port) > 0 && Number(port) <= 65535;
+  }
 
   /// The host part of a pairing address, without its port. The connect port
   /// is a different one, so only the host carries over.
@@ -203,8 +218,10 @@
   }
 
   async function scan() {
+    if (directUnavailable) return;
+    if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
-    scanMessage = "Scanning local network…";
+    scanMessage = adbBackend === "direct" ? "Scanning local network… If your TV asks to allow debugging, approve ATV Optimizer." : "Scanning local network…";
     try {
       const r = await api.scanNetwork();
       scanMessage = r.message;
@@ -402,6 +419,10 @@
   $effect(() => {
     const host = hostOf(pairAddress);
     const token = ++pairWarnToken;
+    if (adbBackend !== "subprocess") {
+      pairWarning = null;
+      return;
+    }
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
       pairWarning = null;
       return;
@@ -417,6 +438,7 @@
   });
 
   async function pair() {
+    if (directUnavailable) return;
     const address = pairAddress.trim();
     if (!address || pairPin.length !== 6) return;
     cancelPairWait(false);
@@ -441,6 +463,14 @@
         // The manual fallback is ready from the start; the connect port is a
         // different one from the pairing port, so only the host carries over.
         if (host) connectAddress = `${host}:`;
+        if (adbBackend !== "subprocess") {
+          pairStage = "manual";
+          pairMessage = r.message;
+          pairNextStep = true;
+          await tick();
+          focusConnectBox();
+          return;
+        }
         await refresh();
         // The refresh is another await the user can cancel during.
         if (requestToken !== pairWaitToken || !pairOpen) return;
@@ -613,6 +643,7 @@
       const r = await api.restartAdb();
       restartMessage = r.message;
       await refresh();
+      restartBusy = false;
       if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
@@ -722,7 +753,7 @@
   // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing) return;
+    if (adbMissing || directUnavailable) return;
     if (devices.some((d) => d.status === "device")) return;
     await scan();
   }
@@ -743,15 +774,18 @@
     <p class="muted small mono header-sub">
       {#if adbMissing}
         adb not found
+      {:else if error && adbBackend !== "subprocess"}
+        connection status unavailable
       {:else if devices.length === 0}
         no TV connected
       {:else}
         {devices.length} connected · {devices.filter((d) => d.status === "device").length} ready
       {/if}
     </p>
+    <p class="muted small" data-testid="adb-backend">{adbBackend === "direct" ? "Native Rust ADB · direct connection" : adbBackend === "subprocess" ? "Platform-tools ADB · host server" : "Checking ADB driver…"}</p>
   </div>
   <div class="header-actions">
-    <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
+    <button onclick={scan} disabled={scanBusy || adbMissing || directUnavailable || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title="Scan the local network for ADB-listening devices">
       <Icon name="wifi_tethering" size={16} /> {scanBusy ? "Scanning…" : "Scan LAN"}
     </button>
     <button onclick={refresh} disabled={loading} title="Re-read the list of connected devices">
@@ -771,12 +805,13 @@
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || restartBusy || !connectAddress.trim()}>
+  <button class="primary" onclick={connect} disabled={directUnavailable || connectBusy || scanBusy || restartBusy || !connectAddress.trim() || nativePairNeedsPort}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
-  <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
+  <button onclick={togglePair} disabled={adbMissing || directUnavailable} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
+  {#if adbBackend === "subprocess"}
   <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
@@ -795,7 +830,8 @@
       <span class="quit-checking">checking…</span>
     {/if}
   </label>
-  <button onclick={reportAll} disabled={reportBusy || adbMissing} title="Run a health report against every connected device">
+  {/if}
+  <button onclick={reportAll} disabled={reportBusy || adbMissing || directUnavailable} title="Run a health report against every connected device">
     {reportBusy ? "Reporting…" : "Report All"}
   </button>
   {#if pairNextStep}
@@ -837,9 +873,13 @@
       device with pairing code. Enter the IP:port and 6-digit PIN from that dialog.
     </p>
     <p class="pair-note small">
-      After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
-      appear, enter the IP:port from the main Wireless debugging screen and click
-      <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {#if adbBackend !== "subprocess"}
+        After pairing, enter the connect port from the main Wireless debugging screen, then use <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {:else}
+        After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
+        appear, enter the IP:port from the main Wireless debugging screen and click
+        <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {/if}
     </p>
     <div class="pair-row">
       <input
@@ -943,7 +983,7 @@
     {/if}
   </div>
 {:else if error}
-  <div class="error">Failed to list devices: {error}</div>
+  <div class="error" role="alert">{directUnavailable ? "Rust ADB unavailable" : "Failed to list devices"}: {error}</div>
 {:else if loading && devices.length === 0}
   <div class="muted">Looking for devices…</div>
 {:else if devices.length === 0}

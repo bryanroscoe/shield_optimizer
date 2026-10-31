@@ -202,6 +202,20 @@ impl LeasedAdb {
 
 #[async_trait]
 impl AdbDriver for LeasedAdb {
+    fn operation_leases(&self) -> Option<Arc<Leases>> {
+        self.inner.operation_leases()
+    }
+
+    fn uses_host_server(&self) -> bool {
+        self.inner.uses_host_server()
+    }
+
+    async fn discover_network(
+        &self,
+    ) -> super::driver::AdbResult<super::driver::NativeDiscoveryReport> {
+        self.inner.discover_network().await
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.inner.raw(args).await
     }
@@ -234,6 +248,24 @@ impl AdbDriver for LeasedAdb {
         self.inner.raw_bytes(args).await
     }
 
+    async fn device_binding(
+        &self,
+        serial: &str,
+    ) -> super::driver::AdbResult<super::driver::AdbDeviceBinding> {
+        self.inner.device_binding(serial).await
+    }
+
+    async fn open_bound_device_service(
+        &self,
+        binding: &super::driver::AdbDeviceBinding,
+        service: &str,
+        lifetime: Duration,
+    ) -> super::driver::AdbResult<super::driver::AdbOwnedService> {
+        self.inner
+            .open_bound_device_service(binding, service, lifetime)
+            .await
+    }
+
     async fn open_device_service(
         &self,
         serial: &str,
@@ -257,6 +289,12 @@ pub(crate) struct ClosedAdb;
 
 #[async_trait]
 impl AdbDriver for ClosedAdb {
+    async fn discover_network(
+        &self,
+    ) -> super::driver::AdbResult<super::driver::NativeDiscoveryReport> {
+        Err(AdbError::ShuttingDown)
+    }
+
     async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
         Err(AdbError::ShuttingDown)
     }
@@ -278,6 +316,22 @@ impl AdbDriver for ClosedAdb {
     }
 
     async fn raw_bytes(&self, _: &[&str]) -> AdbResult<Vec<u8>> {
+        Err(AdbError::ShuttingDown)
+    }
+
+    async fn device_binding(
+        &self,
+        _: &str,
+    ) -> super::driver::AdbResult<super::driver::AdbDeviceBinding> {
+        Err(AdbError::ShuttingDown)
+    }
+
+    async fn open_bound_device_service(
+        &self,
+        _: &super::driver::AdbDeviceBinding,
+        _: &str,
+        _: Duration,
+    ) -> super::driver::AdbResult<super::driver::AdbOwnedService> {
         Err(AdbError::ShuttingDown)
     }
 
@@ -417,6 +471,15 @@ mod tests {
 
     #[async_trait]
     impl AdbDriver for Recorder {
+        async fn discover_network(&self) -> AdbResult<super::super::NativeDiscoveryReport> {
+            self.note("discover_network");
+            Ok(super::super::NativeDiscoveryReport {
+                advertisements: Vec::new(),
+                warnings: Vec::new(),
+                observation_max_age_ms: 30_000,
+            })
+        }
+
         async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
             self.note("raw");
             Ok(empty())
@@ -441,6 +504,22 @@ mod tests {
             self.note("raw_bytes");
             Ok(Vec::new())
         }
+        async fn device_binding(&self, serial: &str) -> AdbResult<super::super::AdbDeviceBinding> {
+            self.note("device_binding");
+            Ok(super::super::AdbDeviceBinding {
+                serial: serial.into(),
+                hardware_id: "fixture".into(),
+            })
+        }
+        async fn open_bound_device_service(
+            &self,
+            _: &super::super::AdbDeviceBinding,
+            _: &str,
+            _: Duration,
+        ) -> AdbResult<super::super::AdbOwnedService> {
+            self.note("open_bound_device_service");
+            Err(AdbError::Transport("recorded".into()))
+        }
         async fn open_device_service(&self, _: &str, _: &str) -> AdbResult<Box<dyn AdbByteStream>> {
             self.note("open_device_service");
             Err(AdbError::Transport("recorded".into()))
@@ -457,12 +536,17 @@ mod tests {
 
     async fn call_every_method(driver: &dyn AdbDriver) {
         let path = Path::new("x");
+        let _ = driver.discover_network().await;
         let _ = driver.raw(&[]).await;
         let _ = driver.raw_transfer(&[]).await;
         let _ = driver.pull_limited("s", "r", path, 1).await;
         let _ = driver.shell("s", "c").await;
         let _ = driver.shell_bounded("s", "c").await;
         let _ = driver.raw_bytes(&[]).await;
+        let binding = driver.device_binding("s").await.unwrap();
+        let _ = driver
+            .open_bound_device_service(&binding, "svc", Duration::from_secs(1))
+            .await;
         let _ = driver.open_device_service("s", "svc").await;
         let _ = driver.spawn(&[]).await;
         let _ = driver.stop_server(Duration::from_secs(1)).await;
@@ -476,12 +560,15 @@ mod tests {
         assert_eq!(
             *recorder.0.lock().unwrap(),
             [
+                "discover_network",
                 "raw",
                 "raw_transfer",
                 "pull_limited",
                 "shell",
                 "shell_bounded",
                 "raw_bytes",
+                "device_binding",
+                "open_bound_device_service",
                 "open_device_service",
                 "spawn",
                 "stop_server",
@@ -492,6 +579,24 @@ mod tests {
     #[tokio::test]
     async fn a_closed_snapshot_refuses_every_spawning_method() {
         let closed = ClosedAdb;
+        let binding = super::super::AdbDeviceBinding {
+            serial: "s".into(),
+            hardware_id: "fixture".into(),
+        };
+        assert!(matches!(
+            closed.device_binding("s").await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert!(matches!(
+            closed
+                .open_bound_device_service(&binding, "svc", Duration::from_secs(1))
+                .await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert!(matches!(
+            closed.discover_network().await,
+            Err(AdbError::ShuttingDown)
+        ));
         let path = Path::new("x");
         assert!(matches!(closed.raw(&[]).await, Err(AdbError::ShuttingDown)));
         assert!(matches!(
