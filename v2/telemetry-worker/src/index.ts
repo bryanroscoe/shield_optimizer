@@ -42,7 +42,12 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
   if (events.length === 0) return error(400, "no_valid_events", { rejected });
 
   const now = new Date();
-  const quota = await consumeQuota(env, events, now);
+  let quota: Awaited<ReturnType<typeof consumeQuota>>;
+  try {
+    quota = await consumeQuota(env, events, now);
+  } catch {
+    return error(503, "storage_unavailable");
+  }
   if (!quota.ok) {
     return error(429, quota.scope === "install" ? "install_daily_cap" : "global_daily_cap", {}, {
       "retry-after": String(secondsUntilUtcMidnight(now)),
@@ -101,32 +106,41 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
   return error(404, "not_found");
 }
 
+async function route(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+
+  // Answer preflights without granting any origin. Native clients never send
+  // them; browsers get a response that does not allow the cross-origin call.
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: { allow: "GET, POST, PUT, OPTIONS" } });
+  }
+
+  if (path === "/v1/events") {
+    if (request.method !== "POST") return error(405, "method_not_allowed", {}, { allow: "POST, OPTIONS" });
+    return postEvents(request, env);
+  }
+
+  if (path === "/v1/support-tiers") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return error(405, "method_not_allowed", {}, { allow: "GET, HEAD, OPTIONS" });
+    }
+    return json(await readTiers(env), 200, { "cache-control": TIER_CACHE });
+  }
+
+  if (path.startsWith("/v1/admin/")) return admin(request, env, path);
+
+  return error(404, "not_found");
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname.replace(/\/+$/, "") || "/";
-
-    // Answer preflights without granting any origin. Native clients never send
-    // them; browsers get a response that does not allow the cross-origin call.
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: { allow: "GET, POST, PUT, OPTIONS" } });
+    try {
+      return await route(request, env);
+    } catch {
+      // No logging: the error could carry request data.
+      return error(500, "internal_error");
     }
-
-    if (path === "/v1/events") {
-      if (request.method !== "POST") return error(405, "method_not_allowed", {}, { allow: "POST, OPTIONS" });
-      return postEvents(request, env);
-    }
-
-    if (path === "/v1/support-tiers") {
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return error(405, "method_not_allowed", {}, { allow: "GET, HEAD, OPTIONS" });
-      }
-      return json(await readTiers(env), 200, { "cache-control": TIER_CACHE });
-    }
-
-    if (path.startsWith("/v1/admin/")) return admin(request, env, path);
-
-    return error(404, "not_found");
   },
 
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {

@@ -151,6 +151,19 @@ describe("POST /v1/events", () => {
     expect(await rowsFor(id)).toHaveLength(0);
   });
 
+  it("answers 503 when the quota store is unavailable", async () => {
+    await env.DB.prepare(
+      "CREATE TRIGGER fail_quota BEFORE INSERT ON rate_daily BEGIN SELECT RAISE(ABORT, 'simulated'); END",
+    ).run();
+    try {
+      const res = await post("/v1/events", { events: [event()] });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: "storage_unavailable" });
+    } finally {
+      await env.DB.prepare("DROP TRIGGER fail_quota").run();
+    }
+  });
+
   it("caps events globally per day", async () => {
     const day = utcDay(new Date());
     const before = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = '*'").bind(day).first<{ events: number }>();

@@ -81,7 +81,7 @@ The event shape is the schema 1 contract the apps implement.
 | `413` | Body over 64 KB. |
 | `415` | Not `application/json`. |
 | `429` | Daily cap reached (`install_daily_cap` or `global_daily_cap`). `Retry-After` is the seconds to the next UTC midnight. Clients should drop or hold the batch, not retry in a loop. |
-| `503` | Storage failed (`storage_unavailable`). The batch's quota is given back. |
+| `503` | D1 unavailable (`storage_unavailable`). If the batch had been admitted, its quota is given back. |
 
 Clients should treat anything other than `204` as "drop this batch". Telemetry must never block or
 slow the app.
