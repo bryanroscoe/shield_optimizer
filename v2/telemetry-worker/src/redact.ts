@@ -20,11 +20,17 @@ const RULES: Array<[RegExp, string]> = [
   [/(?<![\w:])\[?[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:%\w+)?\]?(?::\d{1,5})?(?![\w:])/gi, "[ip]"],
   // host:port (localhost:5037, my-tv:5555, tv.lan:40123)
   [/\b[a-z0-9][\w.-]*:\d{2,5}\b/gi, "[host]"],
+  // A quoted string with a path separator in it is a path, spaces and all
+  // ("C:\Users\Jane Smith\x.txt", '/home/Jane Smith/x').
+  [/"[^"\n]*[\\/][^"\n]*"|'[^'\n]*[\\/][^'\n]*'/g, "[path]"],
   // Windows drive paths, UNC paths, home-relative and absolute POSIX paths.
   [/\b[a-z]:[\\/][^\s"'<>|]*/gi, "[path]"],
   [/\\\\[^\s"'<>|]+/g, "[path]"],
   [/~[\\/][^\s"'<>|]*/g, "[path]"],
   [/(?<![\w.\]])\/[^\s"'<>|]+/g, "[path]"],
+  // Unquoted paths with spaces: words after a [path] that still contain a
+  // separator are the rest of it (C:\Users\Jane Smith\x.txt).
+  [/\[path\](?:\s+[^\s]*[\\/][^\s]*)+/g, "[path]"],
 ];
 
 // Long alphanumeric tokens with several digits: adb serials (0323220012345,
@@ -37,6 +43,9 @@ const SERIAL = /\b(?=[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d)[a-z0-9]{10,}\
 const SERIAL_UPPER = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,}\b/g;
 // Same shape in lower or mixed case (r5crabcdefz), at 10+ characters so short
 // words with a digit (android14) survive.
+// Serials and transport ids with separators (emulator-5554, ABCDEF-1234):
+// hyphen/underscore-joined tokens with a run of 4+ digits. Dates go too.
+const SERIAL_SEPARATED = /\b(?=[\w-]*\d{4})[a-z0-9]+(?:[-_][a-z0-9]+)+\b/gi;
 const SERIAL_ANYCASE = /\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{10,}\b/gi;
 
 // Package / class shaped tokens: com.example.app, java.lang.SecurityException,
@@ -68,6 +77,7 @@ export function redactMessage(input: string): string {
   text = text.replace(SERIAL, "[serial]");
   text = text.replace(SERIAL_UPPER, "[serial]");
   text = text.replace(SERIAL_ANYCASE, "[serial]");
+  text = text.replace(SERIAL_SEPARATED, "[serial]");
   const packages = text.match(PACKAGE) ?? [];
   if (packages.length >= PACKAGE_LIST_THRESHOLD) {
     text = text.replace(PACKAGE, "[package]");
@@ -94,7 +104,8 @@ export function redactShortField(input: string, opts: { serialShape?: boolean } 
     opts.serialShape !== false &&
     ((/^[a-z0-9]{10,}$/i.test(cleaned) && (cleaned.match(/\d/g) ?? []).length >= 4) ||
       new RegExp(`^${SERIAL_UPPER.source}$`).test(cleaned) ||
-      new RegExp(`^${SERIAL_ANYCASE.source}$`, "i").test(cleaned))
+      new RegExp(`^${SERIAL_ANYCASE.source}$`, "i").test(cleaned) ||
+      new RegExp(`^${SERIAL_SEPARATED.source}$`, "i").test(cleaned))
   ) {
     return "[redacted]";
   }

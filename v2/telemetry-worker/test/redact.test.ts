@@ -23,6 +23,12 @@ describe("redactMessage", () => {
     ["home path", "wrote ~/snapshots/a.json", "wrote [path]"],
     ["Windows path", "missing C:\\Users\\Bryan\\AppData\\adb.exe", "missing [path]"],
     ["UNC path", "share \\\\NAS\\backups\\tv", "share [path]"],
+    ["quoted Windows path with spaces", 'open "C:\\Users\\Jane Smith\\private.txt" failed', "open [path] failed"],
+    ["quoted POSIX path with spaces", "read '/home/Jane Smith/x.json' failed", "read [path] failed"],
+    ["unquoted Windows path with spaces", "open C:\\Users\\Jane Smith\\private.txt failed", "open [path] failed"],
+    ["unquoted POSIX path with spaces", "open /Users/Jane Smith/Library/x failed", "open [path] failed"],
+    ["emulator transport id", "device emulator-5554 offline", "device [serial] offline"],
+    ["hyphenated serial", "device ABCDEF-1234 offline", "device [serial] offline"],
     ["URL", "GET https://example.com/a?b=c failed", "GET [url] failed"],
   ];
   for (const [name, input, expected] of cases) {
