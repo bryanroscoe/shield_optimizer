@@ -133,14 +133,14 @@ describe("retention cron", () => {
       `INSERT INTO events (received_at, client_ts, install_id, app, app_version, os, kind)
        VALUES ('2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', ?1, 'desktop', '1.0.0', 'linux', 'device_seen')`,
     ).bind(id).run();
-    await env.DB.prepare("INSERT INTO rate_install_daily (day, install_id, events) VALUES ('2000-01-01', ?1, 5)").bind(id).run();
+    await env.DB.prepare("INSERT INTO rate_daily (day, key, events) VALUES ('2000-01-01', ?1, 5)").bind(id).run();
 
     await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "17 3 * * *" }), env);
 
     const left = await env.DB.prepare("SELECT received_at FROM events WHERE install_id = ?1").bind(id).all();
     expect(left.results).toHaveLength(1);
     expect((left.results[0] as { received_at: string }).received_at.startsWith("2000")).toBe(false);
-    const rate = await env.DB.prepare("SELECT COUNT(*) AS n FROM rate_install_daily WHERE day = '2000-01-01'").first();
+    const rate = await env.DB.prepare("SELECT COUNT(*) AS n FROM rate_daily WHERE day = '2000-01-01'").first();
     expect(rate).toEqual({ n: 0 });
     const agg = await env.DB.prepare("SELECT COUNT(*) AS n FROM agg_device_daily WHERE manufacturer = 'OldCo'").first();
     expect(agg).toEqual({ n: 1 });

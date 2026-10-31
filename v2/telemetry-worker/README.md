@@ -61,7 +61,7 @@ How that is enforced server-side, so a client bug cannot break it:
 - Rate-limit counters are deleted after two days.
 - To honour a deletion request, the user can read their install id from the app; delete it with
   `DELETE FROM events WHERE install_id = ?` and the same on `agg_device_installs` and
-  `rate_install_daily`. The per-day counts cannot be attributed to an install.
+  `rate_daily` (`key = <install id>`). The per-day counts cannot be attributed to an install.
 
 ## API
 
@@ -195,7 +195,7 @@ Cloudflare's free plan (check the current numbers on the
 
 - Workers: 100,000 requests a day, 10 ms CPU per request. A 50-event batch validates well inside that.
 - D1: 5 million rows read and 100,000 rows written a day, 5 GB storage, 50 queries per Worker call.
-  Each request runs at most seven queries however many events it carries (all writes go through
+  Each request runs at most six queries however many events it carries (all writes go through
   `json_each` over one JSON parameter), and an accepted event costs roughly three to four row
   writes once aggregates and indexes are counted. Over the limit, D1 refuses queries until the
   daily reset; the apps just lose that day's telemetry.
@@ -208,18 +208,20 @@ Abuse protection:
 - Global cap: `GLOBAL_DAILY_EVENTS` (20,000) events per UTC day across everyone, which keeps a
   flood of made-up install ids inside the D1 write quota.
 
-Both caps are counters in D1 (`rate_install_daily`, `rate_global_daily`). Each request first
-reads them (one query, no writes). If either cap is already reached the request gets `429` and
-nothing is written, so retry loops and floods of made-up install ids cost row reads (5 million a
-day) rather than the much smaller write quota. Otherwise the counters are incremented with one
-upsert each before anything is stored; the batch that crosses a cap is refused as well.
-Concurrent requests can overshoot a cap by at most their own size.
+Both caps are counters in one D1 table, `rate_daily` (a row per install id per day, plus key `*`
+for the global total). Admission and increment are a single statement: it checks every counter
+the batch would touch against the state before the statement and either bumps them all or none.
+D1 runs one write at a time, so concurrent requests cannot both slip under a cap, and a batch
+that would cross a cap is refused whole. A refused request writes nothing, so retry loops and
+floods of made-up install ids cost row reads (5 million a day) rather than the much smaller
+write quota.
 
 Why D1 and not the alternatives: KV's free tier allows only 1,000 writes a day, far too few to
 count requests; the Workers Rate Limiting binding only supports 10- and 60-second windows, counts
 per Cloudflare location, and the useful key for it against made-up install ids would be the
 client IP, which this Worker does not use. D1 counters are global, consistent, work for daily
-windows, and cost two row writes per accepted request and none per refused one.
+windows, and cost one row write per install id plus one for the global row per accepted request,
+and none per refused one.
 
 ## Development
 

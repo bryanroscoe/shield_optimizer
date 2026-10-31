@@ -79,17 +79,14 @@ CREATE TABLE agg_error_daily (
   PRIMARY KEY (day, manufacturer, model, device, profile, app, app_version, error_code)
 ) WITHOUT ROWID;
 
--- Abuse caps. Purged by the cron trigger after a couple of days.
-CREATE TABLE rate_install_daily (
-  day        TEXT    NOT NULL,
-  install_id TEXT    NOT NULL,
-  events     INTEGER NOT NULL,
-  PRIMARY KEY (day, install_id)
-) WITHOUT ROWID;
-
-CREATE TABLE rate_global_daily (
-  day    TEXT    PRIMARY KEY,
-  events INTEGER NOT NULL
+-- Abuse caps: one row per install id per UTC day, plus key '*' for the global
+-- total. Kept in one table so admission and increment are a single statement.
+-- Purged by the cron trigger after a couple of days.
+CREATE TABLE rate_daily (
+  day    TEXT    NOT NULL,
+  key    TEXT    NOT NULL,
+  events INTEGER NOT NULL,
+  PRIMARY KEY (day, key)
 ) WITHOUT ROWID;
 
 -- Served by GET /v1/support-tiers, replaced by PUT /v1/admin/support-tiers.

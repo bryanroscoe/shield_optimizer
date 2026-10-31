@@ -100,24 +100,41 @@ describe("POST /v1/events", () => {
     expect((await post("/v1/events", { events: [event()] })).status).toBe(204);
   });
 
-  it("writes nothing for requests refused by a cap that is already reached", async () => {
+  it("writes nothing for requests refused by a cap", async () => {
     const day = utcDay(new Date());
     const id = newInstallId();
-    await env.DB.prepare("INSERT INTO rate_install_daily (day, install_id, events) VALUES (?1, ?2, 60)").bind(day, id).run();
-    const globalBefore = await env.DB.prepare("SELECT events FROM rate_global_daily WHERE day = ?1").bind(day).first();
+    const counter = (key: string) =>
+      env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2").bind(day, key).first();
+    await env.DB.prepare("INSERT INTO rate_daily (day, key, events) VALUES (?1, ?2, 55)").bind(day, id).run();
+    const globalBefore = await counter("*");
     for (let i = 0; i < 3; i++) {
-      expect((await post("/v1/events", { events: [event({ install_id: id })] })).status).toBe(429);
+      const res = await post("/v1/events", { events: Array.from({ length: 6 }, () => event({ install_id: id })) });
+      expect(res.status).toBe(429);
     }
-    const install = await env.DB.prepare("SELECT events FROM rate_install_daily WHERE day = ?1 AND install_id = ?2").bind(day, id).first();
-    expect(install).toEqual({ events: 60 });
-    const globalAfter = await env.DB.prepare("SELECT events FROM rate_global_daily WHERE day = ?1").bind(day).first();
-    expect(globalAfter).toEqual(globalBefore);
+    expect(await counter(id)).toEqual({ events: 55 });
+    expect(await counter("*")).toEqual(globalBefore);
+    // A batch that still fits under the cap is admitted.
+    expect((await post("/v1/events", { events: Array.from({ length: 5 }, () => event({ install_id: id })) })).status).toBe(204);
+    expect(await counter(id)).toEqual({ events: 60 });
+  });
+
+  it("admits concurrent requests only up to the cap", async () => {
+    const id = newInstallId();
+    const results = await Promise.all(
+      Array.from({ length: 10 }, () => post("/v1/events", { events: Array.from({ length: 10 }, () => event({ install_id: id })) })),
+    );
+    expect(results.filter((r) => r.status === 204)).toHaveLength(6);
+    expect(results.filter((r) => r.status === 429)).toHaveLength(4);
+    const row = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2").bind(utcDay(new Date()), id).first();
+    expect(row).toEqual({ events: 60 });
+    expect(await rowsFor(id)).toHaveLength(60);
   });
 
   it("caps events globally per day", async () => {
     const day = utcDay(new Date());
+    const before = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = '*'").bind(day).first<{ events: number }>();
     await env.DB.prepare(
-      "INSERT INTO rate_global_daily (day, events) VALUES (?1, 1000) ON CONFLICT (day) DO UPDATE SET events = 1000",
+      "INSERT INTO rate_daily (day, key, events) VALUES (?1, '*', 1000) ON CONFLICT (day, key) DO UPDATE SET events = 1000",
     ).bind(day).run();
     try {
       const fresh = newInstallId();
@@ -125,10 +142,10 @@ describe("POST /v1/events", () => {
       expect(res.status).toBe(429);
       expect(await res.json()).toEqual({ error: "global_daily_cap" });
       // A new install id hitting a full global cap costs no writes.
-      expect(await env.DB.prepare("SELECT events FROM rate_global_daily WHERE day = ?1").bind(day).first()).toEqual({ events: 1000 });
-      expect(await env.DB.prepare("SELECT 1 FROM rate_install_daily WHERE install_id = ?1").bind(fresh).first()).toBeNull();
+      expect(await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = '*'").bind(day).first()).toEqual({ events: 1000 });
+      expect(await env.DB.prepare("SELECT 1 FROM rate_daily WHERE key = ?1").bind(fresh).first()).toBeNull();
     } finally {
-      await env.DB.prepare("DELETE FROM rate_global_daily WHERE day = ?1").bind(day).run();
+      await env.DB.prepare("UPDATE rate_daily SET events = ?2 WHERE day = ?1 AND key = '*'").bind(day, before?.events ?? 0).run();
     }
   });
 

@@ -3,56 +3,53 @@ import { intVar } from "./env";
 import type { CleanEvent } from "./validate";
 
 // Every write uses json_each over one bound JSON parameter, so a 50-event batch
-// costs at most seven D1 queries. That matters on the free plan, which caps a
+// costs at most six D1 queries. That matters on the free plan, which caps a
 // Worker invocation at 50 D1 queries and a statement at 100 bound parameters.
 
 export type QuotaResult = { ok: true } | { ok: false; scope: "install" | "global" };
+
+export const GLOBAL_KEY = "*";
 
 export function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-// Daily counters in D1. A cheap read comes first, so once either cap is reached
-// further requests are refused without writing anything: retry loops and floods
-// of made-up install ids cost row reads, not the much smaller write quota.
-// Only requests that pass the read increment the counters; the batch that
-// crosses a cap is refused too, and concurrent requests can overshoot a cap by
-// at most their own size.
+// Daily caps as counters in D1 (`rate_daily`: one row per install id, plus '*'
+// for the global total). Admission and increment are one statement: its
+// uncorrelated NOT EXISTS checks every counter the batch would touch against
+// the state before the statement, and D1 runs one write at a time, so either
+// every counter moves or none does, and concurrent requests cannot both slip
+// under a cap. A refused request writes nothing; retry loops and floods of
+// made-up install ids cost row reads, not the much smaller write quota.
 export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): Promise<QuotaResult> {
   const day = utcDay(now);
   const installCap = intVar(env.PER_INSTALL_DAILY_EVENTS, 500);
   const globalCap = intVar(env.GLOBAL_DAILY_EVENTS, 20000);
   const perInstall = new Map<string, number>();
   for (const e of events) perInstall.set(e.install_id, (perInstall.get(e.install_id) ?? 0) + 1);
-  const rows = [...perInstall].map(([install_id, n]) => ({ install_id, n }));
+  const rows = [...perInstall].map(([key, n]) => ({ key, n, cap: installCap }));
+  rows.push({ key: GLOBAL_KEY, n: events.length, cap: globalCap });
 
-  const current = await env.DB.prepare(
-    `SELECT (SELECT events FROM rate_global_daily WHERE day = ?1) AS global,
-            (SELECT MAX(events) FROM rate_install_daily
-              WHERE day = ?1 AND install_id IN (SELECT json_extract(value, '$.install_id') FROM json_each(?2))) AS install`,
+  const admitted = await env.DB.prepare(
+    `INSERT INTO rate_daily (day, key, events)
+     SELECT ?1, json_extract(value, '$.key'), json_extract(value, '$.n') FROM json_each(?2)
+     WHERE NOT EXISTS (
+       SELECT 1 FROM json_each(?2) AS j
+       LEFT JOIN rate_daily AS r ON r.day = ?1 AND r.key = json_extract(j.value, '$.key')
+       WHERE COALESCE(r.events, 0) + json_extract(j.value, '$.n') > json_extract(j.value, '$.cap')
+     )
+     ON CONFLICT (day, key) DO UPDATE SET events = events + excluded.events
+     RETURNING key`,
   )
     .bind(day, JSON.stringify(rows))
-    .first<{ global: number | null; install: number | null }>();
-  if ((current?.global ?? 0) >= globalCap) return { ok: false, scope: "global" };
-  if ((current?.install ?? 0) >= installCap) return { ok: false, scope: "install" };
+    .all();
+  if (admitted.results.length === rows.length) return { ok: true };
 
-  const [installRes, globalRes] = await env.DB.batch<{ events: number }>([
-    env.DB.prepare(
-      `INSERT INTO rate_install_daily (day, install_id, events)
-       SELECT ?1, json_extract(value, '$.install_id'), json_extract(value, '$.n') FROM json_each(?2) WHERE true
-       ON CONFLICT (day, install_id) DO UPDATE SET events = events + excluded.events
-       RETURNING events`,
-    ).bind(day, JSON.stringify(rows)),
-    env.DB.prepare(
-      `INSERT INTO rate_global_daily (day, events) VALUES (?1, ?2)
-       ON CONFLICT (day) DO UPDATE SET events = events + excluded.events
-       RETURNING events`,
-    ).bind(day, events.length),
-  ]);
-
-  if ((globalRes?.results ?? []).some((r) => r.events > globalCap)) return { ok: false, scope: "global" };
-  if ((installRes?.results ?? []).some((r) => r.events > installCap)) return { ok: false, scope: "install" };
-  return { ok: true };
+  // Refused: a read to say which cap, for the response body.
+  const global = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2")
+    .bind(day, GLOBAL_KEY)
+    .first<{ events: number }>();
+  return { ok: false, scope: (global?.events ?? 0) + events.length > globalCap ? "global" : "install" };
 }
 
 interface Dims {
@@ -177,13 +174,9 @@ export async function purgeExpired(env: Env, now: Date): Promise<{ events: numbe
   const days = intVar(env.RAW_RETENTION_DAYS, 90);
   const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString();
   const rateCutoff = utcDay(new Date(now.getTime() - 2 * 86_400_000));
-  const [ev, ri, rg] = await env.DB.batch([
+  const [ev, rate] = await env.DB.batch([
     env.DB.prepare("DELETE FROM events WHERE received_at < ?1").bind(cutoff),
-    env.DB.prepare("DELETE FROM rate_install_daily WHERE day < ?1").bind(rateCutoff),
-    env.DB.prepare("DELETE FROM rate_global_daily WHERE day < ?1").bind(rateCutoff),
+    env.DB.prepare("DELETE FROM rate_daily WHERE day < ?1").bind(rateCutoff),
   ]);
-  return {
-    events: ev?.meta.changes ?? 0,
-    rate: (ri?.meta.changes ?? 0) + (rg?.meta.changes ?? 0),
-  };
+  return { events: ev?.meta.changes ?? 0, rate: rate?.meta.changes ?? 0 };
 }
