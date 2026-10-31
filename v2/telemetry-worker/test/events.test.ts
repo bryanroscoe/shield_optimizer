@@ -201,10 +201,14 @@ describe("POST /v1/events", () => {
         event({ install_id: id, device, kind: "action_result", action: "optimize", ok: true }),
         event({ install_id: id, device, kind: "action_result", action: "optimize", ok: false, error_code: "pm_denied" }),
         event({ install_id: id, device, kind: "error", error_code: "pm_denied" }),
+        event({ install_id: id, device, kind: "device_seen", ok: false, error_code: "stale_code" }),
+        event({ install_id: id, device, kind: "action_result", action: "optimize", ok: true, error_code: "stale_code" }),
       ],
     });
+    const stale = await env.DB.prepare("SELECT 1 FROM agg_error_daily WHERE error_code = 'stale_code'").first();
+    expect(stale).toBeNull();
     const daily = await env.DB.prepare("SELECT * FROM agg_device_daily WHERE manufacturer = 'AggTest'").first();
-    expect(daily).toMatchObject({ events: 4, seen: 1, action_ok: 1, action_fail: 1, errors: 1 });
+    expect(daily).toMatchObject({ events: 6, seen: 2, action_ok: 2, action_fail: 1, errors: 1 });
     const err = await env.DB.prepare("SELECT count FROM agg_error_daily WHERE manufacturer = 'AggTest' AND error_code = 'pm_denied'").first();
     expect(err).toEqual({ count: 2 });
     const installs = await env.DB.prepare("SELECT COUNT(*) AS n FROM agg_device_installs WHERE manufacturer = 'AggTest'").first();

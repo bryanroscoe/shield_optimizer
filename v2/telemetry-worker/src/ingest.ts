@@ -145,7 +145,7 @@ export async function storeEvents(
     if (e.kind === "error") d.errors += 1;
     daily.set(key, d);
     installs.set(`${key}|${e.install_id}`, { ...dims, install_id: e.install_id });
-    if (e.error_code && (e.kind === "error" || e.ok === false)) {
+    if (e.error_code && (e.kind === "error" || (e.kind === "action_result" && e.ok === false))) {
       const ekey = `${key}|${e.error_code}`;
       const x = errors.get(ekey) ?? { ...dims, error_code: e.error_code, count: 0 };
       x.count += 1;

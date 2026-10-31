@@ -177,13 +177,20 @@ export function validateEvent(raw: unknown): Result<CleanEvent> {
   switch (kind) {
     case "device_seen":
       if (!device) return { ok: false, reason: "device_seen_without_device" };
+      // Fields that only mean something on other kinds are dropped, so a
+      // stale error_code cannot show up in the error report.
+      action = null;
+      ok = null;
+      errorCode = null;
       break;
     case "action_result":
       if (!action) return { ok: false, reason: "action_result_without_action" };
       if (ok === null) return { ok: false, reason: "action_result_without_ok" };
+      if (ok) errorCode = null;
       break;
     case "error":
       if (!errorCode) return { ok: false, reason: "error_without_error_code" };
+      ok = null;
       break;
   }
 
