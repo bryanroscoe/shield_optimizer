@@ -25,6 +25,10 @@
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
+  import { sendTelemetry } from "../lib/api";
+  import { recordAction } from "../../../shared/telemetry";
+  import { destructiveWarning } from "../../../shared/support";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
@@ -482,6 +486,9 @@
     };
   }
 
+  /// The last run's failures, kept on screen with a code and Copy details.
+  let runFailure = $state<{ title: string; error: unknown } | null>(null);
+
   async function runApply() {
     const intent = applyIntent;
     applyIntent = null;
@@ -506,8 +513,11 @@
     applyDone = 0;
     applyCurrent = items[0].item.entry.name;
     toast = "";
+    runFailure = null;
 
     const failures: string[] = [];
+    /// The first failure's own words: what Copy details carries.
+    let firstFailure: unknown = null;
     let completed = 0;
     let entitlementLost = false;
     let canceled = false;
@@ -576,8 +586,10 @@
             canceled = true;
             break;
           }
-          if (!result?.ok) failures.push(item.entry.name);
-          else completed += 1;
+          if (!result?.ok) {
+            failures.push(item.entry.name);
+            firstFailure ??= result?.message || `${item.entry.name} failed`;
+          } else completed += 1;
           if (cancelRequested) {
             canceled = true;
             break;
@@ -593,6 +605,7 @@
             break;
           }
           failures.push(item.entry.name);
+          firstFailure ??= e;
         }
       }
       if (!runCurrent() && !entitlementLost) canceled = true;
@@ -609,10 +622,15 @@
           if (!runCurrent() || cancelRequested) {
             canceled = true;
           }
-          if (!performance.ok) failures.push("animation settings");
-        } catch {
-          if (runCurrent()) failures.push("animation settings");
-          else canceled = true;
+          if (!performance.ok) {
+            failures.push("animation settings");
+            firstFailure ??= performance.message || "Animation settings failed";
+          }
+        } catch (e) {
+          if (runCurrent()) {
+            failures.push("animation settings");
+            firstFailure ??= e;
+          } else canceled = true;
         }
       }
 
@@ -635,6 +653,17 @@
           `${completed} updated; ${failures.length} failed (${failures.slice(0, 3).join(", ")}${failures.length > 3 ? ", …" : ""}).`,
           "info",
         );
+        runFailure = {
+          title: `${failures.length} of ${items.length} change${items.length === 1 ? "" : "s"} failed`,
+          error: firstFailure ?? "Some changes didn't apply.",
+        };
+      }
+      // One summary per finished Optimize run, on top of the per-app results
+      // the api wrapper already reported. Counts only, never app names.
+      if (runMode === "optimize" && !canceled && !entitlementLost && !safetyStopped) {
+        recordAction(sendTelemetry, "optimize", serial, failures.length === 0
+          ? { ok: true }
+          : { ok: false, code: "partial_failure", message: `${failures.length} of ${items.length} changes failed` });
       }
       if (!safetyStopped) await loadPlan(runMode);
     } finally {
@@ -688,12 +717,21 @@
     </div>
   {/if}
 
+  {#if runFailure && !applying}
+    <ErrorNotice
+      error={runFailure.error}
+      title={runFailure.title}
+      action="Optimize run"
+      onDismiss={() => (runFailure = null)}
+    />
+  {/if}
+
   {#if loading}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Building plan…</span>
     </div>
   {:else if error}
-    <p class="error">{error}</p>
+    <ErrorNotice {error} title="Couldn't build the plan" action="Prepare optimize" />
     <button class="primary" onclick={() => loadPlan(mode)}>Retry</button>
     <div class="spacer"></div>
   {:else if locked}
@@ -934,6 +972,7 @@
       ? `Apply ${applyIntent.items.length} selected change${applyIntent.items.length === 1 ? "" : "s"}?`
       : `Re-enable ${applyIntent?.items.length ?? 0} app${applyIntent?.items.length === 1 ? "" : "s"}?`}
     warning={applyIntent?.warning ?? ""}
+    supportWarning={applyIntent?.mode === "optimize" ? destructiveWarning(session.support) : null}
     message={applyIntent?.message ?? ""}
     confirmLabel={applyIntent?.mode === "optimize" ? "Apply" : "Restore"}
     onConfirm={runApply}

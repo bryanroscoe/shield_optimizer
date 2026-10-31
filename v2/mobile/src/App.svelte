@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import { router, initBackHandler, type Screen } from "./lib/router.svelte";
   import { session } from "./lib/session.svelte";
   import Onboarding from "./screens/Onboarding.svelte";
@@ -18,6 +19,7 @@
   import Backups from "./screens/Backups.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
   import Toast from "./components/Toast.svelte";
+  import TelemetryNotice from "./components/TelemetryNotice.svelte";
 
   function navigate(screen: Screen) {
     router.navigate(screen);
@@ -50,7 +52,19 @@
     };
     document.addEventListener("visibilitychange", probe);
     const heartbeat = setInterval(probe, LIVENESS_HEARTBEAT_MS);
+    // Fetched support tiers landed after the TV was profiled: re-read it so
+    // the badge isn't stale. Absent outside Tauri (tests, the demo).
+    let stopTierWatch: (() => void) | null = null;
+    let unmounted = false;
+    const hasEvents = "__TAURI_EVENT_PLUGIN_INTERNALS__" in window;
+    if (hasEvents) listen("support-tiers-updated", () => {
+      if (session.connectedDevice) void session.refreshDevices().catch(() => {});
+    })
+      .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
+      .catch(() => {});
     return () => {
+      unmounted = true;
+      stopTierWatch?.();
       cleanupBack();
       detachWatch();
       clearInterval(heartbeat);
@@ -75,6 +89,11 @@
 
 {#if router.current !== "onboarding" && router.current !== "addtv"}
   <ConnectionBanner onSwitch={() => navigate("devices")} />
+{/if}
+<!-- Waits until the user is past onboarding and the saved-TV picker, so
+     it never sits over the buttons that get them connected. -->
+{#if router.current !== "onboarding" && router.current !== "addtv"}
+  <TelemetryNotice onOpenSettings={() => navigate("more")} />
 {/if}
 {#if session.identityNote}
   <Toast message={session.identityNote} type="info" />

@@ -195,6 +195,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Optional repo variable: the anonymous-report endpoint. Unset or
+          # empty builds an app that never sends reports.
+          ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
         with:
           projectPath: v2
           tagName: ${{ needs.notes.outputs.tag }}

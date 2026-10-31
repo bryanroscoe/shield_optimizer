@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "updated": "2026-10-31",
+  "rules": [
+    {
+      "match": { "manufacturer": "NVIDIA", "model_prefix": "SHIELD" },
+      "tier": "fully_supported",
+      "note": "NVIDIA SHIELD is the device this app is built and tested on."
+    },
+    {
+      "match": { "manufacturer": "Amazon", "model_prefix": "AFT" },
+      "tier": "not_supported",
+      "note": "Fire OS blocks the changes this app makes."
+    },
+    {
+      "match": { "manufacturer": "TCL" },
+      "tier": "beta",
+      "note": "TCL Google TV has had limited testing so far."
+    }
+  ]
+}

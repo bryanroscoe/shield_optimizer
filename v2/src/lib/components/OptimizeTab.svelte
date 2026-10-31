@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
-  import { api } from "$lib/api";
+  import { api, send } from "$lib/api";
+  import ErrorNotice from "$lib/components/ErrorNotice.svelte";
+  import { destructiveWarning, type SupportInfo } from "../../../shared/support";
+  import { recordAction } from "../../../shared/telemetry";
   import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage, Safety } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
   import type { AppDetailInputs } from "$lib/app-details";
@@ -33,6 +36,7 @@
     onRunStarted,
     onStatesChanged,
     onPlanLoaded,
+    support = null,
   }: {
     serial: string;
     deviceType: DeviceType;
@@ -50,7 +54,13 @@
     onRunStarted: () => void;
     onStatesChanged: () => void;
     onPlanLoaded: () => void;
+    /// The TV's support tier: adds a warning before an Optimize run on an
+    /// unsupported TV. Never applied to Restore.
+    support?: SupportInfo | null;
   } = $props();
+
+  /// The first failure of the last run, shown through ErrorNotice.
+  let runFailure = $state<{ name: string; message: string } | null>(null);
 
   let optimizeMode = $state<OptimizeMode>("optimize");
   let optimizePlan = $state<OptimizePlan | null>(null);
@@ -355,9 +365,10 @@
         return `${item.action.toUpperCase()} ${item.name} (${item.package})\nSafety: ${verdictLabel(item.verdict!)}\nReason: ${item.verdict!.reason}${note ? `\n${note}` : ""}`;
       })
       .join("\n\n");
-    const confirmation = removalDetails
+    const tierWarning = mode === "optimize" ? destructiveWarning(support) : null;
+    const confirmation = (removalDetails
       ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
-      : `Run ${label} on ${selected.length} package(s)?`;
+      : `Run ${label} on ${selected.length} package(s)?`) + (tierWarning ? `\n\n${tierWarning}` : "");
     if (!confirm(confirmation) || !contextIsCurrent(context) || optimizePlan !== plan || optimizeMode !== mode) return;
 
     const request = ++runRequest;
@@ -365,6 +376,7 @@
     optimizeAbort = false;
     optimizeProgress = {};
     optimizeFailureMessages = {};
+    runFailure = null;
     onRunStarted();
 
     let done = 0, skipped = 0, failed = 0;
@@ -434,6 +446,17 @@
       : optimizeAbort
       ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
       : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
+    const firstFailed = runItems.find((item) => optimizeProgress[item.package] === "failed");
+    runFailure = firstFailed
+      ? { name: firstFailed.name, message: optimizeFailureMessages[firstFailed.package] ?? "failed" }
+      : null;
+    // The per-package calls were reported one by one; this is the run as a
+    // whole. Counts only, never the package names.
+    if (mode === "optimize" && done + failed > 0) {
+      recordAction(send, "optimize", context.serial, failed > 0
+        ? { ok: false, code: "partial_failure", message: `${failed} of ${done + failed} changes failed` }
+        : { ok: true });
+    }
     // Keep the App List in parity — it cached states before this run.
     onStatesChanged();
   }
@@ -833,6 +856,9 @@
     </div>
     {#if optimizeSummary}
       <p class="muted small mono action-message">{optimizeSummary}</p>
+    {/if}
+    {#if runFailure && !optimizeRunning}
+      <ErrorNotice error={runFailure.message} action={`${runFailure.name}`} {support} />
     {/if}
   {/if}
 </div>
