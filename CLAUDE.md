@@ -61,6 +61,19 @@ These are load-bearing — break them and the safety story falls over.
 - **Tauri commands return `Result<T, String>`.** The error type is serialized to the frontend. Convert with `.map_err(|e| e.to_string())`.
 - **Frontend is Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) on SvelteKit in SPA mode (`adapter-static`). No legacy stores.
 
+## CI usage policy
+
+- Keep automatic CI enabled by default for this public repository, including
+  draft PRs and pushes to `main`. Draft status does not pause CI.
+- Agents may use `skip-ci` when requested or deliberately batching intermediate
+  work. Apply it before pushing, record the reason and local evidence, and remove
+  it when finished. Do not apply it to every PR by default.
+- Removing `skip-ci` triggers applicable checks on the current revision. Verify
+  they actually ran and passed before merge; skipped jobs and local-only checks
+  are not cross-platform CI evidence. Record explicit owner-approved exceptions.
+- Superseded runs are cancelled. Manual dispatch and release jobs remain available.
+- See [CONTRIBUTING.md](CONTRIBUTING.md#ci-usage) for commands and behavior.
+
 ## Local validation before claiming done
 
 CI runs all of this across ubuntu-22.04 / macos-latest / windows-latest plus a frontend type-check job. Don't claim green based on one OS.
