@@ -15,9 +15,10 @@ Required for our agent-authored PRs; optional for external contributors. Existin
 
 ### CI readiness
 
-Keep this PR draft during implementation and review fixes. Before merge, remove
-`skip-ci`, mark ready, and verify that the applicable suites ran and passed on the
-latest revision. Skipped checks are not test evidence. See `CONTRIBUTING.md`.
+CI runs by default, including on drafts. If deliberately paused with `skip-ci`,
+record the reason and remove the label before merge. Verify that the applicable
+suites ran and passed on the latest revision; skipped checks are not evidence.
+See `CONTRIBUTING.md`.
 
 ### Agent evidence checklist
 

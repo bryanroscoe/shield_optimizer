@@ -4,43 +4,34 @@ Keep PR summaries focused on the problem and resulting behavior. Follow the repo
 
 ## CI usage
 
-Open agent-authored PRs as **drafts** (`gh pr create --draft`) and keep them draft
-while implementing, reviewing and running focused local checks. Push finished
-milestones as usual; draft PRs allocate no runners in the three test workflows.
-Mark a PR ready only when it is intended for merge and local validation is recorded.
+This public repository runs its applicable full test suites automatically on PR
+opens/updates (including drafts) and pushes to `main`. Keep normal CI enabled by
+default. Draft status is a review signal, not a CI pause. Existing test coverage,
+OS matrices, and path/base filters remain intact.
 
-| Action | Test workflow behavior |
-| --- | --- |
-| Open or update a draft PR | Skip all jobs; no runner minutes |
-| Mark ready, open/reopen a ready PR, or push to a ready PR | Run the applicable full suites, subject to existing path/base filters |
-| Add `skip-ci` | Skip jobs and cancel an older run for that PR/workflow |
-| Remove `skip-ci` from a ready PR | Run the applicable suites for the current revision |
-| Convert to draft or close | Skip jobs and cancel an older run for that PR/workflow |
-| Change an unrelated label | No tests and no cancellation of a useful run |
-| Push/merge to `main` | No duplicate test run |
-| Manually dispatch a test workflow | Run its full suite on the selected ref, even if a PR is draft or labeled `skip-ci` |
+When requested, or when deliberately batching intermediate agent work, pause PR
+CI with `gh pr edit <number> --add-label skip-ci` **before** pushing. Record why
+it is paused and any local validation in the PR evidence. Remove the label with
+`gh pr edit <number> --remove-label skip-ci` when finished; this starts applicable
+CI for the current revision, including on a draft PR. Do not label every agent PR
+by default, and do not confuse local checks with cross-platform validation.
 
-Use `skip-ci` to pause CI during a batch of review fixes or while recording local
-validation: `gh pr edit <number> --add-label skip-ci`. Remove it when finished with
-`gh pr edit <number> --remove-label skip-ci`. Prefer draft status for ordinary
-work in progress. If a ready PR needs several fixes, pause **before** pushing.
-Superseded runs are automatically cancelled, and each job has a time limit.
-Older branches must first incorporate this workflow change to use the policy.
+Adding `skip-ci` or closing a PR cancels an older run for that PR/workflow.
+Unrelated label changes neither run tests nor cancel useful runs. Superseded runs
+are automatically cancelled, and each job has a time limit. Changing draft/ready
+status alone does not repeat tests. Manual dispatch always runs the selected
+workflow/ref; the PR label does not suppress `main` pushes or release workflows.
+Older branches must incorporate this workflow change to use the label policy.
 
-Before merging, remove `skip-ci`, mark the PR ready, and verify the applicable
-checks actually **ran and passed for its latest revision**. Local tests do not
-prove other operating systems passed. A skipped job is not validation, even if
+Before merging, remove `skip-ci` and verify the applicable checks actually **ran
+and passed for the latest revision**. A skipped job is not validation, even if
 GitHub renders it green. The current repository ruleset does not require checks;
-this is a contributor/agent requirement, not an enforced merge gate. Any explicit
-owner-approved CI exception must be recorded with its scope and local evidence.
+this is a contributor/agent requirement, not an enforced merge gate. Record any
+explicit owner-approved CI exception with its scope and local evidence.
 
-The existing test coverage and OS matrices remain intact. The release and manual
-AppImage workflows are unaffected. For an exceptional direct push or integration
-check on `main`, dispatch the relevant test workflow explicitly, for example
-`gh workflow run v2-tests.yml --ref main`; wait for that run before relying on it.
-Avoid commit-message `[skip ci]` as the normal control: GitHub can leave required
-checks pending, whereas draft status and the label are visible and reversible.
-See [GitHub's skip behavior](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs).
+Prefer the visible, reversible label to commit-message `[skip ci]`, which can
+leave required checks pending. See
+[GitHub's skip behavior](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs).
 
 ## Agent-authored PR evidence
 

@@ -1,7 +1,10 @@
 name: Mobile release preflight tools
 on:
+  push:
+    branches: [main]
+    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml']
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled, closed]
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml']
   workflow_dispatch:
 permissions:
@@ -14,9 +17,8 @@ concurrency:
 jobs:
   artifact-verifier-tests:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))

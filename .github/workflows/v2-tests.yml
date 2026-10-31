@@ -9,8 +9,13 @@
 name: v2 Tests
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'v2/**'
+      - '.github/workflows/v2-tests.yml'
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled, closed]
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     # No branch filter: stacked PRs (base = another feature branch) need CI
     # too, and the workflow file is taken from the PR merge ref.
     paths:
@@ -29,9 +34,8 @@ concurrency:
 jobs:
   rust:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))
@@ -95,9 +99,8 @@ jobs:
 
   frontend:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))
@@ -300,9 +303,8 @@ jobs:
   # driving the real UI. See v2/e2e/README.md.
   e2e:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))
@@ -370,9 +372,8 @@ jobs:
 
   frontend-mobile:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))

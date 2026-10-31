@@ -1,11 +1,17 @@
 # Shield-Optimizer CI Tests
-# Runs Pester tests for ready PRs or manual dispatch across all three OSes.
+# Runs Pester tests on push and PR across Windows, macOS, and Linux.
 
 name: Tests
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'Shield-Optimizer.ps1'
+      - 'tests/**'
+      - '.github/workflows/tests.yml'
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled, closed]
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     branches: [main]
     paths:
       - 'Shield-Optimizer.ps1'
@@ -24,9 +30,8 @@ concurrency:
 jobs:
   test:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))
@@ -74,9 +79,8 @@ jobs:
 
   lint:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
-       !github.event.pull_request.draft &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))

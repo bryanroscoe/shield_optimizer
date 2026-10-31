@@ -63,16 +63,16 @@ These are load-bearing — break them and the safety story falls over.
 
 ## CI usage policy
 
-- Open agent PRs as drafts and keep them draft through implementation, review fixes,
-  and local validation. Keep committing and pushing finished milestones.
-- Mark ready only when intended for merge. Ready PR updates run the full applicable
-  CI suites; `skip-ci` pauses them during batches of fixes. Remove it before merge.
-- Verify latest-revision checks actually ran and passed before merging; skipped jobs
-  and local-only checks are not cross-platform CI evidence. Record any explicit
-  owner-approved exception. Do not use `[skip ci]` as the normal workflow.
-- CI cancels superseded runs and does not repeat tests on pushes to `main`.
-  Direct pushes need an explicit test workflow dispatch. Release jobs are unchanged.
-- See [CONTRIBUTING.md](CONTRIBUTING.md#ci-usage) for commands and trigger behavior.
+- Keep automatic CI enabled by default for this public repository, including
+  draft PRs and pushes to `main`. Draft status does not pause CI.
+- Agents may use `skip-ci` when requested or deliberately batching intermediate
+  work. Apply it before pushing, record the reason and local evidence, and remove
+  it when finished. Do not apply it to every PR by default.
+- Removing `skip-ci` triggers applicable checks on the current revision. Verify
+  they actually ran and passed before merge; skipped jobs and local-only checks
+  are not cross-platform CI evidence. Record explicit owner-approved exceptions.
+- Superseded runs are cancelled. Manual dispatch and release jobs remain available.
+- See [CONTRIBUTING.md](CONTRIBUTING.md#ci-usage) for commands and behavior.
 
 ## Local validation before claiming done
 
