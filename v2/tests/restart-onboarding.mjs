@@ -54,7 +54,10 @@ try {
       await page.locator('.connect-form').getByRole('button', { name: 'Add by IP', exact: true }).click();
       await page.locator('.connect-details').waitFor();
       assert.equal(await box.inputValue(), target);
-      if (evidence && scenario === 'auth') await page.screenshot({ path: `${evidence}/failed-add-simulated.png` });
+      if (evidence && scenario === 'auth') {
+        await page.screenshot({ path: `${evidence}/failed-add-simulated.png` });
+        await page.waitForTimeout(1000);
+      }
     }
     if (scenario === 'edited') await box.fill('192.0.2.2:5555');
     let prompt;
@@ -86,6 +89,7 @@ try {
       if (evidence) await page.screenshot({ path: `${evidence}/restart-auth-simulated.png` });
     }
     if (scenario === 'failure') assert.equal(await box.inputValue(), target);
+    if (evidence && ['auth', 'success', 'partial'].includes(scenario)) await page.waitForTimeout(1200);
     console.log(`PASS ${scenario}`);
   }
   if (evidence) {
