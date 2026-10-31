@@ -65,6 +65,7 @@ describe("redactShortField", () => {
   it("replaces values that carry identifiers", () => {
     expect(redactShortField("192.168.1.20:5555")).toBe("[redacted]");
     expect(redactShortField("0323220012345")).toBe("[redacted]");
+    expect(redactShortField("R5CRABCDEFZ")).toBe("[redacted]");
     // Model numbers share the serial shape, so the model field skips that check.
     expect(redactShortField("55UQ7590PUB", { serialShape: false })).toBe("55UQ7590PUB");
     expect(redactShortField("10.0.0.5", { serialShape: false })).toBe("[redacted]");

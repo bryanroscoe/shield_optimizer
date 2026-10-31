@@ -30,8 +30,9 @@ crons = ["17 3 * * *"]
 RAW_RETENTION_DAYS = "90"
 # Per install_id, per UTC day. Requests over the cap get 429 and store nothing.
 PER_INSTALL_DAILY_EVENTS = "500"
-# Across all installs, per UTC day. Keeps a flood under D1's free-tier write quota
-# (100k rows written/day). Worst case is a one-event error batch: about 7 row
-# writes (2 quota rows, the raw row and its index, 3 aggregate rows), so 10k
-# events stay near 70k writes with headroom.
-GLOBAL_DAILY_EVENTS = "10000"
+# Across all installs, per UTC day. Sized to D1's free-tier write quota (100k rows
+# written/day). Worst case per event is about 7 row writes on arrival (2 quota rows,
+# the raw row and its index, 3 aggregate rows) plus about 3 when the cron later
+# deletes it (quota row, raw row and its index entry): ~10 per event-day under a sustained
+# flood, so 7k events stays near 70k writes with headroom. See README.md.
+GLOBAL_DAILY_EVENTS = "7000"

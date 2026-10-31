@@ -44,7 +44,8 @@ How that is enforced server-side, so a client bug cannot break it:
   with an offset, and `error_code` must be `short_snake_case` (64 chars max).
 - Short fields (manufacturer, model, os...) are clamped to 64 characters (`os` to 40). If one looks
   like an IP, MAC, host:port, email, path, URL or (except `model`) a serial number, the whole
-  value becomes `[redacted]`. `model` skips the serial check because real model numbers such as
+  value becomes `[redacted]` (the serial shapes are the same ones used for messages, below).
+  `model` skips the serial check because real model numbers such as
   `55UQ7590PUB` have the same shape and the device report needs them.
 - `message` is redacted again: IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails,
   URLs, Windows/UNC/POSIX/home paths, `*.local` names, adb mDNS names and serial-looking tokens
@@ -211,9 +212,12 @@ Abuse protection:
 
 - 64 KB body cap, enforced while reading the stream, and at most 50 events per request.
 - Per-install cap: `PER_INSTALL_DAILY_EVENTS` (500) events per install id per UTC day.
-- Global cap: `GLOBAL_DAILY_EVENTS` (10,000) events per UTC day across everyone. Even at the
-  worst case of about seven row writes per event that is roughly 70,000 writes, so a flood of
-  made-up install ids stays inside the D1 write quota. Raise it only together with a paid plan.
+- Global cap: `GLOBAL_DAILY_EVENTS` (7,000) events per UTC day across everyone. The write budget
+  is about seven row writes per event on arrival in the worst case (a one-event error batch) plus
+  about three for the cron's deletes (its quota row after two days, the raw row and its index
+  entry after 90).
+  Under a sustained flood that is roughly ten writes per event per day, so 7,000 events is about
+  70,000 of the 100,000 free writes. Raise it only together with a paid plan.
 
 Both caps are counters in one D1 table, `rate_daily` (a row per install id per day, plus key `*`
 for the global total). Admission and increment are a single statement: it checks every counter

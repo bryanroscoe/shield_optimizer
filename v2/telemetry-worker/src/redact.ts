@@ -78,7 +78,11 @@ export function redactShortField(input: string, opts: { serialShape?: boolean } 
   // A whole value that looks like a serial (the client sent ro.serialno as the
   // device codename, say). Codenames like "mdarcy" or "AFTMM" stay. Not applied
   // to model, where real model numbers (55UQ7590PUB) have the same shape.
-  if (opts.serialShape !== false && /^[a-z0-9]{10,}$/i.test(cleaned) && (cleaned.match(/\d/g) ?? []).length >= 4) {
+  if (
+    opts.serialShape !== false &&
+    ((/^[a-z0-9]{10,}$/i.test(cleaned) && (cleaned.match(/\d/g) ?? []).length >= 4) ||
+      new RegExp(`^${SERIAL_UPPER.source}$`).test(cleaned))
+  ) {
     return "[redacted]";
   }
   return cleaned;

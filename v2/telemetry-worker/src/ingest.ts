@@ -30,7 +30,7 @@ export function utcDay(now: Date): string {
 export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): Promise<QuotaResult> {
   const day = utcDay(now);
   const installCap = intVar(env.PER_INSTALL_DAILY_EVENTS, 500);
-  const globalCap = intVar(env.GLOBAL_DAILY_EVENTS, 10000);
+  const globalCap = intVar(env.GLOBAL_DAILY_EVENTS, 7000);
   const perInstall = new Map<string, number>();
   for (const e of events) perInstall.set(e.install_id, (perInstall.get(e.install_id) ?? 0) + 1);
   const rows: QuotaRow[] = [...perInstall].map(([key, n]) => ({ key, n, cap: installCap }));
