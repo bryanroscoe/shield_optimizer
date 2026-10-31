@@ -53,6 +53,11 @@ describe("PUT /v1/admin/support-tiers", () => {
     const bad = await post("/v1/admin/support-tiers", { rules: [{ match: {}, tier: "beta", note: "x" }] }, { method: "PUT", headers: auth });
     expect(bad.status).toBe(400);
     expect(await bad.json()).toEqual({ error: "rule_0_empty_match" });
+    for (const blank of ["", "   "]) {
+      const res = await post("/v1/admin/support-tiers", { rules: [{ match: { manufacturer: blank }, tier: "beta", note: "x" }] }, { method: "PUT", headers: auth });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "rule_0_bad_manufacturer" });
+    }
     const badTier = await post("/v1/admin/support-tiers", { rules: [{ match: { brand: "X" }, tier: "great", note: "x" }] }, { method: "PUT", headers: auth });
     expect(badTier.status).toBe(400);
 

@@ -79,8 +79,10 @@ export function validateTierRules(body: unknown): Result<TierRule[]> {
     const match: TierMatch = {};
     for (const k of MATCH_KEYS) {
       const v = m[k];
-      if (v === undefined || v === null || v === "") continue;
-      if (typeof v !== "string") return { ok: false, reason: `rule_${i}_bad_${k}` };
+      if (v === undefined || v === null) continue;
+      // A blank value would be published as an absent key, turning the rule
+      // into a match-everything rule.
+      if (typeof v !== "string" || v.trim() === "") return { ok: false, reason: `rule_${i}_bad_${k}` };
       match[k] = clamp(v.trim(), MATCH_MAX);
     }
     if (Object.keys(match).length === 0) return { ok: false, reason: `rule_${i}_empty_match` };

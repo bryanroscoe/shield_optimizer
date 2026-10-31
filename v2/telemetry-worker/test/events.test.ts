@@ -100,15 +100,36 @@ describe("POST /v1/events", () => {
     expect((await post("/v1/events", { events: [event()] })).status).toBe(204);
   });
 
+  it("writes nothing for requests refused by a cap that is already reached", async () => {
+    const day = utcDay(new Date());
+    const id = newInstallId();
+    await env.DB.prepare("INSERT INTO rate_install_daily (day, install_id, events) VALUES (?1, ?2, 60)").bind(day, id).run();
+    const globalBefore = await env.DB.prepare("SELECT events FROM rate_global_daily WHERE day = ?1").bind(day).first();
+    for (let i = 0; i < 3; i++) {
+      expect((await post("/v1/events", { events: [event({ install_id: id })] })).status).toBe(429);
+    }
+    const install = await env.DB.prepare("SELECT events FROM rate_install_daily WHERE day = ?1 AND install_id = ?2").bind(day, id).first();
+    expect(install).toEqual({ events: 60 });
+    const globalAfter = await env.DB.prepare("SELECT events FROM rate_global_daily WHERE day = ?1").bind(day).first();
+    expect(globalAfter).toEqual(globalBefore);
+  });
+
   it("caps events globally per day", async () => {
     const day = utcDay(new Date());
     await env.DB.prepare(
       "INSERT INTO rate_global_daily (day, events) VALUES (?1, 1000) ON CONFLICT (day) DO UPDATE SET events = 1000",
     ).bind(day).run();
-    const res = await post("/v1/events", { events: [event()] });
-    expect(res.status).toBe(429);
-    expect(await res.json()).toEqual({ error: "global_daily_cap" });
-    await env.DB.prepare("DELETE FROM rate_global_daily WHERE day = ?1").bind(day).run();
+    try {
+      const fresh = newInstallId();
+      const res = await post("/v1/events", { events: [event({ install_id: fresh })] });
+      expect(res.status).toBe(429);
+      expect(await res.json()).toEqual({ error: "global_daily_cap" });
+      // A new install id hitting a full global cap costs no writes.
+      expect(await env.DB.prepare("SELECT events FROM rate_global_daily WHERE day = ?1").bind(day).first()).toEqual({ events: 1000 });
+      expect(await env.DB.prepare("SELECT 1 FROM rate_install_daily WHERE install_id = ?1").bind(fresh).first()).toBeNull();
+    } finally {
+      await env.DB.prepare("DELETE FROM rate_global_daily WHERE day = ?1").bind(day).run();
+    }
   });
 
   it("answers OPTIONS without granting any origin, and rejects other methods", async () => {

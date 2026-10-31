@@ -128,8 +128,8 @@ characters) the admin routes answer `503`.
   `group=manufacturer,model` to merge app versions without double counting installs). `days`
   limits to the last N UTC days.
 - `PUT /v1/admin/support-tiers` with `{ "rules": [ { "match": {...}, "tier": "...", "note": "..." } ] }`:
-  replaces the whole list atomically and bumps `updated`. Each rule needs at least one match key
-  and a note (200 chars max); up to 200 rules.
+  replaces the whole list atomically and bumps `updated`. Each rule needs at least one non-blank
+  match key and a note (200 chars max); up to 200 rules.
 
 ## Deploy (owner)
 
@@ -195,7 +195,7 @@ Cloudflare's free plan (check the current numbers on the
 
 - Workers: 100,000 requests a day, 10 ms CPU per request. A 50-event batch validates well inside that.
 - D1: 5 million rows read and 100,000 rows written a day, 5 GB storage, 50 queries per Worker call.
-  Each request runs at most six queries however many events it carries (all writes go through
+  Each request runs at most seven queries however many events it carries (all writes go through
   `json_each` over one JSON parameter), and an accepted event costs roughly three to four row
   writes once aggregates and indexes are counted. Over the limit, D1 refuses queries until the
   daily reset; the apps just lose that day's telemetry.
@@ -208,13 +208,18 @@ Abuse protection:
 - Global cap: `GLOBAL_DAILY_EVENTS` (20,000) events per UTC day across everyone, which keeps a
   flood of made-up install ids inside the D1 write quota.
 
-Both caps are counters in D1 (`rate_install_daily`, `rate_global_daily`), updated with one upsert
-before anything is stored. Why D1 and not the alternatives: KV's free tier allows only 1,000 writes
-a day, far too few to count requests; the Workers Rate Limiting binding only supports 10- and
-60-second windows, counts per Cloudflare location, and the useful key for it against made-up
-install ids would be the client IP, which this Worker does not use. D1 counters are global,
-consistent, cost one row write per request, and work for daily windows. A request over a cap
-still increments the counter, so a client stuck retrying stays capped for the rest of the day.
+Both caps are counters in D1 (`rate_install_daily`, `rate_global_daily`). Each request first
+reads them (one query, no writes). If either cap is already reached the request gets `429` and
+nothing is written, so retry loops and floods of made-up install ids cost row reads (5 million a
+day) rather than the much smaller write quota. Otherwise the counters are incremented with one
+upsert each before anything is stored; the batch that crosses a cap is refused as well.
+Concurrent requests can overshoot a cap by at most their own size.
+
+Why D1 and not the alternatives: KV's free tier allows only 1,000 writes a day, far too few to
+count requests; the Workers Rate Limiting binding only supports 10- and 60-second windows, counts
+per Cloudflare location, and the useful key for it against made-up install ids would be the
+client IP, which this Worker does not use. D1 counters are global, consistent, work for daily
+windows, and cost two row writes per accepted request and none per refused one.
 
 ## Development
 

@@ -3,7 +3,7 @@ import { intVar } from "./env";
 import type { CleanEvent } from "./validate";
 
 // Every write uses json_each over one bound JSON parameter, so a 50-event batch
-// costs at most six D1 queries. That matters on the free plan, which caps a
+// costs at most seven D1 queries. That matters on the free plan, which caps a
 // Worker invocation at 50 D1 queries and a statement at 100 bound parameters.
 
 export type QuotaResult = { ok: true } | { ok: false; scope: "install" | "global" };
@@ -12,13 +12,29 @@ export function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-// Strongly consistent daily counters in D1. Increments happen before the check,
-// so a client that keeps retrying past its cap stays capped for the day.
+// Daily counters in D1. A cheap read comes first, so once either cap is reached
+// further requests are refused without writing anything: retry loops and floods
+// of made-up install ids cost row reads, not the much smaller write quota.
+// Only requests that pass the read increment the counters; the batch that
+// crosses a cap is refused too, and concurrent requests can overshoot a cap by
+// at most their own size.
 export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): Promise<QuotaResult> {
   const day = utcDay(now);
+  const installCap = intVar(env.PER_INSTALL_DAILY_EVENTS, 500);
+  const globalCap = intVar(env.GLOBAL_DAILY_EVENTS, 20000);
   const perInstall = new Map<string, number>();
   for (const e of events) perInstall.set(e.install_id, (perInstall.get(e.install_id) ?? 0) + 1);
   const rows = [...perInstall].map(([install_id, n]) => ({ install_id, n }));
+
+  const current = await env.DB.prepare(
+    `SELECT (SELECT events FROM rate_global_daily WHERE day = ?1) AS global,
+            (SELECT MAX(events) FROM rate_install_daily
+              WHERE day = ?1 AND install_id IN (SELECT json_extract(value, '$.install_id') FROM json_each(?2))) AS install`,
+  )
+    .bind(day, JSON.stringify(rows))
+    .first<{ global: number | null; install: number | null }>();
+  if ((current?.global ?? 0) >= globalCap) return { ok: false, scope: "global" };
+  if ((current?.install ?? 0) >= installCap) return { ok: false, scope: "install" };
 
   const [installRes, globalRes] = await env.DB.batch<{ events: number }>([
     env.DB.prepare(
@@ -34,10 +50,8 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
     ).bind(day, events.length),
   ]);
 
-  const installCap = intVar(env.PER_INSTALL_DAILY_EVENTS, 500);
-  const globalCap = intVar(env.GLOBAL_DAILY_EVENTS, 20000);
-  if ((installRes?.results ?? []).some((r) => r.events > installCap)) return { ok: false, scope: "install" };
   if ((globalRes?.results ?? []).some((r) => r.events > globalCap)) return { ok: false, scope: "global" };
+  if ((installRes?.results ?? []).some((r) => r.events > installCap)) return { ok: false, scope: "install" };
   return { ok: true };
 }
 

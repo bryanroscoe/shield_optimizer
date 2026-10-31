@@ -13,7 +13,9 @@ on:
       - 'v2/telemetry-worker/**'
       - '.github/workflows/tests.yml'
   pull_request:
-    branches: [main]
+    # No branch filter, so stacked PRs (base = another feature branch) are tested
+    # too. v2-tests.yml skips telemetry-worker-only changes, so this workflow is
+    # the only one that runs the Worker suite.
     paths:
       - 'Shield-Optimizer.ps1'
       - 'tests/**'
