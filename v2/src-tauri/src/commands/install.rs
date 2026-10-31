@@ -163,6 +163,14 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
                     }
                     Err(error) => {
                         last_failure = error.to_string();
+                        let lower = last_failure.to_lowercase();
+                        if lower.contains("failed to authenticate")
+                            || lower.contains("device unauthorized")
+                            || lower.contains("device is unauthorized")
+                        {
+                            unauthorized.push(serial.clone());
+                            break;
+                        }
                         continue;
                     }
                 }
@@ -261,20 +269,24 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn restart_preserves_authorization_wait_without_repeated_connects() {
-        for probe in [false, true] {
+        for response in ["connect-output", "connect-error", "readiness"] {
             let serial = "192.0.2.1:5555";
             let mock = MockAdb::default()
                 .on_raw("devices", &format!("{serial}\tunauthorized\n"))
-                .on_raw("start-server", "daemon started")
-                .on_raw(
+                .on_raw("start-server", "daemon started");
+            let mock = if response == "connect-error" {
+                mock.on_raw_err("connect", "failed to authenticate to 192.0.2.1:5555")
+            } else {
+                mock.on_raw(
                     "connect",
-                    if probe {
+                    if response == "readiness" {
                         "already connected to 192.0.2.1:5555"
                     } else {
                         "failed to authenticate to 192.0.2.1:5555"
                     },
                 )
-                .on_raw_err("get-state", "device unauthorized");
+            }
+            .on_raw_err("get-state", "device unauthorized");
             let calls = mock.raw_log();
             let result = restart_adb_impl(&state_with(mock)).await.unwrap();
             assert!(!result.ok);

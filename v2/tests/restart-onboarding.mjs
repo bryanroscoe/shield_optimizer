@@ -23,12 +23,20 @@ try {
       let attempts = 0;
       window.__TAURI_INTERNALS__.invoke = async (command, args) => {
         window.recoveryCalls.push({ command, args });
-        if (command === 'list_devices') return [];
+        if (command === 'list_devices') {
+          if (attempts < 2 || !['auth', 'success', 'partial'].includes(scenario)) return [];
+          const [fixture] = await original(command, args);
+          return [{ ...fixture, serial: '192.0.2.1:5555', name: 'Simulated SHIELD',
+            status: scenario === 'auth' ? 'unauthorized' : 'device',
+            device_type: scenario === 'auth' ? 'unknown' : 'shield',
+            tv_evidence: scenario === 'auth' ? 'unknown' : 'tv',
+            properties: scenario === 'auth' ? {} : { ...fixture.properties, serial_number: 'SIMULATED-SHIELD' } }];
+        }
         if (command === 'connect_device') {
           attempts++;
           return attempts === 1 || scenario === 'failure'
             ? { ok: false, message: 'failed to connect: No route to host' }
-            : { ok: true, message: scenario === 'success' ? 'connected to 192.0.2.1:5555' : 'failed to authenticate — approve this computer on the TV, then refresh' };
+            : { ok: true, message: scenario !== 'auth' ? 'connected to 192.0.2.1:5555' : 'failed to authenticate — approve this computer on the TV, then refresh' };
         }
         if (command === 'restart_adb') return { ok: !['restart-fails', 'partial'].includes(scenario), server_ready: scenario !== 'restart-fails', message: scenario === 'restart-fails' ? 'Simulated start-server failure' : 'ADB server restarted.' };
         return original(command, args);
@@ -66,9 +74,15 @@ try {
       assert.ok(prompt.includes(`retry Add by IP for ${target} once`));
       assert.equal(calls.filter(c => c.command === 'connect_device')[1].args.address, target);
     }
-    if (scenario === 'success') await page.getByText('connected to 192.0.2.1:5555', { exact: true }).waitFor();
+    if (scenario === 'success' || scenario === 'partial') {
+      await page.getByText('connected to 192.0.2.1:5555', { exact: true }).waitFor();
+      await page.locator('.device-row.clickable').waitFor();
+      if (evidence) await page.screenshot({ path: `${evidence}/${scenario}-online-simulated.png` });
+    }
     if (scenario === 'auth') {
       await page.getByText('failed to authenticate — approve this computer on the TV, then refresh', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
+      assert.equal(await page.locator('.device-row.clickable').count(), 0);
       if (evidence) await page.screenshot({ path: `${evidence}/restart-auth-simulated.png` });
     }
     if (scenario === 'failure') assert.equal(await box.inputValue(), target);
