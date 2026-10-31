@@ -31,6 +31,7 @@
 
   let connectAddress = $state("");
   let connectBusy = $state(false);
+  let failedConnectAddress = $state("");
   let connectMessage = $state("");
   /// adb's own words behind a failure `connectMessage` explains.
   let connectDetail = $state("");
@@ -137,13 +138,16 @@
       if (r.ok) {
         connectMessage = r.message.trim();
         connectAddress = "";
+        failedConnectAddress = "";
         pairNextStep = false;
         await refresh();
         await announceConnected(connectKey(address));
       } else {
+        failedConnectAddress = address;
         showConnectFailure(address, r.message);
       }
     } catch (e) {
+      failedConnectAddress = address;
       showConnectFailure(address, String(e));
     } finally {
       connectBusy = false;
@@ -599,13 +603,17 @@
   }
 
   async function restartAdb() {
-    if (!confirm("Restart the ADB server? All current device connections will reconnect.")) return;
+    const retryAddress = failedConnectAddress && failedConnectAddress === connectAddress.trim()
+      ? failedConnectAddress : "";
+    const retryPrompt = retryAddress ? ` Then retry Add by IP for ${retryAddress} once.` : "";
+    if (!confirm(`Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.${retryPrompt}`)) return;
     restartBusy = true;
     restartMessage = "";
     try {
       const r = await api.restartAdb();
       restartMessage = r.message;
       await refresh();
+      if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
     } finally {
@@ -759,16 +767,17 @@
   <input
     placeholder="IP[:port] — e.g. 192.168.42.71"
     bind:value={connectAddress}
+    disabled={restartBusy}
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim()}>
+  <button class="primary" onclick={connect} disabled={connectBusy || restartBusy || !connectAddress.trim()}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
   <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
-  <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
+  <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
   <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>

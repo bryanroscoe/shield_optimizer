@@ -246,6 +246,10 @@ jobs:
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.
+      - name: Restart onboarding recovery
+        working-directory: v2
+        run: npm run test:restart-onboarding
+
       - name: Context menu
         working-directory: v2
         run: npm run test:context-menu

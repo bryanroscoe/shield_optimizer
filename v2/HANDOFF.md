@@ -9,7 +9,13 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 ## Unreleased on `main`
 
-Nothing yet. 2.3.1 was never tagged and 2.4.0 never built; their notes shipped in 2.4.1. Put
+Desktop help improvements and ADB connection recovery are pending release. Add by IP,
+Scan LAN and restart now verify transport readiness; the confirmed restart can retry
+one unchanged failed address. The subprocess driver remains the default. Shared native
+ADB PR236 and its parity branches remain experimental, with hardware and Windows
+identity acceptance outstanding. These source fixes do not establish the full root
+cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
+their notes shipped in 2.4.1. Put
 the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
 heading to stay. Before tagging, run the
 physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and

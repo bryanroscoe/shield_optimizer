@@ -153,6 +153,11 @@ pub mod test_support {
                 .push(Rule::single(needle, Reply::Ok(stdout.into())));
             self
         }
+        pub fn on_raw_exit(mut self, needle: &str, stdout: &str, exit_code: i32) -> Self {
+            self.raw_rules
+                .push(Rule::single(needle, Reply::Code(stdout.into(), exit_code)));
+            self
+        }
         /// Hand back replies in order for successive matching `raw` calls,
         /// sticking on the last once exhausted. `Ok` is stdout, `Err` is an
         /// `AdbError` message — so a test can say "fails twice, then works".
