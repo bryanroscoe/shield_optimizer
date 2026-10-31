@@ -74,14 +74,20 @@ fn lock<T>(value: &StdMutex<T>) -> std::sync::MutexGuard<'_, T> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+// Keep checked increments compatible with Rust toolchains before and after
+// AtomicU64::fetch_update was deprecated, without weakening overflow checks.
+fn checked_increment(value: &AtomicU64) -> Result<u64, u64> {
+    let mut current = value.load(Ordering::Acquire);
+    loop {
+        let next = current.checked_add(1).ok_or(current)?;
+        match value.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire) {
+            Ok(previous) => return Ok(previous),
+            Err(actual) => current = actual,
+        }
+    }
+}
 fn invalidate(cell: &Cell) {
-    if cell
-        .revision
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |revision| {
-            revision.checked_add(1)
-        })
-        .is_err()
-    {
+    if checked_increment(&cell.revision).is_err() {
         cell.retired.store(true, Ordering::Release);
     }
 }
@@ -112,11 +118,7 @@ impl RemoteRegistry {
             return Err("Remote admission is closed.".into());
         }
         let cell = self.cell(serial)?;
-        let generation = self
-            .next
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                value.checked_add(1)
-            })
+        let generation = checked_increment(&self.next)
             .map_err(|_| "Remote generation limit reached.")?
             + 1;
         // Publication and logical invalidation share this short lock.
@@ -142,11 +144,7 @@ impl RemoteRegistry {
         if current != 0 {
             return Ok(current);
         }
-        let generation = self
-            .next
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                value.checked_add(1)
-            })
+        let generation = checked_increment(&self.next)
             .map_err(|_| "Remote generation limit reached.")?
             + 1;
         cell.generation.store(generation, Ordering::Release);
@@ -457,6 +455,31 @@ pub enum RemoteAction {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn checked_increment_preserves_overflow_boundary() {
+        let value = AtomicU64::new(u64::MAX - 1);
+        assert_eq!(checked_increment(&value), Ok(u64::MAX - 1));
+        assert_eq!(checked_increment(&value), Err(u64::MAX));
+        assert_eq!(value.load(Ordering::Acquire), u64::MAX);
+    }
+
+    #[test]
+    fn checked_increment_does_not_lose_concurrent_updates() {
+        let value = AtomicU64::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let value = &value;
+                scope.spawn(move || {
+                    for _ in 0..1000 {
+                        checked_increment(value).unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(value.load(Ordering::Acquire), 4000);
+    }
+
     struct Cancellation(Arc<RemoteStartCancellation>);
     impl AdbServiceCancellation for Cancellation {
         fn cancel(&self) {
