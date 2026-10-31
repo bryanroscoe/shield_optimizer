@@ -35,6 +35,9 @@ const SERIAL = /\b(?=[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d)[a-z0-9]{10,}\
 // is a real model number (55UQ7590PUB) that the device report needs. A serial
 // made only of letters cannot be told apart from a word; the client redacts it.
 const SERIAL_UPPER = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,}\b/g;
+// Same shape in lower or mixed case (r5crabcdefz), at 10+ characters so short
+// words with a digit (android14) survive.
+const SERIAL_ANYCASE = /\b(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{10,}\b/gi;
 
 // Package / class shaped tokens: com.example.app, java.lang.SecurityException,
 // and two-segment application ids such as com.foo or tv.baz. Only used to
@@ -64,6 +67,7 @@ export function redactMessage(input: string): string {
   }
   text = text.replace(SERIAL, "[serial]");
   text = text.replace(SERIAL_UPPER, "[serial]");
+  text = text.replace(SERIAL_ANYCASE, "[serial]");
   const packages = text.match(PACKAGE) ?? [];
   if (packages.length >= PACKAGE_LIST_THRESHOLD) {
     text = text.replace(PACKAGE, "[package]");
@@ -82,14 +86,15 @@ export function redactShortField(input: string, opts: { serialShape?: boolean } 
   for (const [pattern, replacement] of RULES) {
     probe = probe.replace(pattern, replacement);
   }
-  if (probe !== cleaned) return "[redacted]";
+  if (probe !== cleaned || LICENSE_KEY.test(cleaned)) return "[redacted]";
   // A whole value that looks like a serial (the client sent ro.serialno as the
   // device codename, say). Codenames like "mdarcy" or "AFTMM" stay. Not applied
   // to model, where real model numbers (55UQ7590PUB) have the same shape.
   if (
     opts.serialShape !== false &&
     ((/^[a-z0-9]{10,}$/i.test(cleaned) && (cleaned.match(/\d/g) ?? []).length >= 4) ||
-      new RegExp(`^${SERIAL_UPPER.source}$`).test(cleaned))
+      new RegExp(`^${SERIAL_UPPER.source}$`).test(cleaned) ||
+      new RegExp(`^${SERIAL_ANYCASE.source}$`, "i").test(cleaned))
   ) {
     return "[redacted]";
   }

@@ -45,12 +45,13 @@ How that is enforced server-side, so a client bug cannot break it:
 - Short fields (manufacturer, model, os...) are clamped to 64 characters (`os` to 40). If one looks
   like an IP, MAC, host:port, email, path, URL or (except `model`) a serial number, the whole
   value becomes `[redacted]` (the serial shapes are the same ones used for messages, below).
-  `model` skips the serial check because real model numbers such as
-  `55UQ7590PUB` have the same shape and the device report needs them.
+  A short field holding an `ATVOPT-` license key is always replaced. `model` skips the serial
+  check because real model numbers such as `55UQ7590PUB` have the same shape and the device
+  report needs them.
 - `message` is redacted again: IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails,
   URLs, Windows/UNC/POSIX/home paths, `*.local` names, adb mDNS names and serial-looking tokens
   (10+ letters and digits with at least 4 digits, or 8+ upper-case letters and digits with at
-  least one of each, such as `R5CRABCDEFZ`). These are heuristics: a serial made only of letters
+  least one of each, such as `R5CRABCDEFZ`, or 10+ in any case, such as `r5crabcdefz`). These are heuristics: a serial made only of letters
   cannot be told from a word, so the client's own redaction stays the first line. One package name is kept because it is useful
   for debugging a failed disable; three or more (including two-part ids like `tv.baz`) are treated
   as a package list and all are replaced.
