@@ -106,16 +106,17 @@ CREATE TABLE support_tier_meta (
   updated TEXT    NOT NULL
 );
 
--- Seed. SHIELD strings come from the scrubbed getprop capture in
+-- Seed. Same rules, order and notes as the copy the apps embed
+-- (v2/crates/core/data/device-support.json). SHIELD strings come from the scrubbed getprop capture in
 -- v2/crates/core/tests/fixtures/devices/shield-tv-pro. The repo has no TCL
 -- getprop capture; "TCL" is the manufacturer/brand reported for the TCL QM7L Pro
 -- (Android 14) in issue #88, so the rule matches on manufacturer alone.
 INSERT INTO support_tier_rules (position, manufacturer, brand, model_prefix, device, tier, note) VALUES
   (1, 'NVIDIA', NULL, 'SHIELD', NULL, 'fully_supported',
-   'NVIDIA SHIELD TV is the primary test device.'),
-  (2, 'TCL', NULL, NULL, NULL, 'beta',
-   'TCL Google TV is in beta: tested less than SHIELD. Please report anything that does not work.'),
-  (3, 'Amazon', NULL, 'AFT', NULL, 'not_supported',
-   'Fire OS blocks the changes this app needs to make, so Fire TV is not supported.');
+   'NVIDIA SHIELD is the device this app is built and tested on.'),
+  (2, 'Amazon', NULL, 'AFT', NULL, 'not_supported',
+   'Fire OS blocks the changes this app makes.'),
+  (3, 'TCL', NULL, NULL, NULL, 'beta',
+   'TCL Google TV has had limited testing so far.');
 
 INSERT INTO support_tier_meta (id, updated) VALUES (1, '2026-10-31T00:00:00Z');

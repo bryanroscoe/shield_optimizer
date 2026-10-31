@@ -15,8 +15,14 @@ describe("GET /v1/support-tiers", () => {
     const doc = (await res.json()) as TierDoc;
     expect(doc.schema).toBe(1);
     expect(doc.updated).toBe("2026-10-31T00:00:00Z");
-    expect(doc.rules.map((r) => r.tier)).toEqual(["fully_supported", "beta", "not_supported"]);
-    expect(doc.rules[2]).toMatchObject({ match: { manufacturer: "Amazon", model_prefix: "AFT" } });
+    expect(Number.isNaN(Date.parse(doc.updated))).toBe(false);
+    expect(doc.rules.map((r) => r.tier)).toEqual(["fully_supported", "not_supported", "beta"]);
+    // Same match strings as the rules the apps embed.
+    expect(doc.rules.map((r) => r.match)).toEqual([
+      { manufacturer: "NVIDIA", model_prefix: "SHIELD" },
+      { manufacturer: "Amazon", model_prefix: "AFT" },
+      { manufacturer: "TCL" },
+    ]);
   });
 
   it("seed rules classify real device strings (first match wins, case-insensitive)", async () => {
@@ -73,6 +79,20 @@ describe("PUT /v1/admin/support-tiers", () => {
       { match: { brand: "onn", device: "dopinder" }, tier: "beta", note: "onn 4K box in beta." },
     ]);
     expect(doc.updated).not.toBe("2026-10-31T00:00:00Z");
+    const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+    expect(doc.updated).toMatch(RFC3339);
+    expect(Date.parse(doc.updated)).toBeGreaterThan(Date.parse("2026-10-31T00:00:00Z"));
+
+    // Every PUT moves `updated` forward, even back-to-back ones.
+    const stamps = [doc.updated];
+    for (let i = 0; i < 3; i++) {
+      await post("/v1/admin/support-tiers", { rules }, { method: "PUT", headers: auth });
+      stamps.push(((await (await call("/v1/support-tiers")).json()) as TierDoc).updated);
+    }
+    for (let i = 1; i < stamps.length; i++) {
+      expect(stamps[i]).toMatch(RFC3339);
+      expect(Date.parse(stamps[i]!)).toBeGreaterThan(Date.parse(stamps[i - 1]!));
+    }
   });
 });
 

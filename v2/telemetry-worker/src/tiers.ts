@@ -92,6 +92,12 @@ export function validateTierRules(body: unknown): Result<TierRule[]> {
 }
 
 export async function replaceTiers(env: Env, rules: TierRule[], now: Date): Promise<void> {
+  // Clients ignore a document older than the rules they embed, so `updated`
+  // must move forward on every replace, even two replaces in one millisecond
+  // or after a clock step backwards.
+  const prev = await env.DB.prepare("SELECT updated FROM support_tier_meta WHERE id = 1").first<{ updated: string }>();
+  const prevMs = prev ? Date.parse(prev.updated) : Number.NaN;
+  const updated = new Date(Number.isNaN(prevMs) ? now.getTime() : Math.max(now.getTime(), prevMs + 1)).toISOString();
   const rows = rules.map((r, i) => ({
     position: i + 1,
     manufacturer: r.match.manufacturer ?? null,
@@ -113,7 +119,7 @@ export async function replaceTiers(env: Env, rules: TierRule[], now: Date): Prom
     ).bind(JSON.stringify(rows)),
     env.DB.prepare(
       "INSERT INTO support_tier_meta (id, updated) VALUES (1, ?1) ON CONFLICT (id) DO UPDATE SET updated = excluded.updated",
-    ).bind(now.toISOString()),
+    ).bind(updated),
   ]);
 }
 

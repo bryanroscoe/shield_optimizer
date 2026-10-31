@@ -69,8 +69,10 @@ const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[
 
 // Error codes are constants like pm_denied or adb_exit_255. More than four
 // digits means a serial, IP or timestamp was folded in (serial_0323220012345,
-// ip_192_168_1_5); license words mean licence data. Such codes are rejected,
-// since codes are kept forever in agg_error_daily.
+// ip_192_168_1_5); license words mean licence data. Such codes are replaced
+// with redacted_code, since codes are kept forever in agg_error_daily.
+export const REDACTED_CODE = "redacted_code";
+
 function plausibleErrorCode(code: string): boolean {
   return (code.match(/\d/g) ?? []).length <= 4 && !/licen[cs]/.test(code);
 }
@@ -161,10 +163,13 @@ export function validateEvent(raw: unknown): Result<CleanEvent> {
 
   let errorCode: string | null = null;
   if (raw.error_code !== undefined && raw.error_code !== null) {
-    if (typeof raw.error_code !== "string" || !ERROR_CODE.test(raw.error_code) || !plausibleErrorCode(raw.error_code)) {
+    if (typeof raw.error_code !== "string" || !ERROR_CODE.test(raw.error_code)) {
       return { ok: false, reason: "bad_error_code" };
     }
-    errorCode = raw.error_code;
+    // Codes are free-form snake_case built by the client from error text, so a
+    // well-formed code that looks like it carries an identifier is replaced
+    // rather than costing the whole event.
+    errorCode = plausibleErrorCode(raw.error_code) ? raw.error_code : REDACTED_CODE;
   }
 
   let message: string | null = null;

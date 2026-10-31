@@ -42,8 +42,10 @@ How that is enforced server-side, so a client bug cannot break it:
   does not lose data against an older Worker.
 - `install_id` must be a UUID v4. `app_version` must be `X.Y.Z`, optionally with an
   `-alpha|beta|rc|preview|pre|dev[.N]` tag. `ts` must be RFC 3339 with an offset. `error_code`
-  must be `short_snake_case` (64 chars max) with at most four digits and no license words, since
-  codes are kept forever in the aggregates. Codes should be constants such as `pm_denied` or
+  must be `short_snake_case` (64 chars max); any such code is accepted, there is no fixed list
+  (`panic`, `uncaught_error`, `pm_denied`...). A well-formed code with more than four digits or a
+  license word is stored as `redacted_code` instead, since codes are kept forever in the
+  aggregates. Codes should be constants such as `pm_denied` or
   `adb_exit_255`; a name folded into a code cannot be detected, so that stays the client's job.
 - Fields that do not belong to the event's kind are dropped (`action`/`ok`/`error_code` on
   `device_seen`, `error_code` on a successful action, `ok` on an error).
@@ -117,8 +119,8 @@ Public, `Cache-Control: public, max-age=3600`.
   "updated": "2026-10-31T00:00:00Z",
   "rules": [
     { "match": { "manufacturer": "NVIDIA", "model_prefix": "SHIELD" }, "tier": "fully_supported", "note": "..." },
-    { "match": { "manufacturer": "TCL" }, "tier": "beta", "note": "..." },
-    { "match": { "manufacturer": "Amazon", "model_prefix": "AFT" }, "tier": "not_supported", "note": "..." }
+    { "match": { "manufacturer": "Amazon", "model_prefix": "AFT" }, "tier": "not_supported", "note": "..." },
+    { "match": { "manufacturer": "TCL" }, "tier": "beta", "note": "..." }
   ]
 }
 ```
@@ -133,7 +135,10 @@ other check in the apps behave the same whatever tier the server returns, and a 
 `fully_supported` gets no extra permissions. Anyone who can change this list can change a label,
 nothing more.
 
-The seed rules: SHIELD strings come from the scrubbed capture in
+The seed rules match the copy the apps embed (`v2/crates/core/data/device-support.json`): same
+match strings, order and notes. Keep the two in step when you change one. The apps ignore a
+served document whose `updated` is older than their embedded copy; `updated` is an RFC 3339
+timestamp that every `PUT` moves strictly forward. SHIELD strings come from the scrubbed capture in
 `v2/crates/core/tests/fixtures/devices/shield-tv-pro/getprop.txt`. The repo has no TCL getprop
 capture; the TCL rule matches manufacturer `TCL` as reported for the TCL QM7L Pro (Android 14) in
 issue #88. Tighten it once real TCL rows show up in the device report.

@@ -40,7 +40,8 @@ describe("validateEvent", () => {
     expect(reason(event({ kind: "error" }))).toBe("error_without_error_code");
     expect(reason(event({ kind: "error", error_code: "Has Spaces" }))).toBe("bad_error_code");
     for (const code of ["serial_0323220012345", "ip_192_168_1_5", "licensee_jane_smith", "license_atvopt_pro"]) {
-      expect(reason(event({ kind: "error", error_code: code }))).toBe("bad_error_code");
+      const r = validateEvent(event({ kind: "error", error_code: code }));
+      expect(r.ok && r.value.error_code).toBe("redacted_code");
     }
     expect(reason(event({ kind: "error", error_code: "adb_exit_255" }))).toBeNull();
     expect(reason(event({ kind: "action_result", action: "disable", ok: "yes" }))).toBe("bad_ok");
@@ -107,6 +108,50 @@ describe("validateEvent", () => {
     const r = validateEvent(event({ install_id: "5F0C2B1E-8D3A-4C6B-9E2F-0000000000AA", ts: "2026-10-31T08:00:00-04:00" }));
     expect(r.ok && r.value.install_id).toBe("5f0c2b1e-8d3a-4c6b-9e2f-0000000000aa");
     expect(r.ok && r.value.client_ts).toBe("2026-10-31T12:00:00.000Z");
+  });
+});
+
+describe("client shapes from the app-side PR (#266)", () => {
+  const base = {
+    schema: 1,
+    install_id: "5f0c2b1e-8d3a-4c6b-9e2f-00000000c1e1",
+    app: "desktop",
+    app_version: "2.3.1",
+    ts: "2026-10-31T12:00:00Z",
+  };
+
+  it("accepts events with inapplicable fields omitted and a null sdk", () => {
+    const seen = validateEvent({
+      ...base,
+      os: "windows",
+      kind: "device_seen",
+      device: { manufacturer: "TCL", brand: "TCL", model: "QM7L Pro", device: "x", product: "x", android_release: "14", sdk: null, profile: "googletv", support_tier: "beta" },
+    });
+    expect(seen.ok).toBe(true);
+    if (seen.ok) {
+      expect(seen.value.device?.sdk).toBeNull();
+      expect(seen.value).toMatchObject({ action: null, ok: null, error_code: null, message: null });
+    }
+    const okAction = validateEvent({ ...base, os: "linux", kind: "action_result", action: "disable", ok: true });
+    expect(okAction.ok && okAction.value).toMatchObject({ device: null, error_code: null, message: null, os: "linux" });
+    const failed = validateEvent({ ...base, os: "macos 15.1", kind: "action_result", action: "optimize", ok: false, error_code: "partial_failure" });
+    expect(failed.ok && failed.value.error_code).toBe("partial_failure");
+  });
+
+  it("accepts any short snake_case error code, including the crash codes", () => {
+    for (const code of ["panic", "uncaught_error", "unhandled_rejection", "partial_failure", "pm_denied", "some_future_code"]) {
+      const r = validateEvent({ ...base, os: "android 15", app: "mobile", kind: "error", error_code: code });
+      expect(r.ok && r.value.error_code).toBe(code);
+    }
+    expect(reason({ ...base, os: "linux", kind: "error", error_code: "x".repeat(65) })).toBe("bad_error_code");
+    expect(reason({ ...base, os: "linux", kind: "error", error_code: "Panic" })).toBe("bad_error_code");
+  });
+
+  it("accepts plain os names without a version", () => {
+    for (const os of ["windows", "linux", "macos 15.1", "android 15", "windows 11"]) {
+      const r = validateEvent({ ...base, os, kind: "error", error_code: "panic" });
+      expect(r.ok && r.value.os).toBe(os);
+    }
   });
 });
 

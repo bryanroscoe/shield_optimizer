@@ -31,6 +31,31 @@ describe("POST /v1/events", () => {
     expect(JSON.stringify(rows)).not.toMatch(/Austin|30\.2|7922/);
   });
 
+  it("accepts a batch shaped exactly like the app client sends (#266)", async () => {
+    const id = newInstallId();
+    const common = { schema: 1, install_id: id, app: "desktop", app_version: "2.4.1", os: "windows", ts: "2026-10-31T12:00:00.123Z" };
+    const device = {
+      manufacturer: "TCL", brand: "TCL", model: "QM7L Pro", device: "x", product: "x",
+      android_release: "14", sdk: null, profile: "googletv", support_tier: "beta",
+    };
+    const res = await post("/v1/events", {
+      events: [
+        { ...common, kind: "device_seen", device },
+        { ...common, kind: "action_result", action: "disable", ok: true, device },
+        { ...common, kind: "action_result", action: "optimize", ok: false, error_code: "partial_failure", message: "2 of 5 failed", device },
+        { ...common, os: "linux", kind: "error", error_code: "panic", message: "index out of bounds" },
+        { ...common, app: "mobile", app_version: "0.1.0", os: "android 15", kind: "error", error_code: "unhandled_rejection" },
+        { ...common, kind: "error", error_code: "uncaught_error" },
+      ],
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("x-events-accepted")).toBe("6");
+    expect(res.headers.get("x-events-rejected")).toBe("0");
+    const rows = await rowsFor(id);
+    expect(rows.map((r) => r.error_code)).toEqual([null, null, "partial_failure", "panic", "unhandled_rejection", "uncaught_error"]);
+    expect(rows[0]).toMatchObject({ sdk: null, os: "windows", support_tier: "beta" });
+  });
+
   it("never stores forbidden fields that a client sends", async () => {
     const id = newInstallId();
     const res = await post("/v1/events", {
