@@ -1,5 +1,5 @@
 # Shield-Optimizer CI Tests
-# Runs Pester unit tests on push and PR across Windows, macOS, and Linux
+# Runs Pester tests on push and PR across Windows, macOS, and Linux.
 
 name: Tests
 
@@ -11,6 +11,7 @@ on:
       - 'tests/**'
       - '.github/workflows/tests.yml'
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     branches: [main]
     paths:
       - 'Shield-Optimizer.ps1'
@@ -18,8 +19,23 @@ on:
       - '.github/workflows/tests.yml'
   workflow_dispatch:  # Allow manual trigger
 
+permissions:
+  contents: read
+
+# Unrelated label events must neither start tests nor cancel a useful run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.run_id || 'ci' }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 15
     name: Test on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -62,6 +78,13 @@ jobs:
           path: test-results.xml
 
   lint:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 5
     name: PowerShell Syntax Check
     runs-on: ubuntu-latest
 

@@ -15,6 +15,7 @@ on:
       - 'v2/**'
       - '.github/workflows/v2-tests.yml'
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     # No branch filter: stacked PRs (base = another feature branch) need CI
     # too, and the workflow file is taken from the PR merge ref.
     paths:
@@ -22,8 +23,23 @@ on:
       - '.github/workflows/v2-tests.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Unrelated label events must neither start tests nor cancel a useful run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.run_id || 'ci' }}
+  cancel-in-progress: true
+
 jobs:
   rust:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 45
     name: Rust tests on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -82,6 +98,13 @@ jobs:
         run: cargo test --lib
 
   frontend:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 20
     name: Frontend type check
     runs-on: ubuntu-latest
     steps:
@@ -209,6 +232,10 @@ jobs:
         working-directory: v2
         run: npm run test:app-report
 
+      - name: Reported package display names
+        working-directory: v2
+        run: npm run test:reported-package-names
+
       # Checks that icons sit on their label and that sibling controls in a
       # row share one centre line.
       - name: Icon and control alignment
@@ -287,6 +314,13 @@ jobs:
   # The real Rust command layer against simulated devices, with Playwright
   # driving the real UI. See v2/e2e/README.md.
   e2e:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 45
     name: End-to-end (simulated devices)
     runs-on: ubuntu-22.04
     steps:
@@ -349,6 +383,13 @@ jobs:
           retention-days: 14
 
   frontend-mobile:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 20
     name: Mobile frontend type check
     runs-on: ubuntu-latest
     steps:
