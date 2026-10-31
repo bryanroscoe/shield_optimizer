@@ -11,3 +11,4 @@ pub mod adb;
 pub mod commands;
 pub mod engine;
 pub mod license;
+pub mod telemetry;
