@@ -745,7 +745,8 @@
     // badges aren't stale. Absent outside Tauri (tests, the demo).
     let stopTierWatch: (() => void) | null = null;
     let unmounted = false;
-    listen("support-tiers-updated", () => {
+    const hasEvents = "__TAURI_EVENT_PLUGIN_INTERNALS__" in window;
+    if (hasEvents) listen("support-tiers-updated", () => {
       if (!loading) void refresh();
     })
       .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
