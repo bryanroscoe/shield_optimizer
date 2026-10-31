@@ -232,6 +232,10 @@ jobs:
         working-directory: v2
         run: npm run test:app-report
 
+      - name: Reported package display names
+        working-directory: v2
+        run: npm run test:reported-package-names
+
       # Checks that icons sit on their label and that sibling controls in a
       # row share one centre line.
       - name: Icon and control alignment
