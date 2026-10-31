@@ -220,8 +220,10 @@ static UNIX_PATH: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(^|[\s'"(=,\[])~?/(?:[^'"\n:)\]]|:\S)*"#));
 static WINDOWS_PATH: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?i)\b[a-z]:\\(?:[^'"\n:)\]]|:\S)*|\\\\(?:[^'"\n:)\]]|:\S)+"#));
+// Two segments are enough: `acme.player` is a valid package id. This also
+// takes file names like `notes.txt`, which only loses context.
 static PACKAGE: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\b[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+){2,}\b"));
+    LazyLock::new(|| re(r"\b[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+\b"));
 static ID_TOKEN: LazyLock<Regex> = LazyLock::new(|| re(r"\b[A-Za-z0-9]{8,}\b"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
 
@@ -601,6 +603,10 @@ mod tests {
             (
                 "pm disable-user com.example.secretapp: Failure",
                 "pm disable-user <pkg>: Failure",
+            ),
+            (
+                "Failure [DELETE_FAILED_INTERNAL_ERROR] for acme.player",
+                "Failure [DELETE_FAILED_INTERNAL_ERROR] for <pkg>",
             ),
             ("see https://example.com/path?q=1 now", "see <url> now"),
         ];
