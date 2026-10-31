@@ -560,7 +560,7 @@ impl Telemetry {
     /// Fetch the published rules. An opt-out while the request is in flight
     /// cancels it, and a response that arrives after one is discarded, so
     /// Off never caches or applies anything from the server.
-    async fn fetch_support_rules(&self) -> Option<(String, SupportRules)> {
+    async fn fetch_support_rules(&self) -> Option<(String, SupportRules, u64)> {
         let base = self.config.base_url.as_deref()?;
         let generation = self.lock().generation;
         let cancelled = self.cancel.notified();
@@ -593,7 +593,19 @@ impl Telemetry {
             return None;
         }
         let rules = parse_support_rules(&text).ok()?;
-        Some((text, rules))
+        Some((text, rules, generation))
+    }
+
+    /// Run `apply` only if reports are still on and haven't been toggled
+    /// since `generation`, holding the lock so an opt-out can't land between
+    /// the check and the write.
+    fn apply_if_current(&self, generation: u64, apply: impl FnOnce()) -> bool {
+        let inner = self.lock();
+        if !Self::active(&inner, self.configured()) || inner.generation != generation {
+            return false;
+        }
+        apply();
+        true
     }
 
     #[cfg(test)]
@@ -689,9 +701,21 @@ pub fn load_cached_support_rules(state: &AppState) {
         return;
     };
     match parse_support_rules(&text) {
-        Ok(rules) => state.set_support_rules(Arc::new(rules)),
+        Ok(rules) if not_older_than_bundled(&rules) => state.set_support_rules(Arc::new(rules)),
+        Ok(_) => tracing::debug!("ignoring cached support rules older than this build's"),
         Err(e) => tracing::debug!(error = %e, "ignoring cached support rules"),
     }
+}
+
+/// A rules document dated before the ones this build shipped with is stale:
+/// an app update that corrects a tier must not be undone by an old cache or
+/// an out-of-date server. `updated` is `YYYY-MM-DD`, so text order is date
+/// order, and a missing date is older than any.
+fn not_older_than_bundled(rules: &SupportRules) -> bool {
+    rules.updated.trim()
+        >= crate::commands::loader::embedded_support_rules()
+            .updated
+            .trim()
 }
 
 /// Fetch the current rules from the report server and cache them. Only when
@@ -701,18 +725,19 @@ pub fn load_cached_support_rules(state: &AppState) {
 /// Returns whether the rules changed, so the caller can tell the UI to
 /// re-list devices.
 pub async fn refresh_support_rules(state: &AppState) -> bool {
-    let Some((text, rules)) = state.telemetry.fetch_support_rules().await else {
+    let Some((text, rules, generation)) = state.telemetry.fetch_support_rules().await else {
         return false;
     };
-    if *state.support_rules() == rules {
+    if !not_older_than_bundled(&rules) || *state.support_rules() == rules {
         return false;
     }
-    let path = state.data_dir.join(SUPPORT_CACHE_FILE);
-    if let Err(e) = std::fs::write(&path, text) {
-        tracing::debug!(error = %e, "could not cache support rules");
-    }
-    state.set_support_rules(Arc::new(rules));
-    true
+    state.telemetry.apply_if_current(generation, || {
+        let path = state.data_dir.join(SUPPORT_CACHE_FILE);
+        if let Err(e) = std::fs::write(&path, text) {
+            tracing::debug!(error = %e, "could not cache support rules");
+        }
+        state.set_support_rules(Arc::new(rules));
+    })
 }
 
 /// Event emitted when fetched support rules replaced the ones in use. Both
@@ -1131,6 +1156,37 @@ mod tests {
         assert!(hub.queued().is_empty());
     }
 
+    #[test]
+    fn a_cache_older_than_the_bundled_rules_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(
+            Arc::new(crate::commands::test_support::MockAdb::default()),
+            crate::engine::AppListBundle::default(),
+            dir.path().to_path_buf(),
+        );
+        let bundled = crate::commands::loader::embedded_support_rules();
+        let stale = r#"{"schema":1,"updated":"2000-01-01","rules":[{"match":{"manufacturer":"NVIDIA"},"tier":"beta","note":"old"}]}"#;
+        std::fs::write(dir.path().join(SUPPORT_CACHE_FILE), stale).unwrap();
+        load_cached_support_rules(&state);
+        assert_eq!(*state.support_rules(), *bundled);
+
+        let newer = r#"{"schema":1,"updated":"2999-01-01","rules":[{"match":{"manufacturer":"NVIDIA"},"tier":"beta","note":"new"}]}"#;
+        std::fs::write(dir.path().join(SUPPORT_CACHE_FILE), newer).unwrap();
+        load_cached_support_rules(&state);
+        assert_eq!(state.support_rules().updated, "2999-01-01");
+    }
+
+    #[test]
+    fn rules_are_not_applied_after_an_opt_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        let generation = hub.lock().generation;
+        hub.set_enabled(false).unwrap();
+        let mut applied = false;
+        assert!(!hub.apply_if_current(generation, || applied = true));
+        assert!(!applied);
+    }
+
     #[tokio::test]
     async fn opting_out_cancels_a_pending_support_fetch() {
         // A server that accepts and never answers: the GET stays pending
@@ -1145,7 +1201,7 @@ mod tests {
         let hub = Telemetry::new(config(Some(&base)), dir.path());
         let fetch = {
             let hub = Arc::clone(&hub);
-            tokio::spawn(async move { hub.fetch_support_rules().await })
+            tokio::spawn(async move { hub.fetch_support_rules().await.map(|(_, r, _)| r) })
         };
         tokio::time::sleep(Duration::from_millis(200)).await;
         hub.set_enabled(false).unwrap();

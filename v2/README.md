@@ -160,7 +160,8 @@ desktop build; leave it unset to ship a build that never reports.
   `crates/core/data/device-support.json`, embedded like the app lists and matched by the pure
   `engine/support.rs` against what the device reported. When reports are on, the app also fetches
   `GET <base>/v1/support-tiers`, validates it, and caches it as `<data_dir>/support-tiers.json`;
-  any failure keeps the embedded rules. When fetched rules change, Rust emits
+  any failure keeps the embedded rules. A cached or fetched document dated (`updated`) before the
+  embedded one is ignored, so an app update's corrections win. When fetched rules change, Rust emits
   `support-tiers-updated` and both frontends re-list devices. Tiers are informational only and
   never feed `engine::safety`.
 
