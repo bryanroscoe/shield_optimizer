@@ -1,7 +1,7 @@
 import { checkAdmin, deviceReport, parseGroup } from "./admin";
 import type { Env } from "./env";
 import { error, json, readBodyLimited } from "./http";
-import { consumeQuota, purgeExpired, storeEvents, utcDay } from "./ingest";
+import { consumeQuota, purgeExpired, releaseQuota, storeEvents, utcDay } from "./ingest";
 import { readTiers, replaceTiers, validateTierRules } from "./tiers";
 import { MAX_BODY_BYTES, cleanCountry, validateBatch } from "./validate";
 
@@ -50,7 +50,12 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
   }
 
   const cf = (request as { cf?: { country?: unknown } }).cf;
-  await storeEvents(env, events, cleanCountry(cf?.country), now);
+  try {
+    await storeEvents(env, events, cleanCountry(cf?.country), now);
+  } catch {
+    await releaseQuota(env, quota.rows, now).catch(() => undefined);
+    return error(503, "storage_unavailable");
+  }
   return new Response(null, {
     status: 204,
     headers: {

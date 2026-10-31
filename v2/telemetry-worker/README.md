@@ -77,6 +77,7 @@ The event shape is the schema 1 contract the apps implement.
 | `413` | Body over 64 KB. |
 | `415` | Not `application/json`. |
 | `429` | Daily cap reached (`install_daily_cap` or `global_daily_cap`). `Retry-After` is the seconds to the next UTC midnight. Clients should drop or hold the batch, not retry in a loop. |
+| `503` | Storage failed (`storage_unavailable`). The batch's quota is given back. |
 
 Clients should treat anything other than `204` as "drop this batch". Telemetry must never block or
 slow the app.
@@ -196,8 +197,9 @@ Cloudflare's free plan (check the current numbers on the
 - Workers: 100,000 requests a day, 10 ms CPU per request. A 50-event batch validates well inside that.
 - D1: 5 million rows read and 100,000 rows written a day, 5 GB storage, 50 queries per Worker call.
   Each request runs at most six queries however many events it carries (all writes go through
-  `json_each` over one JSON parameter), and an accepted event costs roughly three to four row
-  writes once aggregates and indexes are counted. Over the limit, D1 refuses queries until the
+  `json_each` over one JSON parameter). Row writes per accepted event are lowest in big batches
+  (aggregates are merged per batch) and highest for a one-event error batch: about seven (two
+  quota rows, the raw row and its index, three aggregate rows). Over the limit, D1 refuses queries until the
   daily reset; the apps just lose that day's telemetry.
 - Cron Triggers: this Worker uses one.
 
@@ -205,8 +207,9 @@ Abuse protection:
 
 - 64 KB body cap, enforced while reading the stream, and at most 50 events per request.
 - Per-install cap: `PER_INSTALL_DAILY_EVENTS` (500) events per install id per UTC day.
-- Global cap: `GLOBAL_DAILY_EVENTS` (20,000) events per UTC day across everyone, which keeps a
-  flood of made-up install ids inside the D1 write quota.
+- Global cap: `GLOBAL_DAILY_EVENTS` (10,000) events per UTC day across everyone. Even at the
+  worst case of about seven row writes per event that is roughly 70,000 writes, so a flood of
+  made-up install ids stays inside the D1 write quota. Raise it only together with a paid plan.
 
 Both caps are counters in one D1 table, `rate_daily` (a row per install id per day, plus key `*`
 for the global total). Admission and increment are a single statement: it checks every counter
