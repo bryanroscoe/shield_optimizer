@@ -83,7 +83,7 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         }
         val (result, details) = queryDetails(args.productId)
         val out = resultJson(result)
-        val offer = details?.oneTimePurchaseOfferDetails
+        val offer = details?.let { purchaseOffer(it) }
         if (details != null && offer != null) {
           val product = JSObject().apply {
             put("productId", details.productId)
@@ -152,10 +152,10 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         // for instance). Release it rather than refusing every later purchase.
         pendingPurchase?.reject("Superseded by a newer purchase request")
         pendingPurchase = invoke
+        val productParams = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details)
+        purchaseOffer(details)?.offerToken?.takeIf { it.isNotBlank() }?.let { productParams.setOfferToken(it) }
         val flow = BillingFlowParams.newBuilder()
-          .setProductDetailsParamsList(
-            listOf(BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details).build())
-          )
+          .setProductDetailsParamsList(listOf(productParams.build()))
           .build()
         val launch = client.launchBillingFlow(activity, flow)
         if (launch.responseCode != BillingResponseCode.OK && pendingPurchase === invoke) {
@@ -250,6 +250,12 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
     if (match != null) products[productId] = match
     return result to match
   }
+
+  // Products with several purchase options or offers only list them in
+  // oneTimePurchaseOfferDetailsList, and the purchase must name one by token.
+  // The price shown is always the offer that the purchase sheet will charge.
+  private fun purchaseOffer(details: ProductDetails): ProductDetails.OneTimePurchaseOfferDetails? =
+    details.oneTimePurchaseOfferDetailsList?.firstOrNull() ?: details.oneTimePurchaseOfferDetails
 
   private fun okResult(): BillingResult =
     BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()

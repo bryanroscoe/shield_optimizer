@@ -221,7 +221,9 @@ pub fn run() {
             let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
                 .with_entitlement(entitlement);
-            state.set_license_info(license_info);
+            state.set_license_info(
+                license_info.filter(|_| billing.distribution().allows_license_keys()),
+            );
             app.manage(state);
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());

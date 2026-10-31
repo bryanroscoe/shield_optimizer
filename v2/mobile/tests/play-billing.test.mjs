@@ -41,9 +41,10 @@ function status(over = {}) {
   };
 }
 
-async function open(t, initial, screen = "more") {
+async function open(t, initial, screen = "more", { clock = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 390, height: 1400 } });
   t.after(() => page.close());
+  if (clock) await page.clock.install();
   await page.addInitScript((init) => {
     window.calls = [];
     window.handlers = {};
@@ -240,4 +241,25 @@ test("buying from the paywall closes it once the backend grants Pro", async (t) 
   await paywall.getByRole("button", { name: "Buy Pro · €3,49" }).click();
   await paywall.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(async () => (await import("/src/lib/session.svelte.ts")).session.isPro), true);
+});
+
+test("a pending purchase that completes while the app stays open unlocks without leaving the app", async (t) => {
+  const page = await open(t, status({ play: { state: "pending" } }), "more", { clock: true });
+  const card = licensing(page);
+  await card.getByText("Purchase pending. Pro unlocks as soon as Google Play confirms the payment.").waitFor();
+  await page.evaluate(() => {
+    window.billingStatus = {
+      ...window.billingStatus,
+      entitlement: "pro",
+      sources: ["play"],
+      play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false },
+    };
+  });
+  const before = await count(page, "billing_refresh");
+  await page.clock.runFor(31_000);
+  await card.getByText("Source: Google Play purchase").waitFor();
+  assert.ok((await count(page, "billing_refresh")) > before);
+  const after = await count(page, "billing_refresh");
+  await page.clock.runFor(61_000);
+  assert.equal(await count(page, "billing_refresh"), after, "polling stops once the purchase is no longer pending");
 });

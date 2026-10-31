@@ -162,7 +162,9 @@ impl BillingCore {
             verifier,
             distribution,
             inner: Mutex::new(Inner {
-                license_pro,
+                // A Play build never counts an offline key, even one left in
+                // app data by an earlier sideload install.
+                license_pro: license_pro && distribution.allows_license_keys(),
                 play,
                 cache,
                 offer: None,
@@ -213,7 +215,7 @@ impl BillingCore {
     }
 
     pub fn set_license_pro(&self, pro: bool) {
-        self.lock().license_pro = pro;
+        self.lock().license_pro = pro && self.distribution.allows_license_keys();
     }
 
     pub fn has_offer(&self) -> bool {
@@ -651,6 +653,19 @@ mod tests {
             core(Distribution::Sideload, false)
                 .status()
                 .license_key_entry
+        );
+    }
+
+    #[test]
+    fn play_build_ignores_a_leftover_offline_license() {
+        let c = core(Distribution::Play, true);
+        assert_eq!(c.effective(), Entitlement::Free);
+        assert!(c.status().sources.is_empty());
+        c.set_license_pro(true);
+        assert_eq!(c.effective(), Entitlement::Free);
+        assert_eq!(
+            core(Distribution::Sideload, true).effective(),
+            Entitlement::Pro
         );
     }
 

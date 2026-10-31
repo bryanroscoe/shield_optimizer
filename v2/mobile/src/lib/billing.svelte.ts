@@ -21,6 +21,12 @@ function isStatus(value: unknown): value is BillingStatus {
 
 type Tone = "success" | "error" | "info";
 
+/// While a purchase is pending, re-check this often (the backend rate-limits to
+/// the same interval). Play delivers a completed pending payment to the app
+/// only as an unsolicited update the adapter doesn't forward, so without this a
+/// user who keeps the app open would stay Free until they leave and return.
+const PENDING_POLL_MS = 30_000;
+
 class BillingStore {
   status = $state<BillingStatus | null>(null);
   purchasing = $state(false);
@@ -52,11 +58,25 @@ class BillingStore {
     return "Purchases aren't available right now.";
   }
 
+  private pendingTimer: ReturnType<typeof setInterval> | undefined;
+
   private apply(status: unknown): status is BillingStatus {
     if (!isStatus(status)) return false;
     this.status = status;
     session.entitlement = status.entitlement;
+    this.watchPending(status.play.state === "pending");
     return true;
+  }
+
+  private watchPending(pending: boolean) {
+    if (pending && this.pendingTimer === undefined) {
+      this.pendingTimer = setInterval(() => {
+        if (document.visibilityState === "visible") void this.refresh();
+      }, PENDING_POLL_MS);
+    } else if (!pending && this.pendingTimer !== undefined) {
+      clearInterval(this.pendingTimer);
+      this.pendingTimer = undefined;
+    }
   }
 
   private say(message: string, tone: Tone) {
