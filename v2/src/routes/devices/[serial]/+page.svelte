@@ -31,6 +31,7 @@
   import SupportBadge from "$lib/components/SupportBadge.svelte";
   import SupportBanner from "$lib/components/SupportBanner.svelte";
   import { destructiveWarning } from "../../../../shared/support";
+  import { onSupportTiersUpdated } from "$lib/support-updates";
   import {
     isBlocked,
     safetyClass,
@@ -2056,7 +2057,12 @@
     return trimmed === "" || trimmed === "unknown" ? "—" : trimmed;
   }
 
-  onMount(loadDevice);
+  onMount(() => {
+    void loadDevice();
+    // Fetched support tiers landed after this TV was profiled: re-read it so
+    // the badge and banner aren't stale.
+    return onSupportTiersUpdated(() => void loadDevice());
+  });
 </script>
 
 <div class="back-row">
