@@ -213,9 +213,13 @@ static IPV6: LazyLock<Regex> = LazyLock::new(|| {
 static IPV4: LazyLock<Regex> = LazyLock::new(|| re(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b"));
 static HOST_PORT: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*:\d{2,5}\b"));
-static UNIX_PATH: LazyLock<Regex> = LazyLock::new(|| re(r#"(^|[\s'"(=,\[])(~?/[^\s'"),\]]+)"#));
+// A path runs to a quote, bracket, newline, `: ` or the end of the text, so
+// one with spaces in it (`C:\Users\Jane Doe\…`) is removed whole. That
+// also swallows any unquoted words after a path, which only loses context.
+static UNIX_PATH: LazyLock<Regex> =
+    LazyLock::new(|| re(r#"(^|[\s'"(=,\[])~?/(?:[^'"\n:)\]]|:\S)*"#));
 static WINDOWS_PATH: LazyLock<Regex> =
-    LazyLock::new(|| re(r#"(?i)\b[a-z]:\\[^\s'"]*|\\\\[^\s'"]+"#));
+    LazyLock::new(|| re(r#"(?i)\b[a-z]:\\(?:[^'"\n:)\]]|:\S)*|\\\\(?:[^'"\n:)\]]|:\S)+"#));
 static PACKAGE: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+){2,}\b"));
 static ID_TOKEN: LazyLock<Regex> = LazyLock::new(|| re(r"\b[A-Za-z0-9]{8,}\b"));
@@ -231,6 +235,25 @@ const KEEP_NAMESPACES: [&str; 6] = [
     "dalvik.",
     "com.android.",
 ];
+
+/// [`redact_message`], after first removing identifiers the caller already
+/// knows: the serials and hardware ids of the TVs this session has seen. A
+/// serial has no reliable shape (`ABCDEFABCDEF` is a valid one), so the
+/// generic patterns can't be the only line of defence.
+pub fn redact_message_with(raw: &str, known: &[&str]) -> String {
+    let mut s = raw.to_string();
+    let mut known: Vec<&str> = known
+        .iter()
+        .map(|k| k.trim())
+        .filter(|k| k.len() >= 4)
+        .collect();
+    // Longest first, so a serial inside a longer mDNS name goes with it.
+    known.sort_by_key(|k| std::cmp::Reverse(k.len()));
+    for k in known {
+        s = s.replace(k, "<id>");
+    }
+    redact_message(&s)
+}
 
 /// Strip anything identifying from free text and cap it at
 /// [`MAX_MESSAGE_CHARS`]. Errs on the side of removing too much: a timestamp
@@ -294,6 +317,7 @@ pub fn device_seen_event(ctx: &EventContext, ts: &str, device: TelemetryDevice) 
 }
 
 /// A finished user action. A success carries no code or message.
+#[allow(clippy::too_many_arguments)]
 pub fn action_event(
     ctx: &EventContext,
     ts: &str,
@@ -302,13 +326,16 @@ pub fn action_event(
     ok: bool,
     error_code: Option<&str>,
     message: Option<&str>,
+    known: &[&str],
 ) -> TelemetryEvent {
     let (error_code, message) = if ok {
         (None, None)
     } else {
         (
             Some(sanitize_error_code(error_code.unwrap_or("unknown"))),
-            message.map(redact_message).filter(|m| !m.is_empty()),
+            message
+                .map(|m| redact_message_with(m, known))
+                .filter(|m| !m.is_empty()),
         )
     };
     TelemetryEvent {
@@ -330,13 +357,14 @@ pub fn error_event(
     device: Option<TelemetryDevice>,
     error_code: &str,
     message: &str,
+    known: &[&str],
 ) -> TelemetryEvent {
     TelemetryEvent {
         device,
         action: Some(action),
         ok: Some(false),
         error_code: Some(sanitize_error_code(error_code)),
-        message: Some(redact_message(message)).filter(|m| !m.is_empty()),
+        message: Some(redact_message_with(message, known)).filter(|m| !m.is_empty()),
         ..base(ctx, ts, EventKind::Error)
     }
 }
@@ -500,6 +528,7 @@ mod tests {
             true,
             Some("x"),
             Some("Disabled com.example.secretapp"),
+            &[],
         );
         assert_eq!(e.ok, Some(true));
         assert_eq!(e.error_code, None);
@@ -519,6 +548,7 @@ mod tests {
             false,
             Some("Connection Refused!"),
             Some("adb connect 192.168.1.20:5555: failed to connect to 192.168.1.20:5555"),
+            &[],
         );
         assert_eq!(e.error_code.as_deref(), Some("connection_refused"));
         assert_eq!(
@@ -552,16 +582,21 @@ mod tests {
             ("mail bryan@example.com now", "mail <email> now"),
             (
                 "open /Users/bryan/Library/ShieldOptimizer/snapshots/a.json: denied",
-                "open <path> denied",
+                "open <path>: denied",
             ),
             (
-                "open C:\\Users\\bryan\\AppData\\x.json failed",
-                "open <path> failed",
+                "open C:\\Users\\bryan\\AppData\\x.json: failed",
+                "open <path>: failed",
             ),
+            (
+                "Not a file: C:\\Users\\Jane Doe\\private backup.apk",
+                "Not a file: <path>",
+            ),
+            ("copy /Users/Jane Doe/My Files/a b.apk", "copy <path>"),
             ("no file ~/Downloads/app.apk", "no file <path>"),
             (
                 "pull '/sdcard/Movies/home video.mp4' failed",
-                "pull '<path> video.mp4' failed",
+                "pull '<path>' failed",
             ),
             (
                 "pm disable-user com.example.secretapp: Failure",
@@ -572,6 +607,40 @@ mod tests {
         for (input, want) in cases {
             assert_eq!(redact_message(input), want, "input: {input}");
         }
+    }
+
+    #[test]
+    fn known_serials_are_removed_whatever_their_shape() {
+        let msg = "device_profile: device ABCDEFABCDEF not found";
+        assert!(
+            redact_message(msg).contains("ABCDEFABCDEF"),
+            "generic rules can't know this one"
+        );
+        assert_eq!(
+            redact_message_with(msg, &["ABCDEFABCDEF", "", "ab"]),
+            "device_profile: device <id> not found"
+        );
+        let e = error_event(
+            &ctx(),
+            "t",
+            TelemetryAction::Other,
+            None,
+            "x",
+            msg,
+            &["ABCDEFABCDEF"],
+        );
+        assert!(!e.message.unwrap().contains("ABCDEF"));
+        let a = action_event(
+            &ctx(),
+            "t",
+            TelemetryAction::Connect,
+            None,
+            false,
+            None,
+            Some(msg),
+            &["ABCDEFABCDEF"],
+        );
+        assert!(!a.message.unwrap().contains("ABCDEF"));
     }
 
     #[test]
@@ -630,6 +699,7 @@ mod tests {
                     None,
                     "x",
                     &"m".repeat(500),
+                    &[],
                 )
             })
             .collect();

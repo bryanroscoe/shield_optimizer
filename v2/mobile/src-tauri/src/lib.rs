@@ -29,7 +29,7 @@ use shield_optimizer_core::license::{
     parse_license, validate_license_key, Entitlement, LicenseInfo,
 };
 use shield_optimizer_core::telemetry::{
-    install_panic_hook, load_cached_support_rules, refresh_support_rules, Telemetry,
+    install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
     TelemetryConfig,
 };
 use tauri::{Manager, State};
@@ -215,10 +215,7 @@ pub fn run() {
             state.set_license_info(license_info);
             load_cached_support_rules(&state);
             app.manage(state);
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                refresh_support_rules(handle.state::<AppState>().inner()).await;
-            });
+            spawn_support_refresh(app.handle().clone());
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());
             Ok(())

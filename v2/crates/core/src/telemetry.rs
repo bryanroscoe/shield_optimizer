@@ -51,9 +51,21 @@ pub fn build_base_url() -> Option<String> {
     normalize_base_url(option_env!("ATVOPT_TELEMETRY_URL"))
 }
 
+/// HTTPS only. Plain HTTP is accepted for a loopback host, which is what
+/// local development and the tests use; anything else would send every
+/// report in cleartext, so the build gets no endpoint at all.
 fn normalize_base_url(raw: Option<&str>) -> Option<String> {
     let url = raw?.trim().trim_end_matches('/');
-    (url.starts_with("https://") || url.starts_with("http://")).then(|| url.to_string())
+    if url.len() > "https://".len() && url.starts_with("https://") {
+        return Some(url.to_string());
+    }
+    let rest = url.strip_prefix("http://")?;
+    let host = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = match host.rsplit_once(':') {
+        Some((h, port)) if !h.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => h,
+        _ => host,
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "[::1]").then(|| url.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +82,14 @@ impl StoredSettings {
             enabled: true,
             install_id: new_install_id(),
             notice_seen: false,
+        }
+    }
+
+    fn opted_out() -> Self {
+        Self {
+            enabled: false,
+            install_id: new_install_id(),
+            notice_seen: true,
         }
     }
 }
@@ -149,6 +169,9 @@ struct Inner {
     /// TV it ran on. In memory only; the serial is never sent.
     devices: HashMap<String, TelemetryDevice>,
     limiter: ErrorLimiter,
+    /// Every transport serial and hardware id seen this session, scrubbed
+    /// from messages by exact match. In memory only.
+    identifiers: HashSet<String>,
     /// Bumped on opt-out so a batch drained before it is never sent.
     generation: u64,
 }
@@ -187,15 +210,25 @@ impl Telemetry {
     /// start the uploader; call [`Telemetry::start`] once a runtime exists.
     pub fn new(config: TelemetryConfig, data_dir: &Path) -> Arc<Self> {
         let path = data_dir.join(SETTINGS_FILE);
-        let stored = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<StoredSettings>(&text).ok())
-            .filter(|s| uuid::Uuid::parse_str(&s.install_id).is_ok());
-        let fresh = stored.is_none();
-        let settings = stored.unwrap_or_else(StoredSettings::fresh);
+        let (settings, changed) = match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (StoredSettings::fresh(), true),
+            // The file exists but can't be read or parsed: the user's choice
+            // is unknown, so assume they opted out rather than resume
+            // reporting. Nothing is sent, so there is no notice to show.
+            Err(_) => (StoredSettings::opted_out(), true),
+            Ok(text) => match serde_json::from_str::<StoredSettings>(&text) {
+                Ok(mut s) if uuid::Uuid::parse_str(&s.install_id).is_err() => {
+                    s.install_id = new_install_id();
+                    (s, true)
+                }
+                Ok(s) => (s, false),
+                Err(_) => (StoredSettings::opted_out(), true),
+            },
+        };
         let hub = Self::build(config, Some(path), settings);
-        if fresh {
-            hub.persist(&hub.lock().settings);
+        if changed {
+            let snapshot = hub.lock().settings.clone();
+            let _ = hub.persist(&snapshot);
         }
         Arc::new(hub)
     }
@@ -210,6 +243,7 @@ impl Telemetry {
                 seen: HashSet::new(),
                 devices: HashMap::new(),
                 limiter: ErrorLimiter::default(),
+                identifiers: HashSet::new(),
                 generation: 0,
             }),
             wake: Notify::new(),
@@ -223,21 +257,25 @@ impl Telemetry {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    fn persist(&self, settings: &StoredSettings) {
+    /// Write to a sibling file and rename, so a crash or full disk never
+    /// leaves a half-written file that would read back as a fresh install.
+    fn persist(&self, settings: &StoredSettings) -> Result<(), String> {
         let Some(path) = &self.settings_path else {
-            return;
+            return Ok(());
         };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        match serde_json::to_string(settings) {
-            Ok(json) => {
-                if let Err(e) = std::fs::write(path, json) {
-                    tracing::warn!(error = %e, "could not save telemetry setting");
-                }
+        let result = (|| {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
             }
-            Err(e) => tracing::warn!(error = %e, "could not encode telemetry setting"),
-        }
+            let json = serde_json::to_string(settings).map_err(std::io::Error::other)?;
+            let tmp = path.with_extension("json.tmp");
+            std::fs::write(&tmp, json)?;
+            std::fs::rename(&tmp, path)
+        })();
+        result.map_err(|e| {
+            tracing::warn!(error = %e, "could not save telemetry setting");
+            format!("Couldn't save the report setting: {e}")
+        })
     }
 
     fn configured(&self) -> bool {
@@ -264,8 +302,11 @@ impl Telemetry {
     /// Off discards everything queued and cancels an upload in flight. Back
     /// on starts over under a new random install id, so the two periods
     /// can't be linked.
-    pub fn set_enabled(&self, enabled: bool) -> TelemetrySettings {
-        {
+    ///
+    /// Off takes effect in this session even if saving fails; the error is
+    /// returned so the UI can say the choice may not survive a restart.
+    pub fn set_enabled(&self, enabled: bool) -> Result<TelemetrySettings, String> {
+        let snapshot = {
             let mut inner = self.lock();
             if inner.settings.enabled != enabled {
                 inner.settings.enabled = enabled;
@@ -277,24 +318,23 @@ impl Telemetry {
                 }
                 inner.seen.clear();
             }
-            let snapshot = inner.settings.clone();
-            drop(inner);
-            self.persist(&snapshot);
-        }
+            inner.settings.clone()
+        };
         if !enabled {
             self.cancel.notify_waiters();
         }
-        self.settings()
+        self.persist(&snapshot)?;
+        Ok(self.settings())
     }
 
-    pub fn dismiss_notice(&self) -> TelemetrySettings {
+    pub fn dismiss_notice(&self) -> Result<TelemetrySettings, String> {
         let snapshot = {
             let mut inner = self.lock();
             inner.settings.notice_seen = true;
             inner.settings.clone()
         };
-        self.persist(&snapshot);
-        self.settings()
+        self.persist(&snapshot)?;
+        Ok(self.settings())
     }
 
     fn context(&self, inner: &Inner) -> EventContext {
@@ -337,6 +377,10 @@ impl Telemetry {
             format!("hw:{hardware_id}")
         };
         let mut inner = self.lock();
+        inner.identifiers.insert(device.serial.clone());
+        if key.starts_with("hw:") {
+            inner.identifiers.insert(hardware_id.to_string());
+        }
         inner
             .devices
             .insert(device.serial.clone(), snapshot.clone());
@@ -345,6 +389,20 @@ impl Telemetry {
         }
         let event = device_seen_event(&self.context(&inner), &now(), snapshot);
         self.enqueue(&mut inner, event);
+    }
+
+    /// Remember a transport serial so it is scrubbed from any later message,
+    /// even for a TV that could never be profiled (unauthorized, offline).
+    pub fn note_transport(&self, serial: &str) {
+        if self.configured() {
+            self.lock().identifiers.insert(serial.to_string());
+        }
+    }
+
+    fn known(inner: &Inner, serial: Option<&str>) -> Vec<String> {
+        let mut known: Vec<String> = inner.identifiers.iter().cloned().collect();
+        known.extend(serial.map(str::to_string));
+        known
     }
 
     /// A finished user action. `serial` only selects which profiled TV to
@@ -362,6 +420,8 @@ impl Telemetry {
             return;
         }
         let device = serial.and_then(|s| inner.devices.get(s).cloned());
+        let known = Self::known(&inner, serial);
+        let known: Vec<&str> = known.iter().map(String::as_str).collect();
         let event = action_event(
             &self.context(&inner),
             &now(),
@@ -370,6 +430,7 @@ impl Telemetry {
             ok,
             error_code,
             message,
+            &known,
         );
         self.enqueue(&mut inner, event);
     }
@@ -402,7 +463,17 @@ impl Telemetry {
             return;
         }
         let device = serial.and_then(|s| inner.devices.get(s).cloned());
-        let event = error_event(&self.context(inner), &now(), action, device, &code, message);
+        let known = Self::known(inner, serial);
+        let known: Vec<&str> = known.iter().map(String::as_str).collect();
+        let event = error_event(
+            &self.context(inner),
+            &now(),
+            action,
+            device,
+            &code,
+            message,
+            &known,
+        );
         self.enqueue(inner, event);
     }
 
@@ -444,12 +515,17 @@ impl Telemetry {
                 (events, inner.generation)
             };
             for body in encode_batches(&events) {
+                // Register for cancellation before the last check, so an
+                // opt-out landing in between still wakes this waiter.
+                let cancelled = self.cancel.notified();
+                tokio::pin!(cancelled);
+                cancelled.as_mut().enable();
                 if !self.still_sending(generation) {
                     return;
                 }
                 tokio::select! {
                     _ = self.post_events(body) => {}
-                    _ = self.cancel.notified() => return,
+                    _ = &mut cancelled => return,
                 }
             }
         }
@@ -608,15 +684,39 @@ pub fn load_cached_support_rules(state: &AppState) {
 /// Fetch the current rules from the report server and cache them. Only when
 /// reports are on: turning them off means the app doesn't contact that
 /// server at all. Any failure keeps the rules already loaded.
-pub async fn refresh_support_rules(state: &AppState) {
+///
+/// Returns whether the rules changed, so the caller can tell the UI to
+/// re-list devices.
+pub async fn refresh_support_rules(state: &AppState) -> bool {
     let Some((text, rules)) = state.telemetry.fetch_support_rules().await else {
-        return;
+        return false;
     };
+    if *state.support_rules() == rules {
+        return false;
+    }
     let path = state.data_dir.join(SUPPORT_CACHE_FILE);
     if let Err(e) = std::fs::write(&path, text) {
         tracing::debug!(error = %e, "could not cache support rules");
     }
     state.set_support_rules(Arc::new(rules));
+    true
+}
+
+/// Event emitted when fetched support rules replaced the ones in use. Both
+/// frontends re-list devices on it, so a tier shown before the fetch landed
+/// doesn't linger until the next manual refresh.
+pub const SUPPORT_TIERS_UPDATED: &str = "support-tiers-updated";
+
+/// Refresh the support rules in the background and notify the UI if they
+/// changed. Used at startup and when the user turns reports back on.
+pub fn spawn_support_refresh<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
+    use tauri::{Emitter, Manager};
+    tauri::async_runtime::spawn(async move {
+        let changed = refresh_support_rules(app.state::<AppState>().inner()).await;
+        if changed {
+            let _ = app.emit(SUPPORT_TIERS_UPDATED, ());
+        }
+    });
 }
 
 /// Report Rust panics, then hand them to whatever hook was there before.
@@ -770,7 +870,7 @@ mod tests {
         hub.record_action(TelemetryAction::Scan, None, true, None, None);
         assert_eq!(hub.queued().len(), 1);
 
-        assert!(!hub.set_enabled(false).enabled);
+        assert!(!hub.set_enabled(false).unwrap().enabled);
         assert!(hub.queued().is_empty());
         hub.record_action(TelemetryAction::Scan, None, true, None, None);
         assert!(hub.queued().is_empty(), "nothing is recorded while off");
@@ -781,11 +881,11 @@ mod tests {
                 .enabled
         );
 
-        assert!(hub.set_enabled(true).enabled);
+        assert!(hub.set_enabled(true).unwrap().enabled);
         assert_ne!(hub.install_id(), first_id);
         // Re-sending the current setting is not a toggle.
         let id = hub.install_id();
-        hub.set_enabled(true);
+        hub.set_enabled(true).unwrap();
         assert_eq!(hub.install_id(), id);
     }
 
@@ -858,28 +958,85 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_settings_start_over_rather_than_fail() {
+    fn an_unreadable_setting_is_treated_as_opted_out() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(SETTINGS_FILE), "{not json").unwrap();
         let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
-        assert!(hub.settings().enabled);
+        let s = hub.settings();
+        assert!(!s.enabled && s.notice_seen);
+        // A readable choice with a bad id keeps the choice and gets a new id.
         std::fs::write(
             dir.path().join(SETTINGS_FILE),
             r#"{"enabled":false,"install_id":"1324619053514"}"#,
         )
         .unwrap();
         let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        assert!(!hub.settings().enabled);
         assert!(uuid::Uuid::parse_str(&hub.install_id()).is_ok());
     }
 
     #[test]
-    fn base_url_must_be_http_and_loses_its_trailing_slash() {
+    fn a_failed_save_is_reported_but_opt_out_still_applies_now() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        hub.record_action(TelemetryAction::Scan, None, true, None, None);
+        // Make the save fail: the temp file's name is taken by a directory.
+        std::fs::create_dir(dir.path().join("telemetry.json.tmp")).unwrap();
+        assert!(hub.set_enabled(false).is_err());
+        assert!(!hub.settings().enabled);
+        assert!(hub.queued().is_empty());
+    }
+
+    #[test]
+    fn known_transports_are_scrubbed_from_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        hub.note_transport("ABCDEFABCDEF");
+        hub.device_profiled(&shield("10.0.0.2:5555", "HWIDNODIGITS"));
+        hub.record_error(
+            TelemetryAction::Other,
+            None,
+            "not_connected",
+            "device_profile: device ABCDEFABCDEF not found; HWIDNODIGITS gone",
+        );
+        hub.record_action(
+            TelemetryAction::Connect,
+            Some("QQQQRRRRSSSS"),
+            false,
+            None,
+            Some("QQQQRRRRSSSS refused"),
+        );
+        let text = serde_json::to_string(&hub.queued()).unwrap();
+        for secret in ["ABCDEFABCDEF", "HWIDNODIGITS", "QQQQRRRRSSSS"] {
+            assert!(!text.contains(secret), "{secret} leaked: {text}");
+        }
+    }
+
+    #[test]
+    fn base_url_must_be_https_or_loopback_and_loses_its_trailing_slash() {
         assert_eq!(
             normalize_base_url(Some(" https://t.example/ ")),
             Some("https://t.example".into())
         );
         assert_eq!(normalize_base_url(Some("")), None);
         assert_eq!(normalize_base_url(Some("ftp://x")), None);
+        assert_eq!(normalize_base_url(Some("https://")), None);
+        assert_eq!(
+            normalize_base_url(Some("http://telemetry.example.com")),
+            None
+        );
+        assert_eq!(
+            normalize_base_url(Some("http://127.0.0.1.example.com")),
+            None
+        );
+        assert_eq!(
+            normalize_base_url(Some("http://127.0.0.1:8787/")),
+            Some("http://127.0.0.1:8787".into())
+        );
+        assert_eq!(
+            normalize_base_url(Some("http://localhost:8787")),
+            Some("http://localhost:8787".into())
+        );
         assert_eq!(normalize_base_url(None), None);
     }
 
@@ -968,7 +1125,7 @@ mod tests {
         // point is that none is made and the queue is gone.
         let hub = Telemetry::new(config(Some("http://127.0.0.1:9")), dir.path());
         hub.record_action(TelemetryAction::Scan, None, true, None, None);
-        hub.set_enabled(false);
+        hub.set_enabled(false).unwrap();
         hub.flush().await;
         assert!(hub.queued().is_empty());
     }

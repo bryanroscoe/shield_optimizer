@@ -5,7 +5,7 @@
 //! redacts it. A disabled or unconfigured hub makes all of these no-ops, and
 //! none of them can fail a user action: they return `Ok` either way.
 
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
 
 use crate::engine::telemetry::TelemetryAction;
 use crate::telemetry::TelemetrySettings;
@@ -17,19 +17,27 @@ pub async fn telemetry_settings(state: State<'_, AppState>) -> Result<TelemetryS
     Ok(state.telemetry.settings())
 }
 
+/// Turning reports back on also refreshes the support tiers, which are only
+/// fetched while reports are on.
 #[tauri::command]
-pub async fn set_telemetry_enabled(
+pub async fn set_telemetry_enabled<R: Runtime>(
+    app: AppHandle<R>,
     state: State<'_, AppState>,
     enabled: bool,
 ) -> Result<TelemetrySettings, String> {
-    Ok(state.telemetry.set_enabled(enabled))
+    let was_enabled = state.telemetry.settings().enabled;
+    let settings = state.telemetry.set_enabled(enabled)?;
+    if enabled && !was_enabled {
+        crate::telemetry::spawn_support_refresh(app);
+    }
+    Ok(settings)
 }
 
 #[tauri::command]
 pub async fn dismiss_telemetry_notice(
     state: State<'_, AppState>,
 ) -> Result<TelemetrySettings, String> {
-    Ok(state.telemetry.dismiss_notice())
+    state.telemetry.dismiss_notice()
 }
 
 /// The outcome of one tracked action (connect, disable, snapshot apply, …).

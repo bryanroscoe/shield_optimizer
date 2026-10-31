@@ -42,6 +42,7 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
+        state.telemetry.note_transport(&e.serial);
         // For non-authorized devices we can't query properties — we still
         // surface them in the list with a placeholder name.
         if e.status != DeviceStatus::Device {

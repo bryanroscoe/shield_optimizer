@@ -27,7 +27,7 @@ use shield_optimizer_core::commands::{
 use shield_optimizer_core::engine::telemetry::AppKind;
 use shield_optimizer_core::license::Entitlement;
 use shield_optimizer_core::telemetry::{
-    install_panic_hook, load_cached_support_rules, refresh_support_rules, Telemetry,
+    install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
     TelemetryConfig,
 };
 use tauri::Manager;
@@ -234,10 +234,7 @@ pub fn run() {
         .manage(AdbQuitControl::default())
         .setup(move |app| {
             telemetry.start();
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                refresh_support_rules(handle.state::<AppState>().inner()).await;
-            });
+            spawn_support_refresh(app.handle().clone());
             Ok(())
         })
         .invoke_handler(invoke_handler())
