@@ -28,9 +28,13 @@ const RULES: Array<[RegExp, string]> = [
   [/\\\\[^\s"'<>|]+/g, "[path]"],
   [/~[\\/][^\s"'<>|]*/g, "[path]"],
   [/(?<![\w.\]])\/[^\s"'<>|]+/g, "[path]"],
+  // Relative paths: two or more separators (data/users/Jane/private.cfg), or one
+  // separator ending in a file extension (users/private.cfg). and/or survives.
+  [/\b[\w.-]+(?:[\\/][\w.-]+){2,}/g, "[path]"],
+  [/\b[\w.-]+[\\/][\w-]+\.[a-z0-9]{1,5}\b/gi, "[path]"],
   // Unquoted paths with spaces: words after a [path] that still contain a
   // separator are the rest of it (C:\Users\Jane Smith\x.txt).
-  [/\[path\](?:\s+[^\s]*[\\/][^\s]*)+/g, "[path]"],
+  [/\[path\](?:\s+(?:\[path\]|[^\s]*[\\/][^\s]*))+/g, "[path]"],
 ];
 
 // Long alphanumeric tokens with several digits: adb serials (0323220012345,

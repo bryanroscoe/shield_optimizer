@@ -27,6 +27,8 @@ describe("redactMessage", () => {
     ["quoted POSIX path with spaces", "read '/home/Jane Smith/x.json' failed", "read [path] failed"],
     ["unquoted Windows path with spaces", "open C:\\Users\\Jane Smith\\private.txt failed", "open [path] failed"],
     ["unquoted POSIX path with spaces", "open /Users/Jane Smith/Library/x failed", "open [path] failed"],
+    ["relative path", "open data/users/Jane/private.cfg failed", "open [path] failed"],
+    ["relative file", "open users/private.cfg failed", "open [path] failed"],
     ["emulator transport id", "device emulator-5554 offline", "device [serial] offline"],
     ["hyphenated serial", "device ABCDEF-1234 offline", "device [serial] offline"],
     ["URL", "GET https://example.com/a?b=c failed", "GET [url] failed"],
@@ -42,6 +44,7 @@ describe("redactMessage", () => {
     expect(redactMessage("timed out after 30s waiting for adb")).toBe("timed out after 30s waiting for adb");
     expect(redactMessage("ADB_TIMEOUT on HTTP2 UTF8 SHIELD")).toBe("ADB_TIMEOUT on HTTP2 UTF8 SHIELD");
     expect(redactMessage("android14 sdk34 failed")).toBe("android14 sdk34 failed");
+    expect(redactMessage("read and/or write failed over TCP/IP")).toBe("read and/or write failed over TCP/IP");
   });
 
   it("treats three or more package names as a package list", () => {

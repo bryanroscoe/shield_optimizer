@@ -52,7 +52,7 @@ How that is enforced server-side, so a client bug cannot break it:
   check because real model numbers such as `55UQ7590PUB` have the same shape and the device
   report needs them.
 - `message` is redacted again: IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails,
-  URLs, Windows/UNC/POSIX/home paths (quoted ones whole, spaces included), `*.local` names, adb mDNS names and serial-looking tokens
+  URLs, Windows/UNC/POSIX/home and relative paths (quoted ones whole, spaces included), `*.local` names, adb mDNS names and serial-looking tokens
   (10+ letters and digits with at least 4 digits, or 8+ upper-case letters and digits with at
   least one of each, such as `R5CRABCDEFZ`, or 10+ in any case, such as `r5crabcdefz`, or hyphen/underscore-joined
   ones with a run of 4+ digits, such as `emulator-5554`). These are heuristics: a serial made only of letters
