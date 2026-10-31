@@ -1,0 +1,35 @@
+# ATV Optimizer telemetry backend: one Worker + one D1 database, free tier.
+# Deploy steps are in README.md. Nothing here is secret: ADMIN_TOKEN is set with
+# `wrangler secret put ADMIN_TOKEN` and never lives in this file.
+
+name = "atv-optimizer-telemetry"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+tsconfig = "tsconfig.json"
+
+# Workers Logs would record request metadata for every invocation. This Worker
+# promises not to keep request IPs or fine-grained location, so logging stays off.
+[observability]
+enabled = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "telemetry"
+# Placeholder. Replace with the id printed by `wrangler d1 create telemetry`.
+# Local dev and tests ignore it and use a local SQLite file.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Daily at 03:17 UTC: delete raw events older than RAW_RETENTION_DAYS and stale
+# rate-limit counters. Aggregate tables are kept.
+[triggers]
+crons = ["17 3 * * *"]
+
+[vars]
+# Raw event rows older than this are purged by the cron trigger.
+RAW_RETENTION_DAYS = "90"
+# Per install_id, per UTC day. Requests over the cap get 429 and store nothing.
+PER_INSTALL_DAILY_EVENTS = "500"
+# Across all installs, per UTC day. Keeps a flood under D1's free-tier write quota
+# (100k rows written/day; each accepted event costs roughly 3-4 row writes).
+GLOBAL_DAILY_EVENTS = "20000"
