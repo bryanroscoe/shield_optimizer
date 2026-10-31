@@ -65,7 +65,9 @@ async function open(t, initial, screen = "more", { clock = false } = {}) {
           }];
           case "wireless_status": return { connected: true };
           case "wireless_connect": return { ok: true, message: "connected" };
-          case "prepare_optimize": throw "LOCKED:optimize_wizard";
+          case "prepare_optimize":
+            if (window.billingStatus.entitlement !== "pro") throw "LOCKED:optimize_wizard";
+            return { mode: "optimize", device_type: "shield", items: [] };
           case "panic_recovery": return { restored: ["com.example.one"], failed: [], message: "Re-enabled 1 app." };
           default: return { ok: true, message: "done" };
         }
@@ -241,6 +243,9 @@ test("buying from the paywall closes it once the backend grants Pro", async (t) 
   await paywall.getByRole("button", { name: "Buy Pro · €3,49" }).click();
   await paywall.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(async () => (await import("/src/lib/session.svelte.ts")).session.isPro), true);
+  // The screen it was bought from reloads instead of staying locked.
+  await page.getByRole("heading", { name: "Debloat is a Pro feature" }).waitFor({ state: "detached" });
+  assert.ok((await count(page, "prepare_optimize")) >= 2);
 });
 
 test("a pending purchase that completes while the app stays open unlocks without leaving the app", async (t) => {

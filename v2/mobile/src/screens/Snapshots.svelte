@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
@@ -66,6 +66,11 @@
   }
 
   onMount(load);
+
+  // Pro bought from this screen's paywall: reload instead of leaving the lock up.
+  $effect(() => {
+    if (locked && session.isPro) untrack(() => void load());
+  });
 
   async function save() {
     if (saving || !session.serial) return;

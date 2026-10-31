@@ -116,6 +116,11 @@
     clearTimeout(toastTimer);
   });
 
+  // Pro bought from this screen's paywall: reload instead of leaving the lock up.
+  $effect(() => {
+    if (locked && session.isPro) untrack(() => void loadPlan(mode));
+  });
+
   async function loadPlan(nextMode: OptimizeMode = mode) {
     const device = session.connectedDevice;
     const serial = session.serial;
