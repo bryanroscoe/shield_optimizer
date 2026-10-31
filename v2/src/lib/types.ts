@@ -247,6 +247,7 @@ export interface DeviceReport {
 
 export interface RestartResult {
   ok: boolean;
+  server_ready: boolean;
   message: string;
 }
 

@@ -15,7 +15,7 @@ try {
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });
   const page = await context.newPage();
-  for (const scenario of ['auth', 'success', 'failure', 'restart-fails', 'cancel', 'edited', 'unattempted']) {
+  for (const scenario of ['auth', 'success', 'failure', 'partial', 'restart-fails', 'cancel', 'edited', 'unattempted']) {
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
     await page.evaluate(({ scenario }) => {
       const original = window.__TAURI_INTERNALS__.invoke;
@@ -30,12 +30,12 @@ try {
             ? { ok: false, message: 'failed to connect: No route to host' }
             : { ok: true, message: scenario === 'success' ? 'connected to 192.0.2.1:5555' : 'failed to authenticate — approve this computer on the TV, then refresh' };
         }
-        if (command === 'restart_adb') return { ok: scenario !== 'restart-fails', message: scenario === 'restart-fails' ? 'Simulated start-server failure' : 'ADB server restarted.' };
+        if (command === 'restart_adb') return { ok: !['restart-fails', 'partial'].includes(scenario), server_ready: scenario !== 'restart-fails', message: scenario === 'restart-fails' ? 'Simulated start-server failure' : 'ADB server restarted.' };
         return original(command, args);
       };
       const label = document.createElement('div');
       label.textContent = 'SIMULATION — mocked commands; no ADB server or TV';
-      label.style.cssText = 'position:fixed;top:0;right:0;z-index:99999;background:#182238;color:white;padding:8px';
+      label.style.cssText = 'position:fixed;bottom:48px;right:12px;z-index:99999;background:#182238;color:white;padding:8px';
       document.body.append(label);
     }, { scenario });
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
@@ -56,7 +56,7 @@ try {
     });
     await page.getByRole('button', { name: 'Restart ADB', exact: true }).click();
     if (scenario !== 'cancel') await page.getByText(scenario === 'restart-fails' ? 'Simulated start-server failure' : 'ADB server restarted.', { exact: true }).waitFor();
-    const retry = ['auth', 'success', 'failure'].includes(scenario);
+    const retry = ['auth', 'success', 'failure', 'partial'].includes(scenario);
     if (retry) await page.waitForFunction(() => window.recoveryCalls.filter(c => c.command === 'connect_device').length === 2, null, { timeout: 3000 });
     const calls = await page.evaluate(() => window.recoveryCalls);
     assert.equal(calls.filter(c => c.command === 'connect_device').length, scenario === 'unattempted' ? 0 : retry ? 2 : 1, scenario);

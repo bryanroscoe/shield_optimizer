@@ -613,7 +613,7 @@
       const r = await api.restartAdb();
       restartMessage = r.message;
       await refresh();
-      if (r.ok && retryAddress && connectAddress.trim() === retryAddress) await connect();
+      if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
     } finally {

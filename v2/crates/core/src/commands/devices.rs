@@ -218,30 +218,66 @@ pub async fn connect_device(
 pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
     let target = normalize_connect_address(address)?;
     let adb = state.adb_snapshot().await;
-    let out = adb
-        .raw(&["connect", &target])
-        .await
-        .map_err(|e| format!("adb connect: {e}"))?;
+    let out = match adb.raw(&["connect", &target]).await {
+        Ok(out) => out,
+        Err(error) => {
+            let message = error.to_string();
+            if classify_connect_output(&message) == ConnectOutcome::Unauthorized {
+                return Ok(ConnectResult {
+                    ok: true,
+                    message: format!("{message} — approve this computer on the TV, then refresh."),
+                });
+            }
+            return Err(format!("adb connect: {message}"));
+        }
+    };
     let mut result = connect_result_from(&out);
     if classify_connect_output(&result.message) == ConnectOutcome::Connected {
-        if let Err(reason) = verify_connected_transport(&*adb, &target).await {
-            result.ok = false;
-            result.message = format!("{} — {reason}", result.message);
+        match verify_connected_transport(&*adb, &target).await {
+            Ok(TransportReadiness::Ready) => {}
+            Ok(TransportReadiness::Unauthorized) => {
+                result.message = format!(
+                    "{target} is awaiting authorization — approve this computer on the TV, then refresh."
+                );
+            }
+            Err(reason) => {
+                result.ok = false;
+                result.message = format!("{} — {reason}", result.message);
+            }
         }
     }
     Ok(result)
 }
 
-pub async fn verify_connected_transport(adb: &dyn AdbDriver, target: &str) -> Result<(), String> {
-    let out = adb
-        .raw(&["-s", target, "get-state"])
-        .await
-        .map_err(|e| format!("Could not verify {target} is ready: {e}"))?;
-    if out.success() && out.stdout.trim() == "device" {
-        return Ok(());
+#[derive(Debug, PartialEq, Eq)]
+pub enum TransportReadiness {
+    Ready,
+    Unauthorized,
+}
+
+pub async fn verify_connected_transport(
+    adb: &dyn AdbDriver,
+    target: &str,
+) -> Result<TransportReadiness, String> {
+    let (ready, detail) = match adb.raw(&["-s", target, "get-state"]).await {
+        Ok(out) => (
+            out.success() && out.stdout.trim() == "device",
+            out.combined(),
+        ),
+        Err(error) => (false, error.to_string()),
+    };
+    if ready {
+        return Ok(TransportReadiness::Ready);
     }
-    let detail = out.combined();
     let detail = detail.trim();
+    let lower = detail.to_lowercase();
+    if lower == "unauthorized"
+        || lower.contains("device unauthorized")
+        || lower.contains("device is unauthorized")
+        || lower.contains("failed to authenticate")
+    {
+        return Ok(TransportReadiness::Unauthorized);
+    }
     Err(format!(
         "ADB did not confirm {target} in device state: {}",
         if detail.is_empty() {
@@ -1831,7 +1867,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_text_does_not_override_a_target_that_is_not_ready() {
-        for state in ["offline", "unauthorized", ""] {
+        for state in ["offline", ""] {
             let mock = MockAdb::default()
                 .on_raw("connect", "connected to 192.168.42.71:5555")
                 .on_raw("get-state", state);
@@ -1864,8 +1900,40 @@ mod tests {
         let result = connect_device_impl(&state, "192.168.42.71:5555")
             .await
             .unwrap();
-        assert!(!result.ok);
-        assert!(result.message.contains("unauthorized"));
+        assert!(result.ok);
+        assert!(result.message.contains("approve this computer on the TV"));
+    }
+
+    #[tokio::test]
+    async fn readiness_authorization_wait_retains_its_approval_instruction() {
+        for response in [
+            "unauthorized",
+            "error: device unauthorized",
+            "device is unauthorized",
+        ] {
+            let mock = MockAdb::default()
+                .on_raw("connect", "already connected to 192.0.2.1:5555")
+                .on_raw("get-state", response);
+            let result = connect_device_impl(&state_with(mock), "192.0.2.1:5555")
+                .await
+                .unwrap();
+            assert!(
+                result.ok,
+                "authorization must refresh the pending device row"
+            );
+            assert!(result.message.contains("approve this computer on the TV"));
+        }
+    }
+
+    #[tokio::test]
+    async fn nonzero_authentication_wait_still_refreshes_for_approval() {
+        let mock =
+            MockAdb::default().on_raw_err("connect", "failed to authenticate to 192.0.2.1:5555");
+        let result = connect_device_impl(&state_with(mock), "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert!(result.ok);
+        assert!(result.message.contains("approve this computer on the TV"));
     }
 
     #[tokio::test]
