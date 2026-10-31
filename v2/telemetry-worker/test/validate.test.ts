@@ -36,6 +36,10 @@ describe("validateEvent", () => {
     expect(reason(event({ kind: "action_result", action: "disable" }))).toBe("action_result_without_ok");
     expect(reason(event({ kind: "error" }))).toBe("error_without_error_code");
     expect(reason(event({ kind: "error", error_code: "Has Spaces" }))).toBe("bad_error_code");
+    for (const code of ["serial_0323220012345", "ip_192_168_1_5", "licensee_jane_smith", "license_atvopt_pro"]) {
+      expect(reason(event({ kind: "error", error_code: code }))).toBe("bad_error_code");
+    }
+    expect(reason(event({ kind: "error", error_code: "adb_exit_255" }))).toBeNull();
     expect(reason(event({ kind: "action_result", action: "disable", ok: "yes" }))).toBe("bad_ok");
   });
 
