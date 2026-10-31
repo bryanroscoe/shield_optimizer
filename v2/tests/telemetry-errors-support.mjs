@@ -82,6 +82,11 @@ try {
     // A failure the TV can't explain gets no tier hint.
     assert.equal(presentError("LOCKED:x", fire).tierHint, null);
     assert.equal(presentError("adb command timed out after 30s", null).tierHint, null);
+    // An error none of the known shapes match keeps the backend's own sentence.
+    const typo = "not an IP address or mDNS service name: 192.0.2.999. Enter the IP and port";
+    assert.equal(presentError(typo).code, "unknown");
+    assert.equal(presentError(typo).message, typo);
+    assert.equal(presentError("").message, "Something went wrong.");
 
     const text = errorDetails(p, { action: "Disable Netflix", tier: "Not supported", app: "ATV Optimizer (desktop)" });
     assert.match(text, /^Error: pm_failure$/m);

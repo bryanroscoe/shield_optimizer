@@ -60,7 +60,7 @@
         <button type="button" class="en-copy en-dismiss" onclick={onDismiss}>Dismiss</button>
       {/if}
     </div>
-    {#if presented.raw}
+    {#if presented.raw && presented.raw !== presented.message}
       <details class="en-details">
         <summary>Details</summary>
         <pre class="mono">{presented.raw}</pre>

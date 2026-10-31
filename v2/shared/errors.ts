@@ -117,9 +117,14 @@ export function presentError(raw: unknown, support?: SupportInfo | null): Presen
   const code = classifyError(text);
   // Connection problems aren't about the model, so the tier says nothing.
   const deviceSide = !["adb_missing", "app_quitting", "locked", "not_connected"].includes(code);
+  // The backend's own errors are mostly written for people ("not an IP
+  // address…"). When none of the known shapes match, show that sentence
+  // rather than hiding it behind a generic one.
+  const message =
+    code === "unknown" && text ? (text.length > 300 ? `${text.slice(0, 297)}…` : text) : PLAIN[code];
   return {
     code,
-    message: PLAIN[code],
+    message,
     tierHint: deviceSide ? errorTierHint(support) : null,
     raw: text,
   };

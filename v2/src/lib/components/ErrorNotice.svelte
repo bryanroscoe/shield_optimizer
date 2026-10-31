@@ -65,7 +65,7 @@
     <p class="error-hint small">{presented.tierHint}</p>
   {/if}
   <div class="error-foot">
-    {#if presented.raw}
+    {#if presented.raw && presented.raw !== message}
       <details class="error-details">
         <summary>Details</summary>
         <pre>{presented.raw}</pre>
