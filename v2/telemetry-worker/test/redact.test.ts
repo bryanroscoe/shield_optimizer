@@ -44,7 +44,10 @@ describe("redactMessage", () => {
     expect(redactMessage("timed out after 30s waiting for adb")).toBe("timed out after 30s waiting for adb");
     expect(redactMessage("ADB_TIMEOUT on HTTP2 UTF8 SHIELD")).toBe("ADB_TIMEOUT on HTTP2 UTF8 SHIELD");
     expect(redactMessage("android14 sdk34 failed")).toBe("android14 sdk34 failed");
-    expect(redactMessage("read and/or write failed over TCP/IP")).toBe("read and/or write failed over TCP/IP");
+    // Any separator the path rules could not account for drops the whole message.
+    expect(redactMessage("read and/or write failed")).toBe("[message removed: contained a path]");
+    expect(redactMessage("open reports/Jane Smith.txt failed")).toBe("[message removed: contained a path]");
+    expect(redactMessage("open users/Jane Smith/private.cfg failed")).toBe("[message removed: contained a path]");
   });
 
   it("treats three or more package names as a package list", () => {
@@ -91,5 +94,6 @@ describe("redactShortField", () => {
     expect(redactShortField("10.0.0.5", { serialShape: false })).toBe("[redacted]");
     expect(redactShortField("bryan@example.com")).toBe("[redacted]");
     expect(redactShortField("/home/bryan")).toBe("[redacted]");
+    expect(redactShortField("Box S/4K")).toBe("[redacted]");
   });
 });

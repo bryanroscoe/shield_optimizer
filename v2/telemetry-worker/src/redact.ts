@@ -71,6 +71,7 @@ export const MESSAGE_MAX = 500;
 const LICENSE_KEY = /\batvopt-[\w-]*/i;
 const LICENSE_TOPIC = /licen[cs]/i;
 export const LICENSE_REMOVED = "[license-related message removed]";
+export const PATH_REMOVED = "[message removed: contained a path]";
 
 export function redactMessage(input: string): string {
   if (LICENSE_KEY.test(input) || LICENSE_TOPIC.test(input)) return LICENSE_REMOVED;
@@ -87,6 +88,10 @@ export function redactMessage(input: string): string {
     text = text.replace(PACKAGE, "[package]");
   }
   text = text.replace(/ {2,}/g, " ").trim();
+  // Catch-all: the patterns above cannot see every path shape (unquoted ones
+  // with spaces, odd relative forms), so any separator left over means the
+  // message may still carry part of a path and it is dropped whole.
+  if (/[\\/]/.test(text)) return PATH_REMOVED;
   return clamp(text, MESSAGE_MAX);
 }
 
@@ -100,7 +105,7 @@ export function redactShortField(input: string, opts: { serialShape?: boolean } 
   for (const [pattern, replacement] of RULES) {
     probe = probe.replace(pattern, replacement);
   }
-  if (probe !== cleaned || LICENSE_KEY.test(cleaned)) return "[redacted]";
+  if (probe !== cleaned || LICENSE_KEY.test(cleaned) || /[\\/]/.test(cleaned)) return "[redacted]";
   // A whole value that looks like a serial (the client sent ro.serialno as the
   // device codename, say). Codenames like "mdarcy" or "AFTMM" stay. Not applied
   // to model, where real model numbers (55UQ7590PUB) have the same shape.

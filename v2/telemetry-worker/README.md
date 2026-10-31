@@ -40,29 +40,37 @@ How that is enforced server-side, so a client bug cannot break it:
 - `kind`, `app`, `support_tier` and `schema` must be known values or the event is rejected. An
   unknown `profile` is stored as `unknown` and an unknown `action` as `other`, so a newer app
   does not lose data against an older Worker.
-- `install_id` must be a UUID v4, `app_version` must be `X.Y.Z` with at most an `-alpha|beta|rc|preview|pre|dev[.N]` tag, `ts` must be RFC 3339
-  with an offset, and `error_code` must be `short_snake_case` (64 chars max) with at most four digits and no
-  license words, since codes are kept forever in the aggregates. Codes should be constants such as
-  `pm_denied` or `adb_exit_255`; a name folded into a code cannot be detected, so that stays the
-  client's job.
+- `install_id` must be a UUID v4. `app_version` must be `X.Y.Z`, optionally with an
+  `-alpha|beta|rc|preview|pre|dev[.N]` tag. `ts` must be RFC 3339 with an offset. `error_code`
+  must be `short_snake_case` (64 chars max) with at most four digits and no license words, since
+  codes are kept forever in the aggregates. Codes should be constants such as `pm_denied` or
+  `adb_exit_255`; a name folded into a code cannot be detected, so that stays the client's job.
+- Fields that do not belong to the event's kind are dropped (`action`/`ok`/`error_code` on
+  `device_seen`, `error_code` on a successful action, `ok` on an error).
 - Short fields (manufacturer, model, os...) are clamped to 64 characters (`os` to 40). If one looks
   like an IP, MAC, host:port, email, path, URL or (except `model`) a serial number, the whole
   value becomes `[redacted]` (the serial shapes are the same ones used for messages, below).
   A short field holding an `ATVOPT-` license key is always replaced. `model` skips the serial
   check because real model numbers such as `55UQ7590PUB` have the same shape and the device
   report needs them.
-- `message` is redacted again: IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails,
-  URLs, Windows/UNC/POSIX/home and relative paths (quoted ones whole, spaces included), `*.local` names, adb mDNS names and serial-looking tokens
-  (10+ letters and digits with at least 4 digits, or 8+ upper-case letters and digits with at
-  least one of each, such as `R5CRABCDEFZ`, or 10+ in any case, such as `r5crabcdefz`, or hyphen/underscore-joined
-  ones with a run of 4+ digits, such as `emulator-5554`). These are heuristics: a serial made only of letters
-  cannot be told from a word, so the client's own redaction stays the first line. One package name is kept because it is useful
-  for debugging a failed disable; three or more (including two-part ids like `tv.baz`) are treated
-  as a package list and all are replaced.
-  A message that contains an ATV Optimizer license key (`ATVOPT-...`) or mentions a license or
-  licensee is replaced whole with `[license-related message removed]`; the `error_code` still says
-  what failed. The server cannot recognise a TV's friendly name inside free text, so that stays
-  the client's job.
+- `message` is redacted again:
+  - IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails, URLs, `*.local` names and
+    adb mDNS names.
+  - Windows, UNC, POSIX, home and relative paths; quoted ones are replaced whole, spaces included.
+  - Serial-looking tokens: 10+ letters and digits with at least 4 digits; 8+ upper-case letters
+    and digits with at least one of each (`R5CRABCDEFZ`); 10+ in any case (`r5crabcdefz`); and
+    hyphen/underscore-joined ones with a run of 4+ digits (`emulator-5554`).
+  - One package name is kept because it is useful for debugging a failed disable; three or more
+    (including two-part ids like `tv.baz`) are treated as a package list and all are replaced.
+  - If any `/` or `\` is left after all that, the message may still hold part of a path the
+    patterns missed (an unquoted relative path with spaces, say), so the whole message becomes
+    `[message removed: contained a path]`. A short field containing either is `[redacted]`.
+  - A message that contains an ATV Optimizer license key (`ATVOPT-...`) or mentions a license or
+    licensee is replaced whole with `[license-related message removed]`; `error_code` still says
+    what failed.
+  - These are heuristics. A serial made only of letters cannot be told from a word, and the
+    server cannot recognise a TV's friendly name inside free text, so the client's own redaction
+    stays the first line.
 
 ## Retention
 
