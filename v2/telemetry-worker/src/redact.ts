@@ -30,6 +30,11 @@ const RULES: Array<[RegExp, string]> = [
 // Long alphanumeric tokens with several digits: adb serials (0323220012345,
 // 3A091FDJH000AB), Android ids, hashes, long timestamps.
 const SERIAL = /\b(?=[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d[a-z0-9]*\d)[a-z0-9]{10,}\b/gi;
+// Upper-case letter+digit tokens of 8 or more: adb serials with few digits
+// (R5CRABCDEFZ, HT7A1JT00123). Messages only: in the model field the same shape
+// is a real model number (55UQ7590PUB) that the device report needs. A serial
+// made only of letters cannot be told apart from a word; the client redacts it.
+const SERIAL_UPPER = /\b(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{8,}\b/g;
 
 // Package / class shaped tokens: com.example.app, java.lang.SecurityException,
 // and two-segment application ids such as com.foo or tv.baz. Only used to
@@ -50,6 +55,7 @@ export function redactMessage(input: string): string {
     text = text.replace(pattern, replacement);
   }
   text = text.replace(SERIAL, "[serial]");
+  text = text.replace(SERIAL_UPPER, "[serial]");
   const packages = text.match(PACKAGE) ?? [];
   if (packages.length >= PACKAGE_LIST_THRESHOLD) {
     text = text.replace(PACKAGE, "[package]");
@@ -61,7 +67,7 @@ export function redactMessage(input: string): string {
 // Short identifying fields (manufacturer, model, os, ...). Anything that the
 // message redactor would have touched means the client put the wrong thing in
 // the field, so the whole value is replaced rather than partially kept.
-export function redactShortField(input: string): string {
+export function redactShortField(input: string, opts: { serialShape?: boolean } = {}): string {
   const cleaned = input.replace(CONTROL, " ").replace(/ {2,}/g, " ").trim();
   if (cleaned === "") return "";
   let probe = cleaned;
@@ -70,8 +76,9 @@ export function redactShortField(input: string): string {
   }
   if (probe !== cleaned) return "[redacted]";
   // A whole value that looks like a serial (the client sent ro.serialno as the
-  // model, say). Codenames like "mdarcy" or "AFTMM" stay.
-  if (/^[a-z0-9]{10,}$/i.test(cleaned) && (cleaned.match(/\d/g) ?? []).length >= 4) {
+  // device codename, say). Codenames like "mdarcy" or "AFTMM" stay. Not applied
+  // to model, where real model numbers (55UQ7590PUB) have the same shape.
+  if (opts.serialShape !== false && /^[a-z0-9]{10,}$/i.test(cleaned) && (cleaned.match(/\d/g) ?? []).length >= 4) {
     return "[redacted]";
   }
   return cleaned;

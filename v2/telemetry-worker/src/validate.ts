@@ -76,9 +76,9 @@ function oneOf<T extends string>(list: readonly T[], v: unknown): T | null {
   return typeof v === "string" && (list as readonly string[]).includes(v) ? (v as T) : null;
 }
 
-function shortField(v: unknown, max = FIELD_MAX): string {
+function shortField(v: unknown, max = FIELD_MAX, serialShape = true): string {
   if (typeof v !== "string") return "";
-  return clamp(redactShortField(clamp(v, 256)), max);
+  return clamp(redactShortField(clamp(v, 256), { serialShape }), max);
 }
 
 function cleanDevice(raw: unknown): Result<DeviceInfo> {
@@ -98,7 +98,7 @@ function cleanDevice(raw: unknown): Result<DeviceInfo> {
     value: {
       manufacturer: shortField(raw.manufacturer),
       brand: shortField(raw.brand),
-      model: shortField(raw.model),
+      model: shortField(raw.model, FIELD_MAX, false),
       device: shortField(raw.device),
       product: shortField(raw.product),
       android_release: ANDROID_RELEASE.test(release) ? release : "",

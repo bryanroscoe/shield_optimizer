@@ -91,6 +91,11 @@ describe("validateEvent", () => {
     }
   });
 
+  it("keeps model numbers that look like serials", () => {
+    const r = validateEvent(event({ device: { ...(event().device as object), manufacturer: "LGE", model: "55UQ7590PUB" } }));
+    expect(r.ok && r.value.device?.model).toBe("55UQ7590PUB");
+  });
+
   it("normalises the install id and timestamp", () => {
     const r = validateEvent(event({ install_id: "5F0C2B1E-8D3A-4C6B-9E2F-0000000000AA", ts: "2026-10-31T08:00:00-04:00" }));
     expect(r.ok && r.value.install_id).toBe("5f0c2b1e-8d3a-4c6b-9e2f-0000000000aa");

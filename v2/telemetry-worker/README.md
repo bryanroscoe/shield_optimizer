@@ -43,11 +43,14 @@ How that is enforced server-side, so a client bug cannot break it:
 - `install_id` must be a UUID v4, `app_version` must look like a version, `ts` must be RFC 3339
   with an offset, and `error_code` must be `short_snake_case` (64 chars max).
 - Short fields (manufacturer, model, os...) are clamped to 64 characters (`os` to 40). If one looks
-  like an IP, MAC, host:port, email, path, URL or a serial number, the whole value becomes
-  `[redacted]`.
+  like an IP, MAC, host:port, email, path, URL or (except `model`) a serial number, the whole
+  value becomes `[redacted]`. `model` skips the serial check because real model numbers such as
+  `55UQ7590PUB` have the same shape and the device report needs them.
 - `message` is redacted again: IPv4 and IPv6 (with ports), `host:port`, MAC addresses, emails,
   URLs, Windows/UNC/POSIX/home paths, `*.local` names, adb mDNS names and serial-looking tokens
-  (10+ letters and digits with at least 4 digits). One package name is kept because it is useful
+  (10+ letters and digits with at least 4 digits, or 8+ upper-case letters and digits with at
+  least one of each, such as `R5CRABCDEFZ`). These are heuristics: a serial made only of letters
+  cannot be told from a word, so the client's own redaction stays the first line. One package name is kept because it is useful
   for debugging a failed disable; three or more (including two-part ids like `tv.baz`) are treated
   as a package list and all are replaced.
   The server cannot recognise a TV's friendly name inside free text, so that stays the client's job.

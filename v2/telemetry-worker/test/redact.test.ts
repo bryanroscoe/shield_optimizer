@@ -14,6 +14,8 @@ describe("redactMessage", () => {
     ["email", "licensed to someone@example.com", "licensed to [email]"],
     ["serial digits", "device 0323220012345 offline", "device [serial] offline"],
     ["serial mixed", "unauthorized 3A091FDJH000AB", "unauthorized [serial]"],
+    ["serial with few digits", "device R5CRABCDEFZ offline", "device [serial] offline"],
+    ["serial upper short", "transport HT7A1JT0 lost", "transport [serial] lost"],
     ["adb mDNS name", "found adb-0323220012345-AbCdEf._adb-tls-connect._tcp", "found [host]"],
     ["mdns host", "resolved living-room-tv.local ok", "resolved [host] ok"],
     ["POSIX path", "cannot open /Users/bryan/Library/adb/key", "cannot open [path]"],
@@ -31,6 +33,7 @@ describe("redactMessage", () => {
       "disable failed for com.google.android.tvlauncher: exit 1",
     );
     expect(redactMessage("timed out after 30s waiting for adb")).toBe("timed out after 30s waiting for adb");
+    expect(redactMessage("ADB_TIMEOUT on HTTP2 UTF8 SHIELD")).toBe("ADB_TIMEOUT on HTTP2 UTF8 SHIELD");
   });
 
   it("treats three or more package names as a package list", () => {
@@ -62,6 +65,9 @@ describe("redactShortField", () => {
   it("replaces values that carry identifiers", () => {
     expect(redactShortField("192.168.1.20:5555")).toBe("[redacted]");
     expect(redactShortField("0323220012345")).toBe("[redacted]");
+    // Model numbers share the serial shape, so the model field skips that check.
+    expect(redactShortField("55UQ7590PUB", { serialShape: false })).toBe("55UQ7590PUB");
+    expect(redactShortField("10.0.0.5", { serialShape: false })).toBe("[redacted]");
     expect(redactShortField("bryan@example.com")).toBe("[redacted]");
     expect(redactShortField("/home/bryan")).toBe("[redacted]");
   });
