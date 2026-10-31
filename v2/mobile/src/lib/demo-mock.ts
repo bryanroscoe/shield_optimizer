@@ -34,13 +34,68 @@ const backups: BackupEntry[] = [
   },
 ];
 
+// Mock Google Play billing. The gallery shows a Play build that owns Pro.
+// `?billing=free|pending|unavailable` in the URL previews the other states;
+// in `free`, Buy succeeds after a short delay, as Play's sheet would.
+type DemoBilling = "owned" | "free" | "pending" | "unavailable";
+let demoBilling: DemoBilling = (() => {
+  const wanted = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("billing");
+  return wanted === "free" || wanted === "pending" || wanted === "unavailable" ? wanted : "owned";
+})();
+
+function billingStatus() {
+  const owned = demoBilling === "owned";
+  const play =
+    demoBilling === "owned"
+      ? { state: "owned", acknowledged: true, verified_at_ms: Date.parse("2026-10-31T12:00:00Z"), cached: false }
+      : demoBilling === "pending"
+        ? { state: "pending" }
+        : demoBilling === "unavailable"
+          ? { state: "unavailable", reason: "Purchases aren't available in this build of the app." }
+          : { state: "not_owned" };
+  return {
+    entitlement: owned ? "pro" : "free",
+    sources: owned ? ["play"] : [],
+    distribution: "play",
+    license_key_entry: false,
+    available: demoBilling !== "unavailable",
+    play,
+    offer:
+      demoBilling === "unavailable"
+        ? null
+        : { formatted_price: "$4.99", title: "ATV Optimizer Pro (ATV Optimizer)", name: "ATV Optimizer Pro", description: "Unlock every Pro tool." },
+    ack_pending: false,
+    product_id: "atvopt_pro",
+  };
+}
+
+async function handleAsync(cmd: string, args: Record<string, unknown>): Promise<unknown> {
+  if (cmd === "billing_purchase") {
+    if (demoBilling === "unavailable")
+      return { outcome: "unavailable", message: "Purchases aren't available in this build of the app.", status: billingStatus() };
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    demoBilling = "owned";
+    return { outcome: "purchased", message: "Pro unlocked. Thank you!", status: billingStatus() };
+  }
+  return handle(cmd, args);
+}
+
 function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "get_entitlement":
+      return demoBilling === "owned" ? "pro" : "free";
     case "activate_license":
-      return "pro";
+      throw "License keys aren't used in the Google Play version. Use Buy Pro or Restore purchases.";
+    case "billing_status":
+    case "billing_refresh":
+      return billingStatus();
+    // Mirror the real backend gate so the Free preview reaches the paywall.
+    case "prepare_optimize":
+      if (demoBilling !== "owned") throw "LOCKED:optimize_wizard";
+      return sharedHandle(cmd, args);
+    // A Play build has no offline license behind its Pro.
     case "license_info":
-      return { plan: "pro", licensee: "demo@example.com", issued: "2026-09-01", expires: null, key_id: 1 };
+      return null;
     case "wireless_discover":
       return {
         devices: [
@@ -90,7 +145,7 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
 export function installDemoMock(): void {
   const w = window as unknown as { __TAURI_INTERNALS__?: unknown };
   w.__TAURI_INTERNALS__ = {
-    invoke: (cmd: string, args: Record<string, unknown> = {}) => Promise.resolve(handle(cmd, args)),
+    invoke: (cmd: string, args: Record<string, unknown> = {}) => handleAsync(cmd, args),
     transformCallback: (cb: unknown) => cb,
     unregisterCallback: () => {},
     convertFileSrc: (path: string) => path,

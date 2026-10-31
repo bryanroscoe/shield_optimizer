@@ -19,6 +19,7 @@ import type {
   AppUsage,
   ApplyResult,
   BackupEntry,
+  BillingStatus,
   FileEntry,
   PulledFile,
   ConnectResult,
@@ -43,6 +44,7 @@ import type {
   PermissionState,
   PrivateDnsResult,
   PrivateDnsState,
+  PurchaseOutcome,
   RebootMode,
   RebootResult,
   RecoveryResult,
@@ -264,6 +266,9 @@ export const api = {
   activateLicense: (key: string) =>
     call<Entitlement>("activate_license", { key }),
   licenseInfo: () => call<LicenseInfo | null>("license_info"),
+  billingStatus: () => call<BillingStatus>("billing_status"),
+  billingRefresh: (force = false) => call<BillingStatus>("billing_refresh", { force }),
+  billingPurchase: () => call<PurchaseOutcome>("billing_purchase"),
 
   // ---- File transfer (7.2) ----
   listRemoteDir: (serial: string, path: string) =>

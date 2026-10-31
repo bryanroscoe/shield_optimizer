@@ -13,8 +13,11 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `wireless_disconnect` | Free | `src-tauri/src/wireless_commands.rs` | `src/lib/session.svelte.ts` |
 | `wireless_status` | Free | `src-tauri/src/wireless_commands.rs` | `src/lib/session.svelte.ts` |
 | `find_remote` | Free | `src-tauri/src/wireless_commands.rs` | `src/components/FindRemoteButton.svelte` |
-| `activate_license` | Free | `src-tauri/src/lib.rs` | `src/lib/session.svelte.ts` |
+| `activate_license` | Free in sideload builds; refused in Play builds (`ATVOPT_DISTRIBUTION=play`) | `src-tauri/src/lib.rs` | `src/lib/session.svelte.ts` |
 | `get_entitlement` | Free | `src-tauri/src/lib.rs` | `src/lib/session.svelte.ts` |
+| `billing_status` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
+| `billing_refresh` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
+| `billing_purchase` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
 | `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
 | `list_devices` | Free | `../crates/core/src/commands/devices.rs` | `src/lib/session.svelte.ts` |
@@ -93,7 +96,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 - Settings, permission and Home before-value restore remain gated or incomplete. A bounded journal/undo mechanism needs separate review. This slice creates no persistent journal and does not make arbitrary writes free.
 - FileManager/BackupClone enum labels do not imply enforcement: mobile file/backup handlers currently have no Pro prerequisite. No gate changes are proposed here.
 - Remote basic input, file paths, package names, safety checks and connection-generation fencing remain independent safety boundaries.
-- The new entitlement preview is isolated and unused by session/backend authorization; store purchase callbacks alone cannot grant real Pro. No real billing adapter or service exists.
+- The entitlement preview is isolated and unused by session/backend authorization. The real Play adapter (`tauri-plugin-atv-billing`) only reports what Play returned; `billing_commands.rs` verifies the signed purchase before Pro, and a purchase callback alone never grants it. There is no verification server.
+- Play-sourced Pro and license-key Pro are separate sources feeding the same `require_pro` gate. A refund or revocation removes only the Play source; every Free row above stays Free (`refund_downgrades_pro_gates_but_recovery_stays_free`).
 
 ## Entitlement preview boundary
 
@@ -102,10 +106,10 @@ presentation component and is not imported into the running app. Only the test h
 it; the simulated store lives under tests and cannot emit a verified verdict. Neither modifies
 `session.entitlement`, AppState, license files, TV state or purchase history. Verified/revoked
 reducer events are simulation inputs, not an implemented security boundary or provider verdict.
-There is no persisted entitlement, purchase verification service, account system, product, price,
-payment call, offline cache policy, tip URL or before-value journal. Production integration
-requires the separately reviewed Play verification ([`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md))
-and Free undo ([`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md)) designs.
+The production path is separate: on-device Play verification v1 (see
+[`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md) "Implemented v1"). There is still no
+verification server, account system, tip URL or before-value journal; Free undo remains the
+unbuilt [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md).
 
 Shared-core tests named `free_user_can_` exercise the real recovery implementations against mock
 ADB after an entitlement downgrade (not physical devices). The emergency recovery wrapper delegates

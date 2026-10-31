@@ -8,6 +8,7 @@
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
+  import { billing } from "../lib/billing.svelte";
   import Toast from "../components/Toast.svelte";
 
   let {
@@ -193,7 +194,9 @@
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro
       </button>
-      <button class="ghost-link" onclick={() => navigate("more")}>Already have a key? Enter it in More</button>
+      {#if billing.licenseKeyEntry}
+        <button class="ghost-link" onclick={() => navigate("more")}>Already have a key? Enter it in More</button>
+      {/if}
     </div>
     <div class="spacer"></div>
   {:else if error}

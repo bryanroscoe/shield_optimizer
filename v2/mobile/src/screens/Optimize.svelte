@@ -24,6 +24,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
+  import { billing } from "../lib/billing.svelte";
   import Toast from "../components/Toast.svelte";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
@@ -708,9 +709,11 @@
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">star</span>Unlock Pro
       </button>
-      <button class="ghost-link" onclick={() => navigate("more")}>
-        Already have a key? Enter it in More
-      </button>
+      {#if billing.licenseKeyEntry}
+        <button class="ghost-link" onclick={() => navigate("more")}>
+          Already have a key? Enter it in More
+        </button>
+      {/if}
     </div>
     <div class="spacer"></div>
   {:else if plan}
