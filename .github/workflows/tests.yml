@@ -1,5 +1,6 @@
 # Shield-Optimizer CI Tests
-# Runs Pester unit tests on push and PR across Windows, macOS, and Linux
+# Runs Pester unit tests on push and PR across Windows, macOS, and Linux,
+# plus the telemetry Worker's vitest suite (v2/telemetry-worker).
 
 name: Tests
 
@@ -9,12 +10,16 @@ on:
     paths:
       - 'Shield-Optimizer.ps1'
       - 'tests/**'
+      - 'v2/telemetry-worker/**'
       - '.github/workflows/tests.yml'
   pull_request:
-    branches: [main]
+    # No branch filter, so stacked PRs (base = another feature branch) are tested
+    # too. v2-tests.yml skips telemetry-worker-only changes, so this workflow is
+    # the only one that runs the Worker suite.
     paths:
       - 'Shield-Optimizer.ps1'
       - 'tests/**'
+      - 'v2/telemetry-worker/**'
       - '.github/workflows/tests.yml'
   workflow_dispatch:  # Allow manual trigger
 
@@ -84,3 +89,30 @@ jobs:
             exit 1
           }
           Write-Host "Syntax check passed" -ForegroundColor Green
+
+  telemetry-worker:
+    name: Telemetry Worker tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: v2/telemetry-worker
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: v2/telemetry-worker/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
