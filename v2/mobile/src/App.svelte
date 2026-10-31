@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import { router, initBackHandler, type Screen } from "./lib/router.svelte";
   import { session } from "./lib/session.svelte";
   import Onboarding from "./screens/Onboarding.svelte";
@@ -51,7 +52,18 @@
     };
     document.addEventListener("visibilitychange", probe);
     const heartbeat = setInterval(probe, LIVENESS_HEARTBEAT_MS);
+    // Fetched support tiers landed after the TV was profiled: re-read it so
+    // the badge isn't stale. Absent outside Tauri (tests, the demo).
+    let stopTierWatch: (() => void) | null = null;
+    let unmounted = false;
+    listen("support-tiers-updated", () => {
+      if (session.connectedDevice) void session.refreshDevices().catch(() => {});
+    })
+      .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
+      .catch(() => {});
     return () => {
+      unmounted = true;
+      stopTierWatch?.();
       cleanupBack();
       detachWatch();
       clearInterval(heartbeat);

@@ -2,6 +2,7 @@
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
   import { api } from "$lib/api";
   import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
@@ -740,7 +741,18 @@
   onMount(() => {
     void bootDiscovery();
     void refreshStopOnQuit();
+    // Fetched support tiers landed after the list was read: re-list so the
+    // badges aren't stale. Absent outside Tauri (tests, the demo).
+    let stopTierWatch: (() => void) | null = null;
+    let unmounted = false;
+    listen("support-tiers-updated", () => {
+      if (!loading) void refresh();
+    })
+      .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
+      .catch(() => {});
     return () => {
+      unmounted = true;
+      stopTierWatch?.();
       pairWaitToken++;
       reattachToken++;
     };

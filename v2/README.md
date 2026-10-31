@@ -132,6 +132,8 @@ The development flow is:
 Anonymous reports are **on by default and opt-out**, and compiled in only when the build sets
 `ATVOPT_TELEMETRY_URL` (the base URL of the owner-operated Cloudflare Worker, no trailing path).
 Without it, telemetry is a complete no-op: nothing is queued and nothing touches the network.
+The URL must be `https://`; plain `http://` is accepted only for a loopback host (local Worker
+development), and anything else is ignored as if unset.
 
 ```bash
 ATVOPT_TELEMETRY_URL=https://telemetry.example.workers.dev npm run tauri build
@@ -150,14 +152,17 @@ desktop build; leave it unset to ship a build that never reports.
   pairing, and `error` for Rust panics, uncaught frontend errors and failed untracked commands
   (rate limited). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
   `telemetry_error`; `shared/telemetry.ts` maps commands to actions.
-- The setting lives in `<data_dir>/telemetry.json`. Off clears the queue and cancels an upload in
-  flight; back on generates a new random install id.
+- The setting lives in `<data_dir>/telemetry.json`, written atomically. Off clears the queue and
+  cancels an upload in flight; back on generates a new random install id. A file that exists but
+  can't be read counts as opted out. Messages are also scrubbed of every transport serial and
+  hardware id seen this session, whatever their shape.
 - **Support tiers** (`unknown`, `not_supported`, `beta`, `supported`, `fully_supported`) come from
   `crates/core/data/device-support.json`, embedded like the app lists and matched by the pure
   `engine/support.rs` against what the device reported. When reports are on, the app also fetches
   `GET <base>/v1/support-tiers`, validates it, and caches it as `<data_dir>/support-tiers.json`;
-  any failure keeps the embedded rules. Tiers are informational only and never feed
-  `engine::safety`.
+  any failure keeps the embedded rules. When fetched rules change, Rust emits
+  `support-tiers-updated` and both frontends re-list devices. Tiers are informational only and
+  never feed `engine::safety`.
 
 ## See also
 

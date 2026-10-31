@@ -154,7 +154,8 @@ $ANDROID_HOME/build-tools/36.0.0/apksigner verify --print-certs \
 ## Telemetry endpoint
 
 Anonymous reports are compiled in only when the build environment sets `ATVOPT_TELEMETRY_URL` to
-the owner-operated Worker's base URL (no trailing path). Without it the app never sends reports or
+the owner-operated Worker's `https://` base URL (no trailing path; non-HTTPS URLs other than
+loopback are ignored). Without it the app never sends reports or
 fetches support tiers, and More shows the setting as unavailable. Set it for the release build:
 
 ```bash
