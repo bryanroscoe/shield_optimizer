@@ -380,6 +380,7 @@ export interface NativeDiscoveryReport {
 }
 
 export interface ScanResult {
+  details?: string[];
   subnet: string | null;
   found: string[];
   connected: string[];

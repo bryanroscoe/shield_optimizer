@@ -28,7 +28,7 @@ try {
           window.nativeCalls.push({ command, args });
           if (command === 'adb_status') return { backend: 'direct', available: true, path: null, last_probe: '' };
           if (command === 'list_devices') return window.nativeReady ? (await original(command, args)).filter(d => d.connection === 'network') : [];
-          if (command === 'scan_network') return { subnet: '192.0.2', found: ['192.0.2.71:5555'], connected: [], unauthorized: [], failed: ['192.0.2.71:5555'], needs_pairing: [], message: 'SIMULATED: Found 1 TV. Approve debugging on the TV, then use Add by IP.' };
+          if (command === 'scan_network') return { subnet: '192.0.2', found: ['192.0.2.71:5555'], connected: [], unauthorized: [], failed: ['192.0.2.71:5555'], needs_pairing: [], message: 'SIMULATED: Found 1 TV. Approve debugging on the TV, then use Add by IP.', details: ['SIMULATED endpoint 192.0.2.71:5555: authorization timed out.'] };
           if (command === 'connect_device') return new Promise(resolve => { window.finishNativeConnect = ok => { window.nativeReady = ok; resolve({ ok, message: ok ? 'Connected.' : 'SIMULATED approval timeout. Try again after approving the TV.' }); }; });
           if (command === 'pair_device') return { ok: true, message: 'Paired. Enter the separate connect port.', instance: null };
           if (['connect_paired', 'probe_paired_connect', 'install_adb', 'restart_adb', 'local_address_for'].includes(command)) throw new Error(`Unexpected host-server command: ${command}`);
@@ -39,9 +39,19 @@ try {
     });
   });
   const page = await context.newPage();
+  const capture = async name => {
+    if (!evidence) return;
+    await page.screenshot({ path: `${evidence}/${name}-simulated.png` });
+    await page.waitForTimeout(1800);
+  };
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
   await page.getByTestId('adb-backend').filter({ hasText: 'Native Rust ADB' }).waitFor();
   await page.getByText('SIMULATED: Found 1 TV.', { exact: false }).waitFor();
+  const scanDetails = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Scan details' }) });
+  assert.equal(await scanDetails.locator('pre').isVisible(), false);
+  await scanDetails.locator('summary').click();
+  assert.equal(await scanDetails.locator('pre').isVisible(), true);
+  await scanDetails.locator('summary').click();
   assert.equal(await page.getByRole('button', { name: 'Restart ADB', exact: true }).count(), 0);
   assert.equal(await page.getByText('Stop ADB when quitting', { exact: true }).count(), 0);
   const input = page.getByPlaceholder('IP[:port] — e.g. 192.168.42.71');
@@ -51,14 +61,14 @@ try {
   await page.waitForFunction(() => !!window.finishNativeConnect);
   await input.press("Enter");
   assert.equal(await page.evaluate(() => window.nativeCalls.filter(c => c.command === "connect_device").length), 1);
-  if (evidence) await page.screenshot({ path: `${evidence}/native-approval-simulated.png` });
+  await capture("native-approval");
   await page.evaluate(() => window.finishNativeConnect(false));
   await page.getByRole('button', { name: 'Add by IP', exact: true }).waitFor();
   assert.equal(await input.inputValue(), '192.0.2.71');
   await page.getByRole('button', { name: 'Add by IP', exact: true }).click();
   await page.evaluate(() => window.finishNativeConnect(true));
   await page.getByText('NVIDIA SHIELD Android TV', { exact: true }).first().waitFor();
-  if (evidence) await page.screenshot({ path: `${evidence}/native-devices-simulated.png` });
+  await capture("native-devices");
   await page.getByRole('button', { name: 'Pair PIN', exact: true }).first().click();
   await page.getByPlaceholder(/IP:pair_port/).fill('192.0.2.72:37123');
   await page.getByPlaceholder('6-digit PIN').fill('123456');
@@ -71,7 +81,7 @@ try {
   const forbidden = await page.evaluate(() => window.nativeCalls.filter(c => ['connect_paired', 'probe_paired_connect', 'install_adb', 'restart_adb', 'local_address_for'].includes(c.command)));
   assert.deepEqual(forbidden, []);
   if (evidence) {
-    await page.screenshot({ path: `${evidence}/native-pairing-simulated.png` });
+    await capture("native-pairing");
     const video = page.video();
     await context.close();
     await video.saveAs(`${evidence}/native-existing-flow-simulated.webm`);

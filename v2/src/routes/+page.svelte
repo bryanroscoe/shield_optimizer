@@ -38,6 +38,7 @@
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
+  let scanDetails = $state<string[]>([]);
   let adbBackend = $state<"direct" | "subprocess" | null>(null);
 
   let pairOpen = $state(false);
@@ -90,6 +91,7 @@
         adbMissing = adbBackend === "subprocess";
         devices = [];
         scanMessage = "";
+        scanDetails = [];
         if (!adbMissing) error = status.last_probe ?? "The selected ADB backend is unavailable.";
         return;
       }
@@ -221,10 +223,12 @@
     if (directUnavailable) return;
     if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
+    scanDetails = [];
     scanMessage = adbBackend === "direct" ? "Scanning local network… If your TV asks to allow debugging, approve ATV Optimizer." : "Scanning local network…";
     try {
       const r = await api.scanNetwork();
       scanMessage = r.message;
+      scanDetails = r.details ?? [];
       // A device advertising only a pairing service cannot be connected to
       // until the user enters the code from its screen. Open the pairing form
       // on its real advertised port rather than making them read two
@@ -850,6 +854,12 @@
   {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
+  {/if}
+  {#if scanDetails.length}
+    <details class="adb-details connect-details">
+      <summary>Scan details</summary>
+      <pre>{scanDetails.join("\n\n")}</pre>
+    </details>
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>

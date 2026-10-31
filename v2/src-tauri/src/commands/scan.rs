@@ -40,6 +40,8 @@ pub struct ScanResult {
     pub needs_pairing: Vec<String>,
     /// Human-readable summary line — useful diagnostic for the UI.
     pub message: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -508,7 +510,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
             result.message = result
                 .message
                 .replace("local network.x", "the local network");
-            result.message.push_str(" Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.");
+            result.details.push("Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.".into());
             return Ok(result);
         }
         tracing::info!(subnet = "unknown", found = 0, "scan finished");
@@ -522,6 +524,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
             message: "Could not detect default gateway. Set SHIELD_OPTIMIZER_SUBNET=\"a.b.c\" \
                       to override, or use Add by IP."
                 .to_string(),
+            details: Vec::new(),
         });
     };
     let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
@@ -588,6 +591,15 @@ async fn scan_command_stage(
         .map(|(k, _)| k.clone())
         .collect();
     let mut targets = merge_scan_targets(swept, &services, &attached);
+    if !host_server {
+        targets
+            .connect
+            .sort_by_key(|target| match target.parse::<std::net::SocketAddr>() {
+                Ok(std::net::SocketAddr::V4(_)) => 0,
+                Ok(std::net::SocketAddr::V6(_)) => 1,
+                Err(_) => 2,
+            });
+    }
     let (held_ready, held_unauthorized) =
         split_already_attached(&targets.already_attached, &services, &attached_with_status);
 
@@ -727,23 +739,43 @@ async fn scan_command_stage(
         });
     }
 
-    let mut message = summary_message(
-        subnet_label,
-        found.len(),
-        &connected,
-        &unauthorized,
-        &targets.needs_pairing,
-    );
-    append_failures(
-        &mut message,
-        &failed,
-        &failure_details,
-        startup_error.as_deref(),
-    );
-    for warning in discovery_warnings {
-        message.push(' ');
-        message.push_str(&bounded_detail(&warning));
-    }
+    let (message, details) = if host_server {
+        let mut message = summary_message(
+            subnet_label,
+            found.len(),
+            &connected,
+            &unauthorized,
+            &targets.needs_pairing,
+        );
+        append_failures(
+            &mut message,
+            &failed,
+            &failure_details,
+            startup_error.as_deref(),
+        );
+        (message, Vec::new())
+    } else {
+        let mut details = failure_details;
+        if failed.len() > MAX_FAILURE_DETAILS {
+            details.push(format!(
+                "{} more endpoints could not connect; use Add by IP for their current result.",
+                failed.len() - MAX_FAILURE_DETAILS
+            ));
+        }
+        details.extend(
+            discovery_warnings
+                .iter()
+                .map(|warning| bounded_detail(warning)),
+        );
+        let message = native_summary_message(
+            found.len(),
+            connected.len(),
+            unauthorized.len(),
+            targets.needs_pairing.len(),
+            failed.len(),
+        );
+        (message, details)
+    };
     tracing::info!(
         subnet = %subnet_label,
         found = found.len(),
@@ -762,7 +794,38 @@ async fn scan_command_stage(
         failed,
         needs_pairing: targets.needs_pairing,
         message,
+        details,
     })
+}
+
+fn native_summary_message(
+    found: usize,
+    connected: usize,
+    unauthorized: usize,
+    pairing: usize,
+    failed: usize,
+) -> String {
+    if found == 0 {
+        return "No network ADB endpoints found. Enable Network debugging on SHIELD, or use Add by IP.".into();
+    }
+    let mut message = format!("Connected {connected} of {found} network endpoints.");
+    if unauthorized > 0 {
+        message.push_str(&format!(
+            " {unauthorized} awaiting authorization; approve the prompt on the TV."
+        ));
+    }
+    if pairing > 0 {
+        message.push_str(&format!(
+            " {pairing} need pairing; use Pair PIN with the TV's pairing code."
+        ));
+    }
+    if failed > 0 {
+        message.push_str(&format!(" {failed} could not connect; see Details."));
+    }
+    if connected > 0 {
+        message.push_str(" Open your TV below.");
+    }
+    message
 }
 
 fn summary_message(
@@ -1738,6 +1801,11 @@ mod command_stage_tests {
         assert!(result.message.chars().count() < 1900);
         assert!(!result.message.chars().any(char::is_control));
         assert!(result.message.contains('…'));
+        assert!(result.details.is_empty());
+        assert!(serde_json::to_value(&result)
+            .unwrap()
+            .get("details")
+            .is_none());
     }
 
     struct NativeScanFake {
@@ -1861,7 +1929,10 @@ mod command_stage_tests {
             .await
             .unwrap();
         assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
-        assert!(result.message.contains("multicast unavailable"));
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("multicast unavailable")));
     }
 
     #[tokio::test]
@@ -1889,7 +1960,10 @@ mod command_stage_tests {
             .unwrap();
         assert!(result.connected.is_empty());
         assert_eq!(result.failed, vec!["192.0.2.1:5555"]);
-        assert!(result.message.contains("Allow on the TV prompt"));
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("Allow on the TV prompt")));
         assert_eq!(fake.adb.count("connect 192.0.2.1:5555"), 1);
     }
 
@@ -1967,6 +2041,69 @@ mod command_stage_tests {
         assert_eq!(started.elapsed(), Duration::from_secs(45));
         assert_eq!(result.connected.len(), 4);
         assert_eq!(result.failed.len(), 4);
-        assert!(result.message.contains("deadline"));
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("deadline")));
+    }
+
+    #[tokio::test]
+    async fn native_scan_prioritizes_ipv4_without_dropping_aliases_and_keeps_details_separate() {
+        let endpoints = [
+            "[2001:db8::1]:5555",
+            "[2001:db8::2]:5555",
+            "[2001:db8::3]:5555",
+            "[2001:db8::4]:5555",
+            "192.0.2.1:5555",
+        ];
+        let mut adb = ScanFake::default();
+        for endpoint in endpoints {
+            adb = if endpoint == endpoints[0] || endpoint == endpoints[4] {
+                adb.on(
+                    &["connect", endpoint],
+                    &[Ok(&format!("connected to {endpoint}"))],
+                )
+                .on(&["-s", endpoint, "get-state"], &[Ok("device")])
+            } else {
+                adb.on(&["connect", endpoint], &[Err("fixture route unavailable")])
+            };
+        }
+        let mut fake = NativeScanFake::new(adb);
+        let report = fake.report.as_mut().unwrap();
+        report.advertisements = endpoints
+            .iter()
+            .map(|endpoint| native_advertisement(endpoint, NativeServiceKind::LegacyAdb))
+            .collect();
+        report.warnings.push("fixture multicast warning".into());
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        let calls = fake.adb.calls.lock().unwrap();
+        let connect_calls: Vec<_> = calls
+            .iter()
+            .filter(|call| call.starts_with("connect "))
+            .collect();
+        assert_eq!(connect_calls[0], "connect 192.0.2.1:5555");
+        assert_eq!(connect_calls.len(), endpoints.len());
+        assert_eq!(result.found.len(), endpoints.len());
+        assert_eq!(result.connected.len(), 2);
+        assert_eq!(result.failed.len(), 3);
+        assert_eq!(result.message, "Connected 2 of 5 network endpoints. 3 could not connect; see Details. Open your TV below.");
+        assert!(!result.message.contains("device"));
+        assert!(!result.message.contains("fixture"));
+        assert_eq!(result.details.len(), 4);
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("fixture route unavailable")));
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail == "fixture multicast warning"));
+        assert_eq!(
+            serde_json::to_value(&result).unwrap()["details"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
     }
 }
