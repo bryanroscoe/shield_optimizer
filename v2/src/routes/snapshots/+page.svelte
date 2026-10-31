@@ -7,6 +7,7 @@
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
   import { destructiveWarning } from "../../../shared/support";
+  import { onSupportTiersUpdated } from "$lib/support-updates";
 
   let snapshots = $state<SnapshotFile[]>([]);
   let loading = $state(true);
@@ -128,7 +129,17 @@
     return iso.replace("T", " ").replace("Z", " UTC");
   }
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    // Fetched support tiers replaced the ones this list was read with; only
+    // the devices need re-reading for the restore warning to be current.
+    return onSupportTiersUpdated(() => {
+      void api
+        .listDevices()
+        .then((devs) => (devices = devs))
+        .catch(() => {});
+    });
+  });
 </script>
 
 <section class="header-row">
