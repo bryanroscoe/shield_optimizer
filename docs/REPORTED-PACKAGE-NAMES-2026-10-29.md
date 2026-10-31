@@ -21,10 +21,12 @@ Fourteen missing packages receive descriptive metadata; Monet receives its publi
 name without changing launcher choices or HOME guards. The initial naming-only
 patch retained all verdicts. The owner subsequently confirmed removability on
 2026-10-30 and requested Safe classifications for the clearly identified TV
-content clients. The ten package-specific decisions below now supply that review.
-Settings, file tools, screensavers, VPNs and launchers are excluded from that change.
+content clients. On 2026-10-31 the owner asked for the remaining reported tools to be
+categorized too: SetEdit, Cx File Explorer and Aerial Views follow the existing Safe
+precedent for user-installed tools (Solid Explorer, Aerial Dream), and Surfshark is
+rated medium (Caution) because of always-on VPN lockdown. Launchers stay excluded.
 
-The ten new catalog entries use Disable, with Optimize, Restore and review-selection
+The fourteen new catalog entries use Disable, with Optimize, Restore and review-selection
 defaults false. They remain explicit user choices. Re-enable applies only while
 installed and does not promise deleted downloads, remote recordings, subscriptions
 or accounts can be restored. No engine, protected list or launcher guards change.
@@ -54,12 +56,12 @@ not device-removal experiments. Reporter and bot assertions alone do not supply 
 confirmation is combined with the independently verified package roles below. The decisions below apply to this PR, not a general promise
 about every installation of these apps. Public source links corroborate roles;
 installed signatures, firmware-specific integration and removal outcomes remain
-unverified. Unknown is retained for the four excluded tools. It does not mean the package was identified as a system dependency.
+unverified.
 
 | Report / package | Independent role/dependency assessment | Decision and uncertainty |
 | --- | --- | --- |
-| 240 `by4a.setedit22` | Settings database editor; its publisher warns that edited system settings can cause problems. Removing the editor is not evidence those prior edits are reverted. | Identify SetEdit; retain Unknown. Do not conflate removing an editor with restoring settings. |
-| 241 `com.cxinventor.file.explorer` | File manager with local/network/cloud access. User workflows may rely on its file-opening or storage access. | Identify Cx File Explorer; retain Unknown. No verified replacement/file-provider behavior after removal. |
+| 240 `by4a.setedit22` | Settings database editor; its publisher warns that edited system settings can cause problems. Removing the editor is not evidence those prior edits are reverted. | Reviewed Safe (2026-10-31): optional user-installed tool; no default selection. The description says settings it changed stay changed. |
+| 241 `com.cxinventor.file.explorer` | File manager with local/network/cloud access. User workflows may rely on its file-opening or storage access. | Reviewed Safe (2026-10-31), matching Solid Explorer; no default selection. Files on the TV or network are not deleted. |
 | 242 `com.espn.score_center` | ESPN sports information and streaming client. Its own viewing/download/account workflows are the evident dependency. | Reviewed Safe: optional ESPN content client; no default selection. Subscription cancellation and local-data recovery are not promised. |
 | 243 `com.fox.foxone` | FOX content client; subscription/content availability is distinct from Android platform function. | Reviewed Safe: optional FOX viewing client; no default selection or subscription cancellation. |
 | 244 `com.getchannels.dvr.app` | Channels viewing client connected to DVR/server functionality. | Reviewed Safe: optional viewing/DVR client; no default selection. Its viewing integration stops; server recordings are not backed up or restored. |
@@ -68,9 +70,9 @@ unverified. Unknown is retained for the four excluded tools. It does not mean th
 | 247 `com.kanopy.tvapp` | Library-supported TV film client. | Reviewed Safe: optional film viewing client; no default selection. No account/library eligibility guarantee. |
 | 248 `com.klevico.monet` | HOME launcher, already recognized by the existing launcher catalog. The current/default and last-enabled-HOME guards matter. | Correct Monet metadata; retain launcher-list Caution and all existing HOME guards. No new launcher promotion. |
 | 249 `com.moviesanywhere.goo` | Linked movie-library playback client. Store account/library claims do not establish local download recovery. | Reviewed Safe: optional movie-library player; no default selection. No local-download or account recovery promise. |
-| 250 `com.neilturner.aerialviews` | Video/photo screensaver; it can be selected as the active dream component. Publisher source: https://github.com/theothernt/AerialViews | Identify Aerial Views; retain Unknown. No claim that disabling an active screensaver restores a previous component. |
+| 250 `com.neilturner.aerialviews` | Video/photo screensaver; it can be selected as the active dream component. Publisher source: https://github.com/theothernt/AerialViews | Reviewed Safe (2026-10-31), matching Aerial Dream; no default selection. The description tells users to choose another screensaver; no fallback claim. |
 | 251 `com.silicondust.view` | Viewing/DVR client for HDHomeRun network tuner equipment. The tuner/server and client are distinct components. | Reviewed Safe: optional tuner/DVR viewing client; no default selection. Client access stops; no claim about remote recording retention. |
-| 252 `com.surfshark.vpnclient.android` | VPN client; network access can depend on an active VPN, always-on configuration or blocking traffic outside it. Publisher corroboration is linked above. | Identify Surfshark; retain Unknown. Do not adopt the report's unconditional removal claim or change VPN/security settings. |
+| 252 `com.surfshark.vpnclient.android` | VPN client; network access can depend on an active VPN, always-on configuration or blocking traffic outside it. Publisher corroboration is linked above. | Reviewed medium / Caution (2026-10-31); no default selection. With always-on lockdown, disabling the VPN can cut the TV's network and this app's wireless ADB link, so the description says to turn lockdown off first. |
 | 253 `com.turner.tbs.android.networkapp` | TBS content client, including provider-linked viewing. Listing existence does not establish continuing service availability. | Reviewed Safe: optional TBS content client; no default selection. No inferred shutdown, current access or reinstall guarantee. |
 | 254 `com.turner.tnt.android.networkapp` | TNT content client with the same service/account distinction. | Reviewed Safe: optional TNT content client; no default selection. No inferred shutdown, current access or reinstall guarantee. |
 | 255 `air.com.vudu.air.DownloaderTablet` | Exact existing package now branded Fandango: Movies & Series; store describes rentals, purchases and a digital library. | Rename only. Retain the existing reviewed Safe/method/default fields without treating this branding review as new hardware removal validation. |

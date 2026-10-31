@@ -5,7 +5,7 @@
     "source_url": "https://play.google.com/store/apps/details?id=by4a.setedit22",
     "verified_at": "2026-10-29",
     "issue": 240,
-    "expected_safety": "unknown"
+    "expected_safety": "safe"
   },
   {
     "package": "com.cxinventor.file.explorer",
@@ -13,7 +13,7 @@
     "source_url": "https://play.google.com/store/apps/details?id=com.cxinventor.file.explorer",
     "verified_at": "2026-10-29",
     "issue": 241,
-    "expected_safety": "unknown"
+    "expected_safety": "safe"
   },
   {
     "package": "com.espn.score_center",
@@ -85,7 +85,7 @@
     "source_url": "https://play.google.com/store/apps/details?id=com.neilturner.aerialviews",
     "verified_at": "2026-10-29",
     "issue": 250,
-    "expected_safety": "unknown"
+    "expected_safety": "safe"
   },
   {
     "package": "com.silicondust.view",
@@ -101,7 +101,7 @@
     "source_url": "https://play.google.com/store/apps/details?id=com.surfshark.vpnclient.android",
     "verified_at": "2026-10-29",
     "issue": 252,
-    "expected_safety": "unknown"
+    "expected_safety": "medium"
   },
   {
     "package": "com.turner.tbs.android.networkapp",

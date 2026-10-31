@@ -1294,6 +1294,76 @@
     ]
   },
   {
+    "package": "by4a.setedit22",
+    "name": "SetEdit SettingsDatabaseEditor",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops SetEdit editing Android settings. Settings it already changed stay changed; set them back in SetEdit first if you want them undone.",
+    "restore_description": "Re-enables SetEdit if still installed. Does not undo or restore settings it changed.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-31",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=by4a.setedit22",
+      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.cxinventor.file.explorer",
+    "name": "Cx File Explorer",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops Cx File Explorer browsing local, network and cloud storage. Files on the TV or your network are not deleted.",
+    "restore_description": "Re-enables Cx File Explorer if still installed. Does not restore deleted downloads, saved connections or account access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-31",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cxinventor.file.explorer",
+      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+    ]
+  },
+  {
+    "package": "com.neilturner.aerialviews",
+    "name": "Aerial Views screensaver",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Disabling stops the Aerial Views screensaver. If it is your active screensaver, choose another in Settings.",
+    "restore_description": "Re-enables Aerial Views if still installed. Reselect it as the screensaver in Settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-31",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.neilturner.aerialviews",
+      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "https://github.com/theothernt/AerialViews"
+    ]
+  },
+  {
+    "package": "com.surfshark.vpnclient.android",
+    "name": "Surfshark",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops the Surfshark VPN. If it is set as an always-on VPN that blocks connections without VPN, turn that off in Settings first, or the TV \u2014 and this app's connection to it \u2014 can lose network access.",
+    "restore_description": "Re-enables Surfshark if still installed. Does not restore account access or VPN settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": false,
+    "reviewed_at": "2026-10-31",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.surfshark.vpnclient.android",
+      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "https://developer.android.com/develop/connectivity/vpn"
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",

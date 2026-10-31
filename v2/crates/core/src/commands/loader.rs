@@ -576,34 +576,49 @@ mod tests {
         let lists = load_embedded_app_lists().unwrap();
         let mut unique = std::collections::HashSet::new();
         let mut safe_count = 0;
+        let mut medium_count = 0;
         assert_eq!(evidence.len(), 15);
         for item in evidence {
             let package = item["package"].as_str().unwrap();
             assert!(unique.insert(package.to_owned()));
-            if item["expected_safety"] == "safe" {
-                safe_count += 1;
+            let expected = item["expected_safety"].as_str().unwrap();
+            if expected == "safe" || expected == "medium" {
                 let entry = lists.find(package).unwrap();
                 assert_eq!(entry.name, item["name"].as_str().unwrap());
                 assert!(!names.contains_key(package));
                 assert!(!entry.default_optimize && !entry.default_restore && !entry.review);
                 assert_eq!(entry.method, crate::engine::ActionMethod::Disable);
-                assert_eq!(entry.reviewed_at.as_deref(), Some("2026-10-30"));
+                assert!(entry.reviewed_at.is_some());
                 assert!(!entry.sources.is_empty());
                 assert!(entry.optimize_description.starts_with("Disabling stops"));
                 assert!(entry.restore_description.contains("if still installed"));
-                assert!(matches!(
-                    classify_with_catalog(
-                        package,
-                        Some(CatalogVerdict {
-                            risk: entry.risk,
-                            description: &entry.optimize_description,
-                        })
-                    ),
-                    Safety::Safe {
-                        source: SafetySource::ReviewedCatalog,
-                        ..
-                    }
-                ));
+                let verdict = classify_with_catalog(
+                    package,
+                    Some(CatalogVerdict {
+                        risk: entry.risk,
+                        description: &entry.optimize_description,
+                    }),
+                );
+                if expected == "safe" {
+                    safe_count += 1;
+                    assert!(matches!(
+                        verdict,
+                        Safety::Safe {
+                            source: SafetySource::ReviewedCatalog,
+                            ..
+                        }
+                    ));
+                } else {
+                    medium_count += 1;
+                    assert_eq!(entry.risk, crate::engine::types::RiskTier::Medium);
+                    assert!(matches!(
+                        verdict,
+                        Safety::Caution {
+                            source: SafetySource::ReviewedCatalog,
+                            ..
+                        }
+                    ));
+                }
             } else {
                 assert!(lists.find(package).is_none());
                 assert_eq!(names[package].name, item["name"].as_str().unwrap());
@@ -625,7 +640,8 @@ mod tests {
                 ));
             }
         }
-        assert_eq!(safe_count, 10);
+        assert_eq!(safe_count, 13);
+        assert_eq!(medium_count, 1);
     }
 
     #[test]
