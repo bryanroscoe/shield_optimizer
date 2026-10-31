@@ -40,7 +40,7 @@ How that is enforced server-side, so a client bug cannot break it:
 - `kind`, `app`, `support_tier` and `schema` must be known values or the event is rejected. An
   unknown `profile` is stored as `unknown` and an unknown `action` as `other`, so a newer app
   does not lose data against an older Worker.
-- `install_id` must be a UUID v4, `app_version` must look like a version, `ts` must be RFC 3339
+- `install_id` must be a UUID v4, `app_version` must be `X.Y.Z` with at most an `-alpha|beta|rc|preview|pre|dev[.N]` tag, `ts` must be RFC 3339
   with an offset, and `error_code` must be `short_snake_case` (64 chars max) with at most four digits and no
   license words, since codes are kept forever in the aggregates. Codes should be constants such as
   `pm_denied` or `adb_exit_255`; a name folded into a code cannot be detected, so that stays the

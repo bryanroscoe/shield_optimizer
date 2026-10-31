@@ -59,7 +59,9 @@ export interface CleanEvent {
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: string };
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const APP_VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:[-+][0-9A-Za-z.-]{1,20})?$/;
+// X.Y.Z with only the pre-release tags release.sh produces. No free-form
+// suffix or build metadata: app_version is an aggregate dimension kept forever.
+const APP_VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-(?:alpha|beta|rc|preview|pre|dev)(?:\.\d{1,3})?)?$/;
 const ERROR_CODE = /^[a-z][a-z0-9_]{0,63}$/;
 const ANDROID_RELEASE = /^\d{1,2}(?:\.\d{1,2}){0,2}$/;
 // RFC 3339 date-time with a mandatory offset.

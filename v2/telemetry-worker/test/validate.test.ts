@@ -24,6 +24,9 @@ describe("validateEvent", () => {
     expect(reason(event({ install_id: "0323220012345" }))).toBe("bad_install_id");
     expect(reason(event({ install_id: "5f0c2b1e-8d3a-1c6b-9e2f-000000000001" }))).toBe("bad_install_id");
     expect(reason(event({ app_version: "latest" }))).toBe("bad_app_version");
+    expect(reason(event({ app_version: "2.4.1+0323220012345" }))).toBe("bad_app_version");
+    expect(reason(event({ app_version: "2.4.1-jane" }))).toBe("bad_app_version");
+    expect(reason(event({ app_version: "2.4.1-beta.3" }))).toBeNull();
     expect(reason(event({ ts: "yesterday" }))).toBe("bad_ts");
     expect(reason(event({ ts: "2026-10-31T12:00:00" }))).toBe("bad_ts");
     expect(reason(event({ os: "" }))).toBe("bad_os");
