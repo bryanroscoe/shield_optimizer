@@ -143,12 +143,15 @@ issue #88. Tighten it once real TCL rows show up in the device report.
 Both need `Authorization: Bearer <ADMIN_TOKEN>`. With no token set (or one shorter than 16
 characters) the admin routes answer `503`.
 
-- `GET /v1/admin/devices[?days=N][&group=manufacturer,model,device,profile,app,app_version]`:
+- `GET /v1/admin/devices[?days=N][&limit=N][&group=manufacturer,model,device,profile,app,app_version]`:
   one row per group with distinct `installs`, `events`, `seen` (device_seen count), `action_ok`,
   `action_fail`, `errors`, `top_errors` (top 5 codes from errors and failed actions) and
   `last_seen`. `group` defaults to all six columns; pick fewer to roll up (for example
   `group=manufacturer,model` to merge app versions without double counting installs). `days`
-  limits to the last N UTC days.
+  (default 90, max 3650) is the window in UTC days and `limit` (default 500, max 5000) keeps the
+  busiest groups by event count; `truncated: true` means the limit was reached. The defaults keep the
+  response bounded even if a hostile client sends junk device names. For all-time numbers use
+  `sql/device-report.sql`.
 - `PUT /v1/admin/support-tiers` with `{ "rules": [ { "match": {...}, "tier": "...", "note": "..." } ] }`:
   replaces the whole list atomically and bumps `updated`. Each rule needs at least one non-blank
   match key and a note (200 chars max); up to 200 rules.

@@ -82,15 +82,15 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
     const url = new URL(request.url);
     const group = parseGroup(url.searchParams.get("group"));
     if (!group) return error(400, "bad_group");
-    const daysParam = url.searchParams.get("days");
-    let since = "0000-00-00";
-    if (daysParam !== null) {
-      const days = Number(daysParam);
-      if (!Number.isInteger(days) || days < 1 || days > 3650) return error(400, "bad_days");
-      since = utcDay(new Date(Date.now() - (days - 1) * 86_400_000));
-    }
-    const rows = await deviceReport(env, group, since);
-    return json({ group, since: daysParam === null ? null : since, rows }, 200, { "cache-control": "no-store" });
+    // Bounded by default: the last 90 days and the 500 busiest groups, so junk
+    // dimensions sent by a hostile client cannot make the report unusable.
+    const days = Number(url.searchParams.get("days") ?? "90");
+    if (!Number.isInteger(days) || days < 1 || days > 3650) return error(400, "bad_days");
+    const limit = Number(url.searchParams.get("limit") ?? "500");
+    if (!Number.isInteger(limit) || limit < 1 || limit > 5000) return error(400, "bad_limit");
+    const since = utcDay(new Date(Date.now() - (days - 1) * 86_400_000));
+    const rows = await deviceReport(env, group, since, limit);
+    return json({ group, since, limit, truncated: rows.length === limit, rows }, 200, { "cache-control": "no-store" });
   }
 
   if (path === "/v1/admin/support-tiers") {

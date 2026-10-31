@@ -121,6 +121,15 @@ describe("GET /v1/admin/devices", () => {
     expect((await call("/v1/admin/devices?group=serial", { headers: auth })).status).toBe(400);
     expect((await call("/v1/admin/devices?days=0", { headers: auth })).status).toBe(400);
     expect((await call("/v1/admin/devices?days=30", { headers: auth })).status).toBe(200);
+    expect((await call("/v1/admin/devices?limit=0", { headers: auth })).status).toBe(400);
+    const limited = (await (await call("/v1/admin/devices?limit=1", { headers: auth })).json()) as {
+      rows: unknown[];
+      truncated: boolean;
+      since: string;
+    };
+    expect(limited.rows).toHaveLength(1);
+    expect(limited.truncated).toBe(true);
+    expect(limited.since).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });
 

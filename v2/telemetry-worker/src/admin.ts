@@ -43,14 +43,19 @@ export function parseGroup(param: string | null): GroupColumn[] | null {
   return GROUP_COLUMNS.filter((c) => cols.includes(c));
 }
 
-export async function deviceReport(env: Env, group: GroupColumn[], sinceDay: string): Promise<DeviceReportRow[]> {
+export async function deviceReport(
+  env: Env,
+  group: GroupColumn[],
+  sinceDay: string,
+  limit: number,
+): Promise<DeviceReportRow[]> {
   const g = group.join(", ");
   const [totals, installs, errors] = await env.DB.batch([
     env.DB.prepare(
       `SELECT ${g}, SUM(events) AS events, SUM(seen) AS seen, SUM(action_ok) AS action_ok,
               SUM(action_fail) AS action_fail, SUM(errors) AS errors, MAX(last_seen) AS last_seen
-       FROM agg_device_daily WHERE day >= ?1 GROUP BY ${g}`,
-    ).bind(sinceDay),
+       FROM agg_device_daily WHERE day >= ?1 GROUP BY ${g} ORDER BY events DESC LIMIT ?2`,
+    ).bind(sinceDay, limit),
     env.DB.prepare(
       `SELECT ${g}, COUNT(DISTINCT install_id) AS installs
        FROM agg_device_installs WHERE last_seen >= ?1 GROUP BY ${g}`,

@@ -2,7 +2,7 @@
 //
 //   ATV_TELEMETRY_URL=https://atv-optimizer-telemetry.<subdomain>.workers.dev \
 //   ATV_TELEMETRY_ADMIN_TOKEN=... \
-//   npm run report -- [--days 30] [--group manufacturer,model,device,profile]
+//   npm run report -- [--days 90] [--limit 500] [--group manufacturer,model,device,profile]
 //
 // Needs Node 22.18+ (runs TypeScript directly). Prints JSON with --json.
 
@@ -23,13 +23,20 @@ const url = new URL("/v1/admin/devices", base);
 url.searchParams.set("group", flag("group") ?? "manufacturer,model,device,profile");
 const days = flag("days");
 if (days) url.searchParams.set("days", days);
+const limit = flag("limit");
+if (limit) url.searchParams.set("limit", limit);
 
 const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
 if (!res.ok) {
   console.error(`${res.status} ${await res.text()}`);
   process.exit(1);
 }
-const body = (await res.json()) as { group: string[]; rows: Array<Record<string, unknown>> };
+const body = (await res.json()) as {
+  group: string[];
+  since: string;
+  truncated: boolean;
+  rows: Array<Record<string, unknown>>;
+};
 
 if (args.includes("--json")) {
   console.log(JSON.stringify(body, null, 2));
@@ -53,4 +60,5 @@ if (args.includes("--json")) {
     return out;
   });
   console.table(table);
+  console.log(`Since ${body.since}.${body.truncated ? " Truncated: raise --limit or narrow --days." : ""}`);
 }
