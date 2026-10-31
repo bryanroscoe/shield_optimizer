@@ -1,3 +1,4 @@
+import type { SupportInfo } from "../../../shared/support";
 // Typed contract for the ATV Optimizer mobile frontend.
 // Keep in sync with v2/src/lib (desktop) and crates/core — these mirror the
 // Rust types in crates/core/src/engine/types.rs and the command return shapes.
@@ -29,6 +30,8 @@ export interface DeviceProperties {
   /// `pm has-feature android.software.leanback`. null when the device gave no
   /// readable answer — which is not the same as "no".
   leanback?: boolean | null;
+  /// `ro.product.name`; empty when unreadable.
+  product?: string;
 }
 
 export interface Device {
@@ -41,6 +44,9 @@ export interface Device {
   status: DeviceStatus;
   connection: ConnectionType;
   properties: DeviceProperties | null;
+  /// How well the app is known to work on this TV. Informational only; read
+  /// it through `parseSupport`, which treats missing as `unknown`.
+  support?: SupportInfo;
 }
 
 export interface AppEntry {
@@ -154,6 +160,7 @@ export interface SendTextResult {
 }
 
 export type { Safety } from "../../../shared/safety";
+export type { SupportInfo, SupportTier } from "../../../shared/support";
 
 export type RebootMode = "normal" | "recovery" | "bootloader";
 

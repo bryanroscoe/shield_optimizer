@@ -17,6 +17,11 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `get_entitlement` | Free | `src-tauri/src/lib.rs` | `src/lib/session.svelte.ts` |
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
 | `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
+| `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
+| `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte` |
+| `dismiss_telemetry_notice` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/TelemetryNotice.svelte` |
+| `telemetry_action` | Free | `../crates/core/src/commands/telemetry.rs` | `src/lib/api.ts` |
+| `telemetry_error` | Free | `../crates/core/src/commands/telemetry.rs` | `src/lib/api.ts`, `src/main.ts` |
 | `list_devices` | Free | `../crates/core/src/commands/devices.rs` | `src/lib/session.svelte.ts` |
 | `device_profile` | Free | `../crates/core/src/commands/devices.rs` | No direct API caller |
 | `rename_device` | Free | `../crates/core/src/commands/devices.rs` | `src/screens/Devices.svelte` |

@@ -7,6 +7,7 @@
     title,
     message,
     warning = "",
+    supportWarning = "",
     confirmLabel = "Confirm",
     cancelLabel = "Cancel",
     danger = false,
@@ -18,6 +19,9 @@
     title: string;
     message: string;
     warning?: string;
+    /// The TV's support-tier caution (`destructiveWarning`). Informational:
+    /// it never disables Confirm.
+    supportWarning?: string | null;
     confirmLabel?: string;
     cancelLabel?: string;
     danger?: boolean;
@@ -38,6 +42,9 @@
       <h3>{title}</h3>
       {#if warning}
         <p class="dialog-warning" role="alert"><span class="msr">warning</span>{warning}</p>
+      {/if}
+      {#if supportWarning}
+        <p class="dialog-warning" data-testid="support-warning"><span class="msr">warning</span>{supportWarning}</p>
       {/if}
       <p class="dialog-message">{message}</p>
       <div class="dialog-actions">

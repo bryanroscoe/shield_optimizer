@@ -18,6 +18,7 @@
   import Backups from "./screens/Backups.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
   import Toast from "./components/Toast.svelte";
+  import TelemetryNotice from "./components/TelemetryNotice.svelte";
 
   function navigate(screen: Screen) {
     router.navigate(screen);
@@ -75,6 +76,11 @@
 
 {#if router.current !== "onboarding" && router.current !== "addtv"}
   <ConnectionBanner onSwitch={() => navigate("devices")} />
+{/if}
+<!-- Waits until the user is past onboarding and the saved-TV picker, so
+     it never sits over the buttons that get them connected. -->
+{#if router.current !== "onboarding" && router.current !== "addtv"}
+  <TelemetryNotice onOpenSettings={() => navigate("more")} />
 {/if}
 {#if session.identityNote}
   <Toast message={session.identityNote} type="info" />
