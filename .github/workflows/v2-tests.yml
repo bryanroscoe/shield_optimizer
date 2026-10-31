@@ -13,6 +13,8 @@ on:
     branches: [main]
     paths:
       - 'v2/**'
+      # The telemetry Worker has its own job in tests.yml.
+      - '!v2/telemetry-worker/**'
       - '.github/workflows/v2-tests.yml'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, closed]
@@ -20,6 +22,8 @@ on:
     # too, and the workflow file is taken from the PR merge ref.
     paths:
       - 'v2/**'
+      # The telemetry Worker has its own job in tests.yml.
+      - '!v2/telemetry-worker/**'
       - '.github/workflows/v2-tests.yml'
   workflow_dispatch:
 
