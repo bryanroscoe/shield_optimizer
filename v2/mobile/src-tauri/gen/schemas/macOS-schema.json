@@ -351,6 +351,12 @@
           "markdownDescription": "ATV Optimizer wireless-ADB transport. Exposes no JS-invokable commands; it is used from Rust by the app's WirelessAdb driver."
         },
         {
+          "description": "ATV Optimizer Google Play Billing adapter. Exposes no JS-invokable commands; the app's billing commands call it from Rust and verify every purchase there.",
+          "type": "string",
+          "const": "atv-billing:default",
+          "markdownDescription": "ATV Optimizer Google Play Billing adapter. Exposes no JS-invokable commands; the app's billing commands call it from Rust and verify every purchase there."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",
