@@ -54,7 +54,10 @@ How that is enforced server-side, so a client bug cannot break it:
   cannot be told from a word, so the client's own redaction stays the first line. One package name is kept because it is useful
   for debugging a failed disable; three or more (including two-part ids like `tv.baz`) are treated
   as a package list and all are replaced.
-  The server cannot recognise a TV's friendly name inside free text, so that stays the client's job.
+  A message that contains an ATV Optimizer license key (`ATVOPT-...`) or mentions a license or
+  licensee is replaced whole with `[license-related message removed]`; the `error_code` still says
+  what failed. The server cannot recognise a TV's friendly name inside free text, so that stays
+  the client's job.
 
 ## Retention
 
@@ -82,7 +85,7 @@ The event shape is the schema 1 contract the apps implement.
 | `413` | Body over 64 KB. |
 | `415` | Not `application/json`. |
 | `429` | Daily cap reached (`install_daily_cap` or `global_daily_cap`). `Retry-After` is the seconds to the next UTC midnight. Clients should drop or hold the batch, not retry in a loop. |
-| `503` | D1 unavailable (`storage_unavailable`). If the batch had been admitted, its quota is given back. |
+| `503` | D1 unavailable (`storage_unavailable`). If the batch had been admitted, its per-install quota is given back; the global count is not, so a storage outage cannot turn into unbounded writes. |
 
 Clients should treat anything other than `204` as "drop this batch". Telemetry must never block or
 slow the app.

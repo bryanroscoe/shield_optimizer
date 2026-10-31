@@ -49,7 +49,15 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
 export const MESSAGE_MAX = 500;
 
+// ATV Optimizer license keys (ATVOPT-<payload>-<signature>, any case) and any
+// message about a license or licensee. The licensee is free text, so it cannot
+// be found reliably; the whole message is dropped and error_code keeps the why.
+const LICENSE_KEY = /\batvopt-[\w-]*/i;
+const LICENSE_TOPIC = /licen[cs]/i;
+export const LICENSE_REMOVED = "[license-related message removed]";
+
 export function redactMessage(input: string): string {
+  if (LICENSE_KEY.test(input) || LICENSE_TOPIC.test(input)) return LICENSE_REMOVED;
   let text = input.replace(CONTROL, " ");
   for (const [pattern, replacement] of RULES) {
     text = text.replace(pattern, replacement);

@@ -58,9 +58,11 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
   return { ok: false, scope: (global?.events ?? 0) + events.length > globalCap ? "global" : "install" };
 }
 
-// Gives back an admitted batch's quota when storing it failed, so a transient
-// D1 error does not use up the day's cap for events that were never recorded.
-// Best effort: if D1 is down this fails too, and the request already errors.
+// Gives back an admitted batch's per-install quota when storing it failed, so
+// a transient D1 error does not lock an install out for events that were never
+// recorded. The global counter is deliberately not refunded: it is the failure
+// budget that bounds admission+refund writes if storage stays broken while
+// rate_daily is still writable. Best effort: if D1 is down this fails too.
 export async function releaseQuota(env: Env, rows: QuotaRow[], now: Date): Promise<void> {
   await env.DB.prepare(
     `UPDATE rate_daily
@@ -68,7 +70,7 @@ export async function releaseQuota(env: Env, rows: QuotaRow[], now: Date): Promi
                                        WHERE json_extract(j.value, '$.key') = rate_daily.key))
       WHERE day = ?1 AND key IN (SELECT json_extract(value, '$.key') FROM json_each(?2))`,
   )
-    .bind(utcDay(now), JSON.stringify(rows))
+    .bind(utcDay(now), JSON.stringify(rows.filter((r) => r.key !== GLOBAL_KEY)))
     .run();
 }
 

@@ -130,7 +130,7 @@ describe("POST /v1/events", () => {
     expect(await rowsFor(id)).toHaveLength(60);
   });
 
-  it("gives the quota back when storing the batch fails", async () => {
+  it("gives the install quota back, but not the global budget, when storing fails", async () => {
     const day = utcDay(new Date());
     const id = newInstallId();
     const counter = (key: string) =>
@@ -147,7 +147,8 @@ describe("POST /v1/events", () => {
       await env.DB.prepare("DROP TRIGGER fail_store").run();
     }
     expect(await counter(id)).toEqual({ events: 0 });
-    expect(await counter("*")).toEqual(globalBefore);
+    // The global counter is the failure budget and is not refunded.
+    expect(await counter("*")).toEqual({ events: ((globalBefore as { events?: number } | null)?.events ?? 0) + 1 });
     expect(await rowsFor(id)).toHaveLength(0);
   });
 

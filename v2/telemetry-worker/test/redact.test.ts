@@ -11,7 +11,7 @@ describe("redactMessage", () => {
     ["host:port", "adb server localhost:5037 not running", "adb server [host] not running"],
     ["MAC", "wlan0 a4:5e:60:c1:22:9b down", "wlan0 [mac] down"],
     ["MAC dashed", "eth A4-5E-60-C1-22-9B", "eth [mac]"],
-    ["email", "licensed to someone@example.com", "licensed to [email]"],
+    ["email", "sent to someone@example.com", "sent to [email]"],
     ["serial digits", "device 0323220012345 offline", "device [serial] offline"],
     ["serial mixed", "unauthorized 3A091FDJH000AB", "unauthorized [serial]"],
     ["serial with few digits", "device R5CRABCDEFZ offline", "device [serial] offline"],
@@ -41,6 +41,12 @@ describe("redactMessage", () => {
       "installed: [package], [package], [package]",
     );
     expect(redactMessage("installed: com.foo, org.bar, tv.baz")).toBe("installed: [package], [package], [package]");
+  });
+
+  it("drops messages that carry license keys or licensee data", () => {
+    expect(redactMessage("license ATVOPT-PRO-2025 for Jane Smith")).toBe("[license-related message removed]");
+    expect(redactMessage("activation failed: atvopt-abcd-efgh")).toBe("[license-related message removed]");
+    expect(redactMessage("Licensed to Jane Smith, expires 2027-01-01")).toBe("[license-related message removed]");
   });
 
   it("strips control characters and clamps to the limit", () => {
