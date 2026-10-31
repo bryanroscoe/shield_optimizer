@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 shield-optimizer-core = { path = "../../crates/core" }
 tauri-plugin-atv-adb = { path = "../tauri-plugin-atv-adb" }
+tauri-plugin-atv-billing = { path = "../tauri-plugin-atv-billing" }
 tauri = { version = "2", features = [] }
 # Hands http(s) links to the phone's browser (an ACTION_VIEW intent on Android).
 tauri-plugin-opener = "2"
@@ -41,6 +42,12 @@ tempfile = "3"
 # ISO-8601 timestamps for pulled backups. Already compiled transitively via
 # shield-optimizer-core, so this adds no new build cost.
 chrono = { version = "0.4", features = ["clock"] }
+# Play purchase signatures are SHA1withRSA over the purchase JSON, with the
+# app's base64 license key. Both crates are already in the lockfile (adb_client
+# and core), so verification adds no new dependency.
+base64 = "0.22"
+sha1 = { version = "0.10", features = ["oid"] }
 
 [dev-dependencies]
 sha2 = "0.10"
+shield-optimizer-core = { path = "../../crates/core", features = ["test-support"] }

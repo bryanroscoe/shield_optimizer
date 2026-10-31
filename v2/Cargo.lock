@@ -374,16 +374,19 @@ version = "0.1.0"
 dependencies = [
  "adb_client",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
  "rsa",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "shield-optimizer-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-atv-adb",
+ "tauri-plugin-atv-billing",
  "tauri-plugin-opener",
  "tempfile",
  "tokio",
@@ -4932,6 +4935,17 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-atv-adb"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "tauri-plugin-atv-billing"
 version = "0.1.0"
 dependencies = [
  "serde",
