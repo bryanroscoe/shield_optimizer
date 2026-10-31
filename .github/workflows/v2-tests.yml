@@ -254,6 +254,14 @@ jobs:
         working-directory: v2
         run: npm run test:context-menu
 
+      - name: Telemetry, error codes and support copy
+        working-directory: v2
+        run: npm run test:telemetry-errors-support
+
+      - name: Support tier badges and report setting
+        working-directory: v2
+        run: npm run test:support-tiers-ui
+
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
         working-directory: v2

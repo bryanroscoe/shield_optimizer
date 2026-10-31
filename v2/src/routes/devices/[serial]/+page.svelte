@@ -27,6 +27,10 @@
   import type { MemoryEntry } from "$lib/types";
   import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
+  import ErrorNotice from "$lib/components/ErrorNotice.svelte";
+  import SupportBadge from "$lib/components/SupportBadge.svelte";
+  import SupportBanner from "$lib/components/SupportBanner.svelte";
+  import { destructiveWarning } from "../../../../shared/support";
   import {
     isBlocked,
     safetyClass,
@@ -367,6 +371,13 @@
   );
   let appActionBusy = $state<string | null>(null);
   let appActionMessage = $state("");
+  /// The last failed app action, shown through ErrorNotice.
+  let appActionError = $state<{ action: string; error: string } | null>(null);
+
+  function showAppActionError(action: string, error: unknown, note = "") {
+    appActionMessage = note;
+    appActionError = { action, error: String(error) };
+  }
   let appMutationInFlight = $state(false);
   /// Package the "Copy to another device" panel is open for, plus targets.
   let clonePkg = $state<string | null>(null);
@@ -724,6 +735,7 @@
     appMeasures = idleMeasurements();
     if (appMutationInFlight) appActionBusy = null;
     appActionMessage = "";
+    appActionError = null;
     try {
       const list = await api.appListForDevice(deviceType);
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
@@ -809,6 +821,7 @@
     otherInventoryVersion++;
     if (appMutationInFlight) appActionBusy = null;
     appActionMessage = "";
+    appActionError = null;
     othersLoading = true;
     othersLoaded = false;
     othersErr = null;
@@ -879,10 +892,12 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
+    appActionError = null;
     try {
       const r = await api.enablePackage(context.serial, pkg);
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
       appActionMessage = `${pkg}: ${r.message.trim() || (r.ok ? "enabled" : "failed")}`;
+      if (!r.ok) showAppActionError(`Enable ${pkg}`, r.message.trim() || "failed");
       if (r.ok) {
         appActionBusy = null;
         patchOtherState(pkg, true);
@@ -894,7 +909,7 @@
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
-      appActionMessage = `${pkg}: ${e}`;
+      showAppActionError(`Enable ${pkg}`, e);
     } finally {
       appMutationInFlight = false;
       if (pageContextIsCurrent(context)
@@ -1021,6 +1036,7 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
+    appActionError = null;
     try {
       const before = await readRemovalEvidence(context, pkg);
       if (!pageContextIsCurrent(context)
@@ -1057,8 +1073,9 @@
       }
       const entry = apps.find((a) => a.package === pkg) ?? null;
       const note = action === "uninstall" ? uninstallNote(pkg, entry) : null;
+      const tierWarning = destructiveWarning(device?.support);
       const approved = confirm(
-        `${action.toUpperCase()} ${name}\nPackage: ${pkg}\nSafety: ${verdictLabel(before.safety)}\nReason: ${before.safety.reason}${note ? `\n\n${note}` : ""}\n\nProceed?`,
+        `${action.toUpperCase()} ${name}\nPackage: ${pkg}\nSafety: ${verdictLabel(before.safety)}\nReason: ${before.safety.reason}${note ? `\n\n${note}` : ""}${tierWarning ? `\n\n${tierWarning}` : ""}\n\nProceed?`,
       );
       if (!approved
         || !pageContextIsCurrent(context)
@@ -1084,6 +1101,7 @@
       // A not-ok result can still have landed (stock disabled but its setup
       // helper left on), so re-read the device rather than guess.
       if (!result.ok) {
+        showAppActionError(`${action === "disable" ? "Disable" : "Uninstall"} ${name}`, result.message.trim() || "failed");
         invalidateDeviceCaches();
         void resyncAfterBulkChange();
         return;
@@ -1096,7 +1114,11 @@
       if (!pageContextIsCurrent(context)
         || request !== mutationRequest
         || !removalSourceIsCurrent(source, pkg, inventoryVersion)) return;
-      appActionMessage = `${pkg}: ${e}. Refresh to retry; nothing was removed without a current reading.`;
+      showAppActionError(
+        `${action === "disable" ? "Disable" : "Uninstall"} ${name}`,
+        e,
+        `${pkg}: refresh to retry; nothing was removed without a current reading.`,
+      );
     } finally {
       appMutationInFlight = false;
       if (pageContextIsCurrent(context)
@@ -1132,10 +1154,12 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
+    appActionError = null;
     try {
       const r = await api.enablePackage(context.serial, pkg);
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
       appActionMessage = `${pkg}: ${r.message.trim()}`;
+      if (!r.ok) showAppActionError(`Enable ${pkg}`, r.message.trim() || "failed");
       if (r.ok) {
         appActionBusy = null;
         setCatalogState(pkg, "enabled");
@@ -1147,7 +1171,7 @@
       }
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
-      appActionMessage = `${pkg}: ${e}`;
+      showAppActionError(`Enable ${pkg}`, e);
     } finally {
       appMutationInFlight = false;
       if (pageContextIsCurrent(context)
@@ -1176,6 +1200,7 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
+    appActionError = null;
     try {
       const r = await api.reinstallExisting(context.serial, pkg);
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
@@ -1249,6 +1274,7 @@
     if (!folder) return;
     appActionBusy = pkg;
     appActionMessage = "";
+    appActionError = null;
     try {
       const r = await api.backupApk(serial, pkg, folder as string);
       appActionMessage = r.message;
@@ -1261,6 +1287,7 @@
 
   async function startClone(pkg: string) {
     appActionMessage = "";
+    appActionError = null;
     try {
       const all = await api.listDevices();
       cloneTargets = all.filter((d) => d.status === "device" && d.serial !== serial);
@@ -1302,6 +1329,7 @@
   async function openInPlayStore(pkg: string) {
     appActionBusy = pkg;
     appActionMessage = "";
+    appActionError = null;
     try {
       const r = await api.openPlayStore(serial, pkg);
       appActionMessage = r.ok
@@ -1586,7 +1614,8 @@
     const question = row?.setup_helper
       ? `Disable ${pkg}?\n\nThis is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen.\n\nIt stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset.`
       : `Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`;
-    if (!confirm(question)) return;
+    const tierWarning = destructiveWarning(device?.support);
+    if (!confirm(tierWarning ? `${question}\n\n${tierWarning}` : question)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     launcherProgress = "Disabling this launcher";
@@ -1647,7 +1676,7 @@
         // Never do that silently — ask, then retry with the opt-in flag.
         launcherProgress = "";
         const proceed = confirm(
-          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.`,
+          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.${destructiveWarning(device?.support) ? `\n\n${destructiveWarning(device?.support)}` : ""}`,
         );
         if (proceed) r = await api.setDefaultLauncher(context.serial, pkg, true, onProgress);
       }
@@ -1784,7 +1813,8 @@
       Object.keys(preview.settings_to_write).length +
       preview.settings_to_delete.length +
       (preview.launcher_to_set ? 1 : 0);
-    if (!confirm(`Restore this snapshot? ${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.`)) return;
+    const tierWarning = destructiveWarning(device?.support);
+    if (!confirm(`Restore this snapshot? ${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`)) return;
     applyBusy = true;
     applyErr = null;
     applyResult = null;
@@ -1996,7 +2026,7 @@
     homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
-    apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = "";
+    apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null;
     otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
@@ -2116,7 +2146,17 @@
       {#if device.properties?.android_release}
         <span>· Android {device.properties.android_release}</span>
       {/if}
+      {#if device.properties}
+        <SupportBadge support={device.support} />
+      {/if}
     </div>
+    {#if device.properties}
+      {#if device.support?.tier === "not_supported"}
+        <SupportBanner support={device.support} />
+      {:else}
+        <SupportBadge support={device.support} mode="line" />
+      {/if}
+    {/if}
     {#if headerActionMsg}
       <p class="muted small mono action-message">{headerActionMsg}</p>
     {/if}
@@ -2601,11 +2641,21 @@
               {/each}
             </tbody>
           </table>
-          {#if appActionMessage}
+          {#if appActionError}
+            <ErrorNotice
+              error={appActionError.error}
+              action={appActionError.action}
+              support={device?.support}
+              device={device?.properties?.model ?? device?.model ?? ""}
+            />
+          {/if}
+          {#if appActionMessage && !appActionError}
             <p class="muted small mono">
               {appActionMessage}
               <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss" aria-label="Dismiss"><Icon name="close" size={16} /></button>
             </p>
+          {:else if appActionMessage}
+            <p class="muted small">{appActionMessage}</p>
           {/if}
         {/if}
         </div>
@@ -2935,6 +2985,9 @@
                       Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home
                       button back. You may need to turn it back on briefly to sign in to Google again
                       or pair a remote.
+                    {/if}
+                    {#if destructiveWarning(device?.support)}
+                      <strong class="tier-warning">{destructiveWarning(device?.support)}</strong>
                     {/if}
                   </span>
                   <span class="home-picker-confirm-actions">
@@ -3515,7 +3568,12 @@
         {#if applyErr || applyResult}
         <div class="preview-box">
           {#if applyErr}
-            <div class="error">{applyErr}</div>
+            <ErrorNotice
+              error={applyErr}
+              action="Restore snapshot"
+              support={device?.support}
+              device={device?.properties?.model ?? device?.model ?? ""}
+            />
           {/if}
           {#if applyResult}
             <div class="apply-result">
@@ -3611,6 +3669,7 @@
         onRunStarted={optimizeRunStarted}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
+        support={device.support ?? null}
       />
     </div>
   {/if}
