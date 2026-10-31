@@ -227,16 +227,20 @@ static PACKAGE: LazyLock<Regex> =
 static ID_TOKEN: LazyLock<Regex> = LazyLock::new(|| re(r"\b[A-Za-z0-9]{8,}\b"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| re(r"\s+"));
 
-/// Platform namespaces name code, not apps someone installed, and keep a
-/// message like `java.lang.SecurityException` useful.
-const KEEP_NAMESPACES: [&str; 6] = [
-    "java.",
-    "javax.",
-    "android.",
-    "kotlin.",
-    "dalvik.",
-    "com.android.",
-];
+/// Platform class names (`java.lang.SecurityException`) explain a failure and
+/// name code, not an app. Only a capitalised last segment in a platform
+/// namespace survives: `android.*` and `com.android.*` are also prefixes of
+/// real installed packages, which are removed like any other.
+const KEEP_NAMESPACES: [&str; 5] = ["java.", "javax.", "android.", "kotlin.", "dalvik."];
+
+fn is_platform_class(token: &str) -> bool {
+    KEEP_NAMESPACES.iter().any(|ns| token.starts_with(ns))
+        && token
+            .rsplit('.')
+            .next()
+            .and_then(|last| last.chars().next())
+            .is_some_and(|c| c.is_ascii_uppercase())
+}
 
 /// [`redact_message`], after first removing identifiers the caller already
 /// knows: the serials and hardware ids of the TVs this session has seen. A
@@ -273,7 +277,7 @@ pub fn redact_message(raw: &str) -> String {
     s = PACKAGE
         .replace_all(&s, |caps: &regex::Captures| {
             let token = &caps[0];
-            if KEEP_NAMESPACES.iter().any(|ns| token.starts_with(ns)) {
+            if is_platform_class(token) {
                 token.to_string()
             } else {
                 "<pkg>".to_string()
@@ -608,6 +612,14 @@ mod tests {
                 "Failure [DELETE_FAILED_INTERNAL_ERROR] for acme.player",
                 "Failure [DELETE_FAILED_INTERNAL_ERROR] for <pkg>",
             ),
+            (
+                "Shell cannot change component state for com.android.gallery3d",
+                "Shell cannot change component state for <pkg>",
+            ),
+            (
+                "disable android.autoinstalls.config failed",
+                "disable <pkg> failed",
+            ),
             ("see https://example.com/path?q=1 now", "see <url> now"),
         ];
         for (input, want) in cases {
@@ -653,7 +665,7 @@ mod tests {
     fn redaction_keeps_what_is_useful() {
         for keep in [
             "java.lang.SecurityException: Permission Denial",
-            "Shell cannot change component state for com.android.tv.settings",
+            "android.os.RemoteException: transaction failed",
             "error: device offline",
             "std::io::Error timed out",
             "exit code 1",
