@@ -265,7 +265,7 @@ async function exercisePairingFlow({ browser, base }) {
     await connectBox(page).pressSequentially(CONNECT_ADDRESS.split(":")[1]);
     await page.locator(".connect-form").getByRole("button", { name: "Add by IP" }).click();
     await page.getByText(
-      `Couldn't reach ${CONNECT_ADDRESS}. Check the IP and port match the device's main Wireless debugging screen (not the pairing dialog), and that both are on the same Wi-Fi.`,
+      `Couldn't reach ${CONNECT_ADDRESS}. Check the TV's current IP and that both devices are on the same local network. On SHIELD, enable Network debugging. For Wireless debugging, use the IP and port from the main Wireless debugging screen (not the pairing dialog).`,
       { exact: true },
     ).waitFor();
     await page.locator(".connect-details summary").click();

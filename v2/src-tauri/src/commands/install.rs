@@ -11,6 +11,7 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
+use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
 
 #[derive(Serialize)]
 pub struct AdbStatus {
@@ -54,6 +55,7 @@ pub struct InstallResult {
 #[derive(Serialize)]
 pub struct RestartResult {
     pub ok: bool,
+    pub server_ready: bool,
     pub message: String,
 }
 
@@ -76,10 +78,6 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 /// Reusable implementation — callable from tests against an `AppState` without
 /// the `State<'_, T>` lifetime constraint.
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
-    // The user reaching for Restart ADB is the one moment they expect a fresh
-    // look at the machine — if they just installed adb elsewhere, this is how
-    // they tell us to go find it again.
-    forget_cached_adb_binary();
     let adb = state.adb_snapshot().await;
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
@@ -100,19 +98,30 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     // care about the start-server result.
     let _ = adb.raw(&["kill-server"]).await;
     let start_output = match adb.raw(&["start-server"]).await {
-        Ok(out) => format!("{}{}", out.stdout, out.stderr),
-        Err(e) => {
+        Ok(out) if out.success() => out.combined(),
+        Ok(out) => {
             return Ok(RestartResult {
                 ok: false,
-                message: e.to_string(),
-            })
+                server_ready: false,
+                message: format!("ADB server failed to start: {}", out.combined().trim()),
+            });
+        }
+        Err(error) => {
+            return Ok(RestartResult {
+                ok: false,
+                server_ready: false,
+                message: error.to_string(),
+            });
         }
     };
-
-    // start-server prints "* daemon not running…" on first start; that's
-    // success. Real failures contain "error" / "cannot".
     let lower = start_output.to_lowercase();
-    let mut ok = !lower.contains("error") && !lower.contains("cannot");
+    if lower.contains("error") || lower.contains("cannot") || lower.contains("failed") {
+        return Ok(RestartResult {
+            ok: false,
+            server_ready: false,
+            message: start_output.trim().to_string(),
+        });
+    }
 
     // Reconnect the network devices we saw before the restart.
     //
@@ -125,33 +134,66 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     // few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
+    let mut unauthorized = Vec::new();
     for serial in &network_serials {
         let mut connected = false;
+        let mut last_failure = String::new();
         for attempt in 0..RECONNECT_ATTEMPTS {
             if attempt > 0 {
                 tokio::time::sleep(RECONNECT_BACKOFF * attempt).await;
             }
-            connected = match adb.raw(&["connect", serial]).await {
-                // "connected to X" and "already connected to X" both pass;
-                // "failed to connect" / "cannot connect" do not.
-                Ok(out) => format!("{}{}", out.stdout, out.stderr)
-                    .to_lowercase()
-                    .contains("connected to"),
-                Err(_) => false,
-            };
+            // ADB auto-attaches paired mDNS services; their transport keys are
+            // not socket addresses and must never be passed to `adb connect`.
+            if shield_optimizer_core::adb::is_network_endpoint(serial) {
+                match adb.raw(&["connect", serial]).await {
+                    Ok(out) => {
+                        let response = out.combined();
+                        let lower = response.to_lowercase();
+                        if lower.contains("failed to authenticate") {
+                            unauthorized.push(serial.clone());
+                            break;
+                        }
+                        if !lower.contains("connected to")
+                            || lower.contains("failed")
+                            || lower.contains("cannot")
+                        {
+                            last_failure = response.trim().to_string();
+                            continue;
+                        }
+                    }
+                    Err(error) => {
+                        last_failure = error.to_string();
+                        let lower = last_failure.to_lowercase();
+                        if lower.contains("failed to authenticate")
+                            || lower.contains("device unauthorized")
+                            || lower.contains("device is unauthorized")
+                        {
+                            unauthorized.push(serial.clone());
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
+            match verify_connected_transport(&*adb, serial).await {
+                Ok(TransportReadiness::Ready) => connected = true,
+                Ok(TransportReadiness::Unauthorized) => {
+                    unauthorized.push(serial.clone());
+                    break;
+                }
+                Err(reason) => last_failure = reason,
+            }
             if connected {
                 break;
             }
         }
         if connected {
             reconnected.push(serial.clone());
-        } else {
-            failed.push(serial.clone());
+        } else if !unauthorized.contains(serial) {
+            failed.push(format!("{serial}: {last_failure}"));
         }
     }
-    if !failed.is_empty() {
-        ok = false;
-    }
+    let ok = failed.is_empty() && unauthorized.is_empty();
 
     let mut message = if start_output.trim().is_empty() {
         "ADB server restarted.".to_string()
@@ -169,7 +211,17 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
         ));
     }
 
-    Ok(RestartResult { ok, message })
+    if !unauthorized.is_empty() {
+        message.push_str(&format!(
+            "\nAwaiting authorization: {} — approve this computer on the TV, then Refresh or Ask again.",
+            unauthorized.join(", ")
+        ));
+    }
+    Ok(RestartResult {
+        ok,
+        server_ready: true,
+        message,
+    })
 }
 
 /// `install_adb` — download Google's platform-tools archive, extract into the
@@ -216,6 +268,135 @@ mod tests {
     use crate::commands::test_support::{state_with, MockAdb};
 
     #[tokio::test(start_paused = true)]
+    async fn restart_preserves_authorization_wait_without_repeated_connects() {
+        for response in ["connect-output", "connect-error", "readiness"] {
+            let serial = "192.0.2.1:5555";
+            let mock = MockAdb::default()
+                .on_raw("devices", &format!("{serial}\tunauthorized\n"))
+                .on_raw("start-server", "daemon started");
+            let mock = if response == "connect-error" {
+                mock.on_raw_err("connect", "failed to authenticate to 192.0.2.1:5555")
+            } else {
+                mock.on_raw(
+                    "connect",
+                    if response == "readiness" {
+                        "already connected to 192.0.2.1:5555"
+                    } else {
+                        "failed to authenticate to 192.0.2.1:5555"
+                    },
+                )
+            }
+            .on_raw_err("get-state", "device unauthorized");
+            let calls = mock.raw_log();
+            let result = restart_adb_impl(&state_with(mock)).await.unwrap();
+            assert!(!result.ok);
+            assert!(result.server_ready);
+            assert!(result.message.contains("approve this computer on the TV"));
+            assert!(!result.message.contains("Could not reconnect"));
+            assert_eq!(
+                calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|call| call.starts_with("connect "))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_waits_for_mdns_reattachment_without_dialling_a_service_key() {
+        let serial = "adb-fixture._adb-tls-connect._tcp";
+        let mock = MockAdb::default()
+            .on_raw("devices", &format!("{serial}\tdevice\n"))
+            .on_raw("start-server", "daemon started")
+            .on_raw_seq("get-state", &[Err("device not found"), Ok("device")]);
+        let calls = mock.raw_log();
+        let result = restart_adb_impl(&state_with(mock)).await.unwrap();
+        assert!(result.ok, "{}", result.message);
+        assert!(result.server_ready);
+        let calls = calls.lock().unwrap();
+        assert!(!calls.iter().any(|call| call.starts_with("connect ")));
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|call| call.ends_with(" get-state"))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_server_start_never_attempts_reconnection() {
+        for nonzero in [false, true] {
+            let mock = MockAdb::default().on_raw("devices", "192.0.2.1:5555\tdevice\n");
+            let mock = if nonzero {
+                mock.on_raw_exit("start-server", "daemon unavailable", 1)
+            } else {
+                mock.on_raw("start-server", "failed to start daemon")
+            };
+            let calls = mock.raw_log();
+            let result = restart_adb_impl(&state_with(mock)).await.unwrap();
+            assert!(!result.ok);
+            assert!(!result.server_ready);
+            assert!(!calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|call| call.starts_with("connect ")));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_does_not_claim_reconnected_when_target_is_not_ready() {
+        for status in ["offline", ""] {
+            let serial = "192.168.1.50:5555";
+            let mock = MockAdb::default()
+                .on_raw("devices", &format!("{serial}\tdevice\n"))
+                .on_raw("start-server", "daemon started")
+                .on_raw("connect", &format!("already connected to {serial}"))
+                .on_raw("get-state", status);
+            let calls = mock.raw_log();
+            let result = restart_adb_impl(&state_with(mock)).await.unwrap();
+            assert!(!result.ok, "{status:?} is not a ready transport");
+            assert!(!result.message.contains("Reconnected:"));
+            assert_eq!(
+                calls
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|c| c.starts_with("connect "))
+                    .count(),
+                4
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn restart_waits_for_ready_state_instead_of_connect_text() {
+        let serial = "192.168.1.50:5555";
+        let mock = MockAdb::default()
+            .on_raw("devices", &format!("{serial}\tdevice\n"))
+            .on_raw("start-server", "daemon started")
+            .on_raw("connect", &format!("already connected to {serial}"))
+            .on_raw_seq("get-state", &[Ok("offline"), Ok("device")]);
+        let calls = mock.raw_log();
+        let result = restart_adb_impl(&state_with(mock)).await.unwrap();
+        assert!(result.ok, "{}", result.message);
+        assert!(result.message.contains("Reconnected:"));
+        assert_eq!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.ends_with(" get-state"))
+                .count(),
+            2
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn restart_adb_reports_failure_when_network_reconnect_fails() {
         // Daemon restarts fine, but the previously-connected network device
         // can't be reconnected — that's a user-visible failure, and the message
@@ -233,6 +414,10 @@ mod tests {
         let res = restart_adb_impl(&state).await.unwrap();
 
         assert!(!res.ok);
+        assert!(
+            res.server_ready,
+            "a stale TV does not mean the daemon failed"
+        );
         assert!(
             res.message.contains("Could not reconnect") && res.message.contains(serial),
             "message should name the unreconnected device: {}",
@@ -259,7 +444,8 @@ mod tests {
                     Err("failed to connect to '192.168.42.196:5555': No route to host"),
                     Ok("connected to 192.168.42.196:5555"),
                 ],
-            );
+            )
+            .on_raw("get-state", "device");
         let state = state_with(mock);
 
         let res = restart_adb_impl(&state).await.unwrap();
@@ -287,6 +473,7 @@ mod tests {
         let res = restart_adb_impl(&state).await.unwrap();
 
         assert!(!res.ok);
+        assert!(!res.server_ready);
         assert!(
             res.message.contains("cannot bind to port 5037"),
             "message should surface the daemon error: {}",

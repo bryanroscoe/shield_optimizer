@@ -706,8 +706,8 @@ pub fn cached_adb_binary() -> Option<PathBuf> {
 }
 
 /// Drop the memoized path so the next [`cached_adb_binary`] re-resolves.
-/// Called after anything that can change which binary is correct: a
-/// platform-tools install, or the user explicitly asking to restart adb.
+/// Called after installing platform-tools and replacing the live driver.
+/// Restart keeps the selected driver and its cached discovery path together.
 pub fn forget_cached_adb_binary() {
     if let Ok(mut guard) = CACHED_ADB_PATH.write() {
         *guard = None;
