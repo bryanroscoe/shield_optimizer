@@ -593,24 +593,24 @@ pub(crate) mod tests {
             })
             .unwrap();
             let signal = control.clone();
+            let started = std::time::Instant::now();
             let canceller = cancel.then(|| {
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(100));
+                    let called_at = started.elapsed();
                     signal.cancel();
+                    (called_at, started.elapsed())
                 })
             });
-            let started = std::time::Instant::now();
             let result = fixture_install(address, b"abc", 3, false, control);
             let elapsed = started.elapsed();
+            let cancel_timing = canceller.map(|canceller| canceller.join().unwrap());
+            server.join().unwrap();
             assert!(
                 elapsed < Duration::from_millis(250),
-                "cancel={cancel}, elapsed={elapsed:?}, detail={}",
+                "cancel={cancel}, elapsed={elapsed:?}, cancel_timing={cancel_timing:?}, detail={}",
                 result.detail
             );
-            if let Some(canceller) = canceller {
-                canceller.join().unwrap();
-            }
-            server.join().unwrap();
             assert_eq!(result.status, InstallStatus::Indeterminate);
         }
     }

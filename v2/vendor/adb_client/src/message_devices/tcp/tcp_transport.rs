@@ -24,10 +24,38 @@ use std::{
     time::Duration,
 };
 
+// Keep cancellation and I/O on the same socket handle, including after TLS upgrade.
+#[derive(Clone, Debug)]
+struct SharedSocket(Arc<TcpStream>);
+
+impl std::ops::Deref for SharedSocket {
+    type Target = TcpStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Read for SharedSocket {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        (&*self.0).read(buf)
+    }
+}
+
+impl Write for SharedSocket {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        (&*self.0).write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        (&*self.0).flush()
+    }
+}
+
 #[derive(Debug)]
 enum CurrentConnection {
-    Tcp(TcpStream),
-    Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
+    Tcp(SharedSocket),
+    Tls(Box<StreamOwned<ClientConnection, SharedSocket>>),
 }
 
 impl CurrentConnection {
@@ -118,8 +146,8 @@ impl TcpTransport {
         let connection = self.get_current_connection()?;
         let guard = connection.lock()?;
         match &*guard {
-            CurrentConnection::Tcp(socket) => control.register_borrowed(socket)?,
-            CurrentConnection::Tls(tls) => control.register_borrowed(&tls.sock)?,
+            CurrentConnection::Tcp(socket) => control.register_borrowed(&socket.0)?,
+            CurrentConnection::Tls(tls) => control.register_borrowed(&tls.sock.0)?,
         }
         Ok(self.shell_control.replace(control))
     }
@@ -150,13 +178,15 @@ impl ADBTransport for TcpTransport {
             .transpose()?
             .unwrap_or(Duration::from_secs(5))
             .min(Duration::from_secs(5));
-        let stream = TcpStream::connect_timeout(&self.address, timeout)?;
+        let stream = Arc::new(TcpStream::connect_timeout(&self.address, timeout)?);
         // ADB exchanges small header/payload frames; do not stall them behind delayed ACKs.
         stream.set_nodelay(true)?;
         if let Some(control) = &self.shell_control {
             control.register(&stream)?;
         }
-        self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(stream))));
+        self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(SharedSocket(
+            stream,
+        )))));
         Ok(())
     }
 
@@ -294,7 +324,7 @@ impl ADBMessageTransport for TcpTransport {
                     let rc_config = Arc::new(client_config);
                     let server_name = self.address.ip().into();
                     let conn = ClientConnection::new(rc_config, server_name)?;
-                    let owned = tcp_stream.try_clone()?;
+                    let owned = tcp_stream.clone();
                     let client = StreamOwned::new(conn, owned);
 
                     // Update current connection state to now use TLS protocol

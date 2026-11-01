@@ -50,7 +50,7 @@ enum State {
 #[derive(Debug)]
 struct ControlState {
     state: State,
-    socket: Option<TcpStream>,
+    socket: Option<Arc<TcpStream>>,
     close_on_finish: bool,
 }
 
@@ -164,15 +164,15 @@ impl BoundedShellControl {
         self.0.registered.load(std::sync::atomic::Ordering::Acquire)
     }
 
-    pub(crate) fn register(&self, socket: &TcpStream) -> std::io::Result<()> {
+    pub(crate) fn register(&self, socket: &Arc<TcpStream>) -> std::io::Result<()> {
         self.register_kind(socket, true)
     }
 
-    pub(crate) fn register_borrowed(&self, socket: &TcpStream) -> std::io::Result<()> {
+    pub(crate) fn register_borrowed(&self, socket: &Arc<TcpStream>) -> std::io::Result<()> {
         self.register_kind(socket, false)
     }
 
-    fn register_kind(&self, socket: &TcpStream, owned: bool) -> std::io::Result<()> {
+    fn register_kind(&self, socket: &Arc<TcpStream>, owned: bool) -> std::io::Result<()> {
         let mut state = self
             .0
             .state
@@ -187,7 +187,7 @@ impl BoundedShellControl {
                 "operation no longer active",
             ));
         }
-        state.socket = Some(socket.try_clone()?);
+        state.socket = Some(Arc::clone(socket));
         self.0
             .registered
             .store(true, std::sync::atomic::Ordering::Release);
