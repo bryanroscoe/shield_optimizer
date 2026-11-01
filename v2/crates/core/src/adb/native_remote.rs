@@ -756,16 +756,21 @@ mod tests {
                 if self.uncertain_open.load(Ordering::Acquire) {
                     return Err(AdbError::Transport("OPEN acknowledgment lost".into()));
                 }
-                if self
-                    .control_refusals
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                        count.checked_sub(1)
-                    })
-                    .is_ok()
-                {
-                    return Err(AdbError::ServiceRejected {
-                        operation: "fixture-control",
-                    });
+                let mut remaining = self.control_refusals.load(Ordering::Acquire);
+                while remaining > 0 {
+                    match self.control_refusals.compare_exchange_weak(
+                        remaining,
+                        remaining - 1,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => {
+                            return Err(AdbError::ServiceRejected {
+                                operation: "fixture-control",
+                            });
+                        }
+                        Err(actual) => remaining = actual,
+                    }
                 }
             }
             if service.starts_with("localabstract:") && self.pending_control.load(Ordering::Acquire)
