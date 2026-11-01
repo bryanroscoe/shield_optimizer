@@ -4,10 +4,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
-
-    <!-- AndroidTV support -->
-    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- Phone/tablet app only. It drives a TV over the network and is not
+         itself a TV app, so it declares no leanback feature or TV launcher
+         entry (Play would otherwise review and list it as a TV app).
+         NEARBY_WIFI_DEVICES is not declared: NsdManager mDNS discovery
+         needs only INTERNET and CHANGE_WIFI_MULTICAST_STATE.
+         com.android.vending.BILLING is merged from the billing plugin. -->
 
     <application
         android:name=".App"
@@ -24,8 +26,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- AndroidTV support -->
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
 

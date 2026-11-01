@@ -31,6 +31,8 @@ const SCREENS = [
   { name: "remote", open: ["remote"] },
   { name: "more", open: ["more"] },
   { name: "optimize", open: ["optimize"] },
+  // `?billing=free` switches the demo to a Free Play build (see demo-mock.ts).
+  { name: "paywall", query: "?billing=free", open: ["optimize"], then: openPaywall },
   { name: "diagnostics", open: ["diagnostics"] },
   { name: "launcher", open: ["launcher"] },
   { name: "snapshots", open: ["snapshots"] },
@@ -44,6 +46,11 @@ const SCREENS = [
 async function openFirstAppSheet(page) {
   await page.locator('.app-row[data-package="com.google.android.videos"]').click();
   await page.locator(".sheet").first().waitFor();
+}
+
+async function openPaywall(page) {
+  await page.getByRole("button", { name: "Unlock Pro" }).click();
+  await page.getByRole("button", { name: /Buy Pro/ }).waitFor();
 }
 
 async function settle(page) {
@@ -77,7 +84,7 @@ async function capture(browser, origin, screen, index) {
       lastUsed: "2026-10-21T20:14:00.000Z",
     }]));
   });
-  await page.goto(origin, { waitUntil: "networkidle" });
+  await page.goto(origin + (screen.query ?? ""), { waitUntil: "networkidle" });
   await page.evaluate(async ({ connect, open }) => {
     const { session } = await import("/src/lib/session.svelte.ts");
     const { router } = await import("/src/lib/router.svelte.ts");

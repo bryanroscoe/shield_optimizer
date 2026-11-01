@@ -24,6 +24,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
+  import { billing } from "../lib/billing.svelte";
   import Toast from "../components/Toast.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import { sendTelemetry } from "../lib/api";
@@ -117,6 +118,11 @@
     cancelRequested = true;
     if (applying) session.applyInProgress = false;
     clearTimeout(toastTimer);
+  });
+
+  // Pro bought from this screen's paywall: reload instead of leaving the lock up.
+  $effect(() => {
+    if (locked && session.isPro) untrack(() => void loadPlan(mode));
   });
 
   async function loadPlan(nextMode: OptimizeMode = mode) {
@@ -746,9 +752,11 @@
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">star</span>Unlock Pro
       </button>
-      <button class="ghost-link" onclick={() => navigate("more")}>
-        Already have a key? Enter it in More
-      </button>
+      {#if billing.licenseKeyEntry}
+        <button class="ghost-link" onclick={() => navigate("more")}>
+          Already have a key? Enter it in More
+        </button>
+      {/if}
     </div>
     <div class="spacer"></div>
   {:else if plan}

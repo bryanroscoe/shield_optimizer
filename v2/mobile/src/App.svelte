@@ -3,6 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { router, initBackHandler, type Screen } from "./lib/router.svelte";
   import { session } from "./lib/session.svelte";
+  import { billing } from "./lib/billing.svelte";
   import Onboarding from "./screens/Onboarding.svelte";
   import Dashboard from "./screens/Dashboard.svelte";
   import Diagnostics from "./screens/Diagnostics.svelte";
@@ -43,6 +44,13 @@
 
   onMount(() => {
     session.loadEntitlement();
+    // Owned-purchase check on launch and every return to the app: restores Pro
+    // on a new install and drops it after a refund or revocation.
+    void billing.refresh();
+    const refreshPurchases = () => {
+      if (document.visibilityState === "visible") void billing.refresh();
+    };
+    document.addEventListener("visibilitychange", refreshPurchases);
     const cleanupBack = initBackHandler();
     const detachWatch = session.attachConnectionWatch();
     const probe = () => {
@@ -69,6 +77,7 @@
       detachWatch();
       clearInterval(heartbeat);
       document.removeEventListener("visibilitychange", probe);
+      document.removeEventListener("visibilitychange", refreshPurchases);
     };
   });
 

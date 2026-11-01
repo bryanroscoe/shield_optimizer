@@ -10,20 +10,24 @@ final signed artifact, merged manifest and SDK graph before completing store dis
 | ADB authorization / pairing material | `src-tauri/src/wireless_adb.rs`, vendored adb_client | Local authentication material enabling access to TVs the user authorizes; disclose safeguarding and how to revoke on the TV. |
 | TV installed-app inventory, diagnostics, settings, screenshots and remote input | shared core commands, `src/lib/api.ts` | Sent between phone and selected TV. Legacy ADB and TLS pairing are distinct transports; do not promise all LAN traffic is encrypted. |
 | Pulled files, APK bundles and snapshots | `src-tauri/src/file_commands.rs`, shared snapshot/files commands | App storage can contain user/device information. SAF export is not implemented. Verify deletion and OS backup behavior before promising retention/deletion. |
-| License key and visible licensee | `src-tauri/src/lib.rs`, `LICENSING.md` | `license.json` in app data; offline signature verification at startup. Licensee may be a name/email embedded by issuer. No purchase/restore backend is implemented. |
+| License key and visible licensee | `src-tauri/src/lib.rs`, `LICENSING.md` | `license.json` in app data; offline signature verification at startup. Licensee may be a name/email embedded by issuer. Sideload/dev builds only; Play builds refuse key entry. |
+| Google Play purchase of Pro | `src-tauri/src/billing_commands.rs`, `play_billing.rs`, `tauri-plugin-atv-billing/` | Play Billing Library (Google) handles payment; the app never sees payment details. The app receives the signed purchase record (order id, purchase token, time, package, product) from Play, verifies it on the phone and stores the last verified one in `play_purchase.json` in app data. No purchase data is sent to the developer; there is no verification server. Declare per Play's guidance for apps using Play billing. |
 | Debug/diagnostic logs | `src/lib/log.ts`, native tracing and `read_debug_log` | Explain logs and redaction limits. Review before sharing; logs are not automatically proof of anonymization. |
 | Anonymous device and error reports (telemetry) | `crates/core/src/engine/telemetry.rs` (payload + redaction), `crates/core/src/telemetry.rs` (queue, upload, setting), `shared/telemetry.ts`, `src/lib/api.ts` | **On by default, opt-out** in More ("Share anonymous device and error reports"), with a one-time first-launch notice. Sent only when the build sets `ATVOPT_TELEMETRY_URL`; otherwise a no-op with no network. `POST <base>/v1/events` to an owner-operated Cloudflare Worker; raw events retained 90 days (owner-stated retention, enforced server-side). Fields: random install id (UUID v4, regenerated when the user turns reports back on), app (`mobile`), app version, phone OS release, timestamp, event kind; TV manufacturer, brand, model, device codename, product name, Android release, SDK level, detected family and support tier; action name, success, short error code, and an error message redacted of IPs, host:port, MACs, mDNS names, serial-like tokens, emails, URLs, absolute paths and third-party package names (≤500 chars). Never sent: `ro.serialno` or any hardware id/fingerprint, IP addresses/ports, TV names/labels, installed package lists, file paths, license/licensee data, snapshot contents. Turning it off discards the unsent queue and cancels an upload in flight. Setting stored in app data `telemetry.json`. |
 | Device support tiers | `crates/core/data/device-support.json`, `engine/support.rs`, `crates/core/src/telemetry.rs` | Matched locally from the TV's reported manufacturer/brand/model/codename. While reports are on, the app also fetches `GET <base>/v1/support-tiers` from the same server (no install id or device data in the request; the server sees the phone's IP like any HTTP request) and caches it in app data `support-tiers.json`. Off means no request to that server at all. Informational only; never changes safety gates. |
 | External links | `api.openUrl`, source-site buttons, report-app flow | User-directed browser navigation leaves the app and follows destination practices. No general promise that the app never opens the internet. |
 
 Manifest declarations include INTERNET, ACCESS_NETWORK_STATE, ACCESS_WIFI_STATE,
-CHANGE_WIFI_MULTICAST_STATE and NEARBY_WIFI_DEVICES (`neverForLocation`). No phone microphone
-permission is declared here: the Assistant control changes a permission on the selected TV.
-No billing SDK or third-party analytics SDK was found in the inspected source. The app's own
-anonymous reports (above) are the only automatic upload; they use `reqwest`/`rustls` with
-Android's system CA store and are a no-op in builds without `ATVOPT_TELEMETRY_URL`. This is a
-scoped source finding, not a guarantee about every transitive dependency or the final merged
-artifact.
+CHANGE_WIFI_MULTICAST_STATE and, from the Play Billing Library, com.android.vending.BILLING.
+NEARBY_WIFI_DEVICES was removed: mDNS discovery through NsdManager does not need it. No phone
+microphone permission is declared here: the Assistant control changes a permission on the selected
+TV. The Play Billing Library is the only billing SDK, and no third-party analytics SDK was found in
+the inspected source. The app's own anonymous reports (above) are the only automatic upload to the
+developer; they use `reqwest`/`rustls` with Android's system CA store and are a no-op in builds
+without `ATVOPT_TELEMETRY_URL`. Purchase records are never part of those reports: a finished Buy
+attempt is reported only as an `other` action with success or a `billing_<outcome>` code (no order
+id, purchase token, price, product or license data; cancels and pending payments are not reported). This is a scoped
+source finding, not a guarantee about every transitive dependency or the final merged artifact.
 
 ## Draft policy outline requiring owner completion
 

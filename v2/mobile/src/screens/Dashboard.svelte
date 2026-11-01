@@ -351,7 +351,7 @@
 
     <div class="callout teal bottom-callout">
       <span class="msr">verified_user</span>
-      <span class="callout-text">Apps your TV needs can't be disabled. Undo anything from Apps, or restore everything from More.</span>
+      <span class="callout-text">Apps your TV needs can't be disabled. Turn an app back on from Apps, or re-enable every disabled app from More. Both are always free.</span>
     </div>
   {/if}
 

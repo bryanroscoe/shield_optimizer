@@ -85,6 +85,33 @@
       ]
     },
     {
+      "command": "billing_status",
+      "api": "billingStatus",
+      "gate": "Free",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
+      "command": "billing_refresh",
+      "api": "billingRefresh",
+      "gate": "Free",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
+      "command": "billing_purchase",
+      "api": "billingPurchase",
+      "gate": "Free",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
       "command": "license_info",
       "api": "licenseInfo",
       "gate": "Free",

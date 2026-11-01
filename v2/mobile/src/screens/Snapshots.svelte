@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
@@ -10,6 +10,7 @@
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import { destructiveWarning } from "../../../shared/support";
   import PaywallSheet from "../components/PaywallSheet.svelte";
+  import { billing } from "../lib/billing.svelte";
   import Toast from "../components/Toast.svelte";
 
   let {
@@ -67,6 +68,11 @@
   }
 
   onMount(load);
+
+  // Pro bought from this screen's paywall: reload instead of leaving the lock up.
+  $effect(() => {
+    if (locked && session.isPro) untrack(() => void load());
+  });
 
   async function save() {
     if (saving || !session.serial) return;
@@ -215,7 +221,9 @@
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro
       </button>
-      <button class="ghost-link" onclick={() => navigate("more")}>Already have a key? Enter it in More</button>
+      {#if billing.licenseKeyEntry}
+        <button class="ghost-link" onclick={() => navigate("more")}>Already have a key? Enter it in More</button>
+      {/if}
     </div>
     <div class="spacer"></div>
   {:else if error}
