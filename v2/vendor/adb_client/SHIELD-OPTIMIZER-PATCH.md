@@ -76,3 +76,61 @@ in `mobile/PAIRING-PLAN.md`.
 
 The protocol is implemented from the Apache-2.0 AOSP and BoringSSL sources cited in each module's
 header comment. No code was copied from them, and nothing was taken from any GPL implementation.
+
+## Required existing identity (desktop experiment, 2026-10-25)
+
+`ADBTcpDevice::new_with_required_private_key_and_auth_timeout` and
+`ADBTcpService::new_with_required_key_and_timeouts` opt out of the upstream ephemeral RSA-key
+fallback. They share the existing protocol implementation and return NotFound before connecting
+when the configured identity disappears. Existing constructors retain their behavior; Android's
+existing identity-creation policy remains in the shared first-party caller. This closes a
+check/read race without copying, replacing or generating a desktop ADB identity.
+
+Changed source: `adb_message_device.rs`, `tcp/adb_tcp_device.rs`, `tcp/adb_tcp_service.rs`.
+
+## Pairing total deadline (local parity follow-up, 2026-10-27)
+
+Pairing wraps its owned socket so every underlying read/write refreshes the remaining
+total budget, including repeated I/O inside rustls. Previously a slowly delivered TLS
+record could extend the advertised exchange deadline. Timeout errors retain the
+dedicated pairing-timeout classification. Tests use the existing checked-in public
+test identity and self-owned loopback sockets for refused ports, truly silent peers
+and trickled TLS records; these do not establish Android or TV pairing acceptance.
+
+## Bounded shell-v2 (local parity follow-up, 2026-10-27)
+
+`run_bounded_shell` owns a dedicated required-key connection. Its control handle
+enforces a total deadline and interrupts only that socket on cancellation. Output
+is decoded incrementally with a 256 KiB retention limit per stream and a 1 MiB
+outer ADB-frame ceiling. Timeout returns retained partial output; incomplete exit
+framing remains an error. Service-open diagnostics redact the command. Peers that
+reject shell-v2 fail without replay as legacy shell-v1. Ordinary mobile shell and
+transport construction retain their existing behavior.
+
+Loopback tests use the existing fixture identity only in memory and cover both
+streams, exit status, continuous output, partial payloads, trickled headers,
+cancellation, oversized frames and redaction. These scripted peers do not establish
+AUTH/STLS or TV interoperability. Shared tests separately exercise worker leases,
+target checks and UTF-8 output limits.
+
+## Guarded single-APK streaming (local parity follow-up, 2026-10-27)
+
+`run_streamed_install` uses the existing direct package-service protocol with a
+required identity, exact declared input length and explicit replacement flag.
+An opt-in pending-response cap prevents upload acknowledgement waits from buffering
+unbounded peer output. The final chunk is submitted once, without waiting for its
+optional acknowledgement before bounded result collection. Only an exact result
+and clean service closure confirm success or rejection. Lost or ambiguous results
+remain indeterminate and are never retried automatically.
+
+Before install OPEN, a bounded successful shell-v2 query must report the caller's
+expected hardware ID on the new connection. A helper reads the same fixed property
+from the currently owned control socket without creating another connection;
+normal completion preserves that socket, while an active timeout/cancel can close
+it. Refusing an already-canceled borrowed registration does not close the socket.
+The application supplies the expected ID using its existing canonical validation.
+
+Fixture tests use only the existing test identity in memory and scripted loopback
+peers. They do not install APKs, exercise Android's package manager, establish
+AUTH/STLS interoperability or certify hardware compatibility. No upstream source
+or prose was imported for this follow-up; the retained MIT license still applies.

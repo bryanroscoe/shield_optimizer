@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/core",
+    "crates/direct-adb",
     "crates/e2e-server",
     "src-tauri",
     "mobile/src-tauri",

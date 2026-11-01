@@ -63,6 +63,27 @@ impl ADBTcpService {
         })
     }
 
+    /// Open a service using an existing identity without ephemeral-key fallback.
+    pub fn new_with_required_key_and_timeouts<P: AsRef<Path>, A: Into<SocketAddr>>(
+        address: A,
+        service: &str,
+        private_key_path: P,
+        read_timeout: Duration,
+        write_timeout: Duration,
+    ) -> Result<Self> {
+        let private_key_path = private_key_path.as_ref();
+        let mut device = ADBMessageDevice::new_with_required_key(
+            TcpTransport::new(address, private_key_path),
+            private_key_path,
+            read_timeout,
+        )?;
+        let session = device.open_raw_service(service, read_timeout)?;
+        Ok(Self {
+            service: ADBService::new(session, read_timeout, write_timeout),
+            _device: device,
+        })
+    }
+
     /// Send `CLSE` for the logical stream. Calling this more than once is safe.
     pub fn close(&mut self) -> std::io::Result<()> {
         self.service.close()

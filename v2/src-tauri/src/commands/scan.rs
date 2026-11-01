@@ -1,13 +1,18 @@
 //! Network-scan command — matches v1's `Scan-Network` UX.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use futures_util::{stream, StreamExt};
 use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
     local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, AdbDriver,
     MdnsService, ADB_NETWORK_PORT,
+};
+use shield_optimizer_core::adb::{
+    AdbError, NativeDiscoveryReport, NativeServiceKind, ScanConnectOutcome, MDNS_SERVICE_CONNECT,
+    MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
 };
 use shield_optimizer_core::engine::types::DeviceStatus;
 
@@ -22,6 +27,8 @@ pub struct ScanResult {
     pub found: Vec<String>,
     /// Endpoints whose exact transport was verified ready after connection.
     pub connected: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub pending: Vec<String>,
     /// IPs the daemon reached but that haven't authorized this computer's ADB
     /// key — the device shows a debugging authorization prompt and registers
     /// as `unauthorized` in the device list.
@@ -35,6 +42,8 @@ pub struct ScanResult {
     pub needs_pairing: Vec<String>,
     /// Human-readable summary line — useful diagnostic for the UI.
     pub message: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -417,31 +426,173 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
     }
 }
 
+fn native_services(report: &NativeDiscoveryReport, elapsed: Duration) -> Vec<MdnsService> {
+    report
+        .advertisements
+        .iter()
+        .filter(|row| {
+            !row.cached
+                && u128::from(row.observed_age_ms) + elapsed.as_millis()
+                    < u128::from(report.observation_max_age_ms)
+        })
+        .filter_map(|row| {
+            let endpoint = row.connect_address.as_deref()?;
+            let socket = endpoint.parse::<std::net::SocketAddr>().ok()?;
+            if socket.port() == 0 || socket.port() != row.port {
+                return None;
+            }
+            let service = match row.service_kind {
+                NativeServiceKind::LegacyAdb => MDNS_SERVICE_LEGACY,
+                NativeServiceKind::TlsConnect => MDNS_SERVICE_CONNECT,
+                NativeServiceKind::TlsPairing => MDNS_SERVICE_PAIRING,
+            };
+            let suffix = format!(".{service}.local.");
+            let instance = if row.instance.to_ascii_lowercase().ends_with(&suffix) {
+                row.instance[..row.instance.len() - suffix.len()].to_string()
+            } else {
+                row.instance.clone()
+            };
+            // Preserve the numeric IPv6 scope from the validated endpoint.
+            let host = endpoint.rsplit_once(':')?.0.to_string();
+            Some(MdnsService {
+                instance,
+                service: service.to_string(),
+                host,
+                port: row.port,
+            })
+        })
+        .collect()
+}
+
+async fn native_connect_attempt(
+    adb: &dyn AdbDriver,
+    target: &str,
+    attached: &[(String, DeviceStatus)],
+    snapshot: Option<&(NativeDiscoveryReport, Instant)>,
+    swept: &[String],
+) -> Result<ScanConnectOutcome, String> {
+    let known_target = swept
+        .iter()
+        .any(|host| target == format!("{host}:{ADB_NETWORK_PORT}"))
+        || attached.iter().any(|(serial, _)| serial == target);
+    let valid_for = if known_target {
+        Duration::from_secs(45)
+    } else if let Some((report, received)) = snapshot {
+        let elapsed = received.elapsed();
+        if !native_services(report, elapsed)
+            .iter()
+            .any(|service| service.endpoint() == target)
+        {
+            return Err(
+                "Advertisement expired before connection; scan again or use Add by IP.".into(),
+            );
+        }
+        report
+            .advertisements
+            .iter()
+            .filter(|row| !row.cached && row.connect_address.as_deref() == Some(target))
+            .map(|row| {
+                Duration::from_millis(
+                    report
+                        .observation_max_age_ms
+                        .saturating_sub(row.observed_age_ms),
+                )
+                .saturating_sub(elapsed)
+            })
+            .max()
+            .unwrap_or(Duration::ZERO)
+    } else {
+        return Err(
+            "No current advertisement for this endpoint; scan again or use Add by IP.".into(),
+        );
+    };
+    adb.scan_connect(target, valid_for)
+        .await
+        .map_err(|error| bounded_detail(&error.to_string()))
+}
+
+async fn native_discovery(
+    adb: &dyn AdbDriver,
+) -> Result<(NativeDiscoveryReport, Instant), AdbError> {
+    adb.discover_network()
+        .await
+        .map(|report| (report, Instant::now()))
+}
+
+type NativeAttempts = std::collections::BTreeMap<String, Result<ScanConnectOutcome, String>>;
+
+async fn progressive_native_scan(
+    adb: &dyn AdbDriver,
+    subnet_label: &str,
+    sweep: impl std::future::Future<Output = Vec<String>>,
+) -> Result<ScanResult, String> {
+    let admit_sweep = async {
+        let swept = sweep.await;
+        let targets: Vec<String> = swept
+            .iter()
+            .map(|host| format!("{host}:{ADB_NETWORK_PORT}"))
+            .collect();
+        let attempts = stream::iter(targets.into_iter().map(|target| async move {
+            let result = adb
+                .scan_connect(&target, Duration::from_secs(45))
+                .await
+                .map_err(|error| bounded_detail(&error.to_string()));
+            (target, result)
+        }))
+        .buffer_unordered(4)
+        .collect::<NativeAttempts>()
+        .await;
+        (swept, attempts)
+    };
+    let ((swept, attempts), discovery) = tokio::join!(admit_sweep, native_discovery(adb));
+    scan_command_stage_with_attempts(adb, subnet_label, &swept, Some(discovery), attempts).await
+}
+
 /// `scan_network` — sweep the local /24 for ADB-listening devices and try
 /// `adb connect` against each responder. Returns a structured summary so the
 /// UI can render counts and any per-IP failures.
 #[tauri::command]
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
+    let adb = state.adb_snapshot().await;
     let Some(prefix) = local_subnet_prefix().await else {
+        if !adb.uses_host_server() {
+            let mut result = scan_command_stage(adb.as_ref(), "local network", &[]).await?;
+            result.subnet = None;
+            result.message = result
+                .message
+                .replace("local network.x", "the local network");
+            result.details.push("Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.".into());
+            return Ok(result);
+        }
         tracing::info!(subnet = "unknown", found = 0, "scan finished");
         return Ok(ScanResult {
             subnet: None,
             found: vec![],
             connected: vec![],
+            pending: vec![],
             unauthorized: vec![],
             failed: vec![],
             needs_pairing: vec![],
             message: "Could not detect default gateway. Set SHIELD_OPTIMIZER_SUBNET=\"a.b.c\" \
                       to override, or use Add by IP."
                 .to_string(),
+            details: Vec::new(),
         });
     };
     let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
 
+    if !adb.uses_host_server() {
+        return progressive_native_scan(adb.as_ref(), &subnet_label, async {
+            scan_subnet(prefix)
+                .await
+                .into_iter()
+                .map(|hit| hit.ip)
+                .collect()
+        })
+        .await;
+    }
     let hits = scan_subnet(prefix).await;
     let swept: Vec<String> = hits.iter().map(|h| h.ip.clone()).collect();
-
-    let adb = state.adb_snapshot().await;
     scan_command_stage(adb.as_ref(), &subnet_label, &swept).await
 }
 
@@ -450,28 +601,102 @@ async fn scan_command_stage(
     subnet_label: &str,
     swept: &[String],
 ) -> Result<ScanResult, String> {
+    scan_command_stage_with_discovery(adb, subnet_label, swept, None).await
+}
+
+async fn scan_command_stage_with_discovery(
+    adb: &dyn AdbDriver,
+    subnet_label: &str,
+    swept: &[String],
+    discovery: Option<Result<(NativeDiscoveryReport, Instant), AdbError>>,
+) -> Result<ScanResult, String> {
+    scan_command_stage_with_attempts(adb, subnet_label, swept, discovery, NativeAttempts::new())
+        .await
+}
+
+async fn scan_command_stage_with_attempts(
+    adb: &dyn AdbDriver,
+    subnet_label: &str,
+    swept: &[String],
+    discovery: Option<Result<(NativeDiscoveryReport, Instant), AdbError>>,
+    mut early_attempts: NativeAttempts,
+) -> Result<ScanResult, String> {
     // Warm the adb daemon before connecting. The port sweep just opened and
     // dropped raw TCP sockets against each device's adbd; firing `adb connect`
     // immediately afterward — especially against a cold daemon — tends to get
     // a transient refusal, which is why a manual "Restart ADB" (which starts
     // the daemon) makes the same devices connect. Starting the server here, plus
     // a single retry below, makes the scan connect on its own.
-    let startup_error = match adb.raw(&["start-server"]).await {
-        Ok(out) if out.success() => None,
-        Ok(out) => Some(bounded_detail(&out.combined())),
-        Err(error) => Some(bounded_detail(&error.to_string())),
+    let host_server = adb.uses_host_server();
+    let startup_error = if host_server {
+        match adb.raw(&["start-server"]).await {
+            Ok(out) if out.success() => None,
+            Ok(out) => Some(bounded_detail(&out.combined())),
+            Err(error) => Some(bounded_detail(&error.to_string())),
+        }
+    } else {
+        None
     };
 
     // The daemon has to be up before it can report what it has browsed --
     // and starting it is also what makes adb auto-connect the mDNS devices it
     // already trusts, so read the attached list only after this point.
-    let services = discover_mdns_services(adb).await;
-    let attached_with_status = attached_serials(adb).await;
+    let mut discovery_warnings = Vec::new();
+    let native_snapshot = if host_server {
+        None
+    } else {
+        match match discovery {
+            Some(result) => result,
+            None => native_discovery(adb).await,
+        } {
+            Ok((report, received)) => {
+                discovery_warnings
+                    .extend(report.warnings.iter().take(6).map(|s| bounded_detail(s)));
+                Some((report, received))
+            }
+            Err(error @ AdbError::Initialization(_)) => return Err(error.to_string()),
+            Err(error) => {
+                discovery_warnings.push(format!("Network advertisements unavailable: {}. Port 5555 scan results are still included.", bounded_detail(&error.to_string())));
+                None
+            }
+        }
+    };
+    let services = if host_server {
+        discover_mdns_services(adb).await
+    } else {
+        native_snapshot
+            .as_ref()
+            .map(|(report, received)| native_services(report, received.elapsed()))
+            .unwrap_or_default()
+    };
+    let attached_with_status = if host_server {
+        attached_serials(adb).await
+    } else {
+        // Native jobs validate/reuse owned sessions behind the short scan grace.
+        // A preflight device probe would wait on those same busy sockets again.
+        Vec::new()
+    };
     let attached: Vec<String> = attached_with_status
         .iter()
         .map(|(k, _)| k.clone())
         .collect();
-    let targets = merge_scan_targets(swept, &services, &attached);
+    let mut targets = merge_scan_targets(swept, &services, &attached);
+    if !host_server {
+        // These endpoints were actually attempted before advertisements arrived.
+        // Keep their results even if mDNS later advertises a different port.
+        for target in early_attempts.keys() {
+            if !targets.connect.contains(target) {
+                targets.connect.push(target.clone());
+            }
+        }
+        targets
+            .connect
+            .sort_by_key(|target| match target.parse::<std::net::SocketAddr>() {
+                Ok(std::net::SocketAddr::V4(_)) => 0,
+                Ok(std::net::SocketAddr::V6(_)) => 1,
+                Err(_) => 2,
+            });
+    }
     let (held_ready, held_unauthorized) =
         split_already_attached(&targets.already_attached, &services, &attached_with_status);
 
@@ -484,10 +709,34 @@ async fn scan_command_stage(
         .collect();
 
     let mut connected = Vec::new();
+    let mut pending_connections = Vec::new();
     let mut unauthorized = held_unauthorized;
     let mut failed = Vec::new();
     let mut failure_details = Vec::new();
     for endpoint in held_ready {
+        if !host_server {
+            match held_transport_for(&endpoint, &services, &attached_with_status) {
+                Some((transport, _)) => {
+                    match adb.scan_connect(transport, Duration::from_secs(45)).await {
+                        Ok(ScanConnectOutcome::Ready) => connected.push(endpoint),
+                        Ok(ScanConnectOutcome::Pending) => pending_connections.push(endpoint),
+                        Err(error) => record_failure(
+                            &mut failed,
+                            &mut failure_details,
+                            endpoint,
+                            &error.to_string(),
+                        ),
+                    }
+                }
+                None => record_failure(
+                    &mut failed,
+                    &mut failure_details,
+                    endpoint,
+                    "The existing advertised transport could not be verified.",
+                ),
+            }
+            continue;
+        }
         let attempt = match held_transport_for(&endpoint, &services, &attached_with_status) {
             Some((transport, _)) => verify_target(adb, transport).await,
             None => {
@@ -502,8 +751,69 @@ async fn scan_command_stage(
             }
         }
     }
-    let offline = offline_serials(adb).await.unwrap_or_default();
+    let offline = if host_server {
+        offline_serials(adb).await.unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let mut native_attempts = if host_server {
+        NativeAttempts::new()
+    } else {
+        let new_targets: Vec<_> = targets
+            .connect
+            .iter()
+            .filter(|target| !early_attempts.contains_key(*target))
+            .cloned()
+            .collect();
+        let new_attempts = stream::iter(new_targets.into_iter().map(|target| {
+            let attached = &attached_with_status;
+            let snapshot = native_snapshot.as_ref();
+            async move {
+                let attempt = native_connect_attempt(adb, &target, attached, snapshot, swept).await;
+                (target, attempt)
+            }
+        }))
+        .buffer_unordered(4)
+        .collect::<NativeAttempts>()
+        .await;
+        if !early_attempts.is_empty() {
+            let progress = adb.scan_connection_progress().await;
+            for (target, attempt) in &mut early_attempts {
+                if attempt.is_err() {
+                    continue;
+                }
+                *attempt = if let Some(failure) = progress
+                    .failed
+                    .iter()
+                    .find(|failure| failure.address == *target)
+                {
+                    Err(bounded_detail(&failure.message))
+                } else if progress.pending.contains(target) {
+                    Ok(ScanConnectOutcome::Pending)
+                } else if progress.ready.contains(target) {
+                    Ok(ScanConnectOutcome::Ready)
+                } else {
+                    Err(
+                        "Connection attempt was canceled or removed; use Add by IP to try again."
+                            .into(),
+                    )
+                };
+            }
+        }
+        early_attempts.extend(new_attempts);
+        early_attempts
+    };
     for target in &targets.connect {
+        if let Some(attempt) = native_attempts.remove(target) {
+            match attempt {
+                Ok(ScanConnectOutcome::Ready) => connected.push(target.clone()),
+                Ok(ScanConnectOutcome::Pending) => pending_connections.push(target.clone()),
+                Err(detail) => {
+                    record_failure(&mut failed, &mut failure_details, target.clone(), &detail)
+                }
+            }
+            continue;
+        }
         // Redialling an endpoint adb already holds unauthorized answers
         // "already connected" and never re-prompts, so it would be counted as
         // connected. Asking again is the row's own action, one TV at a time.
@@ -535,7 +845,7 @@ async fn scan_command_stage(
         let mut attempt = adb_connect(adb, target).await;
         // Only a hard failure is worth retrying — "unauthorized" means the
         // device is waiting for the user to approve the prompt on-screen.
-        if attempt.outcome == ConnectOutcome::Failed {
+        if host_server && attempt.outcome == ConnectOutcome::Failed {
             tokio::time::sleep(Duration::from_millis(400)).await;
             let first_detail = bounded_detail(&attempt.detail);
             attempt = adb_connect(adb, target).await;
@@ -563,19 +873,53 @@ async fn scan_command_stage(
         }
     }
 
-    let mut message = summary_message(
-        subnet_label,
-        found.len(),
-        &connected,
-        &unauthorized,
-        &targets.needs_pairing,
-    );
-    append_failures(
-        &mut message,
-        &failed,
-        &failure_details,
-        startup_error.as_deref(),
-    );
+    if let Some((report, received)) = &native_snapshot {
+        let fresh = native_services(report, received.elapsed());
+        targets.needs_pairing.retain(|target| {
+            fresh
+                .iter()
+                .any(|service| service.is_pairing() && service.endpoint() == *target)
+        });
+    }
+
+    let (message, details) = if host_server {
+        let mut message = summary_message(
+            subnet_label,
+            found.len(),
+            &connected,
+            &unauthorized,
+            &targets.needs_pairing,
+        );
+        append_failures(
+            &mut message,
+            &failed,
+            &failure_details,
+            startup_error.as_deref(),
+        );
+        (message, Vec::new())
+    } else {
+        let mut details = failure_details;
+        if failed.len() > MAX_FAILURE_DETAILS {
+            details.push(format!(
+                "{} more endpoints could not connect; use Add by IP for their current result.",
+                failed.len() - MAX_FAILURE_DETAILS
+            ));
+        }
+        details.extend(
+            discovery_warnings
+                .iter()
+                .map(|warning| bounded_detail(warning)),
+        );
+        let message = native_summary_message(
+            found.len(),
+            connected.len(),
+            unauthorized.len(),
+            targets.needs_pairing.len(),
+            failed.len(),
+            pending_connections.len(),
+        );
+        (message, details)
+    };
     tracing::info!(
         subnet = %subnet_label,
         found = found.len(),
@@ -590,11 +934,47 @@ async fn scan_command_stage(
         subnet: Some(subnet_label.to_string()),
         found,
         connected,
+        pending: pending_connections,
         unauthorized,
         failed,
         needs_pairing: targets.needs_pairing,
         message,
+        details,
     })
+}
+
+fn native_summary_message(
+    found: usize,
+    connected: usize,
+    unauthorized: usize,
+    pairing: usize,
+    failed: usize,
+    pending: usize,
+) -> String {
+    if found == 0 {
+        return "No network ADB endpoints found. Enable Network debugging on SHIELD, or use Add by IP.".into();
+    }
+    let mut message = format!("Connected {connected} of {found} network endpoints.");
+    if pending > 0 {
+        message.push_str(&format!(" {pending} still connecting. If the TV asks to allow debugging, approve it; connected TVs appear automatically."));
+    }
+    if unauthorized > 0 {
+        message.push_str(&format!(
+            " {unauthorized} awaiting authorization; approve the prompt on the TV."
+        ));
+    }
+    if pairing > 0 {
+        message.push_str(&format!(
+            " {pairing} need pairing; use Pair PIN with the TV's pairing code."
+        ));
+    }
+    if failed > 0 {
+        message.push_str(&format!(" {failed} could not connect; see Details."));
+    }
+    if connected > 0 {
+        message.push_str(" Open your TV below.");
+    }
+    message
 }
 
 fn summary_message(
@@ -1570,5 +1950,492 @@ mod command_stage_tests {
         assert!(result.message.chars().count() < 1900);
         assert!(!result.message.chars().any(char::is_control));
         assert!(result.message.contains('…'));
+        assert!(result.details.is_empty());
+        assert!(serde_json::to_value(&result)
+            .unwrap()
+            .get("details")
+            .is_none());
+    }
+
+    struct NativeScanFake {
+        adb: ScanFake,
+        report: Result<NativeDiscoveryReport, String>,
+        delay: Duration,
+        active: std::sync::atomic::AtomicUsize,
+        peak: std::sync::atomic::AtomicUsize,
+    }
+
+    impl NativeScanFake {
+        fn new(adb: ScanFake) -> Self {
+            Self {
+                adb,
+                report: Ok(NativeDiscoveryReport {
+                    advertisements: Vec::new(),
+                    warnings: Vec::new(),
+                    observation_max_age_ms: 30_000,
+                }),
+                delay: Duration::ZERO,
+                active: std::sync::atomic::AtomicUsize::new(0),
+                peak: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+    }
+
+    struct ActiveConnect<'a>(&'a std::sync::atomic::AtomicUsize);
+
+    impl Drop for ActiveConnect<'_> {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AdbDriver for NativeScanFake {
+        fn uses_host_server(&self) -> bool {
+            false
+        }
+
+        async fn discover_network(&self) -> AdbResult<NativeDiscoveryReport> {
+            self.report.clone().map_err(AdbError::Transport)
+        }
+
+        async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+            assert!(
+                !matches!(args, ["start-server"] | ["kill-server"] | ["mdns", ..]),
+                "native scan must not use host server commands"
+            );
+            self.adb.raw(args).await
+        }
+
+        async fn scan_connect(
+            &self,
+            address: &str,
+            valid_for: Duration,
+        ) -> AdbResult<ScanConnectOutcome> {
+            assert!(!valid_for.is_zero());
+            if !self.delay.is_zero() {
+                let active = self
+                    .active
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    + 1;
+                self.peak
+                    .fetch_max(active, std::sync::atomic::Ordering::SeqCst);
+                let _active = ActiveConnect(&self.active);
+                tokio::time::sleep(self.delay.min(Duration::from_millis(250))).await;
+                return Ok(ScanConnectOutcome::Pending);
+            }
+            if attached_serials(self)
+                .await
+                .iter()
+                .any(|(serial, status)| serial == address && *status == DeviceStatus::Device)
+            {
+                return match verify_target(self, address).await.outcome {
+                    ConnectOutcome::Connected => Ok(ScanConnectOutcome::Ready),
+                    _ => Err(AdbError::Transport("fixture readiness failed".into())),
+                };
+            }
+            let result = adb_connect(self, address).await;
+            match result.outcome {
+                ConnectOutcome::Connected => Ok(ScanConnectOutcome::Ready),
+                _ => Err(AdbError::Transport(result.detail)),
+            }
+        }
+
+        async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+            panic!("scan must not run a device mutation or profile query")
+        }
+    }
+
+    fn native_advertisement(
+        endpoint: &str,
+        kind: NativeServiceKind,
+    ) -> shield_optimizer_core::adb::NativeAdvertisement {
+        let socket: std::net::SocketAddr = endpoint.parse().unwrap();
+        shield_optimizer_core::adb::NativeAdvertisement {
+            service_kind: kind,
+            instance: "fixture._adb._tcp.local.".into(),
+            address: socket.ip().to_string(),
+            port: socket.port(),
+            interface_name: Some("fixture".into()),
+            interface_index: Some(7),
+            scope_id: match socket {
+                std::net::SocketAddr::V6(socket) => Some(socket.scope_id()),
+                _ => None,
+            },
+            connect_address: Some(endpoint.into()),
+            observed_age_ms: 0,
+            cached: false,
+            warning: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn native_sweep_admits_before_discovery_and_never_redials_at_final_stage() {
+        use shield_optimizer_core::adb::{ScanConnectionFailure, ScanConnectionProgress};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
+        use tokio::sync::Notify;
+
+        struct ProgressiveFake {
+            discovery_started: Notify,
+            release_discovery: Notify,
+            admitted: Notify,
+            calls: AtomicUsize,
+            reject_admission: bool,
+            progress: Mutex<ScanConnectionProgress>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for ProgressiveFake {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn discover_network(&self) -> AdbResult<NativeDiscoveryReport> {
+                self.discovery_started.notify_one();
+                self.release_discovery.notified().await;
+                Ok(NativeDiscoveryReport {
+                    advertisements: vec![native_advertisement(
+                        "192.0.2.1:5555",
+                        NativeServiceKind::LegacyAdb,
+                    )],
+                    warnings: Vec::new(),
+                    observation_max_age_ms: 30_000,
+                })
+            }
+            async fn scan_connect(
+                &self,
+                address: &str,
+                _: Duration,
+            ) -> AdbResult<ScanConnectOutcome> {
+                assert_eq!(address, "192.0.2.1:5555");
+                assert_eq!(
+                    self.calls.fetch_add(1, Ordering::SeqCst),
+                    0,
+                    "final scan must not retry the early attempt"
+                );
+                self.progress.lock().unwrap().pending.push(address.into());
+                self.admitted.notify_one();
+                if self.reject_admission {
+                    Err(AdbError::Transport("fixture admission rejected".into()))
+                } else {
+                    Ok(ScanConnectOutcome::Pending)
+                }
+            }
+            async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+                self.progress.lock().unwrap().clone()
+            }
+            async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
+                panic!("progressive native scan must not probe sockets to summarize its jobs")
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("scan must not query device properties")
+            }
+        }
+
+        for outcome in ["ready", "pending", "failed", "removed", "rejected"] {
+            let fake = Arc::new(ProgressiveFake {
+                discovery_started: Notify::new(),
+                release_discovery: Notify::new(),
+                admitted: Notify::new(),
+                calls: AtomicUsize::new(0),
+                reject_admission: outcome == "rejected",
+                progress: Mutex::new(ScanConnectionProgress::default()),
+            });
+            let worker = fake.clone();
+            let scan = tokio::spawn(async move {
+                progressive_native_scan(worker.as_ref(), "192.0.2", async {
+                    vec!["192.0.2.1".into()]
+                })
+                .await
+            });
+            tokio::time::timeout(Duration::from_secs(1), fake.discovery_started.notified())
+                .await
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(1), fake.admitted.notified())
+                .await
+                .unwrap();
+            assert!(!scan.is_finished(), "discovery is still blocked");
+            assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+            let target = "192.0.2.1:5555".to_string();
+            let mut progress = ScanConnectionProgress::default();
+            match outcome {
+                "ready" => progress.ready.push(target.clone()),
+                "pending" => progress.pending.push(target.clone()),
+                "failed" => progress.failed.push(ScanConnectionFailure {
+                    address: target.clone(),
+                    message: "fixture handshake failed".into(),
+                }),
+                _ => {}
+            }
+            *fake.progress.lock().unwrap() = progress;
+            fake.release_discovery.notify_one();
+            let result = tokio::time::timeout(Duration::from_secs(1), scan)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(result.found, vec![target.clone()]);
+            assert!(result.unauthorized.is_empty());
+            match outcome {
+                "ready" => assert_eq!(result.connected, vec![target]),
+                "pending" => assert_eq!(result.pending, vec![target]),
+                _ => {
+                    assert_eq!(result.failed, vec![target]);
+                    let expected = match outcome {
+                        "failed" => "fixture handshake failed",
+                        "rejected" => "fixture admission rejected",
+                        _ => "canceled or removed",
+                    };
+                    assert!(result
+                        .details
+                        .iter()
+                        .any(|detail| detail.contains(expected)));
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn native_scan_connects_nonadvertising_shield_without_host_commands() {
+        let fake = NativeScanFake::new(
+            ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("connected to 192.0.2.1:5555")],
+                )
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]),
+        );
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+        assert_eq!(fake.adb.count("connect 192.0.2.1:5555"), 1);
+    }
+
+    #[tokio::test]
+    async fn native_mdns_failure_keeps_legacy_scan_and_diagnostic() {
+        let mut fake = NativeScanFake::new(
+            ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("connected to 192.0.2.1:5555")],
+                )
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]),
+        );
+        fake.report = Err("multicast unavailable".into());
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("multicast unavailable")));
+    }
+
+    #[tokio::test]
+    async fn native_scan_does_not_reauthenticate_an_already_ready_tv() {
+        let fake = NativeScanFake::new(
+            ScanFake::default()
+                .on(&["devices"], &[Ok("192.0.2.1:5555\tdevice\n")])
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]),
+        );
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+        assert_eq!(fake.adb.count("connect 192.0.2.1:5555"), 0);
+    }
+
+    #[tokio::test]
+    async fn native_authorization_timeout_is_not_retried_or_reported_ready() {
+        let fake = NativeScanFake::new(ScanFake::default().on(
+            &["connect", "192.0.2.1:5555"],
+            &[Err("The TV closed the connection before authorization finished. Try again and choose Allow on the TV prompt within 30 seconds.")],
+        ));
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert!(result.connected.is_empty());
+        assert_eq!(result.failed, vec!["192.0.2.1:5555"]);
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("Allow on the TV prompt")));
+        assert_eq!(fake.adb.count("connect 192.0.2.1:5555"), 1);
+    }
+
+    #[tokio::test]
+    async fn native_discovery_uses_fresh_connect_port_and_keeps_pairing_separate() {
+        let mut fake = NativeScanFake::new(
+            ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:40000"],
+                    &[Ok("connected to 192.0.2.1:40000")],
+                )
+                .on(&["-s", "192.0.2.1:40000", "get-state"], &[Ok("device")]),
+        );
+        let report = fake.report.as_mut().unwrap();
+        report.advertisements.push(native_advertisement(
+            "192.0.2.1:40000",
+            NativeServiceKind::TlsConnect,
+        ));
+        report.advertisements.push(native_advertisement(
+            "192.0.2.2:41000",
+            NativeServiceKind::TlsPairing,
+        ));
+        let mut cached = native_advertisement("192.0.2.3:5555", NativeServiceKind::LegacyAdb);
+        cached.cached = true;
+        report.advertisements.push(cached);
+        let mut expired = native_advertisement("192.0.2.4:5555", NativeServiceKind::LegacyAdb);
+        expired.observed_age_ms = 30_000;
+        report.advertisements.push(expired);
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.connected, vec!["192.0.2.1:40000"]);
+        assert_eq!(result.needs_pairing, vec!["192.0.2.2:41000"]);
+        assert_eq!(result.found.len(), 2);
+        assert_eq!(fake.adb.count("connect 192.0.2.1:5555"), 0);
+        assert_eq!(fake.adb.count("connect 192.0.2.2:41000"), 0);
+    }
+
+    #[test]
+    fn native_discovery_preserves_ipv6_scope_and_rechecks_age() {
+        let report = NativeDiscoveryReport {
+            advertisements: vec![native_advertisement(
+                "[fe80::1234%7]:5555",
+                NativeServiceKind::LegacyAdb,
+            )],
+            warnings: Vec::new(),
+            observation_max_age_ms: 30_000,
+        };
+        assert_eq!(
+            native_services(&report, Duration::ZERO)[0].endpoint(),
+            "[fe80::1234%7]:5555"
+        );
+        assert!(native_services(&report, Duration::from_secs(30)).is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn native_scan_returns_pending_without_waiting_for_authorization() {
+        let swept: Vec<String> = (1..=8).map(|n| format!("192.0.2.{n}")).collect();
+        let mut adb = ScanFake::default();
+        for host in &swept {
+            let target = format!("{host}:5555");
+            adb = adb
+                .on(
+                    &["connect", &target],
+                    &[Ok(&format!("connected to {target}"))],
+                )
+                .on(&["-s", &target, "get-state"], &[Ok("device")]);
+        }
+        let mut fake = NativeScanFake::new(adb);
+        fake.delay = Duration::from_secs(30);
+        let started = tokio::time::Instant::now();
+        let result = scan_command_stage(&fake, "192.0.2", &swept).await.unwrap();
+        assert_eq!(fake.peak.load(std::sync::atomic::Ordering::SeqCst), 4);
+        assert_eq!(fake.active.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(started.elapsed(), Duration::from_millis(500));
+        assert!(result.connected.is_empty());
+        assert!(result.unauthorized.is_empty());
+        assert!(result.failed.is_empty());
+        assert_eq!(result.pending.len(), 8);
+        assert_eq!(fake.adb.count("devices"), 0);
+        assert!(result.message.contains("8 still connecting"));
+        assert!(result.message.contains("appear automatically"));
+        assert_eq!(
+            serde_json::to_value(&result).unwrap()["pending"]
+                .as_array()
+                .unwrap()
+                .len(),
+            8
+        );
+    }
+
+    #[tokio::test]
+    async fn native_scan_does_not_refresh_an_old_discovery_timestamp() {
+        let fake = NativeScanFake::new(ScanFake::default());
+        let report = NativeDiscoveryReport {
+            advertisements: vec![native_advertisement(
+                "192.0.2.9:40000",
+                NativeServiceKind::TlsConnect,
+            )],
+            warnings: Vec::new(),
+            observation_max_age_ms: 30_000,
+        };
+        let result = scan_command_stage_with_discovery(
+            &fake,
+            "192.0.2",
+            &[],
+            Some(Ok((report, Instant::now() - Duration::from_secs(31)))),
+        )
+        .await
+        .unwrap();
+        assert!(result.found.is_empty());
+        assert!(result.pending.is_empty());
+        assert_eq!(fake.adb.count("connect 192.0.2.9:40000"), 0);
+    }
+
+    #[tokio::test]
+    async fn native_scan_prioritizes_ipv4_without_dropping_aliases_and_keeps_details_separate() {
+        let endpoints = [
+            "[2001:db8::1]:5555",
+            "[2001:db8::2]:5555",
+            "[2001:db8::3]:5555",
+            "[2001:db8::4]:5555",
+            "192.0.2.1:5555",
+        ];
+        let mut adb = ScanFake::default();
+        for endpoint in endpoints {
+            adb = if endpoint == endpoints[0] || endpoint == endpoints[4] {
+                adb.on(
+                    &["connect", endpoint],
+                    &[Ok(&format!("connected to {endpoint}"))],
+                )
+                .on(&["-s", endpoint, "get-state"], &[Ok("device")])
+            } else {
+                adb.on(&["connect", endpoint], &[Err("fixture route unavailable")])
+            };
+        }
+        let mut fake = NativeScanFake::new(adb);
+        let report = fake.report.as_mut().unwrap();
+        report.advertisements = endpoints
+            .iter()
+            .map(|endpoint| native_advertisement(endpoint, NativeServiceKind::LegacyAdb))
+            .collect();
+        report.warnings.push("fixture multicast warning".into());
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        let calls = fake.adb.calls.lock().unwrap();
+        let connect_calls: Vec<_> = calls
+            .iter()
+            .filter(|call| call.starts_with("connect "))
+            .collect();
+        assert_eq!(connect_calls[0], "connect 192.0.2.1:5555");
+        assert_eq!(connect_calls.len(), endpoints.len());
+        assert_eq!(result.found.len(), endpoints.len());
+        assert_eq!(result.connected.len(), 2);
+        assert_eq!(result.failed.len(), 3);
+        assert_eq!(result.message, "Connected 2 of 5 network endpoints. 3 could not connect; see Details. Open your TV below.");
+        assert!(!result.message.contains("device"));
+        assert!(!result.message.contains("fixture"));
+        assert_eq!(result.details.len(), 4);
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail.contains("fixture route unavailable")));
+        assert!(result
+            .details
+            .iter()
+            .any(|detail| detail == "fixture multicast warning"));
+        assert_eq!(
+            serde_json::to_value(&result).unwrap()["details"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
     }
 }

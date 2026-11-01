@@ -3,8 +3,11 @@
 pub mod batch;
 pub mod driver;
 pub mod lifetimes;
+#[cfg(not(target_os = "android"))]
+pub(crate) mod native_remote;
 pub mod parse;
 pub mod remote_input;
+pub mod remote_lifecycle;
 #[cfg(any(test, feature = "test-support"))]
 pub mod sim;
 pub mod storage;
@@ -12,8 +15,10 @@ pub mod storage;
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};
 pub use driver::{
-    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, BoundedShellOutput, ServerStop,
-    ShellTermination,
+    AdbByteStream, AdbDeviceBinding, AdbDriver, AdbError, AdbOutput, AdbOwnedService, AdbResult,
+    AdbServiceCancellation, BoundedShellOutput, NativeAdvertisement, NativeDiscoveryReport,
+    NativeServiceKind, ScanConnectOutcome, ScanConnectionFailure, ScanConnectionProgress,
+    ServerStop, ShellTermination,
 };
 pub use lifetimes::{Lease, Leases, TrackedChild};
 pub use parse::{

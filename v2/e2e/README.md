@@ -204,3 +204,26 @@ e2e/capture-device.sh --scrub-only crates/core/tests/fixtures/devices/<name>
 
 The same read-only and scrubbing rules apply as for a capture. Read the result before
 committing it.
+
+## Explicit offline aggregate
+
+Run `npm run e2e:offline` for the reviewed selection in
+`e2e/offline-selection.json`. Every existing fixture scenario is currently
+selected; new files must be classified before this mode will run. Exclusions
+require a recorded reason. The separate hardware acceptance list is not a list
+of passed or simulated hardware tests.
+
+The server has always installed a synthetic subnet-sweep provider. This pass
+makes that contract fail closed: E2E builds panic instead of probing a real
+network if the provider is missing. The runner verifies the policy before
+opening a page, limits browser requests to its two localhost origins and fails
+if a scenario attempts an unreviewed command or external browser request.
+`local_address_for` is synthetic; update/install/open-directory host adapters
+remain explicitly intercepted. The simulator handles ADB commands; no host adb
+server or device is contacted. `offline-summary.json` records the policy,
+scenario results, explicit exclusions and hardware acceptance not run.
+
+These checks exercise UI and actual command dispatch against fixtures. They do
+not certify real multicast, authorization, TLS/PIN interoperability, physical
+cleanup or packaged platform behavior. No new credentials or network permissions
+are needed to run them.

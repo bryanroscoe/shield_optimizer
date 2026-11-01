@@ -479,6 +479,20 @@
       ]
     },
     {
+      "command": "remote_open",
+      "api": "Not exposed by mobile API; registered lifecycle command",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": []
+    },
+    {
+      "command": "remote_close",
+      "api": "Not exposed by mobile API; registered lifecycle command",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": []
+    },
+    {
       "command": "send_text",
       "api": "sendText",
       "gate": "Free",

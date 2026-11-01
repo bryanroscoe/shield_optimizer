@@ -3636,7 +3636,7 @@
   {/if}
   {#if visited.remote}
     <div hidden={activeTab !== "remote"}>
-      <RemoteTab {serial} />
+      <RemoteTab {serial} active={activeTab === "remote"} />
     </div>
   {/if}
   {#if visited.media}

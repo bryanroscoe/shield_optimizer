@@ -1,0 +1,19 @@
+[package]
+name = "shield-direct-adb"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "LicenseRef-Proprietary"
+publish = false
+
+[dependencies]
+shield-optimizer-core = { path = "../core" }
+adb_client = { version = "3.2.2", default-features = false, features = ["framebuffer"] }
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
+rsa = { version = "0.9", features = ["std", "pem", "getrandom"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

@@ -11,15 +11,40 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 Desktop help improvements and ADB connection recovery are pending release. Add by IP,
 Scan LAN and restart now verify transport readiness; the confirmed restart can retry
-one unchanged failed address. The subprocess driver remains the default. Shared native
-ADB PR236 and its parity branches remain experimental, with hardware and Windows
-identity acceptance outstanding. These source fixes do not establish the full root
+one unchanged failed address. The subprocess driver remains the default. The native desktop test integration now shares the mobile Rust ADB transport while
+retaining the existing Devices flow and 5555 LAN scan. Build with `native-adb-default`
+for a Finder-launchable native test app; the driver label confirms the active backend.
+Normal builds remain subprocess by default. Hardware acceptance and Windows native
+identity support remain outstanding; this is not a published native release. These source fixes do not establish the full root
 cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
 their notes shipped in 2.4.1. Put
 the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
 heading to stay. Before tagging, run the
 physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
 `npm run e2e`.
+
+Native Scan LAN now separates discovery from TV approval: owned, bounded connection
+jobs continue after the scan returns, and ready TVs appear through serialized status
+refreshes. Status polling does not re-query unchanged device properties and stops on
+completion, backend unavailability, navigation, or its deadline. Pending handshakes
+alone are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
+and the native driver/scan unit tests.
+
+macOS native builds declare their Local Network purpose and ADB Bonjour services in
+`src-tauri/Info.plist`. Keep separately installed development apps on a distinct local
+bundle identifier and sign the complete development bundle; `--no-sign` leaves only
+the linker's executable signature. Local Network permissions can become ambiguous
+when multiple unsigned versions share an identifier. A zero-result scan accompanied
+by `No route to host` while the same address is reachable outside the app requires
+checking app-specific Local Network permission, not resetting TV authorization keys.
+The shipping identifier stays unchanged. Apple-issued signing remains a release task.
+
+LAN sweep hits now start connecting before the mDNS observation window finishes.
+Unapproved and failed native endpoints stay visible in the existing device list,
+with Ask again/Try again and Forget acting on that exact endpoint. Authorization
+guidance is shown only after the transport actually sends its public-key AUTH
+packet; a timeout alone does not establish authorization state. Test discovery
+with no previously approved TVs, not just successful reconnections.
 
 ## Things the next reader needs that the code does not say
 

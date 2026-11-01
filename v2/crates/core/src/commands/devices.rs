@@ -112,7 +112,8 @@ fn hardware_id(device: &Device) -> Option<&str> {
     verified_hardware_id(&device.properties.as_ref()?.serial_number)
 }
 
-fn verified_hardware_id(raw: &str) -> Option<&str> {
+/// Accepts only hardware identity evidence used by transport deduplication.
+pub fn verified_hardware_id(raw: &str) -> Option<&str> {
     let id = raw.trim();
     if id.is_empty() || id.eq_ignore_ascii_case("unknown") {
         return None;
@@ -398,6 +399,17 @@ pub async fn forget_device(
 
 pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<ForgetResult, String> {
     let adb = state.adb_snapshot().await;
+    if native_scan_has_endpoint(&*adb, serial).await {
+        adb.raw(&["disconnect", serial])
+            .await
+            .map_err(|e| format!("disconnect: {e}"))?;
+        return Ok(ForgetResult {
+            ok: true,
+            disconnected: vec![serial.to_string()],
+            still_advertised: false,
+            message: format!("Disconnected {serial}."),
+        });
+    }
     let raw = adb
         .raw(&["devices"])
         .await
@@ -504,6 +516,25 @@ pub async fn reprompt_device_impl(
     serial: &str,
 ) -> Result<RepromptResult, String> {
     let adb = state.adb_snapshot().await;
+    if native_scan_has_endpoint(&*adb, serial).await {
+        adb.raw(&["disconnect", serial])
+            .await
+            .map_err(|e| format!("disconnect: {e}"))?;
+        let outcome = adb
+            .scan_connect(serial, std::time::Duration::from_secs(45))
+            .await
+            .map_err(|e| format!("connect: {e}"))?;
+        let ready = outcome == crate::adb::ScanConnectOutcome::Ready;
+        return Ok(RepromptResult {
+            ok: true,
+            status: if ready { "device" } else { "none" }.into(),
+            message: if ready {
+                "Connected and authorized."
+            } else {
+                "Connecting again. Approve debugging on the TV if prompted; this row updates automatically."
+            }.into(),
+        });
+    }
     let entry = transport_entry(&*adb, serial).await?;
     let Some(entry) = entry else {
         return Ok(RepromptResult {
@@ -585,6 +616,18 @@ async fn transport_entry(
     Ok(parse_device_list(&raw.stdout)
         .into_iter()
         .find(|e| e.serial == serial))
+}
+
+async fn native_scan_has_endpoint(adb: &dyn AdbDriver, serial: &str) -> bool {
+    if adb.uses_host_server() {
+        return false;
+    }
+    let progress = adb.scan_connection_progress().await;
+    progress.pending.iter().any(|address| address == serial)
+        || progress
+            .failed
+            .iter()
+            .any(|failure| failure.address == serial)
 }
 
 fn status_name(status: Option<DeviceStatus>) -> &'static str {
@@ -1275,6 +1318,87 @@ fn friendly_model_for(device_type: DeviceType, props: &DeviceProperties) -> Stri
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn native_unapproved_rows_can_retry_and_forget_without_a_published_transport() {
+        use crate::adb::{AdbOutput, AdbResult, ScanConnectOutcome, ScanConnectionProgress};
+        use std::sync::{Arc, Mutex};
+        struct NativePending {
+            calls: Mutex<Vec<String>>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for NativePending {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+                ScanConnectionProgress {
+                    pending: vec!["192.0.2.1:5555".into()],
+                    failed: vec![crate::adb::ScanConnectionFailure {
+                        address: "192.0.2.2:5555".into(),
+                        message: "timeout".into(),
+                    }],
+                    ..Default::default()
+                }
+            }
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                assert_eq!(
+                    args[0], "disconnect",
+                    "must not wait on other TVs or invoke a host server"
+                );
+                self.calls.lock().unwrap().push(args.join(" "));
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn scan_connect(
+                &self,
+                address: &str,
+                _: std::time::Duration,
+            ) -> AdbResult<ScanConnectOutcome> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("scan_connect {address}"));
+                Ok(ScanConnectOutcome::Pending)
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("unapproved endpoint has no readable identity")
+            }
+        }
+        let adb = Arc::new(NativePending {
+            calls: Mutex::new(Vec::new()),
+        });
+        let state = AppState::new(
+            adb.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let retried = reprompt_device_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert!(retried.ok);
+        assert_eq!(retried.status, "none");
+        assert!(!retried.message.contains("already authorized"));
+        let failed_retry = reprompt_device_impl(&state, "192.0.2.2:5555")
+            .await
+            .unwrap();
+        assert!(failed_retry.ok);
+        let forgotten = forget_device_impl(&state, "192.0.2.1:5555").await.unwrap();
+        assert_eq!(forgotten.disconnected, ["192.0.2.1:5555"]);
+        assert_eq!(
+            *adb.calls.lock().unwrap(),
+            [
+                "disconnect 192.0.2.1:5555",
+                "scan_connect 192.0.2.1:5555",
+                "disconnect 192.0.2.2:5555",
+                "scan_connect 192.0.2.2:5555",
+                "disconnect 192.0.2.1:5555",
+            ]
+        );
+    }
 
     /// Build what a device's batched property read looks like on the wire:
     /// one section per entry in `PROPERTY_READS`, sentinel-delimited. Short

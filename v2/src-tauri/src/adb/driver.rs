@@ -1180,12 +1180,26 @@ mod tests {
             let children = Leases::new();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
                 .with_child_leases(Arc::clone(&children));
-            let call = driver.raw(&["devices"]);
-            let gave_up = tokio::time::timeout(Duration::from_millis(300), call).await;
-            assert!(gave_up.is_err());
-            let pid = pid_of(dir.path()).await;
+            let call = tokio::spawn(async move { driver.raw(&["devices"]).await });
+            let ready = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Ok(text) = std::fs::read_to_string(dir.path().join("pid")) {
+                        if let Ok(pid) = text.trim().parse::<u32>() {
+                            break pid;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await;
+            let active_before_cancel = children.active();
+            call.abort();
+            let cancelled = call.await;
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             assert!(children.wait_idle(deadline).await);
+            let pid = ready.expect("the fake adb never became ready before cancellation");
+            assert_eq!(active_before_cancel, 1);
+            assert!(cancelled.unwrap_err().is_cancelled());
             assert!(!alive(pid));
         }
 

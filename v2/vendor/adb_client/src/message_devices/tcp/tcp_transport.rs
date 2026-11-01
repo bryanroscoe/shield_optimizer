@@ -1,3 +1,4 @@
+use super::bounded_shell::BoundedShellControl;
 use rcgen::{CertificateParams, KeyPair, PKCS_RSA_SHA256};
 use rustls::{
     ClientConfig, ClientConnection, SignatureScheme, StreamOwned,
@@ -23,13 +24,90 @@ use std::{
     time::Duration,
 };
 
+// Keep cancellation and I/O on the same socket handle, including after TLS upgrade.
+#[derive(Clone, Debug)]
+struct SharedSocket(Arc<TcpStream>);
+
+impl std::ops::Deref for SharedSocket {
+    type Target = TcpStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Read for SharedSocket {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        (&*self.0).read(buf)
+    }
+}
+
+impl Write for SharedSocket {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        (&*self.0).write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        (&*self.0).flush()
+    }
+}
+
 #[derive(Debug)]
 enum CurrentConnection {
-    Tcp(TcpStream),
-    Tls(Box<StreamOwned<ClientConnection, TcpStream>>),
+    Tcp(SharedSocket),
+    Tls(Box<StreamOwned<ClientConnection, SharedSocket>>),
 }
 
 impl CurrentConnection {
+    fn read_exact_controlled(
+        &mut self,
+        mut buf: &mut [u8],
+        timeout: Duration,
+        control: Option<&BoundedShellControl>,
+    ) -> Result<()> {
+        let Some(control) = control else {
+            self.set_read_timeout(timeout)?;
+            self.read_exact(buf)?;
+            return Ok(());
+        };
+        let started = std::time::Instant::now();
+        while !buf.is_empty() {
+            let remaining = control
+                .remaining()?
+                .min(timeout.saturating_sub(started.elapsed()));
+            if remaining.is_zero() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "ADB read timed out",
+                )
+                .into());
+            }
+            // shutdown does not reliably wake an already-blocked Winsock recv.
+            self.set_read_timeout(remaining.min(Duration::from_millis(50)))?;
+            let result = self.read(buf);
+            control.remaining()?;
+            match result {
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "ADB stream ended mid-frame",
+                    )
+                    .into());
+                }
+                Ok(count) => buf = &mut buf[count..],
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::TimedOut
+                            | std::io::ErrorKind::Interrupted
+                    ) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
     fn set_read_timeout(&self, read_timeout: Duration) -> Result<()> {
         match self {
             Self::Tcp(tcp_stream) => Ok(tcp_stream.set_read_timeout(Some(read_timeout))?),
@@ -80,6 +158,7 @@ pub struct TcpTransport {
     address: SocketAddr,
     current_connection: Option<Arc<Mutex<CurrentConnection>>>,
     private_key_path: PathBuf,
+    shell_control: Option<BoundedShellControl>,
 }
 
 fn certificate_from_pk(key_pair: &KeyPair) -> Result<Vec<CertificateDer<'static>>> {
@@ -95,7 +174,35 @@ impl TcpTransport {
             address: address.into(),
             current_connection: None,
             private_key_path: private_key_path.as_ref().to_path_buf(),
+            shell_control: None,
         }
+    }
+
+    pub(crate) fn with_shell_control(
+        address: SocketAddr,
+        key: &Path,
+        control: BoundedShellControl,
+    ) -> Self {
+        let mut transport = Self::new(address, key);
+        transport.shell_control = Some(control);
+        transport
+    }
+
+    pub(crate) fn set_current_control(
+        &mut self,
+        control: BoundedShellControl,
+    ) -> Result<Option<BoundedShellControl>> {
+        let connection = self.get_current_connection()?;
+        let guard = connection.lock()?;
+        match &*guard {
+            CurrentConnection::Tcp(socket) => control.register_borrowed(&socket.0)?,
+            CurrentConnection::Tls(tls) => control.register_borrowed(&tls.sock.0)?,
+        }
+        Ok(self.shell_control.replace(control))
+    }
+
+    pub(crate) fn restore_control(&mut self, previous: Option<BoundedShellControl>) {
+        self.shell_control = previous;
     }
 
     fn get_current_connection(&self) -> Result<Arc<Mutex<CurrentConnection>>> {
@@ -113,8 +220,22 @@ impl ADBTransport for TcpTransport {
     fn connect(&mut self) -> Result<()> {
         // A powered-off TV blackholes SYNs; without this the OS SYN timeout
         // (over a minute) is the user's wait.
-        let stream = TcpStream::connect_timeout(&self.address, Duration::from_secs(5))?;
-        self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(stream))));
+        let timeout = self
+            .shell_control
+            .as_ref()
+            .map(BoundedShellControl::remaining)
+            .transpose()?
+            .unwrap_or(Duration::from_secs(5))
+            .min(Duration::from_secs(5));
+        let stream = Arc::new(TcpStream::connect_timeout(&self.address, timeout)?);
+        // ADB exchanges small header/payload frames; do not stall them behind delayed ACKs.
+        stream.set_nodelay(true)?;
+        if let Some(control) = &self.shell_control {
+            control.register(&stream)?;
+        }
+        self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(SharedSocket(
+            stream,
+        )))));
         Ok(())
     }
 
@@ -145,16 +266,38 @@ impl ADBMessageTransport for TcpTransport {
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
 
-        raw_connection.set_read_timeout(read_timeout)?;
-
+        let read_timeout = if let Some(control) = &self.shell_control {
+            control.remaining()?.min(read_timeout)
+        } else {
+            read_timeout
+        };
+        let read_started = std::time::Instant::now();
         let mut data = [0; 24];
-        raw_connection.read_exact(&mut data)?;
+        raw_connection.read_exact_controlled(
+            &mut data,
+            read_timeout,
+            self.shell_control.as_ref(),
+        )?;
 
         let header = ADBTransportMessageHeader::try_from(data)?;
 
+        if header.data_length() > 1_048_576 {
+            return Err(RustADBError::ADBRequestFailed(
+                "ADB payload exceeds negotiated maximum".into(),
+            ));
+        }
         if header.data_length() != 0 {
             let mut msg_data = vec![0_u8; header.data_length() as usize];
-            raw_connection.read_exact(&mut msg_data)?;
+            let payload_timeout = if self.shell_control.is_some() {
+                read_timeout.saturating_sub(read_started.elapsed())
+            } else {
+                read_timeout
+            };
+            raw_connection.read_exact_controlled(
+                &mut msg_data,
+                payload_timeout,
+                self.shell_control.as_ref(),
+            )?;
             // raw_connection is not used anymore, let's drop it
             drop(raw_connection);
 
@@ -182,6 +325,11 @@ impl ADBMessageTransport for TcpTransport {
         let message_bytes = message.header().as_bytes();
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
+        let write_timeout = if let Some(control) = &self.shell_control {
+            control.remaining()?.min(write_timeout)
+        } else {
+            write_timeout
+        };
         raw_connection.set_write_timeout(write_timeout)?;
 
         let mut total_written = 0;
@@ -237,7 +385,7 @@ impl ADBMessageTransport for TcpTransport {
                     let rc_config = Arc::new(client_config);
                     let server_name = self.address.ip().into();
                     let conn = ClientConnection::new(rc_config, server_name)?;
-                    let owned = tcp_stream.try_clone()?;
+                    let owned = tcp_stream.clone();
                     let client = StreamOwned::new(conn, owned);
 
                     // Update current connection state to now use TLS protocol
@@ -321,6 +469,125 @@ impl ServerCertVerifier for NoCertificateVerification {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn controlled_read_cancels_even_without_a_socket_shutdown_handle() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (finished, hold_open) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"part").unwrap();
+            // A peer close must not be what wakes the reader and makes this test pass.
+            hold_open.recv_timeout(Duration::from_secs(3)).is_ok()
+        });
+        let mut connection =
+            CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let signal = control.clone();
+        let started = std::time::Instant::now();
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let cancel_started = std::time::Instant::now();
+            signal.cancel();
+            (cancel_started, cancel_started.elapsed())
+        });
+        let result =
+            connection.read_exact_controlled(&mut [0; 24], Duration::from_secs(2), Some(&control));
+        let completed = std::time::Instant::now();
+        let _ = finished.send(());
+        let (cancel_started, cancel_duration) = canceller.join().unwrap();
+        assert!(
+            server.join().unwrap(),
+            "peer closed before the read completed"
+        );
+        assert!(
+            matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::ConnectionAborted)
+        );
+        let latency = completed.duration_since(cancel_started);
+        let setup = cancel_started.duration_since(started);
+        assert!(
+            latency < Duration::from_millis(250),
+            "cancel latency={latency:?}, setup={setup:?}, cancel duration={cancel_duration:?}"
+        );
+    }
+
+    #[test]
+    fn controlled_read_retains_partial_bytes_across_poll_timeouts() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"ab").unwrap();
+            std::thread::sleep(Duration::from_millis(120));
+            stream.write_all(b"cd").unwrap();
+        });
+        let mut connection =
+            CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let mut bytes = [0; 4];
+        connection
+            .read_exact_controlled(&mut bytes, Duration::from_secs(1), Some(&control))
+            .unwrap();
+        control.cancel();
+        server.join().unwrap();
+        assert_eq!(&bytes, b"abcd");
+    }
+
+    #[test]
+    fn controlled_transport_retains_fragmented_header_and_payload() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_nodelay(true).unwrap();
+            let message =
+                ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
+            let header = message.header().as_bytes();
+            stream.write_all(&header[..7]).unwrap();
+            std::thread::sleep(Duration::from_millis(80));
+            stream.write_all(&header[7..]).unwrap();
+            stream.write_all(b"he").unwrap();
+            std::thread::sleep(Duration::from_millis(80));
+            stream.write_all(b"llo").unwrap();
+        });
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let mut transport =
+            TcpTransport::with_shell_control(address, Path::new("unused"), control.clone());
+        transport.connect().unwrap();
+        let message = transport
+            .read_message_with_timeout(Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(message.payload(), b"hello");
+        control.cancel();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn controlled_read_honors_shorter_caller_budget() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+        });
+        let mut connection =
+            CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let started = std::time::Instant::now();
+        let result = connection.read_exact_controlled(
+            &mut [0; 1],
+            Duration::from_millis(20),
+            Some(&control),
+        );
+        let elapsed = started.elapsed();
+        control.cancel();
+        server.join().unwrap();
+        assert!(
+            matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::TimedOut)
+        );
+        assert!(elapsed < Duration::from_millis(150), "{elapsed:?}");
+    }
 
     fn assert_unexpected_eof(result: Result<ADBTransportMessage>) {
         match result {

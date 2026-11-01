@@ -10,7 +10,6 @@
 #![allow(clippy::double_must_use)]
 mod billing_commands;
 mod file_commands;
-mod limited_writer;
 mod play_billing;
 mod remote_lifecycle;
 mod scrcpy_resource;
@@ -219,10 +218,7 @@ pub fn run() {
             let entitlement = billing.effective();
             tracing::info!(?entitlement, "startup entitlement");
 
-            let wireless = Arc::new(WirelessAdb::new(
-                app.handle().clone(),
-                data_dir.join("adb_key"),
-            ));
+            let wireless = Arc::new(WirelessAdb::new(data_dir.join("adb_key")));
             // Anonymous reports: a complete no-op unless this build was compiled
             // with ATVOPT_TELEMETRY_URL, and the user can turn them off in More.
             let telemetry = Telemetry::new(
@@ -303,6 +299,8 @@ pub fn run() {
             apps::set_app_op,
             apps::get_app_op,
             apps::open_play_store,
+            input::remote_open,
+            input::remote_close,
             input::send_text,
             input::send_key,
             input::open_settings,
