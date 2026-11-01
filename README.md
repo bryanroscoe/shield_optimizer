@@ -143,7 +143,7 @@ names and file paths removed. It never includes serial numbers or other hardware
 TV names, your list of installed apps, file paths, license details or snapshot contents. Reports go
 to a server we run on Cloudflare and are kept for 90 days.
 
-Turn this off with **Share anonymous device and error reports**, in the **Report a bug** dialog on
+Turn this off with **Share anonymous device and error reports**, in **Settings** on
 desktop or on the **More** screen on Android. Turning it off stops sending immediately and discards anything not yet sent; turning it
 back on starts over under a new random ID. Builds made without a report server configured send
 nothing.
