@@ -110,6 +110,9 @@ consecutive days**. Both run on Google's clock, so start them first.
 - **Install id in Data safety.** The random install id is a "Device or other ID" in Google's sense
   (Google's own example is a Firebase installation ID), even though it is random and not tied to
   the phone.
+- **Purchase history.** The audit said to declare it "per Google's guidance" without deciding.
+  This guide recommends declaring Financial info > Purchase history (required, app
+  functionality), because the app uses the Billing Library and stores the signed purchase record.
 - **Deletion.** The Worker README says a user can read their install id from the app. They can't:
   More never displays it, so a deletion request can't name its data. See the Data safety deletion
   answer.
@@ -359,18 +362,18 @@ from the library.
 ### 2.2a Data safety answers (from `DATA-INVENTORY.md` and the Worker code)
 
 Help: <https://support.google.com/googleplay/android-developer/answer/10787469>.
-These answers assume the release build **sets `ATVOPT_TELEMETRY_URL`**. Without it nothing
-leaves the phone for the developer, and the answer to the first question would be No.
+These answers assume the release build **sets `ATVOPT_TELEMETRY_URL`**. Without it, the
+telemetry rows below drop out, but the purchase-history row still applies.
 
 **Data collection and security**
 
 | Question | Answer | Basis |
 | --- | --- | --- |
-| Does your app collect or share any of the required user data types? | **Yes** | Anonymous reports go to the owner's Cloudflare Worker. |
+| Does your app collect or share any of the required user data types? | **Yes** | Anonymous reports go to the owner's Cloudflare Worker, and Pro purchases go through the Play Billing Library. |
 | Is all of the user data collected by your app encrypted in transit? | **Yes** | HTTPS only. Non-HTTPS URLs other than loopback are ignored at build time (RELEASE.md, Telemetry endpoint). |
 | Do you provide a way for users to request that their data is deleted? | **See "Deletion" below** | Owner decision. |
 
-**Data types.** Each one: Collected **Yes**, Shared **No** (Cloudflare is a service provider
+**Telemetry data types.** Each one: Collected **Yes**, Shared **No** (Cloudflare is a service provider
 processing on the owner's behalf, which Google excludes from sharing), Processed ephemerally
 **No** (stored), Required or optional **Optional** (users can turn reports off in More > Privacy,
 in every region), Purpose **Analytics**.
@@ -383,9 +386,25 @@ in every region), Purpose **Analytics**.
 | App info and performance > **Diagnostics** | App version, phone OS release, and the TV's manufacturer, brand, model, codename, product, Android release, SDK level, detected family and support tier | TV build properties only. No serial. |
 | Device or other IDs > **Device or other IDs** | Random UUID v4 install id | Not derived from hardware. Regenerated when reports are turned back on. Google's example of this type is a Firebase installation ID. |
 
+**Purchase history: declare it (recommended).** This row differs from the telemetry rows:
+Financial info > **Purchase history**: Collected **Yes**, Shared **No**, Processed ephemerally
+**No**, **Required** (buying Pro can't work without it), Purpose **App functionality**.
+
+The case for declaring it: the app links the Google Play Billing Library. The library exchanges
+the purchase with Google Play, and the app receives and stores the signed order id, purchase
+token, time and product in `play_purchase.json`. Google lists Billing Library use as a sign of
+financial-data access (<https://developer.android.com/privacy-and-security/declare-data-use>).
+Its Data safety help says developers "should also consider whether your app collects other
+financial information, like purchase history" (<https://support.google.com/googleplay/android-developer/answer/10787469>).
+Google also holds developers responsible for what included libraries collect.
+The case against: the developer never receives it, and the record never leaves the phone
+except between the phone and Google Play itself. Google's pages don't settle this, and
+over-declaring is the safer error. `<<OWNER: confirm; leaving it unticked is a judgment call
+Google may disagree with>>`. User payment info (card numbers) stays unticked: Play collects it
+under its own terms and the app never sees it.
+
 **Not collected** (answer No or leave unticked): Personal info (name, email, address, phone),
-Financial info including purchase history (Play handles payment; the signed purchase record is
-verified and stored only on the phone, and reports never include order id, token, price or
+Financial info other than purchase history (reports never include order id, token, price or
 product), Messages, Photos and videos (TV screenshots stay on the phone), Audio, Files and docs
 (pulled files stay on the phone), Calendar, Contacts, Web browsing, Health and fitness, Precise
 location, and Installed apps (TV package lists are never sent). Saved TVs, ADB keys and snapshots
