@@ -8,10 +8,12 @@ use std::sync::{Arc, Weak};
 use async_trait::async_trait;
 use shield_direct_adb::WirelessAdb;
 use shield_optimizer_core::adb::{
-    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Leases, ServerStop,
+    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Leases, ScanConnectOutcome,
+    ScanConnectionFailure, ScanConnectionProgress, ServerStop,
 };
 use shield_optimizer_core::commands::devices::normalize_connect_address;
-use tokio::sync::Mutex;
+use std::time::Duration;
+use tokio::sync::{watch, Mutex, Semaphore};
 
 const MAX_SESSIONS: usize = 32;
 
@@ -57,13 +59,26 @@ struct Slot {
 
 type Factory = dyn Fn(PathBuf, Arc<Leases>) -> Session + Send + Sync;
 
-pub struct DirectNetworkAdb {
+struct ConnectionPool {
     key: PathBuf,
     sessions: Mutex<BTreeMap<String, Slot>>,
     requests: Arc<AtomicU64>,
     factory: Arc<Factory>,
     operations: Arc<Leases>,
     lifecycle: Mutex<BTreeMap<String, Weak<Mutex<()>>>>,
+}
+
+struct ScanJob {
+    canceling: bool,
+    task: tokio::task::JoinHandle<()>,
+    result: watch::Receiver<Option<Result<(), String>>>,
+}
+
+pub struct DirectNetworkAdb {
+    pool: Arc<ConnectionPool>,
+    scan_jobs: std::sync::Mutex<BTreeMap<String, ScanJob>>,
+    scan_slots: Arc<Semaphore>,
+    closing: AtomicBool,
     discovery: Arc<super::discovery::DiscoveryManager>,
 }
 
@@ -77,18 +92,189 @@ impl DirectNetworkAdb {
 
     fn with_factory(key: PathBuf, factory: Arc<Factory>) -> Self {
         Self {
-            key,
-            sessions: Mutex::new(BTreeMap::new()),
-            requests: Arc::new(AtomicU64::new(0)),
-            factory,
-            operations: Leases::new(),
-            lifecycle: Mutex::new(BTreeMap::new()),
+            pool: Arc::new(ConnectionPool {
+                key,
+                sessions: Mutex::new(BTreeMap::new()),
+                requests: Arc::new(AtomicU64::new(0)),
+                factory,
+                operations: Leases::new(),
+                lifecycle: Mutex::new(BTreeMap::new()),
+            }),
+            scan_jobs: std::sync::Mutex::new(BTreeMap::new()),
+            scan_slots: Arc::new(Semaphore::new(4)),
+            closing: AtomicBool::new(false),
             discovery: super::discovery::DiscoveryManager::new(Arc::new(
                 super::discovery::MdnsProvider::default(),
             )),
         }
     }
 
+    fn jobs(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, ScanJob>> {
+        self.scan_jobs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    async fn connect_foreground(&self, address: &str) -> AdbResult<AdbOutput> {
+        let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
+        let pending = {
+            let jobs = self.jobs();
+            if jobs.get(&serial).is_some_and(|job| job.canceling) {
+                return Err(AdbError::Transport(
+                    "This endpoint is being disconnected.".into(),
+                ));
+            }
+            jobs.get(&serial)
+                .filter(|job| job.result.borrow().is_none())
+                .map(|job| job.result.clone())
+        };
+        if let Some(mut result) = pending {
+            wait_scan_result(&mut result)
+                .await
+                .map_err(AdbError::Transport)?;
+            return Ok(output(format!("connected to {serial}")));
+        }
+        self.pool.connect(&serial, None).await
+    }
+
+    async fn start_scan_connect(
+        &self,
+        address: &str,
+        valid_for: Duration,
+    ) -> AdbResult<ScanConnectOutcome> {
+        let operation = self
+            .pool
+            .operations
+            .try_acquire()
+            .ok_or(AdbError::ShuttingDown)?;
+        let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
+        serial.parse::<std::net::SocketAddr>().map_err(|_| {
+            AdbError::Transport("Direct ADB requires a numeric IP address and port.".into())
+        })?;
+        let deadline = tokio::time::Instant::now()
+            .checked_add(valid_for)
+            .ok_or_else(|| AdbError::Transport("Invalid scan connection deadline.".into()))?;
+        let mut result = {
+            let mut jobs = self.jobs();
+            if self.closing.load(Ordering::Acquire) {
+                return Err(AdbError::ShuttingDown);
+            }
+            if jobs.get(&serial).is_some_and(|job| job.canceling) {
+                return Err(AdbError::Transport(
+                    "This endpoint is being disconnected.".into(),
+                ));
+            }
+            if let Some(job) = jobs
+                .get(&serial)
+                .filter(|job| job.result.borrow().is_none() && !job.task.is_finished())
+            {
+                job.result.clone()
+            } else {
+                jobs.remove(&serial);
+                if jobs.len() >= MAX_SESSIONS {
+                    jobs.retain(|_, job| {
+                        job.canceling || (job.result.borrow().is_none() && !job.task.is_finished())
+                    });
+                }
+                if jobs.len() >= MAX_SESSIONS {
+                    return Err(AdbError::Transport("Native scan connection limit reached; wait for pending connections to finish.".into()));
+                }
+                let (sender, receiver) = watch::channel(None);
+                let pool = self.pool.clone();
+                let slots = self.scan_slots.clone();
+                let target = serial.clone();
+                let task = tokio::spawn(async move {
+                    let _operation = operation;
+                    let result = async {
+                        let _slot = tokio::time::timeout_at(deadline, slots.acquire_owned())
+                            .await
+                            .map_err(|_| {
+                                "Advertisement expired while queued; scan again.".to_string()
+                            })?
+                            .map_err(|_| "Native scan is shutting down.".to_string())?;
+                        tokio::time::timeout(
+                            Duration::from_secs(45),
+                            pool.connect(&target, Some(deadline)),
+                        )
+                        .await
+                        .map_err(|_| {
+                            "Connection timed out; check the TV and scan again.".to_string()
+                        })?
+                        .map(|_| ())
+                        .map_err(|error| error.to_string())
+                    }
+                    .await;
+                    sender.send_replace(Some(result));
+                });
+                jobs.insert(
+                    serial,
+                    ScanJob {
+                        canceling: false,
+                        task,
+                        result: receiver.clone(),
+                    },
+                );
+                receiver
+            }
+        };
+        match tokio::time::timeout(Duration::from_millis(250), wait_scan_result(&mut result)).await
+        {
+            Ok(Ok(())) => Ok(ScanConnectOutcome::Ready),
+            Ok(Err(message)) => Err(AdbError::Transport(message)),
+            Err(_) => Ok(ScanConnectOutcome::Pending),
+        }
+    }
+
+    async fn cancel_scan_jobs(&self) {
+        let jobs = {
+            let mut jobs = self.jobs();
+            self.closing.store(true, Ordering::Release);
+            std::mem::take(&mut *jobs)
+        };
+        for job in jobs.values() {
+            job.task.abort();
+        }
+        for (_, job) in jobs {
+            let _ = job.task.await;
+        }
+    }
+
+    async fn devices(&self) -> AdbResult<AdbOutput> {
+        let sessions: Vec<_> = self
+            .pool
+            .sessions
+            .lock()
+            .await
+            .iter()
+            .filter(|(_, slot)| slot.published.load(Ordering::Acquire))
+            .map(|(key, slot)| (key.clone(), slot.session.clone()))
+            .collect();
+        let mut pending = sessions.into_iter();
+        let mut probes = tokio::task::JoinSet::new();
+        for _ in 0..4 {
+            if let Some(entry) = pending.next() {
+                probes.spawn(ready_entry(entry));
+            }
+        }
+        let mut ready = Vec::new();
+        while let Some(probed) = probes.join_next().await {
+            if let Ok(line) = probed {
+                ready.push(line);
+            }
+            if let Some(entry) = pending.next() {
+                probes.spawn(ready_entry(entry));
+            }
+        }
+        ready.sort();
+        let mut stdout = "List of devices attached\n".to_string();
+        for line in ready {
+            stdout.push_str(&line);
+        }
+        Ok(output(stdout))
+    }
+}
+
+impl ConnectionPool {
     async fn session(&self, serial: &str) -> AdbResult<Session> {
         self.sessions
             .lock()
@@ -119,7 +305,11 @@ impl DirectNetworkAdb {
         lock.lock_owned().await
     }
 
-    async fn connect(&self, address: &str) -> AdbResult<AdbOutput> {
+    async fn connect(
+        &self,
+        address: &str,
+        valid_until: Option<tokio::time::Instant>,
+    ) -> AdbResult<AdbOutput> {
         let _operation = self
             .operations
             .try_acquire()
@@ -128,7 +318,27 @@ impl DirectNetworkAdb {
         let endpoint: std::net::SocketAddr = serial.parse().map_err(|_| {
             AdbError::Transport("Direct ADB requires a numeric IP address and port.".into())
         })?;
-        let _lifecycle = self.lock_target(&serial).await;
+        let _lifecycle = if let Some(deadline) = valid_until {
+            tokio::time::timeout_at(deadline, self.lock_target(&serial))
+                .await
+                .map_err(|_| {
+                    AdbError::Transport("Advertisement expired while queued; scan again.".into())
+                })?
+        } else {
+            self.lock_target(&serial).await
+        };
+        if valid_until.is_some() {
+            if let Ok(session) = self.session(&serial).await {
+                if session.ready().await {
+                    return Ok(output(format!("connected to {serial}")));
+                }
+            }
+        }
+        if valid_until.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            return Err(AdbError::Transport(
+                "Advertisement expired while queued; scan again.".into(),
+            ));
+        }
         let (session, published, active_attempt) = {
             let mut sessions = self.sessions.lock().await;
             sessions.retain(|_, slot| {
@@ -179,38 +389,19 @@ impl DirectNetworkAdb {
         pending.complete = true;
         Ok(output(format!("connected to {serial}")))
     }
+}
 
-    async fn devices(&self) -> AdbResult<AdbOutput> {
-        let sessions: Vec<_> = self
-            .sessions
-            .lock()
+async fn wait_scan_result(
+    result: &mut watch::Receiver<Option<Result<(), String>>>,
+) -> Result<(), String> {
+    loop {
+        if let Some(done) = result.borrow().clone() {
+            return done;
+        }
+        result
+            .changed()
             .await
-            .iter()
-            .filter(|(_, slot)| slot.published.load(Ordering::Acquire))
-            .map(|(key, slot)| (key.clone(), slot.session.clone()))
-            .collect();
-        let mut pending = sessions.into_iter();
-        let mut probes = tokio::task::JoinSet::new();
-        for _ in 0..4 {
-            if let Some(entry) = pending.next() {
-                probes.spawn(ready_entry(entry));
-            }
-        }
-        let mut ready = Vec::new();
-        while let Some(probed) = probes.join_next().await {
-            if let Ok(line) = probed {
-                ready.push(line);
-            }
-            if let Some(entry) = pending.next() {
-                probes.spawn(ready_entry(entry));
-            }
-        }
-        ready.sort();
-        let mut stdout = "List of devices attached\n".to_string();
-        for line in ready {
-            stdout.push_str(&line);
-        }
-        Ok(output(stdout))
+            .map_err(|_| "Native scan connection was canceled.".to_string())?;
     }
 }
 
@@ -257,13 +448,18 @@ fn unsupported() -> AdbError {
 impl Drop for DirectNetworkAdb {
     fn drop(&mut self) {
         self.discovery.cancel();
+        self.closing.store(true, Ordering::Release);
+        self.pool.operations.close();
+        for job in self.jobs().values() {
+            job.task.abort();
+        }
     }
 }
 
 #[async_trait]
 impl AdbDriver for DirectNetworkAdb {
     fn operation_leases(&self) -> Option<Arc<Leases>> {
-        Some(self.operations.clone())
+        Some(self.pool.operations.clone())
     }
 
     fn uses_host_server(&self) -> bool {
@@ -274,25 +470,54 @@ impl AdbDriver for DirectNetworkAdb {
         &self,
     ) -> AdbResult<shield_optimizer_core::adb::NativeDiscoveryReport> {
         let lease = Arc::new(
-            self.operations
+            self.pool
+                .operations
                 .try_acquire()
                 .ok_or(AdbError::ShuttingDown)?,
         );
         self.discovery.snapshot(lease).await
     }
 
+    async fn scan_connect(
+        &self,
+        address: &str,
+        valid_for: Duration,
+    ) -> AdbResult<ScanConnectOutcome> {
+        self.start_scan_connect(address, valid_for).await
+    }
+
+    async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+        let mut progress = ScanConnectionProgress::default();
+        for (address, job) in self.jobs().iter() {
+            match job.result.borrow().clone() {
+                Some(Ok(())) => {}
+                Some(Err(message)) => progress.failed.push(ScanConnectionFailure {
+                    address: address.clone(),
+                    message,
+                }),
+                None if job.task.is_finished() => progress.failed.push(ScanConnectionFailure {
+                    address: address.clone(),
+                    message: "Native scan connection was canceled.".into(),
+                }),
+                None => progress.pending.push(address.clone()),
+            }
+        }
+        progress
+    }
+
     async fn stop_server(&self, timeout: std::time::Duration) -> ServerStop {
-        self.operations.close();
+        self.pool.operations.close();
+        self.cancel_scan_jobs().await;
         self.discovery.cancel();
         if self.discovery.cleanup_pending() && !timeout.is_zero() {
             let _ = tokio::time::timeout(timeout, self.discovery.retry_cleanup()).await;
         }
-        if self.operations.active() != 0 {
+        if self.pool.operations.active() != 0 {
             return ServerStop::Skipped(
                 "Direct ADB work is still running; owned sockets were left alone.".into(),
             );
         }
-        let mut sessions = self.sessions.lock().await;
+        let mut sessions = self.pool.sessions.lock().await;
         for slot in sessions.values() {
             if let Err(message) = slot.session.close_idle() {
                 return ServerStop::Failed(message);
@@ -308,12 +533,13 @@ impl AdbDriver for DirectNetworkAdb {
             ["version"] => Ok(output(
                 "Experimental direct ADB (shared Android transport); no host adb server".into(),
             )),
-            ["connect", address] => self.connect(address).await,
+            ["connect", address] => self.connect_foreground(address).await,
             ["pair", address, code] => {
                 let endpoint: std::net::SocketAddr = address.parse().map_err(|_| {
                     AdbError::Transport("Enter the numeric IP and pairing port from the TV.".into())
                 })?;
-                let session = (self.factory)(self.key.clone(), self.operations.clone());
+                let session =
+                    (self.pool.factory)(self.pool.key.clone(), self.pool.operations.clone());
                 session
                     .pair(address.rsplit_once(':').unwrap().0, endpoint.port(), code)
                     .await
@@ -322,17 +548,33 @@ impl AdbDriver for DirectNetworkAdb {
             }
             ["disconnect", serial] => {
                 let _operation = self
+                    .pool
                     .operations
                     .try_acquire()
                     .ok_or(AdbError::ShuttingDown)?;
-                let _lifecycle = self.lock_target(serial).await;
-                let session = self.session(serial).await?;
-                session.raw(&["disconnect", serial]).await?;
-                self.sessions.lock().await.remove(*serial);
+                let canceled_scan = {
+                    let mut jobs = self.jobs();
+                    if let Some(job) = jobs.get_mut(*serial) {
+                        job.canceling = true;
+                        job.task.abort();
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let _lifecycle = self.pool.lock_target(serial).await;
+                let result = match self.pool.session(serial).await {
+                    Ok(session) => session.raw(&["disconnect", serial]).await.map(|_| ()),
+                    Err(_) if canceled_scan => Ok(()),
+                    Err(error) => Err(error),
+                };
+                self.jobs().remove(*serial);
+                result?;
+                self.pool.sessions.lock().await.remove(*serial);
                 Ok(output(format!("disconnected {serial}")))
             }
             ["-s", serial, "get-state"] => {
-                if self.session(serial).await?.ready().await {
+                if self.pool.session(serial).await?.ready().await {
                     Ok(output("device\n".into()))
                 } else {
                     Err(AdbError::DeviceNotReady {
@@ -341,7 +583,7 @@ impl AdbDriver for DirectNetworkAdb {
                     })
                 }
             }
-            ["-s", serial, "reboot", ..] => self.session(serial).await?.raw(args).await,
+            ["-s", serial, "reboot", ..] => self.pool.session(serial).await?.raw(args).await,
             _ => Err(unsupported()),
         }
     }
@@ -351,14 +593,20 @@ impl AdbDriver for DirectNetworkAdb {
         serial: &str,
         command: &str,
     ) -> AdbResult<shield_optimizer_core::adb::driver::BoundedShellOutput> {
-        self.session(serial)
+        self.pool
+            .session(serial)
             .await?
             .shell_bounded(serial, command)
             .await
     }
 
     async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
-        let out = self.session(serial).await?.shell(serial, command).await?;
+        let out = self
+            .pool
+            .session(serial)
+            .await?
+            .shell(serial, command)
+            .await?;
         if !out.success() {
             let detail = out.combined().trim().to_string();
             return Err(AdbError::NonZeroExit {
@@ -381,10 +629,10 @@ impl AdbDriver for DirectNetworkAdb {
             ["-s", serial, "install", path] | ["-s", serial, "install", "-r", path]
                 if !path.is_empty() && !path.starts_with('-') =>
             {
-                self.session(serial).await?.raw_transfer(args).await
+                self.pool.session(serial).await?.raw_transfer(args).await
             }
             ["-s", serial, "pull" | "push", ..] => {
-                self.session(serial).await?.raw_transfer(args).await
+                self.pool.session(serial).await?.raw_transfer(args).await
             }
             _ => Err(unsupported()),
         }
@@ -397,7 +645,8 @@ impl AdbDriver for DirectNetworkAdb {
         local: &Path,
         max_bytes: u64,
     ) -> AdbResult<()> {
-        self.session(serial)
+        self.pool
+            .session(serial)
             .await?
             .pull_limited(serial, remote, local, max_bytes)
             .await
@@ -405,7 +654,7 @@ impl AdbDriver for DirectNetworkAdb {
 
     async fn raw_bytes(&self, args: &[&str]) -> AdbResult<Vec<u8>> {
         match args {
-            ["-s", serial, ..] => self.session(serial).await?.raw_bytes(args).await,
+            ["-s", serial, ..] => self.pool.session(serial).await?.raw_bytes(args).await,
             _ => Err(unsupported()),
         }
     }
@@ -414,7 +663,11 @@ impl AdbDriver for DirectNetworkAdb {
         &self,
         serial: &str,
     ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
-        self.session(serial).await?.device_binding(serial).await
+        self.pool
+            .session(serial)
+            .await?
+            .device_binding(serial)
+            .await
     }
 
     async fn open_bound_device_service(
@@ -423,7 +676,8 @@ impl AdbDriver for DirectNetworkAdb {
         service: &str,
         lifetime: std::time::Duration,
     ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
-        self.session(&binding.serial)
+        self.pool
+            .session(&binding.serial)
             .await?
             .open_bound_device_service(binding, service, lifetime)
             .await
@@ -434,7 +688,8 @@ impl AdbDriver for DirectNetworkAdb {
         serial: &str,
         service: &str,
     ) -> AdbResult<Box<dyn AdbByteStream>> {
-        self.session(serial)
+        self.pool
+            .session(serial)
             .await?
             .open_device_service(serial, service)
             .await
@@ -455,6 +710,7 @@ mod tests {
         calls: StdMutex<Vec<String>>,
         hold: AtomicBool,
         probe_failed: AtomicBool,
+        probe_held: AtomicBool,
         started: Arc<tokio::sync::Notify>,
         release: Arc<tokio::sync::Notify>,
         completed: Arc<tokio::sync::Notify>,
@@ -557,6 +813,10 @@ mod tests {
             Ok("Paired with the TV.".into())
         }
         async fn ready(&self) -> bool {
+            if self.probe_held.load(Ordering::Acquire) {
+                self.started.notify_one();
+                self.release.notified().await;
+            }
             self.ready.load(Ordering::Acquire) && !self.probe_failed.load(Ordering::Acquire)
         }
         fn invalidate(&self, request: u64) {
@@ -581,6 +841,259 @@ mod tests {
             }),
         );
         (driver, sessions)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scan_returns_promptly_joins_and_publishes_later_approval() {
+        let held = Arc::new(FakeSession::default());
+        held.hold.store(true, Ordering::Release);
+        let count = Arc::new(AtomicU64::new(0));
+        let captured = held.clone();
+        let created = count.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| {
+                if created.fetch_add(1, Ordering::Relaxed) == 0 {
+                    captured.clone()
+                } else {
+                    Arc::new(FakeSession::default())
+                }
+            }),
+        );
+        let start = tokio::time::Instant::now();
+        assert_eq!(
+            driver
+                .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::Pending
+        );
+        assert_eq!(start.elapsed(), Duration::from_millis(250));
+        assert_eq!(
+            driver
+                .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::Pending
+        );
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            driver
+                .scan_connect("192.0.2.2:5555", Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::Ready
+        );
+        assert_eq!(
+            driver.scan_connection_progress().await.pending,
+            ["192.0.2.1:5555"]
+        );
+        assert!(!driver
+            .raw(&["devices"])
+            .await
+            .unwrap()
+            .stdout
+            .contains("192.0.2.1"));
+        held.release.notify_one();
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        assert!(driver.scan_connection_progress().await.pending.is_empty());
+        assert_eq!(count.load(Ordering::Relaxed), 2);
+        assert!(driver
+            .raw(&["devices"])
+            .await
+            .unwrap()
+            .stdout
+            .contains("192.0.2.1:5555\tdevice"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scanning_an_existing_busy_session_is_bounded_and_preserves_its_row() {
+        let session = Arc::new(FakeSession::default());
+        let captured = session.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| captured.clone()),
+        );
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        session.probe_held.store(true, Ordering::Release);
+        let start = tokio::time::Instant::now();
+        assert_eq!(
+            driver
+                .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::Pending
+        );
+        assert_eq!(start.elapsed(), Duration::from_millis(250));
+        assert!(driver.pool.sessions.lock().await["192.0.2.1:5555"]
+            .published
+            .load(Ordering::Acquire));
+        session.probe_held.store(false, Ordering::Release);
+        session.release.notify_one();
+        driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
+        assert_eq!(driver.pool.requests.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scan_jobs_and_active_handshakes_have_separate_bounds() {
+        let created = Arc::new(StdMutex::new(Vec::<Arc<FakeSession>>::new()));
+        let captured = created.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| {
+                let session = Arc::new(FakeSession::default());
+                session.hold.store(true, Ordering::Release);
+                captured.lock().unwrap().push(session.clone());
+                session
+            }),
+        );
+        for port in 1..=MAX_SESSIONS {
+            assert_eq!(
+                driver
+                    .scan_connect(&format!("192.0.2.1:{port}"), Duration::from_secs(60))
+                    .await
+                    .unwrap(),
+                ScanConnectOutcome::Pending
+            );
+        }
+        assert_eq!(
+            driver.scan_connection_progress().await.pending.len(),
+            MAX_SESSIONS
+        );
+        assert_eq!(created.lock().unwrap().len(), 4);
+        assert!(driver
+            .scan_connect("192.0.2.2:5555", Duration::from_secs(60))
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("limit reached"));
+        driver.stop_server(Duration::ZERO).await;
+        assert!(matches!(
+            driver
+                .scan_connect("192.0.2.2:5555", Duration::from_secs(60))
+                .await,
+            Err(AdbError::ShuttingDown)
+        ));
+        let sessions = created.lock().unwrap().clone();
+        for session in sessions {
+            session.release.notify_one();
+            session.completed.notified().await;
+            assert!(!session.ready.load(Ordering::Acquire));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scan_queue_expiry_never_starts_a_handshake() {
+        let created = Arc::new(StdMutex::new(Vec::<Arc<FakeSession>>::new()));
+        let captured = created.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| {
+                let session = Arc::new(FakeSession::default());
+                session.hold.store(true, Ordering::Release);
+                captured.lock().unwrap().push(session.clone());
+                session
+            }),
+        );
+        for port in 1..=4 {
+            assert_eq!(
+                driver
+                    .scan_connect(&format!("192.0.2.1:{port}"), Duration::from_secs(30))
+                    .await
+                    .unwrap(),
+                ScanConnectOutcome::Pending
+            );
+        }
+        let error = driver
+            .scan_connect("192.0.2.1:5", Duration::from_millis(50))
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("expired while queued"));
+        assert_eq!(created.lock().unwrap().len(), 4);
+        assert_eq!(driver.scan_connection_progress().await.failed.len(), 1);
+        driver.stop_server(Duration::ZERO).await;
+        let sessions = created.lock().unwrap().clone();
+        for session in sessions {
+            session.release.notify_one();
+            session.completed.notified().await;
+            assert!(!session.ready.load(Ordering::Acquire));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scan_timeout_is_reported_without_retry_and_late_worker_cannot_publish() {
+        let session = Arc::new(FakeSession::default());
+        session.hold.store(true, Ordering::Release);
+        let captured = session.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| captured.clone()),
+        );
+        driver
+            .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+            .await
+            .unwrap();
+        tokio::time::advance(Duration::from_secs(45)).await;
+        tokio::task::yield_now().await;
+        let progress = driver.scan_connection_progress().await;
+        assert!(progress.pending.is_empty());
+        assert!(progress.failed[0].message.contains("timed out"));
+        session.release.notify_one();
+        session.completed.notified().await;
+        assert!(!session.ready.load(Ordering::Acquire));
+        assert_eq!(driver.scan_connection_progress().await, progress);
+        session.hold.store(false, Ordering::Release);
+        assert_eq!(
+            driver
+                .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::Ready
+        );
+        assert!(driver.scan_connection_progress().await.failed.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn forgetting_a_pending_scan_prevents_late_publication() {
+        let session = Arc::new(FakeSession::default());
+        session.hold.store(true, Ordering::Release);
+        let captured = session.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| captured.clone()),
+        );
+        driver
+            .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+            .await
+            .unwrap();
+        driver.raw(&["disconnect", "192.0.2.1:5555"]).await.unwrap();
+        session.release.notify_one();
+        session.completed.notified().await;
+        assert!(!session.ready.load(Ordering::Acquire));
+        assert!(driver.pool.sessions.lock().await.is_empty());
+        assert!(driver.scan_connection_progress().await.pending.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_driver_cancels_owned_scan_without_a_reference_cycle() {
+        let session = Arc::new(FakeSession::default());
+        session.hold.store(true, Ordering::Release);
+        let captured = session.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| captured.clone()),
+        );
+        driver
+            .scan_connect("192.0.2.1:5555", Duration::from_secs(30))
+            .await
+            .unwrap();
+        let pool = Arc::downgrade(&driver.pool);
+        drop(driver);
+        tokio::task::yield_now().await;
+        session.release.notify_one();
+        session.completed.notified().await;
+        assert!(!session.ready.load(Ordering::Acquire));
+        assert!(pool.upgrade().is_none());
     }
 
     #[tokio::test]
@@ -666,7 +1179,7 @@ mod tests {
         .await
         .expect("another TV must not wait for the held approval")
         .unwrap();
-        assert_eq!(driver.sessions.lock().await.len(), 2);
+        assert_eq!(driver.pool.sessions.lock().await.len(), 2);
         let during = driver.raw(&["devices"]).await.unwrap().stdout;
         assert!(!during.contains("192.0.2.1"));
         assert!(during.contains("192.0.2.2:5555\tdevice"));
@@ -698,8 +1211,8 @@ mod tests {
         session.release.notify_one();
         connect.await.unwrap().unwrap();
         disconnect.await.unwrap().unwrap();
-        assert!(driver.sessions.lock().await.is_empty());
-        assert_eq!(driver.operations.active(), 0);
+        assert!(driver.pool.sessions.lock().await.is_empty());
+        assert_eq!(driver.pool.operations.active(), 0);
     }
 
     #[tokio::test]
@@ -879,7 +1392,7 @@ mod tests {
         }
         hold.store(false, Ordering::Release);
         driver.raw(&["connect", "192.0.2.2:5555"]).await.unwrap();
-        assert_eq!(driver.sessions.lock().await.len(), 1);
+        assert_eq!(driver.pool.sessions.lock().await.len(), 1);
     }
 
     #[tokio::test]
@@ -904,13 +1417,13 @@ mod tests {
         }
         fail_probe.store(false, Ordering::Release);
         driver.raw(&["connect", "192.0.2.2:5555"]).await.unwrap();
-        assert_eq!(driver.sessions.lock().await.len(), 1);
+        assert_eq!(driver.pool.sessions.lock().await.len(), 1);
     }
     #[tokio::test]
     async fn quit_closes_only_owned_sessions_after_work_drains() {
         let (driver, sessions) = fake_driver();
         driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
-        let lease = driver.operations.try_acquire().unwrap();
+        let lease = driver.pool.operations.try_acquire().unwrap();
         assert!(
             matches!(driver.stop_server(std::time::Duration::ZERO).await, ServerStop::Skipped(message) if message.contains("still running"))
         );
@@ -919,12 +1432,12 @@ mod tests {
         assert!(
             matches!(driver.stop_server(std::time::Duration::ZERO).await, ServerStop::Skipped(message) if message.contains("no host server"))
         );
-        assert!(driver.sessions.lock().await.is_empty());
+        assert!(driver.pool.sessions.lock().await.is_empty());
         assert_eq!(
             *sessions.lock().unwrap()[0].calls.lock().unwrap(),
             vec!["close owned socket"]
         );
-        assert!(driver.operations.try_acquire().is_none());
+        assert!(driver.pool.operations.try_acquire().is_none());
     }
     #[tokio::test]
     async fn ipv6_pool_and_session_keep_the_same_exact_listed_serial() {
@@ -950,7 +1463,7 @@ mod tests {
                 format!("{serial}: echo exact")
             );
         }
-        assert_eq!(driver.sessions.lock().await.len(), 2);
+        assert_eq!(driver.pool.sessions.lock().await.len(), 2);
     }
     #[tokio::test]
     async fn a_slow_tv_does_not_block_another_tv_command() {
@@ -1051,8 +1564,8 @@ mod tests {
             .advertisements
             .is_empty());
         assert_eq!(provider.0.load(Ordering::Relaxed), 1);
-        assert!(driver.sessions.lock().await.is_empty());
-        driver.operations.close();
+        assert!(driver.pool.sessions.lock().await.is_empty());
+        driver.pool.operations.close();
         assert!(matches!(
             driver.discover_network().await,
             Err(AdbError::ShuttingDown)
@@ -1112,11 +1625,12 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(driver.operations.active(), 1);
+        assert_eq!(driver.pool.operations.active(), 1);
         assert!(sessions.lock().unwrap()[0].ready.load(Ordering::Acquire));
         release.send(()).unwrap();
         assert!(
             driver
+                .pool
                 .operations
                 .wait_idle(tokio::time::Instant::now() + std::time::Duration::from_secs(1))
                 .await

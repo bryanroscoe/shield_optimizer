@@ -118,9 +118,8 @@ impl RemoteRegistry {
             return Err("Remote admission is closed.".into());
         }
         let cell = self.cell(serial)?;
-        let generation = checked_increment(&self.next)
-            .map_err(|_| "Remote generation limit reached.")?
-            + 1;
+        let generation =
+            checked_increment(&self.next).map_err(|_| "Remote generation limit reached.")? + 1;
         // Publication and logical invalidation share this short lock.
         let _publication = lock(&cell.publication);
         if self.closed.load(Ordering::Acquire) || self.paused.load(Ordering::Acquire) {
@@ -144,9 +143,8 @@ impl RemoteRegistry {
         if current != 0 {
             return Ok(current);
         }
-        let generation = checked_increment(&self.next)
-            .map_err(|_| "Remote generation limit reached.")?
-            + 1;
+        let generation =
+            checked_increment(&self.next).map_err(|_| "Remote generation limit reached.")? + 1;
         cell.generation.store(generation, Ordering::Release);
         Ok(generation)
     }

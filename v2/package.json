@@ -46,7 +46,8 @@
     "test:progressive-help": "node tests/progressive-help.mjs",
     "test:restart-onboarding": "node tests/restart-onboarding.mjs",
     "test:direct-adb-status": "node tests/direct-adb-status.mjs",
-    "test:native-discovery": "node tests/native-discovery.mjs"
+    "test:native-discovery": "node tests/native-discovery.mjs",
+    "test:native-scan-progress": "node tests/native-scan-progress.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -284,7 +284,7 @@ jobs:
 
       - name: Native discovery
         working-directory: v2
-        run: npm run test:native-discovery
+        run: npm run test:native-discovery && npm run test:native-scan-progress
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.

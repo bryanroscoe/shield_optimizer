@@ -11,19 +11,20 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
+use shield_optimizer_core::adb::ScanConnectionProgress;
 use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
 
 #[derive(Serialize)]
 pub struct AdbStatus {
-    /// Can the selected backend report its device list?
+    /// Can the selected backend respond?
     pub available: bool,
     pub backend: &'static str,
     /// Path to the binary if discovery resolves one — useful in the UI for
     /// "Using adb at /opt/homebrew/bin/adb" diagnostics.
     pub path: Option<String>,
-    /// What the last `adb devices` call returned, as a quick connectivity probe.
-    /// `None` when adb isn't available.
+    /// Response from the backend availability probe.
     pub last_probe: Option<String>,
+    pub connections: ScanConnectionProgress,
 }
 
 /// `adb_status` — fast diagnostic the UI shows when devices fail to list.
@@ -44,19 +45,26 @@ async fn adb_status_impl(state: &AppState) -> Result<AdbStatus, String> {
     } else {
         None
     };
-    let probe = adb.raw(&["devices"]).await;
+    let probe = if adb.uses_host_server() {
+        adb.raw(&["devices"]).await
+    } else {
+        adb.raw(&["version"]).await
+    };
+    let connections = adb.scan_connection_progress().await;
     match probe {
         Ok(out) => Ok(AdbStatus {
             available: true,
             backend,
             path,
             last_probe: Some(out.stdout),
+            connections,
         }),
         Err(e) => Ok(AdbStatus {
             available: false,
             backend,
             path,
             last_probe: Some(e.to_string()),
+            connections,
         }),
     }
 }
@@ -299,8 +307,8 @@ mod tests {
             &self,
             args: &[&str],
         ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
-            assert_eq!(args, &["devices"]);
-            Err(shield_optimizer_core::adb::AdbError::Transport(
+            assert_eq!(args, &["version"]);
+            Err(shield_optimizer_core::adb::AdbError::Initialization(
                 "direct configuration failed".into(),
             ))
         }
@@ -339,6 +347,52 @@ mod tests {
             matches!(installed, Err(message) if message.contains("would change the selected direct backend"))
         );
         assert!(!state.adb_snapshot().await.uses_host_server());
+    }
+
+    #[tokio::test]
+    async fn direct_status_reads_progress_without_probing_devices() {
+        struct ReadyDirect;
+        #[async_trait::async_trait]
+        impl AdbDriver for ReadyDirect {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(
+                &self,
+                args: &[&str],
+            ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>
+            {
+                assert_eq!(args, &["version"]);
+                Ok(shield_optimizer_core::adb::AdbOutput {
+                    stdout: "native ADB".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+                ScanConnectionProgress {
+                    pending: vec!["192.0.2.1:5555".into()],
+                    failed: vec![],
+                }
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>
+            {
+                panic!("status must not query a TV")
+            }
+        }
+        let state = AppState::new(
+            Arc::new(ReadyDirect),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("not-created"),
+        );
+        let status = adb_status_impl(&state).await.unwrap();
+        assert!(status.available);
+        assert_eq!(status.connections.pending, vec!["192.0.2.1:5555"]);
+        assert!(status.connections.failed.is_empty());
     }
 
     #[tokio::test(start_paused = true)]

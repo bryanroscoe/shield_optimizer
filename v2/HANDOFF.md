@@ -23,6 +23,13 @@ heading to stay. Before tagging, run the
 physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
 `npm run e2e`.
 
+Native Scan LAN now separates discovery from TV approval: owned, bounded connection
+jobs continue after the scan returns, and ready TVs appear through serialized status
+refreshes. Status polling does not re-query unchanged device properties and stops on
+completion, backend unavailability, navigation, or its deadline. Pending handshakes
+are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
+and the native driver/scan unit tests.
+
 ## Things the next reader needs that the code does not say
 
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater

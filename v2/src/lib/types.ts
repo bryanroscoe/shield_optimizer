@@ -380,6 +380,7 @@ export interface NativeDiscoveryReport {
 }
 
 export interface ScanResult {
+  pending?: string[];
   details?: string[];
   subnet: string | null;
   found: string[];
@@ -427,7 +428,13 @@ export interface FileTransferResult {
   local_path: string | null;
 }
 
+export interface ScanConnectionProgress {
+  pending: string[];
+  failed: { address: string; message: string }[];
+}
+
 export interface AdbStatus {
+  connections?: ScanConnectionProgress;
   backend?: "direct" | "subprocess";
   available: boolean;
   path: string | null;

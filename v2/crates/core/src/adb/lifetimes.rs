@@ -216,6 +216,18 @@ impl AdbDriver for LeasedAdb {
         self.inner.discover_network().await
     }
 
+    async fn scan_connect(
+        &self,
+        address: &str,
+        valid_for: Duration,
+    ) -> AdbResult<super::ScanConnectOutcome> {
+        self.inner.scan_connect(address, valid_for).await
+    }
+
+    async fn scan_connection_progress(&self) -> super::ScanConnectionProgress {
+        self.inner.scan_connection_progress().await
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.inner.raw(args).await
     }
@@ -292,6 +304,10 @@ impl AdbDriver for ClosedAdb {
     async fn discover_network(
         &self,
     ) -> super::driver::AdbResult<super::driver::NativeDiscoveryReport> {
+        Err(AdbError::ShuttingDown)
+    }
+
+    async fn scan_connect(&self, _: &str, _: Duration) -> AdbResult<super::ScanConnectOutcome> {
         Err(AdbError::ShuttingDown)
     }
 
@@ -480,6 +496,19 @@ mod tests {
             })
         }
 
+        async fn scan_connect(
+            &self,
+            _: &str,
+            _: Duration,
+        ) -> AdbResult<super::super::ScanConnectOutcome> {
+            self.note("scan_connect");
+            Ok(super::super::ScanConnectOutcome::Pending)
+        }
+        async fn scan_connection_progress(&self) -> super::super::ScanConnectionProgress {
+            self.note("scan_connection_progress");
+            super::super::ScanConnectionProgress::default()
+        }
+
         async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
             self.note("raw");
             Ok(empty())
@@ -537,6 +566,8 @@ mod tests {
     async fn call_every_method(driver: &dyn AdbDriver) {
         let path = Path::new("x");
         let _ = driver.discover_network().await;
+        let _ = driver.scan_connect("s", Duration::from_secs(1)).await;
+        let _ = driver.scan_connection_progress().await;
         let _ = driver.raw(&[]).await;
         let _ = driver.raw_transfer(&[]).await;
         let _ = driver.pull_limited("s", "r", path, 1).await;
@@ -561,6 +592,8 @@ mod tests {
             *recorder.0.lock().unwrap(),
             [
                 "discover_network",
+                "scan_connect",
+                "scan_connection_progress",
                 "raw",
                 "raw_transfer",
                 "pull_limited",
@@ -579,6 +612,14 @@ mod tests {
     #[tokio::test]
     async fn a_closed_snapshot_refuses_every_spawning_method() {
         let closed = ClosedAdb;
+        assert!(matches!(
+            closed.scan_connect("s", Duration::from_secs(1)).await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert_eq!(
+            closed.scan_connection_progress().await,
+            super::super::ScanConnectionProgress::default()
+        );
         let binding = super::super::AdbDeviceBinding {
             serial: "s".into(),
             hardware_id: "fixture".into(),

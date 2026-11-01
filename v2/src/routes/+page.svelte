@@ -3,7 +3,7 @@
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { api } from "$lib/api";
-  import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
+  import type { Device, DeviceReport, PairedConnectProbe, ScanConnectionProgress } from "$lib/types";
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
@@ -39,6 +39,35 @@
   let scanBusy = $state(false);
   let scanMessage = $state("");
   let scanDetails = $state<string[]>([]);
+  let nativeConnections = $state<ScanConnectionProgress>({ pending: [], failed: [] });
+  let nativeScanSummary = "";
+  let scanBaseDetails: string[] = [];
+  let lastNativeProgress = "";
+  let disposed = false;
+  let refreshInFlight: Promise<void> | null = null;
+  let nativeMonitorTimer: ReturnType<typeof setTimeout> | null = null;
+  let nativeMonitorToken = 0;
+  let nativeMonitoring = false;
+
+  function monitorNativeConnections() {
+    if (disposed || adbBackend !== "direct") return;
+    if (nativeMonitorTimer) clearTimeout(nativeMonitorTimer);
+    const token = ++nativeMonitorToken;
+    const deadline = Date.now() + 90_000;
+    nativeMonitoring = true;
+    const schedule = () => {
+      nativeMonitorTimer = setTimeout(async () => {
+        nativeMonitorTimer = null;
+        if (disposed || token !== nativeMonitorToken) return;
+        if (!refreshInFlight) await startRefresh(true);
+        if (disposed || token !== nativeMonitorToken) return;
+        if (!backendUnavailable && (scanBusy || nativeConnections.pending.length > 0) && Date.now() < deadline) schedule();
+        else nativeMonitoring = false;
+      }, 1000);
+    };
+    schedule();
+  }
+
   let adbBackend = $state<"direct" | "subprocess" | null>(null);
 
   let pairOpen = $state(false);
@@ -79,12 +108,26 @@
   let installMessage = $state("");
 
   async function refresh() {
-    loading = true;
-    error = null;
+    while (refreshInFlight) await refreshInFlight;
+    if (!disposed) await startRefresh(false);
+  }
+
+  function startRefresh(background: boolean): Promise<void> {
+    const work = performRefresh(background).finally(() => {
+      if (refreshInFlight === work) refreshInFlight = null;
+    });
+    refreshInFlight = work;
+    return work;
+  }
+
+  async function performRefresh(background: boolean) {
+    if (!background) {
+      loading = true;
+      error = null;
+    }
     try {
-      // Structured probe first so we render the install pane on a clean
-      // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
+      if (disposed) return;
       adbBackend = status.backend ?? null;
       backendUnavailable = !status.available;
       if (!status.available) {
@@ -96,11 +139,30 @@
         return;
       }
       adbMissing = false;
-      devices = await api.listDevices();
+      const progress = status.connections ?? { pending: [], failed: [] };
+      const progressKey = JSON.stringify([ [...progress.pending].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
+      const changed = progressKey !== lastNativeProgress;
+      nativeConnections = progress;
+      if (adbBackend === "direct" && nativeScanSummary && !scanBusy) {
+        scanMessage = nativeScanSummary;
+        scanDetails = [...new Set([...scanBaseDetails, ...progress.failed.map(f => `${f.address}: ${f.message}`)])];
+        if (progress.pending.length === 0 && progress.failed.length > 0) {
+          scanMessage += " Some connections did not finish; see Scan details.";
+        }
+      }
+      // Pending status reads are cheap; unchanged progress must not repeatedly
+      // re-query properties from every connected TV.
+      if (!background || changed) {
+        const list = await api.listDevices();
+        if (disposed) return;
+        devices = list;
+        lastNativeProgress = progressKey;
+      }
+      if (!background && progress.pending.length > 0 && !nativeMonitoring) monitorNativeConnections();
     } catch (e) {
-      error = String(e);
+      if (!disposed && !background) error = String(e);
     } finally {
-      loading = false;
+      if (!background && !disposed) loading = false;
     }
   }
 
@@ -220,15 +282,26 @@
   }
 
   async function scan() {
-    if (directUnavailable) return;
+    if (disposed || directUnavailable) return;
     if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
     scanDetails = [];
+    scanBaseDetails = [];
+    nativeScanSummary = "";
+    if (adbBackend === "direct") monitorNativeConnections();
     scanMessage = adbBackend === "direct" ? "Scanning local network… If your TV asks to allow debugging, approve ATV Optimizer." : "Scanning local network…";
     try {
       const r = await api.scanNetwork();
+      if (disposed) return;
       scanMessage = r.message;
       scanDetails = r.details ?? [];
+      scanBaseDetails = r.details ?? [];
+      if (adbBackend === "direct" && (r.pending?.length ?? 0) > 0) {
+        nativeScanSummary = `Scan finished. Found ${r.found.length} network addresses. Ready TVs appear below.`;
+        scanMessage = nativeScanSummary;
+        nativeConnections = { ...nativeConnections, pending: r.pending ?? [] };
+      }
+      scanBusy = false;
       // A device advertising only a pairing service cannot be connected to
       // until the user enters the code from its screen. Open the pairing form
       // on its real advertised port rather than making them read two
@@ -243,7 +316,7 @@
       // list is where that state is visible.
       await refresh();
     } catch (e) {
-      scanMessage = String(e);
+      if (!disposed) scanMessage = String(e);
     } finally {
       scanBusy = false;
     }
@@ -757,7 +830,7 @@
   // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing || directUnavailable) return;
+    if (disposed || adbMissing || directUnavailable) return;
     if (devices.some((d) => d.status === "device")) return;
     await scan();
   }
@@ -766,6 +839,9 @@
     void bootDiscovery();
     void refreshStopOnQuit();
     return () => {
+      disposed = true;
+      nativeMonitorToken++;
+      if (nativeMonitorTimer) clearTimeout(nativeMonitorTimer);
       pairWaitToken++;
       reattachToken++;
     };
@@ -854,6 +930,9 @@
   {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
+  {/if}
+  {#if adbBackend === "direct" && !scanBusy && nativeConnections.pending.length > 0}
+    <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses. Approve debugging on the TV if prompted; ready TVs appear automatically.</p>
   {/if}
   {#if scanDetails.length}
     <details class="adb-details connect-details">

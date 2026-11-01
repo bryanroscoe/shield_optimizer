@@ -185,6 +185,24 @@ pub struct NativeDiscoveryReport {
     pub observation_max_age_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ScanConnectOutcome {
+    Ready,
+    Pending,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ScanConnectionFailure {
+    pub address: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ScanConnectionProgress {
+    pub pending: Vec<String>,
+    pub failed: Vec<ScanConnectionFailure>,
+}
+
 /// The driver abstraction. Lets tests inject a mock; production uses
 /// `SubprocessAdb`.
 #[async_trait]
@@ -204,6 +222,22 @@ pub trait AdbDriver: Send + Sync {
         Err(AdbError::Unsupported {
             operation: "native_discovery",
         })
+    }
+
+    /// Starts or joins an owned scan attempt. `valid_for` bounds queue time,
+    /// not the time allowed for the user to approve the TV's prompt.
+    async fn scan_connect(
+        &self,
+        _address: &str,
+        _valid_for: std::time::Duration,
+    ) -> AdbResult<ScanConnectOutcome> {
+        Err(AdbError::Unsupported {
+            operation: "scan_connect",
+        })
+    }
+
+    async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+        ScanConnectionProgress::default()
     }
 
     /// Run `adb <args...>` (no `-s` prefix).
