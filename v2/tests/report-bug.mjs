@@ -86,7 +86,7 @@ async function exercise({ browser, base }) {
   const checkbox = dialog.getByRole("checkbox", { name: "Debug logging" });
   assert.equal(await checkbox.isChecked(), false, "debug logging starts off");
   await checkbox.check();
-  await page.waitForFunction(() => document.querySelector("dialog, [role=dialog]")
+  await page.waitForFunction(() => document.querySelector('[aria-labelledby="bug-title"]')
     ?.querySelector("input[type=checkbox]")?.checked === true);
   assert.equal(await checkbox.isChecked(), true, "turning it on sticks");
   // And the backend is what it reflects: reopening reads the live value back.
