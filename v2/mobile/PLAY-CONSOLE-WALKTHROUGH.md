@@ -224,12 +224,20 @@ Message to Ko-fi supporters (paste into Ko-fi messages or email; fill the placeh
 > 5. Redeem the promo code I send you. Don't tap "Buy" in the app, or Google will charge you.
 >
 > The app needs Developer options and network or wireless debugging turned on on the TV. The
-> app shows where the setting is. It sends anonymous device and error reports by default (TV model, Android version,
-> whether an action worked; no serial numbers, IP addresses, TV names or app lists). You can turn
-> that off in More.
+> app shows where the setting is. `<<REPORTS SENTENCE>>`
 >
 > Thanks,
 > `<<OWNER: name>>`
+
+Replace `<<REPORTS SENTENCE>>` here and in the store listing with the line matching the telemetry
+consent option chosen in 0.3. **Send nothing until that decision is made.**
+- First-launch choice: "On first launch it asks whether to share anonymous device and error
+  reports (TV model, Android version, whether an action worked; never serial numbers, IP
+  addresses, TV names or app lists). Nothing is sent unless you agree, and you can change it in
+  More."
+- Default-on (with or without country storage): "It sends anonymous device and error reports by
+  default (TV model, Android version, whether an action worked; never serial numbers, IP
+  addresses, TV names or app lists). You can turn that off in More."
 
 For testers who aren't supporters, use the same message without the promo-code paragraph and
 item 5. Tell them they can try purchases with Google's test payment methods and won't be charged
@@ -502,7 +510,7 @@ Be careful
 Turning off system apps can change how your TV behaves. The app warns you before risky changes, and every disabled app can be turned back on for free.
 
 Privacy
-Your saved TVs, app lists and files stay on your phone. The app sends anonymous device and error reports by default (TV model, Android version, whether an action worked). It never sends serial numbers, IP addresses, TV names or app lists. Turn reports off in More.
+Your saved TVs, app lists and files stay on your phone. <<REPORTS SENTENCE>>
 
 ATV Optimizer is an independent app. It is not affiliated with, endorsed by or sponsored by Google or NVIDIA. Android TV and Google TV are trademarks of Google LLC. SHIELD is a trademark of NVIDIA Corporation.
 ```
@@ -695,7 +703,10 @@ Help: <https://support.google.com/googleplay/android-developer/answer/6321495>,
 The app re-queries owned purchases at launch and on return to the foreground, so a code redeemed
 in the Play Store unlocks Pro the next time the app opens.
 
-**Done when:** one supporter confirms Pro, and **Order management** shows the redemption.
+**Done when:** one supporter confirms Pro in the app (More shows "Source: Google Play purchase").
+Don't look for the redemption in **Order management**: promo-code purchases have no order id
+(<https://developer.android.com/google/play/billing/security>). Use the promotion's own page under
+**Monetize with Play > Promo codes** to see redemption status, if it shows it.
 
 ---
 
