@@ -474,29 +474,36 @@ mod tests {
     fn controlled_read_cancels_even_without_a_socket_shutdown_handle() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        let (finished, hold_open) = std::sync::mpsc::channel();
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             stream.write_all(b"part").unwrap();
-            std::thread::sleep(Duration::from_millis(300));
+            // A peer close must not be what wakes the reader and makes this test pass.
+            hold_open.recv_timeout(Duration::from_secs(3)).is_ok()
         });
         let mut connection =
             CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
         let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
         let signal = control.clone();
+        let started = std::time::Instant::now();
         let canceller = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(100));
+            let cancel_started = std::time::Instant::now();
             signal.cancel();
+            (cancel_started, cancel_started.elapsed())
         });
-        let started = std::time::Instant::now();
         let result =
             connection.read_exact_controlled(&mut [0; 24], Duration::from_secs(2), Some(&control));
-        let elapsed = started.elapsed();
-        canceller.join().unwrap();
-        server.join().unwrap();
+        let completed = std::time::Instant::now();
+        let _ = finished.send(());
+        let (cancel_started, cancel_duration) = canceller.join().unwrap();
+        assert!(server.join().unwrap(), "peer closed before the read completed");
         assert!(
             matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::ConnectionAborted)
         );
-        assert!(elapsed < Duration::from_millis(250), "{elapsed:?}");
+        let latency = completed.duration_since(cancel_started);
+        let setup = cancel_started.duration_since(started);
+        assert!(latency < Duration::from_millis(250), "cancel latency={latency:?}, setup={setup:?}, cancel duration={cancel_duration:?}");
     }
 
     #[test]
