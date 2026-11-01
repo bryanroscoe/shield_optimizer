@@ -252,24 +252,32 @@ uploaded to some track.
 
 ### Purchase test script (license tester, closed or internal track build installed from Play)
 
-`atvopt_pro` is non-consumable: between purchase cases, refund the previous test order with the
-entitlement removed (or use a separate license-tester account), and confirm acknowledgment in
-Order management plus a relaunch, not by waiting inside the app. See
+`atvopt_pro` is non-consumable, so an account that owns it gets "already owned" instead of a new
+payment sheet. Run the cases **in this order on one license-tester account**; each starts from
+the state the previous one leaves. To rerun a case that needs Free, first refund the test order
+with the entitlement removed (Order management) and reopen the app. Prove acknowledgment in Order
+management plus a relaunch, not by waiting inside the app. See
 [`PLAY-CONSOLE-WALKTHROUGH.md`](PLAY-CONSOLE-WALKTHROUGH.md) §4.3.
 
-- Fresh install, Free: More shows Play's price in local currency; Optimize shows the lock card
-  with no "Already have a key?" link.
-- Buy with "always approves": Pro unlocks; More shows "Source: Google Play purchase"; Play Console
-  → Order management shows the order acknowledged (not auto-refunded after 3 days).
-- Buy with "Slow test card": "Purchase pending" and still Free; after it completes, returning to
-  the app unlocks Pro.
-- Cancel the sheet: no message, still Free. Decline card: an error, still Free.
-- Uninstall/reinstall or a second phone on the same account: Restore purchases (or just launch)
-  restores Pro without charging.
-- Refund the test order with "Remove entitlement" in Order management, reopen the app: back to
-  Free; More → Emergency recovery and Apps → re-enable still work.
-- Airplane mode after a purchase: Pro stays for up to 7 days; then Free until Play is reachable.
-- Redeem a promo code in the Play Store app, then open the app: Pro unlocks.
+Starting state: Free (the account doesn't own `atvopt_pro`).
+
+1. Fresh install, Free: More shows Play's price in local currency; Optimize shows the lock card
+   with no "Already have a key?" link.
+2. Cancel the sheet: no message, still Free. Buy with "always declines": an error, still Free.
+3. Buy with "Slow test card, approves after a few minutes": "Purchase pending" and still Free;
+   after it completes, returning to the app unlocks Pro. **Now owned.**
+4. Acknowledgment: 5 minutes later Order management shows the order still charged, not refunded
+   (unacknowledged tester purchases are refunded after 3 minutes); force-stop and relaunch, still
+   Pro, and More shows "Source: Google Play purchase".
+5. Uninstall/reinstall, or a second phone on the same account: Restore purchases (or just launch)
+   restores Pro without charging.
+6. Airplane mode while owned: Pro stays (up to 7 days offline); then Free until Play is reachable.
+7. Refund the order with "Remove entitlement" in Order management, reopen the app: back to Free;
+   More → Emergency recovery and Apps → re-enable still work. **Now Free.**
+8. Buy with "always approves": Pro unlocks at once; repeat the step 4 acknowledgment check.
+9. Promo code, on an account that doesn't own Pro (a supporter account that isn't a license
+   tester, or this one after another refund as in step 7): redeem in the Play Store app, then open
+   the app: Pro unlocks.
 
 ## 7. Upload
 

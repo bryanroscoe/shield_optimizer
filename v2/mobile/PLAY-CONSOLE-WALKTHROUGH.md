@@ -26,7 +26,7 @@ consecutive days**. Both run on Google's clock, so start them first.
 **Phase 0: today (owner, about 1 hour, plus waiting on Google)**
 - [ ] 0.1 Account checks done on the Console Home page: device verification, identity, contact email and phone
 - [ ] 0.2 Payments profile created, bank account and tax info added (verification can take days)
-- [ ] 0.3 Decisions recorded: support email `<<OWNER: support email>>`, public developer name `<<OWNER: developer name>>`, privacy-policy host, and who generates the upload key
+- [ ] 0.3 Decisions recorded: support email `<<OWNER: support email>>`, public developer name `<<OWNER: developer name>>`, privacy-policy host, who generates the upload key, telemetry consent and deletion
 - [ ] 0.4 Recruitment message sent to Ko-fi supporters and other likely testers; collecting Google account emails (target 15-20, minimum 12)
 
 **Phase 1: app shell (owner, about 30 minutes)**
@@ -107,6 +107,9 @@ consecutive days**. Both run on Google's clock, so start them first.
 - **Approximate location in Data safety.** The Worker stores the Cloudflare-derived **country**.
   Google says location inferred from an IP address counts as approximate location. The audit left
   this open. This guide declares it.
+- **Telemetry consent.** Reports start before any user choice. Because the Worker stores an
+  IP-derived country, that is a consent risk under the User Data policy. It's now a
+  pre-upload owner decision (Phase 0.3), not a fix to apply only if review objects.
 - **Install id in Data safety.** The random install id is a "Device or other ID" in Google's sense
   (Google's own example is a Firebase installation ID), even though it is random and not tied to
   the phone.
@@ -176,6 +179,7 @@ You can create the product before this, but nobody can buy until it's done.
 | Privacy-policy host | (a) GitHub Pages from this public repo, (b) a static page on the telemetry Worker's domain, (c) a personal site. `<<OWNER: choose>>` | Must be a public, non-PDF page reachable from every country. The agent drafts the text from `DATA-INVENTORY.md`. |
 | Upload key custody | (a) **Agent generates**: runs RELEASE.md §1's `keytool` with random passwords, saves the `.jks` and both passwords to 1Password (item "ATV Optimizer Play upload key"), and the owner confirms the vault and makes the offline backup. (b) **Owner generates**: runs the command below and stores everything in 1Password. `<<OWNER: a or b>>` | The upload key is resettable through Play support if lost, but losing it means days of delay. |
 | Telemetry deletion | See the deletion answer in Phase 2.2. `<<OWNER: choose>>` | It decides one Data safety answer. |
+| Telemetry consent | First-launch choice, stop storing country, or keep as is. See "Telemetry consent" in Phase 2.2a. `<<OWNER: choose>>` | Google requires consent before collecting location-type data; settle it before the first upload. |
 
 Option (b), run by the owner (from RELEASE.md §1; RSA 4096 is above Google's RSA 2048 minimum):
 
@@ -428,12 +432,25 @@ never leave the phone, so they aren't "collected".
    the README's `DELETE` statements on request. Optionally also purge or anonymize
    `agg_device_installs.install_id` after 90 days, so the automatic-deletion description fits.
 
-**Disclosure note (review risk, not a confirmed violation):** reports are on before the user taps
-anything, with a one-time, non-blocking first-launch notice. Google requires prominent in-app
-disclosure plus affirmative consent before collecting *personal and sensitive* data that users
-wouldn't expect (<https://support.google.com/googleplay/android-developer/answer/10144311>).
-These reports are designed to be anonymous, but they carry a pseudonymous id and a country. If
-review objects, the fix is a first-launch choice screen. Keep the "Optional" answer either way.
+**Telemetry consent: decide before the first upload, not after review objects.**
+`<<OWNER: choose one before 3.1>>`. Today, reports start at launch, before the user taps
+anything. The first-launch notice is non-blocking, and its OK and Settings buttons don't record a
+choice. Google requires prominent in-app disclosure **and affirmative consent before collection**
+for personal and sensitive data a user might not expect. Its examples include device location,
+and it lists collecting location without consent as a common violation
+(<https://support.google.com/googleplay/android-developer/answer/10144311>). The Worker stores an
+IP-derived **country**, which this guide declares as approximate location, plus a pseudonymous
+install id. Options:
+1. **First-launch choice (recommended, agent code work):** nothing is sent until the user taps
+   "Share reports" or "Don't share" on a blocking first-launch screen that explains the data.
+   Off unless they agree. This is no longer "on by default", so it changes the owner's earlier
+   decision.
+2. **Stop storing location (agent Worker change):** drop `country` from the Worker and its schema.
+   The Approximate location row then goes away. Reports stay on by default with the notice and
+   opt-out. The install id and diagnostics remain, so some consent risk remains.
+3. **Keep the current behavior** and accept the review risk. This guide doesn't recommend it.
+
+Whichever you choose, keep the "Optional" answer: every user can turn reports off.
 
 **Done when:** Data safety shows a preview that matches the table above, saved and submitted.
 
@@ -528,7 +545,8 @@ Follow RELEASE.md §2-5 and its testing-candidate gates. In particular:
   `ATVOPT_TELEMETRY_URL=<deployed Worker https base>` exported in the same shell
 - `npm run tauri android build -- --aab`, then `jarsigner -verify` on the AAB, and the bundletool
   and 16 KB checks
-- the build must include the privacy-policy link from 2.1
+- the build must include the privacy-policy link from 2.1 and whatever telemetry-consent option
+  the owner chose in 0.3
 
 Follow the build-machine limits (one compiler job; check disk space first).
 
@@ -637,12 +655,13 @@ Run the **Purchase test script** in RELEASE.md §6 on a Play-installed build as 
 plus a promo-code redemption (Phase 5). Two rules make it executable and meaningful
 (<https://developer.android.com/google/play/billing/test>):
 
-- **Reset ownership between purchase cases.** `atvopt_pro` is a non-consumable, so after one
-  successful test purchase the same account gets "already owned" instead of a new payment sheet.
-  Before each further case (slow card, cancel, decline), refund the previous test order with
-  entitlement removed: **Order management** > the order > **Refund** and choose to remove the
-  entitlement. Then reopen the app so it reports Free. Alternatively, give each case its own
-  license-tester account.
+- **Run the cases in the script's order.** `atvopt_pro` is a non-consumable, so an account that
+  owns it gets "already owned" instead of a new payment sheet. The script is ordered so each case
+  starts in the state it needs: the Free cases first, then the slow-card purchase, the owned cases
+  (acknowledgment, restore, offline), the refund back to Free, a second purchase, and promo
+  redemption on an account that doesn't own Pro. To rerun a case that needs Free, first refund
+  the test order in **Order management** with the entitlement removed and reopen the app.
+  Alternatively, give each case its own license-tester account.
 - **Prove acknowledgment in the Console, not by waiting in the app.** Right after a purchase the
   app shows Pro from its own state, and it only asks Play again at launch, on return to the
   foreground, or on **Restore purchases**. An unacknowledged license-tester purchase is refunded
@@ -650,8 +669,8 @@ plus a promo-code redemption (Phase 5). Two rules make it executable and meaning
   order is still charged and acknowledged, not refunded; then (2) force-stop and reopen the app
   (or tap **Restore purchases**) and confirm Pro is still active.
 
-**Done when:** every line of the script passes, including both acknowledgment checks above. Report failures to the agent with the time and
-the More > Debug log.
+**Done when:** every line of the script passes, including both acknowledgment checks above.
+Report failures to the agent with the time and the More > Debug log.
 
 ---
 
