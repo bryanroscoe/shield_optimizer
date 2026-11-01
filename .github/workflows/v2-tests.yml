@@ -226,10 +226,13 @@ jobs:
         working-directory: v2
         run: npm run test:shell-acknowledge
 
-      - name: Report a bug
+      - name: ADB settings
         working-directory: v2
         run: npm run test:adb-settings
-          npm run test:report-bug
+
+      - name: Report a bug
+        working-directory: v2
+        run: npm run test:report-bug
 
       # Report this app: the preview is what is shared, it never carries a
       # serial or address, and the saved file is the registry-triage shape.
