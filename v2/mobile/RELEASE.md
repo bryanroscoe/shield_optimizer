@@ -200,6 +200,12 @@ included in reports; a Buy attempt reports only its outcome (see `DATA-INVENTORY
 
 ## 6. Owner setup in Play Console for Pro (one time)
 
+**Click-by-click version:** [`PLAY-CONSOLE-WALKTHROUGH.md`](PLAY-CONSOLE-WALKTHROUGH.md) covers the
+whole launch in critical-path order: account verification, payments profile, store listing, Data
+safety answers, content rating, closed test, promo codes and production access. Its links were
+checked against Google's pages on 2026-11-01. Where it differs from the summary below, follow the
+walkthrough.
+
 The code is ready for these; none of it can be done from the repo. Order matters: Play only lets
 you create the in-app product after an AAB that declares `com.android.vending.BILLING` has been
 uploaded to some track.
@@ -209,11 +215,13 @@ uploaded to some track.
 2. **Create the app** in Play Console with package `com.atvoptimizer.mobile` (permanent after the
    first upload), category Tools, free download with in-app purchases.
 3. **Play App Signing.** Accept Google-managed app signing on the first upload (default for new
-   apps). Record the app-signing and upload certificate SHA-256 fingerprints from **Test and
-   release → App integrity** in 1Password.
-4. **Payments profile.** Settings → **Payments profile**: create or link the merchant/payments
-   profile, bank account and tax details. Selling the product is blocked until it is verified,
-   which can take days, so start it first.
+   apps). Record the app-signing and upload certificate SHA-256 fingerprints from **Protected with
+   Play → Play Store protection → Manage Play app signing** in 1Password (new apps get hybrid
+   signing, which shows three app-signing fingerprints).
+4. **Payments profile.** Manage account → Play apps settings → Monetization settings →
+   **Payments profile**: create or link the merchant/payments profile, bank account and tax
+   details. Selling the product is blocked until it is verified, which can take days, so start
+   it first.
 5. **License key.** Monetize with Play → Monetization setup → copy the Base64 RSA public key into
    1Password as `ATVOPT_PLAY_LICENSE_KEY`. It is per-app and never rotates.
 6. **First upload.** Build the AAB above (with the key and `ATVOPT_DISTRIBUTION=play`), choose a
@@ -223,38 +231,53 @@ uploaded to some track.
    (not rent), US price **$4.99** and let Play derive other countries' prices. Activate it. The app
    shows Play's localized price, never a hard-coded one.
 8. **License testers.** Settings → **License testing**: add the Google accounts of everyone testing
-   purchases: the owner and **every closed-track tester** (step 9), so they can test-purchase Pro
-   without being charged. Their purchases use test cards ("Test card, always approves",
-   "Slow test card" for PENDING, "declines" for errors) and are never charged. Set the license
+   purchases: the owner and closed-track testers who will try the purchase flow, so they can
+   test-purchase Pro without being charged. Leave Ko-fi supporters who get a promo code (step 10)
+   off this list, so their redemption is a normal, permanent purchase. License testers' purchases
+   use test instruments ("Test instrument, always approves", "Slow test card, approves after a few
+   minutes" for PENDING, "…always declines" for errors) and are never charged. Set the license
    response to RESPOND_NORMALLY.
 9. **Closed testing track.** The developer account is personal and recently created, so the
    12-tester / 14-day rule applies: at least 12 testers must stay opted in for 14 consecutive days
    before you can apply for production access (then about a week of review). Test and release →
    Testing → **Closed testing**: create a track, add a Google Group or email list, and roll the
-   same AAB out to it. **Invite past Ko-fi supporters first**; they are the natural first 12+. Add
-   each of them as a license tester too (step 8). Share the opt-in link. Start this as early as
-   possible: it is the critical path to production.
-10. **Ko-fi supporters get Pro free.** Monetize with Play → Products → `atvopt_pro` → **Promo
-    codes**: create a one-time-product promo batch and send each past Ko-fi supporter one code. A
-    redeemed code arrives as a normal purchase (no order id) and goes through the same verification
+   same AAB out to it. **Invite past Ko-fi supporters first**; they are the natural first 12+.
+   Share the opt-in link. Start this as early as possible: it is the critical path to
+   production.
+10. **Ko-fi supporters get Pro free.** Monetize with Play → **Promo codes** → Create promo code
+    for `atvopt_pro` (at most 500 codes per quarter) and send each past Ko-fi supporter one
+    code. A redeemed code arrives as a normal purchase (no order id) and goes through the same verification
     and restore. Supporters who are also closed testers can redeem their code on the closed track.
     No separate key, APK or bypass. Keep the supporter list and codes out of this repo.
 
 ### Purchase test script (license tester, closed or internal track build installed from Play)
 
-- Fresh install, Free: More shows Play's price in local currency; Optimize shows the lock card
-  with no "Already have a key?" link.
-- Buy with "always approves": Pro unlocks; More shows "Source: Google Play purchase"; Play Console
-  → Order management shows the order acknowledged (not auto-refunded after 3 days).
-- Buy with "Slow test card": "Purchase pending" and still Free; after it completes, returning to
-  the app unlocks Pro.
-- Cancel the sheet: no message, still Free. Decline card: an error, still Free.
-- Uninstall/reinstall or a second phone on the same account: Restore purchases (or just launch)
-  restores Pro without charging.
-- Refund the test order with "Remove entitlement" in Order management, reopen the app: back to
-  Free; More → Emergency recovery and Apps → re-enable still work.
-- Airplane mode after a purchase: Pro stays for up to 7 days; then Free until Play is reachable.
-- Redeem a promo code in the Play Store app, then open the app: Pro unlocks.
+`atvopt_pro` is non-consumable, so an account that owns it gets "already owned" instead of a new
+payment sheet. Run the cases **in this order on one license-tester account**; each starts from
+the state the previous one leaves. To rerun a case that needs Free, first refund the test order
+with the entitlement removed (Order management) and reopen the app. Prove acknowledgment in Order
+management plus a relaunch, not by waiting inside the app. See
+[`PLAY-CONSOLE-WALKTHROUGH.md`](PLAY-CONSOLE-WALKTHROUGH.md) §4.3.
+
+Starting state: Free (the account doesn't own `atvopt_pro`).
+
+1. Fresh install, Free: More shows Play's price in local currency; Optimize shows the lock card
+   with no "Already have a key?" link.
+2. Cancel the sheet: no message, still Free. Buy with "always declines": an error, still Free.
+3. Buy with "Slow test card, approves after a few minutes": "Purchase pending" and still Free;
+   after it completes, returning to the app unlocks Pro. **Now owned.**
+4. Acknowledgment: 5 minutes later Order management shows the order still charged, not refunded
+   (unacknowledged tester purchases are refunded after 3 minutes); force-stop and relaunch, still
+   Pro, and More shows "Source: Google Play purchase".
+5. Uninstall/reinstall, or a second phone on the same account: Restore purchases (or just launch)
+   restores Pro without charging.
+6. Airplane mode while owned: Pro stays (up to 7 days offline); then Free until Play is reachable.
+7. Refund the order with "Remove entitlement" in Order management, reopen the app: back to Free;
+   More → Emergency recovery and Apps → re-enable still work. **Now Free.**
+8. Buy with "always approves": Pro unlocks at once; repeat the step 4 acknowledgment check.
+9. Promo code, on an account that doesn't own Pro (a supporter account that isn't a license
+   tester, or this one after another refund as in step 7): redeem in the Play Store app, then open
+   the app: Pro unlocks.
 
 ## 7. Upload
 
