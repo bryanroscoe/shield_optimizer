@@ -163,35 +163,80 @@ characters) the admin routes answer `503`.
 
 ## Deploy (owner)
 
-Nothing here has been deployed. You need a Cloudflare account (free plan is fine) and Node 22.18+.
+Use Node 22.18+ and the intended Cloudflare account. Production deployment and remote
+migrations require the owner's deployment approval; the commands below are not approval.
+Local development and tests use local storage, not the production D1 database.
+
+### Existing production deployment
+
+[PR #269](https://github.com/bryanroscoe/shield_optimizer/pull/269) records the production
+`telemetry` database binding in `wrangler.toml`. Its author reported deployment on 2026-11-01
+at `https://atv-optimizer-telemetry.bryanroscoe.workers.dev`, with migrations, the daily retention
+cron, `ADMIN_TOKEN`, and the release-build `ATVOPT_TELEMETRY_URL` variable configured.
+That report does not establish that a real app build has successfully sent events.
+
+For a routine production redeploy, **keep the committed database binding and existing admin
+secret**. Do not create another database, paste a replacement ID, or generate/reset the admin
+token as part of redeployment. If the binding or access is wrong, stop and reconcile it with
+the owner instead of provisioning replacement resources.
 
 ```sh
 cd v2/telemetry-worker
 npm ci
-
-npx wrangler login                       # opens a browser
-npx wrangler d1 create telemetry         # prints a database_id
-# paste that id into wrangler.toml -> [[d1_databases]] database_id
-
-npx wrangler d1 migrations apply telemetry --remote
-npx wrangler deploy
-
-openssl rand -base64 32                  # copy this into your password manager first
-npx wrangler secret put ADMIN_TOKEN      # paste it at the prompt; Cloudflare never shows it again
+npm test
+npm run typecheck
 ```
 
-`wrangler deploy` prints the URL, `https://atv-optimizer-telemetry.<your-subdomain>.workers.dev`.
-That base URL is what the apps need: they post to `<url>/v1/events` and read
-`<url>/v1/support-tiers`. Check it with:
+Before the approved remote changes, verify the selected account and the committed
+`[[d1_databases]]` binding, and review any new `migrations/000N_*.sql`. Apply only the intended
+pending migrations to the existing database, then deploy the reviewed code:
 
 ```sh
-curl -s https://atv-optimizer-telemetry.<your-subdomain>.workers.dev/v1/support-tiers
+npx wrangler d1 migrations apply telemetry --remote
+npx wrangler deploy
 ```
 
-Later schema changes go in a new `migrations/000N_*.sql` and are applied with the same
-`migrations apply --remote` command before deploying the code that needs them.
+A read-only support-tier smoke check is:
 
-To change support tiers:
+```sh
+curl -fsS https://atv-optimizer-telemetry.bryanroscoe.workers.dev/v1/support-tiers
+```
+
+A successful support-tier response does not validate event ingestion, admin access, or a real
+app's release configuration. Keep those acceptance checks separate; do not send fabricated
+production telemetry merely to check deployment.
+
+### First-time setup for a fork or independent deployment
+
+These steps are **not** the production redeploy procedure above. Use the fork owner's account
+and explicitly approved resource/credential setup. The committed production database ID belongs
+to the upstream deployment and must not be reused for a fork.
+
+```sh
+cd v2/telemetry-worker
+npm ci
+npx wrangler login                       # only when the owner authorizes sign-in
+npx wrangler d1 create telemetry         # new independent database, not upstream production
+# Set the fork's own database_id in wrangler.toml -> [[d1_databases]].
+# Verify the intended account, Worker name, and database before any remote changes.
+npx wrangler d1 migrations apply telemetry --remote
+npx wrangler deploy
+```
+
+For this new deployment, provision `ADMIN_TOKEN` through the owner's approved secret-management
+flow and `wrangler secret put ADMIN_TOKEN`; never commit it or print it in logs. Creating or
+rotating credentials is a separate owner-authorized operation, not a routine deploy step.
+Use the URL returned by `wrangler deploy` for the fork's release-build `ATVOPT_TELEMETRY_URL`
+configuration. Apps post to `<url>/v1/events` and read `<url>/v1/support-tiers`.
+
+### Later schema and support-tier changes
+
+Later schema changes go in a new `migrations/000N_*.sql` and are reviewed and applied with the
+same `migrations apply --remote` command before deploying the code that needs them. Do not
+create a replacement database to apply a schema change.
+
+To change support tiers after owner approval, use the intended deployment URL and existing
+admin secret:
 
 ```sh
 curl -X PUT "$URL/v1/admin/support-tiers" \
