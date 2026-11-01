@@ -72,18 +72,36 @@ impl CurrentConnection {
         };
         let started = std::time::Instant::now();
         while !buf.is_empty() {
-            let remaining = control.remaining()?.min(timeout.saturating_sub(started.elapsed()));
+            let remaining = control
+                .remaining()?
+                .min(timeout.saturating_sub(started.elapsed()));
             if remaining.is_zero() {
-                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "ADB read timed out").into());
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "ADB read timed out",
+                )
+                .into());
             }
             // shutdown does not reliably wake an already-blocked Winsock recv.
             self.set_read_timeout(remaining.min(Duration::from_millis(50)))?;
             let result = self.read(buf);
             control.remaining()?;
             match result {
-                Ok(0) => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "ADB stream ended mid-frame").into()),
+                Ok(0) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "ADB stream ended mid-frame",
+                    )
+                    .into());
+                }
                 Ok(count) => buf = &mut buf[count..],
-                Err(error) if matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted) => {},
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock
+                            | std::io::ErrorKind::TimedOut
+                            | std::io::ErrorKind::Interrupted
+                    ) => {}
                 Err(error) => return Err(error.into()),
             }
         }
@@ -255,7 +273,11 @@ impl ADBMessageTransport for TcpTransport {
         };
         let read_started = std::time::Instant::now();
         let mut data = [0; 24];
-        raw_connection.read_exact_controlled(&mut data, read_timeout, self.shell_control.as_ref())?;
+        raw_connection.read_exact_controlled(
+            &mut data,
+            read_timeout,
+            self.shell_control.as_ref(),
+        )?;
 
         let header = ADBTransportMessageHeader::try_from(data)?;
 
@@ -271,7 +293,11 @@ impl ADBMessageTransport for TcpTransport {
             } else {
                 read_timeout
             };
-            raw_connection.read_exact_controlled(&mut msg_data, payload_timeout, self.shell_control.as_ref())?;
+            raw_connection.read_exact_controlled(
+                &mut msg_data,
+                payload_timeout,
+                self.shell_control.as_ref(),
+            )?;
             // raw_connection is not used anymore, let's drop it
             drop(raw_connection);
 
@@ -453,7 +479,8 @@ mod tests {
             stream.write_all(b"part").unwrap();
             std::thread::sleep(Duration::from_millis(300));
         });
-        let mut connection = CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
+        let mut connection =
+            CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
         let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
         let signal = control.clone();
         let canceller = std::thread::spawn(move || {
@@ -461,11 +488,14 @@ mod tests {
             signal.cancel();
         });
         let started = std::time::Instant::now();
-        let result = connection.read_exact_controlled(&mut [0; 24], Duration::from_secs(2), Some(&control));
+        let result =
+            connection.read_exact_controlled(&mut [0; 24], Duration::from_secs(2), Some(&control));
         let elapsed = started.elapsed();
         canceller.join().unwrap();
         server.join().unwrap();
-        assert!(matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::ConnectionAborted));
+        assert!(
+            matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::ConnectionAborted)
+        );
         assert!(elapsed < Duration::from_millis(250), "{elapsed:?}");
     }
 
@@ -479,10 +509,13 @@ mod tests {
             std::thread::sleep(Duration::from_millis(120));
             stream.write_all(b"cd").unwrap();
         });
-        let mut connection = CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
+        let mut connection =
+            CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
         let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
         let mut bytes = [0; 4];
-        connection.read_exact_controlled(&mut bytes, Duration::from_secs(1), Some(&control)).unwrap();
+        connection
+            .read_exact_controlled(&mut bytes, Duration::from_secs(1), Some(&control))
+            .unwrap();
         control.cancel();
         server.join().unwrap();
         assert_eq!(&bytes, b"abcd");
@@ -495,7 +528,8 @@ mod tests {
         let server = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             stream.set_nodelay(true).unwrap();
-            let message = ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
+            let message =
+                ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
             let header = message.header().as_bytes();
             stream.write_all(&header[..7]).unwrap();
             std::thread::sleep(Duration::from_millis(80));
@@ -505,9 +539,12 @@ mod tests {
             stream.write_all(b"llo").unwrap();
         });
         let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
-        let mut transport = TcpTransport::with_shell_control(address, Path::new("unused"), control.clone());
+        let mut transport =
+            TcpTransport::with_shell_control(address, Path::new("unused"), control.clone());
         transport.connect().unwrap();
-        let message = transport.read_message_with_timeout(Duration::from_secs(1)).unwrap();
+        let message = transport
+            .read_message_with_timeout(Duration::from_secs(1))
+            .unwrap();
         assert_eq!(message.payload(), b"hello");
         control.cancel();
         server.join().unwrap();
@@ -521,14 +558,21 @@ mod tests {
             let (_stream, _) = listener.accept().unwrap();
             std::thread::sleep(Duration::from_millis(300));
         });
-        let mut connection = CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
+        let mut connection =
+            CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())));
         let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
         let started = std::time::Instant::now();
-        let result = connection.read_exact_controlled(&mut [0; 1], Duration::from_millis(20), Some(&control));
+        let result = connection.read_exact_controlled(
+            &mut [0; 1],
+            Duration::from_millis(20),
+            Some(&control),
+        );
         let elapsed = started.elapsed();
         control.cancel();
         server.join().unwrap();
-        assert!(matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::TimedOut));
+        assert!(
+            matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::TimedOut)
+        );
         assert!(elapsed < Duration::from_millis(150), "{elapsed:?}");
     }
 
