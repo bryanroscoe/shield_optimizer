@@ -11,7 +11,7 @@ process.env.VITE_DEMO = '1';
 let server, browser;
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
   await server.listen();
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1100, height: 760 }, colorScheme: 'dark', ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });
@@ -93,7 +93,9 @@ try {
   await failed.waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => window.forgotten), '192.0.2.4:5555');
   await page.evaluate(() => { window.ready = true; window.progress = { pending: ['192.168.1.77:5555'], awaiting_authorization: ['192.168.1.77:5555'], failed: [] }; });
+  await page.locator('[data-serial="192.168.1.77:5555"]').getByText('UNAUTHORIZED', { exact: true }).waitFor();
   await page.getByText('NVIDIA SHIELD Android TV', { exact: true }).first().waitFor();
+  await page.waitForFunction(() => window.activeReads === 0);
   assert.equal(await page.getByRole('button', { name: 'Scanning…', exact: true }).count(), 1);
   await capture('ready-during-scan');
   const lists = await page.evaluate(() => window.calls.filter(c => c === 'list_devices').length);
