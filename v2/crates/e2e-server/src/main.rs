@@ -612,7 +612,8 @@ fn main() {
     let app_lists = loader::load_embedded_app_lists().expect("embedded app lists");
     let state = AppState::new(Arc::new(sim.clone()), app_lists, data_dir.clone())
         .with_entitlement(Entitlement::Pro)
-        .with_known_names(loader::load_known_names());
+        .with_known_names(loader::load_known_names())
+        .with_telemetry(shield_optimizer_core::telemetry::Telemetry::disabled());
 
     let app = mock_builder()
         .manage(state)

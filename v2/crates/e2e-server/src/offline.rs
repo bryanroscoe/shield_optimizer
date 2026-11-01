@@ -6,7 +6,10 @@ pub const FIXTURE_SUBNET: &str = "192.0.2";
 pub fn allowed(command: &str) -> bool {
     matches!(
         command,
-        "list_devices"
+        "telemetry_settings"
+            | "telemetry_action"
+            | "telemetry_error"
+            | "list_devices"
             | "device_profile"
             | "connect_device"
             | "disconnect_device"
@@ -106,7 +109,22 @@ pub fn allowed(command: &str) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn offline_hub_cannot_send_even_if_enabled() {
+        let hub = shield_optimizer_core::telemetry::Telemetry::disabled();
+        assert!(!hub.settings().available);
+        assert!(!hub.is_active());
+        hub.set_enabled(true).unwrap();
+        assert!(!hub.settings().available);
+        assert!(!hub.is_active());
+    }
+
+    #[test]
     fn unknown_and_plugin_commands_cannot_cross_the_offline_boundary() {
+        assert!(allowed("telemetry_settings"));
+        assert!(allowed("telemetry_action"));
+        assert!(allowed("telemetry_error"));
+        assert!(!allowed("set_telemetry_enabled"));
+        assert!(!allowed("dismiss_telemetry_notice"));
         assert!(allowed("remote_open"));
         assert!(allowed("scan_network"));
         assert!(!allowed("new_unreviewed_command"));
