@@ -11,6 +11,14 @@
 -->
 <plist version="1.0">
   <dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>ATV Optimizer finds and connects to your Android TVs on the local network so you can manage them with ADB.</string>
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_adb._tcp</string>
+      <string>_adb-tls-connect._tcp</string>
+      <string>_adb-tls-pairing._tcp</string>
+    </array>
     <key>NSRemovableVolumesUsageDescription</key>
     <string>ATV Optimizer reads a removable volume only when you pick a folder of APKs to sideload, or save a file you pulled off your TV. Declining does not affect anything else in the app.</string>
   </dict>

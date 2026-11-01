@@ -27,8 +27,17 @@ Native Scan LAN now separates discovery from TV approval: owned, bounded connect
 jobs continue after the scan returns, and ready TVs appear through serialized status
 refreshes. Status polling does not re-query unchanged device properties and stops on
 completion, backend unavailability, navigation, or its deadline. Pending handshakes
-are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
+alone are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
 and the native driver/scan unit tests.
+
+macOS native builds declare their Local Network purpose and ADB Bonjour services in
+`src-tauri/Info.plist`. Keep separately installed development apps on a distinct local
+bundle identifier and sign the complete development bundle; `--no-sign` leaves only
+the linker's executable signature. Local Network permissions can become ambiguous
+when multiple unsigned versions share an identifier. A zero-result scan accompanied
+by `No route to host` while the same address is reachable outside the app requires
+checking app-specific Local Network permission, not resetting TV authorization keys.
+The shipping identifier stays unchanged. Apple-issued signing remains a release task.
 
 LAN sweep hits now start connecting before the mDNS observation window finishes.
 Unapproved and failed native endpoints stay visible in the existing device list,
