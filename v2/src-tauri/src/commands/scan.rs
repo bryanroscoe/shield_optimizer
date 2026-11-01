@@ -528,15 +528,16 @@ async fn progressive_native_scan(
 ) -> Result<ScanResult, String> {
     let admit_sweep = async {
         let swept = sweep.await;
-        let attempts = stream::iter(swept.iter().map(|host| {
-            let target = format!("{host}:{ADB_NETWORK_PORT}");
-            async move {
-                let result = adb
-                    .scan_connect(&target, Duration::from_secs(45))
-                    .await
-                    .map_err(|error| bounded_detail(&error.to_string()));
-                (target, result)
-            }
+        let targets: Vec<String> = swept
+            .iter()
+            .map(|host| format!("{host}:{ADB_NETWORK_PORT}"))
+            .collect();
+        let attempts = stream::iter(targets.into_iter().map(|target| async move {
+            let result = adb
+                .scan_connect(&target, Duration::from_secs(45))
+                .await
+                .map_err(|error| bounded_detail(&error.to_string()));
+            (target, result)
         }))
         .buffer_unordered(4)
         .collect::<NativeAttempts>()
