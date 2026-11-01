@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
     "migrate:local": "wrangler d1 migrations apply telemetry --local",
     "report": "node scripts/report.ts"
   },

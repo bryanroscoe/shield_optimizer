@@ -135,10 +135,13 @@ other check in the apps behave the same whatever tier the server returns, and a 
 `fully_supported` gets no extra permissions. Anyone who can change this list can change a label,
 nothing more.
 
-The seed rules match the copy the apps embed (`v2/crates/core/data/device-support.json`): same
-match strings, order and notes. Keep the two in step when you change one. The apps ignore a
-served document whose `updated` is older than their embedded copy; `updated` is an RFC 3339
-timestamp that every `PUT` moves strictly forward. SHIELD strings come from the scrubbed capture in
+The list's source of truth is the copy the apps embed, `v2/crates/core/data/device-support.json`.
+The [Support tiers sync](../../.github/workflows/support-tiers-sync.yml) workflow `PUT`s it here on
+every merge to `main` that changes it and fails unless the served rules then equal the file's; the
+seed in `migrations/0001_init.sql` is only the starting state of a fresh database. Don't change the
+live list any other way. The apps ignore a served document whose `updated` is older than their
+embedded copy; `updated` is an RFC 3339 timestamp that every `PUT` moves strictly forward. The
+process for changing a tier is [`docs/DEVICE-SUPPORT.md`](../../docs/DEVICE-SUPPORT.md). SHIELD strings come from the scrubbed capture in
 `v2/crates/core/tests/fixtures/devices/shield-tv-pro/getprop.txt`. The repo has no TCL getprop
 capture; the TCL rule matches manufacturer `TCL` as reported for the TCL QM7L Pro (Android 14) in
 issue #88. Tighten it once real TCL rows show up in the device report.
@@ -159,17 +162,90 @@ characters) the admin routes answer `503`.
   `sql/device-report.sql`.
 - `PUT /v1/admin/support-tiers` with `{ "rules": [ { "match": {...}, "tier": "...", "note": "..." } ] }`:
   replaces the whole list atomically and bumps `updated`. Each rule needs at least one non-blank
-  match key and a note (200 chars max); up to 200 rules.
+  match key and a note (200 chars max); up to 200 rules. Other top-level keys are ignored, so the
+  embedded file itself is a valid body. Only the sync workflow should call this.
 
-## Deploy (owner)
+## Production
 
-Nothing here has been deployed. You need a Cloudflare account (free plan is fine) and Node 22.18+.
+Live since 2026-11-01 on the owner's Cloudflare account (free plan).
+
+| | |
+| --- | --- |
+| URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |
+| Worker | `atv-optimizer-telemetry` |
+| D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (also in `wrangler.toml`) |
+| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days and old rate counters |
+| Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it; the sync and report workflows call it. |
+| Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
+
+Secrets live in the owner's personal 1Password (`my.1password.com`, vault **Bryan Code**), never
+in the repo, a shell history or a log:
+
+- **ATV Optimizer telemetry ADMIN_TOKEN** (field `credential`): the admin bearer token. The same
+  value is the Worker secret `ADMIN_TOKEN` and the repo secret `TELEMETRY_ADMIN_TOKEN`.
+- **cloudflare -admin api token** (field `credential`): a Cloudflare API token for `wrangler`, used
+  as `CLOUDFLARE_API_TOKEN` instead of `wrangler login`.
+
+Read them with `op read` into an environment variable or a pipe. Never echo them.
+
+What runs against production on its own:
+
+- [Support tiers sync](../../.github/workflows/support-tiers-sync.yml): pushes
+  `device-support.json` on every merge to `main` that changes it, then verifies the served list.
+  Re-run it from the Actions tab if the live list is ever in doubt.
+- [Device support report](../../.github/workflows/device-support-report.yml): Mondays, rewrites the
+  "Device support report" issue. See [`docs/DEVICE-SUPPORT.md`](../../docs/DEVICE-SUPPORT.md).
+
+Both skip with a notice if the secret or variable is missing.
+
+### Redeploy
+
+After a code change merges:
+
+```sh
+cd v2/telemetry-worker
+npm ci
+export CLOUDFLARE_API_TOKEN="$(op read 'op://Bryan Code/cloudflare -admin api token/credential' --account my.1password.com)"
+npx wrangler d1 migrations apply telemetry --remote   # only when migrations/ changed
+npx wrangler deploy
+curl -s https://atv-optimizer-telemetry.bryanroscoe.workers.dev/v1/support-tiers
+rm -rf node_modules .wrangler
+```
+
+Apply a new migration before deploying the code that needs it. If `wrangler` asks which account to
+use, set `CLOUDFLARE_ACCOUNT_ID` from the Cloudflare dashboard.
+
+### Rotating ADMIN_TOKEN
+
+Three copies must change together, or the workflows start failing with `401`:
+
+```sh
+# 1. New value, straight into 1Password (edit the item's credential field).
+op item edit "ATV Optimizer telemetry ADMIN_TOKEN" --vault "Bryan Code" --account my.1password.com \
+  "credential=$(openssl rand -base64 32)" > /dev/null
+# 2. The Worker secret.
+cd v2/telemetry-worker
+export CLOUDFLARE_API_TOKEN="$(op read 'op://Bryan Code/cloudflare -admin api token/credential' --account my.1password.com)"
+op read "op://Bryan Code/ATV Optimizer telemetry ADMIN_TOKEN/credential" --account my.1password.com \
+  | npx wrangler secret put ADMIN_TOKEN
+# 3. The repo secret.
+op read "op://Bryan Code/ATV Optimizer telemetry ADMIN_TOKEN/credential" --account my.1password.com \
+  | gh secret set TELEMETRY_ADMIN_TOKEN -R bryanroscoe/shield_optimizer
+```
+
+Then run **Support tiers sync** from the Actions tab: a green run proves the new token works end to
+end. The apps never see this token; rotating it changes nothing for users.
+
+## Deploy a fresh copy
+
+For a fork, or to rebuild from nothing. You need a Cloudflare account (free plan is fine) and
+Node 22.18+.
 
 ```sh
 cd v2/telemetry-worker
 npm ci
 
-npx wrangler login                       # opens a browser
+npx wrangler login                       # or export CLOUDFLARE_API_TOKEN
 npx wrangler d1 create telemetry         # prints a database_id
 # paste that id into wrangler.toml -> [[d1_databases]] database_id
 
@@ -182,31 +258,23 @@ npx wrangler secret put ADMIN_TOKEN      # paste it at the prompt; Cloudflare ne
 
 `wrangler deploy` prints the URL, `https://atv-optimizer-telemetry.<your-subdomain>.workers.dev`.
 That base URL is what the apps need: they post to `<url>/v1/events` and read
-`<url>/v1/support-tiers`. Check it with:
-
-```sh
-curl -s https://atv-optimizer-telemetry.<your-subdomain>.workers.dev/v1/support-tiers
-```
+`<url>/v1/support-tiers`. Set it as the repo variable `ATVOPT_TELEMETRY_URL` and the token as the
+repo secret `TELEMETRY_ADMIN_TOKEN`, then run **Support tiers sync** once so the live list matches
+the repo.
 
 Later schema changes go in a new `migrations/000N_*.sql` and are applied with the same
 `migrations apply --remote` command before deploying the code that needs them.
 
-To change support tiers:
-
-```sh
-curl -X PUT "$URL/v1/admin/support-tiers" \
-  -H "authorization: Bearer $ADMIN_TOKEN" -H "content-type: application/json" \
-  --data @tiers.json
-```
-
 ## The device report
 
+The weekly issue is the usual way to read it (see [`docs/DEVICE-SUPPORT.md`](../../docs/DEVICE-SUPPORT.md)).
 From the admin endpoint, as a table:
 
 ```sh
-ATV_TELEMETRY_URL=https://atv-optimizer-telemetry.<subdomain>.workers.dev \
-ATV_TELEMETRY_ADMIN_TOKEN=... \
+export ATV_TELEMETRY_URL=https://atv-optimizer-telemetry.bryanroscoe.workers.dev
+export ATV_TELEMETRY_ADMIN_TOKEN="$(op read 'op://Bryan Code/ATV Optimizer telemetry ADMIN_TOKEN/credential' --account my.1password.com)"
 npm run report -- --days 90
+npm run report -- --issue      # the weekly issue body, with current and suggested tiers
 ```
 
 Or straight from D1 without the token (uses your `wrangler login`):
@@ -263,7 +331,7 @@ and none per refused one.
 ```sh
 npm ci
 npm test            # vitest inside workerd via @cloudflare/vitest-plugin, D1 migrations applied
-npm run typecheck
+npm run typecheck   # the Worker, then the Node scripts (tsconfig.scripts.json)
 npm run dev         # wrangler dev on a local D1; run `npm run migrate:local` first
 ```
 

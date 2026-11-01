@@ -1,0 +1,95 @@
+# Keeps the live support-tier list equal to the repo's.
+#
+# v2/crates/core/data/device-support.json is the one source of truth: the apps
+# embed it at build time, and this workflow pushes the same rules to the
+# telemetry Worker (PUT /v1/admin/support-tiers) when it changes on main, so
+# installed apps pick the change up within about an hour without a release.
+#
+# On a pull request it only checks the file (no secrets needed). The process
+# around it is in docs/DEVICE-SUPPORT.md.
+
+name: Support tiers sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'v2/crates/core/data/device-support.json'
+      - 'v2/telemetry-worker/scripts/support-tiers.ts'
+      - 'v2/telemetry-worker/scripts/tiers-lib.ts'
+      - '.github/workflows/support-tiers-sync.yml'
+  pull_request:
+    paths:
+      - 'v2/crates/core/data/device-support.json'
+      - 'v2/telemetry-worker/scripts/support-tiers.ts'
+      - 'v2/telemetry-worker/scripts/tiers-lib.ts'
+      - '.github/workflows/support-tiers-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a sync half way; queue them so the last merge wins.
+concurrency:
+  group: support-tiers-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'live' }}
+  cancel-in-progress: false
+
+env:
+  TIERS_FILE: v2/crates/core/data/device-support.json
+
+jobs:
+  check:
+    name: Check device-support.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check the file
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          args=()
+          # On a PR, also require `updated` to move forward when the rules change.
+          if [ -n "${BASE_REF}" ]; then
+            git fetch --no-tags --depth=1 origin "${BASE_REF}"
+            if git cat-file -e "FETCH_HEAD:${TIERS_FILE}" 2>/dev/null; then
+              git show "FETCH_HEAD:${TIERS_FILE}" > "${RUNNER_TEMP}/base.json"
+              args=(--base "${RUNNER_TEMP}/base.json")
+            fi
+          fi
+          node v2/telemetry-worker/scripts/support-tiers.ts check "${TIERS_FILE}" "${args[@]}"
+
+  sync:
+    name: Push to the live Worker
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: PUT the rules and verify what is served
+        env:
+          ATV_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
+          ATV_TELEMETRY_ADMIN_TOKEN: ${{ secrets.TELEMETRY_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ATV_TELEMETRY_ADMIN_TOKEN}" ] || [ -z "${ATV_TELEMETRY_URL}" ]; then
+            echo "::notice::TELEMETRY_ADMIN_TOKEN secret or ATVOPT_TELEMETRY_URL variable is not set; skipping the sync."
+            exit 0
+          fi
+          node v2/telemetry-worker/scripts/support-tiers.ts sync "${TIERS_FILE}" | tee -a "${GITHUB_STEP_SUMMARY}"

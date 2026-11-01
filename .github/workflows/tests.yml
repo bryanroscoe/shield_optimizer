@@ -11,6 +11,8 @@ on:
       - 'Shield-Optimizer.ps1'
       - 'tests/**'
       - 'v2/telemetry-worker/**'
+      # The Worker suite checks the support-tier file the apps embed.
+      - 'v2/crates/core/data/device-support.json'
       - '.github/workflows/tests.yml'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, closed]
@@ -21,6 +23,8 @@ on:
       - 'Shield-Optimizer.ps1'
       - 'tests/**'
       - 'v2/telemetry-worker/**'
+      # The Worker suite checks the support-tier file the apps embed.
+      - 'v2/crates/core/data/device-support.json'
       - '.github/workflows/tests.yml'
   workflow_dispatch:  # Allow manual trigger
 

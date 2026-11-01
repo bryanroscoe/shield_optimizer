@@ -23,18 +23,35 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now
+### What is in flight right now (2026-11-01)
 
-`v2-2.4.1` (2026-10-23) is the latest release. The `v2-2.4.0` tag exists but its build failed and
-nothing was published. 2.4.1 folded in the never-published 2.3.1 notes (the
-Google TV Setup Wraith fixes #122/#157/#158, Report this app #100, app storage details #98, the
-right-click menu #129 and more) plus the Logs tab, Stop ADB when quitting, Ask again for an
-unauthorized TV, and the last-launcher guard on Uninstall. Ask again has not yet been confirmed
-on a real TV.
+`v2-2.4.1` (2026-10-23) is still the latest desktop release; the `v2-2.4.0` tag's build failed and
+was never published. Merged on `main` since then and not yet in a release:
 
-Still open and not code work: #122 is closed on the fix and now needs a Google TV reporter to
-confirm it on 2.4.1; #123 needs Glance's package id from its reporter; #93 and #105 need a
-real phone and TV.
+- **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
+  `https://atv-optimizer-telemetry.bryanroscoe.workers.dev`. Repo variable `ATVOPT_TELEMETRY_URL`
+  points release builds at it; repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
+  Production details, where the secrets live (1Password item names only) and how to redeploy or
+  rotate: [`v2/telemetry-worker/README.md`](v2/telemetry-worker/README.md#production).
+- **Device support tiers, anonymous telemetry and structured error codes** in both apps (#266).
+  The tier list has one source of truth, `v2/crates/core/data/device-support.json`: the
+  `support-tiers-sync` workflow pushes it live on merge, and the weekly `device-support-report`
+  workflow rewrites the "Device support report" issue with suggested tier moves. A tier changes
+  only by a PR to that file. Process, criteria and the evidence rule:
+  [`docs/DEVICE-SUPPORT.md`](docs/DEVICE-SUPPORT.md).
+- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, with the purchase
+  signature checked on the phone (no server).
+  Past Ko-fi supporters get Pro through Play promo codes.
+
+Play submission path: the developer account is personal and new, so Google requires a closed test
+with at least 12 testers opted in for 14 consecutive days before production access (invite Ko-fi
+supporters first). Build and console steps: [`v2/mobile/RELEASE.md`](v2/mobile/RELEASE.md) and
+[`v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md`](v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md). Nothing in the
+mobile app has been verified on a real Play account or device yet.
+
+Still open and not code work: #122 is closed on the fix and needs a Google TV reporter to confirm
+it on 2.4.1; #123 needs Glance's package id from its reporter; #93 and #105 need a real phone and
+TV.
 
 The mobile companion app (`v2/mobile/`) has its own authoritative handoff at
 [`v2/mobile/HANDOFF.md`](v2/mobile/HANDOFF.md). Its safety story depends on never claiming more
