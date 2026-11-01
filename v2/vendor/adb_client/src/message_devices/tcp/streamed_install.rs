@@ -823,7 +823,7 @@ pub(crate) mod tests {
             let address = listener.local_addr().unwrap();
             let server = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
-            socket.set_nodelay(true).unwrap();
+                socket.set_nodelay(true).unwrap();
                 hello(&mut socket);
                 serve_identity(&mut socket, id, code, stderr);
                 assert!(
@@ -901,7 +901,7 @@ pub(crate) mod tests {
             let address = listener.local_addr().unwrap();
             let server = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
-            socket.set_nodelay(true).unwrap();
+                socket.set_nodelay(true).unwrap();
                 hello(&mut socket);
                 let open = receive(&mut socket).unwrap();
                 assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");

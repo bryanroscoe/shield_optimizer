@@ -420,10 +420,22 @@ struct ForwardedControlCancellation {
 #[cfg(not(target_os = "android"))]
 impl ForwardedControlCancellation {
     fn register(&self, cx: &std::task::Context<'_>, write: bool) -> bool {
-        let mut waiters = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if waiters.cancelled { return false; }
-        let slot = if write { &mut waiters.write } else { &mut waiters.read };
-        if !slot.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
+        let mut waiters = self
+            .waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if waiters.cancelled {
+            return false;
+        }
+        let slot = if write {
+            &mut waiters.write
+        } else {
+            &mut waiters.read
+        };
+        if !slot
+            .as_ref()
+            .is_some_and(|waker| waker.will_wake(cx.waker()))
+        {
             *slot = Some(cx.waker().clone());
         }
         true
@@ -434,14 +446,21 @@ impl ForwardedControlCancellation {
 impl crate::adb::AdbServiceCancellation for ForwardedControlCancellation {
     fn cancel(&self) {
         let (read, write) = {
-            let mut waiters = self.waiters.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut waiters = self
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             waiters.cancelled = true;
             (waiters.read.take(), waiters.write.take())
         };
         let _ = self.socket.shutdown(std::net::Shutdown::Both);
         // Socket shutdown alone need not wake a pending Tokio operation on Windows.
-        if let Some(waker) = read { waker.wake(); }
-        if let Some(waker) = write { waker.wake(); }
+        if let Some(waker) = read {
+            waker.wake();
+        }
+        if let Some(waker) = write {
+            waker.wake();
+        }
     }
 }
 
@@ -453,28 +472,51 @@ struct ForwardedControlStream {
 
 #[cfg(not(target_os = "android"))]
 fn control_cancelled() -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "Remote control cancelled")
+    std::io::Error::new(
+        std::io::ErrorKind::ConnectionAborted,
+        "Remote control cancelled",
+    )
 }
 
 #[cfg(not(target_os = "android"))]
 impl tokio::io::AsyncRead for ForwardedControlStream {
-    fn poll_read(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> std::task::Poll<std::io::Result<()>> {
-        if !self.cancellation.register(cx, false) { return std::task::Poll::Ready(Err(control_cancelled())); }
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !self.cancellation.register(cx, false) {
+            return std::task::Poll::Ready(Err(control_cancelled()));
+        }
         tokio::io::AsyncRead::poll_read(std::pin::Pin::new(&mut self.stream), cx, buf)
     }
 }
 
 #[cfg(not(target_os = "android"))]
 impl tokio::io::AsyncWrite for ForwardedControlStream {
-    fn poll_write(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &[u8]) -> std::task::Poll<std::io::Result<usize>> {
-        if !self.cancellation.register(cx, true) { return std::task::Poll::Ready(Err(control_cancelled())); }
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        if !self.cancellation.register(cx, true) {
+            return std::task::Poll::Ready(Err(control_cancelled()));
+        }
         tokio::io::AsyncWrite::poll_write(std::pin::Pin::new(&mut self.stream), cx, buf)
     }
-    fn poll_flush(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
-        if !self.cancellation.register(cx, true) { return std::task::Poll::Ready(Err(control_cancelled())); }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !self.cancellation.register(cx, true) {
+            return std::task::Poll::Ready(Err(control_cancelled()));
+        }
         tokio::io::AsyncWrite::poll_flush(std::pin::Pin::new(&mut self.stream), cx)
     }
-    fn poll_shutdown(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<std::io::Result<()>> {
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
         tokio::io::AsyncWrite::poll_shutdown(std::pin::Pin::new(&mut self.stream), cx)
     }
 }
@@ -483,13 +525,24 @@ impl tokio::io::AsyncWrite for ForwardedControlStream {
 fn cancellable_control(
     stream: TcpStream,
 ) -> Result<(ForwardedControlStream, Arc<ForwardedControlCancellation>), String> {
-    let socket = stream.into_std().map_err(|e| format!("scrcpy: retain control socket: {e}"))?;
+    let socket = stream
+        .into_std()
+        .map_err(|e| format!("scrcpy: retain control socket: {e}"))?;
     let cancellation = Arc::new(ForwardedControlCancellation {
-        socket: socket.try_clone().map_err(|e| format!("scrcpy: clone owned control socket: {e}"))?,
+        socket: socket
+            .try_clone()
+            .map_err(|e| format!("scrcpy: clone owned control socket: {e}"))?,
         waiters: std::sync::Mutex::default(),
     });
-    let stream = TcpStream::from_std(socket).map_err(|e| format!("scrcpy: register control socket: {e}"))?;
-    Ok((ForwardedControlStream { stream, cancellation: Arc::clone(&cancellation) }, cancellation))
+    let stream =
+        TcpStream::from_std(socket).map_err(|e| format!("scrcpy: register control socket: {e}"))?;
+    Ok((
+        ForwardedControlStream {
+            stream,
+            cancellation: Arc::clone(&cancellation),
+        },
+        cancellation,
+    ))
 }
 
 /// A live scrcpy control session bound to one device serial. Holds the open
@@ -706,7 +759,11 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[cfg(not(target_os = "android"))]
-    async fn forwarded_fixture() -> (ForwardedControlStream, Arc<ForwardedControlCancellation>, TcpStream) {
+    async fn forwarded_fixture() -> (
+        ForwardedControlStream,
+        Arc<ForwardedControlCancellation>,
+        TcpStream,
+    ) {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
             .await
             .unwrap();
