@@ -252,6 +252,11 @@ uploaded to some track.
 
 ### Purchase test script (license tester, closed or internal track build installed from Play)
 
+`atvopt_pro` is non-consumable: between purchase cases, refund the previous test order with the
+entitlement removed (or use a separate license-tester account), and confirm acknowledgment in
+Order management plus a relaunch, not by waiting inside the app. See
+[`PLAY-CONSOLE-WALKTHROUGH.md`](PLAY-CONSOLE-WALKTHROUGH.md) §4.3.
+
 - Fresh install, Free: More shows Play's price in local currency; Optimize shows the lock card
   with no "Already have a key?" link.
 - Buy with "always approves": Pro unlocks; More shows "Source: Google Play purchase"; Play Console

@@ -615,10 +615,23 @@ you prefer).
 ### 4.3 Purchase test. OWNER (with the agent watching logs)
 
 Run the **Purchase test script** in RELEASE.md §6 on a Play-installed build as a license tester,
-plus a promo-code redemption (Phase 5). If a purchase isn't acknowledged, Play refunds a license
-tester's test purchase after 3 minutes, so "still Pro after 5 minutes" is a good check.
+plus a promo-code redemption (Phase 5). Two rules make it executable and meaningful
+(<https://developer.android.com/google/play/billing/test>):
 
-**Done when:** every line of the script passes. Report failures to the agent with the time and
+- **Reset ownership between purchase cases.** `atvopt_pro` is a non-consumable, so after one
+  successful test purchase the same account gets "already owned" instead of a new payment sheet.
+  Before each further case (slow card, cancel, decline), refund the previous test order with
+  entitlement removed: **Order management** > the order > **Refund** and choose to remove the
+  entitlement. Then reopen the app so it reports Free. Alternatively, give each case its own
+  license-tester account.
+- **Prove acknowledgment in the Console, not by waiting in the app.** Right after a purchase the
+  app shows Pro from its own state, and it only asks Play again at launch, on return to the
+  foreground, or on **Restore purchases**. An unacknowledged license-tester purchase is refunded
+  after 3 minutes. So, 5 minutes after buying: (1) check **Order management** and confirm the
+  order is still charged and acknowledged, not refunded; then (2) force-stop and reopen the app
+  (or tap **Restore purchases**) and confirm Pro is still active.
+
+**Done when:** every line of the script passes, including both acknowledgment checks above. Report failures to the agent with the time and
 the More > Debug log.
 
 ---
