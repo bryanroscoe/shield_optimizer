@@ -497,13 +497,19 @@ mod tests {
         let completed = std::time::Instant::now();
         let _ = finished.send(());
         let (cancel_started, cancel_duration) = canceller.join().unwrap();
-        assert!(server.join().unwrap(), "peer closed before the read completed");
+        assert!(
+            server.join().unwrap(),
+            "peer closed before the read completed"
+        );
         assert!(
             matches!(result, Err(RustADBError::IOError(error)) if error.kind() == std::io::ErrorKind::ConnectionAborted)
         );
         let latency = completed.duration_since(cancel_started);
         let setup = cancel_started.duration_since(started);
-        assert!(latency < Duration::from_millis(250), "cancel latency={latency:?}, setup={setup:?}, cancel duration={cancel_duration:?}");
+        assert!(
+            latency < Duration::from_millis(250),
+            "cancel latency={latency:?}, setup={setup:?}, cancel duration={cancel_duration:?}"
+        );
     }
 
     #[test]
