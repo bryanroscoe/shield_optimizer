@@ -154,7 +154,8 @@ impl BoundedShellControl {
                 ErrorKind::TimedOut,
                 "shell total deadline reached",
             )),
-            _ => Err(Error::new(ErrorKind::Interrupted, "shell operation closed")),
+            // Interrupted means retry to std::io::Read::read_exact; cancellation is terminal.
+            _ => Err(Error::new(ErrorKind::ConnectionAborted, "shell operation closed")),
         }
     }
 

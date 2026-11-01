@@ -219,6 +219,36 @@ mod tests {
     use super::decode_shell_v2;
     use std::io::Cursor;
 
+    #[test]
+    fn shell_v2_cancelled_before_first_read_is_terminal_without_retry() {
+        use crate::message_devices::tcp::BoundedShellControl;
+        use std::io::{ErrorKind, Read};
+        use std::time::Duration;
+
+        struct CancelledService {
+            control: BoundedShellControl,
+            reads: usize,
+        }
+        impl Read for CancelledService {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                self.reads += 1;
+                // Fail promptly on regression instead of hanging the test runner.
+                assert_eq!(self.reads, 1, "terminal cancellation must not be retried");
+                self.control.remaining()?;
+                panic!("cancelled control unexpectedly admitted a read");
+            }
+        }
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        control.cancel();
+        let mut input = CancelledService { control, reads: 0 };
+        let error = decode_shell_v2(&mut input, None, None).unwrap_err();
+        assert!(matches!(
+            error,
+            crate::RustADBError::IOError(error) if error.kind() == ErrorKind::ConnectionAborted
+        ));
+        assert_eq!(input.reads, 1);
+    }
+
     fn packet(channel: u8, payload: &[u8]) -> Vec<u8> {
         let mut packet = vec![channel];
         packet.extend(u32::try_from(payload.len()).unwrap().to_le_bytes());
