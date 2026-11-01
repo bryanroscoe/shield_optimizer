@@ -15,9 +15,9 @@ enabled = false
 [[d1_databases]]
 binding = "DB"
 database_name = "telemetry"
-# Placeholder. Replace with the id printed by `wrangler d1 create telemetry`.
+# Production database (created 2026-11-01). A fork must replace this with its own id.
 # Local dev and tests ignore it and use a local SQLite file.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "e86ca0a5-fc1d-4692-9602-01407920ce61"
 migrations_dir = "migrations"
 
 # Daily at 03:17 UTC: delete raw events older than RAW_RETENTION_DAYS and stale
