@@ -146,7 +146,8 @@ desktop build; leave it unset to ship a build that never reports.
   upload live in `crates/core/src/telemetry.rs` (`POST <base>/v1/events`, at most 50 events and
   64 KB per request, 5 s connect / 10 s total timeouts, bounded queue, silent on failure). Never
   sent: `ro.serialno` or any hardware id, IPs or ports, TV names, package lists, file paths,
-  license data, snapshot contents.
+  license data, snapshot contents. The Worker never reads Cloudflare's request location data
+  (`request.cf`) and stores no IP address or location, not even the country.
 - Events: `device_seen` once per TV per session after profiling, `action_result` for connect,
   scan, disable, enable, uninstall, optimize, snapshot apply, launcher, settings writes and
   pairing, and `error` for Rust panics, uncaught frontend errors and failed untracked commands

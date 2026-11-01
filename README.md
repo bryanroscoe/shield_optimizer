@@ -141,7 +141,8 @@ on and where it fails. A report has your TV's make, model and Android version, t
 your computer's or phone's OS, which actions worked or failed, and error messages with addresses,
 names and file paths removed. It never includes serial numbers or other hardware IDs, IP addresses,
 TV names, your list of installed apps, file paths, license details or snapshot contents. Reports go
-to a server we run on Cloudflare and are kept for 90 days.
+to a server we run on Cloudflare and are kept for 90 days. The server doesn't record where a
+report came from: no IP address and no location, not even your country.
 
 Turn this off with **Share anonymous device and error reports**, in the **Report a bug** dialog on
 desktop or on the **More** screen on Android. Turning it off stops sending immediately and discards anything not yet sent; turning it

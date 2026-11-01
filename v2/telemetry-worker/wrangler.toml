@@ -8,7 +8,7 @@ compatibility_date = "2026-10-01"
 tsconfig = "tsconfig.json"
 
 # Workers Logs would record request metadata for every invocation. This Worker
-# promises not to keep request IPs or fine-grained location, so logging stays off.
+# promises not to keep request IPs or any location, so logging stays off.
 [observability]
 enabled = false
 
