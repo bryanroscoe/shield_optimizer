@@ -151,6 +151,8 @@ impl ADBTransport for TcpTransport {
             .unwrap_or(Duration::from_secs(5))
             .min(Duration::from_secs(5));
         let stream = TcpStream::connect_timeout(&self.address, timeout)?;
+        // ADB exchanges small header/payload frames; do not stall them behind delayed ACKs.
+        stream.set_nodelay(true)?;
         if let Some(control) = &self.shell_control {
             control.register(&stream)?;
         }

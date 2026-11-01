@@ -304,6 +304,7 @@ pub(crate) mod tests {
         local: u32,
         bytes: &[u8],
     ) -> std::io::Result<()> {
+        socket.set_nodelay(true)?;
         let message = ADBTransportMessage::try_new(command, 7, local, bytes).unwrap();
         socket.write_all(&message.header().as_bytes())?;
         socket.write_all(message.payload())
@@ -329,6 +330,7 @@ pub(crate) mod tests {
         let address = listener.local_addr().unwrap();
         let thread = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
@@ -698,6 +700,7 @@ pub(crate) mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
             socket
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
@@ -783,6 +786,7 @@ pub(crate) mod tests {
         assert_eq!(result.status, InstallStatus::Indeterminate);
     }
     pub(crate) fn hello(socket: &mut TcpStream) {
+        socket.set_nodelay(true).unwrap();
         socket
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();
@@ -819,6 +823,7 @@ pub(crate) mod tests {
             let address = listener.local_addr().unwrap();
             let server = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
                 hello(&mut socket);
                 serve_identity(&mut socket, id, code, stderr);
                 assert!(
@@ -857,6 +862,7 @@ pub(crate) mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
             hello(&mut socket);
             serve_identity(&mut socket, b"original-TV\n", 0, b"");
             serve_identity(&mut socket, b"original-TV\n", 0, b"");
@@ -895,6 +901,7 @@ pub(crate) mod tests {
             let address = listener.local_addr().unwrap();
             let server = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
                 hello(&mut socket);
                 let open = receive(&mut socket).unwrap();
                 assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
@@ -996,6 +1003,7 @@ pub(crate) mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
             hello(&mut socket);
             let open = receive(&mut socket).unwrap();
             assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
@@ -1030,6 +1038,7 @@ pub(crate) mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
+            socket.set_nodelay(true).unwrap();
             hello(&mut socket);
             let open = receive(&mut socket).unwrap();
             assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");

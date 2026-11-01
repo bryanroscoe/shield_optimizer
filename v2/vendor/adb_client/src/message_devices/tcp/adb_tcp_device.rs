@@ -877,6 +877,7 @@ mod legacy_auth_tests {
     const TOKEN: [u8; 20] = [0x5a; 20];
 
     fn send(socket: &mut TcpStream, command: MessageCommand, arg0: u32, arg1: u32, payload: &[u8]) {
+        socket.set_nodelay(true).unwrap();
         let message = ADBTransportMessage::try_new(command, arg0, arg1, payload).unwrap();
         socket.write_all(&message.header().as_bytes()).unwrap();
         socket.write_all(message.payload()).unwrap();

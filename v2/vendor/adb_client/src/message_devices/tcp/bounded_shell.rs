@@ -434,6 +434,7 @@ mod tests {
         local: u32,
         bytes: &[u8],
     ) -> std::io::Result<()> {
+        socket.set_nodelay(true)?;
         let message = ADBTransportMessage::try_new(command, remote, local, bytes).unwrap();
         socket.write_all(&message.header().as_bytes())?;
         socket.write_all(message.payload())
