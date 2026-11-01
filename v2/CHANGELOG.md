@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: centralize appearance, auto-update and anonymous-report controls in Settings. Inspect the selected ADB client build, explicitly re-download Google's latest platform-tools, and restart the shared server separately. Reinstallation stages and verifies the download, retains one prior copy, and refuses to interrupt this app's active TV work. Connection failures also offer a confirmed recovery shortcut.
+
 - Desktop and Android: show each TV's support status (Fully supported, Supported, Beta, Not supported, Not verified) with a one-line explanation, and a clear banner on TVs the app doesn't support, such as Amazon Fire TV. The status is informational and never loosens a safety check.
 - Desktop and Android: anonymous device and error reports, on by default with a one-time notice and a setting to turn them off. Reports carry the TV's make, model and Android version and which actions worked; never serial numbers, IP addresses, TV names, app lists or file paths.
 - Desktop and Android: errors in connect, scan, pairing, app changes, Optimize and snapshot restore now show a plain-language message, a short error code and a Copy details button.
