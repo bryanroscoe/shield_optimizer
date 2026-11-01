@@ -32,12 +32,14 @@ pub struct Leases {
 struct Counts {
     closed: bool,
     active: usize,
+    exclusive: bool,
 }
 
 /// One unit of counted work. Dropping it is the release.
 #[derive(Debug)]
 pub struct Lease {
     leases: Arc<Leases>,
+    exclusive: bool,
 }
 
 impl Leases {
@@ -48,13 +50,25 @@ impl Leases {
     /// A new lease, or `None` once the counter is closed.
     pub fn try_acquire(self: &Arc<Self>) -> Option<Lease> {
         let mut counts = self.counts();
-        if counts.closed {
+        if counts.closed || counts.exclusive {
             return None;
         }
         counts.active += 1;
         Some(Lease {
             leases: Arc::clone(self),
+            exclusive: false,
         })
+    }
+
+    /// Admit maintenance only when idle, atomically excluding ordinary work.
+    pub fn try_exclusive(self: &Arc<Self>) -> Option<Lease> {
+        let mut counts = self.counts();
+        if counts.closed || counts.active != 0 {
+            return None;
+        }
+        counts.exclusive = true;
+        counts.active = 1;
+        Some(Lease { leases: Arc::clone(self), exclusive: true })
     }
 
     /// Refuse every later lease. Leases already held stay valid.
@@ -95,6 +109,7 @@ impl Drop for Lease {
     fn drop(&mut self) {
         let mut counts = self.leases.counts();
         counts.active -= 1;
+        if self.exclusive { counts.exclusive = false; }
         let idle = counts.active == 0;
         drop(counts);
         if idle {
@@ -295,6 +310,24 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+
+    #[test]
+    fn maintenance_excludes_work_without_reopening_closed_admission() {
+        let leases = Leases::new();
+        let work = leases.try_acquire().unwrap();
+        assert!(leases.try_exclusive().is_none());
+        drop(work);
+        let maintenance = leases.try_exclusive().unwrap();
+        assert!(leases.try_acquire().is_none());
+        assert!(leases.try_exclusive().is_none());
+        drop(maintenance);
+        assert!(leases.try_acquire().is_some());
+        let maintenance = leases.try_exclusive().unwrap();
+        leases.close();
+        drop(maintenance);
+        assert!(leases.try_acquire().is_none());
+        assert!(leases.try_exclusive().is_none());
+    }
 
     #[test]
     fn a_closed_counter_refuses_new_leases_but_keeps_counting_old_ones() {

@@ -5,7 +5,9 @@
 
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
+
+use super::{AdbDriver, SubprocessAdb};
 
 use shield_optimizer_core::adb::Lease;
 
@@ -40,6 +42,8 @@ pub enum InstallError {
     MissingAdb,
     #[error("could not resolve the install directory")]
     NoInstallDir,
+    #[error("downloaded ADB could not report its version: {0}")]
+    InvalidBinary(String),
 }
 
 /// Where we extract platform-tools to — matches the `dirs::data_local_dir`
@@ -59,30 +63,79 @@ pub fn adb_path_in_install_root() -> Option<PathBuf> {
     Some(install_root()?.join(exe))
 }
 
+struct StagingDirectory(PathBuf);
+impl Drop for StagingDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Download and unpack platform-tools. Returns the path to the extracted
 /// adb binary on success.
 ///
 /// Network call is async, ZIP extraction is sync (the `zip` crate is sync;
 /// archives are ~12MB so this is fine on a single blocking-thread spawn).
 pub async fn install_platform_tools(operation: Arc<Lease>) -> Result<PathBuf, InstallError> {
+    static INSTALL_LOCK: LazyLock<Arc<tokio::sync::Mutex<()>>> =
+        LazyLock::new(|| Arc::new(tokio::sync::Mutex::new(())));
+    let guard = Arc::clone(&INSTALL_LOCK).lock_owned().await;
     let install_to = install_root().ok_or(InstallError::NoInstallDir)?;
-    tokio::fs::create_dir_all(&install_to).await?;
-
+    let parent = install_to.parent().ok_or(InstallError::NoInstallDir)?;
+    tokio::fs::create_dir_all(parent).await?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+        .as_nanos();
+    let staging = parent.join(format!("platform-tools-staging-{}-{stamp}", std::process::id()));
+    tokio::fs::create_dir(&staging).await?;
+    let staging_guard = Arc::new(StagingDirectory(staging.clone()));
+    let downloaded = staging.join("downloaded");
+    tokio::fs::create_dir(&downloaded).await?;
     let url = platform_tools_url();
-    tracing::info!(%url, dest = %install_to.display(), "downloading platform-tools");
-
     let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
-    tracing::info!(size = bytes.len(), "platform-tools archive downloaded");
+    let extract_to = downloaded.clone();
+    let extraction_guard = Arc::clone(&staging_guard);
+    let staged_adb = finish_extraction(Arc::clone(&operation), move || {
+        let _staging_guard = extraction_guard;
+        extract_zip_to(std::io::Cursor::new(bytes.as_ref()), &extract_to)
+    }).await?;
+    // A corrupt or wrong-platform download must not replace the working tools.
+    let output = SubprocessAdb::new(staged_adb).raw(&["version"]).await
+        .map_err(|e| InstallError::InvalidBinary(e.to_string()))?;
+    if !output.success() || !output.stdout.contains("Android Debug Bridge version") {
+        return Err(InstallError::InvalidBinary(output.combined()));
+    }
+    tracing::info!(version = %output.stdout.trim(), "downloaded platform-tools verified");
+    let backup = parent.join("platform-tools-previous");
+    finish_extraction(operation, move || {
+        // Keep replacement and rollback together even if the caller is cancelled.
+        let _guard = guard;
+        let _staging_guard = staging_guard;
+        activate_staged(&downloaded, &install_to, &backup)
+    }).await?;
+    adb_path_in_install_root().ok_or(InstallError::NoInstallDir)
+}
 
-    // Extract on a blocking thread — zip crate is synchronous.
-    let install_clone = install_to.clone();
-    let adb_path = finish_extraction(operation, move || -> Result<PathBuf, InstallError> {
-        let cursor = std::io::Cursor::new(bytes.as_ref());
-        extract_zip_to(cursor, &install_clone)
-    })
-    .await?;
-
-    Ok(adb_path)
+fn activate_staged(downloaded: &Path, install_to: &Path, backup: &Path) -> Result<PathBuf, InstallError> {
+    let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
+    if !downloaded.join(exe).is_file() {
+        return Err(InstallError::MissingAdb);
+    }
+    let had_previous = install_to.exists();
+    if had_previous {
+        if backup.exists() { std::fs::remove_dir_all(backup)?; }
+        std::fs::rename(install_to, backup)?;
+    }
+    if let Err(error) = std::fs::rename(downloaded, install_to) {
+        if had_previous {
+            std::fs::rename(backup, install_to).map_err(|restore| {
+                std::io::Error::other(format!("{error}; previous tools remain at {} because rollback failed: {restore}", backup.display()))
+            })?;
+        }
+        return Err(error.into());
+    }
+    // Retain the previous installation for recovery; pairing keys live elsewhere.
+    Ok(install_to.join(exe))
 }
 
 pub(crate) async fn finish_extraction<F>(
@@ -172,6 +225,24 @@ fn extract_zip_to<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, Ins
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn staged_install_preserves_previous_tools_and_rejects_missing_binary() {
+        let temp = tempfile::tempdir().unwrap();
+        let old = temp.path().join("platform-tools");
+        let staged = temp.path().join("downloaded");
+        let backup = temp.path().join("previous");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::create_dir(&staged).unwrap();
+        let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
+        std::fs::write(old.join(exe), b"old").unwrap();
+        assert!(activate_staged(&staged, &old, &backup).is_err());
+        assert_eq!(std::fs::read(old.join(exe)).unwrap(), b"old");
+        std::fs::write(staged.join(exe), b"new").unwrap();
+        activate_staged(&staged, &old, &backup).unwrap();
+        assert_eq!(std::fs::read(old.join(exe)).unwrap(), b"new");
+        assert_eq!(std::fs::read(backup.join(exe)).unwrap(), b"old");
+    }
 
     #[test]
     fn install_root_is_under_data_local_dir() {

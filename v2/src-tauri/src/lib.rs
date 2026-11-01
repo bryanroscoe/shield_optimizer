@@ -98,6 +98,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         health::app_list_for_device,
         health::report_all,
         install::adb_status,
+        install::adb_build_info,
         install::install_adb,
         install::restart_adb,
         quit::get_stop_adb_on_quit,

@@ -46,6 +46,26 @@ pub async fn adb_status(state: State<'_, AppState>) -> Result<AdbStatus, String>
 }
 
 #[derive(Serialize)]
+pub struct AdbBuildInfo {
+    pub path: Option<String>,
+    pub version: Option<String>,
+}
+
+/// Reports the selected client binary, not the potentially older shared server.
+#[tauri::command]
+pub async fn adb_build_info(state: State<'_, AppState>) -> Result<AdbBuildInfo, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb.raw(&["version"]).await.map_err(|e| e.to_string())?;
+    if !out.success() {
+        return Err(out.combined());
+    }
+    Ok(AdbBuildInfo {
+        path: None,
+        version: Some(out.stdout.trim().to_string()),
+    })
+}
+
+#[derive(Serialize)]
 pub struct InstallResult {
     pub ok: bool,
     pub path: Option<String>,
@@ -78,7 +98,7 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 /// Reusable implementation — callable from tests against an `AppState` without
 /// the `State<'_, T>` lifetime constraint.
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
-    let adb = state.adb_snapshot().await;
+    let adb = state.maintenance_snapshot().await.map_err(|e| e.to_string())?;
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
     // their own after the daemon restarts; network devices (ip:port) do not —
@@ -240,7 +260,7 @@ where
     F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
-    let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
+    let operation = Arc::new(state.try_adb_maintenance().map_err(|e| e.to_string())?);
     match installer(Arc::clone(&operation)).await {
         Ok(path) => {
             // A managed install outranks everything discovery would otherwise

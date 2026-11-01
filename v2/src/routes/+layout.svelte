@@ -1,5 +1,7 @@
 <script lang="ts">
   import "../app.css";
+  import AdbSettings from "$lib/components/AdbSettings.svelte";
+  import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import BrandMark from "$lib/components/BrandMark.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
@@ -47,6 +49,21 @@
   const RELEASES_PAGE = "https://github.com/bryanroscoe/shield_optimizer/releases";
   const changelog = parseChangelog(changelogSource);
 
+  let settingsDialog: HTMLDialogElement;
+  let settingsOpen = $state(false);
+  let settingsBusy = $state(false);
+  let settingsError = $state("");
+  function openSettings() {
+    settingsError = "";
+    settingsOpen = true;
+    settingsDialog.showModal();
+    void loadTelemetry();
+    void refreshStopOnQuit();
+  }
+  function settingsStopClick(e: MouseEvent) {
+    (e.currentTarget as HTMLInputElement).checked = stopOnQuit.setting?.enabled ?? false;
+    void toggleStopOnQuit();
+  }
   let theme = $state<ThemePref>("system");
   let autoUpdate = $state(true);
   let update = $state<UpdateInfo | null>(null);
@@ -133,7 +150,7 @@
 
   async function reviewTelemetry() {
     await dismissTelemetryNotice();
-    await openBugReport();
+    openSettings();
   }
 
   async function toggleTelemetry(e: Event) {
@@ -143,6 +160,7 @@
       telemetry = await api.setTelemetryEnabled(wanted);
     } catch (err) {
       bugMessage = String(err);
+      settingsError = String(err);
       telemetry = await api.telemetrySettings().catch(() => telemetry);
     }
   }
@@ -478,22 +496,7 @@
       >
         <Icon name="bug_report" size={18} />
       </button>
-      <label class="auto-update-toggle" title="Automatically download and install updates on launch">
-        <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
-        Auto-update
-      </label>
-      <div class="theme-toggle" role="group" aria-label="Theme">
-        {#each THEMES as t (t.id)}
-          <button
-            class:active={theme === t.id}
-            title={t.title}
-            aria-pressed={theme === t.id}
-            onclick={() => pickTheme(t.id)}
-          >
-            {t.label}
-          </button>
-        {/each}
-      </div>
+      <button onclick={openSettings} aria-label="Settings"><Icon name="settings" size={18} /> Settings</button>
     </div>
   </header>
   <main>
@@ -501,7 +504,7 @@
       <div class="telemetry-notice" role="status">
         <Icon name="info" size={18} />
         <span>
-          {telemetryNotice} Turn it off any time under Report a bug (the bug icon above).
+          {telemetryNotice} Turn it off any time in Settings.
         </span>
         <span class="telemetry-notice-actions">
           <button onclick={reviewTelemetry}>Change setting</button>
@@ -518,6 +521,57 @@
     </button>
   </footer>
 </div>
+
+<dialog bind:this={settingsDialog} class="settings-dialog" aria-labelledby="settings-title" onclose={() => settingsOpen = false} oncancel={(e) => { if (settingsBusy) e.preventDefault(); }}>
+  <div class="settings-header"><h2 id="settings-title">Settings</h2><button disabled={settingsBusy} onclick={() => settingsDialog.close()}>Close settings</button></div>
+  <h3>Appearance and updates</h3>
+      <label class="auto-update-toggle" title="Automatically download and install updates on launch">
+        <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
+        Auto-update
+      </label>
+      <div class="theme-toggle" role="group" aria-label="Theme">
+        {#each THEMES as t (t.id)}
+          <button
+            class:active={theme === t.id}
+            title={t.title}
+            aria-pressed={theme === t.id}
+            onclick={() => pickTheme(t.id)}
+          >
+            {t.label}
+          </button>
+        {/each}
+      </div>
+  <h3>Privacy</h3>
+    <label class="bug-toggle telemetry-toggle">
+      <input
+        type="checkbox"
+        checked={telemetry?.enabled ?? false}
+        disabled={!telemetry?.available}
+        onchange={toggleTelemetry}
+      />
+      {TOGGLE_LABEL}
+    </label>
+    <p class="bug-path muted">
+      {#if telemetry && !telemetry.available}
+        This build doesn't send reports.
+      {:else}
+        Make, model and Android version of your TVs, which actions worked or failed, and error
+        messages with addresses, names and file paths removed. Never serial numbers, IP addresses,
+        TV names or your app list. Turning this off stops sending at once and discards anything
+        not yet sent.
+      {/if}
+    </p>
+
+  {#if settingsError}<p role="alert">{settingsError}</p>{/if}
+  <h3>When the app closes</h3>
+  <label class="bug-toggle">
+    <input type="checkbox" checked={stopOnQuit.setting?.enabled ?? false} indeterminate={stopOnQuit.setting === null} disabled={stopOnQuit.setting === null} onclick={settingsStopClick} />
+    Stop ADB when quitting
+  </label>
+  <p class="muted">Off by default. Stopping the shared server also disconnects Android Studio, scrcpy and other ADB tools. It stays running while this app is using it or restarting for an update.</p>
+  {#if stopOnQuit.error}<p role="alert">{stopOnQuit.error}</p><button onclick={refreshStopOnQuit}>Check again</button>{/if}
+  {#if settingsOpen}<AdbSettings onbusy={(busy) => settingsBusy = busy} />{/if}
+</dialog>
 
 <svelte:window onkeydown={onKeydown} />
 
@@ -641,25 +695,7 @@
     <p class="bug-path muted mono">
       {logPath ? `Logs: ${logPath}` : "Logs: (no log folder)"}
     </p>
-    <label class="bug-toggle telemetry-toggle">
-      <input
-        type="checkbox"
-        checked={telemetry?.enabled ?? false}
-        disabled={!telemetry?.available}
-        onchange={toggleTelemetry}
-      />
-      {TOGGLE_LABEL}
-    </label>
-    <p class="bug-path muted">
-      {#if telemetry && !telemetry.available}
-        This build doesn't send reports.
-      {:else}
-        Make, model and Android version of your TVs, which actions worked or failed, and error
-        messages with addresses, names and file paths removed. Never serial numbers, IP addresses,
-        TV names or your app list. Turning this off stops sending at once and discards anything
-        not yet sent.
-      {/if}
-    </p>
+    <button onclick={() => { bugOpen = false; openSettings(); }}>Privacy and app settings</button>
     <textarea
       class="bug-bundle mono"
       readonly
@@ -686,6 +722,13 @@
 {/if}
 
 <style>
+  .settings-dialog { width: min(42rem, calc(100vw - 2rem)); max-height: calc(100vh - 3rem); overflow-y: auto; color: var(--fg-primary); background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 20px; }
+  .settings-dialog::backdrop { background: var(--scrim); }
+  .settings-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .settings-dialog h2 { margin: 0; }
+  .settings-dialog h3 { margin: 18px 0 10px; }
+  .settings-dialog p { font-size: 0.85rem; line-height: 1.5; }
+
   .telemetry-notice {
     display: flex;
     flex-wrap: wrap;

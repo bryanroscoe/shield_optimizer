@@ -85,15 +85,14 @@ async function telemetrySetting({ browser, base }) {
   const text = await notice.innerText();
   assert.match(text, /anonymous reports/);
   assert.match(text, /No serial numbers, IP addresses, TV names or app lists\./);
-  assert.match(text, /Report a bug/);
-  assert.doesNotMatch(text, /in Settings/, "desktop points at where the switch really is");
+  assert.match(text, /in Settings/);
   // Non-blocking: the device list is usable underneath it.
   await page.locator('[data-serial="192.168.1.42:5555"]').waitFor();
   await notice.getByRole("button", { name: "Got it" }).click();
   await notice.waitFor({ state: "detached" });
 
-  // The switch lives in the Report a bug dialog, on by default.
-  await page.getByRole("button", { name: "Report a bug" }).click();
+  // The switch lives in Settings, on by default.
+  await page.getByRole("button", { name: "Settings" }).click();
   const toggle = page.getByRole("dialog").getByRole("checkbox", { name: "Share anonymous device and error reports" });
   assert.equal(await toggle.isChecked(), true, "on by default");
   await toggle.uncheck();
@@ -111,7 +110,7 @@ async function telemetrySetting({ browser, base }) {
   await offline.goto(base, { waitUntil: "networkidle" });
   await offline.locator('[data-serial="192.168.1.42:5555"]').waitFor();
   assert.equal(await offline.locator(".telemetry-notice").count(), 0);
-  await offline.getByRole("button", { name: "Report a bug" }).click();
+  await offline.getByRole("button", { name: "Settings" }).click();
   const off = offline.getByRole("dialog").getByRole("checkbox", { name: "Share anonymous device and error reports" });
   assert.equal(await off.isDisabled(), true);
   assert.match(await offline.getByRole("dialog").innerText(), /This build doesn't send reports\./);

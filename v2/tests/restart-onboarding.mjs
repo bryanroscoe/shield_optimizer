@@ -54,6 +54,8 @@ try {
       await page.locator('.connect-form').getByRole('button', { name: 'Add by IP', exact: true }).click();
       await page.locator('.connect-details').waitFor();
       assert.equal(await box.inputValue(), target);
+      await page.getByText('Having trouble connecting?', { exact: true }).waitFor();
+      assert.equal((await page.evaluate(() => window.recoveryCalls)).some(c => c.command === 'restart_adb'), false, 'recovery never restarts automatically');
       if (evidence && scenario === 'auth') {
         await page.screenshot({ path: `${evidence}/failed-add-simulated.png` });
         await page.waitForTimeout(1000);
@@ -65,7 +67,7 @@ try {
       prompt = dialog.message();
       await (scenario === 'cancel' ? dialog.dismiss() : dialog.accept());
     });
-    await page.getByRole('button', { name: 'Restart ADB', exact: true }).click();
+    await page.getByRole('button', { name: scenario === 'unattempted' ? 'Restart ADB' : 'Restart connection service', exact: true }).click();
     if (scenario !== 'cancel') await page.getByText(scenario === 'restart-fails' ? 'Simulated start-server failure' : 'ADB server restarted.', { exact: true }).waitFor();
     const retry = ['auth', 'success', 'failure', 'partial'].includes(scenario);
     if (retry) await page.waitForFunction(() => window.recoveryCalls.filter(c => c.command === 'connect_device').length === 2, null, { timeout: 3000 });

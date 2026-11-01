@@ -19,6 +19,7 @@
     "test:version-compare": "node tests/version-compare.mjs",
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",
     "test:notes-seen": "node tests/notes-seen.mjs",
+    "test:adb-settings": "node tests/adb-settings.mjs",
     "test:report-bug": "node tests/report-bug.mjs",
     "test:reported-package-names": "node tests/reported-package-names.mjs",
     "test:app-report": "node tests/app-report.mjs",

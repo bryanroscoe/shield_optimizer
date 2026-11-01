@@ -103,6 +103,7 @@ export const api = {
   readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
     invoke<DeviceLogResult>("read_device_logs", { serial, options }),
   adbStatus: () => invoke<AdbStatus>("adb_status"),
+  adbBuildInfo: () => invoke<{ path: string | null; version: string | null }>("adb_build_info"),
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),

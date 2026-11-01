@@ -154,9 +154,11 @@ impl AppState {
     /// running ADB work until its last clone is dropped. Once quit has closed
     /// admission, it refuses every call instead.
     pub async fn adb_snapshot(&self) -> Arc<dyn AdbDriver> {
-        let driver = self.adb.read().await.clone();
         match self.adb_operations.try_acquire() {
-            Some(lease) => Arc::new(LeasedAdb::new(driver, lease)),
+            Some(lease) => {
+                let driver = self.adb.read().await.clone();
+                Arc::new(LeasedAdb::new(driver, lease))
+            },
             None => Arc::new(ClosedAdb),
         }
     }
@@ -167,6 +169,18 @@ impl AppState {
         self.adb_operations
             .try_acquire()
             .ok_or(AdbError::ShuttingDown)
+    }
+
+    pub fn try_adb_maintenance(&self) -> Result<Lease, AdbError> {
+        self.adb_operations.try_exclusive().ok_or_else(|| AdbError::Transport(
+            "ADB is busy. Close Remote and wait for TV operations to finish before restarting or reinstalling tools.".into()
+        ))
+    }
+
+    pub async fn maintenance_snapshot(&self) -> Result<Arc<dyn AdbDriver>, AdbError> {
+        let lease = self.try_adb_maintenance()?;
+        let driver = self.adb.read().await.clone();
+        Ok(Arc::new(LeasedAdb::new(driver, lease)))
     }
 
     /// Refuse every later snapshot. Snapshots already handed out keep working.

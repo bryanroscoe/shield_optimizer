@@ -43,6 +43,7 @@
   let connectError = $state<{ raw: string; summary: string | null } | null>(null);
 
   let scanBusy = $state(false);
+  let scanFoundNoDevices = $state(false);
   let scanMessage = $state("");
   let scanError = $state<string | null>(null);
 
@@ -80,6 +81,18 @@
   let adbMissing = $state(false);
   let installBusy = $state(false);
   let installMessage = $state("");
+
+  onMount(() => {
+    const changed = (event: Event) => {
+      if ((event as CustomEvent).detail === "installed") {
+        // Do not probe the server until the user chooses to test the connection.
+        adbMissing = false;
+        installMessage = "ADB tools replaced. Try connecting, or restart the shared service explicitly.";
+      } else { void refresh(); }
+    };
+    window.addEventListener("adb-tools-changed", changed);
+    return () => window.removeEventListener("adb-tools-changed", changed);
+  });
 
   async function refresh() {
     loading = true;
@@ -212,6 +225,8 @@
   }
 
   async function scan() {
+    if (scanBusy || restartBusy || connectBusy) return;
+    scanFoundNoDevices = false;
     scanBusy = true;
     scanError = null;
     scanMessage = "Scanning local network…";
@@ -231,6 +246,7 @@
       // the daemon (e.g. unauthorized — waiting for on-TV approval), and the
       // list is where that state is visible.
       await refresh();
+      scanFoundNoDevices = !error && !adbMissing && devices.length === 0;
     } catch (e) {
       scanMessage = "";
       scanError = String(e);
@@ -614,6 +630,7 @@
   }
 
   async function restartAdb() {
+    if (restartBusy || connectBusy || scanBusy || installBusy || adbMissing) return;
     const retryAddress = failedConnectAddress && failedConnectAddress === connectAddress.trim()
       ? failedConnectAddress : "";
     const retryPrompt = retryAddress ? ` Then retry Add by IP for ${retryAddress} once.` : "";
@@ -794,7 +811,7 @@
   <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
-  <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="adb kill-server then start-server">
+  <button onclick={restartAdb} disabled={restartBusy || connectBusy || scanBusy || installBusy || adbMissing} title="Restart the computer’s shared ADB connection service">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
   <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
@@ -841,6 +858,24 @@
   {/if}
   {#if scanError}
     <ErrorNotice class="connect-message" error={scanError} action="Scan LAN" />
+  {/if}
+  {#if !adbMissing && (connectError || scanError || (scanFoundNoDevices && devices.length === 0))}
+    <div class="connection-recovery">
+      <strong>Having trouble connecting?</strong>
+      <p>
+        Try restarting ADB, the connection service on this computer. This may help
+        after installing platform-tools or when another app has left ADB running.
+        It does not restart your TV or change its settings.
+      </p>
+      <button onclick={restartAdb} disabled={restartBusy || connectBusy || scanBusy || installBusy}>
+        {restartBusy ? "Restarting…" : "Restart connection service"}
+      </button>
+      <p class="small muted">
+        You'll confirm before other ADB tools are disconnected. An unchanged failed
+        Add by IP address is retried once; otherwise, try Scan LAN again afterward.
+        If it still fails, use Report a bug so we can check the ADB version and logs.
+      </p>
+    </div>
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
@@ -1644,6 +1679,16 @@
   .device-row.unauthorized {
     align-items: flex-start;
   }
+  .connection-recovery {
+    flex-basis: 100%;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .connection-recovery p {
+    margin: 6px 0 10px;
+  }
+
   .install-pane {
     background: var(--bg-surface);
     border: 1px solid var(--border);

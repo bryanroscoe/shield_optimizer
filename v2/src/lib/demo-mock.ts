@@ -579,6 +579,10 @@ function demoShellOutput(command: string): string {
 // app's demo layer answers the commands both apps share from the same fixtures.
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
+    case "adb_build_info":
+      return { path: "/simulated/platform-tools/adb", version: "Android Debug Bridge version 1.0.41\nVersion 37.0.1 (SIMULATION)" };
+    case "install_adb":
+      return { ok: true, path: "/simulated/platform-tools/adb", message: "Simulated re-download completed; no software was downloaded." };
     case "adb_status":
       return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
     case "get_stop_adb_on_quit":
