@@ -1,3 +1,4 @@
+import type { SupportInfo } from "../../../shared/support";
 // Typed contract for the ATV Optimizer mobile frontend.
 // Keep in sync with v2/src/lib (desktop) and crates/core — these mirror the
 // Rust types in crates/core/src/engine/types.rs and the command return shapes.
@@ -29,6 +30,8 @@ export interface DeviceProperties {
   /// `pm has-feature android.software.leanback`. null when the device gave no
   /// readable answer — which is not the same as "no".
   leanback?: boolean | null;
+  /// `ro.product.name`; empty when unreadable.
+  product?: string;
 }
 
 export interface Device {
@@ -41,6 +44,9 @@ export interface Device {
   status: DeviceStatus;
   connection: ConnectionType;
   properties: DeviceProperties | null;
+  /// How well the app is known to work on this TV. Informational only; read
+  /// it through `parseSupport`, which treats missing as `unknown`.
+  support?: SupportInfo;
 }
 
 export interface AppEntry {
@@ -154,6 +160,7 @@ export interface SendTextResult {
 }
 
 export type { Safety } from "../../../shared/safety";
+export type { SupportInfo, SupportTier } from "../../../shared/support";
 
 export type RebootMode = "normal" | "recovery" | "bootloader";
 
@@ -530,6 +537,55 @@ export function deviceTypeLabel(t: DeviceType | undefined): string {
 export interface RemoteWarmResult {
   transport: "channel" | "shell";
   message: string;
+}
+
+/// Google Play side of the entitlement (mobile `play_billing.rs` PlayState).
+export type PlayState =
+  | { state: "unavailable"; reason: string }
+  | { state: "unknown" }
+  | { state: "not_owned" }
+  | { state: "pending" }
+  | { state: "owned"; acknowledged: boolean; verified_at_ms: number; cached: boolean }
+  | { state: "error"; message: string };
+
+/// Play's localized offer for Pro. Display only; never a hard-coded price.
+export interface PlayOffer {
+  formatted_price: string;
+  title: string;
+  name: string;
+  description: string;
+}
+
+/// `billing_status` / `billing_refresh` (mobile `billing_commands.rs`).
+export interface BillingStatus {
+  entitlement: Entitlement;
+  /// Which sources grant Pro right now: "play", "license", both or none.
+  sources: ("play" | "license")[];
+  distribution: "play" | "sideload";
+  /// False in Google Play builds: offline license keys are sideload-only.
+  license_key_entry: boolean;
+  /// Whether Buy and Restore purchases can work in this build on this phone.
+  available: boolean;
+  play: PlayState;
+  offer: PlayOffer | null;
+  ack_pending: boolean;
+  product_id: string;
+}
+
+export type PurchaseResultKind =
+  | "purchased"
+  | "pending"
+  | "canceled"
+  | "restored"
+  | "already_owned"
+  | "unavailable"
+  | "failed";
+
+/// `billing_purchase`.
+export interface PurchaseOutcome {
+  outcome: PurchaseResultKind;
+  message: string;
+  status: BillingStatus;
 }
 
 /// Decoded, verified license as reported by `license_info`.

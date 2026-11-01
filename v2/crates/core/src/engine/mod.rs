@@ -14,10 +14,12 @@ pub mod media;
 pub mod optimize;
 pub mod safety;
 pub mod snapshot;
+pub mod support;
+pub mod telemetry;
 pub mod types;
 
 pub use app_lists::{AppList, AppListBundle};
-pub use detection::{detect_device_type, tv_evidence, DeviceType, TvEvidence};
+pub use detection::{detect_device_type, is_fire_tv, tv_evidence, DeviceType, TvEvidence};
 pub use diagnostics::{format_diagnostics, DeviceDiagnostics, DiagnosticsInput};
 pub use launcher::{
     is_last_enabled_home_handler, is_valid_package_name, launcher_rows, paired_transient_holders,
@@ -33,6 +35,7 @@ pub use safety::{
     shell_command_blocked, CatalogVerdict, Safety, SafetySource,
 };
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
+pub use support::{classify_support, parse_support_rules, SupportInfo, SupportRules, SupportTier};
 pub use types::{
     ActionMethod, AppEntry, Device, DeviceProperties, DeviceStatus, OptimizeAction, OptimizeMode,
     OptimizePlanItem, RiskTier, SkipReason,

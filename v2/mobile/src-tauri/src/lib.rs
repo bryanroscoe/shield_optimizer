@@ -8,7 +8,9 @@
 // `#[async_trait]` generates for every trait method. The attribute is the
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]
+mod billing_commands;
 mod file_commands;
+mod play_billing;
 mod remote_lifecycle;
 mod scrcpy_resource;
 mod wireless_adb;
@@ -20,11 +22,16 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use shield_optimizer_core::commands::{
     apps, devices, health, input, launcher, license, loader, optimize, reboot, recovery,
-    screenshot, snapshot, tuning, AppState,
+    screenshot, snapshot, telemetry, tuning, AppState,
 };
 use shield_optimizer_core::engine;
+use shield_optimizer_core::engine::telemetry::AppKind;
 use shield_optimizer_core::license::{
     parse_license, validate_license_key, Entitlement, LicenseInfo,
+};
+use shield_optimizer_core::telemetry::{
+    install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
+    TelemetryConfig,
 };
 use tauri::{Manager, State};
 use wireless_adb::WirelessAdb;
@@ -76,7 +83,18 @@ fn read_persisted_entitlement(data_dir: &Path) -> (Entitlement, Option<LicenseIn
 /// `activate_license` — validate a key and, if valid, flip the live entitlement
 /// to Pro and persist it. Returns the resulting entitlement.
 #[tauri::command]
-async fn activate_license(state: State<'_, AppState>, key: String) -> Result<Entitlement, String> {
+async fn activate_license(
+    state: State<'_, AppState>,
+    billing: State<'_, billing_commands::BillingCore>,
+    key: String,
+) -> Result<Entitlement, String> {
+    // Google Play builds unlock Pro only through Play billing (Payments policy).
+    if !billing.distribution().allows_license_keys() {
+        return Err(
+            "License keys aren't used in the Google Play version. Use Buy Pro or Restore purchases."
+                .into(),
+        );
+    }
     let key = key.trim().to_string();
     // The verifier's error carries the user-facing reason (expired, bad
     // signature, malformed). The dev key is accepted by validate_license_key
@@ -94,7 +112,8 @@ async fn activate_license(state: State<'_, AppState>, key: String) -> Result<Ent
     // current process in Pro while the next launch silently falls back to Free.
     persist_license(&state.data_dir, &file)?;
     state.set_license_info(info);
-    state.set_entitlement(Entitlement::Pro);
+    billing.set_license_pro(true);
+    billing_commands::sync_entitlement(&state, &billing);
     tracing::info!("license activated; entitlement set to Pro");
     Ok(state.entitlement())
 }
@@ -155,6 +174,7 @@ fn init_logging(data_dir: &Path) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_atv_adb::init())
+        .plugin(tauri_plugin_atv_billing::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // On Android the dirs crate returns no writable location, so resolve
@@ -187,16 +207,44 @@ pub fn run() {
 
             // Restore Pro if a valid license was persisted; default Free.
             let (entitlement, license_info) = read_persisted_entitlement(&data_dir);
+            // Play is a second, independent source: a recently verified
+            // purchase counts until the launch query below confirms or drops it.
+            let billing = billing_commands::BillingCore::from_build(
+                &app.config().identifier,
+                billing_commands::read_cache(&data_dir),
+                entitlement == Entitlement::Pro,
+                chrono::Utc::now().timestamp_millis(),
+            );
+            let entitlement = billing.effective();
             tracing::info!(?entitlement, "startup entitlement");
 
             let wireless = Arc::new(WirelessAdb::new(data_dir.join("adb_key")));
+            // Anonymous reports: a complete no-op unless this build was compiled
+            // with ATVOPT_TELEMETRY_URL, and the user can turn them off in More.
+            let telemetry = Telemetry::new(
+                TelemetryConfig::for_build(AppKind::Mobile, env!("CARGO_PKG_VERSION")),
+                &data_dir,
+            );
+            install_panic_hook(telemetry.clone());
+            telemetry.start();
+
             let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
-                .with_entitlement(entitlement);
-            state.set_license_info(license_info);
+                .with_entitlement(entitlement)
+                .with_telemetry(telemetry);
+            state.set_license_info(
+                license_info.filter(|_| billing.distribution().allows_license_keys()),
+            );
+            load_cached_support_rules(&state);
             app.manage(state);
+            spawn_support_refresh(app.handle().clone());
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());
+            app.manage(billing);
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                billing_commands::refresh(&handle, true).await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -209,6 +257,9 @@ pub fn run() {
             wireless_commands::find_remote,
             activate_license,
             get_entitlement,
+            billing_commands::billing_status,
+            billing_commands::billing_refresh,
+            billing_commands::billing_purchase,
             license::license_info,
             read_debug_log,
             devices::list_devices,
@@ -278,6 +329,11 @@ pub fn run() {
             file_commands::delete_backup,
             file_commands::find_files,
             file_commands::delete_path,
+            telemetry::telemetry_settings,
+            telemetry::set_telemetry_enabled,
+            telemetry::dismiss_telemetry_notice,
+            telemetry::telemetry_action,
+            telemetry::telemetry_error,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ATV Optimizer mobile application")

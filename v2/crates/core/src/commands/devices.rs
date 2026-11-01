@@ -8,9 +8,9 @@ use crate::adb::{
     MdnsService, MDNS_SERVICE_CONNECT,
 };
 use crate::engine::{
-    detect_device_type, tv_evidence,
+    classify_support, detect_device_type, tv_evidence,
     types::{ConnectionType, Device, DeviceProperties, DeviceStatus},
-    DeviceType, TvEvidence,
+    DeviceType, SupportInfo, TvEvidence,
 };
 
 use super::AppState;
@@ -42,6 +42,7 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
+        state.telemetry.note_transport(&e.serial);
         // For non-authorized devices we can't query properties — we still
         // surface them in the list with a placeholder name.
         if e.status != DeviceStatus::Device {
@@ -57,6 +58,7 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
                 status: e.status,
                 connection: e.connection,
                 properties: None,
+                support: SupportInfo::default(),
             });
             continue;
         }
@@ -80,8 +82,9 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
         };
 
         let model = friendly_model_for(device_type, &props);
+        let support = classify_support(Some(&props), &state.support_rules());
 
-        out.push(Device {
+        let device = Device {
             id,
             serial: e.serial.clone(),
             name,
@@ -91,7 +94,10 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
             status: e.status,
             connection: e.connection,
             properties: Some(props),
-        });
+            support,
+        };
+        state.telemetry.device_profiled(&device);
+        out.push(device);
     }
 
     Ok(out)
@@ -1092,7 +1098,7 @@ fn property_batch_command() -> String {
 }
 
 /// The property reads, in the order `properties_from_sections` consumes them.
-const PROPERTY_READS: [&str; 12] = [
+const PROPERTY_READS: [&str; 13] = [
     "settings get global device_name",
     "getprop ro.product.brand",
     "getprop ro.product.model",
@@ -1109,6 +1115,7 @@ const PROPERTY_READS: [&str; 12] = [
     // `false`; anything else (an old build without the subcommand, a denied
     // shell) is no answer at all.
     "pm has-feature android.software.leanback",
+    "getprop ro.product.name",
 ];
 
 /// Pure: map batched sections onto `DeviceProperties`. Split out so the
@@ -1146,6 +1153,7 @@ fn properties_from_sections(sections: &[String]) -> DeviceProperties {
         characteristics: get(9),
         serial_number: get(10),
         leanback: parse_bool_answer(&get(11)),
+        product: get(12),
     }
 }
 
@@ -1459,6 +1467,7 @@ mod tests {
                 serial_number: hardware_id.to_string(),
                 ..Default::default()
             }),
+            support: Default::default(),
         }
     }
 
@@ -1473,6 +1482,7 @@ mod tests {
             status: DeviceStatus::Unauthorized,
             connection: crate::engine::types::ConnectionType::Network,
             properties: None,
+            support: Default::default(),
         }
     }
 

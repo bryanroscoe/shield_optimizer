@@ -5,6 +5,18 @@ unlocks curated debloat, the optimize wizard, snapshots, launcher takeover,
 tweaks writes, and the rest of the `Feature` list in
 `crates/core/src/license.rs`.
 
+There are two independent ways to get Pro:
+
+- **Google Play builds** (`ATVOPT_DISTRIBUTION=play`): a one-time Play purchase of
+  `atvopt_pro`, verified on the phone. See `BILLING-IMPLEMENTATION-PLAN.md`
+  ("Implemented v1") and `RELEASE.md`. Offline license keys are **not accepted** in
+  these builds: the UI hides key entry and `activate_license` refuses (Play's
+  Payments policy). Existing Ko-fi supporters get Pro through Play promo codes.
+- **Sideload / dev builds** (the default): the offline license keys below.
+
+The two sources never convert into each other. A Play refund does not remove a
+license key and an expired key does not remove a Play purchase.
+
 Activation is **fully offline**. There is no license server, no phone-home, and
 no account. A license key *is* the proof: it carries its own contents and an
 Ed25519 signature over them, and the app verifies it against public keys

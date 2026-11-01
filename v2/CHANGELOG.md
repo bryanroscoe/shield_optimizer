@@ -23,6 +23,9 @@ this file and shows the newest few sections, dated, from its version button.
 ## Unreleased
 
 - Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
+- Desktop and Android: show each TV's support status (Fully supported, Supported, Beta, Not supported, Not verified) with a one-line explanation, and a clear banner on TVs the app doesn't support, such as Amazon Fire TV. The status is informational and never loosens a safety check.
+- Desktop and Android: anonymous device and error reports, on by default with a one-time notice and a setting to turn them off. Reports carry the TV's make, model and Android version and which actions worked; never serial numbers, IP addresses, TV names, app lists or file paths.
+- Desktop and Android: errors in connect, scan, pairing, app changes, Optimize and snapshot restore now show a plain-language message, a short error code and a Copy details button.
 
 - Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
@@ -7,7 +7,10 @@
   import { previewRows, previewSummary } from "../lib/snapshotPreview";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
+  import { destructiveWarning } from "../../../shared/support";
   import PaywallSheet from "../components/PaywallSheet.svelte";
+  import { billing } from "../lib/billing.svelte";
   import Toast from "../components/Toast.svelte";
 
   let {
@@ -66,6 +69,11 @@
 
   onMount(load);
 
+  // Pro bought from this screen's paywall: reload instead of leaving the lock up.
+  $effect(() => {
+    if (locked && session.isPro) untrack(() => void load());
+  });
+
   async function save() {
     if (saving || !session.serial) return;
     saving = true;
@@ -106,6 +114,9 @@
     }
   }
 
+  /// A restore that threw, or finished with items that didn't apply.
+  let applyFailure = $state<{ title: string; error: unknown } | null>(null);
+
   async function confirmApply() {
     const p = pending;
     pending = null;
@@ -118,6 +129,7 @@
       return;
     }
     busyPath = p.snap.path;
+    applyFailure = null;
     try {
       const res = await api.applySnapshot(p.serial, p.snap.path);
       // The summary carries any launcher follow-up (a setup helper that
@@ -127,10 +139,17 @@
         res.summary || "Snapshot applied.",
         res.packages_failed.length || res.settings_failed.length || followUp ? "info" : "success",
       );
+      const failed = res.packages_failed.length + res.settings_failed.length;
+      if (failed > 0) {
+        applyFailure = {
+          title: `${failed} item${failed === 1 ? "" : "s"} didn't restore`,
+          error: res.summary || "Some changes didn't apply.",
+        };
+      }
       session.invalidateAll();
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
-      else showToast(String(e), "error");
+      else applyFailure = { title: "Couldn't restore the snapshot", error: e };
     } finally {
       busyPath = "";
     }
@@ -177,6 +196,15 @@
     <span style="width:44px"></span>
   </div>
 
+  {#if applyFailure}
+    <ErrorNotice
+      error={applyFailure.error}
+      title={applyFailure.title}
+      action="Snapshot restore"
+      onDismiss={() => (applyFailure = null)}
+    />
+  {/if}
+
   {#if loading}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Loading snapshots…</span>
@@ -193,11 +221,13 @@
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro
       </button>
-      <button class="ghost-link" onclick={() => navigate("more")}>Already have a key? Enter it in More</button>
+      {#if billing.licenseKeyEntry}
+        <button class="ghost-link" onclick={() => navigate("more")}>Already have a key? Enter it in More</button>
+      {/if}
     </div>
     <div class="spacer"></div>
   {:else if error}
-    <p class="error">{error}</p>
+    <ErrorNotice {error} title="Couldn't list snapshots" action="List snapshots" />
     <button class="primary" onclick={load}>Retry</button>
     <div class="spacer"></div>
   {:else}
@@ -304,6 +334,12 @@
           {/if}
         {/if}
 
+        {#if destructiveWarning(session.support)}
+          <p class="plan-support-warning" data-testid="support-warning" role="alert">
+            <span class="msr" aria-hidden="true">warning</span>{destructiveWarning(session.support)}
+          </p>
+        {/if}
+
         <p class="plan-note">
           Restoring disables the recorded apps and writes the recorded settings back, including
           resetting settings the snapshot recorded as never set. It never re-enables anything or
@@ -334,6 +370,19 @@
 </div>
 
 <style>
+  .plan-support-warning {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--danger);
+  }
+  .plan-support-warning .msr {
+    font-size: 18px;
+    flex: none;
+  }
   .header-left {
     display: flex;
     gap: 8px;

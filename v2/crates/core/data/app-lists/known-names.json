@@ -313,5 +313,9 @@
   "com.nvidia.shield.smbserver": {
     "name": "SMB Server",
     "description": "Shares SHIELD storage on your network as a Windows (SMB) share."
+  },
+  "com.klevico.monet": {
+    "name": "Monet Launcher - Android TV",
+    "description": "A customizable Android TV Home screen with Material You colors, wallpapers and widgets."
   }
 }

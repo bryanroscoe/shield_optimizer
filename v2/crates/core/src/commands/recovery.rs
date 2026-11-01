@@ -32,7 +32,8 @@ pub async fn panic_recovery(
     panic_recovery_impl(state.inner(), &serial).await
 }
 
-async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<RecoveryResult, String> {
+/// Public so the mobile billing tests can prove recovery stays free after a refund.
+pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<RecoveryResult, String> {
     let adb = state.adb_snapshot().await;
     let disabled_out = adb
         .shell(serial, "pm list packages -d")

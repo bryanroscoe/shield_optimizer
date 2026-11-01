@@ -21,6 +21,7 @@
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",
     "test:notes-seen": "node tests/notes-seen.mjs",
     "test:report-bug": "node tests/report-bug.mjs",
+    "test:reported-package-names": "node tests/reported-package-names.mjs",
     "test:app-report": "node tests/app-report.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
     "test:remote-lifecycle": "node tests/remote-lifecycle.mjs",
@@ -47,7 +48,9 @@
     "test:restart-onboarding": "node tests/restart-onboarding.mjs",
     "test:direct-adb-status": "node tests/direct-adb-status.mjs",
     "test:native-discovery": "node tests/native-discovery.mjs",
-    "test:native-scan-progress": "node tests/native-scan-progress.mjs"
+    "test:native-scan-progress": "node tests/native-scan-progress.mjs",
+    "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
+    "test:support-tiers-ui": "node tests/support-tiers-ui.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

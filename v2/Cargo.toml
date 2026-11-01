@@ -7,6 +7,7 @@ members = [
     "src-tauri",
     "mobile/src-tauri",
     "mobile/tauri-plugin-atv-adb",
+    "mobile/tauri-plugin-atv-billing",
     "tools/atvopt-license",
     "tools/registry-triage",
 ]

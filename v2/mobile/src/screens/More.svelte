@@ -10,14 +10,17 @@
     unknownDiagnosticsError,
   } from "../lib/unknownDiagnostics";
   import { api } from "../lib/api";
+  import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
+  import { NOTICE_TEXT, TOGGLE_LABEL, type TelemetrySettings } from "../../../shared/telemetry";
   import type {
     UnknownDiagnosticReason,
     UnknownDiagnosticReport,
   } from "../lib/unknownDiagnostics";
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -41,10 +44,58 @@
     toastTimer = setTimeout(() => (toast = ""), 3500);
   }
 
+  // Anonymous reports. null until the backend answers; a failed read leaves
+  // the switch hidden rather than showing a state we don't know.
+  let telemetry = $state<TelemetrySettings | null>(null);
+  let telemetryBusy = $state(false);
+
+  async function loadTelemetry() {
+    try {
+      telemetry = await api.telemetrySettings();
+    } catch {
+      telemetry = null;
+    }
+  }
+
+  async function toggleTelemetry(event: Event) {
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    telemetryBusy = true;
+    try {
+      telemetry = await api.setTelemetryEnabled(enabled);
+    } catch {
+      showToast("Couldn't change the report setting.", "error");
+      await loadTelemetry();
+    } finally {
+      telemetryBusy = false;
+    }
+  }
+
   onMount(async () => {
+    void loadTelemetry();
     refreshDiagnosticsSummary();
     await session.loadEntitlement();
+    await billing.load();
     await loadLicense();
+    void billing.refresh();
+  });
+
+  // Where Pro comes from. The two sources are independent: a Play refund never
+  // removes a license key, and vice versa.
+  const proSource = $derived.by(() => {
+    const sources = billing.status?.sources ?? [];
+    if (sources.includes("play") && sources.includes("license")) return "Google Play purchase and license key";
+    if (sources.includes("play")) return "Google Play purchase";
+    if (sources.includes("license")) return "License key";
+    return "";
+  });
+
+  const playConfirmed = $derived.by(() => {
+    const play = billing.status?.play;
+    if (play?.state !== "owned" || !play.cached) return "";
+    const d = new Date(play.verified_at_ms);
+    return Number.isNaN(d.getTime())
+      ? ""
+      : `Google Play couldn't be reached; last confirmed ${d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}.`;
   });
 
   // Details of the signed license behind Pro. Null on Free, and null on Pro if
@@ -310,8 +361,60 @@
         <span class="license-badge" class:pro={session.isPro}>{session.isPro ? "Pro" : "Free"}</span>
       </div>
 
+      {#if session.isPro && proSource}
+        <p class="license-source">Source: {proSource}</p>
+      {/if}
+
+      {#if !session.isPro && billing.available}
+        <p class="license-desc">Pro unlocks the debloat plan, snapshots, custom launchers and tweaks. One-time purchase through Google Play.</p>
+        {#if billing.pending}
+          <p class="license-desc" role="status">Purchase pending. Pro unlocks as soon as Google Play confirms the payment.</p>
+        {/if}
+        <div class="billing-actions">
+          <button
+            class="primary small-btn"
+            disabled={!billing.status?.offer || billing.purchasing || billing.restoring || billing.pending}
+            onclick={() => billing.purchase()}
+          >
+            {#if billing.purchasing}
+              Waiting for Google Play…
+            {:else if billing.status?.offer}
+              Buy Pro · {billing.status.offer.formatted_price}
+            {:else}
+              Price unavailable
+            {/if}
+          </button>
+          <button class="ghost small-btn" disabled={billing.purchasing || billing.restoring} onclick={() => billing.restore()}>
+            {billing.restoring ? "Checking…" : "Restore purchases"}
+          </button>
+        </div>
+      {:else if !session.isPro && !billing.licenseKeyEntry}
+        <p class="license-desc">{billing.unavailableReason}</p>
+      {/if}
+      {#if billing.message && billing.tone === "error"}
+        <ErrorNotice
+          error={billing.message}
+          guidance={billing.message}
+          title="Google Play"
+          action="Google Play purchase"
+          support={null}
+          onDismiss={() => (billing.message = "")}
+        />
+      {:else if billing.message}
+        <p class="license-desc" role="status">{billing.message}</p>
+      {/if}
+      {#if playConfirmed}
+        <p class="license-desc">{playConfirmed}</p>
+      {/if}
       {#if !session.isPro}
-        <p class="license-desc">Activate Pro to unlock the debloat plan, snapshots, and custom launchers.</p>
+        <p class="license-desc">{FREE_RECOVERY_PROMISE}</p>
+      {/if}
+      {#if billing.status?.ack_pending}
+        <p class="license-desc">Finishing the purchase with Google Play. This retries automatically.</p>
+      {/if}
+
+      {#if !session.isPro && billing.licenseKeyEntry}
+        <p class="license-desc">Have a license key? Activate Pro with it here.</p>
         <div class="license-input-row">
           <input
             type="text"
@@ -330,9 +433,9 @@
         {#if licenseError}
           <p class="license-error">{licenseError}</p>
         {/if}
-      {:else}
+      {:else if session.isPro}
         <p class="license-desc success-color">Thank you for supporting ATV Optimizer Pro!</p>
-        {#if license}
+        {#if license && billing.status?.sources?.includes("license") !== false}
           <dl class="license-details">
             <dt>Licensed to</dt>
             <dd class="mono">{license.licensee}</dd>
@@ -477,6 +580,43 @@
       {/if}
     </div>
 
+    <!-- Anonymous reports -->
+    {#if telemetry}
+      <div class="more-card" data-testid="telemetry-card">
+        <span class="card-label">Privacy</span>
+        <label class="telemetry-toggle">
+          <span class="tt-copy">
+            <span class="tt-title">{TOGGLE_LABEL}</span>
+            <span class="card-desc">
+              {#if !telemetry.available}
+                This build doesn't send reports.
+              {:else if telemetry.enabled}
+                On. Turning it off stops sending immediately and discards anything not yet sent.
+              {:else}
+                Off. Nothing is sent.
+              {/if}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={telemetry.available && telemetry.enabled}
+            disabled={!telemetry.available || telemetryBusy}
+            onchange={toggleTelemetry}
+            aria-label={TOGGLE_LABEL}
+          />
+        </label>
+        <details class="help-disclosure">
+          <summary>What's sent</summary>
+          <p class="card-desc">{NOTICE_TEXT}</p>
+          <p class="card-desc">
+            Reports go to a server the app's developer runs; raw reports are kept for 90 days.
+            Turning reports back on starts a new random install ID.
+          </p>
+        </details>
+      </div>
+    {/if}
+
     <!-- Debug log -->
     <div class="more-card">
       <span class="card-label">Debug log</span>
@@ -611,6 +751,29 @@
     color: var(--dim);
     text-transform: uppercase;
   }
+  .telemetry-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    cursor: pointer;
+  }
+  .tt-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tt-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .telemetry-toggle input {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    accent-color: var(--accent);
+  }
   .card-desc {
     font-size: 12px;
     color: var(--muted);
@@ -694,6 +857,17 @@
     margin: 0;
     color: var(--text-soft);
     word-break: break-all;
+  }
+  .license-source {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .billing-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
   }
   .license-input-row {
     display: flex;

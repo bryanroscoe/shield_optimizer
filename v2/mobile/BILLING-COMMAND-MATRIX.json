@@ -85,6 +85,33 @@
       ]
     },
     {
+      "command": "billing_status",
+      "api": "billingStatus",
+      "gate": "Free",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
+      "command": "billing_refresh",
+      "api": "billingRefresh",
+      "gate": "Free",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
+      "command": "billing_purchase",
+      "api": "billingPurchase",
+      "gate": "Free",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
       "command": "license_info",
       "api": "licenseInfo",
       "gate": "Free",
@@ -725,6 +752,53 @@
       "callers": [
         "src/components/AppReportSheet.svelte",
         "src/screens/Launcher.svelte"
+      ]
+    },
+    {
+      "command": "telemetry_settings",
+      "api": "telemetrySettings",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/telemetry.rs",
+      "callers": [
+        "src/screens/More.svelte",
+        "src/components/TelemetryNotice.svelte"
+      ]
+    },
+    {
+      "command": "set_telemetry_enabled",
+      "api": "setTelemetryEnabled",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/telemetry.rs",
+      "callers": [
+        "src/screens/More.svelte"
+      ]
+    },
+    {
+      "command": "dismiss_telemetry_notice",
+      "api": "dismissTelemetryNotice",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/telemetry.rs",
+      "callers": [
+        "src/components/TelemetryNotice.svelte"
+      ]
+    },
+    {
+      "command": "telemetry_action",
+      "api": "telemetryAction",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/telemetry.rs",
+      "callers": [
+        "src/lib/api.ts"
+      ]
+    },
+    {
+      "command": "telemetry_error",
+      "api": "telemetryError",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/telemetry.rs",
+      "callers": [
+        "src/lib/api.ts",
+        "src/main.ts"
       ]
     }
   ]

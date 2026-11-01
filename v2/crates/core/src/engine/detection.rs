@@ -137,6 +137,18 @@ pub fn detect_device_type(props: &DeviceProperties) -> DeviceType {
     DeviceType::Unknown
 }
 
+/// Amazon Fire TV (Fire OS). Detection still files it under the Android TV
+/// app list when it reports `tv`; this only names the family, for support
+/// tiers and telemetry, from what the device reported.
+pub fn is_fire_tv(props: &DeviceProperties) -> bool {
+    props.manufacturer.trim().eq_ignore_ascii_case("amazon")
+        && props
+            .model
+            .trim()
+            .get(..3)
+            .is_some_and(|p| p.eq_ignore_ascii_case("aft"))
+}
+
 /// Map a Shield device codename to a friendly model string.
 pub fn shield_friendly_model(device_codename: &str) -> String {
     match device_codename.to_ascii_lowercase().as_str() {

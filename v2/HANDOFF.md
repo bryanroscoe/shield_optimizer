@@ -99,6 +99,16 @@ and the native driver/scan unit tests.
 - **App logs**: `<data_dir>/logs/`, daily rotation, 7 kept. Debug level is per-crate, not
   global, so adb lines are not buried under hyper. `collect_diagnostics` formats in the engine
   (pure) and reads in `src-tauri/src/commands/diagnostics.rs`.
+- **Support tiers and telemetry** (both apps, shared core). `Device.support` comes from the pure
+  `engine/support.rs` matching `crates/core/data/device-support.json` (or a validated fetched copy
+  cached as `<data_dir>/support-tiers.json`). Tiers are copy only: they never feed
+  `engine::safety`, and `not_supported` adds a warning before destructive actions but never blocks
+  enable, restore or Recovery. Anonymous reports are on by default, opt-out, and a no-op unless
+  the build sets `ATVOPT_TELEMETRY_URL`; payload and redaction are pure
+  (`engine/telemetry.rs`), the queue and upload are `crates/core/src/telemetry.rs`, and the
+  frontends report outcomes from their single invoke wrapper via `shared/telemetry.ts`. Error
+  codes shown to users and sent in reports come from one table, `shared/errors.ts`. See
+  `v2/README.md` "Telemetry and support tiers".
 - **TV evidence** is a three-way value (`tv | not_tv | unknown`); only `not_tv` blocks a row. Do
   not re-introduce "unknown means phone" — that was #120.
 

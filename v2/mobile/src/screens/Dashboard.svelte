@@ -10,6 +10,8 @@
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Toast from "../components/Toast.svelte";
+  import SupportStatus from "../components/SupportStatus.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
 
   let { onDisconnect, navigate }: {
     onDisconnect: () => void;
@@ -71,10 +73,13 @@
     onDisconnect();
   }
 
+  let switchFailure = $state<{ title: string; error: unknown } | null>(null);
+
   async function switchDevice(device: SavedDevice) {
     if (switchingHost) return;
     showDeviceMenu = false;
     switchingHost = device.host;
+    switchFailure = null;
     try {
       const result = await session.connect(device.host, device.connectPort);
       if (result.ok) {
@@ -87,10 +92,10 @@
         session.loadHealth(true);
         session.loadBloat(true);
       } else {
-        showToast(result.message || `Couldn't connect to ${device.name}.`, "error");
+        switchFailure = { title: `Couldn't connect to ${device.name}`, error: result.message || "Couldn't connect." };
       }
     } catch (error) {
-      showToast(String(error), "error");
+      switchFailure = { title: `Couldn't connect to ${device.name}`, error };
     } finally {
       switchingHost = "";
     }
@@ -206,6 +211,20 @@
       </button>
     </div>
   </div>
+
+  {#if switchFailure}
+    <ErrorNotice
+      error={switchFailure.error}
+      title={switchFailure.title}
+      action="Connect to TV"
+      support={null}
+      onDismiss={() => (switchFailure = null)}
+    />
+  {/if}
+
+  {#if session.connectedDevice}
+    <SupportStatus support={session.support} />
+  {/if}
 
   {#if session.healthLoading && !session.health && !session.healthError}
     <div class="center">
@@ -332,7 +351,7 @@
 
     <div class="callout teal bottom-callout">
       <span class="msr">verified_user</span>
-      <span class="callout-text">Apps your TV needs can't be disabled. Undo anything from Apps, or restore everything from More.</span>
+      <span class="callout-text">Apps your TV needs can't be disabled. Turn an app back on from Apps, or re-enable every disabled app from More. Both are always free.</span>
     </div>
   {/if}
 

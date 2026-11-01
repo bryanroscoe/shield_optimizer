@@ -20,6 +20,7 @@ pub mod screenshot;
 pub mod shell;
 pub mod snapshot;
 pub mod state;
+pub mod telemetry;
 pub mod tuning;
 
 pub use license::license_info;
