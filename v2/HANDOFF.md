@@ -30,6 +30,13 @@ completion, backend unavailability, navigation, or its deadline. Pending handsha
 are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
 and the native driver/scan unit tests.
 
+LAN sweep hits now start connecting before the mDNS observation window finishes.
+Unapproved and failed native endpoints stay visible in the existing device list,
+with Ask again/Try again and Forget acting on that exact endpoint. Authorization
+guidance is shown only after the transport actually sends its public-key AUTH
+packet; a timeout alone does not establish authorization state. Test discovery
+with no previously approved TVs, not just successful reconnections.
+
 ## Things the next reader needs that the code does not say
 
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater

@@ -438,6 +438,8 @@ export interface FileTransferResult {
 export interface ScanConnectionProgress {
   pending: string[];
   failed: { address: string; message: string }[];
+  awaiting_authorization?: string[];
+  ready?: string[];
 }
 
 export interface AdbStatus {

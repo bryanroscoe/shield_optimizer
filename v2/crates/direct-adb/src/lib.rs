@@ -68,6 +68,7 @@ struct Connection {
 #[derive(Default)]
 struct ConnectionRequests {
     latest: u64,
+    awaiting_authorization: bool,
 }
 
 impl ConnectionRequests {
@@ -76,6 +77,7 @@ impl ConnectionRequests {
             return Err("Connection attempt superseded.".into());
         }
         self.latest = request_id;
+        self.awaiting_authorization = false;
         Ok(())
     }
 
@@ -84,6 +86,29 @@ impl ConnectionRequests {
             return Err("Connection attempt canceled.".into());
         }
         Ok(())
+    }
+}
+
+struct AuthorizationObservation {
+    requests: Arc<Mutex<ConnectionRequests>>,
+    request_id: u64,
+}
+
+impl AuthorizationObservation {
+    fn public_key_sent(&self) {
+        let mut requests = lock_recovering(&self.requests);
+        if requests.check(self.request_id).is_ok() {
+            requests.awaiting_authorization = true;
+        }
+    }
+}
+
+impl Drop for AuthorizationObservation {
+    fn drop(&mut self) {
+        let mut requests = lock_recovering(&self.requests);
+        if requests.check(self.request_id).is_ok() {
+            requests.awaiting_authorization = false;
+        }
     }
 }
 
@@ -355,6 +380,11 @@ impl WirelessAdb {
         lock_recovering(&self.requests).begin(request_id)
     }
 
+    /// True only while the current handshake has sent its key for approval.
+    pub fn awaiting_authorization(&self) -> bool {
+        lock_recovering(&self.requests).awaiting_authorization
+    }
+
     pub async fn cancel_connect(
         &self,
         request_id: u64,
@@ -403,20 +433,19 @@ impl WirelessAdb {
             ensure_adb_key(&key_path, allow_key_creation)?;
             // First connect to a not-yet-authorized device triggers the TV's
             // "Allow debugging?" prompt; the persisted key is remembered after.
-            let device = if allow_key_creation {
-                ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
-                    addr,
-                    &key_path,
-                    AUTHORIZATION_TIMEOUT,
-                )
-            } else {
-                ADBTcpDevice::new_with_required_private_key_and_auth_timeout(
-                    addr,
-                    &key_path,
-                    AUTHORIZATION_TIMEOUT,
-                )
-            }
-            .map_err(|e| {
+            let observation = AuthorizationObservation {
+                requests: requests.clone(),
+                request_id,
+            };
+            let device = ADBTcpDevice::new_with_key_and_auth_observer(
+                addr,
+                &key_path,
+                AUTHORIZATION_TIMEOUT,
+                !allow_key_creation,
+                &|| observation.public_key_sent(),
+            );
+            drop(observation);
+            let device = device.map_err(|e| {
                 tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
                 connect_error_message(&e)
             })?;
@@ -1020,6 +1049,34 @@ impl WirelessStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn authorization_observation_tracks_only_the_current_live_handshake() {
+        use super::{AuthorizationObservation, Leases, WirelessAdb};
+        let driver = WirelessAdb::with_existing_key("never-created".into(), Leases::new());
+        driver.begin_request(1).unwrap();
+        let first = AuthorizationObservation {
+            requests: driver.requests.clone(),
+            request_id: 1,
+        };
+        assert!(!driver.awaiting_authorization());
+        first.public_key_sent();
+        assert!(driver.awaiting_authorization());
+        driver.begin_request(2).unwrap();
+        assert!(!driver.awaiting_authorization());
+        first.public_key_sent();
+        assert!(!driver.awaiting_authorization());
+        let second = AuthorizationObservation {
+            requests: driver.requests.clone(),
+            request_id: 2,
+        };
+        second.public_key_sent();
+        assert!(driver.awaiting_authorization());
+        drop(first);
+        assert!(driver.awaiting_authorization());
+        drop(second);
+        assert!(!driver.awaiting_authorization());
+    }
+
     #[test]
     fn canceled_handshakes_cannot_publish_or_supersede_a_retry() {
         let mut requests = super::ConnectionRequests::default();

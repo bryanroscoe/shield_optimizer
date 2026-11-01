@@ -200,6 +200,12 @@ pub struct ScanConnectionFailure {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ScanConnectionProgress {
     pub pending: Vec<String>,
+    /// Active attempts that sent their public key and are waiting for approval.
+    #[serde(default)]
+    pub awaiting_authorization: Vec<String>,
+    /// Completed successful scan attempts, without another liveness probe.
+    #[serde(default)]
+    pub ready: Vec<String>,
     pub failed: Vec<ScanConnectionFailure>,
 }
 

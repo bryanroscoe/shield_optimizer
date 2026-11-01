@@ -26,6 +26,9 @@ trait NetworkSession: AdbDriver {
     async fn connect(&self, host: &str, port: u16, request: u64) -> Result<String, String>;
     async fn pair(&self, host: &str, port: u16, code: &str) -> Result<String, String>;
     async fn ready(&self) -> bool;
+    fn awaiting_authorization(&self) -> bool {
+        false
+    }
     fn invalidate(&self, request: u64);
     fn close_idle(&self) -> Result<(), String>;
 }
@@ -41,6 +44,9 @@ impl NetworkSession for WirelessAdb {
     }
     async fn ready(&self) -> bool {
         self.status().await.connected
+    }
+    fn awaiting_authorization(&self) -> bool {
+        WirelessAdb::awaiting_authorization(self)
     }
     fn invalidate(&self, request: u64) {
         let _ = self.begin_request(request);
@@ -488,20 +494,33 @@ impl AdbDriver for DirectNetworkAdb {
 
     async fn scan_connection_progress(&self) -> ScanConnectionProgress {
         let mut progress = ScanConnectionProgress::default();
-        for (address, job) in self.jobs().iter() {
-            match job.result.borrow().clone() {
-                Some(Ok(())) => {}
-                Some(Err(message)) => progress.failed.push(ScanConnectionFailure {
-                    address: address.clone(),
-                    message,
-                }),
-                None if job.task.is_finished() => progress.failed.push(ScanConnectionFailure {
-                    address: address.clone(),
-                    message: "Native scan connection was canceled.".into(),
-                }),
-                None => progress.pending.push(address.clone()),
+        {
+            for (address, job) in self.jobs().iter() {
+                match job.result.borrow().clone() {
+                    Some(Ok(())) => progress.ready.push(address.clone()),
+                    Some(Err(message)) => progress.failed.push(ScanConnectionFailure {
+                        address: address.clone(),
+                        message,
+                    }),
+                    None if job.task.is_finished() => progress.failed.push(ScanConnectionFailure {
+                        address: address.clone(),
+                        message: "Native scan connection was canceled.".into(),
+                    }),
+                    None => progress.pending.push(address.clone()),
+                }
             }
         }
+        let sessions = self.pool.sessions.lock().await;
+        progress.awaiting_authorization = progress
+            .pending
+            .iter()
+            .filter(|address| {
+                sessions.get(*address).is_some_and(|slot| {
+                    slot.pending.load(Ordering::Acquire) && slot.session.awaiting_authorization()
+                })
+            })
+            .cloned()
+            .collect();
         progress
     }
 
@@ -711,6 +730,7 @@ mod tests {
         hold: AtomicBool,
         probe_failed: AtomicBool,
         probe_held: AtomicBool,
+        authorization_pending: AtomicBool,
         started: Arc<tokio::sync::Notify>,
         release: Arc<tokio::sync::Notify>,
         completed: Arc<tokio::sync::Notify>,
@@ -819,7 +839,11 @@ mod tests {
             }
             self.ready.load(Ordering::Acquire) && !self.probe_failed.load(Ordering::Acquire)
         }
+        fn awaiting_authorization(&self) -> bool {
+            self.authorization_pending.load(Ordering::Acquire)
+        }
         fn invalidate(&self, request: u64) {
+            self.authorization_pending.store(false, Ordering::Release);
             self.generation.store(request, Ordering::Release);
         }
         fn close_idle(&self) -> Result<(), String> {
@@ -841,6 +865,39 @@ mod tests {
             }),
         );
         (driver, sessions)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn progress_distinguishes_neutral_pending_observed_authorization_and_timeout() {
+        let session = Arc::new(FakeSession::default());
+        session.hold.store(true, Ordering::Release);
+        let captured = session.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| captured.clone()),
+        );
+        let target = "192.0.2.1:5555";
+        driver
+            .scan_connect(target, Duration::from_secs(30))
+            .await
+            .unwrap();
+        let progress = driver.scan_connection_progress().await;
+        assert_eq!(progress.pending, [target]);
+        assert!(progress.awaiting_authorization.is_empty());
+        session.authorization_pending.store(true, Ordering::Release);
+        let progress = driver.scan_connection_progress().await;
+        assert_eq!(progress.awaiting_authorization, [target]);
+        assert_eq!(progress.pending, [target]);
+        assert!(progress.ready.is_empty());
+        tokio::time::advance(Duration::from_secs(45)).await;
+        tokio::task::yield_now().await;
+        let progress = driver.scan_connection_progress().await;
+        assert!(progress.pending.is_empty());
+        assert!(progress.awaiting_authorization.is_empty());
+        assert_eq!(progress.failed[0].address, target);
+        session.release.notify_one();
+        session.completed.notified().await;
+        assert!(!session.ready.load(Ordering::Acquire));
     }
 
     #[tokio::test(start_paused = true)]
@@ -896,7 +953,10 @@ mod tests {
             .contains("192.0.2.1"));
         held.release.notify_one();
         driver.raw(&["connect", "192.0.2.1:5555"]).await.unwrap();
-        assert!(driver.scan_connection_progress().await.pending.is_empty());
+        let progress = driver.scan_connection_progress().await;
+        assert!(progress.pending.is_empty());
+        assert!(progress.awaiting_authorization.is_empty());
+        assert_eq!(progress.ready, ["192.0.2.1:5555", "192.0.2.2:5555"]);
         assert_eq!(count.load(Ordering::Relaxed), 2);
         assert!(driver
             .raw(&["devices"])

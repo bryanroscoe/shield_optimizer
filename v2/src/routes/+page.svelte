@@ -8,6 +8,7 @@
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
+  import { nativeScanRows, type DeviceRow } from "$lib/native-scan-rows";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
@@ -17,13 +18,15 @@
   import SupportBanner from "$lib/components/SupportBanner.svelte";
 
   let devices = $state<Device[]>([]);
+  let nativeConnections = $state<ScanConnectionProgress>({ pending: [], failed: [] });
+  let adbBackend = $state<"direct" | "subprocess" | null>(null);
 
   /// Sort priority: authorized first (status === "device"), then unauthorized
   /// (the user can act on them via the inline guidance), then offline. Tiebreak
   /// by display name so the order doesn't shuffle on refresh.
   const STATUS_ORDER: Record<string, number> = { device: 0, unauthorized: 1, offline: 2 };
   let sortedDevices = $derived(
-    [...devices].sort((a, b) => {
+    (adbBackend === "direct" ? nativeScanRows(devices, nativeConnections) : [...devices] as DeviceRow[]).sort((a, b) => {
       const sa = STATUS_ORDER[a.status] ?? 9;
       const sb = STATUS_ORDER[b.status] ?? 9;
       if (sa !== sb) return sa - sb;
@@ -45,7 +48,6 @@
   let scanBusy = $state(false);
   let scanMessage = $state("");
   let scanDetails = $state<string[]>([]);
-  let nativeConnections = $state<ScanConnectionProgress>({ pending: [], failed: [] });
   let nativeScanSummary = "";
   let scanBaseDetails: string[] = [];
   let lastNativeProgress = "";
@@ -74,7 +76,6 @@
     schedule();
   }
 
-  let adbBackend = $state<"direct" | "subprocess" | null>(null);
   let scanError = $state<string | null>(null);
 
   let pairOpen = $state(false);
@@ -147,7 +148,7 @@
       }
       adbMissing = false;
       const progress = status.connections ?? { pending: [], failed: [] };
-      const progressKey = JSON.stringify([ [...progress.pending].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
+      const progressKey = JSON.stringify([ [...progress.pending].sort(), [...(progress.awaiting_authorization ?? [])].sort(), [...(progress.ready ?? [])].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
       const changed = progressKey !== lastNativeProgress;
       nativeConnections = progress;
       if (adbBackend === "direct" && nativeScanSummary && !scanBusy) {
@@ -416,7 +417,7 @@
     return `Copied ${what}`;
   }
 
-  function deviceMenu(d: Device): MenuItem[] {
+  function deviceMenu(d: DeviceRow): MenuItem[] {
     const href = deviceHref(d);
     const ip = ipOf(d);
     const serial = hardwareSerialOf(d);
@@ -443,9 +444,9 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
-    if (d.status === "unauthorized" && d.connection === "network") {
+    if ((d.status === "unauthorized" || d.discoveryState === "failed") && d.connection === "network") {
       items.push({
-        label: "Ask again on the TV",
+        label: d.discoveryState === "failed" ? "Try connecting again" : "Ask again on the TV",
         disabled: repromptBusy === d.serial,
         run: () => repromptDevice(d),
       });
@@ -875,10 +876,10 @@
         adb not found
       {:else if error && adbBackend !== "subprocess"}
         connection status unavailable
-      {:else if devices.length === 0}
+      {:else if sortedDevices.length === 0}
         no TV connected
       {:else}
-        {devices.length} connected · {devices.filter((d) => d.status === "device").length} ready
+        {sortedDevices.length} {adbBackend === "direct" ? "found" : "connected"} · {devices.filter((d) => d.status === "device").length} ready
       {/if}
     </p>
     <p class="muted small" data-testid="adb-backend">{adbBackend === "direct" ? "Native Rust ADB · direct connection" : adbBackend === "subprocess" ? "Platform-tools ADB · host server" : "Checking ADB driver…"}</p>
@@ -1102,9 +1103,9 @@
   </div>
 {:else if error}
   <div class="error" role="alert">{directUnavailable ? "Rust ADB unavailable" : "Failed to list devices"}: {error}</div>
-{:else if loading && devices.length === 0}
+{:else if loading && sortedDevices.length === 0}
   <div class="muted">Looking for devices…</div>
-{:else if devices.length === 0}
+{:else if sortedDevices.length === 0}
   <div class="empty">
     <h2>No devices connected.</h2>
     <p class="muted">
@@ -1215,13 +1216,17 @@
             oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
           >
             <span class="device-icon" aria-hidden="true">
-              <Icon name={d.status === "offline" ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
+              <Icon name={d.status === "offline" && !d.discoveryState ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
             </span>
             <div class="device-main">
               <div class="device-name">
                 <span>{d.name}</span>
                 {#if d.status === "unauthorized"}
                   <span class="status-tag unauthorized">UNAUTHORIZED</span>
+                {:else if d.discoveryState === "connecting"}
+                  <span class="status-tag">CONNECTING…</span>
+                {:else if d.discoveryState === "failed"}
+                  <span class="status-tag offline">CONNECTION FAILED</span>
                 {:else if d.status === "offline"}
                   <span class="status-tag offline">OFFLINE</span>
                 {/if}
@@ -1239,6 +1244,11 @@
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
               </div>
+              {#if d.discoveryState === "connecting"}
+                <p class="muted small">Found on the network. Connecting…</p>
+              {:else if d.discoveryState === "failed"}
+                <p class="small">{d.discoveryError}</p>
+              {/if}
               {#if justConnected === d.serial && isNotATv(d) && d.status === "device"}
                 <p class="small just-connected-note">
                   Connected. It reported it isn't an Android TV, so it doesn't open by default; use
@@ -1257,7 +1267,7 @@
                     </li>
                     <li>Check <em>"Always allow from this computer"</em>.</li>
                     <li>Click <em>Allow</em>.</li>
-                    <li>Click Refresh above.</li>
+                    <li>{adbBackend === "direct" ? "This row updates automatically after approval." : "Click Refresh above."}</li>
                   </ol>
                   <p class="muted small">If you don't see the dialog:</p>
                   <ol class="small unauthorized-fallback">
@@ -1307,14 +1317,14 @@
                   Open anyway
                 </button>
               {/if}
-              {#if d.status === "unauthorized" && d.connection === "network"}
+              {#if (d.status === "unauthorized" || d.discoveryState === "failed") && d.connection === "network"}
                 <button
                   class="row-action primary"
                   onclick={() => repromptDevice(d)}
                   disabled={repromptBusy === d.serial}
                   data-tip="Reconnects this TV so it shows the debugging prompt again · no other TV is touched"
                 >
-                  {repromptBusy === d.serial ? "Asking…" : "Ask again"}
+                  {repromptBusy === d.serial ? (adbBackend === "direct" ? "Connecting…" : "Asking…") : d.discoveryState === "failed" ? "Try again" : "Ask again"}
                 </button>
               {/if}
               <button

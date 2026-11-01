@@ -69,6 +69,26 @@ impl ADBTcpDevice {
         })
     }
 
+    /// Connect and report only a successfully sent RSA public-key AUTH packet.
+    /// The observer does not run for an already trusted key or a failed write.
+    pub fn new_with_key_and_auth_observer<P: AsRef<Path>, A: Into<SocketAddr>>(
+        address: A,
+        private_key_path: P,
+        auth_timeout: Duration,
+        require_existing_key: bool,
+        public_key_sent: &dyn Fn(),
+    ) -> Result<Self> {
+        Ok(Self {
+            inner: ADBMessageDevice::new_with_auth_observer(
+                TcpTransport::new(address, &private_key_path),
+                private_key_path,
+                auth_timeout,
+                require_existing_key,
+                public_key_sent,
+            )?,
+        })
+    }
+
     /// Connect with an existing key and one total deadline across handshake and later services.
     pub fn new_with_required_key_and_control(
         address: SocketAddr,
@@ -895,10 +915,23 @@ mod legacy_auth_tests {
     }
 
     fn connect(address: SocketAddr, timeout: Duration) -> crate::Result<ADBTcpDevice> {
+        connect_observed(address, timeout, &|| {})
+    }
+
+    fn connect_observed(
+        address: SocketAddr,
+        timeout: Duration,
+        public_key_sent: &dyn Fn(),
+    ) -> crate::Result<ADBTcpDevice> {
         let transport =
             TcpTransport::new(address, Path::new("in-memory-auth-fixture-never-written"));
-        ADBMessageDevice::new_with_fixture_key(transport, &fixture_key(), timeout)
-            .map(ADBTcpDevice::from_fixture_device)
+        ADBMessageDevice::new_with_fixture_key_and_auth_observer(
+            transport,
+            &fixture_key(),
+            timeout,
+            public_key_sent,
+        )
+        .map(ADBTcpDevice::from_fixture_device)
     }
 
     fn challenge(socket: &mut TcpStream) {
@@ -979,11 +1012,14 @@ mod legacy_auth_tests {
         for first_run in [false, true] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
+            let (observed, observation) = std::sync::mpsc::channel();
+            let count = std::cell::Cell::new(0);
             let peer = std::thread::spawn(move || {
                 let mut socket = accept(&listener);
                 challenge(&mut socket);
                 if first_run {
                     request_public_key(&mut socket);
+                    observation.recv_timeout(Duration::from_secs(2)).unwrap();
                     socket
                         .set_read_timeout(Some(Duration::from_millis(40)))
                         .unwrap();
@@ -1000,7 +1036,12 @@ mod legacy_auth_tests {
                 authorize(&mut socket);
                 serve_probe(&mut socket);
             });
-            let mut device = connect(address, Duration::from_secs(2)).unwrap();
+            let mut device = connect_observed(address, Duration::from_secs(2), &|| {
+                count.set(count.get() + 1);
+                observed.send(()).unwrap();
+            })
+            .unwrap();
+            assert_eq!(count.get(), usize::from(first_run));
             let mut stdout = Vec::new();
             let code = device
                 .shell_command_with_timeout(
@@ -1032,7 +1073,11 @@ mod legacy_auth_tests {
                 send(&mut socket, command, kind, 0, &payload);
                 assert_closed(&mut socket);
             });
-            assert!(connect(address, Duration::from_secs(2)).is_err());
+            let observed = std::cell::Cell::new(false);
+            assert!(
+                connect_observed(address, Duration::from_secs(2), &|| observed.set(true)).is_err()
+            );
+            assert!(!observed.get());
             peer.join().unwrap();
         }
     }

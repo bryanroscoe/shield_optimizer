@@ -37,8 +37,19 @@ try {
               return window.ready ? devices.slice(0, window.secondReady ? 2 : 1) : [];
             } finally { window.activeReads--; }
           }
+          if (command === 'reprompt_device') {
+            window.reprompted = args.serial;
+            window.progress.failed = window.progress.failed.filter(f => f.address !== args.serial);
+            window.progress.pending.push(args.serial);
+            return { ok: true, status: 'none', message: 'SIMULATED reconnect started.' };
+          }
+          if (command === 'forget_device') {
+            window.forgotten = args.serial;
+            window.progress.pending = window.progress.pending.filter(address => address !== args.serial);
+            return { ok: true, disconnected: [args.serial], still_advertised: false, message: 'SIMULATED forgotten.' };
+          }
           if (command === 'scan_network') return new Promise(resolve => {
-            window.releaseScan = () => resolve({ found: ['192.0.2.1:5555', '192.0.2.2:5555'], connected: ['192.0.2.1:5555'], pending: ['192.0.2.2:5555'], failed: [], unauthorized: [], needs_pairing: [], details: [], message: 'SIMULATED discovery finished; one handshake pending.' });
+            window.releaseScan = () => resolve({ found: ['192.168.1.42:5555', '192.168.1.77:5555'], connected: ['192.168.1.42:5555'], pending: ['192.168.1.77:5555'], failed: [], unauthorized: [], needs_pairing: [], details: [], message: 'SIMULATED discovery finished; one handshake pending.' });
           });
           if (['connect_device', 'restart_adb', 'install_adb'].includes(command)) throw new Error(`Unexpected retry: ${command}`);
           return original(command, args);
@@ -56,7 +67,28 @@ try {
   };
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => !!window.releaseScan);
-  await page.evaluate(() => { window.ready = true; window.progress.pending = ['192.0.2.2:5555']; });
+  await page.evaluate(() => { window.progress.pending = ['192.0.2.3:5555', '192.0.2.4:5555']; });
+  const untrusted = page.locator('[data-serial="192.0.2.3:5555"]');
+  const failed = page.locator('[data-serial="192.0.2.4:5555"]');
+  await untrusted.getByText('CONNECTING…', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'No devices connected.' }).count(), 0);
+  assert.equal(await page.getByText('Online', { exact: true }).count(), 0, 'unapproved discoveries must not appear online');
+  await page.evaluate(() => { window.progress.awaiting_authorization = ['192.0.2.3:5555']; });
+  await untrusted.getByText('UNAUTHORIZED', { exact: true }).waitFor();
+  await untrusted.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
+  await page.evaluate(() => {
+    window.progress.pending = ['192.0.2.3:5555'];
+    window.progress.failed = [{ address: '192.0.2.4:5555', message: 'SIMULATED connection timeout; check the TV and try again.' }];
+  });
+  await failed.getByText('CONNECTION FAILED', { exact: true }).waitFor();
+  await capture('unapproved-and-failed-visible');
+  await failed.getByRole('button', { name: 'Try again', exact: true }).click();
+  await failed.getByText('CONNECTING…', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.reprompted), '192.0.2.4:5555');
+  await failed.getByRole('button', { name: 'Forget', exact: true }).click();
+  await failed.waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => window.forgotten), '192.0.2.4:5555');
+  await page.evaluate(() => { window.ready = true; window.progress = { pending: ['192.168.1.77:5555'], awaiting_authorization: ['192.168.1.77:5555'], failed: [] }; });
   await page.getByText('NVIDIA SHIELD Android TV', { exact: true }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: 'Scanning…', exact: true }).count(), 1);
   await capture('ready-during-scan');
@@ -75,9 +107,10 @@ try {
   await page.waitForFunction(() => window.activeReads === 0);
   assert.equal(await page.evaluate(() => window.peakReads), 1, 'manual and background refresh must remain serialized');
 
-  await page.evaluate(() => { window.secondReady = true; window.progress.pending = []; });
+  await page.evaluate(() => { window.secondReady = true; window.progress.pending = []; window.progress.awaiting_authorization = []; window.progress.ready = ['192.168.1.42:5555', '192.168.1.77:5555']; });
   await page.getByText('Living Room Box', { exact: true }).waitFor();
   assert.equal(await page.getByRole('status').filter({ hasText: 'Still connecting' }).count(), 0);
+  assert.equal(await page.locator('[data-serial="192.168.1.77:5555"]').count(), 1, 'approval replaces the discovered row without duplication');
   await capture('late-approval-adds-existing-card');
   const completed = await page.evaluate(() => window.calls.filter(c => c === 'adb_status').length);
   await page.waitForTimeout(2200);
@@ -106,5 +139,5 @@ try {
     await context.close();
     await video.saveAs(`${evidence}/native-scan-progress-simulated.webm`);
   } else await context.close();
-  console.log('PASS ready rows during scan, continued approval, serialized refresh, no repeated metadata, backend failure and unmount cleanup');
+  console.log('PASS unapproved discovery rows, observed authorization, persistent failures, explicit retry/Forget, promotion without duplicates, ready rows during scan, continued approval, serialized refresh, no repeated metadata, backend failure and unmount cleanup');
 } finally { await browser?.close(); await server?.close(); }

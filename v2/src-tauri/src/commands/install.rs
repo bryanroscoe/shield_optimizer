@@ -373,6 +373,7 @@ mod tests {
                 ScanConnectionProgress {
                     pending: vec!["192.0.2.1:5555".into()],
                     failed: vec![],
+                    ..Default::default()
                 }
             }
             async fn shell(
