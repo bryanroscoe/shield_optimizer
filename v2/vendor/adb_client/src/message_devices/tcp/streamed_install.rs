@@ -601,7 +601,12 @@ pub(crate) mod tests {
             });
             let started = std::time::Instant::now();
             let result = fixture_install(address, b"abc", 3, false, control);
-            assert!(started.elapsed() < Duration::from_millis(250));
+            let elapsed = started.elapsed();
+            assert!(
+                elapsed < Duration::from_millis(250),
+                "cancel={cancel}, elapsed={elapsed:?}, detail={}",
+                result.detail
+            );
             if let Some(canceller) = canceller {
                 canceller.join().unwrap();
             }
