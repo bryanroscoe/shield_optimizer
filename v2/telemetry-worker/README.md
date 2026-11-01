@@ -263,8 +263,10 @@ end. The apps never see this token; rotating it changes nothing for users.
 ### Schema changes
 
 Later schema changes go in a new `migrations/000N_*.sql`, reviewed and applied with the same
-`migrations apply --remote` command before deploying the code that needs them. Never create a
-replacement database to apply a schema change.
+`migrations apply --remote` command before deploying the code that needs them. A migration that
+removes something the live Worker still writes (as `0002_drop_country.sql` did) is the other way
+round: deploy the Worker that no longer writes it first, then apply the migration, or ingestion
+fails with `503` in between. Never create a replacement database to apply a schema change.
 
 ## First-time setup for a fork
 
