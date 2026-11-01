@@ -98,7 +98,10 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 /// Reusable implementation — callable from tests against an `AppState` without
 /// the `State<'_, T>` lifetime constraint.
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
-    let adb = state.maintenance_snapshot().await.map_err(|e| e.to_string())?;
+    let adb = state
+        .maintenance_snapshot()
+        .await
+        .map_err(|e| e.to_string())?;
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
     // their own after the daemon restarts; network devices (ip:port) do not —

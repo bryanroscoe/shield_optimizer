@@ -86,7 +86,10 @@ pub async fn install_platform_tools(operation: Arc<Lease>) -> Result<PathBuf, In
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| std::io::Error::other(e.to_string()))?
         .as_nanos();
-    let staging = parent.join(format!("platform-tools-staging-{}-{stamp}", std::process::id()));
+    let staging = parent.join(format!(
+        "platform-tools-staging-{}-{stamp}",
+        std::process::id()
+    ));
     tokio::fs::create_dir(&staging).await?;
     let staging_guard = Arc::new(StagingDirectory(staging.clone()));
     let downloaded = staging.join("downloaded");
@@ -98,9 +101,12 @@ pub async fn install_platform_tools(operation: Arc<Lease>) -> Result<PathBuf, In
     let staged_adb = finish_extraction(Arc::clone(&operation), move || {
         let _staging_guard = extraction_guard;
         extract_zip_to(std::io::Cursor::new(bytes.as_ref()), &extract_to)
-    }).await?;
+    })
+    .await?;
     // A corrupt or wrong-platform download must not replace the working tools.
-    let output = SubprocessAdb::new(staged_adb).raw(&["version"]).await
+    let output = SubprocessAdb::new(staged_adb)
+        .raw(&["version"])
+        .await
         .map_err(|e| InstallError::InvalidBinary(e.to_string()))?;
     if !output.success() || !output.stdout.contains("Android Debug Bridge version") {
         return Err(InstallError::InvalidBinary(output.combined()));
@@ -112,24 +118,34 @@ pub async fn install_platform_tools(operation: Arc<Lease>) -> Result<PathBuf, In
         let _guard = guard;
         let _staging_guard = staging_guard;
         activate_staged(&downloaded, &install_to, &backup)
-    }).await?;
+    })
+    .await?;
     adb_path_in_install_root().ok_or(InstallError::NoInstallDir)
 }
 
-fn activate_staged(downloaded: &Path, install_to: &Path, backup: &Path) -> Result<PathBuf, InstallError> {
+fn activate_staged(
+    downloaded: &Path,
+    install_to: &Path,
+    backup: &Path,
+) -> Result<PathBuf, InstallError> {
     let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
     if !downloaded.join(exe).is_file() {
         return Err(InstallError::MissingAdb);
     }
     let had_previous = install_to.exists();
     if had_previous {
-        if backup.exists() { std::fs::remove_dir_all(backup)?; }
+        if backup.exists() {
+            std::fs::remove_dir_all(backup)?;
+        }
         std::fs::rename(install_to, backup)?;
     }
     if let Err(error) = std::fs::rename(downloaded, install_to) {
         if had_previous {
             std::fs::rename(backup, install_to).map_err(|restore| {
-                std::io::Error::other(format!("{error}; previous tools remain at {} because rollback failed: {restore}", backup.display()))
+                std::io::Error::other(format!(
+                    "{error}; previous tools remain at {} because rollback failed: {restore}",
+                    backup.display()
+                ))
             })?;
         }
         return Err(error.into());

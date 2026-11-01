@@ -68,7 +68,10 @@ impl Leases {
         }
         counts.exclusive = true;
         counts.active = 1;
-        Some(Lease { leases: Arc::clone(self), exclusive: true })
+        Some(Lease {
+            leases: Arc::clone(self),
+            exclusive: true,
+        })
     }
 
     /// Refuse every later lease. Leases already held stay valid.
@@ -109,7 +112,9 @@ impl Drop for Lease {
     fn drop(&mut self) {
         let mut counts = self.leases.counts();
         counts.active -= 1;
-        if self.exclusive { counts.exclusive = false; }
+        if self.exclusive {
+            counts.exclusive = false;
+        }
         let idle = counts.active == 0;
         drop(counts);
         if idle {

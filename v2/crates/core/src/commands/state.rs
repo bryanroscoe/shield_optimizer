@@ -158,7 +158,7 @@ impl AppState {
             Some(lease) => {
                 let driver = self.adb.read().await.clone();
                 Arc::new(LeasedAdb::new(driver, lease))
-            },
+            }
             None => Arc::new(ClosedAdb),
         }
     }
