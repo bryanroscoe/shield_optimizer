@@ -167,13 +167,15 @@ characters) the admin routes answer `503`.
 
 ## Production
 
-Live since 2026-11-01 on the owner's Cloudflare account (free plan).
+Live since 2026-11-01 on the owner's Cloudflare account (free plan). The deploy was reported by
+[PR #269](https://github.com/bryanroscoe/shield_optimizer/pull/269); that does not by itself show
+that a real app build has sent events.
 
 | | |
 | --- | --- |
 | URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |
 | Worker | `atv-optimizer-telemetry` |
-| D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (also in `wrangler.toml`) |
+| D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (the committed binding in `wrangler.toml`) |
 | Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days and old rate counters |
 | Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
@@ -192,7 +194,8 @@ What runs against production on its own:
 
 - [Support tiers sync](../../.github/workflows/support-tiers-sync.yml): pushes
   `device-support.json` on every merge to `main` that changes it, then verifies the served list.
-  Re-run it from the Actions tab if the live list is ever in doubt.
+  This is the only way the live tier list changes; don't `PUT` it by hand. Re-run it from the
+  Actions tab if the live list is ever in doubt.
 - [Device support report](../../.github/workflows/device-support-report.yml): Mondays, rewrites the
   "Device support report" issue. See [`docs/DEVICE-SUPPORT.md`](../../docs/DEVICE-SUPPORT.md).
 
@@ -200,24 +203,41 @@ Both skip with a notice if the secret or variable is missing.
 
 ### Redeploy
 
-After a code change merges:
+Production deploys and remote migrations need the owner's approval; the commands below are not
+that approval. A routine redeploy **keeps the committed database binding and the existing admin
+secret**: don't create another database, paste a replacement id, or generate or reset the admin
+token as part of it. If the binding or access looks wrong, stop and reconcile it with the owner
+instead of provisioning replacements.
 
 ```sh
 cd v2/telemetry-worker
 npm ci
+npm test
+npm run typecheck
 export CLOUDFLARE_API_TOKEN="$(op read 'op://Bryan Code/cloudflare -admin api token/credential' --account my.1password.com)"
+```
+
+Before the remote steps, check the selected account (`npx wrangler whoami`) and the committed
+`[[d1_databases]]` binding, and review any new `migrations/000N_*.sql`. Apply only the intended
+pending migrations to the existing database, before the code that needs them, then deploy:
+
+```sh
 npx wrangler d1 migrations apply telemetry --remote   # only when migrations/ changed
 npx wrangler deploy
-curl -s https://atv-optimizer-telemetry.bryanroscoe.workers.dev/v1/support-tiers
+curl -fsS https://atv-optimizer-telemetry.bryanroscoe.workers.dev/v1/support-tiers
 rm -rf node_modules .wrangler
 ```
 
-Apply a new migration before deploying the code that needs it. If `wrangler` asks which account to
-use, set `CLOUDFLARE_ACCOUNT_ID` from the Cloudflare dashboard.
+If `wrangler` asks which account to use, set `CLOUDFLARE_ACCOUNT_ID` from the Cloudflare
+dashboard. The `curl` is a read-only smoke check: it doesn't validate event ingestion, admin
+access or a real app's release configuration, so check those separately, and never send
+fabricated production telemetry just to test a deploy. Admin access is proven by a green
+**Support tiers sync** run.
 
 ### Rotating ADMIN_TOKEN
 
-Three copies must change together, or the workflows start failing with `401`:
+An owner-authorized operation, separate from deploys. Three copies must change together, or the
+workflows start failing with `401`:
 
 ```sh
 # 1. New value, straight into 1Password (edit the item's credential field).
@@ -236,34 +256,34 @@ op read "op://Bryan Code/ATV Optimizer telemetry ADMIN_TOKEN/credential" --accou
 Then run **Support tiers sync** from the Actions tab: a green run proves the new token works end to
 end. The apps never see this token; rotating it changes nothing for users.
 
-## Deploy a fresh copy
+### Schema changes
 
-For a fork, or to rebuild from nothing. You need a Cloudflare account (free plan is fine) and
-Node 22.18+.
+Later schema changes go in a new `migrations/000N_*.sql`, reviewed and applied with the same
+`migrations apply --remote` command before deploying the code that needs them. Never create a
+replacement database to apply a schema change.
+
+## First-time setup for a fork
+
+Not the production procedure above. Use the fork owner's own account and explicitly approved
+resource and credential setup; the committed database id belongs to upstream production and must
+not be reused.
 
 ```sh
 cd v2/telemetry-worker
 npm ci
-
-npx wrangler login                       # or export CLOUDFLARE_API_TOKEN
-npx wrangler d1 create telemetry         # prints a database_id
-# paste that id into wrangler.toml -> [[d1_databases]] database_id
-
+npx wrangler login                       # only when the owner authorizes sign-in
+npx wrangler d1 create telemetry         # a new, independent database
+# Set the fork's own database_id in wrangler.toml -> [[d1_databases]].
+# Verify the intended account, Worker name and database before any remote change.
 npx wrangler d1 migrations apply telemetry --remote
 npx wrangler deploy
-
-openssl rand -base64 32                  # copy this into your password manager first
-npx wrangler secret put ADMIN_TOKEN      # paste it at the prompt; Cloudflare never shows it again
 ```
 
-`wrangler deploy` prints the URL, `https://atv-optimizer-telemetry.<your-subdomain>.workers.dev`.
-That base URL is what the apps need: they post to `<url>/v1/events` and read
-`<url>/v1/support-tiers`. Set it as the repo variable `ATVOPT_TELEMETRY_URL` and the token as the
-repo secret `TELEMETRY_ADMIN_TOKEN`, then run **Support tiers sync** once so the live list matches
-the repo.
-
-Later schema changes go in a new `migrations/000N_*.sql` and are applied with the same
-`migrations apply --remote` command before deploying the code that needs them.
+Provision `ADMIN_TOKEN` through the owner's secret manager and `wrangler secret put ADMIN_TOKEN`;
+never commit or print it. `wrangler deploy` prints the URL; apps post to `<url>/v1/events` and
+read `<url>/v1/support-tiers`. Set it as the repo variable `ATVOPT_TELEMETRY_URL` and the token as
+the repo secret `TELEMETRY_ADMIN_TOKEN`, then run **Support tiers sync** once so the live list
+matches the repo.
 
 ## The device report
 
