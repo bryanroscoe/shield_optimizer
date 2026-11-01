@@ -1210,6 +1210,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="device-row not-clickable"
+            class:discovered={!!d.discoveryState}
             class:unauthorized={d.status === "unauthorized"}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
@@ -1443,6 +1444,20 @@
   }
   .device-row.flash {
     animation: row-flash 2.4s ease-out;
+  }
+  .device-row.discovered {
+    flex-wrap: wrap;
+  }
+  .discovered .device-main {
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .discovered .device-name {
+    flex-wrap: wrap;
+  }
+  .discovered .row-actions {
+    flex-wrap: wrap;
   }
   @keyframes row-flash {
     0%,

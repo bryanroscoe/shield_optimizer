@@ -67,20 +67,24 @@ try {
   };
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => !!window.releaseScan);
-  await page.evaluate(() => { window.progress.pending = ['192.0.2.3:5555', '192.0.2.4:5555']; });
-  const untrusted = page.locator('[data-serial="192.0.2.3:5555"]');
+  await page.evaluate(() => { window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555', '192.0.2.4:5555']; });
+  const untrusted = page.locator('[data-serial="[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555"]');
   const failed = page.locator('[data-serial="192.0.2.4:5555"]');
   await untrusted.getByText('CONNECTING…', { exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'No devices connected.' }).count(), 0);
   assert.equal(await page.getByText('Online', { exact: true }).count(), 0, 'unapproved discoveries must not appear online');
-  await page.evaluate(() => { window.progress.awaiting_authorization = ['192.0.2.3:5555']; });
+  await page.evaluate(() => { window.progress.awaiting_authorization = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']; });
   await untrusted.getByText('UNAUTHORIZED', { exact: true }).waitFor();
   await untrusted.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
   await page.evaluate(() => {
-    window.progress.pending = ['192.0.2.3:5555'];
+    window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555'];
     window.progress.failed = [{ address: '192.0.2.4:5555', message: 'SIMULATED connection timeout; check the TV and try again.' }];
   });
   await failed.getByText('CONNECTION FAILED', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 720, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'discovered IPv6 endpoints and actions must fit the minimum window width');
+  await capture('unapproved-narrow');
+  await page.setViewportSize({ width: 1100, height: 760 });
   await capture('unapproved-and-failed-visible');
   await failed.getByRole('button', { name: 'Try again', exact: true }).click();
   await failed.getByText('CONNECTING…', { exact: true }).waitFor();
@@ -116,7 +120,7 @@ try {
   await page.waitForTimeout(2200);
   assert.equal(await page.evaluate(() => window.calls.filter(c => c === 'adb_status').length), completed, 'polling stops after terminal progress');
 
-  await page.evaluate(() => { window.progress.pending = ['192.0.2.3:5555']; });
+  await page.evaluate(() => { window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']; });
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Still connecting' }).waitFor();
   await page.evaluate(() => { window.available = false; });
