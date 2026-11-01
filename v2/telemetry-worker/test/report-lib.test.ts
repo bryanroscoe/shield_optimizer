@@ -89,6 +89,27 @@ describe("suggest", () => {
     expect(suggest(at("not_supported"), row({ installs: 9, action_ok: 1, action_fail: 9 }), undefined)).toMatchObject({ kind: "keep" });
   });
 
+  it("doesn't count setup failures (network, pairing) against the TV", () => {
+    // Five installs whose only failures were timeouts: nothing says the TV is at fault.
+    const timeouts = row({ installs: 5, action_ok: 0, action_fail: 5, top_errors: [{ code: "timeout", count: 5 }] });
+    expect(suggest(at("unknown"), timeouts, undefined)).toMatchObject({ kind: "keep" });
+    expect(suggest(at("beta"), timeouts, undefined).kind).not.toBe("not_supported");
+    // Setup failures come out of the denominator: 8 ok, 2 pm_failure, 10 unreachable is 80%.
+    const mixed = row({
+      installs: 3,
+      action_ok: 8,
+      action_fail: 12,
+      top_errors: [{ code: "unreachable", count: 10 }, { code: "pm_failure", count: 2 }],
+    });
+    expect(suggest(at("unknown"), mixed, undefined)).toMatchObject({ kind: "move", to: "beta" });
+    // Setup codes from error events can't remove more failures than there were.
+    const capped = row({ installs: 5, action_ok: 1, action_fail: 9, top_errors: [{ code: "timeout", count: 50 }] });
+    expect(suggest(at("unknown"), capped, undefined).why).toContain("5 actions (has 1)");
+    // Real failures still count.
+    const failing = row({ installs: 5, action_ok: 1, action_fail: 9, top_errors: [{ code: "permission_denied", count: 9 }] });
+    expect(suggest(at("beta"), failing, undefined)).toMatchObject({ kind: "not_supported" });
+  });
+
   it("never gives a tier to a TV that didn't say what it is", () => {
     const busy = { installs: 50, action_ok: 500 };
     for (const ids of [
@@ -139,7 +160,19 @@ describe("issueMarkdown", () => {
     const many = Array.from({ length: 2000 }, (_, i) => row({ model: `Model ${i} ${"x".repeat(40)}`, installs: 1 }));
     const md = issueMarkdown(analyze(rules, body(many, "a"), body([], "b")), body(many, "a"), body([], "b"), opts);
     expect(md.length).toBeLessThan(65_536);
-    expect(md).toMatch(/\d+ quieter TVs are not shown/);
+    expect(md).toMatch(/## All TVs \(2000\)[\s\S]*\d+ more not shown/);
+  });
+
+  it("caps the suggested-changes table too", () => {
+    // Every row qualifies for unknown -> beta, so all 2000 are suggestions.
+    const many = Array.from({ length: 2000 }, (_, i) =>
+      row({ model: `Model ${i} ${"x".repeat(40)}`, installs: 3, action_ok: 10 }),
+    );
+    const rows = analyze(rules, body(many, "a"), body([], "b"));
+    expect(rows.every((r) => r.suggestion.kind === "move")).toBe(true);
+    const md = issueMarkdown(rows, body(many, "a"), body([], "b"), opts);
+    expect(md.length).toBeLessThan(65_536);
+    expect(md).toMatch(/## Suggested changes \(2000\)[\s\S]*\d+ more not shown[\s\S]*## All TVs \(2000\)/);
   });
 });
 

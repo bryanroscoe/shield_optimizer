@@ -80,8 +80,24 @@ export function identified(row: Pick<ReportRow, "manufacturer" | "model">): bool
   return reported(row.manufacturer) && reported(row.model);
 }
 
-function actions(row: ReportRow | undefined): number {
+function totalActions(row: ReportRow | undefined): number {
   return row ? row.action_ok + row.action_fail : 0;
+}
+
+/// Failed actions that carried a setup code. The Worker counts a failed
+/// action's code together with error events' codes and doesn't say which is
+/// which, so this is an upper bound: every listed setup code is assumed to
+/// be a failed action, capped at the failures there were. That can only err
+/// in the TV's favour, which is the rule: setup never counts against a TV.
+function setupFailures(row: ReportRow): number {
+  const listed = row.top_errors.filter((e) => isExplained(e.code)).reduce((n, e) => n + e.count, 0);
+  return Math.min(row.action_fail, listed);
+}
+
+/// Actions that say something about the TV: everything except failures
+/// caused by the user's setup. Success rates and minimum counts use these.
+function actions(row: ReportRow | undefined): number {
+  return row ? totalActions(row) - setupFailures(row) : 0;
 }
 
 function success(row: ReportRow | undefined): number | null {
@@ -93,12 +109,10 @@ function pct(x: number | null): string {
   return x === null ? "-" : `${(100 * x).toFixed(1).replace(/\.0$/, "")}%`;
 }
 
-/// The worst unexplained code's share of actions. `null` when there were no
-/// actions. When the Worker's top-5 list is full and its smallest entry is
-/// already over `threshold`, an unlisted code could be too, so the result is
-/// reported as at least that share.
+/// The worst unexplained code's share of all actions. `null` when there
+/// were no actions.
 function worstUnexplained(row: ReportRow | undefined): { code: string; share: number } | null {
-  const n = actions(row);
+  const n = totalActions(row);
   if (!row || n === 0) return null;
   let worst: { code: string; share: number } | null = null;
   for (const e of row.top_errors) {
@@ -112,7 +126,7 @@ function worstUnexplained(row: ReportRow | undefined): { code: string; share: nu
 function listMayHideCodeOver(row: ReportRow | undefined, threshold: number): boolean {
   if (!row || row.top_errors.length < TOP_ERRORS_MAX) return false;
   const smallest = Math.min(...row.top_errors.map((e) => e.count));
-  return smallest / Math.max(1, actions(row)) > threshold;
+  return smallest / Math.max(1, totalActions(row)) > threshold;
 }
 
 export type Suggestion =
@@ -316,24 +330,32 @@ export function issueMarkdown(rows: AnalyzedRow[], all: ReportBody, recent: Repo
     head.push("", "> The Worker cut the list at its row limit; the quietest TVs are missing.");
   }
 
-  const sections: string[] = [];
-  sections.push(`## Suggested changes (${changes.length})`, "");
-  sections.push(changes.length === 0 ? "None this week." : [HEADER, ...changes.map(tableRow)].join("\n"));
-  sections.push("", `## All TVs (${rows.length})`, "");
-
-  let body = `${[...head, "", ...sections].join("\n")}\n`;
-  const lines: string[] = [HEADER];
-  let shown = 0;
-  for (const r of rows) {
-    const line = tableRow(r);
-    if (body.length + lines.join("\n").length + line.length + 200 > BODY_BUDGET) break;
-    lines.push(line);
-    shown += 1;
-  }
-  body += rows.length === 0 ? "No TVs have reported yet." : lines.join("\n");
-  if (shown < rows.length) {
-    body += `\n\n${rows.length - shown} quieter TVs are not shown (issue size limit). Run \`npm run report\` in \`v2/telemetry-worker\` for the full list.`;
-  }
+  let body = `${head.join("\n")}\n\n`;
+  // Both tables share GitHub's size limit; the suggested changes come first
+  // so they are the last thing cut.
+  const table = (title: string, list: AnalyzedRow[], empty: string): void => {
+    body += `## ${title} (${list.length})\n\n`;
+    if (list.length === 0) {
+      body += `${empty}\n\n`;
+      return;
+    }
+    const lines = [HEADER];
+    let size = body.length + HEADER.length;
+    for (const r of list) {
+      const line = tableRow(r);
+      if (size + line.length + 400 > BODY_BUDGET) break;
+      lines.push(line);
+      size += line.length + 1;
+    }
+    body += `${lines.join("\n")}\n\n`;
+    const hidden = list.length - (lines.length - 1);
+    if (hidden > 0) {
+      body += `${hidden} more not shown (issue size limit). \`npm run report\` in \`v2/telemetry-worker\` prints every row.\n\n`;
+    }
+  };
+  table("Suggested changes", changes, "None this week.");
+  table("All TVs", rows, "No TVs have reported yet.");
+  body = body.trimEnd();
   return `${body}\n`;
 }
 
@@ -346,7 +368,7 @@ export function consoleRows(body: ReportBody): Array<Record<string, unknown>> {
     out.seen = r.seen;
     out.ok = r.action_ok;
     out.fail = r.action_fail;
-    out["ok %"] = pct(success(r));
+    out["ok %"] = totalActions(r) > 0 ? pct(r.action_ok / totalActions(r)) : "-";
     out.errors = r.errors;
     out["top errors"] = r.top_errors
       .slice(0, 3)

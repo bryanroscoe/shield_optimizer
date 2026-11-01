@@ -94,8 +94,10 @@ Columns:
 - **Current tier**: what the apps show for that TV today.
 - **Installs**: distinct anonymous install ids that saw the TV. One person with two phones counts
   twice; a reinstall or turning reports off and on counts again.
-- **Actions ok / fail** and **Success all / 30d**: tracked actions (connect, disable, optimize,
-  snapshot apply, launcher, settings…) that succeeded or failed.
+- **Actions ok / fail**: tracked actions (connect, disable, optimize, snapshot apply, launcher,
+  settings…) that succeeded or failed, as reported.
+- **Success all / 30d**: the share that succeeded once failures from the user's setup are left out
+  (see the criteria).
 - **Top error codes**: from `v2/shared/errors.ts`. A `*` marks a code that counts against the TV;
   the unmarked ones are the user's setup (network, pairing, adb missing, our own do-not-disable
   refusal, the Pro lock).
@@ -120,8 +122,13 @@ together.
 | none | The TV didn't report a manufacturer and model (or the server redacted them). It never gets a tier. |
 
 An "unexplained" code is anything outside the setup list: `permission_denied`, `pm_failure`,
-`unsupported`, `partial_failure`, `unknown`, `panic` and anything new. The error rate is the code's
-count over the TV's actions in the same window. The Worker returns a TV's top five codes, so when
+`unsupported`, `partial_failure`, `unknown`, `panic` and anything new. Setup failures don't count
+against a TV: the action counts and success rates in the criteria leave out failed actions that
+carried a setup code, so five timeouts are no actions at all rather than 0% success. The Worker
+stores a failed action's code together with error events' codes, so the report subtracts every
+listed setup code from the failures (never more than there were). That can only flatter the TV,
+never blame it; splitting the two in the Worker's aggregates would make it exact. An error rate
+is the code's count over all of the TV's actions in the same window. The Worker returns a TV's top five codes, so when
 all five are setup codes and even the fifth is over 5%, the report can't rule out a hidden sixth
 and holds off on suggesting `supported`.
 
