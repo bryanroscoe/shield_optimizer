@@ -1,0 +1,70 @@
+# Weekly device report: one standing issue, "Device support report", rewritten
+# from the telemetry Worker's admin device report. It shows each TV's current
+# tier (from the repo's rules) and a suggested tier. Suggestions only: this
+# never edits a tier. Criteria and the change process: docs/DEVICE-SUPPORT.md.
+
+name: Device support report
+
+on:
+  schedule:
+    # Mondays 14:23 UTC.
+    - cron: '23 14 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: device-support-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Update the device support issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Build the report
+        id: build
+        env:
+          ATV_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
+          ATV_TELEMETRY_ADMIN_TOKEN: ${{ secrets.TELEMETRY_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ATV_TELEMETRY_ADMIN_TOKEN}" ] || [ -z "${ATV_TELEMETRY_URL}" ]; then
+            echo "::notice::TELEMETRY_ADMIN_TOKEN secret or ATVOPT_TELEMETRY_URL variable is not set; skipping the report."
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          node v2/telemetry-worker/scripts/report.ts --issue > "${RUNNER_TEMP}/report.md"
+          cat "${RUNNER_TEMP}/report.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Create or update the issue
+        if: steps.build.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TITLE: Device support report
+        run: |
+          set -euo pipefail
+          number="$(gh issue list --state open --limit 500 --json number,title \
+            --jq "map(select(.title == env.TITLE)) | sort_by(.number) | .[0].number // empty")"
+          if [ -n "${number}" ]; then
+            gh issue edit "${number}" --body-file "${RUNNER_TEMP}/report.md"
+            echo "Updated #${number}"
+          else
+            url="$(gh issue create --title "${TITLE}" --body-file "${RUNNER_TEMP}/report.md")"
+            echo "Created ${url}"
+            # Best effort: a repo can pin three issues, and pinning may need
+            # more than this token has.
+            gh issue pin "${url}" || echo "::notice::Could not pin ${url}; pin it by hand."
+          fi

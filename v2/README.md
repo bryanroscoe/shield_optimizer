@@ -163,7 +163,8 @@ desktop build; leave it unset to ship a build that never reports.
   any failure keeps the embedded rules. A cached or fetched document dated (`updated`) before the
   embedded one is ignored, so an app update's corrections win. When fetched rules change, Rust emits
   `support-tiers-updated` and both frontends re-list devices. Tiers are informational only and
-  never feed `engine::safety`.
+  never feed `engine::safety`. The live copy is synced from the same file on merge; how a TV
+  changes tier is [`../docs/DEVICE-SUPPORT.md`](../docs/DEVICE-SUPPORT.md).
 
 ## See also
 

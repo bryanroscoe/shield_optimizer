@@ -99,7 +99,11 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
   (`engine/telemetry.rs`), the queue and upload are `crates/core/src/telemetry.rs`, and the
   frontends report outcomes from their single invoke wrapper via `shared/telemetry.ts`. Error
   codes shown to users and sent in reports come from one table, `shared/errors.ts`. See
-  `v2/README.md` "Telemetry and support tiers".
+  `v2/README.md` "Telemetry and support tiers". The backend has been live since 2026-11-01
+  (`telemetry-worker/README.md` "Production"). `device-support.json` is the only tier list: the
+  `support-tiers-sync` workflow pushes it to the Worker on merge, and a weekly workflow rewrites
+  the "Device support report" issue with suggested moves. Change a tier only by a PR to that
+  file with today's `updated` date and a `support.rs` test (`../docs/DEVICE-SUPPORT.md`).
 - **TV evidence** is a three-way value (`tv | not_tv | unknown`); only `not_tv` blocks a row. Do
   not re-introduce "unknown means phone" — that was #120.
 
