@@ -96,7 +96,9 @@ is ever added it needs signature verification and an offline fallback to embedde
 - **Not a root or Magisk tool.** Only ADB-shell-level changes. On-device root operations belong in Magisk modules.
 - **Not a custom-ROM flasher.** No fastboot, no recovery image flashing, no Project Treble manipulation.
 - **No cloud sync.** Snapshots are local JSON files. No account, no cloud backup.
-- **No crash/usage telemetry.** Diagnostics live in local log files the user can choose to share.
+- **No third-party analytics.** The only reporting is the app's own anonymous device and error
+  reports (below), sent to an owner-operated endpoint and off with one setting. Full diagnostics
+  stay in local log files the user can choose to share.
 - **No firmware-protection bypass.** When firmware refuses a change (for example a protected Fire TV stock launcher, [#205](https://github.com/bryanroscoe/shield_optimizer/issues/205)), the app reports the command error, restore outcome and actual Home readback; it doesn't work around the refusal.
 
 ## Local setup
@@ -124,6 +126,44 @@ The development flow is:
 - `cd v2 && npm run tauri dev` to run the GUI
 - `cd v2 && cargo test -p shield-optimizer-core -p shield-optimizer-v2` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
+
+## Telemetry and support tiers
+
+Anonymous reports are **on by default and opt-out**, and compiled in only when the build sets
+`ATVOPT_TELEMETRY_URL` (the base URL of the owner-operated Cloudflare Worker, no trailing path).
+Without it, telemetry is a complete no-op: nothing is queued and nothing touches the network.
+The URL must be `https://`; plain `http://` is accepted only for a loopback host (local Worker
+development), and anything else is ignored as if unset.
+
+```bash
+ATVOPT_TELEMETRY_URL=https://telemetry.example.workers.dev npm run tauri build
+```
+
+The release workflow passes the optional repository variable `ATVOPT_TELEMETRY_URL` to the
+desktop build; leave it unset to ship a build that never reports.
+
+- Payloads are built and redacted in the pure `crates/core/src/engine/telemetry.rs`; queueing and
+  upload live in `crates/core/src/telemetry.rs` (`POST <base>/v1/events`, at most 50 events and
+  64 KB per request, 5 s connect / 10 s total timeouts, bounded queue, silent on failure). Never
+  sent: `ro.serialno` or any hardware id, IPs or ports, TV names, package lists, file paths,
+  license data, snapshot contents.
+- Events: `device_seen` once per TV per session after profiling, `action_result` for connect,
+  scan, disable, enable, uninstall, optimize, snapshot apply, launcher, settings writes and
+  pairing, and `error` for Rust panics, uncaught frontend errors and failed untracked commands
+  (rate limited). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
+  `telemetry_error`; `shared/telemetry.ts` maps commands to actions.
+- The setting lives in `<data_dir>/telemetry.json`, written atomically. Off clears the queue and
+  cancels an upload in flight; back on generates a new random install id. A file that exists but
+  can't be read counts as opted out. Messages are also scrubbed of every transport serial and
+  hardware id seen this session, whatever their shape.
+- **Support tiers** (`unknown`, `not_supported`, `beta`, `supported`, `fully_supported`) come from
+  `crates/core/data/device-support.json`, embedded like the app lists and matched by the pure
+  `engine/support.rs` against what the device reported. When reports are on, the app also fetches
+  `GET <base>/v1/support-tiers`, validates it, and caches it as `<data_dir>/support-tiers.json`;
+  any failure keeps the embedded rules. A cached or fetched document dated (`updated`) before the
+  embedded one is ignored, so an app update's corrections win. When fetched rules change, Rust emits
+  `support-tiers-updated` and both frontends re-list devices. Tiers are informational only and
+  never feed `engine::safety`.
 
 ## See also
 

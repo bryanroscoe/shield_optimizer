@@ -14,6 +14,8 @@
   import type { Screen } from "../lib/router.svelte";
   import type { SavedDevice } from "../lib/types";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import SupportStatus from "../components/SupportStatus.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -89,8 +91,13 @@
     ),
   );
 
+  /// A failed connect or reconnect, shown with its code and Copy details. The
+  /// target's tier isn't known until it connects, so it carries none.
+  let connectFailure = $state<{ title: string; error: unknown } | null>(null);
+
   async function reconnect(d: SavedDevice) {
     if (connectingToken) return;
+    connectFailure = null;
     const token = savedDeviceKey(d);
     connectingToken = token;
     connectErrorKey = "";
@@ -109,11 +116,11 @@
         navigate("dashboard");
       } else {
         connectErrorKey = token;
-        showToast(r.message || "Couldn't connect.", "error");
+        connectFailure = { title: `Couldn't connect to ${d.name}`, error: r.message || "Couldn't connect." };
       }
     } catch (e) {
       connectErrorKey = token;
-      showToast(String(e), "error");
+      connectFailure = { title: `Couldn't connect to ${d.name}`, error: e };
     } finally {
       connectingToken = "";
     }
@@ -123,17 +130,18 @@
   async function reconnectCurrent() {
     if (connectingToken) return;
     connectingToken = "current";
+    connectFailure = null;
     try {
       const r = await session.reconnect();
       if (!r.ok) {
-        showToast(r.message || "Couldn't reconnect.", "error");
+        connectFailure = { title: "Couldn't reconnect", error: r.message || "Couldn't reconnect." };
       } else if (!session.identityNote) {
         // The global identity-note toast in App.svelte owns showing a
         // mismatch; suppress only the now-misleading success toast here.
         showToast("Reconnected.", "success");
       }
     } catch (e) {
-      showToast(String(e), "error");
+      connectFailure = { title: "Couldn't reconnect", error: e };
     } finally {
       connectingToken = "";
     }
@@ -188,6 +196,16 @@
   </div>
 
   <div class="devices-content">
+    {#if connectFailure}
+      <ErrorNotice
+        error={connectFailure.error}
+        title={connectFailure.title}
+        action="Connect to TV"
+        support={null}
+        onDismiss={() => (connectFailure = null)}
+      />
+    {/if}
+
     <!-- Connected device -->
     {#if session.connectedDevice}
       <div class="active-card">
@@ -217,6 +235,8 @@
           <span class="stat"><span class="msr">database</span>{storageUsed}</span>
           <span class="stat"><span class="msr">thermostat</span>{temp}</span>
         </div>
+
+        <SupportStatus support={session.support} />
 
         <div class="active-actions">
           {#if renaming}

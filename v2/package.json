@@ -20,6 +20,7 @@
     "test:update-notes-dialog": "node tests/update-notes-dialog.mjs",
     "test:notes-seen": "node tests/notes-seen.mjs",
     "test:report-bug": "node tests/report-bug.mjs",
+    "test:reported-package-names": "node tests/reported-package-names.mjs",
     "test:app-report": "node tests/app-report.mjs",
     "test:remote-paste": "node tests/remote-paste.mjs",
     "test:memory-safety": "node tests/memory-safety.mjs",
@@ -41,7 +42,9 @@
     "test:tvrecommendations-safety": "node tests/tvrecommendations-safety.mjs",
     "test:launcher-feedback": "node tests/launcher-feedback.mjs",
     "test:progressive-help": "node tests/progressive-help.mjs",
-    "test:restart-onboarding": "node tests/restart-onboarding.mjs"
+    "test:restart-onboarding": "node tests/restart-onboarding.mjs",
+    "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
+    "test:support-tiers-ui": "node tests/support-tiers-ui.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

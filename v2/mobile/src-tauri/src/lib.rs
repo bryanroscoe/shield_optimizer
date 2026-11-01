@@ -23,11 +23,16 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use shield_optimizer_core::commands::{
     apps, devices, health, input, launcher, license, loader, optimize, reboot, recovery,
-    screenshot, snapshot, tuning, AppState,
+    screenshot, snapshot, telemetry, tuning, AppState,
 };
 use shield_optimizer_core::engine;
+use shield_optimizer_core::engine::telemetry::AppKind;
 use shield_optimizer_core::license::{
     parse_license, validate_license_key, Entitlement, LicenseInfo,
+};
+use shield_optimizer_core::telemetry::{
+    install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
+    TelemetryConfig,
 };
 use tauri::{Manager, State};
 use wireless_adb::WirelessAdb;
@@ -218,13 +223,25 @@ pub fn run() {
                 app.handle().clone(),
                 data_dir.join("adb_key"),
             ));
+            // Anonymous reports: a complete no-op unless this build was compiled
+            // with ATVOPT_TELEMETRY_URL, and the user can turn them off in More.
+            let telemetry = Telemetry::new(
+                TelemetryConfig::for_build(AppKind::Mobile, env!("CARGO_PKG_VERSION")),
+                &data_dir,
+            );
+            install_panic_hook(telemetry.clone());
+            telemetry.start();
+
             let state = AppState::new(wireless.clone(), app_lists, data_dir)
                 .with_known_names(loader::load_known_names())
-                .with_entitlement(entitlement);
+                .with_entitlement(entitlement)
+                .with_telemetry(telemetry);
             state.set_license_info(
                 license_info.filter(|_| billing.distribution().allows_license_keys()),
             );
+            load_cached_support_rules(&state);
             app.manage(state);
+            spawn_support_refresh(app.handle().clone());
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());
             app.manage(billing);
@@ -314,6 +331,11 @@ pub fn run() {
             file_commands::delete_backup,
             file_commands::find_files,
             file_commands::delete_path,
+            telemetry::telemetry_settings,
+            telemetry::set_telemetry_enabled,
+            telemetry::dismiss_telemetry_notice,
+            telemetry::telemetry_action,
+            telemetry::telemetry_error,
         ])
         .build(tauri::generate_context!())
         .expect("error while building ATV Optimizer mobile application")

@@ -1,8 +1,9 @@
 // Typed wrappers around Tauri's `invoke()`. Single point of contact with the
 // Rust backend — every command goes through here.
 
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke, Channel } from "@tauri-apps/api/core";
 import { parseSafety } from "../../shared/safety";
+import { observeCall, type Send, type TelemetryAction, type TelemetrySettings } from "../../shared/telemetry";
 import type {
   ActionResult,
   AdbStatus,
@@ -62,7 +63,43 @@ import type {
   WriteResult,
 } from "./types";
 
+/// Every backend call goes through here so each finished call can be
+/// reported (fire-and-forget) for the anonymous reports. Reporting never
+/// changes what the caller gets back or throws.
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  let value: T;
+  try {
+    value = await tauriInvoke<T>(command, args);
+  } catch (error) {
+    observeCall(send, command, args, undefined, error ?? "unknown error");
+    throw error;
+  }
+  observeCall(send, command, args, value);
+  return value;
+}
+
+/// Raw sender for telemetry reports themselves, so they are never observed.
+export const send: Send = (command, args) => tauriInvoke(command, args);
+
 export const api = {
+  telemetrySettings: () => invoke<TelemetrySettings>("telemetry_settings"),
+  setTelemetryEnabled: (enabled: boolean) =>
+    invoke<TelemetrySettings>("set_telemetry_enabled", { enabled }),
+  dismissTelemetryNotice: () => invoke<TelemetrySettings>("dismiss_telemetry_notice"),
+  telemetryAction: (
+    action: TelemetryAction,
+    serial: string | null,
+    ok: boolean,
+    errorCode: string | null = null,
+    message: string | null = null,
+  ) => invoke<void>("telemetry_action", { action, serial, ok, errorCode, message }),
+  telemetryError: (
+    errorCode: string,
+    message: string,
+    action: TelemetryAction | null = null,
+    serial: string | null = null,
+  ) => invoke<void>("telemetry_error", { errorCode, message, action, serial }),
+
   readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
     invoke<DeviceLogResult>("read_device_logs", { serial, options }),
   adbStatus: () => invoke<AdbStatus>("adb_status"),

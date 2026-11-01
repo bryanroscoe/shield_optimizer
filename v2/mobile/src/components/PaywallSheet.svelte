@@ -2,6 +2,7 @@
   import { modal } from "../lib/modal";
   import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
   import { session } from "../lib/session.svelte";
+  import ErrorNotice from "./ErrorNotice.svelte";
   // The one Pro upsell surface (design §6.3). Screens open this when a Pro
   // command throws `LOCKED:<feature>` instead of showing a raw error. Buying
   // goes through Google Play; the backend verifies the purchase before Pro
@@ -125,8 +126,17 @@
           </button>
         {/if}
       {/if}
-      {#if billing.message}
-        <p class="paywall-message" class:error={billing.tone === "error"} role="status">{billing.message}</p>
+      {#if billing.message && billing.tone === "error"}
+        <ErrorNotice
+          error={billing.message}
+          guidance={billing.message}
+          title="Google Play"
+          action="Google Play purchase"
+          support={null}
+          onDismiss={() => (billing.message = "")}
+        />
+      {:else if billing.message}
+        <p class="paywall-message" role="status">{billing.message}</p>
       {/if}
       <button class="ghost paywall-later" onclick={onClose}>Maybe later</button>
       {#if billing.licenseKeyEntry && billing.available && !session.isPro}
@@ -270,9 +280,6 @@
     font-size: 12px;
     text-align: center;
     color: var(--muted);
-  }
-  .paywall-message.error {
-    color: var(--danger);
   }
   .paywall-hint {
     margin: 10px 0 0;

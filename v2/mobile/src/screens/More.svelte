@@ -13,12 +13,14 @@
   import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
+  import { NOTICE_TEXT, TOGGLE_LABEL, type TelemetrySettings } from "../../../shared/telemetry";
   import type {
     UnknownDiagnosticReason,
     UnknownDiagnosticReport,
   } from "../lib/unknownDiagnostics";
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -42,7 +44,34 @@
     toastTimer = setTimeout(() => (toast = ""), 3500);
   }
 
+  // Anonymous reports. null until the backend answers; a failed read leaves
+  // the switch hidden rather than showing a state we don't know.
+  let telemetry = $state<TelemetrySettings | null>(null);
+  let telemetryBusy = $state(false);
+
+  async function loadTelemetry() {
+    try {
+      telemetry = await api.telemetrySettings();
+    } catch {
+      telemetry = null;
+    }
+  }
+
+  async function toggleTelemetry(event: Event) {
+    const enabled = (event.currentTarget as HTMLInputElement).checked;
+    telemetryBusy = true;
+    try {
+      telemetry = await api.setTelemetryEnabled(enabled);
+    } catch {
+      showToast("Couldn't change the report setting.", "error");
+      await loadTelemetry();
+    } finally {
+      telemetryBusy = false;
+    }
+  }
+
   onMount(async () => {
+    void loadTelemetry();
     refreshDiagnosticsSummary();
     await session.loadEntitlement();
     await billing.load();
@@ -362,8 +391,17 @@
       {:else if !session.isPro && !billing.licenseKeyEntry}
         <p class="license-desc">{billing.unavailableReason}</p>
       {/if}
-      {#if billing.message}
-        <p class="license-desc" class:license-error={billing.tone === "error"} role="status">{billing.message}</p>
+      {#if billing.message && billing.tone === "error"}
+        <ErrorNotice
+          error={billing.message}
+          guidance={billing.message}
+          title="Google Play"
+          action="Google Play purchase"
+          support={null}
+          onDismiss={() => (billing.message = "")}
+        />
+      {:else if billing.message}
+        <p class="license-desc" role="status">{billing.message}</p>
       {/if}
       {#if playConfirmed}
         <p class="license-desc">{playConfirmed}</p>
@@ -542,6 +580,43 @@
       {/if}
     </div>
 
+    <!-- Anonymous reports -->
+    {#if telemetry}
+      <div class="more-card" data-testid="telemetry-card">
+        <span class="card-label">Privacy</span>
+        <label class="telemetry-toggle">
+          <span class="tt-copy">
+            <span class="tt-title">{TOGGLE_LABEL}</span>
+            <span class="card-desc">
+              {#if !telemetry.available}
+                This build doesn't send reports.
+              {:else if telemetry.enabled}
+                On. Turning it off stops sending immediately and discards anything not yet sent.
+              {:else}
+                Off. Nothing is sent.
+              {/if}
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            role="switch"
+            checked={telemetry.available && telemetry.enabled}
+            disabled={!telemetry.available || telemetryBusy}
+            onchange={toggleTelemetry}
+            aria-label={TOGGLE_LABEL}
+          />
+        </label>
+        <details class="help-disclosure">
+          <summary>What's sent</summary>
+          <p class="card-desc">{NOTICE_TEXT}</p>
+          <p class="card-desc">
+            Reports go to a server the app's developer runs; raw reports are kept for 90 days.
+            Turning reports back on starts a new random install ID.
+          </p>
+        </details>
+      </div>
+    {/if}
+
     <!-- Debug log -->
     <div class="more-card">
       <span class="card-label">Debug log</span>
@@ -675,6 +750,29 @@
     letter-spacing: 0.12em;
     color: var(--dim);
     text-transform: uppercase;
+  }
+  .telemetry-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    cursor: pointer;
+  }
+  .tt-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .tt-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .telemetry-toggle input {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    accent-color: var(--accent);
   }
   .card-desc {
     font-size: 12px;

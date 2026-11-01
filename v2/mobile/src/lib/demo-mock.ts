@@ -80,6 +80,8 @@ async function handleAsync(cmd: string, args: Record<string, unknown>): Promise<
   return handle(cmd, args);
 }
 
+let telemetryEnabled = true;
+
 function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "get_entitlement":
@@ -115,8 +117,30 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "wireless_status":
       return { connected: true, serial: SERIAL, host: HOST };
     // The phone holds exactly one connection; its serial is the dialed address.
-    case "list_devices":
-      return [{ ...(sharedHandle("device_profile", { serial: SERIAL }) as Device), serial: SERIAL }];
+    case "list_devices": {
+      const device = sharedHandle("device_profile", { serial: SERIAL }) as Device;
+      // The desktop fixture carries `support` once it knows tiers; until then
+      // say what the shipped rules say about a SHIELD.
+      return [{
+        ...device,
+        serial: SERIAL,
+        support: device.support ?? {
+          tier: "fully_supported",
+          note: "NVIDIA SHIELD is the device this app is built and tested on.",
+        },
+      }];
+    }
+    // Reports on, and the first-launch notice already dismissed so it never
+    // covers a gallery frame.
+    case "telemetry_settings":
+    case "dismiss_telemetry_notice":
+      return { enabled: telemetryEnabled, available: true, notice_seen: true };
+    case "set_telemetry_enabled":
+      telemetryEnabled = Boolean(args.enabled);
+      return { enabled: telemetryEnabled, available: true, notice_seen: true };
+    case "telemetry_action":
+    case "telemetry_error":
+      return null;
     case "list_remote_dir":
       return sharedHandle("list_dir", { path: args.path }) as FileEntry[];
     case "pull_file": {

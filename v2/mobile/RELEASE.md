@@ -181,6 +181,23 @@ jarsigner -verify -verbose -certs \
   src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab | tail -5
 ```
 
+## Telemetry endpoint
+
+Anonymous reports are compiled in only when the build environment sets `ATVOPT_TELEMETRY_URL` to
+the owner-operated Worker's `https://` base URL (no trailing path; non-HTTPS URLs other than
+loopback are ignored). Without it the app never sends reports or
+fetches support tiers, and More shows the setting as unavailable. Set it for the release build:
+
+```bash
+ATVOPT_DISTRIBUTION=play ATVOPT_PLAY_LICENSE_KEY=… \
+  ATVOPT_TELEMETRY_URL=https://telemetry.example.workers.dev npm run tauri android build -- --aab
+```
+
+`option_env!` bakes the value in at compile time, so changing it needs a rebuild of the shared
+core (Cargo tracks the variable). Check the Data safety answers against `DATA-INVENTORY.md` before
+uploading a build that has it set. Purchase records (order id, token, price, product) are never
+included in reports; a Buy attempt reports only its outcome (see `DATA-INVENTORY.md`).
+
 ## 6. Owner setup in Play Console for Pro (one time)
 
 The code is ready for these; none of it can be done from the repo. Order matters: Play only lets

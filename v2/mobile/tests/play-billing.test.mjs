@@ -48,6 +48,8 @@ async function open(t, initial, screen = "more", { clock = false } = {}) {
   await page.addInitScript((init) => {
     window.calls = [];
     window.handlers = {};
+    // The connection itself reports a "connect" action; purchases report "other".
+    window.purchaseReport = (c) => c.command === "telemetry_action" && c.args?.action === "other";
     window.billingStatus = init;
     window.__TAURI_INTERNALS__ = {
       transformCallback: () => 0,
@@ -164,8 +166,11 @@ test("a failed purchase shows Play's error and grants nothing", async (t) => {
   });
   const card = licensing(page);
   await card.getByRole("button", { name: "Buy Pro · €3,49" }).click();
-  await card.getByText("Couldn't reach Google Play. Check your connection and try again.").waitFor();
+  const notice = card.locator(".error-notice");
+  await notice.getByText("Couldn't reach Google Play. Check your connection and try again.").waitFor();
   assert.equal(await card.locator(".license-badge").textContent(), "Free");
+  const report = await page.evaluate(() => window.calls.find(purchaseReport)?.args);
+  assert.deepEqual(report, { action: "other", serial: null, ok: false, errorCode: "billing_failed", message: null });
 });
 
 test("a cancelled purchase is quiet", async (t) => {
@@ -176,7 +181,8 @@ test("a cancelled purchase is quiet", async (t) => {
   const card = licensing(page);
   await card.getByRole("button", { name: "Buy Pro · €3,49" }).click();
   await page.waitForFunction(() => window.calls.some((c) => c.command === "billing_purchase"));
-  assert.equal(await card.locator(".license-error").count(), 0);
+  assert.equal(await card.locator(".error-notice").count(), 0);
+  assert.equal(await page.evaluate(() => window.calls.filter(purchaseReport).length), 0, "a cancelled sheet is not reported");
   assert.equal(await card.locator(".license-badge").textContent(), "Free");
 });
 
@@ -246,6 +252,9 @@ test("buying from the paywall closes it once the backend grants Pro", async (t) 
   // The screen it was bought from reloads instead of staying locked.
   await page.getByRole("heading", { name: "Debloat is a Pro feature" }).waitFor({ state: "detached" });
   assert.ok((await count(page, "prepare_optimize")) >= 2);
+  // The anonymous report carries the outcome only: no order, token, price or product.
+  const report = await page.evaluate(() => window.calls.find(purchaseReport)?.args);
+  assert.deepEqual(report, { action: "other", serial: null, ok: true, errorCode: null, message: null });
 });
 
 test("a pending purchase that completes while the app stays open unlocks without leaving the app", async (t) => {

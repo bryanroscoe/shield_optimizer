@@ -10,6 +10,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { parseSafety } from "../../../shared/safety";
 import type { MediaCapabilities } from "../../../shared/media";
+import { observeCall, type Send, type TelemetrySettings } from "../../../shared/telemetry";
 import { logCall, summarizeArgs } from "./log";
 import { connectionGeneration, emitConnectionLost, isConnectionLostError } from "./connectionEvents";
 import type {
@@ -64,6 +65,20 @@ import type {
 
 type PackageState = "enabled" | "disabled" | "missing";
 
+/// The raw transport for telemetry reports themselves: never observed, never
+/// logged, so a report can't trigger another report.
+export const sendTelemetry: Send = (command, args) => invoke(command, args);
+
+/// Hand a finished call to the anonymous-report observer. Fire-and-forget:
+/// it can't change the call's result or turn a success into a throw.
+function observe(command: string, args: Record<string, unknown> | undefined, value: unknown, error?: unknown) {
+  try {
+    observeCall(sendTelemetry, command, args, value, error);
+  } catch {
+    // Reporting is never the user's problem.
+  }
+}
+
 async function call<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -73,6 +88,7 @@ async function call<T>(
   try {
     const result = await invoke<T>(command, args);
     logCall(command, summary, true);
+    observe(command, args, result);
     return result;
   } catch (e) {
     const message = String(e);
@@ -80,6 +96,7 @@ async function call<T>(
     // The backend already evicted the dead socket; let the session flip to
     // "lost" (and try one recovery) instead of leaving a green header up.
     if (isConnectionLostError(message)) emitConnectionLost(generation);
+    observe(command, args, undefined, e);
     throw e;
   }
 }
@@ -285,6 +302,21 @@ export const api = {
 
   // ---- Debug ----
   readDebugLog: () => call<string>("read_debug_log"),
+
+  // ---- Anonymous reports ----
+  telemetrySettings: () => call<TelemetrySettings>("telemetry_settings"),
+  setTelemetryEnabled: (enabled: boolean) =>
+    call<TelemetrySettings>("set_telemetry_enabled", { enabled }),
+  dismissTelemetryNotice: () => call<TelemetrySettings>("dismiss_telemetry_notice"),
+  telemetryAction: (
+    action: string,
+    serial: string | null,
+    ok: boolean,
+    errorCode: string | null,
+    message: string | null,
+  ) => call<void>("telemetry_action", { action, serial, ok, errorCode, message }),
+  telemetryError: (errorCode: string, message: string, action: string | null, serial: string | null) =>
+    call<void>("telemetry_error", { errorCode, message, action, serial }),
 
   /// Delete one APK backup from the app's scoped storage (path-confined to the
   /// backups dir backend-side). The TV is not touched.

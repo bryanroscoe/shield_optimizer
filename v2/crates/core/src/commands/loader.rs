@@ -5,11 +5,11 @@
 //! the resulting `AppListBundle` as an input.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use serde::Deserialize;
 
-use crate::engine::{AppListBundle, LauncherCatalog};
+use crate::engine::{parse_support_rules, AppListBundle, LauncherCatalog, SupportRules};
 
 /// Embedded JSON for the three default app lists. Loaded at compile time so
 /// the binary works offline.
@@ -18,6 +18,7 @@ const SHIELD_JSON: &str = include_str!("../../data/app-lists/shield.json");
 const GOOGLETV_JSON: &str = include_str!("../../data/app-lists/googletv.json");
 const KNOWN_NAMES_JSON: &str = include_str!("../../data/app-lists/known-names.json");
 const LAUNCHERS_JSON: &str = include_str!("../../data/app-lists/launchers.json");
+const DEVICE_SUPPORT_JSON: &str = include_str!("../../data/device-support.json");
 
 /// Load the bundled defaults. Returns a useful error string if any of the
 /// embedded JSON files fail to parse — that's a build-time mistake worth
@@ -52,6 +53,20 @@ pub fn launchers() -> &'static LauncherCatalog {
     static CATALOG: LazyLock<LauncherCatalog> =
         LazyLock::new(|| load_embedded_launchers().expect("embedded launchers.json must parse"));
     &CATALOG
+}
+
+/// The device support rules this build shipped with. A fetched copy can
+/// replace them at runtime (`crate::telemetry::refresh_support_rules`); these
+/// are what every failure falls back to. The parse is asserted by the tests
+/// below, so the expect can only trip on a build-time mistake.
+pub fn embedded_support_rules() -> Arc<SupportRules> {
+    static RULES: LazyLock<Arc<SupportRules>> = LazyLock::new(|| {
+        Arc::new(
+            parse_support_rules(DEVICE_SUPPORT_JSON)
+                .expect("embedded device-support.json must parse"),
+        )
+    });
+    RULES.clone()
 }
 
 /// One entry of `known-names.json`: a friendly name and, optionally, a
@@ -120,6 +135,16 @@ mod tests {
     use super::*;
 
     use crate::engine::{classify_with_catalog, CatalogVerdict, Safety, SafetySource};
+
+    #[test]
+    fn embedded_support_rules_parse_and_seed_the_three_families() {
+        let rules = embedded_support_rules();
+        assert_eq!(rules.schema, crate::engine::support::SUPPORT_SCHEMA);
+        let tiers: Vec<_> = rules.rules.iter().map(|r| r.tier.as_str()).collect();
+        for want in ["fully_supported", "beta", "not_supported"] {
+            assert!(tiers.contains(&want), "missing {want} in {tiers:?}");
+        }
+    }
 
     #[test]
     fn tvrecommendations_is_not_a_default_removal_and_explains_remote_risk() {
@@ -545,6 +570,103 @@ mod tests {
             Some("Overseerr (TV)"),
             "a known non-catalog sideload must map to its friendly name"
         );
+    }
+
+    #[test]
+    fn reported_streaming_names_preserve_catalog_safety_fields() {
+        let changes: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reported-package-renames.json"
+        ))
+        .unwrap();
+        let lists = load_embedded_app_lists().unwrap();
+        assert_eq!(changes.len(), 2);
+        for change in changes {
+            let package = change["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, change["name"].as_str().unwrap());
+            let actual = serde_json::to_value(entry).unwrap();
+            for (key, expected) in change["preserved_fields"].as_object().unwrap() {
+                assert_eq!(&actual[key], expected, "{package}: {key}");
+            }
+        }
+    }
+
+    #[test]
+    fn reported_packages_have_reviewed_safety_without_default_removal() {
+        let evidence: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reported-package-names.json"
+        ))
+        .unwrap();
+        let names = load_known_names();
+        let lists = load_embedded_app_lists().unwrap();
+        let mut unique = std::collections::HashSet::new();
+        let mut safe_count = 0;
+        let mut medium_count = 0;
+        assert_eq!(evidence.len(), 15);
+        for item in evidence {
+            let package = item["package"].as_str().unwrap();
+            assert!(unique.insert(package.to_owned()));
+            let expected = item["expected_safety"].as_str().unwrap();
+            if expected == "safe" || expected == "medium" {
+                let entry = lists.find(package).unwrap();
+                assert_eq!(entry.name, item["name"].as_str().unwrap());
+                assert!(!names.contains_key(package));
+                assert!(!entry.default_optimize && !entry.default_restore && !entry.review);
+                assert_eq!(entry.method, crate::engine::ActionMethod::Disable);
+                assert!(entry.reviewed_at.is_some());
+                assert!(!entry.sources.is_empty());
+                assert!(entry.optimize_description.starts_with("Disabling stops"));
+                assert!(entry.restore_description.contains("if still installed"));
+                let verdict = classify_with_catalog(
+                    package,
+                    Some(CatalogVerdict {
+                        risk: entry.risk,
+                        description: &entry.optimize_description,
+                    }),
+                );
+                if expected == "safe" {
+                    safe_count += 1;
+                    assert!(matches!(
+                        verdict,
+                        Safety::Safe {
+                            source: SafetySource::ReviewedCatalog,
+                            ..
+                        }
+                    ));
+                } else {
+                    medium_count += 1;
+                    assert_eq!(entry.risk, crate::engine::types::RiskTier::Medium);
+                    assert!(matches!(
+                        verdict,
+                        Safety::Caution {
+                            source: SafetySource::ReviewedCatalog,
+                            ..
+                        }
+                    ));
+                }
+            } else {
+                assert!(lists.find(package).is_none());
+                assert_eq!(names[package].name, item["name"].as_str().unwrap());
+                let verdict = crate::engine::classify_with_sources(
+                    package,
+                    None,
+                    item["expected_safety"] == "caution",
+                );
+                assert!(matches!(
+                    (item["expected_safety"].as_str(), verdict),
+                    (Some("unknown"), Safety::Unknown { .. })
+                        | (
+                            Some("caution"),
+                            Safety::Caution {
+                                source: SafetySource::LauncherList,
+                                ..
+                            }
+                        )
+                ));
+            }
+        }
+        assert_eq!(safe_count, 13);
+        assert_eq!(medium_count, 1);
     }
 
     #[test]

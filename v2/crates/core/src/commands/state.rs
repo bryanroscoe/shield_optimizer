@@ -14,8 +14,9 @@ use crate::adb::lifetimes::{ClosedAdb, LeasedAdb};
 use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
 use crate::adb::RemoteInputSession;
 use crate::adb::{AdbDriver, AdbError, Lease, Leases, ServerStop};
-use crate::engine::AppListBundle;
+use crate::engine::{AppListBundle, SupportRules};
 use crate::license::{Entitlement, Feature, LicenseInfo};
+use crate::telemetry::Telemetry;
 
 /// State managed by Tauri's state store. Held by `tauri::Builder::manage`.
 pub struct AppState {
@@ -55,6 +56,11 @@ pub struct AppState {
     /// the registry before slow cleanup, so this separate guard prevents a new
     /// server from starting while the old session's broad process cleanup runs.
     remote_transition: Mutex<()>,
+    /// Device support rules: embedded, or a validated fetched copy.
+    support_rules: std::sync::RwLock<Arc<SupportRules>>,
+    /// Anonymous reports. A no-op unless the app attaches a configured hub
+    /// with [`AppState::with_telemetry`] and the user leaves it on.
+    pub telemetry: Arc<Telemetry>,
 }
 
 impl AppState {
@@ -72,6 +78,27 @@ impl AppState {
             license_info: std::sync::Mutex::new(None),
             remote_sessions: Mutex::new(HashMap::new()),
             remote_transition: Mutex::new(()),
+            support_rules: std::sync::RwLock::new(crate::commands::loader::embedded_support_rules()),
+            telemetry: Telemetry::disabled(),
+        }
+    }
+
+    pub fn with_telemetry(mut self, telemetry: Arc<Telemetry>) -> Self {
+        self.telemetry = telemetry;
+        self
+    }
+
+    pub fn support_rules(&self) -> Arc<SupportRules> {
+        match self.support_rules.read() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    pub fn set_support_rules(&self, rules: Arc<SupportRules>) {
+        match self.support_rules.write() {
+            Ok(mut guard) => *guard = rules,
+            Err(poisoned) => *poisoned.into_inner() = rules,
         }
     }
 

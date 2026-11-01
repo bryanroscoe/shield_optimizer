@@ -3,9 +3,10 @@
 // store only mirrors `billing_status` and forwards Buy / Restore requests, and
 // it copies the backend's effective entitlement into the session.
 
-import { api } from "./api";
+import { api, sendTelemetry } from "./api";
+import { recordAction } from "../../../shared/telemetry";
 import { session } from "./session.svelte";
-import type { BillingStatus, PurchaseOutcome } from "./types";
+import type { BillingStatus, PurchaseOutcome, PurchaseResultKind } from "./types";
 
 export const FREE_RECOVERY_PROMISE = "Re-enabling apps and emergency recovery are always free.";
 
@@ -20,6 +21,15 @@ function isStatus(value: unknown): value is BillingStatus {
 }
 
 type Tone = "success" | "error" | "info";
+
+/// Anonymous report of how a Buy attempt ended: the outcome kind only, never
+/// the order id, purchase token, price, product or license data. A canceled
+/// sheet or a pending payment is not a result yet, so it isn't reported.
+export function reportPurchaseOutcome(kind: PurchaseResultKind | undefined): void {
+  if (kind === "canceled" || kind === "pending") return;
+  const ok = kind === "purchased" || kind === "restored" || kind === "already_owned";
+  recordAction(sendTelemetry, "other", null, ok ? { ok } : { ok, code: `billing_${kind ?? "failed"}` });
+}
 
 /// While a purchase is pending, re-check this often (the backend rate-limits to
 /// the same interval). Play delivers a completed pending payment to the app
@@ -129,6 +139,7 @@ class BillingStore {
     try {
       const outcome = await api.billingPurchase();
       this.apply(outcome?.status);
+      reportPurchaseOutcome(outcome?.outcome);
       switch (outcome?.outcome) {
         case "purchased":
         case "restored":

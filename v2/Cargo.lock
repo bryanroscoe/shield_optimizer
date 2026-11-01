@@ -4418,6 +4418,7 @@ dependencies = [
  "pretty_assertions",
  "quick-xml",
  "regex",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
@@ -4425,6 +4426,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

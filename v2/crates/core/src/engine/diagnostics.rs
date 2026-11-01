@@ -225,6 +225,7 @@ mod tests {
             characteristics: "nosdcard".into(),
             serial_number: "ABC123".into(),
             leanback: Some(true),
+            product: "cezanne".into(),
         }
     }
 

@@ -131,6 +131,12 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   check.
 - Screenshots, pulled files, APK bundles and snapshots all land in app-private storage with no
   export (`EXPORT-DISCOVERABILITY.md`). Copy text never claims to have saved a file.
+- **Support tiers claim only what the TV reported.** A tier comes from the connected TV's profile
+  (`Device.support`), never from a saved row's address. Unreadable means `unknown` ("not verified"),
+  and no tier relaxes a safety gate or blocks enable/restore/Recovery.
+- **Anonymous reports are opt-out and Rust-built.** The frontend only says what happened; Rust
+  decides whether to send and redacts. Never add a field that carries a serial, address, TV name,
+  package list or path. Data-safety answers follow `DATA-INVENTORY.md`.
 
 ## 4. Licensing and commerce
 

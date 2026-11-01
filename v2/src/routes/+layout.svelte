@@ -23,7 +23,13 @@
     setAutoUpdate,
     setNotesSeenVersion,
   } from "$lib/prefs";
-  import { api } from "$lib/api";
+  import { api, send } from "$lib/api";
+  import {
+    installGlobalErrorReporting,
+    NOTICE_TEXT,
+    TOGGLE_LABEL,
+    type TelemetrySettings,
+  } from "../../shared/telemetry";
   import { installBreadcrumbs, setBreadcrumbsEnabled } from "$lib/breadcrumbs";
   import { parseReleaseNotes, type NoteBlock } from "$lib/release-notes";
   import { notesFor, parseChangelog, recentReleases } from "$lib/changelog";
@@ -37,6 +43,7 @@
   let { children } = $props();
 
   installBreadcrumbs();
+  if (typeof window !== "undefined") installGlobalErrorReporting(send);
   const RELEASES_PAGE = "https://github.com/bryanroscoe/shield_optimizer/releases";
   const changelog = parseChangelog(changelogSource);
 
@@ -99,7 +106,49 @@
       : false,
   );
 
+  /// Anonymous reports. `null` until the backend answers.
+  let telemetry = $state<TelemetrySettings | null>(null);
+  let telemetryNoticeOpen = $state(false);
+  /// Desktop keeps its settings in the header and the Report a bug dialog,
+  /// so the notice points there rather than at a Settings screen.
+  const telemetryNotice = NOTICE_TEXT.replace(/\s*You can turn this off at any time\.\s*$/, "");
+
+  async function loadTelemetry() {
+    try {
+      telemetry = await api.telemetrySettings();
+      telemetryNoticeOpen = telemetry.available && !telemetry.notice_seen;
+    } catch {
+      telemetry = null;
+    }
+  }
+
+  async function dismissTelemetryNotice() {
+    telemetryNoticeOpen = false;
+    try {
+      telemetry = await api.dismissTelemetryNotice();
+    } catch {
+      /* the notice stays closed for this session either way */
+    }
+  }
+
+  async function reviewTelemetry() {
+    await dismissTelemetryNotice();
+    await openBugReport();
+  }
+
+  async function toggleTelemetry(e: Event) {
+    const wanted = (e.currentTarget as HTMLInputElement).checked;
+    try {
+      // Believe the backend, not the click.
+      telemetry = await api.setTelemetryEnabled(wanted);
+    } catch (err) {
+      bugMessage = String(err);
+      telemetry = await api.telemetrySettings().catch(() => telemetry);
+    }
+  }
+
   onMount(() => {
+    void loadTelemetry();
     theme = getThemePref();
     autoUpdate = getAutoUpdate();
     // Keep Auto honest while the app is open, not just at launch.
@@ -448,6 +497,18 @@
     </div>
   </header>
   <main>
+    {#if telemetryNoticeOpen}
+      <div class="telemetry-notice" role="status">
+        <Icon name="info" size={18} />
+        <span>
+          {telemetryNotice} Turn it off any time under Report a bug (the bug icon above).
+        </span>
+        <span class="telemetry-notice-actions">
+          <button onclick={reviewTelemetry}>Change setting</button>
+          <button class="primary" onclick={dismissTelemetryNotice}>Got it</button>
+        </span>
+      </div>
+    {/if}
     {@render children?.()}
   </main>
   <ContextMenu />
@@ -565,7 +626,7 @@
   <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="bug-title">
     <h2 id="bug-title">Report a bug</h2>
     <p class="notes-current muted">
-      The app sends nothing on its own. Open GitHub issue fills the text below into a new
+      This report is never sent on its own. Open GitHub issue fills the text below into a new
       issue, which you review and submit yourself.
     </p>
     <label class="bug-toggle">
@@ -579,6 +640,25 @@
     </p>
     <p class="bug-path muted mono">
       {logPath ? `Logs: ${logPath}` : "Logs: (no log folder)"}
+    </p>
+    <label class="bug-toggle telemetry-toggle">
+      <input
+        type="checkbox"
+        checked={telemetry?.enabled ?? false}
+        disabled={!telemetry?.available}
+        onchange={toggleTelemetry}
+      />
+      {TOGGLE_LABEL}
+    </label>
+    <p class="bug-path muted">
+      {#if telemetry && !telemetry.available}
+        This build doesn't send reports.
+      {:else}
+        Make, model and Android version of your TVs, which actions worked or failed, and error
+        messages with addresses, names and file paths removed. Never serial numbers, IP addresses,
+        TV names or your app list. Turning this off stops sending at once and discards anything
+        not yet sent.
+      {/if}
     </p>
     <textarea
       class="bug-bundle mono"
@@ -606,6 +686,25 @@
 {/if}
 
 <style>
+  .telemetry-notice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: center;
+    margin: 0 0 0.8rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    font-size: 0.88rem;
+  }
+  .telemetry-notice > span:first-of-type {
+    flex: 1 1 24rem;
+  }
+  .telemetry-notice-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
   .app {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

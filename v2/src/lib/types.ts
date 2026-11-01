@@ -1,6 +1,8 @@
 // TypeScript counterparts of the Rust types in crates/core/src/engine/types.rs
 // and src-tauri/src/commands/*.rs. Keep in sync.
 
+import type { SupportInfo } from "../../shared/support";
+
 export type ConnectionType = "network" | "usb";
 export type DeviceStatus = "device" | "unauthorized" | "offline";
 export type DeviceType = "shield" | "google_tv" | "unknown";
@@ -25,6 +27,8 @@ export interface DeviceProperties {
   /// `pm has-feature android.software.leanback`. null when the device gave no
   /// readable answer — which is not the same as "no".
   leanback?: boolean | null;
+  /// `getprop ro.product.name`. Empty when unreadable.
+  product?: string;
 }
 
 export interface Device {
@@ -37,6 +41,9 @@ export interface Device {
   status: DeviceStatus;
   connection: ConnectionType;
   properties: DeviceProperties | null;
+  /// How well the app is known to work on this TV. Informational only; read
+  /// it through `parseSupport`, which treats a missing value as unknown.
+  support?: SupportInfo;
 }
 
 export interface AppEntry {
@@ -466,6 +473,8 @@ export interface ApplyResult {
 }
 
 export type { Safety } from "../../shared/safety";
+export type { SupportInfo, SupportTier } from "../../shared/support";
+export type { TelemetrySettings } from "../../shared/telemetry";
 
 export interface RecoveryFailure {
   package: string;
