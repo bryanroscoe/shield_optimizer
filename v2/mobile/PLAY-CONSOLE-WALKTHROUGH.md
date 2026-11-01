@@ -114,7 +114,7 @@ consecutive days**. Both run on Google's clock, so start them first.
   (Google's own example is a Firebase installation ID), even though it is random and not tied to
   the phone.
 - **Purchase history.** The audit said to declare it "per Google's guidance" without deciding.
-  This guide recommends declaring Financial info > Purchase history (required, app
+  This guide recommends declaring Financial info > Purchase history (optional, app
   functionality), because the app uses the Billing Library and stores the signed purchase record.
 - **Deletion.** The Worker README says a user can read their install id from the app. They can't:
   More never displays it, so a deletion request can't name its data. See the Data safety deletion
@@ -392,7 +392,9 @@ in every region), Purpose **Analytics**.
 
 **Purchase history: declare it (recommended).** This row differs from the telemetry rows:
 Financial info > **Purchase history**: Collected **Yes**, Shared **No**, Processed ephemerally
-**No**, **Required** (buying Pro can't work without it), Purpose **App functionality**.
+**No**, **Optional** (the Free tier works without it and buying Pro is the user's choice;
+Google reserves "required" for data the app's primary functionality needs), Purpose **App
+functionality**.
 
 The case for declaring it: the app links the Google Play Billing Library. The library exchanges
 the purchase with Google Play, and the app receives and stores the signed order id, purchase
