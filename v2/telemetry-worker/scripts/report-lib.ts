@@ -105,6 +105,13 @@ function success(row: ReportRow | undefined): number | null {
   return row && n > 0 ? row.action_ok / n : null;
 }
 
+/// With a full top-5 list, setup codes outside it may hide more setup
+/// failures, so `success` is only a lower bound. A lower bound may hold back
+/// a promotion; it must never be the reason to call a TV broken.
+function successIsExact(row: ReportRow | undefined): boolean {
+  return !row || row.action_fail === 0 || row.top_errors.length < TOP_ERRORS_MAX;
+}
+
 function pct(x: number | null): string {
   return x === null ? "-" : `${(100 * x).toFixed(1).replace(/\.0$/, "")}%`;
 }
@@ -141,7 +148,9 @@ function notSupportedSignal(all: ReportRow): string | null {
   const c = CRITERIA.notSupported;
   if (all.installs < c.minInstalls || actions(all) < c.minActions) return null;
   const s = success(all);
-  if (s !== null && s <= c.maxSuccess) return `${pct(s)} of ${actions(all)} actions succeeded across ${all.installs} installs`;
+  if (s !== null && s <= c.maxSuccess && successIsExact(all)) {
+    return `${pct(s)} of ${actions(all)} actions succeeded across ${all.installs} installs`;
+  }
   const worst = worstUnexplained(all);
   if (worst && worst.share >= c.systematicErrorShare) {
     return `\`${worst.code}\` on ${pct(worst.share)} of actions across ${all.installs} installs`;
@@ -182,6 +191,9 @@ export function suggest(current: Classification, all: ReportRow, recent: ReportR
     return { kind: "none", why: "the TV did not report a manufacturer and model, so no tier can be claimed for it" };
   }
   const tier = current.tier;
+  if (tier === "undetermined") {
+    return { kind: "none", why: "a rule that matches on brand may apply, and the report can't see brand" };
+  }
   const ns = notSupportedSignal(all);
 
   if (tier === "not_supported") {
@@ -192,7 +204,7 @@ export function suggest(current: Classification, all: ReportRow, recent: ReportR
   }
   if (ns) return { kind: "not_supported", why: `${ns}; confirm the cause before moving it` };
 
-  if (tier === "unknown" || tier === "undetermined") {
+  if (tier === "unknown") {
     const gaps = betaGaps(all);
     return gaps.length === 0
       ? { kind: "move", to: "beta", why: `${all.installs} installs, ${pct(success(all))} of ${actions(all)} actions succeeded` }
@@ -211,7 +223,7 @@ export function suggest(current: Classification, all: ReportRow, recent: ReportR
 
   const r = CRITERIA.review;
   const s30 = success(recent);
-  if (actions(recent) >= r.minActions30d && s30 !== null && s30 < r.minSuccess30d) {
+  if (actions(recent) >= r.minActions30d && s30 !== null && s30 < r.minSuccess30d && successIsExact(recent)) {
     return { kind: "review", why: `only ${pct(s30)} of ${actions(recent)} actions succeeded in the last 30 days` };
   }
   if (tier === "supported") {

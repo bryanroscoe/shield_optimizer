@@ -127,7 +127,10 @@ against a TV: the action counts and success rates in the criteria leave out fail
 carried a setup code, so five timeouts are no actions at all rather than 0% success. The Worker
 stores a failed action's code together with error events' codes, so the report subtracts every
 listed setup code from the failures (never more than there were). That can only flatter the TV,
-never blame it; splitting the two in the Worker's aggregates would make it exact. An error rate
+never blame it; splitting the two in the Worker's aggregates would make it exact. The Worker
+lists only a TV's top five codes, so when that list is full a low success rate may still hide setup
+failures: it can hold back a promotion, but never alone suggests `not_supported` or a review. A TV
+that a `brand` rule might decide gets no suggestion, since the report can't see brand. An error rate
 is the code's count over all of the TV's actions in the same window. The Worker returns a TV's top five codes, so when
 all five are setup codes and even the fifth is over 5%, the report can't rule out a hidden sixth
 and holds off on suggesting `supported`.

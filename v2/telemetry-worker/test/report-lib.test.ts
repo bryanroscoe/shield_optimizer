@@ -110,6 +110,27 @@ describe("suggest", () => {
     expect(suggest(at("beta"), failing, undefined)).toMatchObject({ kind: "not_supported" });
   });
 
+  it("never calls a TV broken from a success rate that hidden setup codes could explain", () => {
+    // Five other codes outrank the timeouts, so the Worker's top-5 list omits them.
+    const crowded = row({
+      installs: 5,
+      action_ok: 0,
+      action_fail: 5,
+      top_errors: ["permission_denied", "pm_failure", "unknown", "panic", "unsupported"].map((code) => ({ code, count: 1 })),
+    });
+    expect(suggest(at("beta"), crowded, undefined).kind).not.toBe("not_supported");
+    expect(suggest(at("supported"), row({ installs: 30, action_ok: 500 }), { ...crowded, action_ok: 5, action_fail: 10 }).kind).not.toBe("review");
+    // A listed unexplained code over the systematic bar is still evidence.
+    const systematic = { ...crowded, action_ok: 10, action_fail: 10, top_errors: [{ code: "permission_denied", count: 10 }, ...crowded.top_errors.slice(1)] };
+    expect(suggest(at("beta"), systematic, undefined)).toMatchObject({ kind: "not_supported" });
+  });
+
+  it("claims nothing for a TV a brand rule might decide", () => {
+    const good = row({ installs: 30, action_ok: 500 });
+    expect(suggest(at("undetermined"), good, row({ action_ok: 100 }))).toMatchObject({ kind: "none" });
+    expect(suggest(at("undetermined"), row({ installs: 9, action_ok: 1, action_fail: 9 }), undefined)).toMatchObject({ kind: "none" });
+  });
+
   it("never gives a tier to a TV that didn't say what it is", () => {
     const busy = { installs: 50, action_ok: 500 };
     for (const ids of [
