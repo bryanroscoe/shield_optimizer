@@ -70,7 +70,9 @@ jobs:
   sync:
     name: Push to the live Worker
     needs: check
-    if: github.event_name != 'pull_request'
+    # Only main is the source of truth: a manual run from another branch or
+    # tag must not publish that ref's unmerged rules.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
