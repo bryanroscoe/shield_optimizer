@@ -134,3 +134,24 @@ Fixture tests use only the existing test identity in memory and scripted loopbac
 peers. They do not install APKs, exercise Android's package manager, establish
 AUTH/STLS interoperability or certify hardware compatibility. No upstream source
 or prose was imported for this follow-up; the retained MIT license still applies.
+
+## Cancelable connection handoff and TLS rejection (2026-11-02)
+
+`ADBTcpDevice::new_with_control_and_auth_observer` keeps the authentication socket
+under one `BoundedShellControl` deadline through RSA AUTH or STLS and until its
+caller publishes the connection. The caller must use `finish_connection` at that
+handoff to detach the deadline without closing the persistent socket. Dropping or
+superseding the app's connection attempt cancels the control; queued publication
+also checks that control before acquiring the active-connection mutex.
+
+`RustADBError::is_client_identity_rejected` recognizes typed TLS peer alerts
+`CertificateUnknown` and `UnknownCA`, including rustls errors wrapped in `io::Error`.
+It does not classify a generic transport failure or error-text substring as a
+pairing failure. The shared app transport uses it to explain the PIN pairing and
+separate connect-port steps. No certificate verification or key policy changes.
+
+The shared `crates/direct-adb/src/connection_tests.rs` fixtures exercise real TCP
+EOF on cancellation before AUTH, during public-key approval and stalled TLS,
+a total handshake deadline, blocked publication cleanup, the retained socket's
+first shell response, and a TLS certificate-rejection alert. These are protocol
+fixtures, not Android pairing interoperability evidence.

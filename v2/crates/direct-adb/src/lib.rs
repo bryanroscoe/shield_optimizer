@@ -483,7 +483,7 @@ impl WirelessAdb {
                 addr,
                 &key_path,
                 !allow_key_creation,
-                control,
+                control.clone(),
                 &|| observation.public_key_sent(),
             );
             drop(observation);
@@ -491,7 +491,18 @@ impl WirelessAdb {
                 tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
                 connect_error_message(&e)
             })?;
-            let mut guard = lock_recovering(&conn);
+            // A previous command may still own the connection mutex. Keep this
+            // wait inside the handshake budget without interrupting that command.
+            let mut guard = loop {
+                control.remaining().map_err(|error| error.to_string())?;
+                match conn.try_lock() {
+                    Ok(guard) => break guard,
+                    Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            };
             // Cancellation and publication share this short lock. No socket
             // I/O holds it, so a pending handshake can be invalidated promptly.
             let requests = lock_recovering(&requests);
@@ -981,6 +992,9 @@ fn shell_timeout_for(command: &str) -> Duration {
 }
 
 fn connect_error_message(error: &RustADBError) -> String {
+    if error.is_client_identity_rejected() {
+        return "The TV rejected this app's wireless debugging identity. Open Wireless debugging > Pair device with pairing code on the TV, then use Pair PIN with that code and pairing port. After pairing, connect using the separate port on the main Wireless debugging screen.".into();
+    }
     match error {
         RustADBError::IOError(io)
             if matches!(

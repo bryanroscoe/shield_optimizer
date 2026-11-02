@@ -70,6 +70,16 @@ fn accept(listener: &TcpListener) -> TcpStream {
     socket
 }
 
+fn start_tls(socket: &mut TcpStream) {
+    send(socket, b"STLS", 0x01000000, 0, &[]);
+    assert_eq!(receive(socket).0, b"STLS");
+    let mut header = [0; 5];
+    socket.read_exact(&mut header).unwrap();
+    assert_eq!(header[0], 22); // TLS Handshake record, containing ClientHello.
+    let size = u16::from_be_bytes([header[3], header[4]]) as usize;
+    socket.read_exact(&mut vec![0; size]).unwrap();
+}
+
 fn assert_closed(socket: &mut TcpStream) {
     match socket.read(&mut [0]) {
         Ok(0) => {}
@@ -86,7 +96,7 @@ fn assert_closed(socket: &mut TcpStream) {
 
 #[tokio::test]
 async fn canceling_handshake_closes_socket_before_auth_timeout_and_releases_lease() {
-    for awaiting_approval in [false, true] {
+    for stage in [0, 1, 2] {
         let key = fixture_key();
         let operations = Leases::new();
         let driver = Arc::new(WirelessAdb::with_existing_key(
@@ -99,7 +109,7 @@ async fn canceling_handshake_closes_socket_before_auth_timeout_and_releases_leas
         let peer = std::thread::spawn(move || {
             let mut socket = accept(&listener);
             assert_eq!(receive(&mut socket).0, b"CNXN");
-            if awaiting_approval {
+            if stage == 1 {
                 send(&mut socket, b"AUTH", 1, 0, &[42; 20]);
                 let signature = receive(&mut socket);
                 assert_eq!(
@@ -113,6 +123,9 @@ async fn canceling_handshake_closes_socket_before_auth_timeout_and_releases_leas
                     (b"AUTH".as_slice(), 3)
                 );
             }
+            if stage == 2 {
+                start_tls(&mut socket);
+            }
             waiting.send(()).unwrap();
             assert_closed(&mut socket);
         });
@@ -123,7 +136,7 @@ async fn canceling_handshake_closes_socket_before_auth_timeout_and_releases_leas
             .await
             .unwrap()
             .unwrap();
-        if awaiting_approval {
+        if stage == 1 {
             tokio::time::timeout(Duration::from_secs(2), async {
                 while !driver.awaiting_authorization() {
                     tokio::task::yield_now().await;
@@ -165,7 +178,7 @@ fn total_handshake_deadline_closes_a_silent_peer() {
         assert_eq!(receive(&mut socket).0, b"CNXN");
         assert_closed(&mut socket);
     });
-    let control = adb_client::tcp::BoundedShellControl::new(Duration::from_millis(250)).unwrap();
+    let control = adb_client::tcp::BoundedShellControl::new(Duration::from_secs(1)).unwrap();
     let start = std::time::Instant::now();
     assert!(ADBTcpDevice::new_with_control_and_auth_observer(
         address,
@@ -272,14 +285,40 @@ async fn cancel_after_authentication_closes_socket_while_publication_is_blocked(
         .unwrap()
         .unwrap();
     assert!(driver.info().is_none());
-    assert_eq!(operations.active(), 1);
-    release.send(()).unwrap();
     assert!(
         operations
             .wait_idle(tokio::time::Instant::now() + Duration::from_secs(2))
             .await
     );
+    // The canceled worker must drain even while the prior command keeps its lock.
+    release.send(()).unwrap();
     assert!(driver.info().is_none());
     holder.join().unwrap();
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn tls_identity_rejection_explains_pairing_without_claiming_a_legacy_prompt() {
+    let key = fixture_key();
+    let operations = Leases::new();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), operations.clone());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        start_tls(&mut socket);
+        // Fatal CertificateUnknown alert, as sent by an unpaired Android TLS peer.
+        socket.write_all(&[21, 3, 3, 0, 2, 2, 46]).unwrap();
+    });
+    driver.begin_request(1).unwrap();
+    let error = driver.connect("127.0.0.1", port, 1).await.unwrap_err();
+    assert!(error.contains("Pair PIN"), "{error}");
+    assert!(error.contains("pairing port"));
+    assert!(error.contains("separate port"));
+    assert!(!error.contains("Allow debugging"));
+    assert!(!driver.awaiting_authorization());
+    assert!(driver.info().is_none());
+    assert_eq!(operations.active(), 0);
     peer.join().unwrap();
 }

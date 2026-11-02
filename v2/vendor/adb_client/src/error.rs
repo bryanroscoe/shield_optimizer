@@ -156,3 +156,56 @@ impl<T> From<std::sync::PoisonError<T>> for RustADBError {
         Self::PoisonError
     }
 }
+
+impl RustADBError {
+    /// Whether the TLS peer explicitly rejected the client's certificate trust.
+    pub fn is_client_identity_rejected(&self) -> bool {
+        let tls = match self {
+            Self::TLSError(error) => Some(error),
+            Self::IOError(error) => error
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<rustls::Error>()),
+            _ => None,
+        };
+        matches!(
+            tls,
+            Some(rustls::Error::AlertReceived(
+                rustls::AlertDescription::CertificateUnknown | rustls::AlertDescription::UnknownCA
+            ))
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_identity_rejection_requires_a_typed_peer_alert() {
+        for alert in [
+            rustls::AlertDescription::CertificateUnknown,
+            rustls::AlertDescription::UnknownCA,
+        ] {
+            assert!(
+                RustADBError::TLSError(rustls::Error::AlertReceived(alert))
+                    .is_client_identity_rejected()
+            );
+            assert!(
+                RustADBError::IOError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    rustls::Error::AlertReceived(alert),
+                ))
+                .is_client_identity_rejected()
+            );
+        }
+        for error in [
+            RustADBError::TLSError(rustls::Error::AlertReceived(
+                rustls::AlertDescription::HandshakeFailure,
+            )),
+            RustADBError::IOError(std::io::Error::other("CertificateUnknown")),
+            RustADBError::ADBRequestFailed("not authorized".into()),
+        ] {
+            assert!(!error.is_client_identity_rejected());
+        }
+    }
+}

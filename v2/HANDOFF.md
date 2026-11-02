@@ -51,7 +51,8 @@ their owned socket when canceled or superseded. Forget/retry and mobile cancella
 must not leave an old authorization read running until its per-response timeout.
 The deadline is detached after successful authentication so it cannot later close
 a live TV connection. Loopback transport regressions cover cancellation before AUTH,
-cancellation while awaiting approval, timeout, and the first shell probe after success.
+cancellation while awaiting approval, timeout, and the first shell probe after success. Explicit TLS certificate-trust rejections
+now point to Pair PIN and the separate connect port, rather than legacy AUTH prompts.
 
 ## Things the next reader needs that the code does not say
 
