@@ -167,13 +167,20 @@ desktop build; leave it unset to ship a build that never reports.
 - Desktop only: failure and `diagnostic` events can carry `log_excerpt`, the last 60 lines
   (8 KiB) of the app log from the adb, connect and discovery code, redacted by the pure
   `engine/log_redact.rs` (addresses, MACs, mDNS and `.local` names, serials and TV names seen
-  this session, paths, the home directory and user name, emails, package ids, identity fields
-  such as `serial=`/`name=`/`address=`, and sensitive `getprop` values). One per upload batch,
+  this session or named in the log itself, paths, the home directory and user name, emails,
+  package ids, Private DNS and other dotted hosts, identity fields such as
+  `serial=`/`name=`/`address=`, and the value of any `device_name` or `private_dns_specifier`).
+  Command output never leaves: a line's `stdout=` value and its continuation lines are dropped,
+  and `stderr=` becomes an error code. The adb driver also logs `settings put … device_name`
+  and Private DNS writes without their value, and withholds named-setting reads from the debug
+  log, so the name isn't in the file in the first place. One per upload batch,
   at most 20 per install per UTC day (`excerpt_day`/`excerpts_today` in `telemetry.json`). The
   phone app never sends one; the Worker also drops any that claims to come from it.
 - **Support ID.** `telemetry_settings` returns `support_id`, the install id, while reports are on
   and the build has an endpoint (`null` otherwise); `formatSupportId` shows its first eight hex
-  digits as `7D0B-0B9E`. The bug-report bundle includes it short and in full. It stays a random
+  digits as `7D0B-0B9E`. The bug-report bundle shows only the short form, because it is pasted into public
+  issues and the full id is what reports are posted under; the admin lookup finds an install by
+  the short form. It stays a random
   UUID v4, never derived from hardware, a serial or an address, and turning reports back on still
   makes a new one.
 - **Send logs** (desktop `upload_diagnostics`): only when the user presses it, even with reports
@@ -181,7 +188,7 @@ desktop build; leave it unset to ship a build that never reports.
   (support ID, app and OS, TVs by state and public build properties, `adb devices -l`, a fresh
   `diag`) and the last 256 KiB of the rolling app log, all redacted by `engine/log_redact.rs`,
   to `POST <base>/v1/diagnostics`. Errors are `upload_unavailable` (no endpoint),
-  `upload_limited` (5 a day per install) and `upload_failed` in `shared/errors.ts`. The Worker
+  `upload_limited` (5 a day per install, or the day's shared budget) and `upload_failed` in `shared/errors.ts`. The Worker
   keeps uploads and excerpts 30 days. Look one up with
   `telemetry-worker/scripts/support-lookup.sh <support-id>`.
 - The first-launch notice (`NOTICE_TEXT` on desktop, `MOBILE_NOTICE_TEXT` on the phone) shows
