@@ -20,19 +20,31 @@ database_name = "telemetry"
 database_id = "e86ca0a5-fc1d-4692-9602-01407920ce61"
 migrations_dir = "migrations"
 
-# Daily at 03:17 UTC: delete raw events older than RAW_RETENTION_DAYS and stale
-# rate-limit counters. Aggregate tables are kept.
+# Daily at 03:17 UTC: delete raw events older than RAW_RETENTION_DAYS, clear log
+# excerpts and delete Send logs uploads older than LOG_RETENTION_DAYS, and drop
+# stale rate-limit counters. Aggregate tables are kept.
 [triggers]
 crons = ["17 3 * * *"]
 
 [vars]
 # Raw event rows older than this are purged by the cron trigger.
 RAW_RETENTION_DAYS = "90"
+# Log text (event log_excerpt, diag_uploads rows) is kept for less.
+LOG_RETENTION_DAYS = "30"
 # Per install_id, per UTC day. Requests over the cap get 429 and store nothing.
 PER_INSTALL_DAILY_EVENTS = "500"
 # Across all installs, per UTC day. Sized to D1's free-tier write quota (100k rows
-# written/day). Worst case per event is about 7 row writes on arrival (2 quota rows,
-# the raw row and its index, 3 aggregate rows) plus about 3 when the cron later
-# deletes it (quota row, raw row and its index entry): ~10 per event-day under a sustained
-# flood, so 7k events stays near 70k writes with headroom. See README.md.
+# written/day). Worst case per event is about 8 row writes on arrival (2 quota rows,
+# the raw row and its two index entries, 3 aggregate rows) plus about 4 when the cron
+# later deletes it (quota row, raw row and its index entries): ~12 per event-day under
+# a sustained flood, so 7k events stays near 84k writes. See README.md.
 GLOBAL_DAILY_EVENTS = "7000"
+# Send logs uploads (POST /v1/diagnostics). The per-install cap is checked first,
+# so one install can't spend the shared budget. The global caps are a count and
+# a byte total per UTC day; with LOG_RETENTION_DAYS (30) the byte cap bounds
+# stored log text at about 3 GiB of D1's 5 GiB even under a flood of made-up
+# install ids, and each upload costs about six row writes (three quota rows, the
+# row and its two index entries), so 1000 a day stays near 6k writes.
+PER_INSTALL_DAILY_UPLOADS = "5"
+GLOBAL_DAILY_UPLOADS = "1000"
+GLOBAL_DAILY_UPLOAD_BYTES = "104857600"

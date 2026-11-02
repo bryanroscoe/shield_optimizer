@@ -17,9 +17,11 @@ use serde::{Deserialize, Serialize};
 
 use super::detection::{is_fire_tv, DeviceType, TvEvidence};
 use super::support::{SupportInfo, SupportTier};
+use super::telemetry_diag::{Diag, DiagReason};
 use super::types::DeviceProperties;
 
-pub const TELEMETRY_SCHEMA: u32 = 1;
+/// 2 added the `diagnostic` kind and the `diag` and `log_excerpt` fields.
+pub const TELEMETRY_SCHEMA: u32 = 2;
 pub const MAX_BATCH_EVENTS: usize = 50;
 pub const MAX_BATCH_BYTES: usize = 64 * 1024;
 pub const MAX_MESSAGE_CHARS: usize = 500;
@@ -39,6 +41,9 @@ pub enum EventKind {
     DeviceSeen,
     ActionResult,
     Error,
+    /// A scan or device read that succeeded but found nothing usable. Carries
+    /// a [`Diag`] and the reason as `error_code`.
+    Diagnostic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -111,6 +116,13 @@ pub struct TelemetryEvent {
     pub error_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diag: Option<Diag>,
+    /// Desktop only: the redacted tail of the app's adb and connection log
+    /// lines (`engine::log_redact::connection_excerpt`). The phone app never
+    /// sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_excerpt: Option<String>,
 }
 
 /// The per-install fields every event repeats.
@@ -211,8 +223,18 @@ static IPV6: LazyLock<Regex> = LazyLock::new(|| {
     )
 });
 static IPV4: LazyLock<Regex> = LazyLock::new(|| re(r"\b\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?\b"));
+// A private subnet prefix on its own (`192.168.42`, `10.0.5.x`), as the scan
+// names the /24 it swept. Also takes a version number that starts with 10,
+// which only loses context.
+static PRIVATE_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
+    re(r"\b(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}(?:\.[x*])?\b")
+});
 static HOST_PORT: LazyLock<Regex> =
     LazyLock::new(|| re(r"\b[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*:\d{2,5}\b"));
+// `Bryans-MacBook.local`, `living-room-tv.local.`: Bonjour host names carry
+// the owner's or the TV's name.
+static LOCAL_HOST: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)\b[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?(?:\.[a-z0-9_-]+)*\.local\b\.?"));
 // A path runs to a quote, bracket, newline, `: ` or the end of the text, so
 // one with spaces in it (`C:\Users\Jane Doe\…`) is removed whole. That
 // also swallows any unquoted words after a path, which only loses context.
@@ -220,6 +242,21 @@ static UNIX_PATH: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(^|[\s'"(=,\[])~?/(?:[^'"\n:)\]]|:\S)*"#));
 static WINDOWS_PATH: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?i)\b[a-z]:\\(?:[^'"\n:)\]]|:\S)*|\\\\(?:[^'"\n:)\]]|:\S)+"#));
+// A dotted name that can't be a package id because a label starts with a
+// digit or holds a hyphen, under a letters-only top-level label: a Private
+// DNS host such as `1a2b3c.dns.nextdns.io` or `one-one.example-dns.net`.
+// Ones that could be package ids are taken by PACKAGE below.
+static DOTTED_HOST: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\b[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,24}\b"));
+
+fn is_host_shaped(token: &str) -> bool {
+    let labels: Vec<&str> = token.split('.').collect();
+    labels.len() >= 2
+        && labels
+            .iter()
+            .any(|l| l.contains('-') || l.starts_with(|c: char| c.is_ascii_digit()))
+}
+
 // Two segments are enough: `acme.player` is a valid package id. This also
 // takes file names like `notes.txt`, which only loses context.
 static PACKAGE: LazyLock<Regex> =
@@ -240,6 +277,14 @@ fn is_platform_class(token: &str) -> bool {
             .next()
             .and_then(|last| last.chars().next())
             .is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// System property names (`ro.product.model`, `persist.sys.locale`) say which
+/// read failed and are not packages. Their values are handled elsewhere.
+const PROPERTY_NAMESPACES: [&str; 5] = ["ro.", "persist.", "sys.", "init.svc.", "service.adb."];
+
+fn is_property_name(token: &str) -> bool {
+    PROPERTY_NAMESPACES.iter().any(|ns| token.starts_with(ns))
 }
 
 /// [`redact_message`], after first removing identifiers the caller already
@@ -265,19 +310,39 @@ pub fn redact_message_with(raw: &str, known: &[&str]) -> String {
 /// [`MAX_MESSAGE_CHARS`]. Errs on the side of removing too much: a timestamp
 /// that looks like an address loses nothing important.
 pub fn redact_message(raw: &str) -> String {
+    redact_unbounded(raw)
+        .chars()
+        .take(MAX_MESSAGE_CHARS)
+        .collect()
+}
+
+/// [`redact_message`] without the length cap, for log lines.
+pub(crate) fn redact_unbounded(raw: &str) -> String {
     let mut s = URL.replace_all(raw, "<url>").into_owned();
     s = EMAIL.replace_all(&s, "<email>").into_owned();
     s = MDNS.replace_all(&s, "<mdns>").into_owned();
     s = MAC.replace_all(&s, "<mac>").into_owned();
     s = IPV4.replace_all(&s, "<ip>").into_owned();
+    s = PRIVATE_PREFIX.replace_all(&s, "<ip>").into_owned();
     s = IPV6.replace_all(&s, "${1}<ip>").into_owned();
     s = HOST_PORT.replace_all(&s, "<host>").into_owned();
+    s = LOCAL_HOST.replace_all(&s, "<host>").into_owned();
+    s = DOTTED_HOST
+        .replace_all(&s, |caps: &regex::Captures| {
+            let token = &caps[0];
+            if is_host_shaped(token) {
+                "<host>".to_string()
+            } else {
+                token.to_string()
+            }
+        })
+        .into_owned();
     s = WINDOWS_PATH.replace_all(&s, "<path>").into_owned();
     s = UNIX_PATH.replace_all(&s, "${1}<path>").into_owned();
     s = PACKAGE
         .replace_all(&s, |caps: &regex::Captures| {
             let token = &caps[0];
-            if is_platform_class(token) {
+            if is_platform_class(token) || is_property_name(token) {
                 token.to_string()
             } else {
                 "<pkg>".to_string()
@@ -294,8 +359,7 @@ pub fn redact_message(raw: &str) -> String {
             }
         })
         .into_owned();
-    let s = SPACES.replace_all(s.trim(), " ");
-    s.chars().take(MAX_MESSAGE_CHARS).collect()
+    SPACES.replace_all(s.trim(), " ").into_owned()
 }
 
 fn base(ctx: &EventContext, ts: &str, kind: EventKind) -> TelemetryEvent {
@@ -312,6 +376,8 @@ fn base(ctx: &EventContext, ts: &str, kind: EventKind) -> TelemetryEvent {
         ok: None,
         error_code: None,
         message: None,
+        diag: None,
+        log_excerpt: None,
     }
 }
 
@@ -372,6 +438,41 @@ pub fn error_event(
         error_code: Some(sanitize_error_code(error_code)),
         message: Some(redact_message_with(message, known)).filter(|m| !m.is_empty()),
         ..base(ctx, ts, EventKind::Error)
+    }
+}
+
+/// A scan or device read that found nothing usable. `diag` is built by
+/// `engine::telemetry_diag`, which only ever holds counts, codes and versions.
+pub fn diagnostic_event(
+    ctx: &EventContext,
+    ts: &str,
+    reason: DiagReason,
+    device: Option<TelemetryDevice>,
+    diag: Diag,
+) -> TelemetryEvent {
+    TelemetryEvent {
+        device,
+        action: Some(reason.action()),
+        error_code: Some(reason.code().to_string()),
+        diag: Some(diag),
+        ..base(ctx, ts, EventKind::Diagnostic)
+    }
+}
+
+/// The short form of an install id a user reads out: the first eight hex
+/// digits, grouped (`7D0B-0B9E`). Same as `formatSupportId` in
+/// `shared/telemetry.ts`; empty when there aren't eight.
+pub fn format_support_id(id: &str) -> String {
+    let hex: String = id
+        .chars()
+        .filter(char::is_ascii_hexdigit)
+        .take(8)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if hex.len() == 8 {
+        format!("{}-{}", &hex[..4], &hex[4..])
+    } else {
+        String::new()
     }
 }
 
@@ -457,7 +558,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "schema": 1,
+                "schema": 2,
                 "install_id": "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11",
                 "app": "desktop",
                 "app_version": "2.4.1",
@@ -480,6 +581,90 @@ mod tests {
         let text = json.to_string();
         for secret in ["1324619053514", "Living Room", "RQ1A", "tegra"] {
             assert!(!text.contains(secret), "{secret} leaked into {text}");
+        }
+    }
+
+    #[test]
+    fn diagnostic_payload_is_the_reason_and_the_diag() {
+        use super::super::telemetry_diag::{transport_counts, AdbDiag, AdbSource};
+        let diag = Diag {
+            adb: Some(AdbDiag {
+                source: AdbSource::Bundled,
+                version: Some("1.0.41".into()),
+                tools: None,
+                server: None,
+                server_error: None,
+            }),
+            transports: Some(transport_counts(
+                "List of devices attached\n10.0.0.2:5555\tunauthorized\n",
+            )),
+            ..Default::default()
+        };
+        let e = diagnostic_event(
+            &ctx(),
+            "2026-11-02T12:00:00Z",
+            DiagReason::ScanEmpty,
+            None,
+            diag,
+        );
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "schema": 2,
+                "install_id": "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11",
+                "app": "desktop",
+                "app_version": "2.4.1",
+                "os": "macos 15.1",
+                "ts": "2026-11-02T12:00:00Z",
+                "kind": "diagnostic",
+                "action": "scan",
+                "error_code": "scan_empty",
+                "diag": {
+                    "adb": { "source": "bundled", "version": "1.0.41" },
+                    "transports": { "device": 0, "unauthorized": 1, "offline": 0, "other": 0 }
+                }
+            })
+        );
+        assert!(!json.to_string().contains("10.0.0.2"));
+    }
+
+    #[test]
+    fn support_ids_shorten_like_the_frontend() {
+        assert_eq!(
+            format_support_id("7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11"),
+            "7D0B-0B9E"
+        );
+        assert_eq!(format_support_id("7d0b"), "");
+        assert_eq!(format_support_id(""), "");
+    }
+
+    #[test]
+    fn local_host_names_and_subnet_prefixes_are_removed() {
+        for (input, want) in [
+            ("ping Bryans-MacBook-Pro.local failed", "ping <host> failed"),
+            ("resolved living-room.local. late", "resolved <host> late"),
+            (
+                "No devices on 192.168.42.x answered",
+                "No devices on <ip> answered",
+            ),
+            ("subnet 10.0.5", "subnet <ip>"),
+            (
+                "read ro.product.model failed",
+                "read ro.product.model failed",
+            ),
+            (
+                "dns 1a2b3c.dns.nextdns.io unreachable",
+                "dns <host> unreachable",
+            ),
+            (
+                "dns abc123.dns.nextdns.io unreachable",
+                "dns <pkg> unreachable",
+            ),
+            ("via 1dot1dot1dot1.cloudflare-dns.com", "via <host>"),
+            ("tools 35.0.2-12147458 ok", "tools 35.0.2-<id> ok"),
+        ] {
+            assert_eq!(redact_message(input), want, "input: {input}");
         }
     }
 

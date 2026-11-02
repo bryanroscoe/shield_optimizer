@@ -3,7 +3,13 @@ use shield_optimizer_core::adb::AdbOutput;
 use shield_optimizer_core::commands::{devices::ConnectResult, AppState};
 use tauri::State;
 
-use crate::wireless_adb::{DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus};
+use shield_optimizer_core::engine::telemetry_diag::{
+    discovery_diag, error_codes, Diag, DiagReason,
+};
+
+use crate::wireless_adb::{
+    DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus, DISCOVER_TIMEOUT_MS,
+};
 
 #[derive(Clone)]
 pub struct MobileState {
@@ -16,9 +22,34 @@ pub struct DiscoveryResult {
     pub message: String,
 }
 
+/// Discovery that found nothing is reported (no log excerpt on the phone):
+/// how long it browsed and the error code if it failed outright.
 #[tauri::command]
-pub async fn wireless_discover(state: State<'_, MobileState>) -> Result<DiscoveryResult, String> {
-    let devices = state.wireless.discover().await?;
+pub async fn wireless_discover(
+    state: State<'_, MobileState>,
+    app_state: State<'_, AppState>,
+) -> Result<DiscoveryResult, String> {
+    let started = std::time::Instant::now();
+    let result = state.wireless.discover().await;
+    let found = result.as_ref().map_or(0, Vec::len);
+    if found == 0 && app_state.telemetry.is_active() {
+        app_state.telemetry.record_diagnostic(
+            DiagReason::DiscoverEmpty,
+            None,
+            None,
+            Diag {
+                discovery: Some(discovery_diag(DISCOVER_TIMEOUT_MS, 0)),
+                errors: result
+                    .as_ref()
+                    .err()
+                    .map(|e| error_codes([e.as_str()]))
+                    .unwrap_or_default(),
+                ..Default::default()
+            }
+            .with_ms(started.elapsed()),
+        );
+    }
+    let devices = result?;
     let message = if devices.is_empty() {
         "No wireless-debugging pairing services found. Enter the TV's IP and pairing port manually."
             .to_string()

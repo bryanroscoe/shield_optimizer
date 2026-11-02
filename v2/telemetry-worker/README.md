@@ -7,13 +7,16 @@ A Cloudflare Worker with one D1 database. It does two jobs:
    gets built.
 2. Serves the support-tier list (`GET /v1/support-tiers`), so a TV can move from beta to supported
    without an app release.
+3. Takes the logs a desktop user chooses to send (`POST /v1/diagnostics`), and lets the owner find
+   everything stored for one install by the support ID the user quotes
+   (`scripts/support-lookup.sh`).
 
 Telemetry is on by default in the apps with an opt-out. The app side lives in the desktop and mobile
 code; this directory is only the backend. It runs on the Cloudflare free plan.
 
 ## What is collected
 
-Each event is one of `device_seen`, `action_result` or `error`, with:
+Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diagnostic`, with:
 
 | Field | Example | Notes |
 | --- | --- | --- |
@@ -23,6 +26,26 @@ Each event is one of `device_seen`, `action_result` or `error`, with:
 | `device` | `NVIDIA` / `SHIELD Android TV` / `mdarcy`, Android `11`, SDK `30`, profile, tier | The TV's public build properties: manufacturer, brand, model, device codename, product, Android release, SDK level. No serial. |
 | `action`, `ok`, `error_code` | `disable`, `false`, `pm_denied` | Which kind of action ran and whether it worked. Not which app it ran on. |
 | `message` | `pm disable failed on [ip]` | Short error text, redacted on the client and again here. 500 characters at most. |
+| `diag` | `{"sweep":{"probed":254,"open":0,...},"mdns":{"check":"ok","services":0,...}}` | Schema 2. What the app saw when a scan or TV found nothing: counts, durations, fixed enums, version numbers and error codes. Rebuilt key by key from `DIAG_SPEC` in `src/diag.ts`; anything else is dropped. No free text. |
+| `log_excerpt` | `2026-11-02T14:00:02Z INFO ...::devices: connect finished address=<redacted> ...` | Schema 2, desktop only. Up to 60 lines / 8 KiB of the app's adb and connection log, redacted on the client and again here. Never command output (`stdout=`/`stderr=` values), TV names or Private DNS hosts. Cleared after 30 days. |
+
+`diagnostic` events carry the reason as `error_code`: `scan_empty`, `scan_connect_failed`,
+`discover_empty` or `device_details_empty`. Schema 1 events are still accepted unchanged; a schema
+1 event cannot be a `diagnostic` and any `diag` or `log_excerpt` on it is ignored.
+
+### Send logs uploads
+
+`diag_uploads` holds what a desktop user sent with **Send logs to developer**: a summary (support
+ID, app and OS, TVs by state and public build properties, `adb devices -l` and a `diag` object)
+and up to 256 KiB of the app's own log, redacted line by line on the client
+(`engine/log_redact.rs`), with a second pass here that drops command output (`stdout=`/`stderr=`
+values and their continuation lines) and the value of any `device_name` or
+`private_dns_specifier`, and removes addresses, MACs, emails, adb mDNS names, `*.local` names,
+digit- or hyphen-labelled hosts and licence keys. That pass works token by token with bounded
+patterns, skips tokens that can't match and drops any token over 512 characters whole, so a
+256 KiB upload costs a few milliseconds of CPU whatever it contains (tested against pathological
+input). It is keyed by the install id, sent only when the user presses
+the button (even with automatic reports off), and deleted after 30 days.
 
 ## What is never collected or stored
 
@@ -36,12 +59,14 @@ Each event is one of `device_seen`, `action_result` or `error`, with:
   `0002_drop_country.sql` deleted those values and dropped the column (owner decision, so the
   apps' Play Data safety form has no location to declare).
 - TV names or labels, the user's package list, file paths, emails, licence or licensee data.
+- Logs from the phone app. Its Play Data safety form doesn't declare them, so `log_excerpt` from
+  `app: "mobile"` is dropped and a mobile `POST /v1/diagnostics` is refused.
 
 How that is enforced server-side, so a client bug cannot break it:
 
 - Every event is rebuilt field by field from the contract. Any field the contract does not name
   (a `serial`, an `ip`, a `packages` array, a `tv_name`...) is dropped before anything is written.
-- `kind`, `app`, `support_tier` and `schema` must be known values or the event is rejected. An
+- `kind`, `app`, `support_tier` and `schema` (1 or 2) must be known values or the event is rejected. An
   unknown `profile` is stored as `unknown` and an unknown `action` as `other`, so a newer app
   does not lose data against an older Worker.
 - `install_id` must be a UUID v4. `app_version` must be `X.Y.Z`, optionally with an
@@ -82,13 +107,18 @@ How that is enforced server-side, so a client bug cannot break it:
 
 - Raw events (`events` table) are deleted 90 days after they were received, by a daily Cron
   Trigger at 03:17 UTC. Change `RAW_RETENTION_DAYS` in `wrangler.toml` to adjust.
+- Log text is kept 30 days (`LOG_RETENTION_DAYS`): the same cron clears `log_excerpt` on older
+  events (the event and its `diag` stay until the 90 days are up) and deletes older
+  `diag_uploads` rows.
 - Aggregates are kept: per-day counts per device/app version (`agg_device_daily`), per-day error
   code counts (`agg_error_daily`) and the install ids seen per device group
   (`agg_device_installs`, used to count distinct installs). These hold no free text.
 - Rate-limit counters are deleted after two days.
-- To honour a deletion request, the user can read their install id from the app; delete it with
-  `DELETE FROM events WHERE install_id = ?` and the same on `agg_device_installs` and
-  `rate_daily` (`key = <install id>`). The per-day counts cannot be attributed to an install.
+- To honour a deletion request, the user can read their support ID from the app (look it up with
+  `scripts/support-lookup.sh` to get the full id); delete it with
+  `DELETE FROM events WHERE install_id = ?` and the same on `diag_uploads`,
+  `agg_device_installs` and `rate_daily` (`key = <install id>` and `key = 'upload:' || <install id>`).
+  The per-day counts cannot be attributed to an install.
 
 ## API
 
@@ -108,6 +138,20 @@ The event shape is the schema 1 contract the apps implement.
 
 Clients should treat anything other than `204` as "drop this batch". Telemetry must never block or
 slow the app.
+
+### `POST /v1/diagnostics`
+
+Desktop Send logs. Body `{ "schema": 1, "install_id", "app": "desktop", "app_version", "os", "ts",
+"reports_enabled", "text" }`, `Content-Type: application/json`, `text` at most 300 KiB (body
+616 KiB, room for JSON escaping). `install_id`, `app_version`, `os` and `ts` follow the event rules.
+
+| Status | Meaning |
+| --- | --- |
+| `201` | Stored: `{ "ok": true, "id": 12, "bytes": 123456 }`. |
+| `400` | Bad JSON or shape, `unsupported_app` (anything but `desktop`), `bad_text`, `text_too_large`. |
+| `413` / `415` | Body too large / not `application/json`. |
+| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (1000) or `GLOBAL_DAILY_UPLOAD_BYTES` (100 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
+| `503` | D1 unavailable. |
 
 `OPTIONS` returns `204` but never sends `Access-Control-Allow-Origin`. Both apps post from native
 code (Rust on desktop, the native layer on Android), where CORS does not apply; keeping it closed
@@ -152,8 +196,28 @@ issue #88. Tighten it once real TCL rows show up in the device report.
 
 ### Admin
 
-Both need `Authorization: Bearer <ADMIN_TOKEN>`. With no token set (or one shorter than 16
+All need `Authorization: Bearer <ADMIN_TOKEN>`. With no token set (or one shorter than 16
 characters) the admin routes answer `503`.
+
+- `GET /v1/admin/support/<support-id>[?limit=N]`: everything stored for one install. The id is the
+  full UUID or the short form the app shows (`7D0B-0B9E`, dash optional, any case), which matches
+  every install whose id starts with those eight hex digits (up to 5 are returned, newest first;
+  `matches` and `truncated` say how many there were). Each install has first/last seen, event
+  counts by kind, apps, versions and OSes, its TVs, its top error codes, the `limit` most recent
+  events (default 50, max 200) with `diag` parsed and `log_excerpt`, and its uploads.
+- `GET /v1/admin/uploads/<id>`: one Send logs upload as `text/plain`, with `x-install-id`.
+
+From a terminal, `scripts/support-lookup.sh` does both and prints a readable report:
+
+```sh
+export ATVOPT_ADMIN_TOKEN="$(op read 'op://Bryan Code/ATV Optimizer telemetry ADMIN_TOKEN/credential' --account my.1password.com)"
+scripts/support-lookup.sh 7D0B-0B9E           # or the full UUID; --json for the raw response
+scripts/support-lookup.sh --upload 12         # the text of upload #12 from that report
+```
+
+The token reaches `curl` as a header on stdin, so it is not in the process list, and the script
+never prints it. `ATV_TELEMETRY_URL` overrides the production URL.
+
 
 - `GET /v1/admin/devices[?days=N][&limit=N][&group=manufacturer,model,device,profile,app,app_version]`:
   one row per group with distinct `installs`, `events`, `seen` (device_seen count), `action_ok`,
@@ -180,7 +244,7 @@ that a real app build has sent events.
 | URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |
 | Worker | `atv-optimizer-telemetry` |
 | D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (the committed binding in `wrangler.toml`) |
-| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days and old rate counters |
+| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days, log excerpts and uploads past 30 days, and old rate counters |
 | Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
 
@@ -321,9 +385,11 @@ Cloudflare's free plan (check the current numbers on the
 - D1: 5 million rows read and 100,000 rows written a day, 5 GB storage, 50 queries per Worker call.
   Each request runs at most six queries however many events it carries (all writes go through
   `json_each` over one JSON parameter). Row writes per accepted event are lowest in big batches
-  (aggregates are merged per batch) and highest for a one-event error batch: about seven (two
-  quota rows, the raw row and its index, three aggregate rows). Over the limit, D1 refuses queries until the
-  daily reset; the apps just lose that day's telemetry.
+  (aggregates are merged per batch) and highest for a one-event error batch: about eight (two
+  quota rows, the raw row and its two index entries, three aggregate rows). A Send logs upload is
+  about five (two quota rows, the row and its two index entries). A support lookup reads through
+  the `events_install` index and runs at most 1 + 7 × 5 queries. Over the limit, D1 refuses
+  queries until the daily reset; the apps just lose that day's telemetry.
 - Cron Triggers: this Worker uses one.
 
 Abuse protection:
@@ -331,11 +397,17 @@ Abuse protection:
 - 64 KB body cap, enforced while reading the stream, and at most 50 events per request.
 - Per-install cap: `PER_INSTALL_DAILY_EVENTS` (500) events per install id per UTC day.
 - Global cap: `GLOBAL_DAILY_EVENTS` (7,000) events per UTC day across everyone. The write budget
-  is about seven row writes per event on arrival in the worst case (a one-event error batch) plus
-  about three for the cron's deletes (its quota row after two days, the raw row and its index
-  entry after 90).
-  Under a sustained flood that is roughly ten writes per event per day, so 7,000 events is about
-  70,000 of the 100,000 free writes. Raise it only together with a paid plan.
+  is about eight row writes per event on arrival in the worst case (a one-event error batch) plus
+  about four for the cron's deletes (its quota row after two days, the raw row and its two index
+  entries after 90).
+  Under a sustained flood that is roughly twelve writes per event per day, so 7,000 events is
+  about 84,000 of the 100,000 free writes; uploads add at most about 6,000 more (1,000 a day at
+  about six writes each). Raise it only together with a paid plan.
+- Uploads: `PER_INSTALL_DAILY_UPLOADS` (5), `GLOBAL_DAILY_UPLOADS` (1000) and
+  `GLOBAL_DAILY_UPLOAD_BYTES` (100 MiB) per UTC day, counted in `rate_daily` under
+  `upload:<install id>`, `upload:*` and `upload-bytes:*`. The install's own cap is read first, so
+  one person retrying can't spend everyone's budget. With 30 days' retention the byte cap bounds
+  stored log text at about 3 GiB of D1's 5 GiB, whatever the number of made-up install ids.
 
 Both caps are counters in one D1 table, `rate_daily` (a row per install id per day, plus key `*`
 for the global total). Admission and increment are a single statement: it checks every counter

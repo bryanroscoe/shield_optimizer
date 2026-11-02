@@ -1,15 +1,20 @@
 //! Network-scan command — matches v1's `Scan-Network` UX.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, AdbDriver,
-    MdnsService, ADB_NETWORK_PORT,
+    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet_with_stats,
+    subnet_overridden, AdbDriver, MdnsService, SweepStats, ADB_NETWORK_PORT,
+};
+use shield_optimizer_core::engine::telemetry_diag::{
+    connect_diag, error_codes, sweep_diag, DiagReason, Gateway,
 };
 use shield_optimizer_core::engine::types::DeviceStatus;
+use shield_optimizer_core::telemetry::Telemetry;
 
 use super::AppState;
 
@@ -420,10 +425,27 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
 /// `scan_network` — sweep the local /24 for ADB-listening devices and try
 /// `adb connect` against each responder. Returns a structured summary so the
 /// UI can render counts and any per-IP failures.
+///
+/// A scan that finds nothing, or finds devices and connects to none, is
+/// reported (when reports are on) with what the app could see: see
+/// [`report_scan`].
 #[tauri::command]
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
+    let started = Instant::now();
     let Some(prefix) = local_subnet_prefix().await else {
         tracing::info!(subnet = "unknown", found = 0, "scan finished");
+        report_scan(
+            state.inner(),
+            ScanReport {
+                reason: DiagReason::ScanEmpty,
+                swept: None,
+                sweep: None,
+                stage: None,
+                result: None,
+                started,
+            },
+        )
+        .await;
         return Ok(ScanResult {
             subnet: None,
             found: vec![],
@@ -438,18 +460,117 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     };
     let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
 
-    let hits = scan_subnet(prefix).await;
+    let (hits, sweep) = scan_subnet_with_stats(prefix).await;
     let swept: Vec<String> = hits.iter().map(|h| h.ip.clone()).collect();
 
     let adb = state.adb_snapshot().await;
-    scan_command_stage(adb.as_ref(), &subnet_label, &swept).await
+    let (result, stage) = scan_stage(adb.as_ref(), &subnet_label, &swept).await?;
+    drop(adb);
+    let reason = if result.found.is_empty() {
+        Some(DiagReason::ScanEmpty)
+    } else if result.connected.is_empty()
+        && result.unauthorized.is_empty()
+        && !result.failed.is_empty()
+    {
+        Some(DiagReason::ScanConnectFailed)
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        report_scan(
+            state.inner(),
+            ScanReport {
+                reason,
+                swept: Some(prefix),
+                sweep: Some(sweep),
+                stage: Some(stage),
+                result: Some(&result),
+                started,
+            },
+        )
+        .await;
+    }
+    Ok(result)
 }
 
+/// What the connect stage saw, for the report. Raw text: only codes and
+/// counts derived from it are ever sent.
+#[derive(Default)]
+struct StageFacts {
+    startup_error: Option<String>,
+    attempted: usize,
+    failure_details: Vec<String>,
+}
+
+struct ScanReport<'a> {
+    reason: DiagReason,
+    swept: Option<[u8; 3]>,
+    sweep: Option<SweepStats>,
+    stage: Option<StageFacts>,
+    result: Option<&'a ScanResult>,
+    started: Instant,
+}
+
+/// Record a scan that found nothing usable. The counts are taken now; the
+/// host facts (adb, mDNS, interfaces) are gathered in the background so the
+/// user's result isn't held up by the extra adb calls.
+async fn report_scan(state: &AppState, report: ScanReport<'_>) {
+    if !state.telemetry.is_active() {
+        return;
+    }
+    let gateway = match (report.swept, subnet_overridden()) {
+        (None, _) => Gateway::NotDetected,
+        (Some(_), true) => Gateway::Override,
+        (Some(_), false) => Gateway::Detected,
+    };
+    let sweep = report
+        .sweep
+        .map(|s| sweep_diag(s.probed, s.open, s.timeouts, s.refused, s.elapsed));
+    let stage = report.stage.unwrap_or_default();
+    let connect = report.result.map(|r| {
+        let details: Vec<&str> = stage.failure_details.iter().map(String::as_str).collect();
+        connect_diag(
+            stage.attempted,
+            r.connected.len(),
+            r.unauthorized.len(),
+            r.failed.len(),
+            r.needs_pairing.len(),
+            &details,
+        )
+    });
+    let errors = error_codes(stage.startup_error.as_deref());
+    let elapsed = report.started.elapsed();
+    let telemetry: Arc<Telemetry> = state.telemetry.clone();
+    let adb = state.adb_snapshot().await;
+    let reason = report.reason;
+    let swept = report.swept;
+    tauri::async_runtime::spawn(async move {
+        let mut diag = crate::commands::diagnostics::host_diag(&*adb, swept, Some(gateway)).await;
+        drop(adb);
+        if let Some(facts) = diag.adb.clone() {
+            telemetry.set_adb_facts(facts);
+        }
+        diag.sweep = sweep;
+        diag.connect = connect;
+        diag.errors = errors;
+        telemetry.record_diagnostic(reason, None, None, diag.with_ms(elapsed));
+    });
+}
+
+#[cfg(test)]
 async fn scan_command_stage(
     adb: &dyn AdbDriver,
     subnet_label: &str,
     swept: &[String],
 ) -> Result<ScanResult, String> {
+    scan_stage(adb, subnet_label, swept).await.map(|(r, _)| r)
+}
+
+async fn scan_stage(
+    adb: &dyn AdbDriver,
+    subnet_label: &str,
+    swept: &[String],
+) -> Result<(ScanResult, StageFacts), String> {
     // Warm the adb daemon before connecting. The port sweep just opened and
     // dropped raw TCP sockets against each device's adbd; firing `adb connect`
     // immediately afterward — especially against a cold daemon — tends to get
@@ -563,6 +684,11 @@ async fn scan_command_stage(
         }
     }
 
+    let facts = StageFacts {
+        startup_error: startup_error.clone(),
+        attempted: targets.connect.len(),
+        failure_details: failure_details.clone(),
+    };
     let mut message = summary_message(
         subnet_label,
         found.len(),
@@ -586,15 +712,18 @@ async fn scan_command_stage(
         "scan finished"
     );
 
-    Ok(ScanResult {
-        subnet: Some(subnet_label.to_string()),
-        found,
-        connected,
-        unauthorized,
-        failed,
-        needs_pairing: targets.needs_pairing,
-        message,
-    })
+    Ok((
+        ScanResult {
+            subnet: Some(subnet_label.to_string()),
+            found,
+            connected,
+            unauthorized,
+            failed,
+            needs_pairing: targets.needs_pairing,
+            message,
+        },
+        facts,
+    ))
 }
 
 fn summary_message(

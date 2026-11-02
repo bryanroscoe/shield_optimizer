@@ -66,6 +66,9 @@ const QUIET_COMMANDS = new Set([
   "send_key",
   "send_text",
   "log_ui_event",
+  // Send logs fails on its own (offline, the daily limit) and says so; a
+  // report about it would only repeat that.
+  "upload_diagnostics",
 ]);
 
 /// Codes that are expected states, not failures worth reporting.
@@ -224,9 +227,23 @@ export function formatSupportId(id: string | null | undefined): string {
   return hex.length === 8 ? `${hex.slice(0, 4)}-${hex.slice(4)}` : "";
 }
 
+/// What the desktop app's reports contain. Shown once on first launch, and
+/// once more whenever it changes (Rust's `NOTICE_VERSION`).
 export const NOTICE_TEXT =
   "ATV Optimizer sends anonymous reports: your TV's make, model and Android version, " +
   "which actions worked or failed, and error messages with addresses, names and file paths removed. " +
+  "When something fails, or a scan or connection finds nothing, a report also carries connection " +
+  "counts and timings and a short excerpt of the app's connection log, redacted the same way. " +
+  "Reports carry a random support ID, not tied to your computer or TV, that you can quote when asking for help. " +
   "No serial numbers, IP addresses, TV names or app lists. You can turn this off at any time.";
+
+/// The phone app's reports: no log excerpts and no Send logs, as declared
+/// in its Play Data safety form.
+export const MOBILE_NOTICE_TEXT =
+  "ATV Optimizer sends anonymous reports: your TV's make, model and Android version, " +
+  "which actions worked or failed, and error messages with addresses, names and file paths removed. " +
+  "When discovery or a TV finds nothing, a report also carries connection counts and timings. " +
+  "Reports carry a random ID, not tied to your phone or TV. " +
+  "No serial numbers, IP addresses, TV names, logs or app lists. You can turn this off at any time.";
 
 export const TOGGLE_LABEL = "Share anonymous device and error reports";

@@ -29,11 +29,18 @@ export type ErrorCode =
   | "unsupported"
   | "locked"
   | "partial_failure"
+  | "upload_unavailable"
+  | "upload_limited"
+  | "upload_failed"
   | "unknown";
 
 /// First match wins, so the specific shapes come before the broad ones.
 const RULES: ReadonlyArray<readonly [RegExp, ErrorCode]> = [
   [/^LOCKED:/, "locked"],
+  // Send logs: before the network shapes, since its reason can say "timed out".
+  [/^Log upload isn't available/i, "upload_unavailable"],
+  [/^Log upload limit reached/i, "upload_limited"],
+  [/^Log upload failed/i, "upload_failed"],
   [/could not locate an adb binary|adb binary at .* is not a regular file/i, "adb_missing"],
   [/the app is quitting/i, "app_quitting"],
   [/Connection to the TV was lost/i, "connection_lost"],
@@ -81,6 +88,9 @@ const PLAIN: Record<ErrorCode, string> = {
   unsupported: "This connection type can't do that.",
   locked: "This needs ATV Optimizer Pro.",
   partial_failure: "Some changes didn't apply.",
+  upload_unavailable: "This build can't send logs. Use Copy details on the bug report instead.",
+  upload_limited: "The log upload limit for today has been reached. Try again tomorrow, or copy the bug report instead.",
+  upload_failed: "The logs couldn't be sent. Check your internet connection and try again.",
   unknown: "Something went wrong.",
 };
 
@@ -116,7 +126,15 @@ export function presentError(raw: unknown, support?: SupportInfo | null): Presen
   const text = errorText(raw).trim();
   const code = classifyError(text);
   // Connection problems aren't about the model, so the tier says nothing.
-  const deviceSide = !["adb_missing", "app_quitting", "locked", "not_connected"].includes(code);
+  const deviceSide = ![
+    "adb_missing",
+    "app_quitting",
+    "locked",
+    "not_connected",
+    "upload_unavailable",
+    "upload_limited",
+    "upload_failed",
+  ].includes(code);
   // The backend's own errors are mostly written for people ("not an IP
   // address…"). When none of the known shapes match, show that sentence
   // rather than hiding it behind a generic one.
