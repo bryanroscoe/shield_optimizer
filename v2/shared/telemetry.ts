@@ -205,6 +205,23 @@ export interface TelemetrySettings {
   enabled: boolean;
   available: boolean;
   notice_seen: boolean;
+  /// The random install id reports carry, so a user can quote it and the
+  /// developer can find their reports. `null` while reports are off or the
+  /// build has no endpoint.
+  support_id: string | null;
+}
+
+/// What `upload_diagnostics` returns: the user pressed "Send logs".
+export interface DiagnosticsUploadResult {
+  support_id: string;
+  bytes: number;
+}
+
+/// The short form shown to users: the first eight hex digits, grouped.
+/// The admin lookup accepts this prefix as well as the full id.
+export function formatSupportId(id: string | null | undefined): string {
+  const hex = (id ?? "").replace(/[^0-9a-fA-F]/g, "").slice(0, 8).toUpperCase();
+  return hex.length === 8 ? `${hex.slice(0, 4)}-${hex.slice(4)}` : "";
 }
 
 export const NOTICE_TEXT =
