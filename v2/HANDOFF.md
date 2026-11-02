@@ -66,7 +66,8 @@ A real read-only system-file download exposed a permission rejection being writt
 into the local file before a misleading trailer error. Failure text is now an error,
 never file data. Upload success requires an explicit sync OKAY, and STAT responses
 are acknowledged and may be fragmented. Loopback tests cover these boundaries;
-physical transfer acceptance is still in progress. A current-binary denied pull exposed
+read-only physical download acceptance passed on the labeled Download Recovery Fix
+app at 3e2f6ce. Upload/install acceptance remains outstanding. A current-binary denied pull exposed
 another failure: it evicted the main session and left an empty local file. Native
 downloads now use the existing bounded, hardware-verified dedicated connection
 and publish a temporary file only after success; denial leaves the original TV
