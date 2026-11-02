@@ -26,6 +26,11 @@ on:
       - '!v2/telemetry-worker/**'
       - '.github/workflows/v2-tests.yml'
   workflow_dispatch:
+    inputs:
+      native_test_app:
+        description: 'Build a macOS native ADB test app artifact (no release)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,6 +41,84 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-test-app:
+    if: github.event_name == 'workflow_dispatch' && inputs.native_test_app
+    needs: [rust, frontend]
+    name: Native ADB macOS test app
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/target
+          key: native-test-macos-${{ hashFiles('v2/Cargo.lock') }}
+      - name: Install frontend dependencies
+        working-directory: v2
+        run: npm ci
+      - name: Label the isolated owner-test app
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          const config = {
+            productName: 'ATV Optimizer Native Test',
+            identifier: 'com.shieldoptimizer.native-test',
+            app: { windows: [{
+              title: `ATV Optimizer — Native Rust ADB Test — ${process.env.GITHUB_SHA.slice(0, 7)}`,
+              width: 1100, height: 760, minWidth: 720, minHeight: 480,
+            }] },
+            bundle: { createUpdaterArtifacts: false, macOS: { signingIdentity: '-' } },
+          };
+          writeFileSync(`${process.env.RUNNER_TEMP}/native-test.json`, JSON.stringify(config));
+          JS
+      - name: Build native test app
+        working-directory: v2
+        run: npm run tauri -- build --debug --target universal-apple-darwin --features native-adb-default --bundles app --config "$RUNNER_TEMP/native-test.json"
+      - name: Verify and archive the signed bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='v2/target/universal-apple-darwin/debug/bundle/macos/ATV Optimizer Native Test.app'
+          codesign --verify --deep --strict "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/$executable"
+          mkdir native-test-artifact
+          ditto -c -k --sequesterRsrc --keepParent "$app" native-test-artifact/native-test-app.zip
+          shasum -a 256 "$app/Contents/MacOS/$executable" > native-test-artifact/binary-sha256.txt
+          shasum -a 256 native-test-artifact/native-test-app.zip > native-test-artifact/archive-sha256.txt
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          writeFileSync('native-test-artifact/provenance.json', JSON.stringify({
+            source: process.env.GITHUB_SHA,
+            run: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            target: 'universal-apple-darwin', profile: 'debug',
+            features: ['native-adb-default'], signing: 'ad-hoc',
+            hardwareAcceptance: 'not performed by CI',
+          }, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-test-macos-${{ github.sha }}
+          path: native-test-artifact/
+          if-no-files-found: error
+          retention-days: 7
+
   rust:
     if: >-
       github.event_name != 'pull_request' ||

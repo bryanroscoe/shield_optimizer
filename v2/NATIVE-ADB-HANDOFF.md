@@ -2,6 +2,15 @@
 
 ## Main integration
 
+All six CI checks passed at `fdf0bf1`, including simulated-device E2E. Local
+packaging remains constrained by free disk falling below 20 GiB. The `v2 Tests`
+manual workflow now accepts `native_test_app=true` to build a universal macOS
+owner-test app after Rust and frontend validation. It uploads a seven-day artifact
+with source/run provenance and binary/archive hashes; it creates no release or
+tag. The bundle uses `native-adb-default`, the existing isolated test identifier,
+an exact-revision window title, and verified ad-hoc signing. Download and physical
+acceptance are still required before replacing the delivered app below.
+
 The replacement owner merged main at `67b87c6598de3ebcae1a0aac3187db5790765b81`
 (settings #276 and diagnostics #277), keeping streaming native scan admission and
 all shared-transport cancellation/download behavior. Sweep counters observe the
