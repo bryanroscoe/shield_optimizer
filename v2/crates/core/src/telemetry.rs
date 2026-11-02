@@ -267,6 +267,8 @@ pub struct Telemetry {
     started: AtomicBool,
     client: OnceLock<Option<reqwest::Client>>,
     excerpt_source: OnceLock<ExcerptSource>,
+    /// Serializes writes of `telemetry.json`; see [`Telemetry::persist`].
+    persist_lock: Mutex<()>,
 }
 
 impl Telemetry {
@@ -312,8 +314,7 @@ impl Telemetry {
         };
         let hub = Self::build(config, Some(path), settings);
         if changed {
-            let snapshot = hub.lock().settings.clone();
-            let _ = hub.persist(&snapshot);
+            let _ = hub.persist();
         }
         Arc::new(hub)
     }
@@ -338,6 +339,7 @@ impl Telemetry {
             started: AtomicBool::new(false),
             client: OnceLock::new(),
             excerpt_source: OnceLock::new(),
+            persist_lock: Mutex::new(()),
         }
     }
 
@@ -345,12 +347,21 @@ impl Telemetry {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Write to a sibling file and rename, so a crash or full disk never
-    /// leaves a half-written file that would read back as a fresh install.
-    fn persist(&self, settings: &StoredSettings) -> Result<(), String> {
+    /// Write the current settings to a sibling file and rename, so a crash
+    /// or full disk never leaves a half-written file that would read back as
+    /// a fresh install.
+    ///
+    /// The snapshot is taken under `persist_lock`, after any earlier writer
+    /// has finished, so the last write is always the latest state: a budget
+    /// update from the uploader can't land after an opt-out and save the
+    /// old `enabled: true` over it.
+    fn persist(&self) -> Result<(), String> {
         let Some(path) = &self.settings_path else {
             return Ok(());
         };
+        let _writing = self.persist_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let settings = self.lock().settings.clone();
+        let settings = &settings;
         let result = (|| {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
@@ -438,7 +449,7 @@ impl Telemetry {
     /// Off takes effect in this session even if saving fails; the error is
     /// returned so the UI can say the choice may not survive a restart.
     pub fn set_enabled(&self, enabled: bool) -> Result<TelemetrySettings, String> {
-        let snapshot = {
+        {
             let mut inner = self.lock();
             if inner.settings.enabled != enabled {
                 inner.settings.enabled = enabled;
@@ -454,23 +465,21 @@ impl Telemetry {
                 }
                 inner.seen.clear();
             }
-            inner.settings.clone()
-        };
+        }
         if !enabled {
             self.cancel.notify_waiters();
         }
-        self.persist(&snapshot)?;
+        self.persist()?;
         Ok(self.settings())
     }
 
     pub fn dismiss_notice(&self) -> Result<TelemetrySettings, String> {
-        let snapshot = {
+        {
             let mut inner = self.lock();
             inner.settings.notice_seen = true;
             inner.settings.notice_version = NOTICE_VERSION;
-            inner.settings.clone()
-        };
-        self.persist(&snapshot)?;
+        }
+        self.persist()?;
         Ok(self.settings())
     }
 
@@ -655,7 +664,7 @@ impl Telemetry {
     /// restart doesn't reset the budget.
     fn take_excerpt_budget(&self) -> bool {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        let snapshot = {
+        {
             let mut inner = self.lock();
             if inner.settings.excerpt_day != today {
                 inner.settings.excerpt_day = today;
@@ -665,9 +674,8 @@ impl Telemetry {
                 return false;
             }
             inner.settings.excerpts_today += 1;
-            inner.settings.clone()
-        };
-        let _ = self.persist(&snapshot);
+        }
+        let _ = self.persist();
         true
     }
 
@@ -1585,6 +1593,18 @@ mod tests {
         let mut batch = drain(&again);
         again.attach_excerpt(&mut batch);
         assert_eq!(batch[0].event.log_excerpt, None);
+    }
+
+    #[test]
+    fn spending_the_excerpt_budget_never_undoes_an_opt_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        hub.set_enabled(false).unwrap();
+        // The uploader saving its budget after the opt-out writes the
+        // current state, not one it read before.
+        assert!(hub.take_excerpt_budget());
+        let reloaded = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        assert!(!reloaded.settings().enabled);
     }
 
     #[test]
