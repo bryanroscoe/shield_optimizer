@@ -23,6 +23,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use super::telemetry::redact_unbounded;
+use super::telemetry_diag::classify_error_text;
 
 pub const EXCERPT_MAX_LINES: usize = 60;
 pub const EXCERPT_MAX_BYTES: usize = 8 * 1024;
@@ -195,8 +196,69 @@ fn drop_sensitive_fields(s: &str) -> String {
     out
 }
 
+/// The value after a setting that holds something the user named: the TV's
+/// name or the Private DNS host. `settings put global device_name 'Kids
+/// Room TV'`, `device_name = "Den"`, `[persist.sys.device_name]: [Den]`.
+static NAMED_VALUE: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r#"(?i)\b(device_name|private_dns_specifier|bluetooth_name)\b(\s*\]?:\s*\[?|\s*=\s*|\s+)("(?:[^"\\\n]|\\.)*"|(?:[^"\\;\],\n]|\\.)+)"#,
+    )
+});
+
+/// Where a log line starts carrying a command's raw output.
+static OUTPUT_FIELD: LazyLock<Regex> = LazyLock::new(|| re(r"(^|\s)(stderr|stdout)="));
+
+/// The line with everything from its first `stderr=`/`stdout=` replaced:
+/// stderr by the code of what it said, stdout by `<omitted>`. `None` when
+/// the line has neither.
+fn without_output_fields(line: &str) -> Option<String> {
+    let first = OUTPUT_FIELD.find(line)?;
+    let mut out = line[..first.start()].to_string();
+    let rest = &line[first.start()..];
+    let stdout_at = rest.find("stdout=");
+    if let Some(at) = rest.find("stderr=") {
+        let value_end = stdout_at.filter(|s| *s > at).unwrap_or(rest.len());
+        let value = rest[at + "stderr=".len()..value_end].trim();
+        let code = if value.is_empty() {
+            "none"
+        } else {
+            classify_error_text(value)
+        };
+        out.push_str(&format!(" stderr=<{code}>"));
+    }
+    if stdout_at.is_some() {
+        out.push_str(" stdout=<omitted>");
+    }
+    Some(out)
+}
+
+/// Command output never leaves the computer: device reads print TV names,
+/// DNS hosts and whatever else the TV holds, in shapes no rule can know. A
+/// line's `stdout=`/`stderr=` value and the continuation lines it spills
+/// onto are dropped (stderr is kept as an error code).
+fn without_command_output(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut dropping = false;
+    for line in text.lines() {
+        let header = HEADER.is_match(line);
+        if dropping && !header {
+            continue;
+        }
+        dropping = false;
+        match without_output_fields(line) {
+            Some(cut) => {
+                out.push(cut);
+                dropping = true;
+            }
+            None => out.push(line.to_string()),
+        }
+    }
+    out.join("\n")
+}
+
 fn redact_body(body: &str, scrub: &Scrub) -> String {
     let s = replace_known(body.to_string(), scrub);
+    let s = NAMED_VALUE.replace_all(&s, "${1}${2}<redacted>");
     let s = SENSITIVE_PROP.replace_all(&s, "${1}<redacted>${2}");
     let s = drop_sensitive_fields(&s);
     redact_unbounded(&s)
@@ -278,7 +340,8 @@ pub fn connection_excerpt(log: &str, scrub: &Scrub) -> Option<String> {
 }
 
 fn excerpt_of(log: &str, scrub: &Scrub) -> Option<String> {
-    let lines: Vec<&str> = records(log)
+    let log = without_command_output(log);
+    let lines: Vec<&str> = records(&log)
         .into_iter()
         .filter(|r| r.target.is_some_and(is_connection_target))
         .flat_map(|r| r.lines)
@@ -297,6 +360,7 @@ fn excerpt_of(log: &str, scrub: &Scrub) -> Option<String> {
 /// Used for the log in a Send logs upload and for the summary above it.
 pub fn redact_text(text: &str, scrub: &Scrub, max_bytes: usize) -> String {
     with_found(text, scrub, |scrub| {
+        let text = without_command_output(text);
         let redacted: Vec<String> = text
             .lines()
             .map(|l| redact_log_line(l, scrub, UPLOAD_LINE_CHARS))
@@ -388,13 +452,10 @@ QWERTYUIOPAS\toffline
         for keep in [
             "2026-11-02T14:00:02.000000Z INFO shield_optimizer_core::commands::devices: connect finished",
             "Connection refused",
-            "<id> unauthorized",
+            "stderr=<none> stdout=<omitted>",
             "ms=13 exit_code=Some(0)",
-            "[ro.product.model]: [SHIELD Android TV]",
-            "[persist.sys.device_name]: [<redacted>]",
             "scan finished subnet=<redacted>",
             "found=0 connected=0",
-            "<id> offline",
         ] {
             assert!(excerpt.contains(keep), "missing {keep:?} in:\n{excerpt}");
         }
@@ -523,6 +584,48 @@ POIUYTREWQLK    device usb:1-1 product:x
                 text.contains("later <id> <id> <id> <id> <id> gone"),
                 "{text}"
             );
+        }
+    }
+
+    /// The exact lines an independent review got past both redactors.
+    const NAME_AND_DNS_LOG: &str = "\
+2026-11-02T14:00:00.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings get global device_name\"] ms=40 exit_code=Some(0) stderr= stdout=Bedroom Shield
+2026-11-02T14:00:01.000000Z  WARN shield_optimizer_v2_lib::adb::driver: adb timeout args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings put global device_name 'Kids Room TV'\"] ms=30001
+2026-11-02T14:00:02.000000Z  WARN shield_optimizer_v2_lib::adb::driver: adb exited nonzero args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings put global private_dns_specifier '1a2b3c.dns.nextdns.io'; settings put global private_dns_mode hostname\"] exit_code=Some(1) stderr=Error: connection timed out
+while talking to 1a2b3c.dns.nextdns.io
+2026-11-02T14:00:03.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings get global private_dns_specifier\"] ms=12 exit_code=Some(0) stderr= stdout=9f8e7d.dns.nextdns.io
+2026-11-02T14:00:04.000000Z  INFO shield_optimizer_core::commands::devices: rename failed: Device still reports device_name = \"Den TV\" after the write. dns private_dns_specifier=4a5b6c.dns.nextdns.io resolver 7x7.example-dns.net
+2026-11-02T14:00:04.500000Z  INFO shield_optimizer_core::commands::devices: probe 7x7.example-dns.net and 0123abcd.dns.nextdns.io failed
+2026-11-02T14:00:05.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"shell\", \"getprop\"] ms=9 exit_code=Some(0) stderr= stdout=[persist.sys.device_name]: [Living Room]
+[ro.product.model]: [SHIELD Android TV]
+";
+
+    #[test]
+    fn tv_names_and_dns_hosts_never_survive() {
+        let leaks = [
+            "Bedroom",
+            "Kids Room",
+            "1a2b3c",
+            "9f8e7d",
+            "4a5b6c",
+            "nextdns",
+            "Den TV",
+            "Living Room",
+            "7x7",
+            "example-dns",
+            "0123abcd",
+        ];
+        for text in [
+            upload_log(NAME_AND_DNS_LOG, &Scrub::default()),
+            connection_excerpt(NAME_AND_DNS_LOG, &Scrub::default()).unwrap(),
+        ] {
+            for leak in leaks {
+                assert!(!text.contains(leak), "{leak} leaked:\n{text}");
+            }
+            assert!(text.contains("device_name <redacted>"), "{text}");
+            assert!(text.contains("stderr=<timeout>"), "{text}");
+            assert!(text.contains("stdout=<omitted>"), "{text}");
+            assert!(text.contains("private_dns_mode hostname"), "{text}");
         }
     }
 

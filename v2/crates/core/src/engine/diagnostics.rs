@@ -95,14 +95,15 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
     out.push_str("## ATV Optimizer diagnostics\n\n");
     out.push_str(&format!("- App version: {}\n", input.app_version));
     out.push_str(&format!("- OS: {} ({})\n", input.os, input.arch));
+    // Short form only: this text is pasted into public issues, and the full
+    // id is what an app posts its reports under. The admin lookup finds an
+    // install by these eight digits.
     match input
         .support_id
-        .map(|id| (super::telemetry::format_support_id(id), id))
-        .filter(|(short, _)| !short.is_empty())
+        .map(super::telemetry::format_support_id)
+        .filter(|short| !short.is_empty())
     {
-        Some((short, full)) => {
-            out.push_str(&format!("- Support ID: {short} (`{}`)\n", full.trim()))
-        }
+        Some(short) => out.push_str(&format!("- Support ID: {short}\n")),
         None => out.push_str("- Support ID: none (anonymous reports are off)\n"),
     }
     out.push_str(&format!(
@@ -434,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn the_support_id_is_shown_short_and_full() {
+    fn only_the_short_support_id_is_shown() {
         let report = format_diagnostics(&DiagnosticsInput {
             app_version: "2.4.1",
             os: "windows",
@@ -446,9 +447,10 @@ mod tests {
             log_tail: &[],
             support_id: Some("7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11"),
         });
+        assert!(report.contains("- Support ID: 7D0B-0B9E\n"), "{report}");
         assert!(
-            report.contains("- Support ID: 7D0B-0B9E (`7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11`)"),
-            "{report}"
+            !report.contains("1f43-4e43"),
+            "the full id stays private: {report}"
         );
     }
 }

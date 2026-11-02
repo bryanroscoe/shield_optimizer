@@ -242,6 +242,21 @@ static UNIX_PATH: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(^|[\s'"(=,\[])~?/(?:[^'"\n:)\]]|:\S)*"#));
 static WINDOWS_PATH: LazyLock<Regex> =
     LazyLock::new(|| re(r#"(?i)\b[a-z]:\\(?:[^'"\n:)\]]|:\S)*|\\\\(?:[^'"\n:)\]]|:\S)+"#));
+// A dotted name that can't be a package id because a label starts with a
+// digit or holds a hyphen, under a letters-only top-level label: a Private
+// DNS host such as `1a2b3c.dns.nextdns.io` or `one-one.example-dns.net`.
+// Ones that could be package ids are taken by PACKAGE below.
+static DOTTED_HOST: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\b[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,24}\b"));
+
+fn is_host_shaped(token: &str) -> bool {
+    let labels: Vec<&str> = token.split('.').collect();
+    labels.len() >= 2
+        && labels
+            .iter()
+            .any(|l| l.contains('-') || l.starts_with(|c: char| c.is_ascii_digit()))
+}
+
 // Two segments are enough: `acme.player` is a valid package id. This also
 // takes file names like `notes.txt`, which only loses context.
 static PACKAGE: LazyLock<Regex> =
@@ -312,6 +327,16 @@ pub(crate) fn redact_unbounded(raw: &str) -> String {
     s = IPV6.replace_all(&s, "${1}<ip>").into_owned();
     s = HOST_PORT.replace_all(&s, "<host>").into_owned();
     s = LOCAL_HOST.replace_all(&s, "<host>").into_owned();
+    s = DOTTED_HOST
+        .replace_all(&s, |caps: &regex::Captures| {
+            let token = &caps[0];
+            if is_host_shaped(token) {
+                "<host>".to_string()
+            } else {
+                token.to_string()
+            }
+        })
+        .into_owned();
     s = WINDOWS_PATH.replace_all(&s, "<path>").into_owned();
     s = UNIX_PATH.replace_all(&s, "${1}<path>").into_owned();
     s = PACKAGE
@@ -628,6 +653,16 @@ mod tests {
                 "read ro.product.model failed",
                 "read ro.product.model failed",
             ),
+            (
+                "dns 1a2b3c.dns.nextdns.io unreachable",
+                "dns <host> unreachable",
+            ),
+            (
+                "dns abc123.dns.nextdns.io unreachable",
+                "dns <pkg> unreachable",
+            ),
+            ("via 1dot1dot1dot1.cloudflare-dns.com", "via <host>"),
+            ("tools 35.0.2-12147458 ok", "tools 35.0.2-<id> ok"),
         ] {
             assert_eq!(redact_message(input), want, "input: {input}");
         }
