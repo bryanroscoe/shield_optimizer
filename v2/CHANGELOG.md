@@ -30,6 +30,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 - Desktop: move optional explanations into keyboard-accessible help sections while keeping safety warnings, permission consequences and errors visible.
 
+- Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
+
 ## v2-2.4.1 — 2026-10-23
 
 Google TV launcher switching works properly now: Setup Wraith, Google TV's setup helper, no longer takes the Home button back after you change launchers (#122, #157, #158). Also new: a Logs tab, Stop ADB when quitting, Report this app, app storage details, restart after updating, patch notes on demand, a proper right-click menu, and Ask again for a TV whose debugging prompt was missed. 2.3.1 was prepared but never published, and the 2.4.0 build failed before anything was

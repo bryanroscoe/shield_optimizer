@@ -293,6 +293,10 @@ jobs:
         working-directory: v2
         run: npm run test:support-tiers-ui
 
+      - name: Settings screen
+        working-directory: v2
+        run: npm run test:settings-screen
+
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
         working-directory: v2

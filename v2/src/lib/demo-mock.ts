@@ -214,9 +214,17 @@ let debugLogging = false;
 /// covered by it; the `telemetryNotice` flag shows it, and
 /// `telemetryUnavailable` stands in for a build without an endpoint.
 let telemetry: { enabled: boolean; notice_seen: boolean } | null = null;
+/// The install id reports carry. Shown only while reports are on and the
+/// build has an endpoint, as the real backend does.
+const DEMO_SUPPORT_ID = "7f3a9c21-4b8e-4d2a-9e61-0c5d8b2f1a37";
 function telemetrySettings() {
   telemetry ??= { enabled: true, notice_seen: !demoFlag("telemetryNotice") };
-  return { ...telemetry, available: !demoFlag("telemetryUnavailable") };
+  const available = !demoFlag("telemetryUnavailable");
+  return {
+    ...telemetry,
+    available,
+    support_id: available && telemetry.enabled ? DEMO_SUPPORT_ID : null,
+  };
 }
 /// Every report the UI handed to the backend, for tests to read back.
 function recordTelemetry(command: string, args: Record<string, unknown>): null {
@@ -635,6 +643,16 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "telemetry_action":
     case "telemetry_error":
       return recordTelemetry(cmd, args);
+    case "upload_diagnostics":
+      // "Send logs to developer". Nothing leaves the page: the call is
+      // recorded for tests, and `uploadFails` stands in for a failed upload.
+      recordTelemetry(cmd, args);
+      if (demoFlag("uploadFails")) throw "demo: network unreachable";
+      return { support_id: DEMO_SUPPORT_ID, bytes: 48_213 };
+    case "plugin:updater|check":
+      // The updater manifest has nothing newer. Without this the catch-all
+      // answer below reads as an update and puts "Update now" in the header.
+      return null;
     case "get_debug_logging":
       return debugLogging;
     case "set_debug_logging":

@@ -10,7 +10,12 @@
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
-  import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
+  import {
+    QUIT_ADB_TIP,
+    stopOnQuit,
+    refreshStopOnQuit,
+    toggleStopOnQuit,
+  } from "$lib/stop-adb-on-quit.svelte";
   import { openContextMenu, type MenuItem } from "$lib/contextmenu";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import SupportBadge from "$lib/components/SupportBadge.svelte";
@@ -647,11 +652,6 @@
 
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
-
-  const QUIT_ADB_TIP =
-    "Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or " +
-    "any other tool using adb is disconnected too. It is left running while this app is still " +
-    "using it, such as an open Remote, and when the app restarts for an update.";
 
   /// Drops this one TV's connection and dials it again, which is what makes
   /// Android show the debugging prompt a second time. Nothing else is
