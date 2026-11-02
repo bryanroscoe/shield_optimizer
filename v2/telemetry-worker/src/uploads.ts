@@ -10,7 +10,7 @@
 
 import type { Env } from "./env";
 import { intVar } from "./env";
-import { admit, utcDay, type QuotaRow } from "./ingest";
+import { admit, releaseQuota, utcDay, type QuotaRow } from "./ingest";
 import { clamp, redactShortField, redactUploadText } from "./redact";
 
 export const UPLOAD_SCHEMA = 1;
@@ -80,6 +80,14 @@ export async function admitUpload(env: Env, installId: string, now: Date): Promi
     { key: UPLOAD_GLOBAL_KEY, n: 1, cap: intVar(env.GLOBAL_DAILY_UPLOADS, 100) },
   ];
   return admit(env, utcDay(now), rows);
+}
+
+// Gives an admitted upload's per-install count back when storing it failed,
+// so storage trouble can't lock a user out of Send logs for the day. As with
+// events, the global count is not refunded: it bounds retries if storage
+// stays broken. Best effort.
+export async function releaseUpload(env: Env, installId: string, now: Date): Promise<void> {
+  await releaseQuota(env, [{ key: `upload:${installId}`, n: 1, cap: 0 }], now);
 }
 
 export async function storeUpload(env: Env, u: CleanUpload, now: Date): Promise<number> {

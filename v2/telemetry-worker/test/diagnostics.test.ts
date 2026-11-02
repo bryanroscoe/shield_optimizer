@@ -206,6 +206,30 @@ describe("POST /v1/diagnostics", () => {
   });
 });
 
+describe("POST /v1/diagnostics storage failures", () => {
+  it("gives the per-install upload quota back when storing fails", async () => {
+    const install_id = uniqueId();
+    const day = new Date().toISOString().slice(0, 10);
+    await env.DB.prepare(
+      "CREATE TRIGGER fail_upload BEFORE INSERT ON diag_uploads WHEN NEW.os = 'fail-store' BEGIN SELECT RAISE(ABORT, 'simulated'); END",
+    ).run();
+    try {
+      for (let i = 0; i < 6; i++) {
+        const res = await post("/v1/diagnostics", upload({ install_id, os: "fail-store" }));
+        expect(res.status).toBe(503);
+      }
+    } finally {
+      await env.DB.prepare("DROP TRIGGER fail_upload").run();
+    }
+    const counter = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2")
+      .bind(day, `upload:${install_id}`)
+      .first();
+    expect(counter).toEqual({ events: 0 });
+    // Storage is back: the user can still send today.
+    expect((await post("/v1/diagnostics", upload({ install_id }))).status).toBe(201);
+  });
+});
+
 describe("support lookup", () => {
   it("parses full and short support ids", () => {
     const id = "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11";
