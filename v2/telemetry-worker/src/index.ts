@@ -4,7 +4,7 @@ import { error, json, readBodyLimited } from "./http";
 import { consumeQuota, purgeExpired, releaseQuota, storeEvents, utcDay } from "./ingest";
 import { DEFAULT_EVENT_LIMIT, MAX_EVENT_LIMIT, parseSupportQuery, supportLookup, uploadText } from "./support";
 import { readTiers, replaceTiers, validateTierRules } from "./tiers";
-import { admitUpload, releaseUpload, storeUpload, UPLOAD_MAX_BODY, validateUpload } from "./uploads";
+import { admitUpload, releaseUpload, storeUpload, UPLOAD_MAX_BODY, uploadBytes, validateUpload } from "./uploads";
 import { MAX_BODY_BYTES, validateBatch } from "./validate";
 
 export type { Env } from "./env";
@@ -78,14 +78,16 @@ async function postDiagnostics(request: Request, env: Env): Promise<Response> {
   const upload = validateUpload(body.value);
   if (!upload.ok) return error(400, upload.reason);
   const now = new Date();
-  let admitted: boolean;
+  let admitted: Awaited<ReturnType<typeof admitUpload>>;
   try {
-    admitted = await admitUpload(env, upload.value.install_id, now);
+    admitted = await admitUpload(env, upload.value.install_id, uploadBytes(upload.value), now);
   } catch {
     return error(503, "storage_unavailable");
   }
-  if (!admitted) {
-    return error(429, "upload_daily_cap", {}, { "retry-after": String(secondsUntilUtcMidnight(now)) });
+  if (admitted !== "ok") {
+    return error(429, admitted === "install" ? "upload_daily_cap" : "upload_global_cap", {}, {
+      "retry-after": String(secondsUntilUtcMidnight(now)),
+    });
   }
   try {
     const id = await storeUpload(env, upload.value, now);

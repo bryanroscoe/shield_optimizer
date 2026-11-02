@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { cleanDiag } from "../src/diag";
 import worker from "../src/index";
 import { EXCERPT_MAX_BYTES, EXCERPT_MAX_LINES, LINE_REMOVED_PATH, redactLogExcerpt, redactUploadText } from "../src/redact";
+import { UPLOAD_GLOBAL_KEY } from "../src/uploads";
 import { parseSupportQuery, shortId } from "../src/support";
 import { validateEvent } from "../src/validate";
 import { ADMIN, call, event, post } from "./helpers";
@@ -105,6 +106,50 @@ describe("log text redaction", () => {
     expect(out.split("\n").length).toBeLessThanOrEqual(EXCERPT_MAX_LINES);
     expect(new TextEncoder().encode(out).length).toBeLessThanOrEqual(EXCERPT_MAX_BYTES);
     expect(out).toContain("line 499");
+  });
+
+  // The exact lines an independent review got past both redactors, as they
+  // would arrive from a client that missed them.
+  const NAME_AND_DNS = [
+    "2026-11-02T14:00:00.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"shell\", \"settings get global device_name\"] ms=40 exit_code=Some(0) stderr= stdout=Bedroom Shield",
+    "2026-11-02T14:00:01.000000Z WARN shield_optimizer_v2_lib::adb::driver: adb timeout args=[\"shell\", \"settings put global device_name 'Kids Room TV'\"] ms=30001",
+    "2026-11-02T14:00:02.000000Z WARN shield_optimizer_v2_lib::adb::driver: adb exited nonzero args=[\"shell\", \"settings put global private_dns_specifier '1a2b3c.dns.nextdns.io'; settings put global private_dns_mode hostname\"] exit_code=Some(1) stderr=Error: timed out",
+    "while talking to 1a2b3c.dns.nextdns.io",
+    "2026-11-02T14:00:03.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done stderr= stdout=[persist.sys.device_name]: [Living Room]",
+    "[ro.product.model]: [SHIELD Android TV]",
+    "2026-11-02T14:00:04.000000Z INFO shield_optimizer_core::commands::devices: rename failed: device_name = \"Den TV\"; dns private_dns_specifier=4a5b6c.dns.nextdns.io",
+    "2026-11-02T14:00:05.000000Z INFO shield_optimizer_core::commands::devices: probe 7x7.example-dns.net and 0123abcd.dns.nextdns.io failed",
+    "2026-11-02T14:00:06.000000Z INFO shield_optimizer_core::commands::devices: rename failed stderr=<timeout>",
+  ].join("\n");
+  const NAME_LEAKS = ["Bedroom", "Kids Room", "1a2b3c", "4a5b6c", "0123abcd", "nextdns", "Living Room", "Den TV", "7x7", "example-dns", "SHIELD Android"];
+
+  it("drops command output, TV names and DNS hosts from excerpts and uploads", () => {
+    for (const out of [redactLogExcerpt(NAME_AND_DNS), redactUploadText(NAME_AND_DNS)]) {
+      for (const leak of NAME_LEAKS) expect(out, out).not.toContain(leak);
+      expect(out).toContain("stdout=<omitted>");
+      expect(out).toContain("private_dns_mode hostname");
+      expect(out).toContain("rename failed stderr=<timeout>");
+    }
+    expect(redactLogExcerpt(NAME_AND_DNS)).toContain("device_name [redacted]");
+  });
+
+  it("redacts a pathological 256 KiB upload in linear time", () => {
+    const shapes = [
+      "a1".repeat(128 * 1024),
+      "a.".repeat(128 * 1024),
+      "a-".repeat(128 * 1024),
+      `${"x".repeat(256 * 1024 - 1)}@`,
+      "adb-".repeat(64 * 1024),
+      "1.".repeat(128 * 1024),
+      "device_name ".repeat(20 * 1024),
+    ];
+    for (const text of shapes) {
+      const started = Date.now();
+      const out = redactUploadText(text);
+      expect(out.length).toBeGreaterThan(0);
+      // Generous bound: a quadratic pass over 256 KiB takes seconds.
+      expect(Date.now() - started).toBeLessThan(250);
+    }
   });
 
   it("gives uploads a second pass for addresses and names", () => {
@@ -209,6 +254,15 @@ describe("POST /v1/diagnostics", () => {
     expect(capped.status).toBe(429);
     expect(((await capped.json()) as { error: string }).error).toBe("upload_daily_cap");
     expect(Number(capped.headers.get("retry-after"))).toBeGreaterThan(0);
+    // Refused attempts don't spend the shared budget.
+    const day = new Date().toISOString().slice(0, 10);
+    const global = async () =>
+      ((await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2").bind(day, UPLOAD_GLOBAL_KEY).first()) as {
+        events: number;
+      } | null)?.events ?? 0;
+    const before = await global();
+    for (let i = 0; i < 3; i++) expect((await post("/v1/diagnostics", upload({ install_id }))).status).toBe(429);
+    expect(await global()).toBe(before);
     // Another install is unaffected.
     expect((await post("/v1/diagnostics", upload())).status).toBe(201);
   });

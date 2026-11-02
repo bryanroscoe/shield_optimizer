@@ -20,6 +20,7 @@ export const UPLOAD_SCHEMA = 1;
 export const UPLOAD_MAX_TEXT = 300 * 1024;
 export const UPLOAD_MAX_BODY = UPLOAD_MAX_TEXT * 2 + 16 * 1024;
 export const UPLOAD_GLOBAL_KEY = "upload:*";
+export const UPLOAD_BYTES_KEY = "upload-bytes:*";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const APP_VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-(?:alpha|beta|rc|preview|pre|dev)(?:\.\d{1,3})?)?$/;
@@ -76,12 +77,38 @@ export function validateUpload(raw: unknown): UploadResult {
 
 // Per install and globally, per UTC day, through the same rate_daily counters
 // as events (keys `upload:<install id>` and `upload:*`).
-export async function admitUpload(env: Env, installId: string, now: Date): Promise<boolean> {
+export type UploadAdmission = "ok" | "install" | "global";
+
+async function installCount(env: Env, day: string, key: string): Promise<number> {
+  const row = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2")
+    .bind(day, key)
+    .first<{ events: number }>();
+  return row?.events ?? 0;
+}
+
+// The per-install cap is checked first, with a read: an install over its own
+// five a day is refused before it can touch the shared budget, so one person
+// retrying can't use up anyone else's. Then one statement admits against all
+// three counters or none: this install, the global count and the global bytes
+// (which bounds storage: 100 MiB a day for 30 days is 3 GiB of D1's 5 GiB).
+export async function admitUpload(env: Env, installId: string, bytes: number, now: Date): Promise<UploadAdmission> {
+  const day = utcDay(now);
+  const key = `upload:${installId}`;
+  const installCap = intVar(env.PER_INSTALL_DAILY_UPLOADS, 5);
+  if ((await installCount(env, day, key)) + 1 > installCap) return "install";
   const rows: QuotaRow[] = [
-    { key: `upload:${installId}`, n: 1, cap: intVar(env.PER_INSTALL_DAILY_UPLOADS, 5) },
-    { key: UPLOAD_GLOBAL_KEY, n: 1, cap: intVar(env.GLOBAL_DAILY_UPLOADS, 100) },
+    { key, n: 1, cap: installCap },
+    { key: UPLOAD_GLOBAL_KEY, n: 1, cap: intVar(env.GLOBAL_DAILY_UPLOADS, 1000) },
+    { key: UPLOAD_BYTES_KEY, n: bytes, cap: intVar(env.GLOBAL_DAILY_UPLOAD_BYTES, 100 * 1024 * 1024) },
   ];
-  return admit(env, utcDay(now), rows);
+  if (await admit(env, day, rows)) return "ok";
+  // Refused: a concurrent upload from the same install took the last slot,
+  // or the shared budget is spent.
+  return (await installCount(env, day, key)) + 1 > installCap ? "install" : "global";
+}
+
+export function uploadBytes(u: CleanUpload): number {
+  return new TextEncoder().encode(u.body).length;
 }
 
 // Gives an admitted upload's per-install count back when storing it failed,
@@ -93,7 +120,7 @@ export async function releaseUpload(env: Env, installId: string, now: Date): Pro
 }
 
 export async function storeUpload(env: Env, u: CleanUpload, now: Date): Promise<number> {
-  const bytes = new TextEncoder().encode(u.body).length;
+  const bytes = uploadBytes(u);
   const row = await env.DB.prepare(
     `INSERT INTO diag_uploads (received_at, client_ts, install_id, app, app_version, os, reports_on, bytes, body)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,

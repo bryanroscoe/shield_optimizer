@@ -7,6 +7,7 @@ export interface Env {
   LOG_RETENTION_DAYS?: string;
   PER_INSTALL_DAILY_UPLOADS?: string;
   GLOBAL_DAILY_UPLOADS?: string;
+  GLOBAL_DAILY_UPLOAD_BYTES?: string;
 }
 
 export function intVar(v: string | undefined, fallback: number): number {

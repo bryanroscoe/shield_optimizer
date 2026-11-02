@@ -39,8 +39,12 @@ PER_INSTALL_DAILY_EVENTS = "500"
 # later deletes it (quota row, raw row and its index entries): ~12 per event-day under
 # a sustained flood, so 7k events stays near 84k writes. See README.md.
 GLOBAL_DAILY_EVENTS = "7000"
-# Send logs uploads (POST /v1/diagnostics), per install id and across everyone, per
-# UTC day. Each is at most ~300 KB of text kept for LOG_RETENTION_DAYS, so 100 a
-# day bounds storage at about 1 GB even under a flood.
+# Send logs uploads (POST /v1/diagnostics). The per-install cap is checked first,
+# so one install can't spend the shared budget. The global caps are a count and
+# a byte total per UTC day; with LOG_RETENTION_DAYS (30) the byte cap bounds
+# stored log text at about 3 GiB of D1's 5 GiB even under a flood of made-up
+# install ids, and each upload costs about six row writes (three quota rows, the
+# row and its two index entries), so 1000 a day stays near 6k writes.
 PER_INSTALL_DAILY_UPLOADS = "5"
-GLOBAL_DAILY_UPLOADS = "100"
+GLOBAL_DAILY_UPLOADS = "1000"
+GLOBAL_DAILY_UPLOAD_BYTES = "104857600"

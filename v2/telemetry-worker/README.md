@@ -27,7 +27,7 @@ Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diag
 | `action`, `ok`, `error_code` | `disable`, `false`, `pm_denied` | Which kind of action ran and whether it worked. Not which app it ran on. |
 | `message` | `pm disable failed on [ip]` | Short error text, redacted on the client and again here. 500 characters at most. |
 | `diag` | `{"sweep":{"probed":254,"open":0,...},"mdns":{"check":"ok","services":0,...}}` | Schema 2. What the app saw when a scan or TV found nothing: counts, durations, fixed enums, version numbers and error codes. Rebuilt key by key from `DIAG_SPEC` in `src/diag.ts`; anything else is dropped. No free text. |
-| `log_excerpt` | `2026-11-02T14:00:02Z INFO ...::devices: connect finished address=<redacted> ...` | Schema 2, desktop only. Up to 60 lines / 8 KiB of the app's adb and connection log, redacted on the client and again here. Cleared after 30 days. |
+| `log_excerpt` | `2026-11-02T14:00:02Z INFO ...::devices: connect finished address=<redacted> ...` | Schema 2, desktop only. Up to 60 lines / 8 KiB of the app's adb and connection log, redacted on the client and again here. Never command output (`stdout=`/`stderr=` values), TV names or Private DNS hosts. Cleared after 30 days. |
 
 `diagnostic` events carry the reason as `error_code`: `scan_empty`, `scan_connect_failed`,
 `discover_empty` or `device_details_empty`. Schema 1 events are still accepted unchanged; a schema
@@ -38,8 +38,11 @@ Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diag
 `diag_uploads` holds what a desktop user sent with **Send logs to developer**: a summary (support
 ID, app and OS, TVs by state and public build properties, `adb devices -l` and a `diag` object)
 and up to 256 KiB of the app's own log, redacted line by line on the client
-(`engine/log_redact.rs`), with a second pass here for addresses, MACs, emails, adb mDNS names,
-`*.local` names and licence keys. It is keyed by the install id, sent only when the user presses
+(`engine/log_redact.rs`), with a second pass here that drops command output (`stdout=`/`stderr=`
+values and their continuation lines) and the value of any `device_name` or
+`private_dns_specifier`, and removes addresses, MACs, emails, adb mDNS names, `*.local` names,
+digit- or hyphen-labelled hosts and licence keys. Every pattern in that pass is bounded, so it
+stays linear on a 256 KiB upload (tested against pathological input). It is keyed by the install id, sent only when the user presses
 the button (even with automatic reports off), and deleted after 30 days.
 
 ## What is never collected or stored
@@ -145,7 +148,7 @@ Desktop Send logs. Body `{ "schema": 1, "install_id", "app": "desktop", "app_ver
 | `201` | Stored: `{ "ok": true, "id": 12, "bytes": 123456 }`. |
 | `400` | Bad JSON or shape, `unsupported_app` (anything but `desktop`), `bad_text`, `text_too_large`. |
 | `413` / `415` | Body too large / not `application/json`. |
-| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) per install or `GLOBAL_DAILY_UPLOADS` (100) in total per UTC day. `Retry-After` as for events. |
+| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (1000) or `GLOBAL_DAILY_UPLOAD_BYTES` (100 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
 | `503` | D1 unavailable. |
 
 `OPTIONS` returns `204` but never sends `Access-Control-Allow-Origin`. Both apps post from native
@@ -396,11 +399,13 @@ Abuse protection:
   about four for the cron's deletes (its quota row after two days, the raw row and its two index
   entries after 90).
   Under a sustained flood that is roughly twelve writes per event per day, so 7,000 events is
-  about 84,000 of the 100,000 free writes; uploads add at most about 500 more (100 a day). Raise
-  it only together with a paid plan.
-- Uploads: `PER_INSTALL_DAILY_UPLOADS` (5) and `GLOBAL_DAILY_UPLOADS` (100) per UTC day, counted
-  in `rate_daily` under `upload:<install id>` and `upload:*`. At about 300 KiB each and 30 days'
-  retention, the global cap bounds stored log text near 1 GB of D1's 5 GB.
+  about 84,000 of the 100,000 free writes; uploads add at most about 6,000 more (1,000 a day at
+  about six writes each). Raise it only together with a paid plan.
+- Uploads: `PER_INSTALL_DAILY_UPLOADS` (5), `GLOBAL_DAILY_UPLOADS` (1000) and
+  `GLOBAL_DAILY_UPLOAD_BYTES` (100 MiB) per UTC day, counted in `rate_daily` under
+  `upload:<install id>`, `upload:*` and `upload-bytes:*`. The install's own cap is read first, so
+  one person retrying can't spend everyone's budget. With 30 days' retention the byte cap bounds
+  stored log text at about 3 GiB of D1's 5 GiB, whatever the number of made-up install ids.
 
 Both caps are counters in one D1 table, `rate_daily` (a row per install id per day, plus key `*`
 for the global total). Admission and increment are a single statement: it checks every counter
