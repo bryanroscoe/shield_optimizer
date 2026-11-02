@@ -56,8 +56,8 @@ jobs:
           TITLE: Device support report
         run: |
           set -euo pipefail
-          number="$(gh issue list --state open --limit 500 --json number,title \
-            --jq "map(select(.title == env.TITLE)) | sort_by(.number) | .[0].number // empty")"
+          number="$(gh issue list --state open --limit 500 --json number,title,body,author | \
+            node .github/scripts/report-issue.mjs)"
           if [ -n "${number}" ]; then
             gh issue edit "${number}" --body-file "${RUNNER_TEMP}/report.md"
             echo "Updated #${number}"

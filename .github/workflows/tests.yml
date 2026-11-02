@@ -14,6 +14,8 @@ on:
       # The Worker suite checks the support-tier file the apps embed.
       - 'v2/crates/core/data/device-support.json'
       - '.github/workflows/tests.yml'
+      - '.github/workflows/device-support-report.yml'
+      - '.github/scripts/report-issue*.mjs'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     # No branch filter, so stacked PRs (base = another feature branch) are tested
@@ -26,6 +28,8 @@ on:
       # The Worker suite checks the support-tier file the apps embed.
       - 'v2/crates/core/data/device-support.json'
       - '.github/workflows/tests.yml'
+      - '.github/workflows/device-support-report.yml'
+      - '.github/scripts/report-issue*.mjs'
   workflow_dispatch:  # Allow manual trigger
 
 permissions:
@@ -150,3 +154,20 @@ jobs:
 
       - name: Test
         run: npm test
+
+  report-issue-guard:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    timeout-minutes: 5
+    name: Report issue identity guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test .github/scripts/report-issue.test.mjs
