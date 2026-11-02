@@ -23,7 +23,6 @@ Each event is one of `device_seen`, `action_result` or `error`, with:
 | `device` | `NVIDIA` / `SHIELD Android TV` / `mdarcy`, Android `11`, SDK `30`, profile, tier | The TV's public build properties: manufacturer, brand, model, device codename, product, Android release, SDK level. No serial. |
 | `action`, `ok`, `error_code` | `disable`, `false`, `pm_denied` | Which kind of action ran and whether it worked. Not which app it ran on. |
 | `message` | `pm disable failed on [ip]` | Short error text, redacted on the client and again here. 500 characters at most. |
-| country | `US` | From Cloudflare's `request.cf.country`. Nothing finer: no city, region, coordinates, ASN or timezone. |
 
 ## What is never collected or stored
 
@@ -31,6 +30,11 @@ Each event is one of `device_seen`, `action_result` or `error`, with:
 - IP addresses: neither the TV's nor the client's. The Worker never reads the request IP, has
   [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/) turned
   off in `wrangler.toml`, and contains no `console.log`.
+- Location of any kind. The Worker never reads `request.cf`, so Cloudflare's country, region,
+  city, coordinates, colo, ASN and timezone for the request are not looked at, let alone stored.
+  Until 2026-11-01 it kept the two-letter country per raw event; migration
+  `0002_drop_country.sql` deleted those values and dropped the column (owner decision, so the
+  apps' Play Data safety form has no location to declare).
 - TV names or labels, the user's package list, file paths, emails, licence or licensee data.
 
 How that is enforced server-side, so a client bug cannot break it:
@@ -259,8 +263,10 @@ end. The apps never see this token; rotating it changes nothing for users.
 ### Schema changes
 
 Later schema changes go in a new `migrations/000N_*.sql`, reviewed and applied with the same
-`migrations apply --remote` command before deploying the code that needs them. Never create a
-replacement database to apply a schema change.
+`migrations apply --remote` command before deploying the code that needs them. A migration that
+removes something the live Worker still writes (as `0002_drop_country.sql` did) is the other way
+round: deploy the Worker that no longer writes it first, then apply the migration, or ingestion
+fails with `503` in between. Never create a replacement database to apply a schema change.
 
 ## First-time setup for a fork
 

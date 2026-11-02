@@ -237,7 +237,3 @@ export function validateBatch(body: unknown): Result<ParsedBatch> {
   }
   return { ok: true, value: { events, rejected } };
 }
-
-export function cleanCountry(v: unknown): string | null {
-  return typeof v === "string" && /^[A-Z][A-Z0-9]$/.test(v) ? v : null;
-}

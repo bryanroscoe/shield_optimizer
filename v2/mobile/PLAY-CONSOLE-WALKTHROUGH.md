@@ -26,7 +26,7 @@ consecutive days**. Both run on Google's clock, so start them first.
 **Phase 0: today (owner, about 1 hour, plus waiting on Google)**
 - [ ] 0.1 Account checks done on the Console Home page: device verification, identity, contact email and phone
 - [ ] 0.2 Payments profile created, bank account and tax info added (verification can take days)
-- [ ] 0.3 Decisions recorded: support email `<<OWNER: support email>>`, public developer name `<<OWNER: developer name>>`, privacy-policy host, who generates the upload key, telemetry consent and deletion
+- [ ] 0.3 Decisions recorded: support email `<<OWNER: support email>>`, public developer name `<<OWNER: developer name>>`, privacy-policy host, who generates the upload key, telemetry deletion (telemetry consent was decided 2026-11-01: on by default, no location stored)
 - [ ] 0.4 Recruitment message sent to Ko-fi supporters and other likely testers; collecting Google account emails (target 15-20, minimum 12)
 
 **Phase 1: app shell (owner, about 30 minutes)**
@@ -75,7 +75,7 @@ consecutive days**. Both run on Google's clock, so start them first.
 | Play billing only | In-app digital features must use Google Play billing, and the app "may not lead users to a payment method other than Google Play's billing system". The page's only carve-out is tax-exempt donations, which must *not* use Play billing. It says nothing that would allow a tip link, so Ko-fi links stay out of the Play build. | <https://support.google.com/googleplay/android-developer/answer/9858738> |
 | Play App Signing | New apps are enrolled automatically in "quantum-ready, hybrid signing with Google-generated keys" (RSA 4096 + ML-DSA-65). The upload key must be RSA 2048 or larger. The signing key can only be changed before the first open-testing or production release. | <https://support.google.com/googleplay/android-developer/answer/9842756> |
 | Privacy policy | Required for **every** app, both in the Console field and **inside the app**. It must be a public, non-geofenced, non-PDF web page. It must name the app or the listed entity, a contact, the data handled, security practices, and retention and deletion. | <https://support.google.com/googleplay/android-developer/answer/10144311>, <https://support.google.com/googleplay/android-developer/answer/9859455> |
-| Data safety | Every app completes the form. "Collect" means sending data off the device. Transfers to a service provider (for example Cloudflare hosting) are not "sharing". "Optional" covers opt-out and must apply to all users. Location inferred from an IP address counts as approximate location. | <https://support.google.com/googleplay/android-developer/answer/10787469> |
+| Data safety | Every app completes the form. "Collect" means sending data off the device. Transfers to a service provider (for example Cloudflare hosting) are not "sharing". "Optional" covers opt-out and must apply to all users. Location inferred from an IP address counts as approximate location; the telemetry Worker has stored none since 2026-11-01. | <https://support.google.com/googleplay/android-developer/answer/10787469> |
 | Content rating | Complete the IARC questionnaire for every app. Unrated apps are removed. | <https://support.google.com/googleplay/android-developer/answer/9898843>, <https://support.google.com/googleplay/android-developer/answer/9859655> |
 | Target audience | Choose age groups. Targeting under-13s brings in the Families policy. | <https://support.google.com/googleplay/android-developer/answer/9867159> |
 | Listing text | App name at most 30 characters, short description at most 80, full description at most 4,000. | <https://support.google.com/googleplay/android-developer/answer/9859152> |
@@ -104,12 +104,14 @@ consecutive days**. Both run on Google's clock, so start them first.
 - **License-test payment names.** The test page now says "Test instrument, always approves" for
   one-time products. The "Test card, …" wording is for subscriptions. The slow-card names are
   unchanged.
-- **Approximate location in Data safety.** The Worker stores the Cloudflare-derived **country**.
-  Google says location inferred from an IP address counts as approximate location. The audit left
-  this open. This guide declares it.
-- **Telemetry consent.** Reports start before any user choice. Because the Worker stores an
-  IP-derived country, that is a consent risk under the User Data policy. It's now a
-  pre-upload owner decision (Phase 0.3), not a fix to apply only if review objects.
+- **No location in Data safety.** The audit left open whether to declare approximate location,
+  because the Worker stored the Cloudflare-derived country and Google counts location inferred
+  from an IP address. On 2026-11-01 the owner decided the Worker stops storing it: the Worker no
+  longer reads Cloudflare's request location data at all, and migration
+  `0002_drop_country.sql` dropped the column and its values. Nothing to declare.
+- **Telemetry consent.** Reports start before any user choice. That was a consent risk while the
+  Worker stored an IP-derived country. Decided 2026-11-01: country storage was removed and reports
+  stay on by default with the notice and the opt-out (see "Telemetry consent" in Phase 2.2a).
 - **Install id in Data safety.** The random install id is a "Device or other ID" in Google's sense
   (Google's own example is a Firebase installation ID), even though it is random and not tied to
   the phone.
@@ -179,7 +181,7 @@ You can create the product before this, but nobody can buy until it's done.
 | Privacy-policy host | (a) GitHub Pages from this public repo, (b) a static page on the telemetry Worker's domain, (c) a personal site. `<<OWNER: choose>>` | Must be a public, non-PDF page reachable from every country. The agent drafts the text from `DATA-INVENTORY.md`. |
 | Upload key custody | (a) **Agent generates**: runs RELEASE.md §1's `keytool` with random passwords, saves the `.jks` and both passwords to 1Password (item "ATV Optimizer Play upload key"), and the owner confirms the vault and makes the offline backup. (b) **Owner generates**: runs the command below and stores everything in 1Password. `<<OWNER: a or b>>` | The upload key is resettable through Play support if lost, but losing it means days of delay. |
 | Telemetry deletion | See the deletion answer in Phase 2.2. `<<OWNER: choose>>` | It decides one Data safety answer. |
-| Telemetry consent | First-launch choice, stop storing country, or keep as is. See "Telemetry consent" in Phase 2.2a. `<<OWNER: choose>>` | Google requires consent before collecting location-type data; settle it before the first upload. |
+| Telemetry consent | **Decided 2026-11-01:** on by default with the first-launch notice and the opt-out in More; the Worker stores no location. See "Telemetry consent" in Phase 2.2a. | It sets the reports sentence below and the Data safety answers. |
 
 Option (b), run by the owner (from RELEASE.md §1; RSA 4096 is above Google's RSA 2048 minimum):
 
@@ -229,15 +231,11 @@ Message to Ko-fi supporters (paste into Ko-fi messages or email; fill the placeh
 > Thanks,
 > `<<OWNER: name>>`
 
-Replace `<<REPORTS SENTENCE>>` here and in the store listing with the line matching the telemetry
-consent option chosen in 0.3. **Send nothing until that decision is made.**
-- First-launch choice: "On first launch it asks whether to share anonymous device and error
-  reports (TV model, Android version, whether an action worked; never serial numbers, IP
-  addresses, TV names or app lists). Nothing is sent unless you agree, and you can change it in
-  More."
-- Default-on (with or without country storage): "It sends anonymous device and error reports by
-  default (TV model, Android version, whether an action worked; never serial numbers, IP
-  addresses, TV names or app lists). You can turn that off in More."
+Replace `<<REPORTS SENTENCE>>` here and in the store listing with this line, which matches the
+telemetry consent decision in 0.3 (on by default, opt-out):
+"It sends anonymous device and error reports by default (TV model, Android version, whether an
+action worked; never serial numbers, IP addresses, TV names or app lists). You can turn that off
+in More."
 
 For testers who aren't supporters, use the same message without the promo-code paragraph and
 item 5. Tell them they can try purchases with Google's test payment methods and won't be charged
@@ -350,7 +348,7 @@ Social or Reference. Answers:
 | Violence, fear, sexuality, profanity/crude humor, drugs, alcohol, tobacco | No | None in the app. |
 | Gambling or simulated gambling | No | None. |
 | Users interact or exchange content with each other | No | No chat, accounts or user-generated content. |
-| Shares the user's current physical location with other users | No | The country is derived server-side for telemetry and never shown to anyone. |
+| Shares the user's current physical location with other users | No | The app has no location feature, and the telemetry backend stores no location. |
 | Allows users to purchase digital goods | **Yes** | ATV Optimizer Pro, through Google Play. |
 | Unrestricted internet or web browser access | No | No in-app browser. External links open the system browser on user tap. |
 
@@ -392,7 +390,6 @@ in every region), Purpose **Analytics**.
 
 | Category > data type | What is actually sent | Notes |
 | --- | --- | --- |
-| Location > **Approximate location** | Country only, from Cloudflare's `request.cf.country`, stored per event | Google counts location inferred from an IP address. No city or region is stored, and the IP itself is never stored. |
 | App activity > **App interactions** | Action kind (for example `disable`) and whether it succeeded | Not which app it ran on. |
 | App info and performance > **Crash logs** | Error events (`panic`, `uncaught_error` and others) with a short code and a redacted message of at most 500 characters | Redacted on the phone and again on the server. |
 | App info and performance > **Diagnostics** | App version, phone OS release, and the TV's manufacturer, brand, model, codename, product, Android release, SDK level, detected family and support tier | TV build properties only. No serial. |
@@ -420,9 +417,10 @@ under its own terms and the app never sees it.
 **Not collected** (answer No or leave unticked): Personal info (name, email, address, phone),
 Financial info other than purchase history (reports never include order id, token, price or
 product), Messages, Photos and videos (TV screenshots stay on the phone), Audio, Files and docs
-(pulled files stay on the phone), Calendar, Contacts, Web browsing, Health and fitness, Precise
-location, and Installed apps (TV package lists are never sent). Saved TVs, ADB keys and snapshots
-never leave the phone, so they aren't "collected".
+(pulled files stay on the phone), Calendar, Contacts, Web browsing, Health and fitness, Location
+(approximate and precise: the Worker never reads Cloudflare's request location data, not even the
+country, and stores no IP address), and Installed apps (TV package lists are never sent). Saved
+TVs, ADB keys and snapshots never leave the phone, so they aren't "collected".
 
 **Deletion.** Be honest; this is an owner decision. What exists today:
 - Raw events are deleted automatically 90 days after receipt (daily cron).
@@ -442,25 +440,20 @@ never leave the phone, so they aren't "collected".
    the README's `DELETE` statements on request. Optionally also purge or anonymize
    `agg_device_installs.install_id` after 90 days, so the automatic-deletion description fits.
 
-**Telemetry consent: decide before the first upload, not after review objects.**
-`<<OWNER: choose one before 3.1>>`. Today, reports start at launch, before the user taps
-anything. The first-launch notice is non-blocking, and its OK and Settings buttons don't record a
-choice. Google requires prominent in-app disclosure **and affirmative consent before collection**
-for personal and sensitive data a user might not expect. Its examples include device location,
-and it lists collecting location without consent as a common violation
-(<https://support.google.com/googleplay/android-developer/answer/10144311>). The Worker stores an
-IP-derived **country**, which this guide declares as approximate location, plus a pseudonymous
-install id. Options:
-1. **First-launch choice (recommended, agent code work):** nothing is sent until the user taps
-   "Share reports" or "Don't share" on a blocking first-launch screen that explains the data.
-   Off unless they agree. This is no longer "on by default", so it changes the owner's earlier
-   decision.
-2. **Stop storing location (agent Worker change):** drop `country` from the Worker and its schema.
-   The Approximate location row then goes away. Reports stay on by default with the notice and
-   opt-out. The install id and diagnostics remain, so some consent risk remains.
-3. **Keep the current behavior** and accept the review risk. This guide doesn't recommend it.
+**Telemetry consent: decided 2026-11-01.** Reports start at launch, before the user taps
+anything; the first-launch notice is non-blocking. Google requires prominent in-app disclosure
+**and affirmative consent before collection** for personal and sensitive data a user might not
+expect, with device location among its examples
+(<https://support.google.com/googleplay/android-developer/answer/10144311>). The Worker used to
+store an IP-derived **country**, which would have been approximate location collected before
+any choice. The options were a blocking first-launch choice, stopping country storage, or keeping
+it. The owner chose to **stop storing country**: the Worker no longer reads Cloudflare's request
+location data at all, migration `0002_drop_country.sql` dropped the column and deleted the stored
+values, and there is no Location row in the table above. Reports stay on by default with the
+notice and the opt-out in More. The install id and diagnostics are still sent by default; if review
+objects to that, a blocking first-launch choice (agent code work) is the fallback.
 
-Whichever you choose, keep the "Optional" answer: every user can turn reports off.
+Keep the "Optional" answer: every user can turn reports off.
 
 **Done when:** Data safety shows a preview that matches the table above, saved and submitted.
 
@@ -555,8 +548,7 @@ Follow RELEASE.md §2-5 and its testing-candidate gates. In particular:
   `ATVOPT_TELEMETRY_URL=<deployed Worker https base>` exported in the same shell
 - `npm run tauri android build -- --aab`, then `jarsigner -verify` on the AAB, and the bundletool
   and 16 KB checks
-- the build must include the privacy-policy link from 2.1 and whatever telemetry-consent option
-  the owner chose in 0.3
+- the build must include the privacy-policy link from 2.1
 
 Follow the build-machine limits (one compiler job; check disk space first).
 

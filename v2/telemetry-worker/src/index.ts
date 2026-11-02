@@ -3,12 +3,13 @@ import type { Env } from "./env";
 import { error, json, readBodyLimited } from "./http";
 import { consumeQuota, purgeExpired, releaseQuota, storeEvents, utcDay } from "./ingest";
 import { readTiers, replaceTiers, validateTierRules } from "./tiers";
-import { MAX_BODY_BYTES, cleanCountry, validateBatch } from "./validate";
+import { MAX_BODY_BYTES, validateBatch } from "./validate";
 
 export type { Env } from "./env";
 
-// Nothing in this file logs. Request IPs, headers and request.cf (apart from
-// the two-letter country) are never read into storage or console output.
+// Nothing in this file logs. Request IPs and headers are never read into
+// storage or console output, and request.cf (Cloudflare's country, city, colo,
+// ASN...) is never read at all: the backend stores no location of any kind.
 
 const TIER_CACHE = "public, max-age=3600";
 const ADMIN_MAX_BODY = 256 * 1024;
@@ -54,9 +55,8 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
     });
   }
 
-  const cf = (request as { cf?: { country?: unknown } }).cf;
   try {
-    await storeEvents(env, events, cleanCountry(cf?.country), now);
+    await storeEvents(env, events, now);
   } catch {
     await releaseQuota(env, quota.rows, now).catch(() => undefined);
     return error(503, "storage_unavailable");

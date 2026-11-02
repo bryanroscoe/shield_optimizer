@@ -102,7 +102,6 @@ const DIM_SELECT = DIM_COLS.split(", ")
 export async function storeEvents(
   env: Env,
   events: CleanEvent[],
-  country: string | null,
   now: Date,
 ): Promise<void> {
   const receivedAt = now.toISOString();
@@ -155,9 +154,9 @@ export async function storeEvents(
 
   const statements = [
     env.DB.prepare(
-      `INSERT INTO events (received_at, country, ${rawCols.join(", ")})
-       SELECT ?1, ?2, ${rawCols.map((c) => `json_extract(value, '$.${c}')`).join(", ")} FROM json_each(?3)`,
-    ).bind(receivedAt, country, JSON.stringify(raw)),
+      `INSERT INTO events (received_at, ${rawCols.join(", ")})
+       SELECT ?1, ${rawCols.map((c) => `json_extract(value, '$.${c}')`).join(", ")} FROM json_each(?2)`,
+    ).bind(receivedAt, JSON.stringify(raw)),
     env.DB.prepare(
       `INSERT INTO agg_device_daily (day, ${DIM_COLS}, events, seen, action_ok, action_fail, errors, last_seen)
        SELECT ?1, ${DIM_SELECT}, json_extract(value, '$.events'), json_extract(value, '$.seen'),
