@@ -36,6 +36,19 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
   const rows: QuotaRow[] = [...perInstall].map(([key, n]) => ({ key, n, cap: installCap }));
   rows.push({ key: GLOBAL_KEY, n: events.length, cap: globalCap });
 
+  const admitted = await admit(env, day, rows);
+  if (admitted) return { ok: true, rows };
+
+  // Refused: a read to say which cap, for the response body.
+  const global = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2")
+    .bind(day, GLOBAL_KEY)
+    .first<{ events: number }>();
+  return { ok: false, scope: (global?.events ?? 0) + events.length > globalCap ? "global" : "install" };
+}
+
+// Bumps every counter in `rows` by its `n`, or none of them when any would
+// pass its `cap`. One statement; see consumeQuota.
+export async function admit(env: Env, day: string, rows: QuotaRow[]): Promise<boolean> {
   const admitted = await env.DB.prepare(
     `INSERT INTO rate_daily (day, key, events)
      SELECT ?1, json_extract(value, '$.key'), json_extract(value, '$.n') FROM json_each(?2)
@@ -49,13 +62,7 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
   )
     .bind(day, JSON.stringify(rows))
     .all();
-  if (admitted.results.length === rows.length) return { ok: true, rows };
-
-  // Refused: a read to say which cap, for the response body.
-  const global = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2")
-    .bind(day, GLOBAL_KEY)
-    .first<{ events: number }>();
-  return { ok: false, scope: (global?.events ?? 0) + events.length > globalCap ? "global" : "install" };
+  return admitted.results.length === rows.length;
 }
 
 // Gives back an admitted batch's per-install quota when storing it failed, so
@@ -127,6 +134,8 @@ export async function storeEvents(
     ok: e.ok === null ? null : e.ok ? 1 : 0,
     error_code: e.error_code,
     message: e.message,
+    diag: e.diag,
+    log_excerpt: e.log_excerpt,
   }));
   const rawCols = Object.keys(raw[0] ?? {});
 
@@ -191,13 +200,34 @@ export async function storeEvents(
   await env.DB.batch(statements);
 }
 
-export async function purgeExpired(env: Env, now: Date): Promise<{ events: number; rate: number }> {
+export interface PurgeResult {
+  events: number;
+  rate: number;
+  excerpts: number;
+  uploads: number;
+}
+
+// Raw events go after RAW_RETENTION_DAYS (90). Log text is kept for less:
+// excerpts are cleared from their events, and Send logs uploads deleted,
+// after LOG_RETENTION_DAYS (30).
+export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
   const days = intVar(env.RAW_RETENTION_DAYS, 90);
   const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString();
+  const logDays = intVar(env.LOG_RETENTION_DAYS, 30);
+  const logCutoff = new Date(now.getTime() - logDays * 86_400_000).toISOString();
   const rateCutoff = utcDay(new Date(now.getTime() - 2 * 86_400_000));
-  const [ev, rate] = await env.DB.batch([
+  const [ev, rate, excerpts, uploads] = await env.DB.batch([
     env.DB.prepare("DELETE FROM events WHERE received_at < ?1").bind(cutoff),
     env.DB.prepare("DELETE FROM rate_daily WHERE day < ?1").bind(rateCutoff),
+    env.DB.prepare("UPDATE events SET log_excerpt = NULL WHERE log_excerpt IS NOT NULL AND received_at < ?1").bind(
+      logCutoff,
+    ),
+    env.DB.prepare("DELETE FROM diag_uploads WHERE received_at < ?1").bind(logCutoff),
   ]);
-  return { events: ev?.meta.changes ?? 0, rate: rate?.meta.changes ?? 0 };
+  return {
+    events: ev?.meta.changes ?? 0,
+    rate: rate?.meta.changes ?? 0,
+    excerpts: excerpts?.meta.changes ?? 0,
+    uploads: uploads?.meta.changes ?? 0,
+  };
 }

@@ -126,3 +126,76 @@ export function clamp(text: string, max: number): string {
   const chars = Array.from(text);
   return chars.length <= max ? text : chars.slice(0, max).join("");
 }
+
+// ── Log text (schema 2) ─────────────────────────────────────────────────────
+//
+// A desktop event may carry `log_excerpt`: the app's own adb and connection
+// log lines, already redacted by the client (engine/log_redact.rs). Each line
+// is redacted again here with the message rules. The leading timestamp, level
+// and module path are set aside first, since the address rules would read a
+// clock time as IPv6 and a date-time as host:port.
+
+const LOG_HEADER =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z(?:\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:[a-z0-9_]+(?:::[a-z0-9_]+)*:\s)?)?/;
+
+export const EXCERPT_MAX_LINES = 60;
+export const EXCERPT_MAX_BYTES = 8 * 1024;
+const EXCERPT_LINE_MAX = 300;
+export const LINE_REMOVED_PATH = "[line removed: contained a path]";
+export const LINE_REMOVED_LICENSE = "[line removed: license-related]";
+
+export function redactLogLine(line: string, max = EXCERPT_LINE_MAX): string {
+  const text = line.replace(CONTROL, " ");
+  if (LICENSE_KEY.test(text) || LICENSE_TOPIC.test(text)) return LINE_REMOVED_LICENSE;
+  const header = LOG_HEADER.exec(text)?.[0] ?? "";
+  let body = text.slice(header.length);
+  for (const [pattern, replacement] of RULES) body = body.replace(pattern, replacement);
+  body = body.replace(SERIAL, "[serial]");
+  body = body.replace(SERIAL_UPPER, "[serial]");
+  body = body.replace(SERIAL_ANYCASE, "[serial]");
+  body = body.replace(SERIAL_SEPARATED, "[serial]");
+  if ((body.match(PACKAGE) ?? []).length >= PACKAGE_LIST_THRESHOLD) body = body.replace(PACKAGE, "[package]");
+  if (/[\\/]/.test(body)) body = LINE_REMOVED_PATH;
+  return clamp(`${header}${body}`.replace(/ {2,}/g, " ").trimEnd(), max);
+}
+
+// Keeps the newest lines that fit both caps.
+function newestFitting(lines: string[], maxLines: number, maxBytes: number): string[] {
+  const out: string[] = [];
+  let bytes = 0;
+  for (let i = lines.length - 1; i >= 0 && out.length < maxLines; i--) {
+    const line = lines[i] ?? "";
+    const size = new TextEncoder().encode(line).length + 1;
+    if (bytes + size > maxBytes) break;
+    bytes += size;
+    out.push(line);
+  }
+  return out.reverse();
+}
+
+export function redactLogExcerpt(input: string): string {
+  // Bound the work before redacting: a client never sends more than the
+  // caps. The newest lines are at the end, so the end is what's kept.
+  const limit = EXCERPT_MAX_BYTES * 2;
+  const tail = input.length > limit ? input.slice(-limit).replace(/^[^\n]*\n?/, "") : input;
+  const lines = tail
+    .split(/\r?\n/)
+    .slice(-EXCERPT_MAX_LINES)
+    .map((l) => redactLogLine(l))
+    .filter((l) => l.trim() !== "");
+  return newestFitting(lines, EXCERPT_MAX_LINES, EXCERPT_MAX_BYTES).join("\n");
+}
+
+// Send logs uploads are up to 256 KiB, too much to run every message rule
+// over inside the Worker's CPU budget. The client redacts them line by line
+// with the full rules; here one combined pass removes the identifiers that
+// matter most if a client bug let one through: IPv4 addresses (with ports),
+// MAC addresses, emails, adb mDNS service names, *.local hosts and licence keys.
+const UPLOAD_PASS =
+  /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b|\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\badb-[\w.-]+|\b[\w-]+\.local\b\.?|\batvopt-[\w-]*/gi;
+
+export function redactUploadText(input: string): string {
+  return input.replace(CONTROL_EXCEPT_NEWLINE, " ").replace(UPLOAD_PASS, "[redacted]");
+}
+
+const CONTROL_EXCEPT_NEWLINE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/g;

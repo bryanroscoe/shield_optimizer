@@ -16,7 +16,8 @@ describe("validateEvent", () => {
   it("rejects unknown kind, app, tier and schema", () => {
     expect(reason(event({ kind: "crash" }))).toBe("unknown_kind");
     expect(reason(event({ app: "web" }))).toBe("unknown_app");
-    expect(reason(event({ schema: 2 }))).toBe("unsupported_schema");
+    expect(reason(event({ schema: 3 }))).toBe("unsupported_schema");
+    expect(reason(event({ schema: 2 }))).toBeNull();
     expect(reason(event({ device: { manufacturer: "NVIDIA", support_tier: "great" } }))).toBe("unknown_support_tier");
   });
 
