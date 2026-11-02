@@ -167,6 +167,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         update::check_for_update,
         app_report::save_app_report,
         diagnostics::collect_diagnostics,
+        diagnostics::upload_diagnostics,
         diagnostics::set_debug_logging,
         diagnostics::get_debug_logging,
         diagnostics::log_dir_path,
@@ -218,10 +219,18 @@ pub fn run() {
         &data_dir,
     );
     install_panic_hook(telemetry.clone());
+    // Failure and "found nothing" reports carry a redacted excerpt of the
+    // adb and connection log lines, a few times a day at most.
+    telemetry.set_excerpt_source(diagnostics::excerpt_source(log_control.dir().to_path_buf()));
 
     let state = default_state(app_lists, data_dir)
         .with_known_names(loader::load_known_names())
         .with_telemetry(telemetry.clone());
+    telemetry.set_adb_facts(engine::telemetry_diag::adb_diag(
+        diagnostics::adb_source(),
+        None,
+        None,
+    ));
     load_cached_support_rules(&state);
 
     tauri::Builder::default()
