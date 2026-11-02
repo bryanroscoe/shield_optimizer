@@ -138,7 +138,7 @@ slow the app.
 
 Desktop Send logs. Body `{ "schema": 1, "install_id", "app": "desktop", "app_version", "os", "ts",
 "reports_enabled", "text" }`, `Content-Type: application/json`, `text` at most 300 KiB (body
-316 KiB). `install_id`, `app_version`, `os` and `ts` follow the event rules.
+616 KiB, room for JSON escaping). `install_id`, `app_version`, `os` and `ts` follow the event rules.
 
 | Status | Meaning |
 | --- | --- |

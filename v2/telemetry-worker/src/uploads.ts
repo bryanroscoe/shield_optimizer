@@ -14,9 +14,11 @@ import { admit, releaseQuota, utcDay, type QuotaRow } from "./ingest";
 import { clamp, redactShortField, redactUploadText } from "./redact";
 
 export const UPLOAD_SCHEMA = 1;
-// The client sends at most 256 KiB of log and a 16 KiB summary.
+// The client sends at most 256 KiB of log and a 16 KiB summary. JSON
+// escaping can double that on the wire (a log of quoted adb argument lists
+// is mostly quotes), so the body limit leaves room for it.
 export const UPLOAD_MAX_TEXT = 300 * 1024;
-export const UPLOAD_MAX_BODY = UPLOAD_MAX_TEXT + 16 * 1024;
+export const UPLOAD_MAX_BODY = UPLOAD_MAX_TEXT * 2 + 16 * 1024;
 export const UPLOAD_GLOBAL_KEY = "upload:*";
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

@@ -189,9 +189,17 @@ describe("POST /v1/diagnostics", () => {
     expect((await post("/v1/diagnostics", upload({ install_id: "0323220012345" }))).status).toBe(400);
     expect((await post("/v1/diagnostics", upload({ text: "" }))).status).toBe(400);
     expect((await post("/v1/diagnostics", upload({ schema: 2 }))).status).toBe(400);
-    expect((await post("/v1/diagnostics", upload({ text: "x".repeat(400 * 1024) }))).status).toBe(413);
+    expect((await post("/v1/diagnostics", upload({ text: "x".repeat(400 * 1024) }))).status).toBe(400);
+    expect((await post("/v1/diagnostics", upload({ text: "x".repeat(700 * 1024) }))).status).toBe(413);
     expect((await post("/v1/diagnostics", "{}", { headers: { "content-type": "text/plain" } })).status).toBe(415);
     expect((await call("/v1/diagnostics")).status).toBe(405);
+  });
+
+  it("accepts a full-size log even when JSON escaping doubles it", async () => {
+    const text = `args=["-s", "x"] C:\\Users\\path\n`.repeat(9000).slice(0, 280 * 1024);
+    const body = JSON.stringify(upload({ text }));
+    expect(body.length).toBeGreaterThan(text.length * 1.2);
+    expect((await post("/v1/diagnostics", body)).status).toBe(201);
   });
 
   it("caps uploads per install per day", async () => {
