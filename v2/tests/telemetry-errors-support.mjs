@@ -184,11 +184,52 @@ try {
     target.dispatchEvent(rej);
     await flush();
     assert.equal(sent.length, 2, "disposed handlers send nothing");
+    sent.length = 0;
+
+    // Send logs reports its own failures; it is never reported on top.
+    observeCall(send, "upload_diagnostics", {}, undefined, "Log upload failed: the request timed out.");
+    await flush();
+    assert.equal(sent.length, 0, JSON.stringify(sent));
+  }
+
+  // ── support id, Send logs errors and the notices ─────────────────────────
+  {
+    const { formatSupportId, NOTICE_TEXT, MOBILE_NOTICE_TEXT } = telemetry;
+    assert.equal(formatSupportId("7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11"), "7D0B-0B9E");
+    for (const missing of [null, undefined, "", "7d0b"]) assert.equal(formatSupportId(missing), "");
+
+    const { classifyError, presentError } = errors;
+    for (const [raw, code] of [
+      ["Log upload isn't available in this build.", "upload_unavailable"],
+      ["Log upload limit reached for today. Try again tomorrow, or attach the bug report instead.", "upload_limited"],
+      ["Log upload failed: the request timed out.", "upload_failed"],
+      ["Log upload failed: couldn't reach the server. Check your internet connection.", "upload_failed"],
+      ["Log upload failed: the server answered 503 Service Unavailable.", "upload_failed"],
+    ]) {
+      assert.equal(classifyError(raw), code, raw);
+      const p = presentError(raw, { tier: "not_supported", note: "Fire OS blocks the changes this app makes." });
+      assert.equal(p.tierHint, null, "the TV's tier has nothing to do with sending logs");
+      assert.doesNotMatch(p.message, /^Something went wrong/);
+    }
+
+    // Both notices say what they collect and end with the opt-out the
+    // desktop layout trims.
+    for (const text of [NOTICE_TEXT, MOBILE_NOTICE_TEXT]) {
+      assert.match(text, /^ATV Optimizer sends anonymous reports/);
+      assert.match(text, /connection counts and timings/);
+      assert.match(text, /You can turn this off at any time\.$/);
+    }
+    assert.match(NOTICE_TEXT, /No serial numbers, IP addresses, TV names or app lists\./);
+    assert.match(NOTICE_TEXT, /excerpt of the app's connection log/);
+    assert.match(NOTICE_TEXT, /support ID/);
+    // The phone app sends no logs, and its notice says so.
+    assert.doesNotMatch(MOBILE_NOTICE_TEXT, /log excerpt|excerpt of/);
+    assert.match(MOBILE_NOTICE_TEXT, /No serial numbers, IP addresses, TV names, logs or app lists\./);
   }
 } finally {
   rmSync(out, { recursive: true, force: true });
 }
 
 console.log(
-  "Shared errors/support/telemetry passed: codes classify the real backend strings, unknown tiers claim nothing, not_supported warns, failures (rejected or ok:false) are reported with codes, telemetry/quiet/locked calls are not, and snapshot apply reports counts only.",
+  "Shared errors/support/telemetry passed: codes classify the real backend strings, unknown tiers claim nothing, not_supported warns, failures (rejected or ok:false) are reported with codes, telemetry/quiet/locked calls are not, snapshot apply reports counts only, support ids shorten, Send logs errors are coded, and each app's notice says what it collects.",
 );

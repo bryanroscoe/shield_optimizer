@@ -13,7 +13,7 @@
   import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
-  import { NOTICE_TEXT, TOGGLE_LABEL, type TelemetrySettings } from "../../../shared/telemetry";
+  import { MOBILE_NOTICE_TEXT, TOGGLE_LABEL, type TelemetrySettings } from "../../../shared/telemetry";
   import type {
     UnknownDiagnosticReason,
     UnknownDiagnosticReport,
@@ -608,7 +608,7 @@
         </label>
         <details class="help-disclosure">
           <summary>What's sent</summary>
-          <p class="card-desc">{NOTICE_TEXT}</p>
+          <p class="card-desc">{MOBILE_NOTICE_TEXT}</p>
           <p class="card-desc">
             Reports go to a server the app's developer runs; raw reports are kept for 90 days.
             Turning reports back on starts a new random install ID.

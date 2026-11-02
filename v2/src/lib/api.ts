@@ -3,7 +3,13 @@
 
 import { invoke as tauriInvoke, Channel } from "@tauri-apps/api/core";
 import { parseSafety } from "../../shared/safety";
-import { observeCall, type Send, type TelemetryAction, type TelemetrySettings } from "../../shared/telemetry";
+import {
+  observeCall,
+  type DiagnosticsUploadResult,
+  type Send,
+  type TelemetryAction,
+  type TelemetrySettings,
+} from "../../shared/telemetry";
 import type {
   ActionResult,
   AdbStatus,
@@ -86,6 +92,7 @@ export const api = {
   setTelemetryEnabled: (enabled: boolean) =>
     invoke<TelemetrySettings>("set_telemetry_enabled", { enabled }),
   dismissTelemetryNotice: () => invoke<TelemetrySettings>("dismiss_telemetry_notice"),
+  uploadDiagnostics: () => invoke<DiagnosticsUploadResult>("upload_diagnostics"),
   telemetryAction: (
     action: TelemetryAction,
     serial: string | null,

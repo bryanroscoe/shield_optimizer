@@ -43,6 +43,14 @@ pub async fn local_subnet_prefix() -> Option<[u8; 3]> {
     Some([octets[0], octets[1], octets[2]])
 }
 
+/// Did `SHIELD_OPTIMIZER_SUBNET` choose the subnet, rather than the gateway?
+pub fn subnet_overridden() -> bool {
+    std::env::var("SHIELD_OPTIMIZER_SUBNET")
+        .ok()
+        .and_then(|s| parse_prefix(&s))
+        .is_some()
+}
+
 fn parse_prefix(s: &str) -> Option<[u8; 3]> {
     let parts: Vec<&str> = s.trim().split('.').collect();
     if parts.len() != 3 {
@@ -186,20 +194,50 @@ pub static SWEEP_OVERRIDE: std::sync::RwLock<
     Option<Box<dyn Fn([u8; 3]) -> Vec<String> + Send + Sync>>,
 > = std::sync::RwLock::new(None);
 
+/// How a port sweep went, for the "scan found nothing" report.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SweepStats {
+    pub probed: usize,
+    pub open: usize,
+    pub timeouts: usize,
+    pub refused: usize,
+    pub elapsed: Duration,
+}
+
+enum Probe {
+    Open(ScanHit),
+    Refused,
+    TimedOut,
+    Other,
+}
+
 /// Probe all 254 addresses in the given /24 in parallel. Returns IPs that
-/// answered on the ADB port. Honors a global concurrency cap so we don't
-/// flood the user's network stack.
-pub async fn scan_subnet(prefix: [u8; 3]) -> Vec<ScanHit> {
+/// answered on the ADB port, and how many probes timed out or were refused.
+/// Honors a global concurrency cap so we don't flood the user's network
+/// stack.
+pub async fn scan_subnet_with_stats(prefix: [u8; 3]) -> (Vec<ScanHit>, SweepStats) {
+    let started = std::time::Instant::now();
     #[cfg(feature = "e2e")]
     if let Some(ips) = SWEEP_OVERRIDE
         .read()
         .ok()
         .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
     {
-        return ips.into_iter().map(|ip| ScanHit { ip }).collect();
+        let hits: Vec<ScanHit> = ips.into_iter().map(|ip| ScanHit { ip }).collect();
+        let stats = SweepStats {
+            probed: 254,
+            open: hits.len(),
+            elapsed: started.elapsed(),
+            ..Default::default()
+        };
+        return (hits, stats);
     }
     // Priority sweep mirroring v1: common DHCP range first, then the rest.
     let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
+    let mut stats = SweepStats {
+        probed: ordered_hosts.len(),
+        ..Default::default()
+    };
 
     let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
     let mut iter = ordered_hosts.into_iter();
@@ -213,27 +251,34 @@ pub async fn scan_subnet(prefix: [u8; 3]) -> Vec<ScanHit> {
     }
 
     while let Some(result) = in_flight.next().await {
-        if let Some(hit) = result {
-            hits.push(hit);
+        match result {
+            Probe::Open(hit) => hits.push(hit),
+            Probe::Refused => stats.refused += 1,
+            Probe::TimedOut => stats.timeouts += 1,
+            Probe::Other => {}
         }
         if let Some(host) = iter.next() {
             in_flight.push(probe(prefix, host));
         }
     }
 
-    hits
+    stats.open = hits.len();
+    stats.elapsed = started.elapsed();
+    (hits, stats)
 }
 
-async fn probe(prefix: [u8; 3], host: u8) -> Option<ScanHit> {
+async fn probe(prefix: [u8; 3], host: u8) -> Probe {
     let addr = SocketAddr::from((
         std::net::Ipv4Addr::new(prefix[0], prefix[1], prefix[2], host),
         ADB_NETWORK_PORT,
     ));
     match timeout(PROBE_TIMEOUT, TcpStream::connect(addr)).await {
-        Ok(Ok(_)) => Some(ScanHit {
+        Ok(Ok(_)) => Probe::Open(ScanHit {
             ip: addr.ip().to_string(),
         }),
-        _ => None,
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => Probe::Refused,
+        Ok(Err(_)) => Probe::Other,
+        Err(_) => Probe::TimedOut,
     }
 }
 
