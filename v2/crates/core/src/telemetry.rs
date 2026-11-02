@@ -1168,7 +1168,9 @@ mod tests {
         let events = hub.queued();
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|e| e.kind == EventKind::DeviceSeen));
-        let text = serde_json::to_string(&events).unwrap();
+        // The random install id is hex and can contain "adb-" by chance.
+        let devices: Vec<_> = events.iter().map(|e| &e.device).collect();
+        let text = serde_json::to_string(&devices).unwrap();
         for secret in ["1324619053514", "10.0.0", "Bedroom", "adb-"] {
             assert!(!text.contains(secret), "{secret} leaked: {text}");
         }
