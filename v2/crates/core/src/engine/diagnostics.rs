@@ -100,9 +100,10 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
         "- adb version: {}\n",
         input
             .adb_version
-            .map(|v| v.lines().next().unwrap_or("").trim())
+            .map(str::trim)
             .filter(|v| !v.is_empty())
-            .unwrap_or("(unavailable)")
+            .map(|v| v.lines().map(str::trim).collect::<Vec<_>>().join("\n  "))
+            .unwrap_or_else(|| "(unavailable)".to_string())
     ));
 
     match &input.device {
@@ -210,6 +211,95 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    fn host_report(version: Option<&str>, path: &str) -> String {
+        format_diagnostics(&DiagnosticsInput {
+            app_version: "2.4.1",
+            os: "macos",
+            arch: "aarch64",
+            adb_path: Some(path),
+            adb_version: version,
+            device: None,
+            unreadable_device: None,
+            log_tail: &[],
+        })
+    }
+
+    #[test]
+    fn full_adb_versions_keep_package_build_and_executable() {
+        let cases = [
+            (
+                "Android Debug Bridge version 1.0.41\nVersion 37.0.0-14910828\nInstalled as /Users/test/Library/Application Support/ShieldOptimizer/platform-tools/adb\nRunning on Darwin 25.6.0 (arm64)\n",
+                "37.0.0-14910828",
+                "/Users/test/Library/Application Support/ShieldOptimizer/platform-tools/adb",
+            ),
+            (
+                "Android Debug Bridge version 1.0.41\nVersion 37.0.1-15733141\nInstalled as /tmp/staged/platform-tools/adb\nRunning on Darwin 25.6.0 (arm64)\n",
+                "37.0.1-15733141",
+                "/tmp/staged/platform-tools/adb",
+            ),
+        ];
+        for (output, build, executable) in cases {
+            let report = host_report(Some(output), executable);
+            assert!(
+                report.contains("- adb version: Android Debug Bridge version 1.0.41\n"),
+                "{report}"
+            );
+            assert!(
+                report.contains(&format!("\n  Version {build}\n")),
+                "{report}"
+            );
+            assert!(
+                report.contains(&format!("\n  Installed as {executable}\n")),
+                "{report}"
+            );
+            assert!(
+                report.contains("\n  Running on Darwin 25.6.0 (arm64)\n"),
+                "{report}"
+            );
+            assert!(
+                report.contains(&format!("- adb path: {executable}\n")),
+                "{report}"
+            );
+        }
+    }
+
+    #[test]
+    fn empty_and_unrecognized_version_output_stays_honest() {
+        for output in [None, Some(""), Some(" \r\n\t ")] {
+            let report = host_report(output, "adb");
+            assert!(
+                report.contains("- adb version: (unavailable)\n"),
+                "{report}"
+            );
+        }
+        let report = host_report(
+            Some(" \r\n  unrecognized version output\r\n second line\r\n"),
+            "adb",
+        );
+        assert!(
+            report.contains("- adb version: unrecognized version output\n  second line\n"),
+            "{report}"
+        );
+        assert!(!report.contains("Android Debug Bridge version"), "{report}");
+    }
+
+    #[test]
+    fn native_transport_version_does_not_invent_a_host_binary_or_google_build() {
+        let version = "Experimental direct ADB (shared Android transport); no host adb server";
+        let path = "(not applicable: direct network transport, no host binary)";
+        let report = host_report(Some(version), path);
+        assert!(
+            report.contains(&format!("- adb version: {version}\n")),
+            "{report}"
+        );
+        assert!(
+            report.contains(&format!("- adb path: {path}\n")),
+            "{report}"
+        );
+        assert!(!report.contains("Installed as"), "{report}");
+        assert!(!report.contains("Version 37."), "{report}");
+    }
 
     fn props() -> DeviceProperties {
         DeviceProperties {
@@ -348,11 +438,12 @@ mod tests {
             ),
             "{report}"
         );
-        // Only the first line of `adb version`; the rest is build noise.
+        // Protocol and package/build information are both useful in a report.
         assert!(
             report.contains("- adb version: Android Debug Bridge version 1.0.41\n"),
             "{report}"
         );
+        assert!(report.contains("\n  Version 35.0.0\n"), "{report}");
         assert!(report.contains("```\nfirst\nsecond\n```"), "{report}");
     }
 
