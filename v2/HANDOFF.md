@@ -98,7 +98,13 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
   the build sets `ATVOPT_TELEMETRY_URL`; payload and redaction are pure
   (`engine/telemetry.rs`), the queue and upload are `crates/core/src/telemetry.rs`, and the
   frontends report outcomes from their single invoke wrapper via `shared/telemetry.ts`. Error
-  codes shown to users and sent in reports come from one table, `shared/errors.ts`. See
+  codes shown to users and sent in reports come from one table, `shared/errors.ts`. Schema 2
+  (2026-11-02) adds `diagnostic` events for scans and TVs that found nothing (`diag` built by the
+  pure `engine/telemetry_diag.rs`), desktop-only redacted log excerpts (`engine/log_redact.rs`,
+  20 a day), the support ID (`support_id` in `telemetry_settings`, the install id while reports
+  are on) and desktop Send logs (`upload_diagnostics` → `POST /v1/diagnostics`, works with reports
+  off). The phone app sends no logs: its Play Data safety form doesn't declare them. Find a user's
+  data with `telemetry-worker/scripts/support-lookup.sh <support-id>`. See
   `v2/README.md` "Telemetry and support tiers". The backend has been live since 2026-11-01
   (`telemetry-worker/README.md` "Production"). `device-support.json` is the only tier list: the
   `support-tiers-sync` workflow pushes it to the Worker on merge, and a weekly workflow rewrites
