@@ -164,20 +164,79 @@ impl<T: ADBMessageTransport> ADBSession<T> {
         )))
     }
 
-    fn recv_sync_status(&mut self) -> Result<()> {
-        let mut pending = Cursor::new(Vec::new());
-        let mut header = [0u8; 8];
-        self.read_sync_exact(&mut pending, &mut header)?;
-        match &header[..4] {
-            b"OKAY" if pending.position() == pending.get_ref().len() as u64 => Ok(()),
-            b"FAIL" => {
-                let length =
-                    u32::from_le_bytes(header[4..].try_into().expect("fixed sync header")) as usize;
-                Err(self.read_sync_failure(&mut pending, length)?)
+    pub(crate) fn send_sync_upload(
+        &mut self,
+        message: ADBTransportMessage,
+        finishing: bool,
+    ) -> Result<()> {
+        self.transport.write_message(message)?;
+        let mut acknowledged = false;
+        let mut response = Vec::new();
+        let mut completed = false;
+        loop {
+            let message = self.transport.read_message()?;
+            if message.header().arg0() != self.remote_id || message.header().arg1() != self.local_id
+            {
+                return Err(RustADBError::ADBRequestFailed(
+                    "Sync response belongs to another stream".into(),
+                ));
             }
-            _ => Err(RustADBError::UnknownResponseType(
-                "Missing or malformed sync upload acknowledgement".into(),
-            )),
+            match message.header().command() {
+                MessageCommand::Okay => {
+                    if acknowledged || !message.payload().is_empty() {
+                        return Err(RustADBError::UnknownResponseType(
+                            "Duplicate or malformed sync transport acknowledgement".into(),
+                        ));
+                    }
+                    acknowledged = true;
+                }
+                MessageCommand::Write => {
+                    // adbd may reject SEND/DATA before its transport ACK, including
+                    // an ACK interleaved with fragments of the sync FAIL response.
+                    self.reply_okay()?;
+                    if message.payload().len() > (64 * 1024 + 8) - response.len() {
+                        return Err(RustADBError::UnknownResponseType(
+                            "Sync upload response exceeds the 64 KiB limit".into(),
+                        ));
+                    }
+                    response.extend_from_slice(message.payload());
+                    if response.len() >= 8 {
+                        match &response[..4] {
+                            b"FAIL" => {
+                                let length = u32::from_le_bytes(
+                                    response[4..8].try_into().expect("fixed sync header"),
+                                ) as usize;
+                                if length > 64 * 1024 || response.len() > length + 8 {
+                                    return Err(RustADBError::UnknownResponseType(
+                                        "Malformed sync upload rejection".into(),
+                                    ));
+                                }
+                                if response.len() == length + 8 {
+                                    return Err(RustADBError::ADBRequestFailed(format!(
+                                        "Sync transfer rejected: {}",
+                                        String::from_utf8_lossy(&response[8..8 + length.min(4096)])
+                                    )));
+                                }
+                            }
+                            b"OKAY" if finishing && response.len() == 8 => completed = true,
+                            _ => {
+                                return Err(RustADBError::UnknownResponseType(
+                                    "Premature or malformed sync upload acknowledgement".into(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                command => {
+                    return Err(RustADBError::WrongResponseReceived(
+                        command.to_string(),
+                        "sync transport ACK or response".into(),
+                    ));
+                }
+            }
+            if acknowledged && (completed || (!finishing && response.is_empty())) {
+                return Ok(());
+            }
         }
     }
 
@@ -196,7 +255,7 @@ impl<T: ADBMessageTransport> ADBSession<T> {
             &serialized_message,
         )?;
 
-        self.send_and_expect_okay(message)?;
+        self.send_sync_upload(message, false)?;
 
         loop {
             let mut buffer = vec![0; BUFFER_SIZE].into_boxed_slice();
@@ -213,9 +272,7 @@ impl<T: ADBMessageTransport> ADBSession<T> {
                         &subcommand_data.encode(),
                     )?;
 
-                    self.send_and_expect_okay(message)?;
-
-                    return self.recv_sync_status();
+                    return self.send_sync_upload(message, true);
                 }
                 Ok(size) => {
                     let subcommand_data = MessageSubcommand::Data.with_arg(u32::try_from(size)?);
@@ -230,7 +287,7 @@ impl<T: ADBMessageTransport> ADBSession<T> {
                         &serialized_message,
                     )?;
 
-                    self.send_and_expect_okay(message)?;
+                    self.send_sync_upload(message, false)?;
                 }
                 Err(e) => {
                     return Err(RustADBError::IOError(e));
@@ -322,7 +379,10 @@ mod recv_tests {
             message: ADBTransportMessage,
             _: Duration,
         ) -> Result<()> {
-            assert_eq!(message.header().command(), MessageCommand::Okay);
+            assert!(matches!(
+                message.header().command(),
+                MessageCommand::Okay | MessageCommand::Write
+            ));
             assert_eq!((message.header().arg0(), message.header().arg1()), (7, 9));
             Ok(())
         }
@@ -380,28 +440,50 @@ mod recv_tests {
         }
     }
 
+    fn upload_response(bytes: &[u8], width: usize, ack_at: usize, finishing: bool) -> Result<()> {
+        let mut session = session(bytes, width);
+        let mut messages = session.transport.0.lock().unwrap();
+        let index = ack_at.min(messages.len());
+        messages.insert(
+            index,
+            ADBTransportMessage::try_new(MessageCommand::Okay, 9, 7, b"").unwrap(),
+        );
+        drop(messages);
+        session.send_sync_upload(
+            ADBTransportMessage::try_new(MessageCommand::Write, 7, 9, b"fixture").unwrap(),
+            finishing,
+        )
+    }
+
     #[test]
     fn uploads_require_explicit_sync_okay_and_preserve_failure_reason() {
         let okay = record(b"OKAY", b"");
         let failure = record(b"FAIL", b"Permission denied");
+        for ack_at in [0, 1, usize::MAX] {
+            for width in 1..=okay.len() {
+                upload_response(&okay, width, ack_at, true).unwrap();
+            }
+            for width in 1..=failure.len() {
+                assert!(
+                    upload_response(&failure, width, ack_at, true)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("Permission denied")
+                );
+            }
+        }
+        for finishing in [false, true] {
+            for bytes in [
+                record(b"DONE", b""),
+                b"OKA".to_vec(),
+                [okay.clone(), vec![1]].concat(),
+                b"FAIL\x01\0\x01\0".to_vec(),
+            ] {
+                assert!(upload_response(&bytes, bytes.len(), usize::MAX, finishing).is_err());
+            }
+        }
         for width in 1..=okay.len() {
-            session(&okay, width).recv_sync_status().unwrap();
-        }
-        for width in 1..=failure.len() {
-            assert!(
-                session(&failure, width)
-                    .recv_sync_status()
-                    .unwrap_err()
-                    .to_string()
-                    .contains("Permission denied")
-            );
-        }
-        for bytes in [
-            record(b"DONE", b""),
-            b"OKA".to_vec(),
-            [okay, vec![1]].concat(),
-        ] {
-            assert!(session(&bytes, bytes.len()).recv_sync_status().is_err());
+            assert!(upload_response(&okay, width, usize::MAX, false).is_err());
         }
     }
 

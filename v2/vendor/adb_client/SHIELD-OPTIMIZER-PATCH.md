@@ -172,3 +172,11 @@ These changes follow the [AOSP sync protocol](https://android.googlesource.com/p
 Mock-message and real TCP fixtures cover fragmentation, failure text, correct
 acknowledgement, file-byte preservation, truncation and wrong-stream rejection.
 Existing transfer controls retain their total deadlines and no-replay policy.
+
+Upload SEND/DATA/DONE now share a sync-specific acknowledgement reader. It accepts
+one transport ACK for the outgoing packet, acknowledges and bounds incoming sync
+bytes, preserves early/mid-upload FAIL reasons even when fragmented around that
+ACK, and requires DONE plus final sync OKAY before success. A partial error reply
+stays under the existing transfer deadline. No uncertain upload is replayed.
+Loopback cases reject at SEND, first DATA and later DATA, with/without an
+interleaved ACK; they also send premature success and stall partial failure bodies.

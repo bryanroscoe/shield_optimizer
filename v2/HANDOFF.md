@@ -15,8 +15,8 @@ one unchanged failed address. The subprocess driver remains the default. The nat
 retaining the existing Devices flow and 5555 LAN scan. Build with `native-adb-default`
 for a Finder-launchable native test app; the driver label confirms the active backend.
 Normal builds remain subprocess by default. Windows native identity now has a protected, current-user-owned storage implementation
-with no-clobber publication and reparse-point rejection. Windows runtime CI and
-packaged hardware acceptance must validate it; this is not a published native release. These source fixes do not establish the full root
+with no-clobber publication and reparse-point rejection. The eleven Windows identity tests and native Clippy passed in CI at d81b54c;
+packaged Windows hardware acceptance remains pending; this is not a published native release. These source fixes do not establish the full root
 cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
 their notes shipped in 2.4.1. Put
 the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
@@ -63,7 +63,10 @@ A real read-only system-file download exposed a permission rejection being writt
 into the local file before a misleading trailer error. Failure text is now an error,
 never file data. Upload success requires an explicit sync OKAY, and STAT responses
 are acknowledged and may be fragmented. Loopback tests cover these boundaries;
-physical transfer acceptance is still in progress.
+physical transfer acceptance is still in progress. Uploads also consume early or
+mid-transfer FAIL replies, including fragmented replies interleaved with a transport
+ACK. They stop when rejection is observed and never replay or accept success before
+DONE; the same total transfer deadline bounds incomplete error replies.
 
 ## Things the next reader needs that the code does not say
 

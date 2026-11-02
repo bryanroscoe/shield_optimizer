@@ -836,6 +836,95 @@ mod tests {
     }
 
     #[test]
+    fn upload_stops_on_early_or_midstream_rejection_without_replay() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, reply, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::{Duration, Instant};
+        for reject_at in 0..=2 {
+            for response in ["rejection", "premature success", "stalled rejection"] {
+                for interleave_ack in [false, true] {
+                    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                    listener.set_nonblocking(true).unwrap();
+                    let address = listener.local_addr().unwrap();
+                    let peer = std::thread::spawn(move || {
+                        let deadline = Instant::now() + Duration::from_secs(3);
+                        let mut socket = loop {
+                            match listener.accept() {
+                                Ok((socket, _)) => break socket,
+                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                    assert!(Instant::now() < deadline, "fixture accept deadline");
+                                    std::thread::sleep(Duration::from_millis(5));
+                                }
+                                Err(error) => panic!("fixture accept failed: {error}"),
+                            }
+                        };
+                        socket.set_nonblocking(false).unwrap();
+                        hello(&mut socket);
+                        let open = receive(&mut socket).unwrap();
+                        assert_eq!(open.payload(), b"sync:");
+                        let local = open.header().arg0();
+                        send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                        for step in 0..=reject_at {
+                            let packet = receive(&mut socket).unwrap();
+                            assert_eq!(packet.header().command(), MessageCommand::Write);
+                            assert!(packet.payload().starts_with(if step == 0 {
+                                b"SEND"
+                            } else {
+                                b"DATA"
+                            }));
+                            if step < reject_at {
+                                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                            }
+                        }
+                        let status = if response == "premature success" {
+                            b"OKAY\0\0\0\0".to_vec()
+                        } else {
+                            let body = b"Permission denied";
+                            let mut bytes = b"FAIL".to_vec();
+                            bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                            bytes.extend_from_slice(body);
+                            bytes
+                        };
+                        for (index, part) in status.chunks(3).enumerate() {
+                            reply(&mut socket, local, part, false);
+                            if index == 0 && interleave_ack {
+                                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                            }
+                            if response == "stalled rejection" {
+                                break;
+                            }
+                        }
+                        assert!(
+                            receive(&mut socket).is_err(),
+                            "upload continued or replayed after response"
+                        );
+                    });
+                    let mut device = controlled_fixture(address);
+                    let limit = if response == "stalled rejection" {
+                        Duration::from_millis(150)
+                    } else {
+                        Duration::from_secs(2)
+                    };
+                    let result = device.push_with_control(
+                        &mut std::io::Cursor::new(vec![42; 2 * 65535 + 1]),
+                        &"/fixture",
+                        BoundedShellControl::new(limit).unwrap(),
+                    );
+                    let error = result.unwrap_err().to_string();
+                    if response == "rejection" {
+                        assert!(error.contains("Permission denied"), "{error}");
+                    } else if response == "premature success" {
+                        assert!(error.contains("Premature"), "{error}");
+                    }
+                    drop(device);
+                    peer.join().unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
     fn controlled_owned_push_interrupts_stalled_open_or_data_ack_without_replay() {
         use super::super::BoundedShellControl;
         use super::super::streamed_install::tests::{hello, receive, send};
