@@ -23,6 +23,14 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
 
 ## Things the next reader needs that the code does not say
 
+- **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.
+  Its switches are the same state as their other copies, not duplicates: the report setting
+  lives in `src/lib/reports.svelte.ts` (also the Report a bug dialog), theme and auto-update in
+  `src/lib/ui-prefs.svelte.ts` (the header theme switch), Stop ADB when quitting in
+  `src/lib/stop-adb-on-quit.svelte.ts` (Devices). Its Updates and About rows drive the layout's
+  own update flow and dialogs through `src/lib/app-shell.ts`. Support ID and Send logs need the
+  backend's `support_id` and `upload_diagnostics`.
+
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
   channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
   to the value the old name derived, so existing installs upgrade in place. The Homebrew tap and

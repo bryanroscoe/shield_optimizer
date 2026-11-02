@@ -156,6 +156,13 @@ async function captureScreens(page, shot) {
     await page.goto(`${BASE}/snapshots`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
     await shot("snapshots");
+
+    // 16. Settings, reached from the header gear.
+    await page.getByRole("link", { name: "Settings" }).click();
+    await page.locator("[data-support-id]").waitFor();
+    await page.getByText("/opt/homebrew/bin/adb", { exact: false }).waitFor();
+    await page.mouse.move(0, 0);
+    await shot("settings");
 }
 
 async function main() {

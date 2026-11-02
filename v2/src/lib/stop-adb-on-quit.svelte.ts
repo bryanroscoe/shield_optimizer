@@ -6,6 +6,12 @@ import { api } from "$lib/api";
 import { getStopAdbOnQuit, setStopAdbOnQuit } from "$lib/prefs";
 import type { StopAdbOnQuit } from "$lib/types";
 
+/// Shown beside the switch wherever it appears (Devices and Settings).
+export const QUIT_ADB_TIP =
+  "Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or " +
+  "any other tool using adb is disconnected too. It is left running while this app is still " +
+  "using it, such as an open Remote, and when the app restarts for an update.";
+
 export const stopOnQuit = $state({
   /// null whenever the setting is unconfirmed: before the first read, while a
   /// change is on its way, and after a read fails. The stop may be on then.
