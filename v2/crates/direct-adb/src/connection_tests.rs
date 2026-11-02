@@ -11,7 +11,7 @@ fn fixture_key() -> tempfile::NamedTempFile {
         + source[start..].find("-----END PRIVATE KEY-----").unwrap()
         + "-----END PRIVATE KEY-----".len();
     let mut file = tempfile::NamedTempFile::new().unwrap();
-    file.write_all(source[start..end].as_bytes()).unwrap();
+    file.write_all(&source.as_bytes()[start..end]).unwrap();
     file
 }
 
