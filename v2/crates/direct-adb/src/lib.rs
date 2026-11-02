@@ -753,9 +753,8 @@ impl AdbDriver for WirelessAdb {
         }
     }
 
-    /// File transfer over sync and single-APK installation over a dedicated
-    /// bounded service. Local files are opened before device I/O so a storage
-    /// error cannot evict a healthy TV socket.
+    /// Downloads use a dedicated, identity-checked connection so a failed
+    /// transfer cannot evict the selected TV's session.
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
             ["-s", serial, "install", local] => {
