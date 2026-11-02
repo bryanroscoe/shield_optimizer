@@ -20,12 +20,22 @@ existing live-device test ignored. Frontend check/build, native discovery and
 serialized-refresh regressions, telemetry/error tests, and Settings/status tests
 passed. The earlier compile caught a duplicate test import, fixed before the
 successful run. These are local macOS checks, not cross-platform CI acceptance.
-Workspace Clippy was stopped while queued by the task runner when free disk fell
-below 20 GiB; its target did not grow. It is incomplete, not a pass. The workspace
-cleanup preview covers 2.6 GiB of mixed historical outputs and was not applied.
-A rebuilt integrated app and its hardware retest remain outstanding because the
-same capacity guard prevents packaging. The delivery below is still the earlier
-binary; it does not contain these integrated changes.
+The integrated implementation is merge commit
+`05f1d816c3fa237750d660c2ccc8c4fedce9f56b` (parents bfb2a53 and 67b87c6).
+Workspace/all-targets Clippy with direct-adb and `-D warnings` passed after disk
+capacity recovered. Its first attempt was stopped while queued below the 20 GiB
+floor, with no target growth. A subsequent offline E2E build was stopped by the
+same disk floor before scenarios ran; its target growth was only 125 MB, below
+the runner's 1 GiB growth limit. This is incomplete validation, not a test pass.
+The workspace cleanup preview covers 2.6 GiB of mixed historical outputs and was
+not applied. No guard was disabled or relaxed.
+
+A rebuilt integrated app and its hardware retest remain outstanding; packaging was
+not attempted below the capacity floor. The delivery below is still the earlier
+binary and does not contain these integrated changes. The current PR head must
+have its own CI results; historical green runs are not merge-readiness evidence.
+The new status screenshot/video attached to the PR are fixture-only and contain
+no private LAN data. See local integration-* logs/receipts for exact checks.
 
 ## Current delivery
 
