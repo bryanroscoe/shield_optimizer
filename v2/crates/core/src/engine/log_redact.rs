@@ -73,6 +73,64 @@ static SENSITIVE_PROP: LazyLock<Regex> = LazyLock::new(|| {
     )
 });
 
+/// Where the log itself names a transport: an `adb devices` row
+/// (`<serial>\tunauthorized`), an `-s <serial>` argument, a `serial=` field
+/// and a `[ro.serialno]: [...]` dump line.
+static DEVICES_ROW: LazyLock<Regex> = LazyLock::new(|| {
+    re(
+        r"(?m)^\s*(\S+)\s+(?:device|unauthorized|offline|authorizing|connecting|recovery|rescue|sideload|bootloader|no permissions)\b",
+    )
+});
+static DASH_S: LazyLock<Regex> = LazyLock::new(|| re(r#""-s",\s*"([^"]+)""#));
+static SERIAL_FIELD: LazyLock<Regex> =
+    LazyLock::new(|| re(r#"\b(?:serial|serials|target)=(?:"([^"]+)"|([^\s"]+))"#));
+static SERIALNO_PROP: LazyLock<Regex> =
+    LazyLock::new(|| re(r"\[ro(?:\.boot)?\.serialno\]:\s*\[([^\]\n]+)\]"));
+
+/// Transport serials the text itself names, from any session. The session's
+/// own list only knows the TVs it saw; an older log in the same upload can
+/// name one that is gone, and a serial made only of letters looks like a
+/// word to the generic rules.
+pub fn identifiers_in(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |v: &str| {
+        let v = v.trim();
+        if v.chars().count() >= MIN_KNOWN_CHARS
+            && !v.eq_ignore_ascii_case("list")
+            && !v.starts_with('<')
+            && !out.iter().any(|o| o == v)
+        {
+            out.push(v.to_string());
+        }
+    };
+    for c in DEVICES_ROW.captures_iter(text) {
+        add(&c[1]);
+    }
+    for c in DASH_S.captures_iter(text) {
+        add(&c[1]);
+    }
+    for c in SERIAL_FIELD.captures_iter(text) {
+        if let Some(m) = c.get(1).or_else(|| c.get(2)) {
+            add(m.as_str());
+        }
+    }
+    for c in SERIALNO_PROP.captures_iter(text) {
+        add(&c[1]);
+    }
+    out
+}
+
+/// `scrub` plus the identifiers `text` names itself.
+fn with_found<T>(text: &str, scrub: &Scrub, f: impl FnOnce(&Scrub) -> T) -> T {
+    let found = identifiers_in(text);
+    let mut known: Vec<&str> = scrub.known.to_vec();
+    known.extend(found.iter().map(String::as_str));
+    f(&Scrub {
+        known: &known,
+        words: scrub.words,
+    })
+}
+
 static CONTROL: LazyLock<Regex> = LazyLock::new(|| re(r"[\x00-\x08\x0b-\x1f\x7f]"));
 
 /// Log targets that belong to adb, connecting and discovery.
@@ -216,6 +274,10 @@ fn newest_fitting(lines: Vec<String>, max_bytes: usize) -> Vec<String> {
 /// The redacted tail of the adb, connect and discovery log lines, or `None`
 /// when there are none.
 pub fn connection_excerpt(log: &str, scrub: &Scrub) -> Option<String> {
+    with_found(log, scrub, |scrub| excerpt_of(log, scrub))
+}
+
+fn excerpt_of(log: &str, scrub: &Scrub) -> Option<String> {
     let lines: Vec<&str> = records(log)
         .into_iter()
         .filter(|r| r.target.is_some_and(is_connection_target))
@@ -234,11 +296,13 @@ pub fn connection_excerpt(log: &str, scrub: &Scrub) -> Option<String> {
 /// Every line of `text`, redacted, newest kept when it is over `max_bytes`.
 /// Used for the log in a Send logs upload and for the summary above it.
 pub fn redact_text(text: &str, scrub: &Scrub, max_bytes: usize) -> String {
-    let redacted: Vec<String> = text
-        .lines()
-        .map(|l| redact_log_line(l, scrub, UPLOAD_LINE_CHARS))
-        .collect();
-    newest_fitting(redacted, max_bytes).join("\n")
+    with_found(text, scrub, |scrub| {
+        let redacted: Vec<String> = text
+            .lines()
+            .map(|l| redact_log_line(l, scrub, UPLOAD_LINE_CHARS))
+            .collect();
+        newest_fitting(redacted, max_bytes).join("\n")
+    })
 }
 
 /// The recent log for a Send logs upload.
@@ -324,13 +388,13 @@ QWERTYUIOPAS\toffline
         for keep in [
             "2026-11-02T14:00:02.000000Z INFO shield_optimizer_core::commands::devices: connect finished",
             "Connection refused",
-            "<ip> unauthorized",
+            "<id> unauthorized",
             "ms=13 exit_code=Some(0)",
             "[ro.product.model]: [SHIELD Android TV]",
             "[persist.sys.device_name]: [<redacted>]",
             "scan finished subnet=<redacted>",
             "found=0 connected=0",
-            "<mdns>",
+            "<id> offline",
         ] {
             assert!(excerpt.contains(keep), "missing {keep:?} in:\n{excerpt}");
         }
@@ -415,6 +479,51 @@ QWERTYUIOPAS\toffline
         );
         // Control characters can't forge a second line.
         assert!(!redact_log_line("a\u{1b}[31mb\rc", &Scrub::default(), 200).contains('\u{1b}'));
+    }
+
+    #[test]
+    fn serials_from_an_earlier_session_are_found_in_the_log_itself() {
+        // Nothing this session knows: the TV was connected before a restart.
+        let log = "\
+2026-11-01T09:00:00.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"devices\"] stdout=List of devices attached
+ZXCVBNMLKJHG\tunauthorized
+POIUYTREWQLK    device usb:1-1 product:x
+2026-11-01T09:00:01.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb invoke args=[\"-s\", \"MNBVCXZLKJHG\", \"shell\", \"getprop\"]
+2026-11-01T09:00:02.000000Z  INFO shield_optimizer_core::commands::devices: forget finished serial=ASDFGHJKLQWE ok=true
+2026-11-01T09:00:03.000000Z DEBUG shield_optimizer_core::adb::driver: adb done stdout=[ro.serialno]: [QAZWSXEDCRFV]
+2026-11-01T09:00:04.000000Z  INFO shield_optimizer_core::commands::devices: later ZXCVBNMLKJHG POIUYTREWQLK MNBVCXZLKJHG ASDFGHJKLQWE QAZWSXEDCRFV gone
+";
+        let found = identifiers_in(log);
+        for serial in [
+            "ZXCVBNMLKJHG",
+            "POIUYTREWQLK",
+            "MNBVCXZLKJHG",
+            "ASDFGHJKLQWE",
+            "QAZWSXEDCRFV",
+        ] {
+            assert!(
+                found.iter().any(|f| f == serial),
+                "{serial} not found in {found:?}"
+            );
+        }
+        for text in [
+            upload_log(log, &Scrub::default()),
+            connection_excerpt(log, &Scrub::default()).unwrap(),
+        ] {
+            for serial in [
+                "ZXCVBNMLKJHG",
+                "POIUYTREWQLK",
+                "MNBVCXZLKJHG",
+                "ASDFGHJKLQWE",
+                "QAZWSXEDCRFV",
+            ] {
+                assert!(!text.contains(serial), "{serial} leaked:\n{text}");
+            }
+            assert!(
+                text.contains("later <id> <id> <id> <id> <id> gone"),
+                "{text}"
+            );
+        }
     }
 
     #[test]
