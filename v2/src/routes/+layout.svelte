@@ -350,9 +350,9 @@
   }
 
   // Report a bug. Everything here is text the user reads before anything
-  // leaves the machine. The app has no upload path: the only way out is the
+  // leaves the machine. This dialog has no upload path: the only way out is the
   // issue URL, which the user opens and GitHub shows as a form they still have
-  // to submit.
+  // to submit. Send logs (Settings) is the separate, explicit upload.
 
   const ISSUE_BASE =
     "https://github.com/bryanroscoe/shield_optimizer/issues/new" +
