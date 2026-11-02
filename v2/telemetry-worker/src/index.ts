@@ -93,7 +93,7 @@ async function postDiagnostics(request: Request, env: Env): Promise<Response> {
     const id = await storeUpload(env, upload.value, now);
     return json({ ok: true, id, bytes: upload.value.body.length }, 201, { "cache-control": "no-store" });
   } catch {
-    await releaseUpload(env, upload.value.install_id, now).catch(() => undefined);
+    await releaseUpload(env, upload.value.install_id, uploadBytes(upload.value), now).catch(() => undefined);
     return error(503, "storage_unavailable");
   }
 }

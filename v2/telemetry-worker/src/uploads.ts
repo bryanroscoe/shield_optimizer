@@ -111,12 +111,20 @@ export function uploadBytes(u: CleanUpload): number {
   return new TextEncoder().encode(u.body).length;
 }
 
-// Gives an admitted upload's per-install count back when storing it failed,
-// so storage trouble can't lock a user out of Send logs for the day. As with
-// events, the global count is not refunded: it bounds retries if storage
-// stays broken. Best effort.
-export async function releaseUpload(env: Env, installId: string, now: Date): Promise<void> {
-  await releaseQuota(env, [{ key: `upload:${installId}`, n: 1, cap: 0 }], now);
+// Gives an admitted upload's per-install count and its bytes back when
+// storing it failed, so storage trouble can't lock a user out of Send logs
+// for the day or spend the shared byte budget on nothing. As with events, the
+// global count is not refunded: it bounds retries if storage stays broken.
+// Best effort.
+export async function releaseUpload(env: Env, installId: string, bytes: number, now: Date): Promise<void> {
+  await releaseQuota(
+    env,
+    [
+      { key: `upload:${installId}`, n: 1, cap: 0 },
+      { key: UPLOAD_BYTES_KEY, n: bytes, cap: 0 },
+    ],
+    now,
+  );
 }
 
 export async function storeUpload(env: Env, u: CleanUpload, now: Date): Promise<number> {

@@ -281,6 +281,9 @@ describe("POST /v1/diagnostics storage failures", () => {
   it("gives the per-install upload quota back when storing fails", async () => {
     const install_id = uniqueId();
     const day = new Date().toISOString().slice(0, 10);
+    const bytesBefore = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = 'upload-bytes:*'")
+      .bind(day)
+      .first<{ events: number }>();
     await env.DB.prepare(
       "CREATE TRIGGER fail_upload BEFORE INSERT ON diag_uploads WHEN NEW.os = 'fail-store' BEGIN SELECT RAISE(ABORT, 'simulated'); END",
     ).run();
@@ -296,6 +299,10 @@ describe("POST /v1/diagnostics storage failures", () => {
       .bind(day, `upload:${install_id}`)
       .first();
     expect(counter).toEqual({ events: 0 });
+    const bytes = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = 'upload-bytes:*'")
+      .bind(day)
+      .first<{ events: number }>();
+    expect(bytesBefore === null ? 0 : bytesBefore.events).toBe(bytes?.events ?? 0);
     // Storage is back: the user can still send today.
     expect((await post("/v1/diagnostics", upload({ install_id }))).status).toBe(201);
   });
