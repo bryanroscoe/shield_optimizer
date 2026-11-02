@@ -1,5 +1,8 @@
 # v2 — current state
 
+Native desktop ADB takeover: see [NATIVE-ADB-HANDOFF.md](NATIVE-ADB-HANDOFF.md)
+for PR #268, exact candidate provenance, completed checks and remaining native acceptance.
+
 v2 is a shipping desktop app. Latest **published** version: **2.4.1** (2026-10-23). The `v2-2.4.0` tag's build
 failed, so 2.4.0 was never published.
 
