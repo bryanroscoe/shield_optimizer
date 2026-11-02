@@ -7,6 +7,7 @@ use crate::adb::{
     batch_command, instance_serial, parse_device_list, parse_mdns_services, split_batch, AdbDriver,
     MdnsService, MDNS_SERVICE_CONNECT,
 };
+use crate::engine::telemetry_diag::{device_diag, lacks_details, Diag, DiagReason};
 use crate::engine::{
     classify_support, detect_device_type, tv_evidence,
     types::{ConnectionType, Device, DeviceProperties, DeviceStatus},
@@ -39,13 +40,18 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
         .map_err(|e| format!("adb devices: {e}"))?;
     let entries = parse_device_list(&raw.stdout);
 
+    // Every serial first, so one that a failed read stops us reaching is
+    // still scrubbed from what is reported about the failure.
+    for e in &entries {
+        state.telemetry.note_transport(&e.serial);
+    }
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
-        state.telemetry.note_transport(&e.serial);
         // For non-authorized devices we can't query properties — we still
         // surface them in the list with a placeholder name.
         if e.status != DeviceStatus::Device {
+            report_no_details(state, &e.serial, Some(e.status), e.connection, None, None);
             out.push(Device {
                 id,
                 serial: e.serial.clone(),
@@ -63,7 +69,30 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
             continue;
         }
 
-        let props = harvest_properties(&*adb, &e.serial).await?;
+        let props = match harvest_properties(&*adb, &e.serial).await {
+            Ok(props) => props,
+            Err(error) => {
+                report_no_details(
+                    state,
+                    &e.serial,
+                    Some(e.status),
+                    e.connection,
+                    None,
+                    Some(&error),
+                );
+                return Err(error);
+            }
+        };
+        if lacks_details(&props) {
+            report_no_details(
+                state,
+                &e.serial,
+                Some(e.status),
+                e.connection,
+                Some(&props),
+                None,
+            );
+        }
         let device_type = detect_device_type(&props);
 
         // Friendly name: custom device_name if set, else brand-based.
@@ -101,6 +130,37 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     }
 
     Ok(out)
+}
+
+/// Report a listed device that told us nothing usable: unauthorized,
+/// offline, a `getprop` that failed, or blank make and model. Once per
+/// transport and state per session; the serial only keys that in memory.
+fn report_no_details(
+    state: &AppState,
+    serial: &str,
+    status: Option<DeviceStatus>,
+    connection: ConnectionType,
+    props: Option<&DeviceProperties>,
+    error: Option<&str>,
+) {
+    if !state.telemetry.is_active() {
+        return;
+    }
+    let device = device_diag(status, connection, props, error);
+    let once_key = format!(
+        "{serial}|{}|{}",
+        device.state,
+        device.error.as_deref().unwrap_or("blank")
+    );
+    state.telemetry.record_diagnostic(
+        DiagReason::DeviceDetailsEmpty,
+        None,
+        Some(&once_key),
+        Diag {
+            device: Some(device),
+            ..Default::default()
+        },
+    );
 }
 
 /// `ro.serialno`, or `None` when the device gave us nothing to identify it by.

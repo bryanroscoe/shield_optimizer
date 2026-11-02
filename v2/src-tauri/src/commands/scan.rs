@@ -1,5 +1,6 @@
 //! Network-scan command — matches v1's `Scan-Network` UX.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::{stream, Stream, StreamExt};
@@ -7,14 +8,19 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, scan_subnet_hits,
-    AdbDriver, MdnsService, ADB_NETWORK_PORT,
+    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet_hits,
+    scan_subnet_with_stats, subnet_overridden, AdbDriver, MdnsService, SweepStats,
+    ADB_NETWORK_PORT,
 };
 use shield_optimizer_core::adb::{
     AdbError, NativeDiscoveryReport, NativeServiceKind, ScanConnectOutcome, MDNS_SERVICE_CONNECT,
     MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
 };
+use shield_optimizer_core::engine::telemetry_diag::{
+    connect_diag, error_codes, sweep_diag, DiagReason, Gateway,
+};
 use shield_optimizer_core::engine::types::DeviceStatus;
+use shield_optimizer_core::telemetry::Telemetry;
 
 use super::AppState;
 
@@ -521,11 +527,11 @@ async fn native_discovery(
 
 type NativeAttempts = std::collections::BTreeMap<String, Result<ScanConnectOutcome, String>>;
 
-async fn progressive_native_scan(
+async fn progressive_native_scan_with_facts(
     adb: &dyn AdbDriver,
     subnet_label: &str,
     sweep: impl Stream<Item = String> + Send,
-) -> Result<ScanResult, String> {
+) -> Result<(ScanResult, StageFacts), String> {
     let started = Instant::now();
     let admit_sweep = async {
         let mut swept = Vec::new();
@@ -583,46 +589,158 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
         detected = prefix.is_some(),
         "scan subnet detection complete"
     );
-    let Some(prefix) = prefix else {
+    let mut sweep = SweepStats::default();
+    let (result, stage) = if let Some(prefix) = prefix {
+        let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
         if !adb.uses_host_server() {
-            let mut result = scan_command_stage(adb.as_ref(), "local network", &[]).await?;
-            result.subnet = None;
-            result.message = result
-                .message
-                .replace("local network.x", "the local network");
-            result.details.push("Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.".into());
-            return Ok(result);
+            progressive_native_scan_with_facts(
+                adb.as_ref(),
+                &subnet_label,
+                scan_subnet_hits(prefix, &mut sweep).map(|hit| hit.ip),
+            )
+            .await?
+        } else {
+            let (hits, stats) = scan_subnet_with_stats(prefix).await;
+            sweep = stats;
+            let swept: Vec<String> = hits.into_iter().map(|hit| hit.ip).collect();
+            scan_command_stage_with_attempts(
+                adb.as_ref(),
+                &subnet_label,
+                &swept,
+                None,
+                NativeAttempts::new(),
+            )
+            .await?
         }
-        tracing::info!(subnet = "unknown", found = 0, "scan finished");
-        return Ok(ScanResult {
-            subnet: None,
-            found: vec![],
-            connected: vec![],
-            pending: vec![],
-            unauthorized: vec![],
-            failed: vec![],
-            needs_pairing: vec![],
-            message: "Could not detect default gateway. Set SHIELD_OPTIMIZER_SUBNET=\"a.b.c\" \
-                      to override, or use Add by IP."
-                .to_string(),
-            details: Vec::new(),
-        });
-    };
-    let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
-
-    if !adb.uses_host_server() {
-        return progressive_native_scan(
+    } else if !adb.uses_host_server() {
+        let (mut result, stage) = scan_command_stage_with_attempts(
             adb.as_ref(),
-            &subnet_label,
-            scan_subnet_hits(prefix).map(|hit| hit.ip),
+            "local network",
+            &[],
+            None,
+            NativeAttempts::new(),
+        )
+        .await?;
+        result.subnet = None;
+        result.message = result
+            .message
+            .replace("local network.x", "the local network");
+        result.details.push("Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.".into());
+        (result, stage)
+    } else {
+        (
+            ScanResult {
+                subnet: None,
+                found: vec![],
+                connected: vec![],
+                pending: vec![],
+                unauthorized: vec![],
+                failed: vec![],
+                needs_pairing: vec![],
+                message: "Could not detect the local subnet. Use Add by IP to connect to your TV."
+                    .into(),
+                details: vec![],
+            },
+            StageFacts::default(),
+        )
+    };
+    drop(adb);
+    if let Some(reason) = scan_report_reason(&result) {
+        report_scan(
+            state.inner(),
+            ScanReport {
+                reason,
+                swept: prefix,
+                sweep: prefix.map(|_| sweep),
+                stage: Some(stage),
+                result: Some(&result),
+                started,
+            },
         )
         .await;
     }
-    let hits = scan_subnet(prefix).await;
-    let swept: Vec<String> = hits.iter().map(|h| h.ip.clone()).collect();
-    scan_command_stage(adb.as_ref(), &subnet_label, &swept).await
+    Ok(result)
 }
 
+fn scan_report_reason(result: &ScanResult) -> Option<DiagReason> {
+    if result.found.is_empty() {
+        Some(DiagReason::ScanEmpty)
+    } else if result.connected.is_empty()
+        && result.unauthorized.is_empty()
+        && result.pending.is_empty()
+        && !result.failed.is_empty()
+    {
+        Some(DiagReason::ScanConnectFailed)
+    } else {
+        None
+    }
+}
+
+/// What the connect stage saw, for the report. Raw text: only codes and
+/// counts derived from it are ever sent.
+#[derive(Default)]
+struct StageFacts {
+    startup_error: Option<String>,
+    attempted: usize,
+    failure_details: Vec<String>,
+}
+
+struct ScanReport<'a> {
+    reason: DiagReason,
+    swept: Option<[u8; 3]>,
+    sweep: Option<SweepStats>,
+    stage: Option<StageFacts>,
+    result: Option<&'a ScanResult>,
+    started: Instant,
+}
+
+/// Record a scan that found nothing usable. The counts are taken now; the
+/// host facts (adb, mDNS, interfaces) are gathered in the background so the
+/// user's result isn't held up by the extra adb calls.
+async fn report_scan(state: &AppState, report: ScanReport<'_>) {
+    if !state.telemetry.is_active() {
+        return;
+    }
+    let gateway = match (report.swept, subnet_overridden()) {
+        (None, _) => Gateway::NotDetected,
+        (Some(_), true) => Gateway::Override,
+        (Some(_), false) => Gateway::Detected,
+    };
+    let sweep = report
+        .sweep
+        .map(|s| sweep_diag(s.probed, s.open, s.timeouts, s.refused, s.elapsed));
+    let stage = report.stage.unwrap_or_default();
+    let connect = report.result.map(|r| {
+        let details: Vec<&str> = stage.failure_details.iter().map(String::as_str).collect();
+        connect_diag(
+            stage.attempted,
+            r.connected.len(),
+            r.unauthorized.len(),
+            r.failed.len(),
+            r.needs_pairing.len(),
+            &details,
+        )
+    });
+    let errors = error_codes(stage.startup_error.as_deref());
+    let elapsed = report.started.elapsed();
+    let telemetry: Arc<Telemetry> = state.telemetry.clone();
+    let adb = state.adb_snapshot().await;
+    let reason = report.reason;
+    let swept = report.swept;
+    tauri::async_runtime::spawn(async move {
+        let mut diag = crate::commands::diagnostics::host_diag(&*adb, swept, Some(gateway)).await;
+        drop(adb);
+        if let Some(facts) = diag.adb.clone() {
+            telemetry.set_adb_facts(facts);
+        }
+        diag.sweep = sweep;
+        diag.connect = connect;
+        diag.errors = errors;
+        telemetry.record_diagnostic(reason, None, None, diag.with_ms(elapsed));
+    });
+}
+
+#[cfg(test)]
 async fn scan_command_stage(
     adb: &dyn AdbDriver,
     subnet_label: &str,
@@ -631,6 +749,7 @@ async fn scan_command_stage(
     scan_command_stage_with_discovery(adb, subnet_label, swept, None).await
 }
 
+#[cfg(test)]
 async fn scan_command_stage_with_discovery(
     adb: &dyn AdbDriver,
     subnet_label: &str,
@@ -639,6 +758,7 @@ async fn scan_command_stage_with_discovery(
 ) -> Result<ScanResult, String> {
     scan_command_stage_with_attempts(adb, subnet_label, swept, discovery, NativeAttempts::new())
         .await
+        .map(|(result, _)| result)
 }
 
 async fn scan_command_stage_with_attempts(
@@ -647,7 +767,7 @@ async fn scan_command_stage_with_attempts(
     swept: &[String],
     discovery: Option<Result<(NativeDiscoveryReport, Instant), AdbError>>,
     mut early_attempts: NativeAttempts,
-) -> Result<ScanResult, String> {
+) -> Result<(ScanResult, StageFacts), String> {
     // Warm the adb daemon before connecting. The port sweep just opened and
     // dropped raw TCP sockets against each device's adbd; firing `adb connect`
     // immediately afterward — especially against a cold daemon — tends to get
@@ -909,6 +1029,11 @@ async fn scan_command_stage_with_attempts(
         });
     }
 
+    let facts = StageFacts {
+        startup_error: startup_error.clone(),
+        attempted: targets.connect.len(),
+        failure_details: failure_details.clone(),
+    };
     let (message, details) = if host_server {
         let mut message = summary_message(
             subnet_label,
@@ -957,17 +1082,20 @@ async fn scan_command_stage_with_attempts(
         "scan finished"
     );
 
-    Ok(ScanResult {
-        subnet: Some(subnet_label.to_string()),
-        found,
-        connected,
-        pending: pending_connections,
-        unauthorized,
-        failed,
-        needs_pairing: targets.needs_pairing,
-        message,
-        details,
-    })
+    Ok((
+        ScanResult {
+            subnet: Some(subnet_label.to_string()),
+            found,
+            connected,
+            pending: pending_connections,
+            unauthorized,
+            failed,
+            needs_pairing: targets.needs_pairing,
+            message,
+            details,
+        },
+        facts,
+    ))
 }
 
 fn native_summary_message(
@@ -1798,9 +1926,29 @@ mod command_stage_tests {
         let fake = ScanFake::default()
             .on(&["start-server"], &[Err("server startup reply lost")])
             .on(&["connect", "192.0.2.1:5555"], &[Err("No route to host")]);
-        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
-            .await
-            .unwrap();
+        let (result, facts) = scan_command_stage_with_attempts(
+            &fake,
+            "192.0.2",
+            &["192.0.2.1".into()],
+            None,
+            NativeAttempts::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(facts.attempted, 1);
+        assert!(facts
+            .startup_error
+            .as_deref()
+            .unwrap()
+            .contains("server startup reply lost"));
+        assert!(facts
+            .failure_details
+            .iter()
+            .any(|detail| detail.contains("No route to host")));
+        assert_eq!(
+            scan_report_reason(&result),
+            Some(DiagReason::ScanConnectFailed)
+        );
         ScanFake::emit_fixture("after-startup-failure", &result);
         assert!(result.message.contains("server startup reply lost"));
         assert!(result.message.contains("192.0.2.1:5555"));
@@ -2181,7 +2329,7 @@ mod command_stage_tests {
                         Some(("192.0.2.1".into(), (true, gate)))
                     }
                 });
-                progressive_native_scan(worker.as_ref(), "192.0.2", sweep).await
+                progressive_native_scan_with_facts(worker.as_ref(), "192.0.2", sweep).await
             });
             tokio::time::timeout(Duration::from_secs(1), fake.discovery_started.notified())
                 .await
@@ -2210,14 +2358,23 @@ mod command_stage_tests {
                 "remaining subnet probes are still blocked"
             );
             release_sweep.notify_one();
-            let result = tokio::time::timeout(Duration::from_secs(1), scan)
+            let (result, facts) = tokio::time::timeout(Duration::from_secs(1), scan)
                 .await
                 .unwrap()
                 .unwrap()
                 .unwrap();
             assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+            assert_eq!(facts.attempted, 1);
             assert_eq!(result.found, vec![target.clone()]);
             assert!(result.unauthorized.is_empty());
+            assert_eq!(
+                scan_report_reason(&result),
+                if matches!(outcome, "ready" | "pending") {
+                    None
+                } else {
+                    Some(DiagReason::ScanConnectFailed)
+                }
+            );
             match outcome {
                 "ready" => assert_eq!(result.connected, vec![target]),
                 "pending" => assert_eq!(result.pending, vec![target]),

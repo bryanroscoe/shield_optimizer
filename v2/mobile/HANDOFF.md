@@ -133,7 +133,9 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   export (`EXPORT-DISCOVERABILITY.md`). Copy text never claims to have saved a file.
 - **Support tiers claim only what the TV reported.** A tier comes from the connected TV's profile
   (`Device.support`), never from a saved row's address. Unreadable means `unknown` ("not verified"),
-  and no tier relaxes a safety gate or blocks enable/restore/Recovery.
+  and no tier relaxes a safety gate or blocks enable/restore/Recovery. The list is shared with
+  desktop and changes only through `../../docs/DEVICE-SUPPORT.md`; the live copy the app fetches
+  is synced from the same file, so never special-case a tier in mobile code.
 - **Anonymous reports are opt-out and Rust-built.** The frontend only says what happened; Rust
   decides whether to send and redacts. Never add a field that carries a serial, address, TV name,
   package list or path. Data-safety answers follow `DATA-INVENTORY.md`.
@@ -144,6 +146,9 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   against public keys compiled in; `crates/core/src/license.rs`, `tools/atvopt-license`). The dev
   key `ATVOPT-PRO-2025` works in **debug builds only**. Private signing keys live in `~/.atvopt/`
   outside the repo; back up `~/.atvopt/license-signing-key.prod`. See `LICENSING.md`.
+- Play submission (2026-11-01): Pro is $4.99, past Ko-fi supporters get Play promo codes, and the
+  new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
+  `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
 - Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro`) through
   `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0) with on-device SHA1withRSA
   verification in `src-tauri/src/play_billing.rs` and the two-source entitlement in

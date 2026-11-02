@@ -85,14 +85,14 @@ async function telemetrySetting({ browser, base }) {
   const text = await notice.innerText();
   assert.match(text, /anonymous reports/);
   assert.match(text, /No serial numbers, IP addresses, TV names or app lists\./);
-  assert.match(text, /Report a bug/);
-  assert.doesNotMatch(text, /in Settings/, "desktop points at where the switch really is");
+  assert.match(text, /in Settings \(the gear icon above\)/, "desktop points at where the switch really is");
   // Non-blocking: the device list is usable underneath it.
   await page.locator('[data-serial="192.168.1.42:5555"]').waitFor();
   await notice.getByRole("button", { name: "Got it" }).click();
   await notice.waitFor({ state: "detached" });
 
-  // The switch lives in the Report a bug dialog, on by default.
+  // The switch is in Settings and, as before, in the Report a bug dialog; on
+  // by default. tests/settings-screen.mjs drives the Settings copy.
   await page.getByRole("button", { name: "Report a bug" }).click();
   const toggle = page.getByRole("dialog").getByRole("checkbox", { name: "Share anonymous device and error reports" });
   assert.equal(await toggle.isChecked(), true, "on by default");

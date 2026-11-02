@@ -76,7 +76,24 @@ mid-transfer FAIL replies, including fragmented replies interleaved with a trans
 ACK. They stop when rejection is observed and never replay or accept success before
 DONE; the same total transfer deadline bounds incomplete error replies.
 
+The current integration also retains main's Settings and privacy controls. Native
+mode is identified as built-in in diagnostics, without probing a host server or
+live TV sessions for scan reports. Scan statistics count the existing streaming
+probes, and pending handshakes do not become failed-connection reports. Settings
+keeps host-server installation/restart controls inactive in native mode.
+Subprocess status distinguishes a missing binary from a failed availability probe;
+timeout/startup/I/O failures retain their diagnostic and Restart recovery instead
+of being labeled "ADB not found".
+
 ## Things the next reader needs that the code does not say
+
+- **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.
+  Its switches are the same state as their other copies, not duplicates: the report setting
+  lives in `src/lib/reports.svelte.ts` (also the Report a bug dialog), theme and auto-update in
+  `src/lib/ui-prefs.svelte.ts` (the header theme switch), Stop ADB when quitting in
+  `src/lib/stop-adb-on-quit.svelte.ts` (Devices). Its Updates and About rows drive the layout's
+  own update flow and dialogs through `src/lib/app-shell.ts`. Support ID and Send logs need the
+  backend's `support_id` and `upload_diagnostics`.
 
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
   channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
@@ -153,8 +170,18 @@ DONE; the same total transfer deadline bounds incomplete error replies.
   the build sets `ATVOPT_TELEMETRY_URL`; payload and redaction are pure
   (`engine/telemetry.rs`), the queue and upload are `crates/core/src/telemetry.rs`, and the
   frontends report outcomes from their single invoke wrapper via `shared/telemetry.ts`. Error
-  codes shown to users and sent in reports come from one table, `shared/errors.ts`. See
-  `v2/README.md` "Telemetry and support tiers".
+  codes shown to users and sent in reports come from one table, `shared/errors.ts`. Schema 2
+  (2026-11-02) adds `diagnostic` events for scans and TVs that found nothing (`diag` built by the
+  pure `engine/telemetry_diag.rs`), desktop-only redacted log excerpts (`engine/log_redact.rs`,
+  20 a day), the support ID (`support_id` in `telemetry_settings`, the install id while reports
+  are on) and desktop Send logs (`upload_diagnostics` → `POST /v1/diagnostics`, works with reports
+  off). The phone app sends no logs: its Play Data safety form doesn't declare them. Find a user's
+  data with `telemetry-worker/scripts/support-lookup.sh <support-id>`. See
+  `v2/README.md` "Telemetry and support tiers". The backend has been live since 2026-11-01
+  (`telemetry-worker/README.md` "Production"). `device-support.json` is the only tier list: the
+  `support-tiers-sync` workflow pushes it to the Worker on merge, and a weekly workflow rewrites
+  the "Device support report" issue with suggested moves. Change a tier only by a PR to that
+  file with today's `updated` date and a `support.rs` test (`../docs/DEVICE-SUPPORT.md`).
 - **TV evidence** is a three-way value (`tv | not_tv | unknown`); only `not_tv` blocks a row. Do
   not re-introduce "unknown means phone" — that was #120.
 

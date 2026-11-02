@@ -18,17 +18,18 @@ describe("POST /v1/events", () => {
         event({ install_id: id, kind: "action_result", action: "disable", ok: false, error_code: "pm_denied" }),
         event({ install_id: id, kind: "error", device: undefined, error_code: "adb_missing", message: "adb not found in /usr/local/bin" }),
       ],
-    }, { cf: { country: "US", city: "Austin", latitude: "30.2", asn: 7922 } });
+    }, { cf: { country: "NZ", city: "Auckland", colo: "AKL", latitude: "-36.8", asn: 9500, timezone: "Pacific/Auckland" } });
     expect(res.status).toBe(204);
     expect(res.headers.get("x-events-accepted")).toBe("4");
     expect(res.headers.get("access-control-allow-origin")).toBeNull();
 
     const rows = await rowsFor(id);
     expect(rows).toHaveLength(4);
-    expect(rows[0]).toMatchObject({ manufacturer: "NVIDIA", model: "SHIELD Android TV", sdk: 30, country: "US", kind: "device_seen" });
+    expect(rows[0]).toMatchObject({ manufacturer: "NVIDIA", model: "SHIELD Android TV", sdk: 30, kind: "device_seen" });
     expect(rows[3]).toMatchObject({ kind: "error", manufacturer: null, message: "adb not found in [path]" });
-    // Only the country is kept from request.cf.
-    expect(JSON.stringify(rows)).not.toMatch(/Austin|30\.2|7922/);
+    // Nothing from request.cf is kept, not even the country.
+    expect(Object.keys(rows[0] ?? {})).not.toContain("country");
+    expect(JSON.stringify(rows)).not.toMatch(/NZ|Auckland|AKL|36\.8|9500/);
   });
 
   it("accepts a batch shaped exactly like the app client sends (#266)", async () => {

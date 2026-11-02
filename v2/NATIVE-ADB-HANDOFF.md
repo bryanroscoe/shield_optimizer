@@ -1,5 +1,32 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Main integration
+
+The replacement owner merged main at `67b87c6598de3ebcae1a0aac3187db5790765b81`
+(settings #276 and diagnostics #277), keeping streaming native scan admission and
+all shared-transport cancellation/download behavior. Sweep counters observe the
+same stream rather than collecting it before native connection attempts. Pending
+handshakes do not generate a failed-connection diagnostic. Mobile discovery keeps
+Android NSD with the shared Rust transport and main's report controls.
+
+Native diagnostics identify the built-in client and skip host-server/session
+probes. Settings identifies native mode and disables platform-tools actions.
+Subprocess status uses typed missing-binary errors: timeout/startup/I/O failure
+retains its real diagnostic and Restart, rather than suggesting a download.
+The settings/privacy state from main and the subprocess shipping default remain.
+
+Local integrated workspace tests with direct-adb: 934 passed, zero failed, one
+existing live-device test ignored. Frontend check/build, native discovery and
+serialized-refresh regressions, telemetry/error tests, and Settings/status tests
+passed. The earlier compile caught a duplicate test import, fixed before the
+successful run. These are local macOS checks, not cross-platform CI acceptance.
+Workspace Clippy was stopped while queued by the task runner when free disk fell
+below 20 GiB; its target did not grow. It is incomplete, not a pass. The workspace
+cleanup preview covers 2.6 GiB of mixed historical outputs and was not applied.
+A rebuilt integrated app and its hardware retest remain outstanding because the
+same capacity guard prevents packaging. The delivery below is still the earlier
+binary; it does not contain these integrated changes.
+
 ## Current delivery
 
 The replacement implementation owner completed the immediate macOS acceptance.

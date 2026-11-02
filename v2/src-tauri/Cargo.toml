@@ -74,6 +74,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 # Decode an APK's binary AndroidManifest.xml to read its package id
 axmldecoder = "0.5"
 
+# Counts and prefix lengths of the local network interfaces for the anonymous
+# "scan found nothing" report. Addresses and names never leave the process.
+if-addrs = "0.15"
+
 [dev-dependencies]
 shield-optimizer-core = { path = "../crates/core", features = ["test-support"] }
 pretty_assertions = "1"

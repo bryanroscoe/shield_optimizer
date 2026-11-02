@@ -443,6 +443,7 @@ export interface ScanConnectionProgress {
 }
 
 export interface AdbStatus {
+  failure?: "missing_binary" | "probe_failed" | null;
   connections?: ScanConnectionProgress;
   backend?: "direct" | "subprocess";
   available: boolean;

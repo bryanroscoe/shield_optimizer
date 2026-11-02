@@ -4488,6 +4488,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "futures-util",
+ "if-addrs",
  "libc",
  "mdns-sd",
  "pretty_assertions",

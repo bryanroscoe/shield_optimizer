@@ -4,6 +4,10 @@ export interface Env {
   RAW_RETENTION_DAYS?: string;
   PER_INSTALL_DAILY_EVENTS?: string;
   GLOBAL_DAILY_EVENTS?: string;
+  LOG_RETENTION_DAYS?: string;
+  PER_INSTALL_DAILY_UPLOADS?: string;
+  GLOBAL_DAILY_UPLOADS?: string;
+  GLOBAL_DAILY_UPLOAD_BYTES?: string;
 }
 
 export function intVar(v: string | undefined, fallback: number): number {

@@ -5,6 +5,16 @@
 //   npm run report -- [--days 90] [--limit 500] [--group manufacturer,model,device,profile]
 //
 // Needs Node 22.18+ (runs TypeScript directly). Prints JSON with --json.
+//
+// --issue prints the weekly "Device support report" issue body instead: all
+// time and last-30-day windows, the tier each TV gets from --rules (default:
+// the repo's device-support.json) and a suggested tier. Criteria live in
+// report-lib.ts and docs/DEVICE-SUPPORT.md.
+
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { analyze, consoleRows, fetchReport, issueMarkdown } from "./report-lib.ts";
+import { checkTierFile } from "./tiers-lib.ts";
 
 const args = process.argv.slice(2);
 function flag(name: string): string | undefined {
@@ -19,46 +29,43 @@ if (!base || !token) {
   process.exit(2);
 }
 
-const url = new URL("/v1/admin/devices", base);
-url.searchParams.set("group", flag("group") ?? "manufacturer,model,device,profile");
-const days = flag("days");
-if (days) url.searchParams.set("days", days);
-const limit = flag("limit");
-if (limit) url.searchParams.set("limit", limit);
-
-const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
-if (!res.ok) {
-  console.error(`${res.status} ${await res.text()}`);
+try {
+  if (args.includes("--issue")) {
+    const rulesPath = flag("rules") ?? fileURLToPath(new URL("../../crates/core/data/device-support.json", import.meta.url));
+    // Only the rules' shape matters here; a date check would fail a report for nothing.
+    const checked = checkTierFile(JSON.parse(readFileSync(rulesPath, "utf8")), { today: "9999-12-31" });
+    if (!checked.doc) throw new Error(`${rulesPath}: ${checked.errors.join("; ")}`);
+    const group = "manufacturer,model,device";
+    const [all, recent] = await Promise.all([
+      fetchReport(base, token, { group, days: 3650, limit: 5000 }),
+      fetchReport(base, token, { group, days: 30, limit: 5000 }),
+    ]);
+    const rows = analyze(checked.doc.rules, all, recent);
+    const server = process.env.GITHUB_SERVER_URL ?? "https://github.com";
+    const repo = process.env.GITHUB_REPOSITORY ?? "bryanroscoe/shield_optimizer";
+    const runId = process.env.GITHUB_RUN_ID;
+    process.stdout.write(
+      issueMarkdown(rows, all, recent, {
+        generatedAt: new Date(),
+        rulesUpdated: checked.doc.updated,
+        docsUrl: `${server}/${repo}/blob/main/docs/DEVICE-SUPPORT.md`,
+        runUrl: runId ? `${server}/${repo}/actions/runs/${runId}` : undefined,
+      }),
+    );
+  } else {
+    const body = await fetchReport(base, token, {
+      group: flag("group") ?? "manufacturer,model,device,profile",
+      days: flag("days"),
+      limit: flag("limit"),
+    });
+    if (args.includes("--json")) {
+      console.log(JSON.stringify(body, null, 2));
+    } else {
+      console.table(consoleRows(body));
+      console.log(`Since ${body.since}.${body.truncated ? " Truncated: raise --limit or narrow --days." : ""}`);
+    }
+  }
+} catch (e) {
+  console.error(e instanceof Error ? e.message : String(e));
   process.exit(1);
-}
-const body = (await res.json()) as {
-  group: string[];
-  since: string;
-  truncated: boolean;
-  rows: Array<Record<string, unknown>>;
-};
-
-if (args.includes("--json")) {
-  console.log(JSON.stringify(body, null, 2));
-} else {
-  const table = body.rows.map((r) => {
-    const ok = Number(r.action_ok);
-    const fail = Number(r.action_fail);
-    const out: Record<string, unknown> = {};
-    for (const g of body.group) out[g] = r[g] ?? "-";
-    out.installs = r.installs;
-    out.seen = r.seen;
-    out.ok = ok;
-    out.fail = fail;
-    out["ok %"] = ok + fail > 0 ? ((100 * ok) / (ok + fail)).toFixed(1) : "-";
-    out.errors = r.errors;
-    out["top errors"] = (r.top_errors as Array<{ code: string; count: number }>)
-      .slice(0, 3)
-      .map((e) => `${e.code} (${e.count})`)
-      .join(", ");
-    out["last seen"] = String(r.last_seen ?? "").slice(0, 10);
-    return out;
-  });
-  console.table(table);
-  console.log(`Since ${body.since}.${body.truncated ? " Truncated: raise --limit or narrow --days." : ""}`);
 }

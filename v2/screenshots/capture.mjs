@@ -147,15 +147,22 @@ async function captureScreens(page, shot) {
     await page.getByLabel("Log output").waitFor();
     await shot("logs");
 
-    // 14. Shell runner.
+    // 15. Shell runner.
     await page.locator("#tab-shell").click();
     await page.getByText("Disabled packages", { exact: false }).first().waitFor();
     await shot("shell");
 
-    // 15. Global snapshots page.
+    // 16. Global snapshots page.
     await page.goto(`${BASE}/snapshots`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
     await shot("snapshots");
+
+    // 17. Settings, reached from the header gear.
+    await page.getByRole("link", { name: "Settings" }).click();
+    await page.locator("[data-support-id]").waitFor();
+    await page.getByText("/opt/homebrew/bin/adb", { exact: false }).waitFor();
+    await page.mouse.move(0, 0);
+    await shot("settings");
 }
 
 async function main() {

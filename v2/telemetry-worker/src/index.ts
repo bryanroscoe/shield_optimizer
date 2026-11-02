@@ -2,13 +2,16 @@ import { checkAdmin, deviceReport, parseGroup } from "./admin";
 import type { Env } from "./env";
 import { error, json, readBodyLimited } from "./http";
 import { consumeQuota, purgeExpired, releaseQuota, storeEvents, utcDay } from "./ingest";
+import { DEFAULT_EVENT_LIMIT, MAX_EVENT_LIMIT, parseSupportQuery, supportLookup, uploadText } from "./support";
 import { readTiers, replaceTiers, validateTierRules } from "./tiers";
-import { MAX_BODY_BYTES, cleanCountry, validateBatch } from "./validate";
+import { admitUpload, releaseUpload, storeUpload, UPLOAD_MAX_BODY, uploadBytes, validateUpload } from "./uploads";
+import { MAX_BODY_BYTES, validateBatch } from "./validate";
 
 export type { Env } from "./env";
 
-// Nothing in this file logs. Request IPs, headers and request.cf (apart from
-// the two-letter country) are never read into storage or console output.
+// Nothing in this file logs. Request IPs and headers are never read into
+// storage or console output, and request.cf (Cloudflare's country, city, colo,
+// ASN...) is never read at all: the backend stores no location of any kind.
 
 const TIER_CACHE = "public, max-age=3600";
 const ADMIN_MAX_BODY = 256 * 1024;
@@ -54,9 +57,8 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
     });
   }
 
-  const cf = (request as { cf?: { country?: unknown } }).cf;
   try {
-    await storeEvents(env, events, cleanCountry(cf?.country), now);
+    await storeEvents(env, events, now);
   } catch {
     await releaseQuota(env, quota.rows, now).catch(() => undefined);
     return error(503, "storage_unavailable");
@@ -68,6 +70,32 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
       "x-events-rejected": String(rejectedCount),
     },
   });
+}
+
+async function postDiagnostics(request: Request, env: Env): Promise<Response> {
+  const body = await readJson(request, UPLOAD_MAX_BODY);
+  if (!body.ok) return body.response;
+  const upload = validateUpload(body.value);
+  if (!upload.ok) return error(400, upload.reason);
+  const now = new Date();
+  let admitted: Awaited<ReturnType<typeof admitUpload>>;
+  try {
+    admitted = await admitUpload(env, upload.value.install_id, uploadBytes(upload.value), now);
+  } catch {
+    return error(503, "storage_unavailable");
+  }
+  if (admitted !== "ok") {
+    return error(429, admitted === "install" ? "upload_daily_cap" : "upload_global_cap", {}, {
+      "retry-after": String(secondsUntilUtcMidnight(now)),
+    });
+  }
+  try {
+    const id = await storeUpload(env, upload.value, now);
+    return json({ ok: true, id, bytes: upload.value.body.length }, 201, { "cache-control": "no-store" });
+  } catch {
+    await releaseUpload(env, upload.value.install_id, uploadBytes(upload.value), now).catch(() => undefined);
+    return error(503, "storage_unavailable");
+  }
 }
 
 async function admin(request: Request, env: Env, path: string): Promise<Response> {
@@ -91,6 +119,32 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
     const since = utcDay(new Date(Date.now() - (days - 1) * 86_400_000));
     const rows = await deviceReport(env, group, since, limit);
     return json({ group, since, limit, truncated: rows.length === limit, rows }, 200, { "cache-control": "no-store" });
+  }
+
+  if (path.startsWith("/v1/admin/support/")) {
+    if (request.method !== "GET") return error(405, "method_not_allowed", {}, { allow: "GET" });
+    const q = parseSupportQuery(decodeURIComponent(path.slice("/v1/admin/support/".length)));
+    if (!q) return error(400, "bad_support_id");
+    const url = new URL(request.url);
+    const limit = Number(url.searchParams.get("limit") ?? String(DEFAULT_EVENT_LIMIT));
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_EVENT_LIMIT) return error(400, "bad_limit");
+    return json(await supportLookup(env, q, limit), 200, { "cache-control": "no-store" });
+  }
+
+  const upload = /^\/v1\/admin\/uploads\/(\d{1,12})$/.exec(path);
+  if (upload) {
+    if (request.method !== "GET") return error(405, "method_not_allowed", {}, { allow: "GET" });
+    const row = await uploadText(env, Number(upload[1]));
+    if (!row) return error(404, "not_found");
+    return new Response(row.body, {
+      status: 200,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "no-store",
+        "x-install-id": row.install_id,
+        "x-received-at": row.received_at,
+      },
+    });
   }
 
   if (path === "/v1/admin/support-tiers") {
@@ -119,6 +173,11 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (path === "/v1/events") {
     if (request.method !== "POST") return error(405, "method_not_allowed", {}, { allow: "POST, OPTIONS" });
     return postEvents(request, env);
+  }
+
+  if (path === "/v1/diagnostics") {
+    if (request.method !== "POST") return error(405, "method_not_allowed", {}, { allow: "POST, OPTIONS" });
+    return postDiagnostics(request, env);
   }
 
   if (path === "/v1/support-tiers") {

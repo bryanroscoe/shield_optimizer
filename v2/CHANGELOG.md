@@ -22,16 +22,27 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- ADB status now distinguishes missing platform-tools from timeout/startup errors,
+  preserving the actual diagnostic and Restart recovery. Native test builds keep
+  main's Settings and scan diagnostics without host-server actions or extra native
+  session probes.
+
+
 - Native ADB testing: connect to subnet responders as they arrive, preserve transfer permission errors without writing them as file contents, require explicit upload success, and add protected Windows identity storage. Shipping builds still use platform-tools pending native acceptance.
 
 - Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
 - Desktop and Android: show each TV's support status (Fully supported, Supported, Beta, Not supported, Not verified) with a one-line explanation, and a clear banner on TVs the app doesn't support, such as Amazon Fire TV. The status is informational and never loosens a safety check.
 - Desktop and Android: anonymous device and error reports, on by default with a one-time notice and a setting to turn them off. Reports carry the TV's make, model and Android version and which actions worked; never serial numbers, IP addresses, TV names, app lists or file paths.
 - Desktop and Android: errors in connect, scan, pairing, app changes, Optimize and snapshot restore now show a plain-language message, a short error code and a Copy details button.
+- Desktop and Android: when Scan LAN or wireless discovery finds nothing, or a TV is listed but gives no details (unauthorized, offline, or a blank make and model), the anonymous report now says what the app saw: counts and timings, the adb version and where it came from, what mDNS found and how many network interfaces there are, never an address, serial or name.
+- Desktop: a support ID (the first eight characters of the random report ID, such as `7D0B-0B9E`) is shown in Settings › Privacy & diagnostics and in the Report a bug dialog while reports are on, and is included in the bug report, so the developer can find your reports when you ask for help. Failure reports from the desktop app also carry a short, redacted excerpt of its connection log, at most 20 a day.
+- Desktop: Send logs to developer, in Settings › Privacy & diagnostics, uploads a redacted summary and the last 256 KB of the app's log under your support ID, only when you press it and confirm. It works with reports off. Logs are deleted after 30 days.
 
 - Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
 
 - Desktop: move optional explanations into keyboard-accessible help sections while keeping safety warnings, permission consequences and errors visible.
+
+- Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
 
 ## v2-2.4.1 — 2026-10-23
 

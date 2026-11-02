@@ -1,7 +1,7 @@
 # Rust-primary ADB acceptance gates
 
-No publication, hardware action, credential onboarding or default switch is
-approved by a passing fixture suite. The current native fast Remote gate stays
+A passing fixture suite does not establish physical-device acceptance or authorize
+a release or default switch. The current native fast Remote gate stays
 disabled and platform-tools remains the shipped default.
 
 ## Fixture-tested implementation
@@ -33,20 +33,24 @@ working-directory fallback, validates an existing app-owned identity or publishe
 a complete new identity without overwriting a concurrent winner. Storage uses a
 private directory and file, refuses unsafe or corrupt existing entries, and never
 imports standard ADB keys. Fixture tests do not run production generation.
-Windows secure storage remains unsupported and fails explicitly. Actual persistent
-identity creation and first-run authorization have not been executed or approved.
+Windows secure storage now uses current-user-owned protected ACLs, reparse-free
+paths and no-clobber publication. Eleven Windows identity tests and native Clippy
+passed at d81b54c; packaged Windows identity acceptance remains outstanding.
+Packaged macOS identity creation and reuse have been exercised. Physical approval
+of a previously unapproved TV remains unverified. See NATIVE-ADB-HANDOFF.md for
+exact delivered-binary provenance; an integrated source change is not that binary.
 
-## Minimal approvals for physical acceptance
+## Physical acceptance scope
 
-1. Name the permitted Mac/Windows/Linux packaged builds, TV models/firmware and
-   exact endpoints. Approve only reuse of an already-authorized identity; identity
-   creation/import, authorization or permission changes require separate approval.
-2. Approve the device actions to test: generation-scoped helper upload/start/stop/
-   removal and a named harmless key/text sequence, including disconnect during
-   held input. APK installation, power/reset and destructive commands are separate.
-3. Observe physical target identity, input delivery/release, helper/process/file
-   cleanup and socket cancellation. Record failures and indeterminate outcomes;
-   simulated results cannot fill these fields.
-4. Approve exact GitHub wording before any publication. Native enablement and a
-   shipped-default change require a separate decision after code and hardware
-   acceptance; no release or deployment follows automatically.
+Routine regression coverage and validation are already authorized. Record the
+exact build, TV and action for hardware evidence. The existing macOS scope covers
+read-only discovery, retry/Forget and download recovery; it does not authorize
+APK installation, device writes, power/reset or destructive commands.
+
+Remote helper upload/start/stop/removal and input delivery need explicit action
+scope before physical execution. Observe target identity, input release, helper
+cleanup and socket cancellation; record failures and indeterminate outcomes.
+Simulated results cannot fill those fields. Keep private LAN evidence local.
+
+Native enablement and a shipped-default change require a separate decision after
+code and hardware acceptance. No release or deployment follows automatically.

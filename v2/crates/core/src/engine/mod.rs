@@ -9,6 +9,7 @@ pub mod app_lists;
 pub mod detection;
 pub mod diagnostics;
 pub mod launcher;
+pub mod log_redact;
 pub mod logcat;
 pub mod media;
 pub mod optimize;
@@ -16,6 +17,7 @@ pub mod safety;
 pub mod snapshot;
 pub mod support;
 pub mod telemetry;
+pub mod telemetry_diag;
 pub mod types;
 
 pub use app_lists::{AppList, AppListBundle};

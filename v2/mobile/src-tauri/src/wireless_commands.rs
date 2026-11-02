@@ -4,7 +4,13 @@ use shield_optimizer_core::commands::{devices::ConnectResult, AppState};
 use tauri::State;
 use tauri_plugin_atv_adb::AdbExt;
 
-use crate::wireless_adb::{DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus};
+use shield_optimizer_core::engine::telemetry_diag::{
+    discovery_diag, error_codes, Diag, DiagReason,
+};
+
+use crate::wireless_adb::{
+    DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus, DISCOVER_TIMEOUT_MS,
+};
 
 #[derive(Clone)]
 pub struct MobileState {
@@ -17,12 +23,37 @@ pub struct DiscoveryResult {
     pub message: String,
 }
 
+/// Discovery that found nothing is reported (no log excerpt on the phone):
+/// how long it browsed and the error code if it failed outright.
 #[tauri::command]
-pub async fn wireless_discover(app: tauri::AppHandle) -> Result<DiscoveryResult, String> {
-    let devices = tokio::task::spawn_blocking(move || app.adb().discover(3_000))
+pub async fn wireless_discover(
+    app: tauri::AppHandle,
+    app_state: State<'_, AppState>,
+) -> Result<DiscoveryResult, String> {
+    let started = std::time::Instant::now();
+    let result = tokio::task::spawn_blocking(move || app.adb().discover(DISCOVER_TIMEOUT_MS))
         .await
-        .map_err(|e| format!("wireless discovery task failed: {e}"))?
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("wireless discovery task failed: {e}"))
+        .and_then(|result| result.map_err(|e| e.to_string()));
+    let found = result.as_ref().map_or(0, Vec::len);
+    if found == 0 && app_state.telemetry.is_active() {
+        app_state.telemetry.record_diagnostic(
+            DiagReason::DiscoverEmpty,
+            None,
+            None,
+            Diag {
+                discovery: Some(discovery_diag(DISCOVER_TIMEOUT_MS, 0)),
+                errors: result
+                    .as_ref()
+                    .err()
+                    .map(|e| error_codes([e.as_str()]))
+                    .unwrap_or_default(),
+                ..Default::default()
+            }
+            .with_ms(started.elapsed()),
+        );
+    }
+    let devices = result?;
     let message = if devices.is_empty() {
         "No wireless-debugging pairing services found. Enter the TV's IP and pairing port manually."
             .to_string()

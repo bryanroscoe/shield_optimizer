@@ -11,13 +11,21 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
-use shield_optimizer_core::adb::ScanConnectionProgress;
+use shield_optimizer_core::adb::{AdbError, ScanConnectionProgress};
 use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdbStatusFailure {
+    MissingBinary,
+    ProbeFailed,
+}
 
 #[derive(Serialize)]
 pub struct AdbStatus {
     /// Can the selected backend respond?
     pub available: bool,
+    pub failure: Option<AdbStatusFailure>,
     pub backend: &'static str,
     /// Path to the binary if discovery resolves one — useful in the UI for
     /// "Using adb at /opt/homebrew/bin/adb" diagnostics.
@@ -53,14 +61,24 @@ async fn adb_status_impl(state: &AppState) -> Result<AdbStatus, String> {
     let connections = adb.scan_connection_progress().await;
     match probe {
         Ok(out) => Ok(AdbStatus {
-            available: true,
+            available: out.success(),
+            failure: (!out.success()).then_some(AdbStatusFailure::ProbeFailed),
             backend,
             path,
-            last_probe: Some(out.stdout),
+            last_probe: Some(out.combined()),
             connections,
         }),
         Err(e) => Ok(AdbStatus {
             available: false,
+            failure: Some(
+                if backend == "subprocess"
+                    && matches!(e, AdbError::BinaryNotFound | AdbError::BinaryMissing { .. })
+                {
+                    AdbStatusFailure::MissingBinary
+                } else {
+                    AdbStatusFailure::ProbeFailed
+                },
+            ),
             backend,
             path,
             last_probe: Some(e.to_string()),
@@ -297,6 +315,83 @@ mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
 
+    #[tokio::test]
+    async fn status_distinguishes_absent_binary_from_failed_probe() {
+        use shield_optimizer_core::adb::{AdbOutput, AdbResult};
+        struct Probe(std::sync::Mutex<Option<AdbResult<AdbOutput>>>);
+        #[async_trait::async_trait]
+        impl AdbDriver for Probe {
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                assert_eq!(args, &["devices"]);
+                self.0.lock().unwrap().take().unwrap()
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("status must not query a TV")
+            }
+        }
+        for (probe, expected) in [
+            (
+                Err(AdbError::BinaryNotFound),
+                Some(AdbStatusFailure::MissingBinary),
+            ),
+            (
+                Err(AdbError::BinaryMissing {
+                    path: "fixture/adb.exe".into(),
+                }),
+                Some(AdbStatusFailure::MissingBinary),
+            ),
+            (
+                Err(AdbError::Timeout { seconds: 30 }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Err(AdbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "fixture launch denied",
+                ))),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Err(AdbError::NonZeroExit {
+                    code: Some(1),
+                    stderr: "fixture server startup failed".into(),
+                }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: "fixture failed output".into(),
+                    exit_code: Some(1),
+                }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Ok(AdbOutput {
+                    stdout: "List of devices attached\n".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                None,
+            ),
+        ] {
+            let detail = match &probe {
+                Ok(out) => out.combined(),
+                Err(e) => e.to_string(),
+            };
+            let state = AppState::new(
+                Arc::new(Probe(std::sync::Mutex::new(Some(probe)))),
+                crate::engine::AppListBundle::default(),
+                "not-created".into(),
+            );
+            let result = adb_status_impl(&state).await.unwrap();
+            assert_eq!(result.backend, "subprocess");
+            assert_eq!(result.failure, expected);
+            assert_eq!(result.available, expected.is_none());
+            assert_eq!(result.last_probe.as_deref(), Some(detail.as_str()));
+        }
+    }
+
     struct DirectOnly;
     #[async_trait::async_trait]
     impl AdbDriver for DirectOnly {
@@ -331,6 +426,7 @@ mod tests {
         let status = adb_status_impl(&state).await.unwrap();
         assert!(!status.available);
         assert_eq!(status.backend, "direct");
+        assert_eq!(status.failure, Some(AdbStatusFailure::ProbeFailed));
         assert!(status.path.is_none());
         assert!(status
             .last_probe

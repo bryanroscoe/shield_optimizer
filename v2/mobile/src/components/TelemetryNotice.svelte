@@ -4,7 +4,7 @@
   // app stays usable underneath and the notice goes away for good on dismiss.
   import { onMount } from "svelte";
   import { api } from "../lib/api";
-  import { NOTICE_TEXT } from "../../../shared/telemetry";
+  import { MOBILE_NOTICE_TEXT } from "../../../shared/telemetry";
 
   let { onOpenSettings }: { onOpenSettings?: () => void } = $props();
   let visible = $state(false);
@@ -31,7 +31,7 @@
   <div class="telemetry-notice" role="status" aria-live="polite">
     <span class="msr" aria-hidden="true">info</span>
     <div class="tn-body">
-      <span class="tn-text">{NOTICE_TEXT}</span>
+      <span class="tn-text">{MOBILE_NOTICE_TEXT}</span>
       <div class="tn-actions">
         <button type="button" class="tn-ok" onclick={() => dismiss(false)}>OK</button>
         {#if onOpenSettings}
