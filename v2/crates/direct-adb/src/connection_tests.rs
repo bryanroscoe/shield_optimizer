@@ -322,3 +322,130 @@ async fn tls_identity_rejection_explains_pairing_without_claiming_a_legacy_promp
     assert_eq!(operations.active(), 0);
     peer.join().unwrap();
 }
+
+fn serve_download_identity(socket: &mut TcpStream) {
+    let (command, local, payload) = receive(socket);
+    assert_eq!(command, b"OPEN");
+    assert_eq!(payload, b"shell,v2,raw:getprop ro.serialno\0");
+    send(socket, b"OKAY", 1, local, &[]);
+    assert_eq!(receive(socket).2, [4, 0, 0, 0, 0]);
+    for (channel, payload) in [(1u8, b"fixture-tv\n".as_slice()), (3, &[0][..])] {
+        let mut frame = vec![channel];
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(payload);
+        send(socket, b"WRTE", 1, local, &frame);
+        assert_eq!(receive(socket).0, b"OKAY");
+    }
+    send(socket, b"CLSE", 1, local, &[]);
+}
+
+fn download_stat(socket: &mut TcpStream) -> u32 {
+    let (command, local, payload) = receive(socket);
+    assert_eq!(command, b"OPEN");
+    assert_eq!(payload, b"sync:");
+    send(socket, b"OKAY", 1, local, &[]);
+    for _ in 0..2 {
+        assert_eq!(receive(socket).0, b"WRTE");
+        send(socket, b"OKAY", 1, local, &[]);
+    }
+    let mut stat = b"STAT".to_vec();
+    for value in [0o100_644_u32, 3, 0] {
+        stat.extend_from_slice(&value.to_le_bytes());
+    }
+    send(socket, b"WRTE", 1, local, &stat);
+    assert_eq!(receive(socket).0, b"OKAY");
+    local
+}
+
+fn finish_download_sync(socket: &mut TcpStream, local: u32) {
+    assert!(receive(socket).2.starts_with(b"QUIT"));
+    send(socket, b"OKAY", 1, local, &[]);
+    send(socket, b"CLSE", 1, local, &[]);
+}
+
+#[tokio::test]
+async fn native_download_publishes_only_success_and_keeps_selected_tv_connected() {
+    for rejected in [false, true] {
+        for existing in [false, true] {
+            let key = fixture_key();
+            let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let peer = std::thread::spawn(move || {
+                let mut selected = accept(&listener);
+                assert_eq!(receive(&mut selected).0, b"CNXN");
+                send(&mut selected, b"CNXN", 0x01000000, 1048576, b"device::\0");
+                serve_download_identity(&mut selected);
+                let mut transfer = accept(&listener);
+                assert_eq!(receive(&mut transfer).0, b"CNXN");
+                send(&mut transfer, b"CNXN", 0x01000000, 1048576, b"device::\0");
+                serve_download_identity(&mut transfer);
+                let local = download_stat(&mut transfer);
+                finish_download_sync(&mut transfer, local);
+                let local = download_stat(&mut transfer);
+                for _ in 0..2 {
+                    assert_eq!(receive(&mut transfer).0, b"WRTE");
+                    send(&mut transfer, b"OKAY", 1, local, &[]);
+                }
+                let mut response = b"DATA".to_vec();
+                response.extend_from_slice(&3u32.to_le_bytes());
+                response.extend_from_slice(b"abc");
+                if rejected {
+                    response.extend_from_slice(b"FAIL");
+                    response.extend_from_slice(&17u32.to_le_bytes());
+                    response.extend_from_slice(b"Permission denied");
+                } else {
+                    response.extend_from_slice(b"DONE");
+                    response.extend_from_slice(&0u32.to_le_bytes());
+                }
+                for bytes in response.chunks(5) {
+                    send(&mut transfer, b"WRTE", 1, local, bytes);
+                    assert_eq!(receive(&mut transfer).0, b"OKAY");
+                }
+                if !rejected {
+                    finish_download_sync(&mut transfer, local);
+                }
+                // The original session must still accept a fresh read after a
+                // dedicated transfer fails, without reconnecting or replaying it.
+                serve_download_identity(&mut selected);
+            });
+            driver.begin_request(1).unwrap();
+            driver.connect("127.0.0.1", port, 1).await.unwrap();
+            let serial = format!("127.0.0.1:{port}");
+            let dir = tempfile::tempdir().unwrap();
+            let local = dir.path().join("fixture");
+            if existing {
+                std::fs::write(&local, b"previous download").unwrap();
+            }
+            let result = driver
+                .raw_transfer(&["-s", &serial, "pull", "/fixture", local.to_str().unwrap()])
+                .await;
+            if rejected {
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Permission denied"));
+                if existing {
+                    assert_eq!(std::fs::read(&local).unwrap(), b"previous download");
+                } else {
+                    assert!(!local.exists());
+                }
+            } else {
+                result.unwrap();
+                assert_eq!(std::fs::read(&local).unwrap(), b"abc");
+            }
+            assert_eq!(
+                std::fs::read_dir(dir.path()).unwrap().count(),
+                usize::from(!rejected || existing)
+            );
+            assert_eq!(
+                driver
+                    .verified_owned_hardware_id(&serial, Duration::from_secs(2))
+                    .await
+                    .unwrap(),
+                "fixture-tv"
+            );
+            peer.join().unwrap();
+        }
+    }
+}

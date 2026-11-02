@@ -15,5 +15,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time"] }
 rsa = { version = "0.9", features = ["std", "pem", "getrandom"] }
 tracing = "0.1"
 
-[dev-dependencies]
 tempfile = "3"

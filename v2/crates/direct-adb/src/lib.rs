@@ -684,21 +684,25 @@ impl AdbDriver for WirelessAdb {
                 ));
             }
             control.remaining()?;
-            let file = std::fs::File::create(local)?;
-            let mut writer = crate::limited_writer::LimitedWriter::new(file, max_bytes);
+            // Publish only a complete download; rejection or cancellation must
+            // neither leave a partial file nor truncate an existing destination.
+            let parent = local.parent().filter(|path| !path.as_os_str().is_empty());
+            let mut staged = tempfile::NamedTempFile::new_in(parent.unwrap_or(Path::new(".")))?;
+            let mut writer = crate::limited_writer::LimitedWriter::new(&mut staged, max_bytes);
             device
                 .pull(&remote, &mut writer)
                 .map_err(|error| AdbError::Transport(error.to_string()))?;
             control.remaining()?;
             std::io::Write::flush(&mut writer)?;
             control.remaining()?;
+            staged.persist(&local).map_err(|error| error.error)?;
             Ok(())
         });
         tokio::time::timeout_at(deadline, download)
             .await
             .map_err(|_| {
                 AdbError::Transport(
-                    "Download total deadline reached; local file may be incomplete.".into(),
+                    "Download total deadline reached; no incomplete file is published.".into(),
                 )
             })?
     }
@@ -767,18 +771,8 @@ impl AdbDriver for WirelessAdb {
                 operation: "install_multiple",
             }),
             ["-s", serial, "pull", remote, local] => {
-                let remote = remote.to_string();
-                let local = PathBuf::from(local);
-                self.on_device_controlled(
-                    serial,
-                    Duration::from_secs(15 * 60),
-                    move |dev, control| {
-                        control.remaining()?;
-                        let mut file = std::fs::File::create(&local)?;
-                        dev.pull_with_control(&remote, &mut file, control)
-                    },
-                )
-                .await?;
+                self.pull_limited(serial, remote, Path::new(local), u64::MAX)
+                    .await?;
                 Ok(AdbOutput {
                     stdout: String::new(),
                     stderr: String::new(),

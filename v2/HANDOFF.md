@@ -66,7 +66,11 @@ A real read-only system-file download exposed a permission rejection being writt
 into the local file before a misleading trailer error. Failure text is now an error,
 never file data. Upload success requires an explicit sync OKAY, and STAT responses
 are acknowledged and may be fragmented. Loopback tests cover these boundaries;
-physical transfer acceptance is still in progress. Uploads also consume early or
+physical transfer acceptance is still in progress. A current-binary denied pull exposed
+another failure: it evicted the main session and left an empty local file. Native
+downloads now use the existing bounded, hardware-verified dedicated connection
+and publish a temporary file only after success; denial leaves the original TV
+connection and any existing local destination intact. Uploads also consume early or
 mid-transfer FAIL replies, including fragmented replies interleaved with a transport
 ACK. They stop when rejection is observed and never replay or accept success before
 DONE; the same total transfer deadline bounds incomplete error replies.
