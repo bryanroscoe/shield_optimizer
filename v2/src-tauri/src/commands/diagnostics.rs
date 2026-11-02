@@ -544,7 +544,7 @@ fn recent_log_text(dir: &Path, max_bytes: u64) -> String {
         .filter(|e| e.path().is_file())
         .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
         .collect();
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
     let mut parts: Vec<String> = Vec::new();
     let mut remaining = max_bytes;
     for (_, path) in files {
