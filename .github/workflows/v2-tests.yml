@@ -97,7 +97,7 @@ jobs:
           app='v2/target/universal-apple-darwin/debug/bundle/macos/ATV Optimizer Native Test.app'
           codesign --verify --deep --strict "$app"
           executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/$executable"
+          lipo "$app/Contents/MacOS/$executable" -verify_arch arm64 x86_64
           mkdir native-test-artifact
           ditto -c -k --sequesterRsrc --keepParent "$app" native-test-artifact/native-test-app.zip
           shasum -a 256 "$app/Contents/MacOS/$executable" > native-test-artifact/binary-sha256.txt
