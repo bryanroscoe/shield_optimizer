@@ -41,8 +41,10 @@ and up to 256 KiB of the app's own log, redacted line by line on the client
 (`engine/log_redact.rs`), with a second pass here that drops command output (`stdout=`/`stderr=`
 values and their continuation lines) and the value of any `device_name` or
 `private_dns_specifier`, and removes addresses, MACs, emails, adb mDNS names, `*.local` names,
-digit- or hyphen-labelled hosts and licence keys. Every pattern in that pass is bounded, so it
-stays linear on a 256 KiB upload (tested against pathological input). It is keyed by the install id, sent only when the user presses
+digit- or hyphen-labelled hosts and licence keys. That pass works token by token with bounded
+patterns, skips tokens that can't match and drops any token over 512 characters whole, so a
+256 KiB upload costs a few milliseconds of CPU whatever it contains (tested against pathological
+input). It is keyed by the install id, sent only when the user presses
 the button (even with automatic reports off), and deleted after 30 days.
 
 ## What is never collected or stored

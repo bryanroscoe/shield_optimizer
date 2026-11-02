@@ -3,7 +3,14 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { cleanDiag } from "../src/diag";
 import worker from "../src/index";
-import { EXCERPT_MAX_BYTES, EXCERPT_MAX_LINES, LINE_REMOVED_PATH, redactLogExcerpt, redactUploadText } from "../src/redact";
+import {
+  EXCERPT_MAX_BYTES,
+  EXCERPT_MAX_LINES,
+  LINE_REMOVED_PATH,
+  LONG_TOKEN_REMOVED,
+  redactLogExcerpt,
+  redactUploadText,
+} from "../src/redact";
 import { UPLOAD_GLOBAL_KEY } from "../src/uploads";
 import { parseSupportQuery, shortId } from "../src/support";
 import { validateEvent } from "../src/validate";
@@ -147,9 +154,11 @@ describe("log text redaction", () => {
       const started = Date.now();
       const out = redactUploadText(text);
       expect(out.length).toBeGreaterThan(0);
-      // Generous bound: a quadratic pass over 256 KiB takes seconds.
-      expect(Date.now() - started).toBeLessThan(250);
+      // Locally each shape takes about a millisecond; the old unbounded
+      // pattern took from hundreds of milliseconds to over a minute.
+      expect(Date.now() - started).toBeLessThan(100);
     }
+    expect(redactUploadText(`ok ${"a1".repeat(1024)} ok`)).toBe(`ok ${LONG_TOKEN_REMOVED} ok`);
   });
 
   it("gives uploads a second pass for addresses and names", () => {

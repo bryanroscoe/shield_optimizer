@@ -253,18 +253,45 @@ export function redactLogExcerpt(input: string): string {
 // hosts, IPv4 addresses (with ports), MAC addresses, emails, adb mDNS service
 // names, *.local hosts, digit- or hyphen-labelled hosts and licence keys.
 //
-// Every quantifier is bounded, so each starting position does a constant
-// amount of work: a 256 KiB run of letters and digits with no separator
-// costs a single linear scan rather than the quadratic retry an unbounded
-// `[a-z0-9._%+-]+@` makes before finding no `@`.
+// It works token by token (whitespace-separated), which keeps it linear and
+// cheap inside the 10 ms CPU budget: a token with none of `. @ : -` in it can't
+// hold anything the patterns look for and is skipped, every pattern is bounded,
+// and a token over LONG_TOKEN characters (no log line has one; a hostile body
+// might) is dropped whole rather than scanned.
 const UPLOAD_PASS =
   /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b|\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,253}\.[a-z]{2,24}|\badb-[\w.-]{1,128}|\b[\w-]{1,63}\.local\b\.?|\batvopt-[\w-]{0,128}/gi;
+const LONG_TOKEN = 512;
+export const LONG_TOKEN_REMOVED = "[long token removed]";
+const MAYBE_SENSITIVE = /[.@:-]/;
 
-export function redactUploadText(input: string): string {
-  return dropCommandOutput(input.replace(CONTROL_EXCEPT_NEWLINE, " ").replace(/\r\n/g, "\n"))
-    .replace(NAMED_VALUE, "$1$2[redacted]")
+function redactUploadToken(token: string): string {
+  if (token.length > LONG_TOKEN) return LONG_TOKEN_REMOVED;
+  if (!MAYBE_SENSITIVE.test(token)) return token;
+  return token
     .replace(UPLOAD_PASS, "[redacted]")
     .replace(DOTTED_HOST, (t) => (hostShaped(t) === t ? t : "[redacted]"));
+}
+
+export function redactUploadText(input: string): string {
+  const text = dropCommandOutput(input.replace(CONTROL_EXCEPT_NEWLINE, " ").replace(/\r\n/g, "\n")).replace(
+    NAMED_VALUE,
+    "$1$2[redacted]",
+  );
+  // Logs repeat the same tokens (module paths, timestamps' shapes, field
+  // names) thousands of times; each distinct one is redacted once.
+  const seen = new Map<string, string>();
+  return text
+    .split(/(\s+)/)
+    .map((part, i) => {
+      if (i % 2 === 1) return part;
+      let out = seen.get(part);
+      if (out === undefined) {
+        out = redactUploadToken(part);
+        if (seen.size < 20_000) seen.set(part, out);
+      }
+      return out;
+    })
+    .join("");
 }
 
 const CONTROL_EXCEPT_NEWLINE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/g;
