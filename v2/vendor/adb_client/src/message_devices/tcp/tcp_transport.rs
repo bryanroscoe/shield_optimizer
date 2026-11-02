@@ -205,6 +205,17 @@ impl TcpTransport {
         self.shell_control = previous;
     }
 
+    pub(crate) fn finish_connect_control(&mut self) -> Result<()> {
+        let control = self
+            .shell_control
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("connection has no active handshake control"))?;
+        let finish = super::bounded_shell::Finish(control.clone());
+        finish.0.release_connection()?;
+        self.shell_control = None;
+        Ok(())
+    }
+
     fn get_current_connection(&self) -> Result<Arc<Mutex<CurrentConnection>>> {
         self.current_connection
             .as_ref()

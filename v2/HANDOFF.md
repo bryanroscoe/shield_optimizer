@@ -46,6 +46,13 @@ guidance is shown only after the transport actually sends its public-key AUTH
 packet; a timeout alone does not establish authorization state. Test discovery
 with no previously approved TVs, not just successful reconnections.
 
+Native connection attempts now use one 30-second handshake deadline and interrupt
+their owned socket when canceled or superseded. Forget/retry and mobile cancellation
+must not leave an old authorization read running until its per-response timeout.
+The deadline is detached after successful authentication so it cannot later close
+a live TV connection. Loopback transport regressions cover cancellation before AUTH,
+cancellation while awaiting approval, timeout, and the first shell probe after success.
+
 ## Things the next reader needs that the code does not say
 
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater

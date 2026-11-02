@@ -1,33 +1,31 @@
 # Native desktop transport acceptance
 
-This local follow-up starts at PR #236 (`812f132`). The intended destination is
-Rust-native network ADB with platform-tools as an explicitly selected backup.
+This inventory covers the desktop integration on PR #268. The intended destination
+is Rust-native network ADB with platform-tools as an explicitly selected backup.
 The released default remains platform-tools until these gates have evidence.
 This inventory records source capabilities, not TV compatibility certification.
 
 | Area | Current evidence and remaining gate |
 | --- | --- |
-| Ownership and fallback | Exact-endpoint session pool, operation leases and cancellation have host tests. There is no subprocess fallback inside direct mode. Selection currently requires a build feature and environment variables; normal settings UX remains pending. |
-| Identity | Explicit Rust mode now initializes a private app-owned RSA-2048 PKCS#8 identity on Unix first run and validates/reuses it on later runs. Publication is atomic and never overwrites an existing identity; corrupt or unsafe storage fails visibly. Standard ADB keys are never imported or replaced. Windows secure storage, actual credential-creation approval and real authorization acceptance remain pending. |
-| Legacy AUTH / STLS | Shared mobile implementation is reused. Full scripted wire acceptance and packaged macOS/Windows/Linux plus TV acceptance remain pending. Pure framing tests do not establish AUTH acceptance. |
+| Ownership and fallback | Exact-endpoint session pool, operation leases and cancellation have host tests. There is no subprocess fallback inside direct mode. The `native-adb-default` build feature selects native mode for Finder launches; the Devices label identifies the backend. Normal builds still select platform-tools. |
+| Identity | Explicit Rust mode now initializes a private app-owned RSA-2048 PKCS#8 identity on Unix first run and validates/reuses it on later runs. Publication is atomic and never overwrites an existing identity; corrupt or unsafe storage fails visibly. Standard ADB keys are never imported or replaced. Packaged macOS identity creation and reuse have been exercised. Windows secure storage and approval of a previously unapproved physical TV remain pending. |
+| Legacy AUTH / STLS | Shared mobile implementation is reused. Real loopback RSA challenge/signature/public-key fixtures pass; the packaged macOS build reconnected to two previously approved Shields. STLS interoperability and Windows/Linux packaged hardware acceptance remain pending. |
 | TLS/PIN pairing | Loopback tests now cover TLS, exporter-bound SPAKE2 and encrypted peer-info exchange, including wrong-code rejection. Both simulated peers share the implementation; this is not Android interoperability evidence. Refused, silent and slow-trickle peers test the total deadline. Actual TV pairing, reconnect and distinct pair/connect ports remain pending. |
-| Discovery | Explicit native DNS-SD observation supports legacy, pairing and connect services with separate ports and scoped addresses. Selection is manual, stale/unusable rows are disabled, and no physical identity is inferred. No subnet sweep or USB discovery. Multicast/router/permission and cross-platform acceptance remain pending. |
-| Refresh and multiple TVs | Pool isolation, offline retention, Forget and cancellation have host tests. Hardware reconnect, DHCP changes and delayed authorization remain unverified. |
+| Discovery | Scan LAN combines the existing 5555 subnet sweep with DNS-SD observations, preserves separate pairing/connect ports and starts bounded connections as endpoints arrive. Unapproved/failed endpoints retain their cards. Unknown aliases are never merged without a verified hardware ID. Packaged macOS LAN discovery has been exercised; other routers/platforms and USB discovery remain unverified or unsupported. |
+| Refresh and multiple TVs | Pool isolation, offline retention, Forget and cancellation have host tests. Two Shields reconnected concurrently in the macOS test app; pending authorization and explicit retry were observed. DHCP changes, approval on the TV and sleep/wake recovery remain pending. |
 | Bounded shell and Device Logs | The dedicated shell-v2 stream verifies owned/dedicated hardware identity before command OPEN and has a 30-second total deadline and 256 KiB per-stream limit, partial timeout output and cancellation cleanup. It requires shell-v2; unsupported peers fail without replaying the command as shell-v1, which cannot preserve separate stderr/exit semantics. Continuous output, truncation, filters and cleanup have simulated coverage; hardware acceptance remains pending. |
 | Transfers | Push/pull on the owned connection reuse sync services. Dedicated limited downloads now verify the owned and dedicated hardware identity before stat or destination creation. Owned sync transfers and limited downloads now have fifteen-minute total deadlines with cancellation and continuous/stalled-I/O fixtures. Permissions and hardware acceptance remain pending. |
 | APK installation | Single local APK and replacement choice now use the native streaming package service. Bounded responses preserve rejection codes and uncertain outcomes without replay. Verified hardware IDs from the owned control session and dedicated install connection must agree before install OPEN. Split installs, real package-manager compatibility and hardware acceptance remain pending. |
 | Remote | Native helper upload, resident/control streams, generation ownership, held-key release and per-TV isolation are implemented behind a disabled production gate and exercised with injected drivers. Desktop queues now fence hidden/stale generations; uncertain input is never replayed. Startup and I/O are bounded, and only explicit control-service refusal is retried. Physical helper termination, cancellation behavior, text injection and packaged/hardware acceptance remain unverified. |
-| Quit and diagnostics | No shared server is stopped by the direct driver. Leases and backend status have host tests; packaged app lifecycle acceptance remains pending. |
+| Quit and diagnostics | No shared server is stopped by the direct driver. Leases and backend status have host tests. Packaged macOS launch and driver labeling were checked; shutdown during active transfers remains pending. |
 
-The local Connect/Restart readiness (`7edaf1d`), failed-endpoint retry (`f57bc84`)
-and Scan readiness (`e8f4384`) candidates are separate. They are not part of
-PR #236 or this branch's starting point. Neither the native transport nor those
-reporting corrections establish the cause of issue #235's real routing failure.
-Issue #228's Sony pairing report is a separate unresolved observation.
-
-No real host ADB server, LAN scan, TV, APK installation or persistent identity
-creation is needed for the local protocol and fake-driver gates. Those tests do
-not substitute for the explicitly pending hardware and packaged-app gates.
+At `b9bed05`, all six CI checks passed (Linux/macOS/Windows Rust, desktop and
+mobile frontend, and simulated E2E). The local macOS observation authenticated two
+Shields in 1.77 seconds, displayed four IPv4 endpoints by the first 5.127-second UI
+observation, and completed discovery in 7.30 seconds. These are one-LAN observations,
+not performance guarantees. Physical TV approval, TLS pairing, transfers/install,
+sleep/wake and release signing still need acceptance. CI compilation does not prove
+that first-run native identity works on Windows.
 
 ## Consolidated hardening limits
 
@@ -54,16 +52,19 @@ about the full suite potentially probing the LAN missed that initialization.
 The new offline aggregate verifies the provider, refuses absent-provider real
 probes, restricts browser origins and classifies scenarios explicitly.
 
-### Scan and readiness overlap
+### Scan and readiness integration
 
-| Path | Relationship to the separate candidates |
-| --- | --- |
-| Native discovery | Observation only, separate pairing/connect ports and manual selection; it does not run the legacy subnet sweep or automatically connect. |
-| Native connection pool | The native driver probes readiness before publishing its own connection; this is not evidence of real routing or authorization stability. |
-| Shared platform-tools Connect/Restart | Existing command-result parsing is unchanged here. The separate `7edaf1d` readiness and `f57bc84` failed-endpoint recovery candidates remain unmerged into this stack. |
-| Legacy Scan | Text-based connect classification and its diagnostic limitations remain separate; `e8f4384` is the isolated Scan readiness candidate, not included here. |
-| Hardware identity | New dedicated streams pin verified identity; observations/related IP addresses are never treated as physical identity or merged on that basis. |
+The prior Connect/Restart, failed-endpoint retry and Scan readiness candidates are
+included in this integration. Native discovery itself only observes advertisements;
+the desktop Scan LAN command combines those observations with the legacy subnet sweep
+and starts bounded connection jobs. A discovered endpoint is not a verified TV.
+Only the canonical profiling path and a reported hardware serial can merge aliases.
+
+Connection cancellation now interrupts the handshake socket, including the interval
+between authentication and publication. One 30-second deadline covers the handshake;
+a successful publication detaches that deadline from the persistent connection.
+Regression fixtures exercise silent peers, pending AUTH, blocked publication and
+post-handshake liveness. Hardware approval and sleep/wake remain separate gates.
 
 No candidate or simulated result establishes the cause of issue #235's reported
-routing failure, and #228's pairing report remains separate. The approved combined
-preview and all older candidates are untouched.
+routing failure, and #228's pairing report remains separate.

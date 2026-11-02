@@ -168,6 +168,25 @@ impl BoundedShellControl {
         self.0.registered.load(std::sync::atomic::Ordering::Acquire)
     }
 
+    /// Transfer a successfully authenticated socket to its persistent owner.
+    pub(crate) fn release_connection(&self) -> std::io::Result<()> {
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.state != State::Running || Instant::now() >= self.0.deadline {
+            return Err(Error::new(
+                ErrorKind::ConnectionAborted,
+                "connection attempt expired or was canceled",
+            ));
+        }
+        state.state = State::Finished;
+        state.socket = None;
+        self.0.changed.notify_all();
+        Ok(())
+    }
+
     pub(crate) fn register(&self, socket: &Arc<TcpStream>) -> std::io::Result<()> {
         self.register_kind(socket, true)
     }

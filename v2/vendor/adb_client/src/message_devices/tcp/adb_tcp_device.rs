@@ -89,6 +89,34 @@ impl ADBTcpDevice {
         })
     }
 
+    /// Authenticate under a cancellable deadline. Call `finish_connection` only
+    /// when the owner is ready to publish the socket as its active connection.
+    pub fn new_with_control_and_auth_observer(
+        address: SocketAddr,
+        key: &Path,
+        require_existing_key: bool,
+        control: super::BoundedShellControl,
+        public_key_sent: &dyn Fn(),
+    ) -> Result<Self> {
+        let transport = TcpTransport::with_shell_control(address, key, control.clone());
+        let result = ADBMessageDevice::new_with_auth_observer(
+            transport,
+            key,
+            control.remaining()?,
+            require_existing_key,
+            public_key_sent,
+        );
+        if result.is_err() {
+            let _finish = super::bounded_shell::Finish(control);
+        }
+        result.map(|inner| Self { inner })
+    }
+
+    /// Detach the handshake deadline while transferring the live socket to its owner.
+    pub fn finish_connection(&mut self) -> Result<()> {
+        self.inner.get_transport_mut().finish_connect_control()
+    }
+
     /// Connect with an existing key and one total deadline across handshake and later services.
     pub fn new_with_required_key_and_control(
         address: SocketAddr,

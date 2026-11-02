@@ -30,6 +30,9 @@ mod bounded_shell;
 mod limited_writer;
 mod streamed_install;
 
+#[cfg(test)]
+mod connection_tests;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -69,6 +72,8 @@ struct Connection {
 struct ConnectionRequests {
     latest: u64,
     awaiting_authorization: bool,
+    canceled: bool,
+    control: Option<adb_client::tcp::BoundedShellControl>,
 }
 
 impl ConnectionRequests {
@@ -76,16 +81,39 @@ impl ConnectionRequests {
         if request_id <= self.latest {
             return Err("Connection attempt superseded.".into());
         }
+        if let Some(control) = self.control.take() {
+            control.cancel();
+        }
         self.latest = request_id;
         self.awaiting_authorization = false;
+        self.canceled = false;
         Ok(())
     }
 
     fn check(&self, request_id: u64) -> Result<(), String> {
-        if request_id != self.latest {
+        if request_id != self.latest || self.canceled {
             return Err("Connection attempt canceled.".into());
         }
         Ok(())
+    }
+}
+
+struct ConnectionAttempt {
+    requests: Arc<Mutex<ConnectionRequests>>,
+    request_id: u64,
+    control: adb_client::tcp::BoundedShellControl,
+    complete: bool,
+}
+
+impl Drop for ConnectionAttempt {
+    fn drop(&mut self) {
+        let mut requests = lock_recovering(&self.requests);
+        if requests.latest == self.request_id {
+            requests.control = None;
+            requests.awaiting_authorization = false;
+            requests.canceled = !self.complete;
+        }
+        self.control.cancel();
     }
 }
 
@@ -428,8 +456,22 @@ impl WirelessAdb {
         let serial = format!("{host}:{port}");
 
         let operation = self.work()?;
-        tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let control = adb_client::tcp::BoundedShellControl::new(AUTHORIZATION_TIMEOUT)
+            .map_err(|error| format!("Connection deadline: {error}"))?;
+        let mut attempt = ConnectionAttempt {
+            requests: requests.clone(),
+            request_id,
+            control: control.clone(),
+            complete: false,
+        };
+        {
+            let mut requests = lock_recovering(&requests);
+            requests.check(request_id)?;
+            requests.control = Some(control.clone());
+        }
+        let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
             let _operation = operation;
+            control.remaining().map_err(|error| error.to_string())?;
             ensure_adb_key(&key_path, allow_key_creation)?;
             // First connect to a not-yet-authorized device triggers the TV's
             // "Allow debugging?" prompt; the persisted key is remembered after.
@@ -437,15 +479,15 @@ impl WirelessAdb {
                 requests: requests.clone(),
                 request_id,
             };
-            let device = ADBTcpDevice::new_with_key_and_auth_observer(
+            let device = ADBTcpDevice::new_with_control_and_auth_observer(
                 addr,
                 &key_path,
-                AUTHORIZATION_TIMEOUT,
                 !allow_key_creation,
+                control,
                 &|| observation.public_key_sent(),
             );
             drop(observation);
-            let device = device.map_err(|e| {
+            let mut device = device.map_err(|e| {
                 tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
                 connect_error_message(&e)
             })?;
@@ -454,6 +496,9 @@ impl WirelessAdb {
             // I/O holds it, so a pending handshake can be invalidated promptly.
             let requests = lock_recovering(&requests);
             requests.check(request_id)?;
+            device
+                .finish_connection()
+                .map_err(|e| connect_error_message(&e))?;
             // Replacing the handle drops the previous device, which closes
             // its socket. Publish the identity only once the swap is done.
             *guard = Some(Connection {
@@ -469,7 +514,9 @@ impl WirelessAdb {
             Ok(format!("Connected to {serial}."))
         })
         .await
-        .map_err(|e| format!("wireless-adb task failed: {e}"))?
+        .map_err(|e| format!("wireless-adb task failed: {e}"))?;
+        attempt.complete = result.is_ok();
+        result
     }
 
     pub async fn disconnect(&self, request_id: u64) -> Result<String, String> {
