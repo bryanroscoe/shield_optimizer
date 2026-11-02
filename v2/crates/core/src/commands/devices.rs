@@ -40,10 +40,14 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
         .map_err(|e| format!("adb devices: {e}"))?;
     let entries = parse_device_list(&raw.stdout);
 
+    // Every serial first, so one that a failed read stops us reaching is
+    // still scrubbed from what is reported about the failure.
+    for e in &entries {
+        state.telemetry.note_transport(&e.serial);
+    }
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
-        state.telemetry.note_transport(&e.serial);
         // For non-authorized devices we can't query properties — we still
         // surface them in the list with a placeholder name.
         if e.status != DeviceStatus::Device {

@@ -617,6 +617,17 @@ const UPLOAD_SCHEMA: u32 = 1;
 const UPLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const UPLOAD_HEADER_MAX_BYTES: usize = 16 * 1024;
 
+/// The serial column of `adb devices [-l]` output, whatever each row's state.
+fn transport_serials(devices_output: &str) -> Vec<String> {
+    devices_output
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("List of devices") && !l.starts_with('*'))
+        .filter_map(|l| l.split_whitespace().next())
+        .map(str::to_string)
+        .collect()
+}
+
 /// One line per adb transport: state, transport and the TV's public build
 /// properties. No serial or name.
 fn device_lines(list: &[shield_optimizer_core::engine::types::Device]) -> Vec<String> {
@@ -727,7 +738,10 @@ pub async fn upload_diagnostics(
     header.push_str("\n```\n\n### Recent log\n\n```\n");
 
     let raw_log = recent_log_text(logs.dir(), UPLOAD_READ_BYTES);
-    let session = telemetry.known_identifiers();
+    // Every transport adb lists, even one the device listing never reached,
+    // so `adb devices -l` can't carry a serial the redaction rules can't see.
+    let mut session = telemetry.known_identifiers();
+    session.extend(transport_serials(&devices_l));
     scrub_with(&session, |scrub| {
         text.push_str(&log_redact::redact_text(
             &header,
@@ -860,6 +874,19 @@ mod tests {
         assert!(!valid_ui_event("Route\n"));
         assert!(log_ui_event("bad event".into(), "x".into(), None).is_err());
         assert!(log_ui_event("tab".into(), "Apps".into(), Some("/devices/x".into())).is_ok());
+    }
+
+    #[test]
+    fn every_listed_transport_is_scrubbed_from_an_upload() {
+        let out = "List of devices attached\nQWERTYUIOPAS           device usb:1-1 product:mdarcy model:SHIELD_Android_TV device:mdarcy transport_id:2\nZXCVBNMLKJHG\tunauthorized usb:1-2 transport_id:3\n";
+        let serials = transport_serials(out);
+        assert!(serials.iter().any(|s| s == "QWERTYUIOPAS"), "{serials:?}");
+        assert!(serials.iter().any(|s| s == "ZXCVBNMLKJHG"), "{serials:?}");
+        let text = scrub_with(&serials, |scrub| log_redact::redact_text(out, scrub, 4096));
+        assert!(
+            !text.contains("QWERTYUIOPAS") && !text.contains("ZXCVBNMLKJHG"),
+            "{text}"
+        );
     }
 
     #[test]
