@@ -27,6 +27,7 @@ use shield_optimizer_core::commands::{
 };
 use shield_optimizer_core::engine;
 use shield_optimizer_core::engine::telemetry::AppKind;
+use shield_optimizer_core::engine::telemetry_diag::{adb_diag, AdbSource};
 use shield_optimizer_core::license::{
     parse_license, validate_license_key, Entitlement, LicenseInfo,
 };
@@ -230,6 +231,8 @@ pub fn run() {
                 &data_dir,
             );
             install_panic_hook(telemetry.clone());
+            // No adb binary or server on the phone: the in-process client.
+            telemetry.set_adb_facts(adb_diag(AdbSource::Builtin, None, None));
             telemetry.start();
 
             let state = AppState::new(wireless.clone(), app_lists, data_dir)

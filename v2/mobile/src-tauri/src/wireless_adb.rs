@@ -11,6 +11,10 @@ use shield_optimizer_core::adb::{AdbByteStream, AdbDriver, AdbError, AdbOutput, 
 use shield_optimizer_core::commands::devices::normalize_connect_address;
 
 use tauri_plugin_atv_adb::AdbExt;
+
+/// How long Android NSD browses for wireless-debugging services.
+pub const DISCOVER_TIMEOUT_MS: u64 = 3_000;
+
 // Re-exported so wireless_commands.rs and the mobile handler keep one import path.
 pub use tauri_plugin_atv_adb::DiscoveredAdbDevice;
 
@@ -190,7 +194,7 @@ impl WirelessAdb {
     }
 
     pub async fn discover(&self) -> Result<Vec<DiscoveredAdbDevice>, String> {
-        self.on_blocking(|app| app.adb().discover(3_000))
+        self.on_blocking(|app| app.adb().discover(DISCOVER_TIMEOUT_MS))
             .await?
             .map_err(|e| e.to_string())
     }
