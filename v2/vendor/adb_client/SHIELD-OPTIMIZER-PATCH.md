@@ -155,3 +155,20 @@ EOF on cancellation before AUTH, during public-key approval and stalled TLS,
 a total handshake deadline, blocked publication cleanup, the retained socket's
 first shell response, and a TLS certificate-rejection alert. These are protocol
 fixtures, not Android pairing interoperability evidence.
+
+## Sync response framing and explicit rejection (2026-11-02)
+
+A physical read-only pull received a sync FAIL response, but the old receiver
+skipped the record ID, wrote the failure message into the destination and then
+reported a short trailer when the peer closed. The receiver now parses DATA,
+DONE and FAIL explicitly across arbitrary WRTE boundaries, checks stream IDs,
+limits chunks to64KiB and bounds retained failure text. DONE-like bytes within
+file content are never treated as an end marker. Truncation remains an error.
+
+STAT is read incrementally and every WRTE is acknowledged. The pull caller no
+longer sends an extra acknowledgement. Upload completion requires an explicit
+sync OKAY; a FAIL or malformed status cannot become successful completion.
+These changes follow the [AOSP sync protocol](https://android.googlesource.com/platform/system/adb/+/6c8c832d924f33d6f1e9c26b88c73efbbc312c34/SYNC.TXT).
+Mock-message and real TCP fixtures cover fragmentation, failure text, correct
+acknowledgement, file-byte preservation, truncation and wrong-stream rejection.
+Existing transfer controls retain their total deadlines and no-replay policy.

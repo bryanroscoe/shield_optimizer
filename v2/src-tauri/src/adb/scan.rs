@@ -12,8 +12,7 @@ use std::net::SocketAddr;
 #[cfg(not(feature = "e2e"))]
 use std::time::Duration;
 
-#[cfg(not(feature = "e2e"))]
-use futures_util::stream::{FuturesUnordered, StreamExt};
+use futures_util::{stream, stream::BoxStream, StreamExt};
 #[cfg(not(feature = "e2e"))]
 use tokio::net::TcpStream;
 use tokio::process::Command;
@@ -198,43 +197,28 @@ pub static SWEEP_OVERRIDE: std::sync::RwLock<
 /// answered on the ADB port. Honors a global concurrency cap so we don't
 /// flood the user's network stack.
 pub async fn scan_subnet(prefix: [u8; 3]) -> Vec<ScanHit> {
-    #[cfg(feature = "e2e")]
-    if let Some(ips) = SWEEP_OVERRIDE
-        .read()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
-    {
-        return ips.into_iter().map(|ip| ScanHit { ip }).collect();
-    }
-    #[cfg(feature = "e2e")]
-    panic!("E2E fixture sweep is missing; live network probing was refused");
+    scan_subnet_hits(prefix).collect().await
+}
 
+pub fn scan_subnet_hits(prefix: [u8; 3]) -> BoxStream<'static, ScanHit> {
+    #[cfg(feature = "e2e")]
+    {
+        let ips = SWEEP_OVERRIDE
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
+            .expect("E2E fixture sweep is missing; live network probing was refused");
+        stream::iter(ips.into_iter().map(|ip| ScanHit { ip })).boxed()
+    }
     #[cfg(not(feature = "e2e"))]
     {
-        // Priority sweep mirroring v1: common DHCP range first, then the rest.
-        let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
-
-        let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
-        let mut iter = ordered_hosts.into_iter();
-        let mut hits = Vec::new();
-
-        // Prime the pump.
-        for _ in 0..PROBE_CONCURRENCY {
-            if let Some(host) = iter.next() {
-                in_flight.push(probe(prefix, host));
-            }
-        }
-
-        while let Some(result) = in_flight.next().await {
-            if let Some(hit) = result {
-                hits.push(hit);
-            }
-            if let Some(host) = iter.next() {
-                in_flight.push(probe(prefix, host));
-            }
-        }
-
-        hits
+        // Retain the existing DHCP priority and probe limits; yield responders
+        // immediately so native authentication overlaps the remaining sweep.
+        stream::iter((100..=150).chain(2..=99).chain(151..=254))
+            .map(move |host| probe(prefix, host))
+            .buffer_unordered(PROBE_CONCURRENCY)
+            .filter_map(|hit| async move { hit })
+            .boxed()
     }
 }
 

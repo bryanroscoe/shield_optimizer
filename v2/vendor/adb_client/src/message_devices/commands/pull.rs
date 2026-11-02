@@ -24,16 +24,6 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             ));
         }
 
-        self.get_transport_mut().write_message_with_timeout(
-            ADBTransportMessage::try_new(
-                MessageCommand::Okay,
-                session.local_id(),
-                session.remote_id(),
-                &[],
-            )?,
-            std::time::Duration::from_secs(4),
-        )?;
-
         let recv_buffer = MessageSubcommand::Recv.with_arg(u32::try_from(source.len())?);
         session.send_and_expect_okay(ADBTransportMessage::try_new(
             MessageCommand::Write,

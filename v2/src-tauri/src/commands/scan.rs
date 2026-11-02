@@ -2,13 +2,13 @@
 
 use std::time::{Duration, Instant};
 
-use futures_util::{stream, StreamExt};
+use futures_util::{stream, Stream, StreamExt};
 use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, AdbDriver,
-    MdnsService, ADB_NETWORK_PORT,
+    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet, scan_subnet_hits,
+    AdbDriver, MdnsService, ADB_NETWORK_PORT,
 };
 use shield_optimizer_core::adb::{
     AdbError, NativeDiscoveryReport, NativeServiceKind, ScanConnectOutcome, MDNS_SERVICE_CONNECT,
@@ -524,27 +524,49 @@ type NativeAttempts = std::collections::BTreeMap<String, Result<ScanConnectOutco
 async fn progressive_native_scan(
     adb: &dyn AdbDriver,
     subnet_label: &str,
-    sweep: impl std::future::Future<Output = Vec<String>>,
+    sweep: impl Stream<Item = String> + Send,
 ) -> Result<ScanResult, String> {
+    let started = Instant::now();
     let admit_sweep = async {
-        let swept = sweep.await;
-        let targets: Vec<String> = swept
-            .iter()
-            .map(|host| format!("{host}:{ADB_NETWORK_PORT}"))
-            .collect();
-        let attempts = stream::iter(targets.into_iter().map(|target| async move {
-            let result = adb
-                .scan_connect(&target, Duration::from_secs(45))
-                .await
-                .map_err(|error| bounded_detail(&error.to_string()));
-            (target, result)
-        }))
-        .buffer_unordered(4)
-        .collect::<NativeAttempts>()
-        .await;
+        let mut swept = Vec::new();
+        let attempts = sweep
+            .map(|host| {
+                if swept.is_empty() {
+                    tracing::debug!(
+                        elapsed_ms = started.elapsed().as_millis() as u64,
+                        "native scan first subnet responder"
+                    );
+                }
+                swept.push(host.clone());
+                async move {
+                    let target = format!("{host}:{ADB_NETWORK_PORT}");
+                    let result = adb
+                        .scan_connect(&target, Duration::from_secs(45))
+                        .await
+                        .map_err(|error| bounded_detail(&error.to_string()));
+                    (target, result)
+                }
+            })
+            .buffer_unordered(4)
+            .collect::<NativeAttempts>()
+            .await;
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            responders = swept.len(),
+            "native scan subnet admission complete"
+        );
         (swept, attempts)
     };
-    let ((swept, attempts), discovery) = tokio::join!(admit_sweep, native_discovery(adb));
+    let discovery = async {
+        let result = native_discovery(adb).await;
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            ok = result.is_ok(),
+            "native scan mDNS complete"
+        );
+        result
+    };
+    let ((swept, attempts), discovery) = tokio::join!(admit_sweep, discovery);
     scan_command_stage_with_attempts(adb, subnet_label, &swept, Some(discovery), attempts).await
 }
 
@@ -554,7 +576,14 @@ async fn progressive_native_scan(
 #[tauri::command]
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
     let adb = state.adb_snapshot().await;
-    let Some(prefix) = local_subnet_prefix().await else {
+    let started = Instant::now();
+    let prefix = local_subnet_prefix().await;
+    tracing::debug!(
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        detected = prefix.is_some(),
+        "scan subnet detection complete"
+    );
+    let Some(prefix) = prefix else {
         if !adb.uses_host_server() {
             let mut result = scan_command_stage(adb.as_ref(), "local network", &[]).await?;
             result.subnet = None;
@@ -582,13 +611,11 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
 
     if !adb.uses_host_server() {
-        return progressive_native_scan(adb.as_ref(), &subnet_label, async {
-            scan_subnet(prefix)
-                .await
-                .into_iter()
-                .map(|hit| hit.ip)
-                .collect()
-        })
+        return progressive_native_scan(
+            adb.as_ref(),
+            &subnet_label,
+            scan_subnet_hits(prefix).map(|hit| hit.ip),
+        )
         .await;
     }
     let hits = scan_subnet(prefix).await;
@@ -2070,7 +2097,7 @@ mod command_stage_tests {
     }
 
     #[tokio::test]
-    async fn native_sweep_admits_before_discovery_and_never_redials_at_final_stage() {
+    async fn native_sweep_admits_before_sweep_and_discovery_finish_without_redial() {
         use shield_optimizer_core::adb::{ScanConnectionFailure, ScanConnectionProgress};
         use std::sync::{
             atomic::{AtomicUsize, Ordering},
@@ -2143,11 +2170,18 @@ mod command_stage_tests {
                 progress: Mutex::new(ScanConnectionProgress::default()),
             });
             let worker = fake.clone();
+            let release_sweep = Arc::new(Notify::new());
+            let sweep_gate = release_sweep.clone();
             let scan = tokio::spawn(async move {
-                progressive_native_scan(worker.as_ref(), "192.0.2", async {
-                    vec!["192.0.2.1".into()]
-                })
-                .await
+                let sweep = stream::unfold((false, sweep_gate), |(emitted, gate)| async move {
+                    if emitted {
+                        gate.notified().await;
+                        None
+                    } else {
+                        Some(("192.0.2.1".into(), (true, gate)))
+                    }
+                });
+                progressive_native_scan(worker.as_ref(), "192.0.2", sweep).await
             });
             tokio::time::timeout(Duration::from_secs(1), fake.discovery_started.notified())
                 .await
@@ -2170,6 +2204,12 @@ mod command_stage_tests {
             }
             *fake.progress.lock().unwrap() = progress;
             fake.release_discovery.notify_one();
+            tokio::task::yield_now().await;
+            assert!(
+                !scan.is_finished(),
+                "remaining subnet probes are still blocked"
+            );
+            release_sweep.notify_one();
             let result = tokio::time::timeout(Duration::from_secs(1), scan)
                 .await
                 .unwrap()

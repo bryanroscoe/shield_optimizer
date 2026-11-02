@@ -714,11 +714,9 @@ mod tests {
             for value in [0o100_644_u32, 3, 0] {
                 stat.extend_from_slice(&value.to_le_bytes());
             }
-            send(&mut socket, MessageCommand::Write, local, &stat).unwrap();
-            assert_eq!(
-                receive(&mut socket).unwrap().header().command(),
-                MessageCommand::Okay
-            );
+            for bytes in stat.chunks(3) {
+                reply(&mut socket, local, bytes, false);
+            }
             for _ in 0..2 {
                 assert_eq!(
                     receive(&mut socket).unwrap().header().command(),
@@ -730,7 +728,9 @@ mod tests {
             data.extend_from_slice(&3u32.to_le_bytes());
             data.extend_from_slice(b"abcDONE");
             data.extend_from_slice(&0u32.to_le_bytes());
-            reply(&mut socket, local, &data, false);
+            for bytes in data.chunks(5) {
+                reply(&mut socket, local, bytes, false);
+            }
             let quit = receive(&mut socket).unwrap();
             assert!(quit.payload().starts_with(b"QUIT"));
             send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
@@ -751,6 +751,88 @@ mod tests {
         assert_eq!(output.bytes, b"abc");
         assert!(output.flushed);
         peer.join().unwrap();
+    }
+
+    #[test]
+    fn owned_upload_requires_fragmented_sync_status_and_acknowledges_it() {
+        use super::super::BoundedShellControl;
+        use super::super::streamed_install::tests::{hello, receive, reply, send};
+        use crate::message_devices::message_commands::MessageCommand;
+        use std::time::{Duration, Instant};
+        for rejected in [false, true] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = std::thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(3);
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "fixture accept deadline");
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(error) => panic!("fixture accept failed: {error}"),
+                    }
+                };
+                socket.set_nonblocking(false).unwrap();
+                hello(&mut socket);
+                let open = receive(&mut socket).unwrap();
+                assert_eq!(open.payload(), b"sync:");
+                let local = open.header().arg0();
+                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                for expected in [b"SEND", b"DATA", b"DONE"] {
+                    let message = receive(&mut socket).unwrap();
+                    assert_eq!(message.header().command(), MessageCommand::Write);
+                    assert!(message.payload().starts_with(expected));
+                    if expected == b"DATA" {
+                        assert_eq!(&message.payload()[8..], b"fixture bytes");
+                    }
+                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                }
+                let status = if rejected {
+                    let body = b"Permission denied";
+                    let mut bytes = b"FAIL".to_vec();
+                    bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                    bytes.extend_from_slice(body);
+                    bytes
+                } else {
+                    b"OKAY\0\0\0\0".to_vec()
+                };
+                for part in status.chunks(3) {
+                    reply(&mut socket, local, part, false);
+                }
+                if rejected {
+                    assert!(
+                        receive(&mut socket).is_err(),
+                        "rejected upload must not replay"
+                    );
+                } else {
+                    let quit = receive(&mut socket).unwrap();
+                    assert!(quit.payload().starts_with(b"QUIT"));
+                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
+                    send(&mut socket, MessageCommand::Clse, local, b"").unwrap();
+                }
+            });
+            let mut device = controlled_fixture(address);
+            let result = device.push_with_control(
+                &mut std::io::Cursor::new(b"fixture bytes"),
+                &"/fixture",
+                BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+            );
+            if rejected {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("Permission denied")
+                );
+            } else {
+                result.unwrap();
+            }
+            drop(device);
+            peer.join().unwrap();
+        }
     }
 
     #[test]

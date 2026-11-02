@@ -14,8 +14,9 @@ Scan LAN and restart now verify transport readiness; the confirmed restart can r
 one unchanged failed address. The subprocess driver remains the default. The native desktop test integration now shares the mobile Rust ADB transport while
 retaining the existing Devices flow and 5555 LAN scan. Build with `native-adb-default`
 for a Finder-launchable native test app; the driver label confirms the active backend.
-Normal builds remain subprocess by default. Hardware acceptance and Windows native
-identity support remain outstanding; this is not a published native release. These source fixes do not establish the full root
+Normal builds remain subprocess by default. Windows native identity now has a protected, current-user-owned storage implementation
+with no-clobber publication and reparse-point rejection. Windows runtime CI and
+packaged hardware acceptance must validate it; this is not a published native release. These source fixes do not establish the full root
 cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
 their notes shipped in 2.4.1. Put
 the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
@@ -39,7 +40,10 @@ by `No route to host` while the same address is reachable outside the app requir
 checking app-specific Local Network permission, not resetting TV authorization keys.
 The shipping identifier stays unchanged. Apple-issued signing remains a release task.
 
-LAN sweep hits now start connecting before the mDNS observation window finishes.
+LAN sweep hits now start connecting as each responder arrives, before the remaining
+subnet probes or mDNS observation window finish. Scan diagnostics record subnet
+detection, first responder, sweep admission and mDNS elapsed times to distinguish
+cold-network delays from authorization waits.
 Unapproved and failed native endpoints stay visible in the existing device list,
 with Ask again/Try again and Forget acting on that exact endpoint. Authorization
 guidance is shown only after the transport actually sends its public-key AUTH
@@ -53,6 +57,13 @@ The deadline is detached after successful authentication so it cannot later clos
 a live TV connection. Loopback transport regressions cover cancellation before AUTH,
 cancellation while awaiting approval, timeout, and the first shell probe after success. Explicit TLS certificate-trust rejections
 now point to Pair PIN and the separate connect port, rather than legacy AUTH prompts.
+
+Native sync transfers now parse DATA/DONE/FAIL as a byte stream across ADB packets.
+A real read-only system-file download exposed a permission rejection being written
+into the local file before a misleading trailer error. Failure text is now an error,
+never file data. Upload success requires an explicit sync OKAY, and STAT responses
+are acknowledged and may be fragmented. Loopback tests cover these boundaries;
+physical transfer acceptance is still in progress.
 
 ## Things the next reader needs that the code does not say
 
