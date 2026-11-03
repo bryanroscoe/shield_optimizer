@@ -166,28 +166,46 @@ pub async fn write_setting(
     value: String,
 ) -> Result<WriteResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
-    let cmd = match build_setting_command(&namespace, &key, &value) {
+    write_setting_for(state.inner(), &serial, &namespace, &key, &value).await
+}
+
+async fn write_setting_for(
+    state: &AppState,
+    serial: &str,
+    namespace: &str,
+    key: &str,
+    value: &str,
+) -> Result<WriteResult, String> {
+    let cmd = match build_setting_command(namespace, key, value) {
         Ok(c) => c,
         Err(message) => return Ok(WriteResult { ok: false, message }),
     };
     let adb = state.adb_snapshot().await;
     let out = adb
-        .shell(&serial, &cmd)
+        .shell(serial, &cmd)
         .await
         .map_err(|e| format!("{cmd}: {e}"))?;
-    let msg = if out.stdout.is_empty() {
-        out.stderr
-    } else {
-        out.stdout
-    };
-    Ok(WriteResult {
-        ok: !msg.contains("Error") && !msg.contains("Exception"),
-        message: if msg.is_empty() {
-            "ok".to_string()
-        } else {
-            msg
-        },
-    })
+    if !super::verification::succeeded(&out) {
+        return Ok(WriteResult {
+            ok: false,
+            message: format!("exit {:?}: {}", out.exit_code, out.combined().trim()),
+        });
+    }
+    match super::verification::verify_setting(
+        adb.as_ref(),
+        serial,
+        namespace,
+        key,
+        (!value.is_empty()).then_some(value),
+    )
+    .await
+    {
+        Ok(()) => Ok(WriteResult {
+            ok: true,
+            message: "Setting confirmed.".into(),
+        }),
+        Err(message) => Ok(WriteResult { ok: false, message }),
+    }
 }
 
 #[derive(Serialize)]
@@ -631,5 +649,57 @@ mod tests {
         assert!(build_setting_command("global", "k", "a&b").is_ok());
         assert!(build_setting_command("global", "k", "$(whoami)").is_ok());
         assert!(build_setting_command("global", "k", "`id`").is_ok());
+    }
+    #[tokio::test]
+    async fn write_setting_rejects_mobile_nonzero_and_hidden_stderr_error() {
+        for output in [
+            crate::adb::AdbOutput {
+                stdout: "".into(),
+                stderr: "".into(),
+                exit_code: Some(1),
+            },
+            crate::adb::AdbOutput {
+                stdout: "ok".into(),
+                stderr: "SecurityException: denied".into(),
+                exit_code: Some(0),
+            },
+            crate::adb::AdbOutput {
+                stdout: "Failure".into(),
+                stderr: "".into(),
+                exit_code: Some(0),
+            },
+        ] {
+            let mock = MockAdb::default().on_shell_output("settings put", output);
+            let log = mock.shell_log();
+            let state = crate::commands::test_support::state_with(mock);
+            let result =
+                super::write_setting_for(&state, "TV", "secure", "screensaver_enabled", "1")
+                    .await
+                    .unwrap();
+            assert!(!result.ok);
+            assert_eq!(
+                log.lock().unwrap().len(),
+                1,
+                "failure must not be treated as verified"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn write_setting_requires_matching_readback() {
+        for (value, expected) in [("1", true), ("0", false)] {
+            let mock = MockAdb::default().on_shell(
+                "settings list secure",
+                &format!("screensaver_enabled={value}\n{BATCH_STATUS}0\n"),
+            );
+            let state = crate::commands::test_support::state_with(mock);
+            assert_eq!(
+                super::write_setting_for(&state, "TV", "secure", "screensaver_enabled", "1")
+                    .await
+                    .unwrap()
+                    .ok,
+                expected
+            );
+        }
     }
 }
