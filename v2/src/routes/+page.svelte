@@ -38,6 +38,9 @@
       return a.name.localeCompare(b.name);
     }),
   );
+  const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed");
+  const scanAttempts = $derived(sortedDevices.filter(isScanAttempt));
+  const visibleDevices = $derived(sortedDevices.filter(d => !isScanAttempt(d)));
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -160,7 +163,7 @@
         scanMessage = nativeScanSummary;
         scanDetails = [...new Set([...scanBaseDetails, ...progress.failed.map(f => `${f.address}: ${f.message}`)])];
         if (progress.pending.length === 0 && progress.failed.length > 0) {
-          scanMessage += " Some connections did not finish; see Scan details.";
+          scanMessage += " Other connection attempts are in Scan details.";
         }
       }
       // Pending status reads are cheap; unchanged progress must not repeatedly
@@ -313,7 +316,7 @@
       scanDetails = r.details ?? [];
       scanBaseDetails = r.details ?? [];
       if (adbBackend === "direct" && (r.pending?.length ?? 0) > 0) {
-        nativeScanSummary = `Scan finished. Found ${r.found.length} network addresses. Ready TVs appear below.`;
+        nativeScanSummary = "Scan finished.";
         scanMessage = nativeScanSummary;
         nativeConnections = { ...nativeConnections, pending: r.pending ?? [] };
       }
@@ -876,10 +879,15 @@
         adb not found
       {:else if error && adbBackend !== "subprocess"}
         connection status unavailable
+      {:else if adbBackend === "direct"}
+        {devices.filter((d) => d.status === "device").length} connected
+        {#if visibleDevices.some(d => d.status === "unauthorized")}
+          · {visibleDevices.filter(d => d.status === "unauthorized").length} awaiting approval
+        {/if}
       {:else if sortedDevices.length === 0}
         no TV connected
       {:else}
-        {sortedDevices.length} {adbBackend === "direct" ? "found" : "connected"} · {devices.filter((d) => d.status === "device").length} ready
+        {sortedDevices.length} connected · {devices.filter((d) => d.status === "device").length} ready
       {/if}
     </p>
     <p class="muted small" data-testid="adb-backend">{adbBackend === "direct" ? "Native Rust ADB · direct connection" : adbBackend === "subprocess" ? "Platform-tools ADB · host server" : "Checking ADB driver…"}</p>
@@ -961,10 +969,34 @@
   {#if adbBackend === "direct" && !scanBusy && nativeConnections.pending.length > 0}
     <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses. Approve debugging on the TV if prompted; ready TVs appear automatically.</p>
   {/if}
-  {#if scanDetails.length}
+  {#if !backendUnavailable && (scanDetails.length || scanAttempts.length)}
     <details class="adb-details connect-details">
-      <summary>Scan details</summary>
-      <pre>{scanDetails.join("\n\n")}</pre>
+      <summary>Scan details{#if scanAttempts.length} — {scanAttempts.length} other connection attempts{/if}</summary>
+      {#if scanAttempts.length}
+        <p class="muted small">These addresses haven't connected. They may include multiple addresses for one device.</p>
+        <ul class="scan-attempts">
+          {#each scanAttempts as d (d.serial)}
+            <li class="scan-attempt" data-serial={d.serial}>
+              <div class="scan-attempt-info">
+                <span class="mono">{d.serial}</span>
+                <span class="muted small">{d.discoveryState === "connecting" ? "Connecting…" : "Didn't connect"}</span>
+              </div>
+              <div class="scan-attempt-actions">
+                {#if d.discoveryState === "failed"}
+                  <button class="row-action" onclick={() => repromptDevice(d)} disabled={repromptBusy === d.serial}>Try again</button>
+                {/if}
+                <button class="row-action" onclick={() => copyDiagnostics(d)} disabled={diagnosticsBusy === d.serial}>
+                  {diagnosticsBusy === d.serial ? "Copying…" : diagnosticsCopied === d.serial ? "Copied" : "Copy diagnostics"}
+                </button>
+                <button class="row-action" onclick={() => forgetDevice(d)} disabled={forgetBusy === d.serial}>
+                  {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
+                </button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if scanDetails.length}<pre>{scanDetails.join("\n\n")}</pre>{/if}
     </details>
   {/if}
   {#if scanError}
@@ -1115,7 +1147,7 @@
   </div>
 {:else}
   <ul class="device-list">
-    {#each sortedDevices as d (d.serial)}
+    {#each visibleDevices as d (d.serial)}
       {@const href = deviceHref(d)}
       <li>
         {#if href}
@@ -1148,7 +1180,7 @@
                     data-tip="Didn't report itself as an Android TV; tools may not apply"
                   >UNCONFIRMED TV</span>
                 {/if}
-                {#if d.properties}
+                {#if d.properties && d.support?.tier !== "fully_supported"}
                   <SupportBadge support={d.support} />
                 {/if}
               </div>
@@ -1157,7 +1189,7 @@
                 {#if d.model}· {d.model}{/if}
                 · {d.connection === "network" ? "network" : "usb"}
               </div>
-              {#if d.properties}
+              {#if d.properties && d.support?.tier !== "fully_supported"}
                 {#if d.support?.tier === "not_supported"}
                   <SupportBanner support={d.support} />
                 {:else}
@@ -1424,6 +1456,31 @@
     list-style: none;
     padding: 0;
     margin: 0;
+  }
+  .scan-attempts {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+  }
+  .scan-attempt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .scan-attempt-info {
+    display: grid;
+    gap: 0.25rem;
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .scan-attempt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
   /* Board 11.12's row: a glyph for what it is, the name, the address in mono,
      whether it is reachable, and the one thing to do about it. The connection

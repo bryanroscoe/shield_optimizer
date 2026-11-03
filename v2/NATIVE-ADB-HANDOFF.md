@@ -1,5 +1,23 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Owner UI feedback — 2026-11-03
+
+The Devices presentation now separates unconfirmed connecting/failed endpoints
+into the existing collapsed Scan details, retaining per-address retry, Forget and
+diagnostics. Observed AUTH requests remain in the main list. The heading counts
+connected devices and approval requests rather than all discovered addresses.
+Supported Shield cards omit redundant support badges and copy; other support
+warnings and the device detail page are unchanged. Frontend regression coverage
+checks collapsed failures, visible approval, exact endpoint actions and narrow
+window layout and stale-action removal when the backend is unavailable. Svelte
+check (zero errors/warnings), frontend build, native-scan-progress, native-discovery,
+device-list-rows and support-tiers-ui passed. Both galleries were regenerated and
+light/dark Devices captures reviewed. The previous mixed Cargo cache is now absent;
+no fresh local compiler target was created. CI will package the replacement. The
+delivery below remains the previous binary until artifact and native UI verification
+complete. Fixture screenshots/video are retained locally; no PR response was posted
+or edited without approved wording.
+
 ## Current delivery
 
 The integrated universal macOS owner-test app is running and ready for Bryan's

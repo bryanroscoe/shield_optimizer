@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Keep native scan connection attempts in expandable Scan details instead of presenting failed addresses as extra TV cards. TVs awaiting approval stay visible; each attempt retains Retry, Forget and diagnostics. Supported Shield cards no longer repeat support badges and explanatory text.
+
 - ADB status now distinguishes missing platform-tools from timeout/startup errors,
   preserving the actual diagnostic and Restart recovery. Native test builds keep
   main's Settings and scan diagnostics without host-server actions or extra native

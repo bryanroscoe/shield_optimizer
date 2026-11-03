@@ -70,24 +70,29 @@ try {
   await page.evaluate(() => { window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555', '192.0.2.4:5555']; });
   const untrusted = page.locator('[data-serial="[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555"]');
   const failed = page.locator('[data-serial="192.0.2.4:5555"]');
-  await untrusted.getByText('CONNECTING…', { exact: true }).waitFor();
+  const scanDetails = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Scan details' }) });
+  await scanDetails.locator('summary').waitFor();
+  assert.equal(await untrusted.isVisible(), false, 'unconfirmed connection attempts stay behind Scan details');
+  await scanDetails.locator('summary').click();
+  await untrusted.getByText('Connecting…', { exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'No devices connected.' }).count(), 0);
   assert.equal(await page.getByText('Online', { exact: true }).count(), 0, 'unapproved discoveries must not appear online');
   await page.evaluate(() => { window.progress.awaiting_authorization = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']; });
   await untrusted.getByText('UNAUTHORIZED', { exact: true }).waitFor();
+  assert.equal(await untrusted.evaluate(el => !!el.closest('.device-list')), true, 'observed AUTH stays in the main list');
   await untrusted.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
   await page.evaluate(() => {
     window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555'];
     window.progress.failed = [{ address: '192.0.2.4:5555', message: 'SIMULATED connection timeout; check the TV and try again.' }];
   });
-  await failed.getByText('CONNECTION FAILED', { exact: true }).waitFor();
+  await failed.getByText("Didn't connect", { exact: true }).waitFor();
   await page.setViewportSize({ width: 720, height: 900 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'discovered IPv6 endpoints and actions must fit the minimum window width');
   await capture('unapproved-narrow');
   await page.setViewportSize({ width: 1100, height: 760 });
   await capture('unapproved-and-failed-visible');
   await failed.getByRole('button', { name: 'Try again', exact: true }).click();
-  await failed.getByText('CONNECTING…', { exact: true }).waitFor();
+  await failed.getByText('Connecting…', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.reprompted), '192.0.2.4:5555');
   await failed.getByRole('button', { name: 'Forget', exact: true }).click();
   await failed.waitFor({ state: 'detached' });
@@ -122,11 +127,37 @@ try {
   await page.waitForTimeout(2200);
   assert.equal(await page.evaluate(() => window.calls.filter(c => c === 'adb_status').length), completed, 'polling stops after terminal progress');
 
+  await page.evaluate(() => {
+    window.progress.failed = [
+      { address: '[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555', message: 'SIMULATED authorization timed out.' },
+      { address: '[fe80::abcd:ef01:2345:6789%14]:40435', message: 'SIMULATED advertisement expired while queued.' },
+      { address: '192.0.2.4:5555', message: 'SIMULATED connection refused.' },
+    ];
+  });
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await scanDetails.locator('summary').filter({ hasText: '3 other connection attempts' }).waitFor();
+  assert.equal(await page.locator('.device-list [data-serial]').count(), 2, 'failed addresses are not presented as extra devices');
+  assert.match(await page.locator('.header-sub').innerText(), /^2 connected/);
+  assert.equal(await failed.isVisible(), false, 'new failures default to collapsed diagnostics');
+  assert.equal(await page.locator('.device-list').getByText('NVIDIA SHIELD is the device this app is built and tested on.', { exact: true }).count(), 0);
+  await capture('ready-with-failures-collapsed-dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await capture('ready-with-failures-collapsed-light');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await scanDetails.locator('summary').click();
+  await failed.getByRole('button', { name: 'Try again', exact: true }).waitFor();
+  await page.setViewportSize({ width: 720, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'expanded scan attempts fit narrow windows');
+  await capture('scan-details-narrow');
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await scanDetails.locator('summary').click();
+
   await page.evaluate(() => { window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']; });
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Still connecting' }).waitFor();
   await page.evaluate(() => { window.available = false; });
   await page.getByRole('alert').filter({ hasText: 'SIMULATED unavailable backend' }).waitFor();
+  assert.equal(await scanDetails.count(), 0, 'unavailable backend must not expose stale scan actions');
   const unavailable = await page.evaluate(() => window.calls.filter(c => c === 'adb_status').length);
   await page.waitForTimeout(2200);
   assert.equal(await page.evaluate(() => window.calls.filter(c => c === 'adb_status').length), unavailable, 'unavailable backend stops polling');
