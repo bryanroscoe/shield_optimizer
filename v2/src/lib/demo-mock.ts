@@ -588,7 +588,7 @@ function demoShellOutput(command: string): string {
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
-      return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+      return { available: true, failure: null, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
     case "get_stop_adb_on_quit":
       if (demoFlag("stopAdbOnQuitReadFails")) throw "demo: the setting could not be read";
       return nativeStopAdbOnQuit();

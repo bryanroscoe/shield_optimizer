@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: keep the actual diagnostic and Restart ADB available when platform-tools times out or cannot launch; only a missing executable offers Download. Scan LAN now reports failed network-advertisement discovery while retaining port-scan results.
+
 **Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
 restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
 still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use

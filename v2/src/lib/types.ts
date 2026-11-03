@@ -412,6 +412,7 @@ export interface FileTransferResult {
 
 export interface AdbStatus {
   available: boolean;
+  failure: "missing_binary" | "probe_failed" | null;
   path: string | null;
   last_probe: string | null;
 }
