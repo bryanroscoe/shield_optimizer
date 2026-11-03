@@ -4,11 +4,13 @@
   import { onMount, tick } from "svelte";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
-  import type { Device, DeviceReport, PairedConnectProbe, ScanConnectionProgress } from "$lib/types";
+  import type { Device, DeviceReport, PairedConnectProbe, ScanConnectionProgress, NativeAdvertisement, NativeDiscoveryReport } from "$lib/types";
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
   import { nativeScanRows, type DeviceRow } from "$lib/native-scan-rows";
+  import { discoveryAddressUsable } from "$lib/native-discovery-rows";
+  import NativeConnectionChoices from "$lib/components/NativeConnectionChoices.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import {
@@ -24,6 +26,9 @@
 
   let devices = $state<Device[]>([]);
   let nativeConnections = $state<ScanConnectionProgress>({ pending: [], failed: [] });
+  let nativeDiscovery = $state<NativeDiscoveryReport | null>(null);
+  let discoveryReceivedAt = $state(0);
+  let scanDetailsOpen = $state(false);
   let adbBackend = $state<"direct" | "subprocess" | null>(null);
 
   /// Sort priority: authorized first (status === "device"), then unauthorized
@@ -122,6 +127,10 @@
   let adbMissing = $state(false);
   let backendUnavailable = $state(false);
   const directUnavailable = $derived(adbBackend === "direct" && backendUnavailable);
+  const hasScanDetails = $derived(!backendUnavailable && !!(scanDetails.length || scanAttempts.length || nativeDiscovery?.advertisements.some(row => row.service_kind !== "tls_pairing")));
+  $effect(() => {
+    if (!hasScanDetails) scanDetailsOpen = false;
+  });
   let installBusy = $state(false);
   let installMessage = $state("");
 
@@ -149,6 +158,7 @@
       adbBackend = status.backend ?? null;
       backendUnavailable = !status.available;
       if (!status.available) {
+        nativeDiscovery = null;
         adbMissing = adbBackend === "subprocess" && status.failure === "missing_binary";
         devices = [];
         scanMessage = "";
@@ -309,6 +319,7 @@
     scanDetails = [];
     scanBaseDetails = [];
     nativeScanSummary = "";
+    nativeDiscovery = null;
     if (adbBackend === "direct") monitorNativeConnections();
     scanMessage = adbBackend === "direct" ? "Scanning local network… If your TV asks to allow debugging, approve ATV Optimizer." : "Scanning local network…";
     try {
@@ -317,6 +328,8 @@
       scanMessage = r.message;
       scanDetails = r.details ?? [];
       scanBaseDetails = r.details ?? [];
+      nativeDiscovery = adbBackend === "direct" ? r.native_discovery ?? null : null;
+      discoveryReceivedAt = performance.now();
       if (adbBackend === "direct" && (r.pending?.length ?? 0) > 0) {
         nativeScanSummary = "Scan finished.";
         scanMessage = nativeScanSummary;
@@ -344,6 +357,13 @@
     } finally {
       scanBusy = false;
     }
+  }
+
+  function connectUsingAdvertisement(address: NativeAdvertisement) {
+    if (adbBackend !== "direct" || !nativeDiscovery || !address.connect_address || scanBusy || connectBusy || pairBusy) return;
+    if (!discoveryAddressUsable(address, performance.now() - discoveryReceivedAt, nativeDiscovery.observation_max_age_ms)) return;
+    connectAddress = address.connect_address;
+    void connect();
   }
 
   /// Do we positively know this is not an Android TV?
@@ -971,9 +991,12 @@
   {#if adbBackend === "direct" && !scanBusy && nativeConnections.pending.length > 0}
     <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses. Approve debugging on the TV if prompted; ready TVs appear automatically.</p>
   {/if}
-  {#if !backendUnavailable && (scanDetails.length || scanAttempts.length)}
-    <details class="adb-details connect-details">
+  {#if hasScanDetails}
+    <details class="adb-details connect-details" bind:open={scanDetailsOpen}>
       <summary>Scan details{#if scanAttempts.length} — {scanAttempts.length} other connection attempts{/if}</summary>
+      {#if scanDetailsOpen && nativeDiscovery}
+        <NativeConnectionChoices report={nativeDiscovery} receivedAt={discoveryReceivedAt} busy={scanBusy || connectBusy || pairBusy || restartBusy || backendUnavailable} onChoose={connectUsingAdvertisement} />
+      {/if}
       {#if scanAttempts.length}
         <p class="muted small">These addresses haven't connected. They may include multiple addresses for one device.</p>
         <ul class="scan-attempts">

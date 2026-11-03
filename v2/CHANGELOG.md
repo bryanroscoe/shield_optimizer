@@ -29,6 +29,7 @@ platform-tools; native Rust ADB remains experimental.
 
 - Keep native scan connection attempts in expandable Scan details instead of presenting failed addresses as extra TV cards. TVs awaiting approval stay visible; each attempt retains Retry, Forget and diagnostics. Supported Shield cards no longer repeat support badges and explanatory text.
 - Native discovery stops dialing alternative addresses for one advertised service once a route is ready or awaiting approval. Unreachable routes retain IPv4/IPv6 fallback. Approval rows show the address once with shared instructions rather than repeated device cards and guides.
+- Native Scan details retains grouped mDNS service addresses with an explicit IPv4/IPv6 connection selector. Stale observations require a new scan, and pairing ports remain separate from connection addresses.
 
 - ADB status now distinguishes missing platform-tools from timeout/startup errors,
   preserving the actual diagnostic and Restart recovery. Native test builds keep

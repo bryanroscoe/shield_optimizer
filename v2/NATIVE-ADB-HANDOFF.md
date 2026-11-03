@@ -1,5 +1,26 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Grouped connection choices retained — 2026-11-03
+
+Owner feedback identified the optional address picker from prototype `efa1a18`.
+That prototype's full passive-discovery screen was never part of this integration.
+The current Devices flow now retains its useful service/interface grouping and
+IPv4/IPv6 selector inside collapsed Scan details. Selecting an option does not
+connect; its explicit Connect button uses the existing Add by IP command path.
+Connected devices continue to collapse only by verified hardware identity. mDNS
+grouping describes advertised routes, not a verified physical TV.
+
+The scan returns the bounded snapshot it already collected, with observation age
+advanced before returning. No extra discovery or property probes were added.
+Cached, expired and unusable scoped addresses cannot connect; Scan LAN refreshes
+the choices. Pairing ports never appear as connection choices. The selector only
+mounts while Scan details is open and stops its freshness timer when closed.
+Regression coverage includes exact selected address, no automatic connect from
+selection/refresh, one verified TV row, separate interfaces, stale/cached/scope
+guards, busy controls and narrow/light/dark fixture captures. This combined
+candidate supersedes the uninstalled `8f74731` package; do not install an
+intermediate candidate or restore the old prototype's whole Devices screen.
+
 ## Duplicate discovery follow-up — 2026-11-03
 
 Reproduced on the exact 66542dd app: two approved Shields plus additional IPv4/IPv6

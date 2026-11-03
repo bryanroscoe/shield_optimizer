@@ -51,7 +51,7 @@
     "test:restart-onboarding": "node tests/restart-onboarding.mjs",
     "test:direct-adb-status": "node tests/direct-adb-status.mjs",
     "test:native-discovery": "node tests/native-discovery.mjs",
-    "test:native-scan-progress": "node tests/native-scan-progress.mjs",
+    "test:native-scan-progress": "node tests/native-scan-progress.mjs && node tests/native-connection-choices.mjs",
     "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
     "test:support-tiers-ui": "node tests/support-tiers-ui.mjs",
     "test:settings-screen": "node tests/settings-screen.mjs"

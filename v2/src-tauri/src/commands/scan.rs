@@ -50,6 +50,8 @@ pub struct ScanResult {
     pub message: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub details: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_discovery: Option<NativeDiscoveryReport>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -668,6 +670,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
                 message: "Could not detect the local subnet. Use Add by IP to connect to your TV."
                     .into(),
                 details: vec![],
+                native_discovery: None,
             },
             StageFacts::default(),
         )
@@ -1148,6 +1151,14 @@ async fn scan_command_stage_with_attempts(
         "scan finished"
     );
 
+    let native_discovery = native_snapshot.map(|(mut report, received)| {
+        let elapsed = u64::try_from(received.elapsed().as_millis()).unwrap_or(u64::MAX);
+        for advertisement in &mut report.advertisements {
+            advertisement.observed_age_ms = advertisement.observed_age_ms.saturating_add(elapsed);
+        }
+        report
+    });
+
     Ok((
         ScanResult {
             subnet: Some(subnet_label.to_string()),
@@ -1159,6 +1170,7 @@ async fn scan_command_stage_with_attempts(
             needs_pairing: targets.needs_pairing,
             message,
             details,
+            native_discovery,
         },
         facts,
     ))
@@ -2569,6 +2581,10 @@ mod command_stage_tests {
         assert_eq!(result.connected, vec!["192.0.2.1:40000"]);
         assert_eq!(result.needs_pairing, vec!["192.0.2.2:41000"]);
         assert_eq!(result.found.len(), 2);
+        let choices = result.native_discovery.as_ref().unwrap();
+        assert_eq!(choices.advertisements.len(), 4);
+        assert!(choices.advertisements[2].cached);
+        assert!(choices.advertisements[3].observed_age_ms >= choices.observation_max_age_ms);
         assert_eq!(fake.adb.count("connect 192.0.2.1:5555"), 0);
         assert_eq!(fake.adb.count("connect 192.0.2.2:41000"), 0);
     }
@@ -2648,6 +2664,8 @@ mod command_stage_tests {
         assert!(result.found.is_empty());
         assert!(result.pending.is_empty());
         assert_eq!(fake.adb.count("connect 192.0.2.9:40000"), 0);
+        let choices = result.native_discovery.unwrap();
+        assert!(choices.advertisements[0].observed_age_ms >= 31_000);
     }
 
     #[tokio::test]
