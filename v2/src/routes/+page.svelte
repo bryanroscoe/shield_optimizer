@@ -41,6 +41,8 @@
   const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed");
   const scanAttempts = $derived(sortedDevices.filter(isScanAttempt));
   const visibleDevices = $derived(sortedDevices.filter(d => !isScanAttempt(d)));
+  const isNativeApproval = (d: DeviceRow) => adbBackend === "direct" && d.status === "unauthorized" && !d.properties;
+  const firstApproval = $derived(visibleDevices.find(isNativeApproval)?.serial);
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -1149,6 +1151,16 @@
   <ul class="device-list">
     {#each visibleDevices as d (d.serial)}
       {@const href = deviceHref(d)}
+      {#if d.serial === firstApproval}
+        <li class="approval-guidance">
+          <p class="muted small">Approve <strong>Allow debugging</strong> on the TV and select <strong>Always allow from this computer</strong>. Connections update automatically.</p>
+          <details class="small">
+            <summary>No prompt on the TV?</summary>
+            <p>Wake the TV, then use <strong>Ask again</strong> beside its address. Some TVs call the prompt “Allow USB debugging” even over the network.</p>
+            <p>As a last resort, Developer options → Revoke USB debugging authorizations un-trusts every computer. Reconnect afterward.</p>
+          </details>
+        </li>
+      {/if}
       <li>
         {#if href}
           <a
@@ -1243,6 +1255,7 @@
           <div
             class="device-row not-clickable"
             class:discovered={!!d.discoveryState}
+            class:native-approval={isNativeApproval(d)}
             class:unauthorized={d.status === "unauthorized"}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
@@ -1272,11 +1285,13 @@
                   >UNCONFIRMED TV</span>
                 {/if}
               </div>
+              {#if !isNativeApproval(d)}
               <div class="device-meta muted mono">
                 {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
               </div>
+              {/if}
               {#if d.discoveryState === "connecting"}
                 <p class="muted small">Found on the network. Connecting…</p>
               {:else if d.discoveryState === "failed"}
@@ -1288,7 +1303,7 @@
                   Open anyway to try the tools.
                 </p>
               {/if}
-              {#if d.status === "unauthorized"}
+              {#if d.status === "unauthorized" && !isNativeApproval(d)}
                 <div class="unauthorized-help">
                   <strong>This device needs to be authorized:</strong>
                   <ol>
@@ -1456,6 +1471,25 @@
     list-style: none;
     padding: 0;
     margin: 0;
+  }
+  .approval-guidance {
+    margin: 1rem 0 0.75rem;
+  }
+  .approval-guidance p {
+    margin: 0.4rem 0;
+  }
+  .device-row.native-approval {
+    flex-wrap: wrap;
+    padding: 0.65rem 1rem;
+  }
+  .native-approval .device-main {
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .native-approval .device-name,
+  .native-approval .row-actions {
+    flex-wrap: wrap;
   }
   .scan-attempts {
     list-style: none;

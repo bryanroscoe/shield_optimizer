@@ -1,5 +1,22 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Duplicate discovery follow-up — 2026-11-03
+
+Reproduced on the exact 66542dd app: two approved Shields plus additional IPv4/IPv6
+approval cards, each repeating its address and a full authorization guide. Native
+scan now tries alternative routes for one mDNS service serially and stops after a
+ready route or an observed AUTH request. IPv4 failure can still fall back to IPv6;
+a previous scan's success is rechecked before it suppresses alternatives. Distinct
+services remain separate. This selects a connection route, not a physical identity:
+device row deduplication still requires verified `ro.serialno`. Unknown endpoints
+remain individually actionable, with the address shown once and one shared guide.
+
+Frontend check/build and the expanded native scan UI regression passed locally.
+Rust regression coverage includes route suppression, AUTH, IPv6 fallback, stale
+success and separate services. The replacement app and cross-platform checks are
+not yet delivered at this source checkpoint; the current delivery below remains
+66542dd until its verified replacement receipt is recorded.
+
 ## Owner UI feedback — 2026-11-03
 
 The Devices presentation now separates unconfirmed connecting/failed endpoints

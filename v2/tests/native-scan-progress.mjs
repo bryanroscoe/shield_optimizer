@@ -82,7 +82,31 @@ try {
   assert.equal(await untrusted.evaluate(el => !!el.closest('.device-list')), true, 'observed AUTH stays in the main list');
   await untrusted.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
   await page.evaluate(() => {
+    window.progress.pending.push('192.0.2.25:5555');
+    window.progress.awaiting_authorization.push('192.0.2.25:5555');
+  });
+  const secondApproval = page.locator('[data-serial="192.0.2.25:5555"]');
+  await secondApproval.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
+  assert.equal(await page.locator('.device-list .native-approval').count(), 2,
+    'unidentified endpoints remain distinct until hardware identity is verified');
+  assert.equal(await page.locator('.approval-guidance').count(), 1,
+    'approval instructions appear once for the whole list');
+  assert.equal(await page.locator('.native-approval .unauthorized-help').count(), 0,
+    'each address must not repeat a full authorization guide');
+  for (const row of [untrusted, secondApproval]) {
+    const address = await row.getAttribute('data-serial');
+    assert.equal((await row.innerText()).split(address).length - 1, 1,
+      'a raw address appears once, rather than as both a name and metadata');
+    assert.equal(await row.getByRole('button', { name: 'Forget', exact: true }).count(), 1);
+    assert.equal(await row.locator('a').count(), 0, 'an unidentified endpoint must not open TV tools');
+  }
+  await page.setViewportSize({ width: 720, height: 900 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await capture('compact-approval-rows-narrow');
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await page.evaluate(() => {
     window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555'];
+    window.progress.awaiting_authorization = [...window.progress.pending];
     window.progress.failed = [{ address: '192.0.2.4:5555', message: 'SIMULATED connection timeout; check the TV and try again.' }];
   });
   await failed.getByText("Didn't connect", { exact: true }).waitFor();
