@@ -1,0 +1,54 @@
+# Skyworth 7S60_A5 (board 6A658B, sky8S34), China market, Coocaa OS on Android 8.0 (API 26)
+# Build OPR5.170623.014 / 022.008.220, armeabi-v7a, about 1.9 GB RAM.
+# Stock home: com.tianci.movieplatform (com.coocaa.homepage.vast.HomePageActivity; elder mode
+# com.ccos.cooui.movieplatform.ElderMainActivity). TV/inputs: com.skyworth.tv.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/skyworth-7s60-a5/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/skyworth-7s60-a5/debloat.txt com.tianci.movieplatform
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Disabled before this debloat, so not listed (restore.sh would turn them ON):
+# com.bajintech.karaok, com.coocaa.activecenter.
+#
+# Coocaa OS has no Android HOME chooser and ignores set-home-activity: the launcher goes in through
+# a small homepage shim instead, see README.md in this folder. Tested in October 2026.
+
+# Ads and telemetry
+com.tianci.ad                  # boot ad (persist.sys.ad.startboot)
+com.tianci.push                # push service with Sensors Data analytics
+com.coocaa.sysreport           # usage reporting on boot, screen and app install
+com.baidu.oases                # Baidu SDK service started at boot
+com.tianci.autoinstaller       # silently installs promoted apps
+com.skyworth.skymarket         # shop demo display
+com.coocaa.screensaver         # screensaver with an ad SDK (com.coocaa.adsdk)
+com.coocaa.guide               # boot/upgrade guide, push receiver
+
+# Preloads not used (by choice)
+com.coocaa.educate             # kids/education channel, ad SDK
+com.coocaa.lifeassistant       # morning call, sleep aid, weather
+com.tianci.appstore            # Coocaa app store
+com.coocaa.app_browser
+com.coocaa.tvmanager           # cleaner / "speed up", Baidu TV shield
+com.loostone.tuning            # karaoke mic tuning, starts at boot
+
+# Voice assistant and updates (by choice)
+com.skyworth.angel.voice
+com.skyworth.aimanager         # far-field mic AI service, starts at boot
+com.coocaa.os.upgrade          # firmware/OTA updates
+
+# Coocaa extras, unused with the new home (by choice)
+com.coocaa.teampresent         # help and customer service
+com.coocaa.os.thememanager     # theme store
+com.coocaa.messageprovider     # system message box, pushes notices and promotions
+com.coocaa.sky.ccapi           # Coocaa payment centre; breaks Coocaa membership purchases
+com.tianci.user                # Coocaa account centre; breaks Coocaa account login
+com.coocaa.skycast.tool        # cast component updater; casting itself still works
+
+# Stock home. Disable only after the new launcher and the homepage shim work (README.md): with it
+# gone, nothing brings the Coocaa home back over the launcher after boot.
+# com.tianci.movieplatform
+
+# Kept on purpose: com.skyworth.tv (inputs and tuner; the launcher's Inputs menu goes through it),
+# com.tianci.system and com.coocaa.os.ccosservice (Home key, source panel, memory manager),
+# com.tianci.localmedia (USB media player; phone casting over DLNA plays through it),
+# com.coocaa.dangbeimarket (app store) by choice.

@@ -1,0 +1,75 @@
+# Xiaomi TV Stick 4K (model MiTV-AYFR0, codename soul, Amlogic), Android TV 14 (SDK 34),
+# firmware UKG3.250107.001 / V816.0.26.6.10.UZFAATK.
+# Fingerprint: Xiaomi/soul/soul:14/UKG3.250107.001/V816.0.26.6.10.UZFAATK:user/release-keys
+#
+# Apply:   TV_HOST=<stick ip> tools/disable.sh examples/xiaomi-mitv-ayfr0/debloat.txt
+# Undo:    TV_HOST=<stick ip> tools/restore.sh examples/xiaomi-mitv-ayfr0/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# A streaming stick: no HDMI-in or tuner, so leave live_tv_package empty in config.xml.
+# Stock launcher: com.google.android.tvlauncher (disabled by launcher/build-and-install.sh).
+#
+# Notes from this stick:
+# - HOME claimants on stock: com.google.android.tvlauncher/.MainActivity and
+#   com.android.tv.settings/.system.FallbackHome. Unlike Google TV builds (such as MiTV-AFMU0/AFMU1),
+#   com.google.android.tungsten.setupwraith does NOT claim HOME here, so setupwraith can stay enabled
+#   and the saved Wi-Fi network (owned by setupwraith) does not need to be forgotten and re-joined.
+# - The Bluetooth remote ("Xiaomi RC Consumer Control", vendor 0x2717 product 0x32b9,
+#   /vendor/usr/keylayout/Vendor_2717_Product_32b9.kl) sends standard KEY_HOMEPAGE (scancode 0x000c0223 -> HOME)
+#   on the round Home button, not ALL_APPS, so HOME_KEY_SERVICE=1 is not needed.
+# - HDMI-CEC One Touch Play works with the custom launcher: system_server (HdmiControlService) sends
+#   <Text View On> and <Active Source> before starting the HOME activity.
+# - Kept on purpose: Google Assistant (katniss), Chromecast (mediashell), phone remote (tv.remote.service),
+#   Miracast (smartshare, wfdsinkhelperservice), the Mi screensaver (com.mitv.dream),
+#   com.xiaomi.tvqs.overseas (quick settings panel), com.xiaomi.android.tvsetup.partnercustomizer,
+#   com.google.android.tungsten.setupwraith.
+# - com.google.android.tvrecommendations does not stay disabled: com.droidlogic re-enables it on every boot
+#   (lastDisabledCaller: com.droidlogic), so it is commented out below. The custom launcher never asks it for rows.
+
+# Xiaomi + Google telemetry and attribution
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.partnersetup
+
+# Privacy Sandbox ad APIs, on-device personalisation and federated learning
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Health Connect, which nothing on a stick uses
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore
+
+# Contacts and calendar sync, unused on a stick
+com.android.providers.contacts
+com.google.android.syncadapters.calendar
+
+# PatchWall, content rows, promos, auto-installs
+com.mitv.tvhome.atv
+com.mitv.tvhome.michannel
+com.mitv.tvhome.mitvplus
+com.xm.webcontent
+# com.google.android.tvrecommendations     # re-enabled by com.droidlogic on every boot, see the header
+android.autoinstalls.config.soc.amlogic
+android.autoinstalls.config.xiaomi.mibox3
+android.autoinstalls.config.xioami.mibox3   # misspelled duplicate present on firmware (sic, "xioami")
+
+# Xiaomi update service (re-enable to check for firmware updates)
+com.xiaomi.mitv.updateservice
+
+# Preloaded apps
+com.netflix.ninja
+com.netflix.tokenmanager                   # Netflix's sign-in helper, unused with Netflix disabled
+com.amazon.amazonvideo.livingroom
+com.google.android.youtube.tvmusic
+com.google.android.play.games
+com.google.android.marvin.talkback
+com.mitv.videoplayer
+com.xiaomi.mimusic2
+com.android.printspooler
+com.google.android.backdrop                # Ambient Mode screensaver; the Mi screensaver (com.mitv.dream) stays
+
+# Stock Android TV launcher, replaced by launcher/ (build-and-install.sh disables it after Home moves)
+# com.google.android.tvlauncher

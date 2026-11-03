@@ -1,0 +1,45 @@
+# Polytron 2K Android TV (WLTV POLYTRON2K, device hayward; Hisense/CVTE board, MediaTek mt5867), Android TV 11,
+# build RTMA.250416.094. About 930 MB of RAM, 1280x720 UI, hardware decoders up to 1080p, classic Android TV
+# launcher (com.google.android.tvlauncher) plus com.google.android.tungsten.setupwraith, which also claims Home.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/polytron-2k-hayward/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/polytron-2k-hayward/debloat.txt
+# Everything is DISABLED, not uninstalled; comment out any line you want to keep. (The tested set had
+# these packages removed for user 0, with the same effect.) Kept on purpose: Live TV
+# (com.mediatek.wwtv.tvcenter), the USB media player, the Play Store, Google Play services and
+# com.android.providers.contacts. The installer disables tvlauncher once the new Home is in.
+#
+# ADB: USB debugging opens network ADB on port 5555 directly. The TV hops between the 2.4 GHz and 5 GHz
+# networks of a dual-band router and gets a new IP each time; reserve one on the router.
+
+# Ads and silent installs
+android.autoinstalls.config.hisense          # silently installs promoted apps
+android.autoinstalls.config.hisense.hayward  # same, device-specific config
+com.mediatek.android.leanbacklauncher.partnercustomizer  # partner promo rows on the stock launcher
+com.google.android.tvrecommendations         # feeds the recommendation / sponsored rows
+fusion.android.tv.demo                       # store demo mode
+
+# Second Home claimant (header). disable.sh checks first that it does not own the saved Wi-Fi network.
+com.google.android.tungsten.setupwraith
+
+# Telemetry
+com.google.android.feedback
+com.google.android.partnersetup              # partner referral tracking
+
+# Unused system services (also in the Hisense lists here; the contacts provider stays)
+com.mstar.android.tv.disclaimercustomization # store-mode disclaimer
+com.android.printspooler                     # printing
+com.android.providers.calendar
+com.google.android.syncadapters.calendar
+
+# Off by choice on the tested set (keep what you use)
+com.google.android.katniss                   # voice search / Assistant
+com.google.android.backdrop                  # ambient screensaver (pick Basic or the launcher's Clock screensaver instead)
+com.google.android.youtube.tv                # official YouTube (TizenTube is used instead)
+com.netflix.ninja
+com.google.android.apps.mediashell           # Chromecast built-in (26 MB in the background)
+com.google.android.tts                       # Google text-to-speech (only needed for screen reading)
+# Already disabled at the factory on this firmware
+com.google.android.play.games
+com.amazon.amazonvideo.livingroom            # Prime Video
+com.google.android.youtube.tvmusic

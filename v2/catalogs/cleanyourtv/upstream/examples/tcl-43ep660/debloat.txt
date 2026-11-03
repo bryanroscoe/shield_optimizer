@@ -1,0 +1,80 @@
+# TCL 43EP660, Europe (Croatia) (ro.product.model BeyondTV, board rtd285o, software V8-R851T02-LF1V378 / AP04),
+# Android TV 9 (API 28), build PPR1.180610.011, security patch 2020-06-05, 2 GB RAM.
+# Same platform family as examples/tcl-beyondtv-rt2851/ (older AP04 software); that list's notes apply too.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-43ep660/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-43ep660/debloat.txt
+# Stock launcher: com.google.android.tvlauncher (restore.sh default). It declares HOME with priority 2,
+# so a sideloaded launcher only becomes Home once it is disabled. Other HOME claimants are fallbacks:
+# com.tcl.keycustomfunctionservice/.FallbackHome and com.android.tv.settings FallbackHome.
+# setupwraith does not claim HOME here, but it owns one saved Wi-Fi network: leave it enabled.
+# Live TV app: com.tcl.tv. HDMI/AV inputs: com.tcl.tvpassthrough. Tuner: com.tcl.tvinput.
+#
+# Tested 2026-10-20 on a real unit, in the groups below with a screenshot after each, then two reboots:
+# Wi-Fi stayed up, TCL's source menu, the launcher's Inputs menu (HDMI1, HDMI2 and Live TV switch via
+# TvInputManager), Netflix, YouTube playback with AdGuard Private DNS, Settings and Home all worked.
+# Not yet lived with for days.
+# Quirks on this firmware:
+# - Sideloading works with `pm install`; Play Protect rejects a reinstall of a split APK copied as
+#   base.apk only ("missing splits"), which looks like INSTALL_FAILED_VERIFICATION_FAILURE but is not
+#   the China-firmware signature check.
+# - `input keyevent KEYCODE_TV_INPUT` does nothing; TCL's source menu opens with
+#   am start -n com.tcl.sourcemananger/com.tcl.sourcemanager.MainActivity
+# - screencap is 0 bytes over HDMI and Netflix (secure surface).
+# - The remote is IR (rtk_keypad); nothing on USB.
+#
+# Already disabled at the factory, left alone: the 14 uk.co.freeview.* apps, com.tcl.bootadservice,
+# com.tcl.common.terminalmanagerplus, com.tcl.smartalexa, com.tcl.notereminder, com.tcl.gallery,
+# Prime Video, Stan, ZEE5, Eros Now, LINE TV, Rakuten TV, Play Music, Play Movies.
+#
+# DO NOT DISABLE (load-bearing on this firmware):
+# com.tcl.tv com.tcl.tvinput com.tcl.tvpassthrough  # Live TV, tuner, HDMI
+# com.tcl.sourcemananger                            # source/input menu
+# com.tcl.keycustomfunctionservice com.tcl.keyhelp com.tcl.framework.custom  # remote keys
+# com.tcl.tcl_bt_rcu_service com.tcl.autopair       # Bluetooth remote
+# com.tcl.inputmethod.international                 # default keyboard (T_IME)
+# com.tcl.showmode                                  # sound modes
+# com.tcl.xian.StartandroidService                  # device authentication (per tcl-beyondtv-rt2851)
+# com.google.android.tungsten.setupwraith           # owns the Wi-Fi saved during first setup
+
+# 1. Telemetry and analytics
+com.tcl.bi                                  # TCL BI analytics (Firebase, net monitor)
+com.tcl.appstatecontroller                  # boot/network/package-change receivers; nothing broke without it
+com.tcl.usercenter                          # TCL account
+com.google.android.tv.bugreportsender       # bug report uploader
+
+# 2. Content, recommendation rows and promos
+com.tcl.cyberui                             # TCL Channel / content service
+com.tcl.messagebox                          # TCL message and promo box
+com.tcl.esticker                            # on-screen sticker overlays
+com.google.android.tvrecommendations        # home-screen recommendation rows
+com.google.android.leanbacklauncher.recommendations
+
+# 3. Background extras
+com.tcl.tvweishi                            # "TV Guard" cleaner
+com.tcl.MultiScreenInteraction_TV           # T-Cast / MagiConnect phone link (Chromecast kept)
+com.tcl.copydatatotv
+com.android.printspooler
+
+# 4. Preloads
+com.tcl.imageplayer
+com.tcl.audioplayer
+com.tcl.videoplayer
+com.tcl.ui_mediaCenter                      # USB media centre ("Medijski centar" in the source menu)
+com.google.android.play.games
+com.tcl.appmarket2                          # TCL app store (Play Store stays)
+
+# 5. Off by choice on this unit
+com.google.android.katniss                  # voice search and the mic button
+com.google.android.tv.assistant
+com.google.android.speech.pumpkin
+com.tcl.assistant                           # TCL's Assistant bridge
+com.tcl.micmanager                          # remote microphone manager
+com.tcl.miracast                            # Miracast screen mirroring
+# com.tcl.versionUpdateApp                  # firmware updater, kept
+# com.tcl.rc.ota                            # remote-control firmware OTA, kept
+# com.google.android.apps.mediashell        # Chromecast, kept
+
+# 6. After the launcher is installed
+com.tcl.partnercustomizer                   # TCL rows in the stock launcher, T-key page
+com.google.android.tvlauncher               # stock launcher, replaced by launcher/

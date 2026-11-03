@@ -1,0 +1,67 @@
+# Haier H32S80EFX (ro.product.model "Haier MatrixTV CE", product HRT56EU, device deto), Google TV 14 (API 34),
+# firmware UKNV.260302.001, MediaTek (CVTE board), armeabi-v7a, Thailand.
+# 1.4 GB RAM (MemTotal about 1.38 GB). 1920x1080 panel, UI rendered at 1280x720 (wm size override), 213 dpi.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/haier-h32s80efx/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/haier-h32s80efx/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it as STOCK_LAUNCHER).
+# Live TV: com.mediatek.wwtv.tvcenter (.nav.TurnkeyUiMainActivity).
+# Already disabled from the factory: com.google.android.marvin.talkback, it.hon.onboarding.
+#
+# Tested the same day on one set, with the real remote: Home opens the new launcher, Netflix / YouTube
+# launch, HDMI 1 and Live TV switch from the launcher's Inputs menu, voice button works.
+# The home screen on the test set was a small custom launcher built from PROMPT.md, not launcher/ from
+# this repo; the package list does not depend on which launcher replaces Home.
+# Not a multi-day soak.
+#
+# KEEP, even though the names look like bloat (components checked with dumpsys package):
+# - com.haier.appmanager.dispatcher: GlobalKeyReceiver + HotKeyService (BIND_TV_INPUT), remote hot keys.
+# - com.haier.hkcfac, com.haier.tv.hmagicboard: global key receivers (hmagicboard also sound settings).
+# - com.mediatek.autopair, com.haier.bt_pair_tips: Bluetooth remote pairing.
+# - com.telink.lt.ota: remote (Telink BLE) firmware.
+# - com.cvte.tv.at, com.cvte.autobacklight, com.at.factory.*: factory / backlight, not checked further.
+# - com.mediatek.wwtv.tvcenter, com.mediatek.tvinput, com.mediatek.tv.service, com.mediatek.wwtv.setupwizard,
+#   com.google.android.tv.inputplayer, com.mediatek.wwtv.mediaplayer (USB media).
+#
+# Quirks on this firmware, all checked on the TV:
+# - USB debugging on: network ADB answered on port 5555 straight away; ro.adb.secure=1 (authorisation prompt).
+# - pm install of a debug-signed APK declaring HOME works (pushed + pm install -r, adb install not needed).
+# - Home goes to launcherx (priority 2), then setupwraith/.RecoveryActivity (priority 1); a third-party HOME
+#   filter is priority 0, so set-home-activity alone does nothing. Disabling only the RecoveryActivity
+#   component is refused for the shell (SecurityException), so the whole setupwraith package goes.
+#   The test set was on Ethernet; on Wi-Fi, check `cmd wifi list-networks` first, setupwraith owns a
+#   network saved during setup and disabling it deletes that network.
+# - Three tuner inputs: TunerInputService/HW0 (digital, DVB-T2), CableInputService/HW0, AnalogInputService/HW1.
+#   A launcher that picks the first tuner by label lands on analog and shows no channels; prefer the
+#   digital one. HDMI 1-3 = com.mediatek.tvinput/.hdmi.HDMIInputService/HW5-HW7, AV = composite HW2.
+# - Open inputs with an explicit component (com.mediatek.wwtv.tvcenter/.nav.TurnkeyUiMainActivity, ACTION_VIEW
+#   on TvContract.buildChannelUriForPassthroughInput): a preloaded TrueID app also claims channel VIEW intents.
+# - HDMI and Live TV screenshots come out black (protected video layer).
+
+# Haier / partner telemetry and IoT
+it.hon.service                                   # Haier hOn IoT service
+com.haierubic.usmartdevice                       # Haier smart-device service
+com.google.android.feedback
+
+# Haier content and ads on the stock home
+com.haier.oemtabprovider                         # the "Haier" tab on the Google TV home
+com.haier.apps                                   # Kinopoisk promo activity
+com.mediatek.android.leanbacklauncher.partnercustomizer
+
+# Retail demo, cleaner, manual
+fusion.android.tv.demo                           # retail demo mode
+com.haier.tvhousekeeper                          # "TV housekeeper" cleaner
+com.haier.emanual
+
+# Preloaded apps
+com.google.android.play.games
+
+# Streaming apps not used in this home (by choice; keep the ones you use)
+com.google.android.youtube.tvmusic
+com.google.android.videos                        # Google TV (movies store)
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+com.google.android.tungsten.setupwraith          # its RecoveryActivity otherwise takes over Home
+com.google.android.apps.tv.launcherx

@@ -1,0 +1,61 @@
+# OnePlus TV Y1 43" and Model Y 32" (Y Series, Skyworth-built SW1, codename shibuya),
+# Android TV 11 (API 30), firmware RTO9.231122.002
+# Vendor fingerprint OnePlus/OnePlus_Y_Series/shibuya:11/RTO9.231122.002/11136549. armeabi-v7a, UI at 1280x720, ~0.9 GB RAM.
+# The 32" Model Y unit has 213 dpi. Use debloat-32-inch.txt for its narrower tested package list;
+# the list below is for the Y1 43" variant only.
+# Classic Android TV home, not Google TV: the stock launcher is com.google.android.tvlauncher.
+#
+# Stock launcher:  com.google.android.tvlauncher
+# Live TV app:     com.mediatek.wwtv.tvcenter  (Live TV tuner and HDMI input panel; keep it)
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/oneplus-tv-y1/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/oneplus-tv-y1/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Y1 43": disabled on one TV on 2026-10-18 and lived with through 2026-10-20 without trouble; checked with
+# remote-key injection and screenshots (stock home, Live TV tuner via com.mediatek.wwtv.tvcenter, HDMI input
+# switching, Bluetooth voice remote, audio, and launcher/ installed as Home). Unlike the Panasonic list on the
+# same Skyworth platform, com.coocaa.factory and com.mediatek.tv.factory were disabled and lived with for several
+# days without side effects.
+#
+# Model Y 32": I have lived with the packages in debloat-32-inch.txt disabled for several days without
+# trouble. I checked Home, Live TV/tuner, HDMI, Bluetooth remote/pairing, audio and streaming apps on 2026-10-31.
+# This is one 32" unit; other Y Series sizes should be checked separately.
+#
+# TalkBack was already disabled before the Y1 43" debloat; it is not in debloat.txt.
+# On the Model Y 32" it was also disabled before I prepared debloat-32-inch.txt; it is not in that list.
+# Keep com.google.android.marvin.talkback enabled if you use its screen reader.
+#
+# Kept on purpose: Google Assistant (com.google.android.katniss), Chromecast
+# (com.google.android.apps.mediashell), Google Play Services, Bluetooth Remote &
+# Gboard (LatinIME). Live TV tuner uses com.mediatek.wwtv.tvcenter.
+
+# Skyworth auto-installs, retail demo and setup leftovers
+android.autoinstalls.config.skyworth          # Skyworth OEM partner configuration
+fusion.android.tv.demo                        # OnePlus retail display demo, starts at boot
+com.smartdevice.common.demonow                # In-store retail demo
+com.mstar.android.tv.disclaimercustomization  # MStar disclaimer splash screen
+com.Smartdevice.emanual                       # Built-in electronic user manual
+
+# Telemetry and background services
+com.google.android.feedback                   # User feedback agent
+com.google.android.syncadapters.calendar      # Background calendar synchronization
+com.android.providers.calendar                # Calendar content provider
+com.google.android.boot.appsplashscreen       # Boot splash screen animator
+
+# Recommendation rows and stock-launcher partner customizer
+com.google.android.tvrecommendations          # Home screen recommendation ad service
+com.google.android.leanbacklauncher.partnercustomizer # Sponsored leanback partner channels
+
+# Factory testing tools (verified safe on this set)
+com.coocaa.factory                            # Coocaa factory test suite; lived with disabled without trouble
+com.mediatek.testpq                           # MediaTek picture quality test tool
+com.mediatek.tv.factory                       # MediaTek TV factory diagnostics; lived with disabled without trouble
+com.airoha.ble.ota                            # Airoha Bluetooth OTA updater; remote pairing still works
+
+# Preloaded / unused streaming apps (user confirmed)
+com.vodafone.vodafoneplay                     # Vodafone Play
+com.viacom18.tv.voot                          # Voot TV
+com.jio.media.stb.ondemand                    # JioCinema / Jio TV
+com.google.android.play.games                 # Google Play Games
+com.google.android.videos                     # Google TV / Play Movies

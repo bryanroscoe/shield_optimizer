@@ -1,0 +1,115 @@
+# Hisense Fire TV (Fire TV Edition, AFTCIBFBD1, codename coyote, MediaTek), Fire OS 8.0 / Android 11 (SDK 30),
+# firmware RS8180.3734N, US. The first Fire OS 8 TV (Fire TV Edition) here. amazon-fire-tv-stick-4k-2023/ (Fire OS 8.1)
+# goes further on packages and its notes apply here too; this list adds what is TV-specific: Alexa voice coming back at
+# every boot, and HDMI input switching being reserved to Amazon.
+#
+# FIRE OS: DEBLOAT ONLY. As on Fire OS 7, com.amazon.tv.launcher and com.amazon.firehomestarter are protected
+# (pm disable-user and am force-stop are refused) and keep Home. Live TV app: com.amazon.tv.livetv.
+#
+# Apply:  TV_HOST=<tv ip> tools/disable.sh examples/hisense-fire-tv-aftcibfbd1/debloat.txt
+# Undo:   TV_HOST=<tv ip> tools/restore.sh examples/hisense-fire-tv-aftcibfbd1/debloat.txt com.amazon.tv.launcher
+# Everything is DISABLED for user 0, not uninstalled. Comment out any line you want to keep.
+#
+# Lived with since 2026-10-19, through several reboots: Netflix, YouTube, Prime Video, Spotify, Settings, the Network
+# page, Live TV settings and HDMI inputs (via the remote's Input button) all work.
+#
+# Fire OS 8 notes:
+# - com.amazon.vizzini (Alexa voice) comes back ENABLED AT EVERY BOOT. Neither pm disable-user, pm suspend,
+#   `appops set ... RECORD_AUDIO ignore` (not even applied) nor pm uninstall -k --user 0
+#   (DELETE_FAILED_INTERNAL_ERROR) survives a reboot; re-run this list after one. Everything else stays off.
+# - Two packages are protected (pm disable-user is refused), so they are commented out below:
+#   com.amazon.ftvads.deeplinking and com.amazon.device.crashmanager.
+# - AdGuard Private DNS works (mads.amazon-adsystem.com stops resolving) and removes the third-party ad
+#   in the hero banner; Amazon's own promotions stay, they come from the protected launcher.
+# - Input switching is Amazon-only: its player needs com.amazon.tv.permission.TUNE_INPUT (signature|amazon) and
+#   its picker com.amazon.tv.inputpreference.permission.LAUNCH_INPUTS (signature|privileged). The standard
+#   passthrough URI opens Live TV's settings instead of the input, so a launcher's Inputs button can't switch here.
+# - Leave the animation scales at 1.0, as on amazon-fire-tv-stick-4k-2023/: at 0.5 every entry in the ☰ side menu
+#   (Inputs, Settings, profile) closes the menu and opens nothing. Confirmed on a second set (65U68QF, Canada) by
+#   toggling 1.0 / 0.5 with the list applied.
+# - Screensavers: Amazon's AmbientManagerService (in system_server) replaces any DreamService with Ambient
+#   Experience ("Stopping Ambient, reason=starting new dream", then "Starting Ambient"), and with
+#   com.amazon.tv.ftvambient disabled it ends the dream at once ("No AmbientService implementations found"). A
+#   third-party screensaver set through screensaver_components never shows. With ambient_turn_off_in_darkroom=1
+#   the light sensor sends the set straight to sleep from Ambient in a dark room.
+# - Live TV screens and a sleeping panel both screenshot as plain black; check `dumpsys power | grep mWakefulness`.
+#   Amazon's screens expose no text to uiautomator, so verify the UI with screenshots.
+# - Owners who use Alexa voice, casting and Ambient: comment out the Alexa and Casting groups and ftvambient. The
+#   65U68QF set ran that way (vizzini, Alexa extras, cast.sink, AirPlay, Photos and Ambient kept) with the rest of
+#   this list plus kso.blackbird, client.metrics.api and hedwig, and with Amazon Kids (tahoe) off as well, which
+#   this list keeps on purpose: free memory after a cold boot went from about 1.0 GB to 1.6 GB and swap from
+#   98 % full to empty.
+# - Second unit: 65U65SFC (U65 Pro series, US), firmware RS8180.3749N, 3.8 GB of RAM. Applied 2026-10-26 in four
+#   batches with a screenshot of Home after each, then rebooted twice: only vizzini came back, everything else stayed
+#   off, and ADB Debugging stayed on. It ran this list (Tubi was not installed) plus the entries marked "tested on
+#   65U65SFC", with AirPlay kept and Amazon Kids (tahoe) off as well. MemAvailable went from about 1.6 GB before to
+#   2.0 GB after a reboot. The saved Wi-Fi network belongs to com.amazon.tv.oobe here too.
+# - On that unit, router-level AdGuard Home blocking amazon-adsystem.com (checked from the TV) did not remove the
+#   Sponsored tile or the hero and bottom banners: they changed after a reboot, so there they come with the
+#   launcher's own feed.
+#
+# Kept on purpose: Amazon Kids (com.amazon.tahoe), OTA updates, Live TV, settings, Silk, Appstore, the stock launcher.
+# Personal choices are marked below: Alexa, AirPlay, Miracast and the preloaded apps.
+
+# Ads, shopping and content recognition
+com.amazon.shoptv.client               # Shop on Fire TV
+com.amazon.tv.acr                      # Automatic Content Recognition (what's on screen, HDMI included)
+com.amazon.tv.democontent.provider     # retail demo content
+com.amazon.media.recommendations       # sponsored and recommendation rows
+com.amazon.sneakpeek                   # autoplaying previews on Home
+com.amazon.hybridadidservice           # advertising ID
+com.amazon.kso.blackbird               # launcher ad sync / bidding (sponsored banner and rows); tested on 65U68QF
+# com.amazon.ftvads.deeplinking        # ad deep links: protected on this firmware
+
+# Telemetry and metrics
+com.amazon.client.metrics.api          # metrics client API; tested on 65U68QF
+com.amazon.wirelessmetrics.service     # Wi-Fi metrics upload
+com.amazon.perfcollection              # performance telemetry
+com.amazon.perfc                       # performance telemetry
+com.amazon.dp.logger                   # device log upload
+com.amazon.device.telemetry.emitter    # telemetry emitter
+com.amazon.ceviche                     # data collection pipelines; tested on 65U65SFC
+com.amazon.livedeviceservice           # live device reporting; tested on 65U65SFC
+com.amazon.privacypassservice          # privacy pass token service; tested on 65U65SFC
+com.amazon.tv.developer.dataservice    # personalization data for third-party apps; tested on 65U65SFC
+com.amazon.wifilocker                  # uploads Wi-Fi passwords to Amazon; tested on 65U65SFC
+# com.amazon.device.crashmanager       # crash report upload: protected on this firmware
+
+# Tutorials
+com.amazon.storm.lightning.tutorial
+com.amazon.tmm.tutorial
+com.amazon.tv.ffsprovisioneeclient     # frustration-free setup client; tested on 65U65SFC
+
+# Popups and promos (tested on 65U65SFC)
+com.amazon.tv.releasenotes             # "what's new"
+com.amazon.systemnotices               # system notices popups
+com.amazon.uxnotification              # UX notification popups
+com.amazon.tv.easyupgrade              # "upgrade your Fire TV" promos
+com.amazon.providers.contentsupport    # content support provider
+
+# Alexa (personal choice; vizzini comes back at every boot, see the header)
+com.amazon.vizzini                     # Alexa voice on Fire TV
+com.amazon.tv.alexaalerts
+com.amazon.tv.alexanotifications
+com.amazon.alexamediaplayer.runtime.ftv
+com.amazon.alexa.externalmediaplayer.fireos
+com.amazon.aca                         # Alexa hints/cues providers; tested on 65U65SFC
+com.amazon.spotify.mediabrowserservice # Spotify for Alexa (the Spotify app is separate); tested on 65U65SFC
+com.amazon.rtcsessioncontroller        # Alexa calling / Drop In; tested on 65U65SFC
+com.amazon.ods.kindleconnect           # "show on Fire TV" from Echo / Fire tablet; tested on 65U65SFC
+
+# Casting (personal choice)
+com.apple.airplay.amazon.airplay       # AirPlay receiver: keep if you cast from an iPhone or Mac
+com.amazon.cast.sink                   # Miracast screen mirroring
+
+# Preloaded apps (personal choice)
+com.tubitv.ott                         # Tubi
+com.amazon.bueller.music               # Amazon Music
+com.amazon.bueller.photos              # Amazon Photos
+com.amazon.minitv.android.app          # miniTV
+com.amazon.naatyam                     # Naatyam
+com.amazon.gamehub                     # games hub
+com.amazon.hedwig                      # Fire TV Channels (free ad-supported channels row); tested on 65U68QF
+com.amazon.tv.ftvambient               # Ambient Experience screensaver
+com.amazon.tv.localgallery             # Gallery; tested on 65U65SFC
+com.amazon.spiderpork                  # Amazon Luna; tested on 65U65SFC

@@ -1,0 +1,151 @@
+# Xiaomi Mi TV (MiTV-MOOQ0, codename croods), Android TV 10, firmware QTG3.200305.006.3270
+# MediaTek m7632 chassis, 1.8 GB RAM, Android low-RAM mode on.
+#
+# Also applied cleanly on firmware QTG3.200305.006.5135 (Vietnam retail unit, 2026-10): every package
+# here disabled the same, and the "optional, by choice" mirroring/media apps below were additionally
+# disabled (wfdsinkhelperservice, milinkservice, smartshare, mitvplus, videos, youtube.tvmusic,
+# mediaexplorer, videoplayer) with Netflix/YouTube/VieON still playing afterwards.
+#
+# ---- The remote's Input/Source button (#243, #1368) ----
+# It sends KEYCODE_MEDIA_RECORD (130, kernel KEY_RECORD), not KEYCODE_TV, so after the handover it does
+# nothing until the launcher is told to answer it. Either of these, in config.xml or a theme's config.json:
+# - "input_key_keycodes": [130] and "handle_view_inputs": true, built with INPUT_KEY_SERVICE=1. Checked on
+#   the firmware 5135 unit: pressed inside another app, the button opens the launcher's Inputs menu (Home
+#   comes to the front first).
+# - "app_keys": ["KEYCODE_MEDIA_RECORD:inputs"], with either key helper (HOME_KEY_SERVICE=1 or
+#   INPUT_KEY_SERVICE=1). The "inputs" target opens the launcher's own Inputs menu directly, so
+#   handle_view_inputs is not needed. Read from the launcher code (RemoteKeys), not yet tried on a MOOQ0.
+# Keep com.mediatek.hotkey.dispatcher enabled (it is in the keep list below): if `pm list packages -d`
+# shows it, `pm enable com.mediatek.hotkey.dispatcher`. Other app buttons (Netflix, Prime Video) are mapped
+# the same way, as "<keycode>:<package>" in app_keys; `getevent -l` shows what a button sends. Test with the
+# real remote: `input keyevent` skips the key helpers.
+#
+# ---- Android TV 11 variant: Xiaomi Mi TV P1 43" (MiTV-MOOQ0, croods, EU) ----
+# Firmware RTM4.220307.164.8835 (2026-10). The selected subset was applied and the TV remained
+# usable after a reboot; this does not claim every Android TV 10 entry was tested on Android TV 11.
+#
+# Kept enabled by choice: Google Backdrop, Miracast, Mi Cast and USB media players. Playback and
+# mirroring were not separately re-tested. com.xiaomi.floatingframe is installed and was left enabled.
+# These entries from the Android TV 10 list are not installed on this build:
+# com.google.android.tv.bugreportsender, com.aha.mitv, com.xiaomi.mitv.handbook,
+# com.jio.web.androidtv, com.google.android.youtube.tvkids, com.duokan.factorytest,
+# com.google.android.leanbacklauncher, com.google.android.leanbacklauncher.recommendations.
+#
+# Netflix returned after a reboot when disabled (the firmware turns it back on).
+# NetflixObserver is inside the core com.mediatek.tv.service APK; keep that service enabled. Details:
+# ../../docs/devices/xiaomi-mitv-mooq0-android11.md.
+#
+# ---- Android TV 11, third unit: Russian retail P1 43" (MiTV-MOOQ0, croods), same RTM4.220307.164.8313 build ----
+# One session (2026-11), details in ../../docs/devices/xiaomi-mitv-mooq0-android11.md. 29 entries of this
+# list were disabled (28 in five batches with a screenshot after each, plus com.xiaomi.amazon.alexa that
+# was already off), together with Netflix and Prime Video the owner had disabled before and the stock
+# launcher through the launcher/build-and-install script: 32 in all, and every one of them was still disabled
+# after a reboot and a hard power-off. By the owner's choice the voice assistant
+# (com.google.android.katniss) and Chromecast (com.google.android.apps.mediashell) went off on top of the
+# mirroring/media set the 5135 unit above took; the firmware updater, the USB media players and the
+# owner's streaming apps stayed on. Netflix stayed off across the reboot and the hard power-off on this
+# build. With PatchWall and katniss off the PatchWall button and the mic do nothing; the Okko, ivi and
+# KinoPoisk app buttons work, and held volume still repeats with no key helper enabled. After power-on
+# the TV returns to the last source, not Home (#81 below); pressing Home brings the launcher back.
+#
+# ---- Android TV 11, second unit: Xiaomi Mi TV Q1 75" QLED (L75M6-ESG, croods) ----
+# The label on the back reads L75M6-ESG; ADB reports MiTV-MOOQ0 / croods, on the same firmware as
+# the P1 43 above (RTM4.220307.164.8835). One session on 2026-10-24 (#1520), not a several-day
+# report: ten packages from this list (the telemetry, PatchWall and TV Manager groups, the retail
+# demo, com.xiaomi.tvqs.overseas below and tvrecommendations) plus the stock launcher, eleven in
+# all, and all eleven were still disabled after a reboot, with the launcher still Home. Four more
+# entries below (mitvplus, dream, michannel, play_games) were already disabled before that session
+# and were left unchanged, so it adds no evidence for them. Kept enabled by choice: the
+# core TV services, the Bluetooth remote, Gboard, the Play Store and its services, the firmware
+# updater, casting, the assistant and the streaming apps; the dock carried Netflix, YouTube,
+# Disney+ and the owner's fourth app. With the stock launcher still enabled, `cmd package
+# set-home-activity` printed Success and a Home press still opened the stock one (its HOME sits at
+# priority 2, a replacement at 0): the order the NOTE below describes is the one that worked.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mooq0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mooq0/debloat.txt
+# Everything is DISABLED for user 0, not uninstalled. Comment out any line you want to keep.
+#
+# Kept deliberately, despite names that look like bloat. Checked with `dumpsys package`:
+#   com.xiaomi.android.tvsetup.partnercustomizer  holds BleRcActivity, the Bluetooth remote pairing
+#   com.mediatek.hotkey.dispatcher                the remote's hotkey service, including Source
+#   com.mediatek.tvinput                          serves HDMI 1-3, composite AV and the tuner
+#   com.mediatek.wwtv.setupwizard                 the channel tuning wizard for Live TV
+#   mitv.service, com.xiaomi.mitv.res             core TV service and framework resources
+#
+# Quirk: com.duokan.factorytest also declares the HOME intent, at priority 0, the same as a
+# replacement launcher (the stock launcher sits at priority 2). Disable it and set the home
+# activity explicitly BEFORE disabling com.google.android.tvlauncher, or Home can land on the
+# factory test app. It is in the list below so restore.sh re-enables it.
+#
+# NOTE: com.google.android.tvlauncher is deliberately NOT in this list. launcher/build-and-install.sh
+# disables it only after the replacement launcher is installed and verified as home.
+#
+# Tested on this firmware: HDMI 1-3, composite AV, the tuner, the Bluetooth remote, Gboard,
+# Play Store, Chromecast, Miracast and USB video playback all still work.
+#
+# Notes from a second set on the same firmware (mirhnaz, PR #81):
+# - Live TV (com.mediatek.wwtv.tvcenter) can't be disabled even if you never use the tuner: its
+#   TurnkeyUiMainActivity is also the HDMI/AV window. Hide it in the launcher instead (hidden_apps).
+# - Before disabling com.mitv.dream, point the screensaver elsewhere:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+# - After power-on the TV returns to the last source, not the launcher.
+
+# ---- Xiaomi telemetry and analytics ----
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.xiaomi.tvqs.overseas                         # TV quality service (telemetry); from the Q1 75 (#1520)
+com.google.android.tv.bugreportsender           # automatic bug report upload
+com.google.android.feedback                     # crash / feedback reporting
+
+# ---- Xiaomi content, ads and recommendation rows ----
+com.mitv.tvhome.atv                             # PatchWall (.app.PatchWallActivity)
+com.mitv.tvhome.michannel                       # Mi recommendation channels, Firebase + GMS measurement
+com.xm.webcontent                               # Xiaomi promo web content
+com.xiaomi.floatingframe                        # floating promo overlay service
+android.autoinstalls.config.xiaomi.amelie       # partner app auto-install config
+
+# ---- Background services not needed ----
+com.xiaomi.mitv.tvmanager                       # "TV Manager" cleaner / boost / data usage
+com.xiaomi.amazon.alexa                         # Alexa bridge; Google voice search is kept
+com.aha.mitv                                    # dormant duplicate Aha 2.0.8; ahaflix.tv 2.0.22 is kept
+com.mitv.gallery                                # Mi Gallery: MiCloud + Xiaomi market SDK
+com.mitv.dream                                  # Xiaomi MiDream screensaver, Firebase + skyeye monitor
+com.google.android.backdrop                     # Google ambient screensaver, replaced by the Clock dream
+
+# ---- Preloaded apps nobody asked for ----
+com.xiaomi.mitv.handbook                        # on-screen user manual
+com.mitv.tvlock                                 # Xiaomi TV lock / parental password
+com.xiaomo.tv.milegal                           # Xiaomi legal / privacy screens
+com.mstar.android.tv.disclaimercustomization    # vendor disclaimer screen
+com.mediatek.wwtv.webview                       # vendor web view shell
+fusion.android.tv.demo                          # retail store demo loop
+com.xiaomi.mimusic2                             # Mi Music
+com.google.android.play.games                   # Play Games
+
+# ---- Streaming apps not used (per owner's checklist) ----
+com.jio.web.androidtv                           # JioTV
+com.google.android.youtube.tvkids                # YouTube Kids
+
+# ---- Home-screen claimants replaced by launcher/ ----
+# The factory test app also declares the HOME intent, at the same priority as the new launcher.
+# It is disabled so the Home button can never land on it.
+com.duokan.factorytest
+
+# ---- Stock launcher recommendation plumbing (replaced by launcher/) ----
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher
+com.google.android.leanbacklauncher.recommendations
+
+# ---- Optional, by choice (reported fine on the same firmware, #81); uncomment what you don't use ----
+# com.mitv.tvhome.mitvplus                      # Mi TV+ FAST channels
+# com.xiaomi.mitv.updateservice                 # firmware updates
+# com.google.android.katniss                    # voice assistant (the mic button stops working)
+# com.google.android.apps.mediashell            # Chromecast built-in
+# com.mitv.milinkservice                        # Mi Cast
+# com.xiaomi.mitv.smartshare
+# com.xiaomi.wfdsinkhelperservice               # Miracast sink
+# com.google.android.videos                     # Play Movies & TV
+# com.google.android.youtube.tvmusic
+# com.xiaomi.mitv.mediaexplorer                 # USB media player
+# com.mitv.videoplayer                          # Mi video player

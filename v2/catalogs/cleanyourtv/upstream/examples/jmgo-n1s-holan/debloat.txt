@@ -1,0 +1,54 @@
+# JMGO N1S projector (model K80A, codename holan, MediaTek m7332, about 1.8 GB RAM), Australia
+# Google TV on Android 14 (SDK 34), firmware UKNV.260401.001
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/jmgo-n1s-holan/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/jmgo-n1s-holan/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it as STOCK_LAUNCHER). No tuner, so no
+# Live TV app: leave live_tv_package empty. The HDMI input shows in the Inputs menu as is.
+# com.jmgo.player is JMGO's own media player with no leanback entry; add it to hidden_apps if it shows.
+#
+# Kept on purpose: Google Assistant (com.google.android.katniss), Chromecast
+# (com.google.android.apps.mediashell), firmware updates (com.jmgo.update) and the phone-remote server
+# (com.softwinner.tvremoteserver).
+# Never disable on this projector, the optics and the remote depend on them:
+#   com.jmgo.hippo                  key handling, brightness and the JMGO remote's accessibility service
+#   com.jmgo.autofocus, com.jmgo.tofautofocus, com.jmgo.autokeystone, com.jmgo.dewarping
+#   com.jmgo.ptz                    the gimbal stand
+#   com.jmgo.autobrightness, com.jmgo.a2dpsinkservice (Bluetooth speaker mode)
+#   com.jmgo.android.tv.globalkeyoverlay, com.jmgo.remotecontrolota, com.jmgo.factory
+#   and every com.mediatek.* and com.dolby.* package, except the partner-row customizer below
+#
+# Quirks on this firmware, checked on the projector:
+# - Wireless debugging on also opens port 5555 without pairing, and it is open again after a reboot.
+# - HOME candidates: launcherx (priority 2), setupwraith/.RecoveryActivity (priority 1), so setupwraith
+#   goes with launcherx. Disabling it kept the saved Wi-Fi network on this unit.
+# - Standby is suspend-to-RAM: apps keep running across power off and on.
+
+# JMGO telemetry
+com.jmgo.spider                        # tracker: boot receiver, location, app usage stats
+
+# JMGO extras
+com.jmgo.helpcenter                    # help centre; also has a preinstall AppDownloadService
+com.jmgo.overseas.atmosphere           # "Atmosphere" ambient scenes app
+
+# Retail demo
+fusion.android.tv.demo                 # store demo loop
+
+# Google telemetry
+com.google.android.feedback
+com.android.tv.feedbackconsent         # diagnostics consent prompt
+
+# Google preloads
+com.google.android.play.games
+
+# Partner rows on the stock home screen
+com.mediatek.android.leanbacklauncher.partnercustomizer
+
+# Google TV setup wizard: only its RecoveryActivity matters after setup, see the quirk above.
+# Disable it before build-and-install.sh, or Home may crash-loop when launcherx goes away.
+com.google.android.tungsten.setupwraith
+
+# Stock Google TV launcher, replaced by launcher/
+com.google.android.apps.tv.launcherx

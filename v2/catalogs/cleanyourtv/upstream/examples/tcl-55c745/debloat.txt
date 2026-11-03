@@ -1,0 +1,107 @@
+# TCL 55C745 (2023), device G08, model "Smart TV Pro", product G08_4K_GB, MediaTek tcl9618, 2.4 GB RAM.
+# Google TV, Android 14 (SDK 34), firmware UTT2.250416.001 AU02 - the same build as examples/tcl-q7c-google-tv
+# and examples/tcl-85rm7l-google-tv. Set up on Ethernet; France/UK household (French and UK catch-up apps
+# alongside Stremio and a third-party YouTube client).
+#
+# Tested on one set, 21 October 2026. Disabled by hand with `pm disable-user --user 0`, one call each, in five
+# batches plus two follow-ups, with a screenshot after each batch. All 50 packages below survived two reboots.
+# launcherx and setupwraith were disabled afterwards, once the new launcher was confirmed as Home. YouTube
+# (via SmartTube), Live TV, the HDMI input list, the Source key QuickPanel, D-pad navigation and the physical
+# remote's Home/Input buttons were all checked.
+#
+# Apply:   FORCE_SETUPWRAITH=1 TV_HOST=<tv ip> tools/disable.sh examples/tcl-55c745/debloat.txt
+#          FORCE_SETUPWRAITH=1 only on Ethernet with no saved Wi-Fi: disable.sh otherwise skips setupwraith
+#          because it cannot see a Wi-Fi owner. On Wi-Fi, check `dumpsys wifi | grep cname` first (README).
+#          launcherx is skipped by disable.sh's Home guard until the new launcher is Home; see README for order.
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55c745/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV / HDMI app: com.tcl.tv.
+# Left enabled on purpose: com.tcl.tv, com.tcl.tvinput, com.tcl.suspension (Input key/QuickPanel),
+# com.tcl.autopair (remote pairing), com.tcl.inputmethod.international (default keyboard), com.tcl.systemserver,
+# com.tcl.providers.config, com.tcl.initsetup, com.tcl.useragreement, com.tcl.globalkeyoverlay,
+# com.tcl.systemui.plugin, com.tcl.factory.view (never launch it either), com.google.android.katniss (voice
+# search, kept by owner's choice), com.tcl.miracast and com.tcl.magiconnectfree (mirroring, kept by owner's
+# choice), com.google.android.apps.mediashell (Chromecast), com.google.android.tv.remote.service, Play Store
+# and Play Services, all com.mediatek.* and com.dolby.* except AirPlay.
+# Not touched because what they do is unclear: com.tvos, com.tpa.kb (system-level agent: RECOVERY,
+# MASTER_CLEAR, CHANGE_COMPONENT_ENABLED_STATE permissions - do not disable), tv.mopa.ginga (broadcast
+# interactive-TV middleware), com.tcl.gallery (also TCL's screensavers), com.tcl.partnercustomizer,
+# com.tcl.interactive, com.tcl.ttvs.
+#
+# Differs from examples/tcl-q7c-google-tv (same firmware build, different household): com.tcl.eva is disabled
+# here (tested fine, matches examples/tcl-g08-eu-android12; the Q7C list left it untouched over its camera/BI
+# permissions - no camera feature was exercised here either, so treat that as still unverified, just not
+# reverted); com.tcl.miracast and com.tcl.magiconnectfree are kept here (owner's choice, opposite of Q7C);
+# com.google.android.katniss is kept here (owner's choice, opposite of Q7C); stock YouTube and YouTube Music
+# are disabled here (owner uses a third-party YouTube client instead); Twitch and UK catch-up apps (ITVX,
+# My5, Wuaki/Rakuten TV) are disabled here by choice; French catch-up apps (France.tv, 6play, TF1+, Arte)
+# are kept here by choice, untested on the Q7C set.
+
+# TCL promo, push messages, content rows and store demo
+com.tcl.messagebox                     # TCL pushed messages and promos
+com.tcl.esticker                       # retail-demo sticker
+com.tcl.exhibit                        # store demo
+com.tcl.tv.tclhome_passive             # TCL content pushed to the home screen at boot
+com.tcl.waterfall.overseas             # TCL Channel / content waterfall (movie detail pages, web)
+com.tcl.channelplus                    # TCL Live FAST channels (a Live TV input)
+com.tcl.usercenter                     # TCL account
+com.tcl.guard                          # TCL "app manager" / cleaner, device-use service at boot
+com.tcl.dashboard                      # TCL Home panel and its promos
+com.esaba.downloader                   # background APK/content downloader, boot-started
+
+# Telemetry, diagnostics and Android 14 ad / privacy services
+com.tcl.logkit                         # log capture
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.android.adservices.api             # Privacy Sandbox
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+com.mediatek.backgrounddetection
+com.mediatek.network                   # Mediatek network monitor leftover
+
+# Extras nobody asked for
+com.tcl.ocean.instructions             # on-TV manual
+com.tcl.repairguide                    # self-diagnosis
+com.android.printspooler
+com.google.android.syncadapters.calendar
+com.google.android.onetimeinitializer
+com.tcl.hearaid                        # hearing test, TCL wireless speakers
+com.tcl.t_solo                         # Bluetooth "listen alone"
+com.tcl.UpdatePeripheral               # TCL soundbar/peripheral firmware updater
+com.tcl.smartalexa                     # Alexa
+com.tcl.ui_mediaCenter                 # USB / DLNA media player, off by choice (nothing on USB)
+com.tcl.eva                            # TCL voice assistant layer (Katniss handles voice without it)
+com.tcl.gamebar                        # gaming overlay HUD
+com.google.android.apps.tv.dreamx      # photo screensaver
+com.google.android.play.games
+
+# Duplicate webviews and browsers (com.google.android.webview is the active one)
+com.tcl.browser
+com.tcl.android.webview
+com.mediatek.support.webview
+
+# AirPlay, off by choice (Miracast and MagicConnect mirroring are kept, see header)
+com.tcl.airplay2
+com.mediatek.AirplayAPK
+com.mediatek.airplaydaemon
+
+# Stock Google apps, off by choice (a third-party YouTube client and Stremio are used instead)
+com.google.android.videos              # Google TV / Play Movies storefront
+com.google.android.youtube.tv
+com.google.android.youtube.tvmusic
+
+# Streaming and catch-up apps, off by choice (France.tv, 6play, TF1+ and Arte are kept, see header)
+com.netflix.ninja
+com.netflix.tokenmanager
+com.amazon.amazonvideo.livingroom      # Prime Video
+tv.twitch.android.app
+air.ITVMobilePlayer                    # ITVX (UK)
+com.channel5.my5                       # My5 (UK)
+tv.wuaki.apptv                         # Rakuten TV / Wuaki
+
+# Stock launcher, off once the new launcher is Home
+com.google.android.apps.tv.launcherx
+
+# Second Home claimant: off once the new launcher is Home (this set is on Ethernet, so no saved Wi-Fi to lose)
+com.google.android.tungsten.setupwraith

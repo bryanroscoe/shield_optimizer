@@ -1,0 +1,64 @@
+# Noblex NoblexTV (Skyworth-built, codename shinjuku, MediaTek m5621), Argentina, Android TV 11 (API 30), firmware RTO9.230812.001
+# armeabi-v7a (4x Cortex-A53 @ 1.3 GHz, 32-bit userspace), UI at 1280x720, about 0.9 GB RAM, ro.config.low_ram=true.
+# Classic Android TV home, not Google TV: the stock launcher is com.google.android.tvlauncher.
+# Same firmware family as examples/panasonic-th-40hs550k (shibuya); this list starts from that one.
+#
+# Stock launcher:  com.google.android.tvlauncher
+# Live TV app:     com.mediatek.wwtv.tvcenter  (Live TV and the input panel; keep it)
+# Never disable any com.mediatek.* package except testpq: they are the tuner, input and HDMI stack.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/noblex-shinjuku/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/noblex-shinjuku/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Disabled before this debloat, so not listed (restore.sh would turn them ON):
+# com.google.android.marvin.talkback, com.google.android.videos.
+#
+# Status: disabled in three batches on one TV on 2026-10-21, with a Home screenshot after each batch, then
+# launcher/ installed as Home, a reboot and a standby/wake check. Hours of use when submitted, not days:
+# treat it as a starting point.
+#
+# Quirks on this firmware, all checked on the TV:
+# - Disabling com.smartdevice.leanbacklauncher.customizer removes the Inputs and Wi-Fi icons from the stock
+#   launcher's top bar (same as partnercustomizer on the Panasonic); irrelevant once launcher/ is home.
+# - disable.sh skips com.mediatek.wwtv.mediaplayer (it asks for TV_INPUT_HARDWARE); left on.
+# - The remote's power button suspends: waking returns to the app that was on screen. Only a cold boot
+#   (reboot, power cut) comes up on Live TV (tvcenter resumes the last source).
+# - About 0.9 GB of RAM and the cause of the lag when switching apps: after a reboot Netflix (~120 MB),
+#   Max, YouTube and Play Store start on their own. This list plus launcher/ took MemAvailable from about
+#   230 MB to about 300 MB; `cmd appops set <pkg> RUN_ANY_IN_BACKGROUND ignore` on the streaming apps took
+#   it to about 330-360 MB. The apps still open normally; `... allow` undoes it, restore.sh does not.
+# - The load average reads ~95 at idle with the CPU 80% idle: about 98 MStar driver threads (DMX_Filt_Task,
+#   VMon_Task...) sit in D state. Not real load.
+
+# --- Batch 1: Skyworth auto-installs, shop demo, setup leftovers, telemetry
+android.autoinstalls.config.skyworth          # Play Auto Installs config for preloaded apps
+fusion.android.tv.demo                        # Skyworth retail demo service, starts at boot
+com.smartdevice.common.demonow                # "Demo Now" store demo app
+com.mstar.android.tv.disclaimercustomization  # disclaimer screen used only by the first-run setup
+com.Smartdevice.emanual                       # on-screen manual (E-Manual)
+com.google.android.feedback
+com.google.android.apps.nbu.smartconnect.tv   # Google background data service, starts at boot
+com.mediatek.testpq                           # MediaTek picture-quality test tool, starts at boot
+
+# --- Batch 2: recommendation rows, voice, ambient screensaver
+com.google.android.tvrecommendations
+com.smartdevice.leanbacklauncher.customizer   # Skyworth's partner config for the stock launcher
+com.google.android.katniss                    # Google Assistant / voice search; the mic button stops working
+com.google.android.backdrop                   # ambient photo screensaver; use the launcher's Clock instead
+
+# --- Batch 3: not used (by choice)
+com.google.android.play.games
+com.google.android.youtube.tvmusic
+com.mubi
+# com.mediatek.wwtv.mediaplayer   # USB media player; disable.sh skips it here (asks for TV_INPUT_HARDWARE), kept
+com.airoha.ble.ota                            # "RC Upgrade": remote firmware updater; pairing still works
+com.android.providers.calendar
+com.google.android.syncadapters.calendar
+
+# Stock launcher, replaced by launcher/
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables it itself, after Home has moved
+
+# Kept on purpose: com.mediatek.wwtv.tvcenter / tvinput / tv.service / partner.netflix (Live TV, HDMI),
+# com.mediatek.network, com.coocaa.factory, com.google.android.tv.remote.service, Bluetooth, Gboard,
+# Play Store, Play Services, com.google.android.apps.mediashell (Chromecast, by choice).

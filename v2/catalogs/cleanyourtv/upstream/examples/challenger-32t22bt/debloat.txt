@@ -1,0 +1,42 @@
+# Challenger 32T22 BT (device cvt_mt5863_col, board TP.MT5510.PB781, MTK MT5659 / MT5863), Android 7.0 (API 24), firmware NRD90M 1464 (V8-MT659CO-A18V015)
+# Ultra low-spec budget TV (1 GB RAM, 8 GB Flash, MediaTek MT5659, CVTE / TCL ODM firmware for Challenger Colombia).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/challenger-32t22bt/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/challenger-32t22bt/debloat.txt com.cvte.tv.launcher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.cvte.tv.launcher (AppActivity). Pass it to restore.sh or set-home-activity if reverting.
+# Live TV & Inputs: keep com.cvte.tvservice, com.cvte.tv.androidsetting, and com.mediatek.tv.agent (needed for HDMI and TV tuners).
+#
+# Tested on Challenger 32T22 BT: freed up crucial RAM for third-party launcher (com.gathin.tvhome) and streaming apps.
+
+# Factory test and diagnostic tools (CVTE & TCL ODM)
+cn.cvte.tv.factory.autotest
+com.cvte.tcl.factory.at
+com.cvte.tv.audiotest
+com.cvte.fac.menu
+com.tcl.FactoryMode
+com.tcl.sticker
+
+# Bloatware, cleaners, and third-party stores
+com.cvte.tvclean                        # Background memory cleaner
+com.cvte.tv.appstore                     # Proprietary app store
+cm.aptoidetv.pt.cvt_platform7            # Preinstalled Aptoide TV build
+cn.tcl.odm.android.vstoresubclient       # Zeasn / TCL store client
+com.talents.huanclientauth               # Huan client authentication
+com.creative.fastscreen.tv               # Screen mirroring adware/service
+
+# Background services and redundant media apps
+com.cvte.tv.ucservice                    # CVTE UserCenter service
+com.mediatek.androidbox                  # MediaTek WFD Sink test utility
+com.apps.usbmediaplayer                  # Redundant USB player
+com.cvte.tv.media                        # Stock media center
+com.cvte.tv.player                       # Stock media player
+com.ecloud.emedia                        # DLNA/media cloud service
+
+# System extras & browsers
+com.android.htmlviewer
+com.android.browser                      # Outdated stock browser (AOSP)
+
+# Stock launcher (disable only after installing and setting an alternative launcher as Home)
+com.cvte.tv.launcher

@@ -1,0 +1,63 @@
+# SANYO ATV R2 (manufacturer SCBC, device R2, Realtek RTD285O), Android TV 9 (API 28),
+# firmware PTT1.201001.001 build 200, security patch 2020-11-05, 2 GB RAM, 1920x1080.
+# Fingerprint: SANYO/SANYO/R2:9/PTT1.201001.001/200:user/release-keys
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sanyo-atv-r2/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sanyo-atv-r2/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher is com.google.android.tvlauncher and Live TV is com.android.tv (Realtek RtkLiveTv),
+# so the defaults in tools/restore.sh and launcher/build-and-install.sh work unchanged.
+# com.google.android.leanbacklauncher is also installed and claims HOME; it was left enabled as a fallback.
+#
+# Notes from this TV:
+# - Leave alone: com.rtk.engmenu, com.realtek.factorytools, com.apps.factory.ui (factory menus),
+#   com.apps.fivekey / smartkey / virtualkey and com.realtek.keyinterceptserver (remote keys),
+#   com.realtek.tv.* / com.realtek.dtv (HDMI, AV, tuner inputs), com.apps.sys (SystemProvider).
+# - Kept in use: Chromecast (com.google.android.apps.mediashell), Assistant (com.google.android.katniss),
+#   FastCast Miracast (com.creative.fastscreen.tv), Audio Link and PureSound.
+# - Inputs: HDMI 1-3 and AV are TvInputService passthrough inputs; switching via
+#   TvContract.buildChannelUriForPassthroughInput() opens them in Live TV. HDMI200004 is a CEC child, skip it.
+# - Android 9 only shows the Wi-Fi SSID to apps holding location permission (location is on by default here).
+# - Over Wi-Fi ADB, streamed `adb install` of a ~45 MB APK failed silently; push to /data/local/tmp and `pm install` worked.
+
+# SCBC / Realtek / Google telemetry and feedback
+com.apps.function.gdpr                 # SCBC data-consent agent
+com.vewd.core.service                  # Vewd app-store/HbbTV core service
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# Content rows, promos and auto-installs
+com.apps.channels                      # "S-Channels" content app
+com.apps.eshow                         # E-SHOW in-store demo / promo
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+com.realtek.leanbacklauncher.partnercustomizer
+android.autoinstalls.config.scbc.device  # Play auto-installs of partner apps
+
+# Background services and duplicates
+com.apps.clear                         # "TV Booster" cleaner
+com.google.android.apps.nbu.smartconnect.tv
+com.apps.wifihotspot                   # TV as a Wi-Fi hotspot
+com.android.printspooler
+com.apps.networkspeed                  # speed-test app
+com.apps.ota                           # SANYO firmware updates; re-enable to check for updates
+com.apps.authota                       # companion to com.apps.ota
+
+# Preloaded apps
+com.accuweather.android
+map.finder
+com.apps.timeclock                     # WorldClock
+com.google.android.videos              # Play Movies & TV
+com.google.android.play.games
+
+# Preloaded streaming / radio apps (personal choice: comment out any you use)
+com.yupptv.androidtv
+com.spotify.tv.android
+tunein.player
+com.appgeneration.itunerfree
+com.nousguide.android.rbtv             # Red Bull TV
+com.poovarasan.tv.tamiltv
+
+# Stock Google TV launcher, replaced by launcher/
+com.google.android.tvlauncher
