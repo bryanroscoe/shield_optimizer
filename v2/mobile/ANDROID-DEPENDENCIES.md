@@ -1,5 +1,44 @@
 # Android dependency notice inventory — release preparation
 
+## Resolved baseline (2026-11-03)
+
+`universalReleaseRuntimeClasspath` has been resolved with Gradle 8.14.3 / Android Gradle Plugin
+8.11.0 / JDK 21. The portable [`android-runtime-inventory.json`](android-runtime-inventory.json)
+records 94 resolved modules, the exact selected artifact hashes, POM hashes and declared licenses.
+Metadata-only BOMs and multiplatform redirects are distinguished from binary artifacts.
+[`android-runtime-notices.md`](android-runtime-notices.md) retains 33 distinct upstream notice
+texts from JAR/AAR files and the Google SDKs' embedded third-party-license indexes, preserving
+distinct copyright notices. `scripts/gen-notices.sh` includes these in both shipped notice files.
+
+The resolved selection includes Core/Core KTX 1.15.0 (rather than the plugin's declared 1.13.1),
+Kotlin stdlib 2.1.0, Browser 1.8.0, Jackson 2.15.3 and Play Billing 9.1.0. Billing also resolves
+Google DataTransport, Firebase *encoder* libraries and Google Play services, including the
+location library. Library presence alone does not establish location collection: the merged
+debug manifest declares no coarse, fine or background location permission. Inspect the final
+release manifest and actual SDK behavior before submitting Data safety.
+
+Reproduce after initializing the Android project through a Tauri build:
+
+```sh
+export ATVOPT_ANDROID_INVENTORY=/absolute/task/path/android-runtime-inventory.raw.json
+cd src-tauri/gen/android
+./gradlew :app:exportReleaseDependencyInventory \
+  --init-script ../../../scripts/export-android-runtime.gradle --no-daemon --max-workers=1
+cd ../../..
+python3 scripts/render-android-notices.py "$ATVOPT_ANDROID_INVENTORY" \
+  --parent-pom /absolute/task/path/guava-parent-26.0-android.pom
+scripts/gen-notices.sh
+```
+
+The Guava parent POM is the published `com.google.guava:guava-parent:26.0-android` POM from Maven
+Central; `listenablefuture:1.0` inherits its Apache-2.0 license. The raw Gradle export contains
+local cache paths: keep it in task evidence, not Git. The generated inventory contains no local
+paths. Keep `JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` set as described in `RELEASE.md`.
+Re-resolve and compare for the final candidate and after dependency changes. This baseline does
+not certify an unbuilt signed AAB or replace the phone/TV and purchase gates.
+
+## Declaration reference
+
 Sources: app and ADB-plugin `build.gradle.kts`, plus the Android build files from locked
 Tauri 2.11.2 and opener 2.5.4 Cargo registry packages. It is a declaration-level list, not a
 resolved Gradle dependency report.
@@ -34,8 +73,9 @@ Before distribution, initialize the Android project through the supported Tauri 
 then save Gradle `:app:dependencies --configuration universalReleaseRuntimeClasspath` (confirm
 configuration name in that generated project). Inventory every resolved artifact, license and
 upstream NOTICE, including transitive Kotlin/Jackson dependencies; preserve any required texts.
-Reconcile selected versions with this declaration inventory and regenerate notices. This final
-resolved-graph/license-text gate remains OPEN; it cannot be cleared by the declaration table.
+Reconcile selected versions with this declaration inventory and regenerate notices. The resolved
+baseline above supersedes the declaration-only gap; the final candidate still needs comparison
+against it before distribution.
 
 ## Locked published-crate check
 

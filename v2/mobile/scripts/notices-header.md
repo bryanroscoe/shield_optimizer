@@ -18,18 +18,11 @@ Regenerate this document with `mobile/scripts/gen-notices.sh` after any dependen
 
 ### Android/JVM runtime dependencies
 
-The application declares AndroidX WebKit 1.14.0, AppCompat 1.7.1, Activity KTX 1.10.1,
-Lifecycle Process 2.10.0 and Material Components 1.12.0. The ADB plugin declares AndroidX
-Core KTX 1.13.1 and kotlinx-coroutines-android 1.10.2. Tauri Android declares older Core KTX,
-AppCompat and Material versions plus Jackson Databind 2.15.3.
-The opener plugin 2.5.4 declares **AndroidX Browser 1.8.0**, Core KTX 1.9.0 and Jackson Databind
-2.15.3. These components use Apache License 2.0 (AndroidX, Material, Jackson) or Apache License
-2.0 (kotlinx.coroutines); retain upstream notices and applicable license texts with the resolved
-release inventory. The Apache License 2.0 text appears below.
-
-These are actual dependency declarations, not a claim of final Gradle resolution. Transitive
-JVM dependencies, conflict-selected versions and their per-artifact NOTICE files must be captured
-from the final release runtime classpath before distribution. See `ANDROID-DEPENDENCIES.md`.
+The resolved Android release runtime module inventory, license metadata and upstream archive
+notices are included below. It covers AndroidX, Material, Kotlin, Jackson, Play Billing and its
+Google runtime dependencies, including licenses for code embedded inside upstream archives.
+Google Play Billing and Google Play services use the Android Software Development Kit License;
+they must not be relabeled Apache-2.0. SDK-bundled third-party notices are preserved as supplied.
 
 
 

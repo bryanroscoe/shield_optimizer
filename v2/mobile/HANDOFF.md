@@ -23,7 +23,18 @@ Cross-session agent memory also lives in
 
 ## Status
 
-The app is unreleased (`package.json` version `0.1.0`) and builds an unsigned debug APK.
+Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
+`bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
+copyable installation Support ID while reports are on. `npm run store-assets` produces the
+Play listing's six portrait screenshots, icon and feature graphic in `store-listing/`, with
+copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
+Console setup and physical/purchase matrix separately; these changes do not clear those gates.
+
+The app is unreleased (`package.json` version `0.1.0`). A real arm64 debug APK compiled on
+2026-11-03 with JDK 21, SDK 36 and NDK 28.2, including the Kotlin Play Billing plugin. That
+qualification predates the new privacy UI bundle and is not a signed Play candidate or device
+acceptance. The resolved Android runtime graph and upstream notices are now captured in
+`android-runtime-inventory.json` / `android-runtime-notices.md`; compare the final release.
 
 **Nothing in the current `v2/mobile` code has been verified on a phone or TV.** Earlier device
 sessions (a Pixel 10 Pro against two Nvidia Shields) proved the transport, the fast-remote channel

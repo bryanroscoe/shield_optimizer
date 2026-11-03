@@ -1,0 +1,18 @@
+{
+  "language": "en-US",
+  "title": "ATV Optimizer",
+  "shortDescription": "Manage apps, diagnose issues and customize your TV over wireless debugging.",
+  "fullDescription": "Manage your Android TV or Google TV from your phone over Wi-Fi, without a computer. ATV Optimizer connects through debugging that you enable and authorize on your own TV.\n\nStart with Free\n• Check whether your TV connects before buying Pro\n• View installed apps, storage and diagnostics\n• Use your phone as a remote\n• Re-enable disabled apps and use emergency recovery, even without Pro\n\nOptional Pro features\n• Disable or uninstall apps you do not use, with protected-package checks and risk warnings\n• Review and apply an optimization plan\n• Change your Home app and, where the TV firmware permits, disable the stock launcher after confirmation\n• Adjust TV settings such as HDMI-CEC, display scaling and Private DNS\n• Save configuration snapshots and preview changes before applying them\n\nPro is a one-time in-app purchase through Google Play, with no subscription. Undoing settings, Home-app or snapshot changes uses Pro features. Emergency recovery re-enables apps; it does not reverse every setting.\n\nWhat you need\n• An Android TV or Google TV on the same local network as your phone\n• Developer options and network or wireless debugging enabled on the TV\n• Your approval of the TV's debugging authorization prompt\n\nSupport varies by TV and firmware. Some manufacturers protect the stock launcher or other packages, so the app cannot guarantee every change on every device. Fire TV is not supported.\n\nChanging system apps can affect how your TV behaves. Read the warnings, review each plan and change only what you understand.\n\nPrivacy\nSaved TVs, installed-app lists, snapshots, screenshots and downloaded files stay on your phone or local network. Optional device and error reports are enabled by default, with a notice and an opt-out in More → Privacy. Reports include TV model, software versions, a random installation ID, action outcomes and redacted errors. They do not include TV serial numbers, network addresses, TV names or installed-app lists. Read the privacy policy in the app for retention and deletion information.\n\nATV Optimizer is an independent app, not affiliated with or endorsed by Google or NVIDIA. Android TV and Google TV are trademarks of Google LLC. SHIELD is a trademark of NVIDIA Corporation.",
+  "category": "TOOLS",
+  "containsAds": false,
+  "supportEmail": "bryanroscoe+atv@gmail.com",
+  "privacyPolicyUrl": "https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy",
+  "screenshots": [
+    { "file": "screenshots/02-dashboard.png", "alt": "Dashboard with TV connection, memory and storage diagnostics, and shortcuts to management tools." },
+    { "file": "screenshots/03-apps.png", "alt": "Installed TV apps with search and reviewed safety labels." },
+    { "file": "screenshots/08-optimize.png", "alt": "Optimization plan listing proposed app changes for review before applying." },
+    { "file": "screenshots/11-launcher.png", "alt": "Launcher management with Home-app choices and separate guarded stock-launcher controls." },
+    { "file": "screenshots/05-tweaks.png", "alt": "TV settings grouped into picture, sound and system controls." },
+    { "file": "screenshots/07-more.png", "alt": "More screen with Pro licensing, diagnostics, privacy and support controls." }
+  ]
+}

@@ -48,6 +48,26 @@
   // the switch hidden rather than showing a state we don't know.
   let telemetry = $state<TelemetrySettings | null>(null);
   let telemetryBusy = $state(false);
+  const PRIVACY_POLICY_URL = "https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy";
+
+  async function openPrivacyPolicy() {
+    try {
+      await api.openUrl(PRIVACY_POLICY_URL);
+    } catch {
+      showToast("Couldn't open the privacy policy. Please try again.", "error");
+    }
+  }
+
+  async function copySupportId() {
+    const id = telemetry?.support_id;
+    if (!id) return;
+    try {
+      await navigator.clipboard.writeText(id);
+      showToast("Support ID copied.", "success");
+    } catch {
+      showToast("Couldn't copy. You can select the Support ID below.", "error");
+    }
+  }
 
   async function loadTelemetry() {
     try {
@@ -581,9 +601,10 @@
     </div>
 
     <!-- Anonymous reports -->
-    {#if telemetry}
-      <div class="more-card" data-testid="telemetry-card">
-        <span class="card-label">Privacy</span>
+    <div class="more-card" data-testid="telemetry-card">
+      <span class="card-label">Privacy</span>
+      <button class="ghost-btn" onclick={openPrivacyPolicy}>Privacy policy<span class="msr">open_in_new</span></button>
+      {#if telemetry}
         <label class="telemetry-toggle">
           <span class="tt-copy">
             <span class="tt-title">{TOGGLE_LABEL}</span>
@@ -614,8 +635,13 @@
             Turning reports back on starts a new random install ID.
           </p>
         </details>
-      </div>
-    {/if}
+        {#if telemetry.support_id}
+          <p class="card-desc">Support ID: <code class="support-id">{telemetry.support_id}</code></p>
+          <button class="ghost-btn" onclick={copySupportId}>Copy Support ID</button>
+          <p class="card-desc">Include this ID in a privacy or deletion request. Save it before turning reports off; turning them back on creates a new ID.</p>
+        {/if}
+      {/if}
+    </div>
 
     <!-- Debug log -->
     <div class="more-card">
@@ -717,6 +743,7 @@
 </div>
 
 <style>
+  .support-id { overflow-wrap: anywhere; user-select: text; }
   .header-left {
     display: flex;
     gap: 8px;
