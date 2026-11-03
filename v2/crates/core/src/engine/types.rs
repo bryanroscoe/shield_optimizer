@@ -72,6 +72,9 @@ pub struct DeviceProperties {
     /// `false` — an unreadable answer is not a "no".
     #[serde(default)]
     pub leanback: Option<bool>,
+    /// `getprop ro.product.name`. Empty when unreadable.
+    #[serde(default)]
+    pub product: String,
 }
 
 /// A connected device — what the device list shows and what every action targets.
@@ -100,6 +103,10 @@ pub struct Device {
     pub connection: ConnectionType,
     /// Properties from getprop, if status is `Device`. None otherwise.
     pub properties: Option<DeviceProperties>,
+    /// How well the app is known to work on this TV. Informational only;
+    /// `unknown` whenever `properties` is `None`.
+    #[serde(default)]
+    pub support: super::support::SupportInfo,
 }
 
 /// What action the wizard should take against an app — disable vs uninstall.

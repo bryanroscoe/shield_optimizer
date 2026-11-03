@@ -9,13 +9,27 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 ## Unreleased on `main`
 
-Nothing yet. 2.3.1 was never tagged and 2.4.0 never built; their notes shipped in 2.4.1. Put
+Desktop help improvements and ADB connection recovery are pending release. Add by IP,
+Scan LAN and restart now verify transport readiness; the confirmed restart can retry
+one unchanged failed address. The subprocess driver remains the default. Shared native
+ADB PR236 and its parity branches remain experimental, with hardware and Windows
+identity acceptance outstanding. These source fixes do not establish the full root
+cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
+their notes shipped in 2.4.1. Put
 the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
 heading to stay. Before tagging, run the
 physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
 `npm run e2e`.
 
 ## Things the next reader needs that the code does not say
+
+- **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.
+  Its switches are the same state as their other copies, not duplicates: the report setting
+  lives in `src/lib/reports.svelte.ts` (also the Report a bug dialog), theme and auto-update in
+  `src/lib/ui-prefs.svelte.ts` (the header theme switch), Stop ADB when quitting in
+  `src/lib/stop-adb-on-quit.svelte.ts` (Devices). Its Updates and About rows drive the layout's
+  own update flow and dialogs through `src/lib/app-shell.ts`. Support ID and Send logs need the
+  backend's `support_id` and `upload_diagnostics`.
 
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
   channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
@@ -84,6 +98,26 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
 - **App logs**: `<data_dir>/logs/`, daily rotation, 7 kept. Debug level is per-crate, not
   global, so adb lines are not buried under hyper. `collect_diagnostics` formats in the engine
   (pure) and reads in `src-tauri/src/commands/diagnostics.rs`.
+- **Support tiers and telemetry** (both apps, shared core). `Device.support` comes from the pure
+  `engine/support.rs` matching `crates/core/data/device-support.json` (or a validated fetched copy
+  cached as `<data_dir>/support-tiers.json`). Tiers are copy only: they never feed
+  `engine::safety`, and `not_supported` adds a warning before destructive actions but never blocks
+  enable, restore or Recovery. Anonymous reports are on by default, opt-out, and a no-op unless
+  the build sets `ATVOPT_TELEMETRY_URL`; payload and redaction are pure
+  (`engine/telemetry.rs`), the queue and upload are `crates/core/src/telemetry.rs`, and the
+  frontends report outcomes from their single invoke wrapper via `shared/telemetry.ts`. Error
+  codes shown to users and sent in reports come from one table, `shared/errors.ts`. Schema 2
+  (2026-11-02) adds `diagnostic` events for scans and TVs that found nothing (`diag` built by the
+  pure `engine/telemetry_diag.rs`), desktop-only redacted log excerpts (`engine/log_redact.rs`,
+  20 a day), the support ID (`support_id` in `telemetry_settings`, the install id while reports
+  are on) and desktop Send logs (`upload_diagnostics` → `POST /v1/diagnostics`, works with reports
+  off). The phone app sends no logs: its Play Data safety form doesn't declare them. Find a user's
+  data with `telemetry-worker/scripts/support-lookup.sh <support-id>`. See
+  `v2/README.md` "Telemetry and support tiers". The backend has been live since 2026-11-01
+  (`telemetry-worker/README.md` "Production"). `device-support.json` is the only tier list: the
+  `support-tiers-sync` workflow pushes it to the Worker on merge, and a weekly workflow rewrites
+  the "Device support report" issue with suggested moves. Change a tier only by a PR to that
+  file with today's `updated` date and a `support.rs` test (`../docs/DEVICE-SUPPORT.md`).
 - **TV evidence** is a three-way value (`tv | not_tv | unknown`); only `not_tv` blocks a row. Do
   not re-introduce "unknown means phone" — that was #120.
 

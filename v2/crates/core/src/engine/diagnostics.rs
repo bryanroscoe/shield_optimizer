@@ -29,6 +29,9 @@ pub struct DiagnosticsInput<'a> {
     pub unreadable_device: Option<(&'a str, &'a str)>,
     /// Tail of today's log file, oldest line first.
     pub log_tail: &'a [String],
+    /// The random install id anonymous reports carry, so the developer can
+    /// find this user's reports. `None` while reports are off.
+    pub support_id: Option<&'a str>,
 }
 
 /// Everything the bundle reports about one device.
@@ -92,6 +95,17 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
     out.push_str("## ATV Optimizer diagnostics\n\n");
     out.push_str(&format!("- App version: {}\n", input.app_version));
     out.push_str(&format!("- OS: {} ({})\n", input.os, input.arch));
+    // Short form only: this text is pasted into public issues, and the full
+    // id is what an app posts its reports under. The admin lookup finds an
+    // install by these eight digits.
+    match input
+        .support_id
+        .map(super::telemetry::format_support_id)
+        .filter(|short| !short.is_empty())
+    {
+        Some(short) => out.push_str(&format!("- Support ID: {short}\n")),
+        None => out.push_str("- Support ID: none (anonymous reports are off)\n"),
+    }
     out.push_str(&format!(
         "- adb path: {}\n",
         input.adb_path.unwrap_or("(not found)")
@@ -225,6 +239,7 @@ mod tests {
             characteristics: "nosdcard".into(),
             serial_number: "ABC123".into(),
             leanback: Some(true),
+            product: "cezanne".into(),
         }
     }
 
@@ -239,12 +254,17 @@ mod tests {
             device: None,
             unreadable_device: None,
             log_tail: &[],
+            support_id: None,
         });
 
         assert!(report.contains("- App version: 2.2.0"), "{report}");
         assert!(report.contains("- OS: macos (aarch64)"), "{report}");
         assert!(report.contains("- adb path: (not found)"), "{report}");
         assert!(report.contains("No device selected."), "{report}");
+        assert!(
+            report.contains("- Support ID: none (anonymous reports are off)"),
+            "{report}"
+        );
 
         let unreadable = format_diagnostics(&DiagnosticsInput {
             app_version: "2.3.0",
@@ -255,6 +275,7 @@ mod tests {
             device: None,
             unreadable_device: Some(("192.168.1.9:5555", "device offline")),
             log_tail: &[],
+            support_id: None,
         });
         assert!(unreadable.contains("192.168.1.9:5555"), "{unreadable}");
         assert!(unreadable.contains("device offline"), "{unreadable}");
@@ -285,6 +306,7 @@ mod tests {
                 }),
                 unreadable_device: None,
                 log_tail: &[],
+                support_id: None,
             })
         };
         assert!(render(Some(&[])).contains("- Setup helper: not installed"));
@@ -321,6 +343,7 @@ mod tests {
             }),
             unreadable_device: None,
             log_tail: &["first".to_string(), "second".to_string()],
+            support_id: None,
         });
 
         assert!(
@@ -375,6 +398,7 @@ mod tests {
             }),
             unreadable_device: None,
             log_tail: &[],
+            support_id: None,
         });
 
         assert!(report.contains("Properties: unreadable"), "{report}");
@@ -405,7 +429,28 @@ mod tests {
             device: None,
             unreadable_device: None,
             log_tail: &[],
+            support_id: None,
         });
         assert!(!report.contains("package:"), "{report}");
+    }
+
+    #[test]
+    fn only_the_short_support_id_is_shown() {
+        let report = format_diagnostics(&DiagnosticsInput {
+            app_version: "2.4.1",
+            os: "windows",
+            arch: "x86_64",
+            adb_path: None,
+            adb_version: None,
+            device: None,
+            unreadable_device: None,
+            log_tail: &[],
+            support_id: Some("7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11"),
+        });
+        assert!(report.contains("- Support ID: 7D0B-0B9E\n"), "{report}");
+        assert!(
+            !report.contains("1f43-4e43"),
+            "the full id stays private: {report}"
+        );
     }
 }

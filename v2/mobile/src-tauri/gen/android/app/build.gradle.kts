@@ -16,8 +16,9 @@ val tauriProperties = Properties().apply {
 // Release signing material is resolved from `gen/android/keystore.properties`
 // first, then from the environment, so a workstation can keep the keystore out
 // of the tree and CI can inject it as secrets. Both are gitignored/absent by
-// default; when neither is present the release build stays unsigned rather than
-// failing, which keeps `tauri android build --debug` and CI checks working.
+// default. Debug builds never need them. A release task without them fails
+// (see the task-graph check below) instead of quietly emitting an unsigned
+// artifact; ATVOPT_ALLOW_UNSIGNED_RELEASE=1 is the explicit local escape hatch.
 val keystoreProperties = Properties().apply {
     val propFile = rootProject.file("keystore.properties")
     if (propFile.exists()) {
@@ -40,7 +41,7 @@ val releaseKeystore = releaseStorePath?.let { path ->
     if (resolved.exists()) {
         resolved
     } else {
-        logger.warn("ATV Optimizer: keystore path '$path' does not exist; release build will be UNSIGNED.")
+        logger.warn("ATV Optimizer: keystore path '$path' does not exist.")
         null
     }
 }
@@ -50,14 +51,35 @@ val releaseSigningReady = releaseKeystore != null &&
     releaseKeyAlias != null &&
     releaseKeyPassword != null
 
-if (!releaseSigningReady) {
-    logger.warn(
-        "ATV Optimizer: release signing is not configured — the release APK/AAB will be UNSIGNED " +
-            "and Play will reject it. Create gen/android/keystore.properties " +
-            "(storeFile/storePassword/keyAlias/keyPassword) or set ATVOPT_KEYSTORE_PATH, " +
-            "ATVOPT_KEYSTORE_PASSWORD, ATVOPT_KEYSTORE_ALIAS and ATVOPT_KEYSTORE_KEY_PASSWORD. " +
-            "See mobile/RELEASE.md."
-    )
+val allowUnsignedRelease = System.getenv("ATVOPT_ALLOW_UNSIGNED_RELEASE") == "1"
+val playDistribution = System.getenv("ATVOPT_DISTRIBUTION")?.trim().equals("play", ignoreCase = true)
+
+gradle.taskGraph.whenReady {
+    val releaseTasks = allTasks.filter { task ->
+        task.project == project &&
+            task.name.endsWith("Release") &&
+            (task.name.startsWith("assemble") || task.name.startsWith("bundle") || task.name.startsWith("package"))
+    }
+    if (releaseTasks.isEmpty()) return@whenReady
+    if (!releaseSigningReady && !allowUnsignedRelease) {
+        throw GradleException(
+            "ATV Optimizer: release signing is not configured, so this release build would be UNSIGNED " +
+                "and Play would reject it. Create gen/android/keystore.properties " +
+                "(storeFile/storePassword/keyAlias/keyPassword) or set ATVOPT_KEYSTORE_PATH, " +
+                "ATVOPT_KEYSTORE_PASSWORD, ATVOPT_KEYSTORE_ALIAS and ATVOPT_KEYSTORE_KEY_PASSWORD. " +
+                "For a deliberate local unsigned build set ATVOPT_ALLOW_UNSIGNED_RELEASE=1. " +
+                "See mobile/RELEASE.md."
+        )
+    }
+    // An AAB is the Play upload format. Built without the Play flag it would
+    // carry offline license-key entry and no purchase verification.
+    val bundling = releaseTasks.any { it.name.startsWith("bundle") }
+    if (bundling && !playDistribution && !allowUnsignedRelease) {
+        throw GradleException(
+            "ATV Optimizer: release AABs are for Google Play. Set ATVOPT_DISTRIBUTION=play and " +
+                "ATVOPT_PLAY_LICENSE_KEY (see mobile/RELEASE.md), or build an APK for sideloading."
+        )
+    }
 }
 
 android {

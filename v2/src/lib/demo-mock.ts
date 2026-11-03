@@ -52,6 +52,11 @@ const device: Device = {
     // width in the generated screenshots.
     serial_number: "0323220012345",
     leanback: true,
+    product: "mdarcy",
+  },
+  support: {
+    tier: "fully_supported",
+    note: "NVIDIA SHIELD is the device this app is built and tested on.",
   },
 };
 
@@ -81,7 +86,10 @@ const unconfirmedDevice: Device = {
     characteristics: "nosdcard",
     serial_number: "9AB4C21D7E03",
     leanback: null,
+    product: "cezanne",
   },
+  // No rule matches a Xiaomi box, so it claims nothing.
+  support: { tier: "unknown", note: null },
 };
 
 /// A cabled device. Forget is `adb disconnect`, which has nothing to do on
@@ -108,6 +116,11 @@ const usbDevice: Device = {
     characteristics: "tv",
     serial_number: "0323220054321",
     leanback: true,
+    product: "sif",
+  },
+  support: {
+    tier: "fully_supported",
+    note: "NVIDIA SHIELD is the device this app is built and tested on.",
   },
 };
 
@@ -136,7 +149,38 @@ const phoneDevice: Device = {
     characteristics: "nosdcard,tablet",
     serial_number: "3A171FDJH00ZX4",
     leanback: false,
+    product: "tangorpro",
   },
+  support: { tier: "unknown", note: null },
+};
+
+/// A Fire TV Stick: Fire OS blocks the changes the app makes, so it is
+/// `not_supported`. Behind the `fireTv` demo flag so the gallery is unchanged.
+const fireTvDevice: Device = {
+  id: 5,
+  serial: "192.168.1.91:5555",
+  name: "Fire TV Stick",
+  model: "AFTKA",
+  device_type: "google_tv",
+  tv_evidence: "tv",
+  status: "device",
+  connection: "network",
+  properties: {
+    friendly_name: "Fire TV Stick",
+    brand: "Amazon",
+    model: "AFTKA",
+    device_codename: "kara",
+    manufacturer: "Amazon",
+    android_release: "9",
+    sdk_level: "28",
+    build_id: "PS7633",
+    board_platform: "mt8696",
+    characteristics: "tv",
+    serial_number: "G4N1AB12345678CD",
+    leanback: true,
+    product: "kara",
+  },
+  support: { tier: "not_supported", note: "Fire OS blocks the changes this app makes." },
 };
 
 /// Opt-in demo switches, set from a test's init script. Off by default so the
@@ -160,10 +204,34 @@ function demoFlag(name: string): boolean {
 function demoDevices(): Device[] {
   const list = [device, unconfirmedDevice, usbDevice];
   if (demoFlag("notTv")) list.push(phoneDevice);
+  if (demoFlag("fireTv")) list.push(fireTvDevice);
   return list;
 }
 
 let debugLogging = false;
+
+/// Anonymous reports. The notice starts dismissed so the gallery isn't
+/// covered by it; the `telemetryNotice` flag shows it, and
+/// `telemetryUnavailable` stands in for a build without an endpoint.
+let telemetry: { enabled: boolean; notice_seen: boolean } | null = null;
+/// The install id reports carry. Shown only while reports are on and the
+/// build has an endpoint, as the real backend does.
+const DEMO_SUPPORT_ID = "7f3a9c21-4b8e-4d2a-9e61-0c5d8b2f1a37";
+function telemetrySettings() {
+  telemetry ??= { enabled: true, notice_seen: !demoFlag("telemetryNotice") };
+  const available = !demoFlag("telemetryUnavailable");
+  return {
+    ...telemetry,
+    available,
+    support_id: available && telemetry.enabled ? DEMO_SUPPORT_ID : null,
+  };
+}
+/// Every report the UI handed to the backend, for tests to read back.
+function recordTelemetry(command: string, args: Record<string, unknown>): null {
+  const w = window as unknown as { __TELEMETRY__?: { command: string; args: Record<string, unknown> }[] };
+  (w.__TELEMETRY__ ??= []).push({ command, args });
+  return null;
+}
 // The native setting lasts as long as the app process, which a webview reload
 // does not end, so it is kept where a reload leaves it. Tests remove it to
 // stand in for a relaunch.
@@ -562,6 +630,29 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return demoDevices().find((d) => d.serial === String(args.serial ?? "")) ?? device;
     case "collect_diagnostics":
       return demoDiagnostics((args.serial as string | null) ?? null);
+    case "telemetry_settings":
+      return telemetrySettings();
+    case "set_telemetry_enabled":
+      telemetrySettings();
+      telemetry!.enabled = Boolean(args.enabled);
+      return telemetrySettings();
+    case "dismiss_telemetry_notice":
+      telemetrySettings();
+      telemetry!.notice_seen = true;
+      return telemetrySettings();
+    case "telemetry_action":
+    case "telemetry_error":
+      return recordTelemetry(cmd, args);
+    case "upload_diagnostics":
+      // "Send logs to developer". Nothing leaves the page: the call is
+      // recorded for tests, and `uploadFails` stands in for a failed upload.
+      recordTelemetry(cmd, args);
+      if (demoFlag("uploadFails")) throw "demo: network unreachable";
+      return { support_id: DEMO_SUPPORT_ID, bytes: 48_213 };
+    case "plugin:updater|check":
+      // The updater manifest has nothing newer. Without this the catch-all
+      // answer below reads as an update and puts "Update now" in the header.
+      return null;
     case "get_debug_logging":
       return debugLogging;
     case "set_debug_logging":

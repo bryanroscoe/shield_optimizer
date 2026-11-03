@@ -180,21 +180,22 @@ the MIT License, whose text is reproduced in the MIT section below.
 
 ## Rust crate dependencies
 
-313 crates are linked into the Android build (build-time and dev-only crates excluded).
+318 crates are linked into the Android build (build-time and dev-only crates excluded).
 
 | License | Crates |
 | --- | --- |
-| MIT | 276 |
-| Apache-2.0 | 213 |
+| MIT | 280 |
+| Apache-2.0 | 218 |
 | Unicode-3.0 | 19 |
 | BSD-3-Clause | 11 |
 | Unlicense | 6 |
+| ISC | 5 |
 | MPL-2.0 | 5 |
-| ISC | 4 |
 | Zlib | 4 |
 | LLVM-exception | 2 |
 | 0BSD | 1 |
 | BSD-2-Clause | 1 |
+| BSL-1.0 | 1 |
 | CC0-1.0 | 1 |
 | MIT-0 | 1 |
 
@@ -303,6 +304,7 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [http-body-util](https://github.com/hyperium/http-body) | 0.1.3 | MIT |
 | [httparse](https://github.com/seanmonstar/httparse) | 1.10.1 | MIT OR Apache-2.0 |
 | [hyper](https://github.com/hyperium/hyper) | 1.10.0 | MIT |
+| [hyper-rustls](https://github.com/rustls/hyper-rustls) | 0.27.9 | Apache-2.0 OR ISC OR MIT |
 | [hyper-util](https://github.com/hyperium/hyper-util) | 0.1.20 | MIT |
 | [iana-time-zone](https://github.com/strawlab/iana-time-zone) | 0.1.65 | MIT OR Apache-2.0 |
 | [ico](https://github.com/mdsteele/rust-ico) | 0.5.0 | MIT |
@@ -396,6 +398,7 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [regex](https://github.com/rust-lang/regex) | 1.12.3 | MIT OR Apache-2.0 |
 | [regex-automata](https://github.com/rust-lang/regex) | 0.4.14 | MIT OR Apache-2.0 |
 | [regex-syntax](https://github.com/rust-lang/regex) | 0.8.10 | MIT OR Apache-2.0 |
+| [reqwest](https://github.com/seanmonstar/reqwest) | 0.12.28 | MIT OR Apache-2.0 |
 | [reqwest](https://github.com/seanmonstar/reqwest) | 0.13.4 | MIT OR Apache-2.0 |
 | [ring](https://github.com/briansmith/ring) | 0.17.14 | Apache-2.0 AND ISC |
 | [rsa](https://github.com/RustCrypto/RSA) | 0.9.10 | MIT OR Apache-2.0 |
@@ -405,6 +408,7 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [rustls-pki-types](https://github.com/rustls/pki-types) | 1.14.1 | MIT OR Apache-2.0 |
 | [rustls-webpki](https://github.com/rustls/webpki) | 0.103.13 | ISC |
 | [rustversion](https://github.com/dtolnay/rustversion) | 1.0.22 | MIT OR Apache-2.0 |
+| [ryu](https://github.com/dtolnay/ryu) | 1.0.23 | Apache-2.0 OR BSL-1.0 |
 | [same-file](https://github.com/BurntSushi/same-file) | 1.0.6 | Unlicense OR MIT |
 | [schemars](https://github.com/GREsau/schemars) | 0.8.22 | MIT |
 | [schemars_derive](https://github.com/GREsau/schemars) | 0.8.22 | MIT |
@@ -419,6 +423,7 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [serde_json](https://github.com/serde-rs/json) | 1.0.150 | MIT OR Apache-2.0 |
 | [serde_repr](https://github.com/dtolnay/serde-repr) | 0.1.20 | MIT OR Apache-2.0 |
 | [serde_spanned](https://github.com/toml-rs/toml) | 1.1.1 | MIT OR Apache-2.0 |
+| [serde_urlencoded](https://github.com/nox/serde_urlencoded) | 0.7.1 | MIT OR Apache-2.0 |
 | [serde_with](https://github.com/jonasbb/serde_with/) | 3.20.0 | MIT OR Apache-2.0 |
 | [serde_with_macros](https://github.com/jonasbb/serde_with/) | 3.20.0 | MIT OR Apache-2.0 |
 | [serialize-to-javascript](https://github.com/chippers/serialize-to-javascript) | 0.1.2 | MIT OR Apache-2.0 |
@@ -466,6 +471,7 @@ A crate under `A OR B` is counted under both; we distribute under whichever term
 | [tinystr](https://github.com/unicode-org/icu4x) | 0.8.3 | Unicode-3.0 |
 | [tokio](https://github.com/tokio-rs/tokio) | 1.52.3 | MIT |
 | [tokio-macros](https://github.com/tokio-rs/tokio) | 2.7.0 | MIT |
+| [tokio-rustls](https://github.com/rustls/tokio-rustls) | 0.26.4 | MIT OR Apache-2.0 |
 | [tokio-util](https://github.com/tokio-rs/tokio) | 0.7.18 | MIT |
 | [toml](https://github.com/toml-rs/toml) | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 |
 | [toml_datetime](https://github.com/toml-rs/toml) | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |
@@ -1414,7 +1420,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-Used by: dunce 1.0.5, sync_wrapper 1.0.2
+Used by: dunce 1.0.5, ryu 1.0.23, sync_wrapper 1.0.2
 
 ```
 Apache License
@@ -3353,7 +3359,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-Used by: rustls 0.23.40
+Used by: hyper-rustls 0.27.9, rustls 0.23.40
 
 ```
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
@@ -4955,6 +4961,30 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+Used by: reqwest 0.12.28
+
+```
+Copyright (c) 2016-2025 Sean McArthur
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 Used by: reqwest 0.13.4
 
 ```
@@ -5401,6 +5431,36 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+Used by: serde_urlencoded 0.7.1
+
+```
+Copyright (c) 2016 Anthony Ramine
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
 Used by: cfg-if 1.0.4, socket2 0.6.3
 
 ```
@@ -5681,6 +5741,36 @@ Used by: fnv 1.0.7
 
 ```
 Copyright (c) 2017 Contributors
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+```
+
+Used by: tokio-rustls 0.26.4
+
+```
+Copyright (c) 2017 quininer kel
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated

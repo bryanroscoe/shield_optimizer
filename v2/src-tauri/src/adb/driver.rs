@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -14,7 +14,7 @@ use tracing::{debug, warn};
 
 use shield_optimizer_core::adb::driver::process_output;
 use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
 use shield_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
 
 use crate::session;
@@ -239,9 +239,58 @@ fn redact_stdout_for_log(command_text: &str, stdout: &str) -> String {
             .filter(|line| line.trim_start().starts_with("package:"))
             .count();
         format!("<redacted: package inventory, {count} entries>")
+    } else if mentions_named_setting(command_text) {
+        truncate_for_log(&redact_named_output(command_text, stdout))
     } else {
         truncate_for_log(stdout)
     }
+}
+
+/// Settings whose value is something the user named: the TV's name and the
+/// Private DNS host (a NextDNS-style profile id is personal too).
+const NAMED_SETTINGS: [&str; 3] = ["device_name", "private_dns_specifier", "bluetooth_name"];
+
+fn mentions_named_setting(text: &str) -> bool {
+    NAMED_SETTINGS.iter().any(|key| text.contains(key))
+}
+
+/// The output of a read of a named setting. A batch keeps its other
+/// sections (the property reads a bug report needs) and loses only the
+/// sections whose command touched one of [`NAMED_SETTINGS`]; anything else
+/// that mentions one is withheld whole.
+fn redact_named_output(command_text: &str, stdout: &str) -> String {
+    const WITHHELD: &str = "<redacted: a name or host the user set>";
+    let commands: Vec<&str> = command_text.split(BATCH_SEPARATOR).collect();
+    let sections: Vec<&str> = stdout.split(BATCH_SEPARATOR).collect();
+    if commands.len() < 2 || commands.len() != sections.len() {
+        return WITHHELD.to_string();
+    }
+    commands
+        .iter()
+        .zip(sections)
+        .map(|(command, section)| {
+            if mentions_named_setting(command) {
+                format!("\n{WITHHELD}\n")
+            } else {
+                section.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(BATCH_SEPARATOR)
+}
+
+/// `settings put global device_name '<new name>'` carries the value in the
+/// command itself, and a failed or timed-out call logs its arguments at
+/// warn, which is what a failure report's excerpt reads. The value goes, to
+/// the end of that command.
+fn redact_named_values(arg: &str) -> String {
+    static PUT: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(
+            r"(settings\s+put\s+\S+\s+(?:device_name|private_dns_specifier|bluetooth_name))\s+[^;]*",
+        )
+        .expect("static pattern")
+    });
+    PUT.replace_all(arg, "$1 <redacted>").into_owned()
 }
 
 /// Typed text rides as `input text '<payload>'`, and that payload is whatever
@@ -262,7 +311,10 @@ fn redact_typed_text(arg: &str) -> String {
 /// first place — redacting at the read end would be too late.
 fn redact_args(args: &[&str]) -> Vec<String> {
     let Some(pair_at) = args.iter().position(|a| *a == "pair") else {
-        return args.iter().map(|a| redact_typed_text(a)).collect();
+        return args
+            .iter()
+            .map(|a| redact_named_values(&redact_typed_text(a)))
+            .collect();
     };
     args.iter()
         .enumerate()
@@ -706,8 +758,8 @@ pub fn cached_adb_binary() -> Option<PathBuf> {
 }
 
 /// Drop the memoized path so the next [`cached_adb_binary`] re-resolves.
-/// Called after anything that can change which binary is correct: a
-/// platform-tools install, or the user explicitly asking to restart adb.
+/// Called after installing platform-tools and replacing the live driver.
+/// Restart keeps the selected driver and its cached discovery path together.
 pub fn forget_cached_adb_binary() {
     if let Ok(mut guard) = CACHED_ADB_PATH.write() {
         *guard = None;
@@ -1002,6 +1054,57 @@ mod tests {
             redact_args(&["-s", "tv:5555", "shell", "input text 'hunter2'"]),
             vec!["-s", "tv:5555", "shell", "input text <redacted text>"]
         );
+    }
+
+    /// A rename that fails is logged at warn with its arguments, and that
+    /// line can go out in a failure report's excerpt.
+    #[test]
+    fn a_new_tv_name_or_dns_host_never_reaches_the_log() {
+        assert_eq!(
+            redact_args(&[
+                "-s",
+                "tv:5555",
+                "shell",
+                "settings put global device_name 'Kids Room TV'"
+            ]),
+            vec![
+                "-s",
+                "tv:5555",
+                "shell",
+                "settings put global device_name <redacted>"
+            ]
+        );
+        let dns = redact_args(&[
+            "-s",
+            "tv:5555",
+            "shell",
+            "settings put global private_dns_specifier '1a2b3c.dns.nextdns.io'; settings put global private_dns_mode hostname",
+        ]);
+        assert_eq!(
+            dns[3],
+            "settings put global private_dns_specifier <redacted>; settings put global private_dns_mode hostname"
+        );
+    }
+
+    #[test]
+    fn named_setting_reads_are_withheld_from_the_debug_log() {
+        assert_eq!(
+            redact_stdout_for_log("shell settings get global device_name", "Bedroom Shield\n"),
+            "<redacted: a name or host the user set>"
+        );
+        let cmd = shield_optimizer_core::adb::batch_command(&[
+            "settings get global device_name",
+            "getprop ro.product.model",
+        ]);
+        let out = format!("Bedroom Shield\n{BATCH_SEPARATOR}\nSHIELD Android TV\n");
+        let logged = redact_stdout_for_log(&cmd, &out);
+        assert!(!logged.contains("Bedroom"), "{logged}");
+        assert!(logged.contains("SHIELD Android TV"), "{logged}");
+        let dns = redact_stdout_for_log(
+            "shell settings get global private_dns_mode; settings get global private_dns_specifier",
+            "hostname\n1a2b3c.dns.nextdns.io\n",
+        );
+        assert!(!dns.contains("nextdns"), "{dns}");
     }
 
     #[test]

@@ -78,12 +78,12 @@ async function exercise({ browser, base }) {
   assert.match(hostOnly, /ATV Optimizer diagnostics/, hostOnly);
   assert.match(hostOnly, /No device selected/, hostOnly);
 
-  // Nothing leaves the machine unless the user opens the issue, and the
+  // The report leaves the machine only if the user opens the issue, and the
   // dialog says so.
-  assert.match(await dialog.innerText(), /sends nothing on its own/);
+  assert.match(await dialog.innerText(), /never sent on its own/);
 
   // Debug logging is a real switch, not a label.
-  const checkbox = dialog.getByRole("checkbox");
+  const checkbox = dialog.getByRole("checkbox", { name: "Debug logging" });
   assert.equal(await checkbox.isChecked(), false, "debug logging starts off");
   await checkbox.check();
   await page.waitForFunction(() => document.querySelector("dialog, [role=dialog]")
@@ -94,7 +94,7 @@ async function exercise({ browser, base }) {
   await page.getByRole("button", { name: "Report a bug" }).click();
   await page.getByRole("dialog").waitFor();
   assert.equal(
-    await page.getByRole("dialog").getByRole("checkbox").isChecked(),
+    await page.getByRole("dialog").getByRole("checkbox", { name: "Debug logging" }).isChecked(),
     true,
     "the checkbox reports what the backend actually has on",
   );
@@ -120,7 +120,7 @@ async function exercise({ browser, base }) {
 
   await page.close();
   console.log(
-    "Report a bug passed (host): the bundle renders, says the app sends nothing on its own, shows the log folder, toggles debug logging through the backend, and opens the bug form with Diagnostics prefilled.",
+    "Report a bug passed (host): the bundle renders, says the report is never sent on its own, shows the log folder, toggles debug logging through the backend, and opens the bug form with Diagnostics prefilled.",
   );
 }
 

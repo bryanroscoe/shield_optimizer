@@ -20,6 +20,7 @@
   import LauncherDiagnostics from "../components/LauncherDiagnostics.svelte";
   import HomeAppPicker from "../components/HomeAppPicker.svelte";
   import StockTakeoverDialog from "../components/StockTakeoverDialog.svelte";
+  import { destructiveWarning } from "../../../shared/support";
 
   let {
     navigate,
@@ -943,6 +944,7 @@
     warning={takeoverTurnsOffWraith
       ? "Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home button back. You may need to turn it back on briefly to sign in to Google again or pair a remote."
       : ""}
+    supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable stock & switch"
     onConfirm={confirmTakeover}
     onCancel={() => (takeover = null)}
@@ -958,6 +960,7 @@
     message={disableConfirm?.setup_helper
       ? "This is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen. It stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset."
       : "The TV will fall back to another enabled launcher for its home screen. You can re-enable this one here or from the Apps list."}
+    supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable"
     onConfirm={() => disableConfirm && doDisable(disableConfirm)}
     onCancel={() => (disableConfirm = null)}
@@ -967,6 +970,7 @@
     open={stockConfirmOpen}
     target={choice?.package ?? ""}
     turnsOffSetupHelper={takeoverTurnsOffWraith}
+    supportWarning={destructiveWarning(session.support)}
     onSaveFirst={() => disableStock(true)}
     onConfirm={() => disableStock(false)}
     onCancel={() => (stockConfirmOpen = false)}

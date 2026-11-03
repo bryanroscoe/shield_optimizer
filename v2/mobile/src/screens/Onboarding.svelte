@@ -15,6 +15,8 @@
   import { deviceTypeLabel } from "../lib/types";
   import type { Discovery, SavedDevice } from "../lib/types";
   import BrandMark from "../components/BrandMark.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
+  import SupportStatus from "../components/SupportStatus.svelte";
 
   let {
     intent = "launch",
@@ -371,7 +373,7 @@
           <span class="soft">Always allow</span>, select <span class="soft">Allow</span>, and retry.
         </span>
       </div>
-      <p class="error" role="alert">{reconnectError}</p>
+      <ErrorNotice error={reconnectError} action="Reconnect to a saved TV" support={null} />
     {/if}
 
     <div class="spacer"></div>
@@ -486,7 +488,7 @@
     {/if}
 
     {#if notice}<p class="lede empty" role="status">{notice}</p>{/if}
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if error}<ErrorNotice {error} title="Scan failed" action="Scan for TVs" support={null} />{/if}
 
     <div class="spacer"></div>
 
@@ -566,10 +568,10 @@
 
     <div class="callout teal">
       <span class="msr">lock</span>
-      <span>The pairing key stays on your phone. Nothing is sent to a server.</span>
+      <span>The pairing key stays on your phone and is never sent anywhere.</span>
     </div>
 
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if error}<ErrorNotice {error} title="Pairing failed" action="Pair with code" support={null} />{/if}
 
     <div class="spacer"></div>
 
@@ -609,7 +611,7 @@
             <span class="soft">Allow</span> within 30 seconds.
           </span>
         </div>
-        <p class="error" role="alert">{error}</p>
+        <ErrorNotice {error} action="Connect to TV" support={null} />
       {:else}
         <div class="callout accent">
           <span class="msr">tv_gen</span>
@@ -643,9 +645,12 @@
         {/if}
         <span class="infopill"><span class="msr">lan</span><span class="mono">{session.host}</span></span>
       </div>
+      {#if session.connectedDevice}
+        <div style="width: 100%; text-align: left"><SupportStatus support={session.support} /></div>
+      {/if}
     </div>
 
-    {#if error}<p class="error" role="alert">{error}</p>{/if}
+    {#if error}<ErrorNotice {error} support={null} />{/if}
 
     <div class="spacer"></div>
 

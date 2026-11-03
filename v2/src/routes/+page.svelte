@@ -2,6 +2,7 @@
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
+  import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
   import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
   import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
@@ -9,8 +10,16 @@
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
-  import { stopOnQuit, refreshStopOnQuit, toggleStopOnQuit } from "$lib/stop-adb-on-quit.svelte";
+  import {
+    QUIT_ADB_TIP,
+    stopOnQuit,
+    refreshStopOnQuit,
+    toggleStopOnQuit,
+  } from "$lib/stop-adb-on-quit.svelte";
   import { openContextMenu, type MenuItem } from "$lib/contextmenu";
+  import ErrorNotice from "$lib/components/ErrorNotice.svelte";
+  import SupportBadge from "$lib/components/SupportBadge.svelte";
+  import SupportBanner from "$lib/components/SupportBanner.svelte";
 
   let devices = $state<Device[]>([]);
 
@@ -31,12 +40,16 @@
 
   let connectAddress = $state("");
   let connectBusy = $state(false);
+  let failedConnectAddress = $state("");
   let connectMessage = $state("");
   /// adb's own words behind a failure `connectMessage` explains.
   let connectDetail = $state("");
+  /// A failed Add by IP: adb's words plus the explanation adb-errors.ts gives.
+  let connectError = $state<{ raw: string; summary: string | null } | null>(null);
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
+  let scanError = $state<string | null>(null);
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -115,8 +128,9 @@
 
   function showConnectFailure(address: string, raw: string) {
     const explained = explainAdbFailure("connect", address, raw);
-    connectMessage = explained.summary ?? explained.raw;
-    connectDetail = explained.summary ? explained.raw : "";
+    connectMessage = "";
+    connectDetail = "";
+    connectError = { raw: explained.raw, summary: explained.summary };
   }
 
   /// The adb transport key `adb connect <address>` registers: a bare host
@@ -132,18 +146,22 @@
     connectBusy = true;
     connectMessage = "";
     connectDetail = "";
+    connectError = null;
     try {
       const r = await api.connectDevice(address);
       if (r.ok) {
         connectMessage = r.message.trim();
         connectAddress = "";
+        failedConnectAddress = "";
         pairNextStep = false;
         await refresh();
         await announceConnected(connectKey(address));
       } else {
+        failedConnectAddress = address;
         showConnectFailure(address, r.message);
       }
     } catch (e) {
+      failedConnectAddress = address;
       showConnectFailure(address, String(e));
     } finally {
       connectBusy = false;
@@ -200,6 +218,7 @@
 
   async function scan() {
     scanBusy = true;
+    scanError = null;
     scanMessage = "Scanning local network…";
     try {
       const r = await api.scanNetwork();
@@ -218,7 +237,8 @@
       // list is where that state is visible.
       await refresh();
     } catch (e) {
-      scanMessage = String(e);
+      scanMessage = "";
+      scanError = String(e);
     } finally {
       scanBusy = false;
     }
@@ -599,13 +619,17 @@
   }
 
   async function restartAdb() {
-    if (!confirm("Restart the ADB server? All current device connections will reconnect.")) return;
+    const retryAddress = failedConnectAddress && failedConnectAddress === connectAddress.trim()
+      ? failedConnectAddress : "";
+    const retryPrompt = retryAddress ? ` Then retry Add by IP for ${retryAddress} once.` : "";
+    if (!confirm(`Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.${retryPrompt}`)) return;
     restartBusy = true;
     restartMessage = "";
     try {
       const r = await api.restartAdb();
       restartMessage = r.message;
       await refresh();
+      if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
     } finally {
@@ -628,11 +652,6 @@
 
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
-
-  const QUIT_ADB_TIP =
-    "Quitting stops the adb server for everything on this computer, so Android Studio, scrcpy or " +
-    "any other tool using adb is disconnected too. It is left running while this app is still " +
-    "using it, such as an open Remote, and when the app restarts for an update.";
 
   /// Drops this one TV's connection and dials it again, which is what makes
   /// Android show the debugging prompt a second time. Nothing else is
@@ -722,7 +741,13 @@
   onMount(() => {
     void bootDiscovery();
     void refreshStopOnQuit();
+    // Fetched support tiers landed after the list was read: re-list so the
+    // badges aren't stale.
+    const stopTierWatch = onSupportTiersUpdated(() => {
+      if (!loading) void refresh();
+    });
     return () => {
+      stopTierWatch();
       pairWaitToken++;
       reattachToken++;
     };
@@ -759,16 +784,17 @@
   <input
     placeholder="IP[:port] — e.g. 192.168.42.71"
     bind:value={connectAddress}
+    disabled={restartBusy}
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || !connectAddress.trim()}>
+  <button class="primary" onclick={connect} disabled={connectBusy || restartBusy || !connectAddress.trim()}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
   <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
-  <button onclick={restartAdb} disabled={restartBusy || adbMissing} title="adb kill-server then start-server">
+  <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
   <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
@@ -803,8 +829,18 @@
       <pre>{connectDetail}</pre>
     </details>
   {/if}
+  {#if connectError}
+    <ErrorNotice
+      class="connect-message connect-details"
+      error={connectError.raw}
+      summary={connectError.summary}
+    />
+  {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
+  {/if}
+  {#if scanError}
+    <ErrorNotice class="connect-message" error={scanError} action="Scan LAN" />
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
@@ -980,12 +1016,22 @@
                     data-tip="Didn't report itself as an Android TV; tools may not apply"
                   >UNCONFIRMED TV</span>
                 {/if}
+                {#if d.properties}
+                  <SupportBadge support={d.support} />
+                {/if}
               </div>
               <div class="device-meta muted mono">
                 {d.serial} · {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
                 · {d.connection === "network" ? "network" : "usb"}
               </div>
+              {#if d.properties}
+                {#if d.support?.tier === "not_supported"}
+                  <SupportBanner support={d.support} />
+                {:else}
+                  <SupportBadge support={d.support} mode="line" />
+                {/if}
+              {/if}
             </div>
             <!-- Row actions. They live inside the link, so each one has to
                  stop the click reaching it — otherwise Forget would navigate

@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {readFile,mkdir,realpath} from 'node:fs/promises';
+import {resolve,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createServer} from 'vite';
+import {chromium} from 'playwright';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const entries=JSON.parse(await readFile(resolve(root,'tests/fixtures/reported-package-names.json'),'utf8'));
+const names=JSON.parse(await readFile(resolve(root,'crates/core/data/app-lists/known-names.json'),'utf8'));
+assert.equal(new Set(entries.map(e=>e.package)).size,15);
+for(const e of entries){assert.equal(new URL(e.source_url).searchParams.get('id'),e.package);if(e.expected_safety==='caution')assert.equal(names[e.package].name,e.name);}
+const renames=JSON.parse(await readFile(resolve(root,'tests/fixtures/reported-package-renames.json'),'utf8'));
+const common=JSON.parse(await readFile(resolve(root,'crates/core/data/app-lists/common.json'),'utf8'));
+for(const e of entries.filter(e=>['safe','medium'].includes(e.expected_safety))){const a=common.find(a=>a.package===e.package);assert.equal(a.name,e.name);assert.equal(a.risk,e.expected_safety);assert.equal(a.method,'disable');assert.equal(a.default_optimize,false);assert.equal(a.default_restore,false);assert.equal(a.review,false);assert.ok(!names[e.package]);}
+for(const change of renames){const entry=common.find(e=>e.package===change.package);assert.equal(entry.name,change.name);assert.deepEqual(Object.fromEntries(Object.entries(entry).filter(([key])=>!['name','optimize_description','restore_description'].includes(key))),change.preserved_fields,'rename must preserve safety, method, review, source and default fields');}
+assert.deepEqual(JSON.parse(await readFile(resolve(root,'src/lib/demo-apps.json'),'utf8')), [...common,...JSON.parse(await readFile(resolve(root,'crates/core/data/app-lists/shield.json'),'utf8'))], 'demo catalog stays synchronized');
+const evidence=process.env.REPORTED_NAMES_EVIDENCE;if(evidence)await mkdir(evidence,{recursive:true});
+process.env.VITE_DEMO='1';delete process.env.TAURI_DEV_HOST;
+let server,browser;
+try{
+server=await createServer({root,server:{host:'127.0.0.1',port:0,hmr:false,fs:{allow:[root,await realpath(resolve(root,'node_modules'))]}}});await server.listen();const {recommendation}=await server.ssrLoadModule('/src/lib/recommendation.ts');for(const e of entries.filter(e=>['safe','medium'].includes(e.expected_safety))){const a=common.find(a=>a.package===e.package);for(const state of ['enabled','disabled','missing'])assert.equal(recommendation(a,state,{status:'ready',verdict:{kind:e.expected_safety==='safe'?'safe':'caution',source:'reviewed_catalog',reason:a.optimize_description}}).kind,'keep','new entries must never be automatic Optimize/Restore choices');}browser=await chromium.launch();
+const context=await browser.newContext({viewport:{width:1360,height:1050},...(evidence?{recordVideo:{dir:evidence+'/raw'}}:{})});
+await context.addInitScript(({entries,names})=>{let bridge;window.catalogNamesEnabled=localStorage.getItem('reportedNamesEnabled')==='1';Object.defineProperty(window,'__TAURI_INTERNALS__',{configurable:true,get:()=>bridge,set(value){const original=value.invoke.bind(value);value.invoke=async(command,args={})=>{if(command==='list_other_packages')return entries.filter(e=>e.expected_safety==='caution').map(e=>({package:e.package,name:window.catalogNamesEnabled?names[e.package].name:null,description:window.catalogNamesEnabled?names[e.package].description:null,system:false,enabled:true}));if(command==='safety_info'&&args.package==='com.klevico.monet')return{kind:'caution',source:'launcher_list',reason:'This is a Home screen. Keep an enabled replacement before disabling your current launcher.'};return original(command,args);};bridge=value;}});},{entries,names});
+const page=await context.newPage();const url=`http://127.0.0.1:${server.httpServer.address().port}`;
+async function openApps(){await page.goto(url,{waitUntil:'networkidle'});await page.getByText('NVIDIA SHIELD',{exact:false}).first().click();await page.getByRole('tab',{name:'App List',exact:true}).click();await page.locator('.other-apps tbody tr').first().waitFor({timeout:10000});await page.evaluate(()=>{const tag=document.createElement('div');tag.textContent='SIMULATION — package fixtures, no ADB or TV';tag.style='position:fixed;bottom:0;right:0;padding:10px;background:#182334;color:white;z-index:99999';document.body.append(tag);});}
+await openApps();await page.locator('.other-apps').evaluate(el=>el.scrollIntoView({block:'start'}));await page.waitForTimeout(1000);if(evidence)await page.locator('.other-apps').screenshot({path:evidence+'/before-simulated.png'});
+await page.evaluate(()=>localStorage.setItem('reportedNamesEnabled','1'));await openApps();
+for(const e of entries){const row=page.locator('tr').filter({has:page.getByText(e.package,{exact:true})});assert.equal(await row.count(),1);assert.ok((await row.innerText()).includes(e.name));if(e.expected_safety==='caution')assert.ok((await row.innerText()).includes(names[e.package].description));await row.getByText(e.expected_safety==='safe'?'Safe to remove':'Caution',{exact:true}).waitFor({timeout:5000});if(e.expected_safety==='safe'){await row.scrollIntoViewIfNeeded();await row.locator('[data-rec="No change needed"]').waitFor({timeout:5000});if(evidence&&e.issue===242)await page.screenshot({path:evidence+'/safe-client-simulated.png'});}if(evidence&&e.issue===252){await row.scrollIntoViewIfNeeded();await page.waitForTimeout(500);await page.screenshot({path:evidence+'/tools-and-vpn-simulated.png'});}}
+await page.locator('.other-apps').evaluate(el=>el.scrollIntoView({block:'start'}));await page.waitForTimeout(1200);if(evidence)await page.locator('.other-apps').screenshot({path:evidence+'/after-simulated.png'});
+for(const change of renames){const row=page.locator('tr').filter({has:page.getByText(change.package,{exact:true})});await row.getByText(change.name,{exact:true}).waitFor({timeout:5000});await row.scrollIntoViewIfNeeded();await page.waitForTimeout(1000);if(evidence)await page.screenshot({path:evidence+`/rename-${change.issue}-simulated.png`});}
+const video=page.video();await context.close();if(evidence)await video.saveAs(evidence+'/reported-names-simulated.webm');console.log('PASS 13 optional Safe apps and Surfshark Caution without default selection, Monet Caution and 2 preserved catalog renames. Browser simulation only.');
+}finally{await browser?.close();await server?.close();}

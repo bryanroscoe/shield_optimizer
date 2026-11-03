@@ -9,6 +9,7 @@ import { api } from "./api";
 import { onConnectionLost, setConnectionGeneration } from "./connectionEvents";
 import { cachedDeviceName, rememberDevice, setAutoConnect } from "./savedDevices";
 import { deviceLabelOf } from "./types";
+import { parseSupport, type SupportInfo } from "../../../shared/support";
 import type {
   ConnectResult,
   Device,
@@ -88,6 +89,12 @@ class Session {
     );
     if (cached) return cached;
     return deviceLabelOf(this.connectedDevice);
+  }
+
+  /// The connected TV's support tier. `unknown` (claims nothing) whenever no
+  /// profile was read; never derived from a saved row or an address.
+  get support(): SupportInfo {
+    return parseSupport(this.connectedDevice?.support);
   }
 
   get isConnected(): boolean {

@@ -13,7 +13,7 @@ current state. Companion docs in this directory:
   signing, offline license keys, Android notices and the privacy-disclosure inventory.
 - [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md),
   [`BILLING-COMMAND-MATRIX.md`](BILLING-COMMAND-MATRIX.md),
-  [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md) — planned Play billing, the current
+  [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md) — Play billing (v1 built), the current
   Free/Pro gate of every command, and the proposed Free undo.
 - [`EXPORT-DISCOVERABILITY.md`](EXPORT-DISCOVERABILITY.md) — where every saved file and report
   actually goes, and the proposed Android export scope.
@@ -131,6 +131,14 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   check.
 - Screenshots, pulled files, APK bundles and snapshots all land in app-private storage with no
   export (`EXPORT-DISCOVERABILITY.md`). Copy text never claims to have saved a file.
+- **Support tiers claim only what the TV reported.** A tier comes from the connected TV's profile
+  (`Device.support`), never from a saved row's address. Unreadable means `unknown` ("not verified"),
+  and no tier relaxes a safety gate or blocks enable/restore/Recovery. The list is shared with
+  desktop and changes only through `../../docs/DEVICE-SUPPORT.md`; the live copy the app fetches
+  is synced from the same file, so never special-case a tier in mobile code.
+- **Anonymous reports are opt-out and Rust-built.** The frontend only says what happened; Rust
+  decides whether to send and redacts. Never add a field that carries a serial, address, TV name,
+  package list or path. Data-safety answers follow `DATA-INVENTORY.md`.
 
 ## 4. Licensing and commerce
 
@@ -138,8 +146,16 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   against public keys compiled in; `crates/core/src/license.rs`, `tools/atvopt-license`). The dev
   key `ATVOPT-PRO-2025` works in **debug builds only**. Private signing keys live in `~/.atvopt/`
   outside the repo; back up `~/.atvopt/license-signing-key.prod`. See `LICENSING.md`.
-- Planned, not built: one-time Play Pro with free recovery (`BILLING-IMPLEMENTATION-PLAN.md`) and
-  bounded Free undo (`FREE-SETTINGS-UNDO-DESIGN.md`). `EntitlementPreview` is an isolated
+- Play submission (2026-11-01): Pro is $4.99, past Ko-fi supporters get Play promo codes, and the
+  new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
+  `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
+- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro`) through
+  `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0) with on-device SHA1withRSA
+  verification in `src-tauri/src/play_billing.rs` and the two-source entitlement in
+  `billing_commands.rs`. Play builds (`ATVOPT_DISTRIBUTION=play`) hide offline key entry and the
+  backend refuses keys. Build-time inputs and owner steps: `RELEASE.md`.
+- Planned, not built: bounded Free undo (`FREE-SETTINGS-UNDO-DESIGN.md`). Until it ships, copy
+  promises only that re-enabling apps and emergency recovery are always free. `EntitlementPreview` is an isolated
   test-only reducer and does not authorize anything. `BILLING-COMMAND-MATRIX.json` is checked by
   `tests/entitlement-preview.test.mjs` against the registered commands.
 
@@ -157,6 +173,8 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   (icons, `AndroidManifest.xml`, `strings.xml`, `build.gradle.kts` signing config). Don't rerun
   `tauri android init`; it would overwrite them.
 - `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery plugin (Kotlin `NsdManager` + thin Rust).
+- `v2/mobile/tauri-plugin-atv-billing/` — the Google Play Billing adapter (Kotlin + thin Rust; no
+  entitlement decisions).
 - `v2/vendor/adb_client/` — vendored MIT transport, outside the Cargo workspace.
 - `v2/tools/atvopt-license/` — license key generator/issuer/verifier CLI.
 - `v2/crates/core/` — the shared engine and commands. **Keep `engine/` pure; keep it aligned with
@@ -173,7 +191,7 @@ From `v2/`:
 ```
 cargo fmt --check
 cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile \
-  -p tauri-plugin-atv-adb -p atvopt-license --all-targets -- -D warnings
+  -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing -p atvopt-license --all-targets -- -D warnings
 cargo test -p shield-optimizer-core -p atv-optimizer-mobile -p atvopt-license
 cd vendor/adb_client && cargo test --lib      # the vendored crate is outside the workspace
 ```

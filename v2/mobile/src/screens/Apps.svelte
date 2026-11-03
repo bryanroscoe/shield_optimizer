@@ -33,6 +33,8 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
+  import ErrorNotice from "../components/ErrorNotice.svelte";
+  import { destructiveWarning } from "../../../shared/support";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
@@ -109,6 +111,13 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast = ""), 2800);
   }
+  // A failed enable/disable/uninstall/reinstall stays on screen with its code
+  // and Copy details, rather than vanishing with a toast.
+  let actionFailure = $state<{ title: string; error: unknown } | null>(null);
+  function showFailure(title: string, error: unknown) {
+    actionFailure = { title, error };
+  }
+
 
   function sessionCurrent(serial: string, generation: number): boolean {
     return (
@@ -432,6 +441,7 @@
     if (!app || !identity || app.state !== "disabled") return;
     const request = ++actionRequest;
     busyAction = app.package;
+    actionFailure = null;
     patch(app.package, "enabled", identity);
     selectedPkg = null;
     try {
@@ -443,7 +453,7 @@
       } else {
         // Not-ok can still have landed (stock enabled, its setup helper not),
         // so reload the real state instead of reverting the row.
-        showToast(r.message || "Action failed.", "error");
+        showFailure(`Couldn't enable ${label(app)}`, r.message || "Action failed.");
         session.invalidateAll();
         await loadApps(true);
       }
@@ -451,7 +461,7 @@
       if (!actionCurrent(request, identity)) return;
       patch(app.package, "disabled", identity);
       if (isLocked(e)) showPaywall = true;
-      else showToast(String(e), "error");
+      else showFailure(`Couldn't enable ${label(app)}`, e);
     } finally {
       if (request === actionRequest) busyAction = "";
     }
@@ -546,6 +556,7 @@
     if (!intent || busyAction || !listCurrent(intent) || !currentTarget(intent.app)) return;
     const request = ++actionRequest;
     busyAction = intent.app.package;
+    actionFailure = null;
     try {
       let fresh: Safety;
       try {
@@ -595,7 +606,10 @@
         // A not-ok result can still have landed (stock disabled with its
         // setup helper left on), so reload the real state instead of
         // assuming nothing changed.
-        showToast(r.message || `${intent.action === "disable" ? "Disable" : "Uninstall"} failed.`, "error");
+        showFailure(
+          `Couldn't ${intent.action === "disable" ? "disable" : "uninstall"} ${label(intent.app)}`,
+          r.message || `${intent.action === "disable" ? "Disable" : "Uninstall"} failed.`,
+        );
         session.invalidateAll();
         await loadApps(true);
       }
@@ -603,7 +617,7 @@
       if (!actionCurrent(request, intent)) return;
       if (intent.action === "disable") patch(intent.app.package, "enabled", intent);
       if (isLocked(e)) showPaywall = true;
-      else showToast(String(e), "error");
+      else showFailure(`Couldn't ${intent.action === "disable" ? "disable" : "uninstall"} ${label(intent.app)}`, e);
     } finally {
       if (request === actionRequest) busyAction = "";
     }
@@ -621,6 +635,7 @@
     const target = identity;
     const request = ++actionRequest;
     busyAction = app.package;
+    actionFailure = null;
     try {
       const r = await api.reinstallExisting(target.serial, app.package);
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;
@@ -632,12 +647,12 @@
         session.invalidateAll();
         await loadApps(true);
       } else {
-        showToast(r.message || "Reinstall failed. Try the Play Store.", "error");
+        showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Reinstall failed. Try the Play Store.");
       }
     } catch (e) {
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;
       if (isLocked(e)) showPaywall = true;
-      else showToast(String(e), "error");
+      else showFailure(`Couldn't reinstall ${label(app)}`, e);
     } finally {
       if (request === actionRequest) busyAction = "";
     }
@@ -917,12 +932,21 @@
     </button>
   </div>
 
+  {#if actionFailure}
+    <ErrorNotice
+      error={actionFailure.error}
+      title={actionFailure.title}
+      action={actionFailure.title}
+      onDismiss={() => (actionFailure = null)}
+    />
+  {/if}
+
   {#if loading && others.length === 0 && catalog.length === 0}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Loading packages…</span>
     </div>
   {:else if error && others.length === 0 && catalog.length === 0}
-    <p class="error">{error}</p>
+    <ErrorNotice {error} title="Couldn't load this TV's apps" action="List apps" />
     <button class="primary" onclick={() => loadApps(true)}>Retry</button>
   {:else}
     <div class="apps-list">
@@ -1081,6 +1105,7 @@
     icon={removalIntent?.action === "disable" ? "block" : "delete"}
     title={`${removalIntent?.action === "disable" ? "Disable" : "Uninstall"} ${removalIntent ? label(removalIntent.app) : "app"}?`}
     warning={removalIntent?.verdict.reason ?? ""}
+    supportWarning={destructiveWarning(session.support)}
     message={removalIntent?.action === "disable"
       ? `${verdictSummary(removalIntent.verdict)} Disable is reversible with Enable.`
       : `${verdictSummary(removalIntent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.${removalNote ? ` ${removalNote}` : ""}`}

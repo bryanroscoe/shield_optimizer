@@ -20,6 +20,7 @@ pub mod screenshot;
 pub mod shell;
 pub mod snapshot;
 pub mod state;
+pub mod telemetry;
 pub mod tuning;
 
 pub use license::license_info;
@@ -151,6 +152,11 @@ pub mod test_support {
         pub fn on_raw(mut self, needle: &str, stdout: &str) -> Self {
             self.raw_rules
                 .push(Rule::single(needle, Reply::Ok(stdout.into())));
+            self
+        }
+        pub fn on_raw_exit(mut self, needle: &str, stdout: &str, exit_code: i32) -> Self {
+            self.raw_rules
+                .push(Rule::single(needle, Reply::Code(stdout.into(), exit_code)));
             self
         }
         /// Hand back replies in order for successive matching `raw` calls,

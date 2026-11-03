@@ -581,7 +581,8 @@ pub async fn enable_package(
     enable_package_impl(&state, &serial, &package).await
 }
 
-pub(crate) async fn enable_package_impl(
+/// Public so the mobile billing tests can prove re-enabling stays free after a refund.
+pub async fn enable_package_impl(
     state: &AppState,
     serial: &str,
     package: &str,

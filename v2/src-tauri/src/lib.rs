@@ -22,9 +22,14 @@ use commands::{app_report, backup, diagnostics, files, install, scan, sideload, 
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
-    shell, snapshot, tuning,
+    shell, snapshot, telemetry, tuning,
 };
+use shield_optimizer_core::engine::telemetry::AppKind;
 use shield_optimizer_core::license::Entitlement;
+use shield_optimizer_core::telemetry::{
+    install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
+    TelemetryConfig,
+};
 use tauri::Manager;
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
@@ -162,11 +167,17 @@ pub fn invoke_handler<R: tauri::Runtime>(
         update::check_for_update,
         app_report::save_app_report,
         diagnostics::collect_diagnostics,
+        diagnostics::upload_diagnostics,
         diagnostics::set_debug_logging,
         diagnostics::get_debug_logging,
         diagnostics::log_dir_path,
         diagnostics::open_log_dir,
         diagnostics::log_ui_event,
+        telemetry::telemetry_settings,
+        telemetry::set_telemetry_enabled,
+        telemetry::dismiss_telemetry_notice,
+        telemetry::telemetry_action,
+        telemetry::telemetry_error,
     ]
 }
 
@@ -201,7 +212,26 @@ pub fn run() {
         }
     };
 
-    let state = default_state(app_lists, data_dir).with_known_names(loader::load_known_names());
+    // Anonymous reports: a complete no-op unless this build was compiled with
+    // ATVOPT_TELEMETRY_URL, and the user can turn them off in Settings.
+    let telemetry = Telemetry::new(
+        TelemetryConfig::for_build(AppKind::Desktop, env!("CARGO_PKG_VERSION")),
+        &data_dir,
+    );
+    install_panic_hook(telemetry.clone());
+    // Failure and "found nothing" reports carry a redacted excerpt of the
+    // adb and connection log lines, a few times a day at most.
+    telemetry.set_excerpt_source(diagnostics::excerpt_source(log_control.dir().to_path_buf()));
+
+    let state = default_state(app_lists, data_dir)
+        .with_known_names(loader::load_known_names())
+        .with_telemetry(telemetry.clone());
+    telemetry.set_adb_facts(engine::telemetry_diag::adb_diag(
+        diagnostics::adb_source(),
+        None,
+        None,
+    ));
+    load_cached_support_rules(&state);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -211,6 +241,11 @@ pub fn run() {
         .manage(state)
         .manage(log_control)
         .manage(AdbQuitControl::default())
+        .setup(move |app| {
+            telemetry.start();
+            spawn_support_refresh(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(invoke_handler())
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

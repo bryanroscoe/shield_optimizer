@@ -13,6 +13,13 @@ Required for our agent-authored PRs; optional for external contributors. Existin
 - If non-visual, why screenshots and video are not applicable, with completed validation evidence:
 - Any capture blocker, redaction, or remaining evidence gap:
 
+### CI readiness
+
+CI runs by default, including on drafts. If deliberately paused with `skip-ci`,
+record the reason and remove the label before merge. Verify that the applicable
+suites ran and passed on the latest revision; skipped checks are not evidence.
+See `CONTRIBUTING.md`.
+
 ### Agent evidence checklist
 
 - [ ] Observable UI/interaction changes have **both screenshots and a short video**, or a genuine non-visual reason and concrete validation evidence are provided above.

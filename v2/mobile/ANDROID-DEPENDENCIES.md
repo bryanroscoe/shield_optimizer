@@ -13,11 +13,16 @@ resolved Gradle dependency report.
 | App | androidx.lifecycle:lifecycle-process:2.10.0 |
 | ADB plugin | androidx.core:core-ktx:1.13.1 |
 | ADB plugin | org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
+| Billing plugin | com.android.billingclient:billing:9.1.0 (Android Software Development Kit License, not Apache-2.0) |
+| Billing plugin | androidx.core:core-ktx:1.13.1; org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
 | Tauri Android | androidx.core:core-ktx:1.7.0; androidx.appcompat:appcompat:1.6.0; Material:1.7.0 |
 | Tauri Android | com.fasterxml.jackson.core:jackson-databind:2.15.3 |
 | Opener | androidx.browser:browser:1.8.0; androidx.core:core-ktx:1.9.0; Jackson Databind:2.15.3 |
 
-All listed libraries declare Apache-2.0 licensing. Official project sources:
+All listed libraries except the Play Billing Library declare Apache-2.0 licensing. The Play
+Billing Library is distributed under the Android Software Development Kit License Agreement;
+record its terms and any transitive Google artifacts it pulls in when the resolved graph is
+captured. Official project sources:
 https://android.googlesource.com/platform/frameworks/support/,
 https://github.com/material-components/material-components-android,
 https://github.com/Kotlin/kotlinx.coroutines,

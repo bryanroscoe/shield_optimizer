@@ -6,6 +6,7 @@
     open,
     target,
     turnsOffSetupHelper,
+    supportWarning = null,
     onSaveFirst,
     onConfirm,
     onCancel,
@@ -13,6 +14,8 @@
     open: boolean;
     target: string;
     turnsOffSetupHelper: boolean;
+    /// The TV's support-tier caution. Never blocks the choice.
+    supportWarning?: string | null;
     onSaveFirst: () => void;
     onConfirm: () => void;
     onCancel: () => void;
@@ -46,6 +49,12 @@
             back. You may need to turn it back on briefly to sign in to Google again or pair a
             remote.
           </span>
+        </p>
+      {/if}
+      {#if supportWarning}
+        <p class="dialog-warning" data-testid="support-warning">
+          <span class="msr">warning</span>
+          <span>{supportWarning}</span>
         </p>
       {/if}
       <div class="dialog-actions">

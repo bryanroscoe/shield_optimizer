@@ -96,7 +96,9 @@ is ever added it needs signature verification and an offline fallback to embedde
 - **Not a root or Magisk tool.** Only ADB-shell-level changes. On-device root operations belong in Magisk modules.
 - **Not a custom-ROM flasher.** No fastboot, no recovery image flashing, no Project Treble manipulation.
 - **No cloud sync.** Snapshots are local JSON files. No account, no cloud backup.
-- **No crash/usage telemetry.** Diagnostics live in local log files the user can choose to share.
+- **No third-party analytics.** The only reporting is the app's own anonymous device and error
+  reports (below), sent to an owner-operated endpoint and off with one setting. Full diagnostics
+  stay in local log files the user can choose to share.
 - **No firmware-protection bypass.** When firmware refuses a change (for example a protected Fire TV stock launcher, [#205](https://github.com/bryanroscoe/shield_optimizer/issues/205)), the app reports the command error, restore outcome and actual Home readback; it doesn't work around the refusal.
 
 ## Local setup
@@ -124,6 +126,87 @@ The development flow is:
 - `cd v2 && npm run tauri dev` to run the GUI
 - `cd v2 && cargo test -p shield-optimizer-core -p shield-optimizer-v2` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
+
+## Telemetry and support tiers
+
+Anonymous reports are **on by default and opt-out**, and compiled in only when the build sets
+`ATVOPT_TELEMETRY_URL` (the base URL of the owner-operated Cloudflare Worker, no trailing path).
+Without it, telemetry is a complete no-op: nothing is queued and nothing touches the network.
+The URL must be `https://`; plain `http://` is accepted only for a loopback host (local Worker
+development), and anything else is ignored as if unset.
+
+```bash
+ATVOPT_TELEMETRY_URL=https://telemetry.example.workers.dev npm run tauri build
+```
+
+The release workflow passes the optional repository variable `ATVOPT_TELEMETRY_URL` to the
+desktop build; leave it unset to ship a build that never reports.
+
+- Payloads are built and redacted in the pure `crates/core/src/engine/telemetry.rs`; queueing and
+  upload live in `crates/core/src/telemetry.rs` (`POST <base>/v1/events`, at most 50 events and
+  64 KB per request, 5 s connect / 10 s total timeouts, bounded queue, silent on failure). Never
+  sent: `ro.serialno` or any hardware id, IPs or ports, TV names, package lists, file paths,
+  license data, snapshot contents. The Worker never reads Cloudflare's request location data
+  (`request.cf`) and stores no IP address or location, not even the country.
+- Events: `device_seen` once per TV per session after profiling, `action_result` for connect,
+  scan, disable, enable, uninstall, optimize, snapshot apply, launcher, settings writes and
+  pairing, and `error` for Rust panics, uncaught frontend errors and failed untracked commands
+  (rate limited). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
+  `telemetry_error`; `shared/telemetry.ts` maps commands to actions.
+- `diagnostic` events (schema 2) report a call that worked but found nothing usable, with the
+  reason as `error_code`: `scan_empty` (Scan LAN found no device), `scan_connect_failed` (found
+  some, connected to none), `discover_empty` (mobile wireless discovery), and
+  `device_details_empty` (a listed TV that is unauthorized, offline, failed `getprop` or reported
+  a blank make and model; once per transport per session). Each carries a `diag` object built by
+  the pure `engine/telemetry_diag.rs` from counts, fixed enums, version numbers and error codes
+  only: adb source (`bundled`/`sdk`/`system`/`custom`/`builtin`/`none`) and version, server
+  reachable, transports by state, `adb mdns check` and service counts by type, interface counts
+  and IPv4 prefix lengths (no addresses or names), whether the swept /24 is on a local
+  interface, probes/open/timeouts/refused, connect counts and failure codes, empty `getprop`
+  keys from a fixed list, and durations. At most 30 a session, 10 per reason.
+- Desktop only: failure and `diagnostic` events can carry `log_excerpt`, the last 60 lines
+  (8 KiB) of the app log from the adb, connect and discovery code, redacted by the pure
+  `engine/log_redact.rs` (addresses, MACs, mDNS and `.local` names, serials and TV names seen
+  this session or named in the log itself, paths, the home directory and user name, emails,
+  package ids, Private DNS and other dotted hosts, identity fields such as
+  `serial=`/`name=`/`address=`, and the value of any `device_name` or `private_dns_specifier`).
+  Command output never leaves: a line's `stdout=` value and its continuation lines are dropped,
+  and `stderr=` becomes an error code. The adb driver also logs `settings put … device_name`
+  and Private DNS writes without their value, and withholds named-setting reads from the debug
+  log, so the name isn't in the file in the first place. One per upload batch,
+  at most 20 per install per UTC day (`excerpt_day`/`excerpts_today` in `telemetry.json`). The
+  phone app never sends one; the Worker also drops any that claims to come from it.
+- **Support ID.** `telemetry_settings` returns `support_id`, the install id, while reports are on
+  and the build has an endpoint (`null` otherwise); `formatSupportId` shows its first eight hex
+  digits as `7D0B-0B9E`. The bug-report bundle shows only the short form, because it is pasted into public
+  issues and the full id is what reports are posted under; the admin lookup finds an install by
+  the short form. It stays a random
+  UUID v4, never derived from hardware, a serial or an address, and turning reports back on still
+  makes a new one.
+- **Send logs** (desktop `upload_diagnostics`): only when the user presses it, even with reports
+  off, under the current install id (never a new one), which it returns. It posts a summary
+  (support ID, app and OS, TVs by state and public build properties, `adb devices -l`, a fresh
+  `diag`) and the last 256 KiB of the rolling app log, all redacted by `engine/log_redact.rs`,
+  to `POST <base>/v1/diagnostics`. Errors are `upload_unavailable` (no endpoint),
+  `upload_limited` (5 a day per install, or the day's shared budget) and `upload_failed` in `shared/errors.ts`. The Worker
+  keeps uploads and excerpts 30 days. Look one up with
+  `telemetry-worker/scripts/support-lookup.sh <support-id>`.
+- The first-launch notice (`NOTICE_TEXT` on desktop, `MOBILE_NOTICE_TEXT` on the phone) shows
+  again once whenever `NOTICE_VERSION` in `crates/core/src/telemetry.rs` is bumped; it was bumped
+  to 2 for the diagnostics, excerpts and support ID. Someone who opted out isn't asked again.
+- The setting lives in `<data_dir>/telemetry.json`, written atomically. Off clears the queue and
+  cancels an upload in flight; back on generates a new random install id. A file that exists but
+  can't be read counts as opted out. Messages are also scrubbed of every transport serial,
+  hardware id and TV name seen this session, whatever their shape.
+- **Support tiers** (`unknown`, `not_supported`, `beta`, `supported`, `fully_supported`) come from
+  `crates/core/data/device-support.json`, embedded like the app lists and matched by the pure
+  `engine/support.rs` against what the device reported. When reports are on, the app also fetches
+  `GET <base>/v1/support-tiers`, validates it, and caches it as `<data_dir>/support-tiers.json`;
+  any failure keeps the embedded rules. A cached or fetched document dated (`updated`) before the
+  embedded one is ignored, so an app update's corrections win. When fetched rules change, Rust emits
+  `support-tiers-updated` and both frontends re-list devices. Tiers are informational only and
+  never feed `engine::safety`. The live copy is synced from the same file on merge; how a TV
+  changes tier is [`../docs/DEVICE-SUPPORT.md`](../docs/DEVICE-SUPPORT.md).
 
 ## See also
 

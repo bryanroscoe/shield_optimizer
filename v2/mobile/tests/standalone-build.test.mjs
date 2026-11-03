@@ -34,11 +34,11 @@ test("mobile production and demo builds need no desktop generated files or depen
   const vite = join(mobile, "node_modules/vite/bin/vite.js");
   await execute(process.execPath, [vite, "build"], { cwd: isolatedMobile, env, maxBuffer: 4 * 1024 * 1024 });
   const production = await bundleText(join(isolatedMobile, "build"));
-  assert.ok(!production.includes("demo@example.com"), "production must exclude the demo entitlement fixture");
+  assert.ok(!production.includes("Unlock every Pro tool."), "production must exclude the demo entitlement fixture");
   assert.ok(!production.includes("Fast control channel ready."), "production must exclude the simulated transport reply");
   await execute(process.execPath, [vite, "build", "--outDir", "demo-build"], { cwd: isolatedMobile, env: { ...env, VITE_DEMO: "1" }, maxBuffer: 4 * 1024 * 1024 });
   const demo = await bundleText(join(isolatedMobile, "demo-build"));
-  assert.ok(demo.includes("demo@example.com"), "explicit demo builds must retain their fixture");
+  assert.ok(demo.includes("Unlock every Pro tool."), "explicit demo builds must retain their fixture");
   assert.ok(demo.includes("Fast control channel ready."));
   await assert.rejects(access(join(isolatedDesktop, ".svelte-kit")), "no desktop sync dependency");
   await assert.rejects(access(join(isolatedDesktop, "node_modules")), "no desktop dependency installation");

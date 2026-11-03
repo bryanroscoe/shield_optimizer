@@ -62,8 +62,12 @@ go-ahead; don't infer permission from a phone being powered on.
    - The launcher icon reads slightly top-heavy. A 1.8 px downward optical shift is mocked in
      `evidence/settings-polish-2026-10-17/icon-optical-comparison.png`; the assets are unchanged
      pending a preference.
-6. Commerce per [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md) and bounded Free
-   undo per [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md). Neither is built.
+6. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification) is **built, not yet
+   tested with a real Play account**; see [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md)
+   "Implemented v1". Remaining: license-tester purchases on a Play track (buy, pending, cancel,
+   restore on a second phone, refund, promo code), and later a server verifier/RTDN. Bounded Free
+   undo per [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md) is not built, so copy
+   promises only free app re-enable and emergency recovery.
 
 ## P2 — release readiness
 

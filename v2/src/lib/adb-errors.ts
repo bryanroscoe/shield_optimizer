@@ -48,8 +48,9 @@ export function explainAdbFailure(op: AdbOperation, target: string, raw: string)
       op === "pair"
         ? `Couldn't reach ${where}. Check the IP and pairing port match the pairing dialog, ` +
           "that it's still open, and that both are on the same Wi-Fi."
-        : `Couldn't reach ${where}. Check the IP and port match the device's main Wireless ` +
-          "debugging screen (not the pairing dialog), and that both are on the same Wi-Fi.";
+        : `Couldn't reach ${where}. Check the TV's current IP and that both devices are on the same local network. ` +
+          "On SHIELD, enable Network debugging. For Wireless debugging, use the IP and port from the " +
+          "main Wireless debugging screen (not the pairing dialog).";
   }
 
   return { summary, raw: text };

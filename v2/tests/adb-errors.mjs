@@ -39,6 +39,11 @@ for (const raw of [
   );
 }
 
+const shieldFailure = explainAdbFailure("connect", "192.0.2.1:5555", "No route to host");
+assert.match(shieldFailure.summary, /On SHIELD, enable Network debugging/);
+assert.match(shieldFailure.summary, /same local network/);
+assert.equal(shieldFailure.raw, "No route to host");
+
 // Wrong PIN: adb folds it together with a dropped connection, so it must be
 // matched before the "dialog gone" rule sees "connection was dropped".
 assert.match(

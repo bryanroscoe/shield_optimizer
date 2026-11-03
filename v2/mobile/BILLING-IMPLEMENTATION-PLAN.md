@@ -1,12 +1,47 @@
 # Android commerce implementation plan
 
-Status: draft plan, not built. No purchase code, product, account, credential, backend, payment or
-tip link is configured. Today's mobile Pro unlock is the signed offline license key in
+Status: **v1 built (on-device verification, no backend); not yet exercised against a real Play
+account or device.** See "Implemented v1" below. No product, account, credential, payment or tip
+link is configured in the repo. Sideload/dev builds keep the signed offline license key in
 [`LICENSING.md`](LICENSING.md). Nothing here authorizes a store submission or a real charge.
+
+## Implemented v1 (2026-10-31)
+
+What exists, and how it deviates from the server design below:
+
+- **Native adapter**: `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0). Connect,
+  `ProductDetails` for `atvopt_pro`, purchase sheet, `queryPurchasesAsync(INAPP)`, acknowledge.
+  It never consumes and makes no entitlement decision; it returns Play's signed `originalJson` and
+  `signature` untouched. No JS-invokable plugin commands.
+- **Verification is on the phone**, in Rust (`src-tauri/src/play_billing.rs`): SHA1withRSA against
+  the app's Play license public key compiled in from `ATVOPT_PLAY_LICENSE_KEY`, then package name,
+  product id and `purchaseState == 0` from the signed JSON. No key in the build means purchases
+  show as unavailable and Play never grants Pro. A patched APK can bypass on-device checks; accepted
+  for a one-time unlock at this price. A server verifier can later sit behind the same source.
+- **Entitlement**: `billing_commands.rs` keeps two independent sources (Play, license key) and
+  pushes their union into `AppState`, so every existing `require_pro` / `LOCKED:` gate applies
+  unchanged. Neither source converts into or revokes the other.
+- **Lifecycle**: owned purchases are queried at launch, whenever the app becomes visible again
+  (rate-limited to once per 30 s), on Restore purchases and after every purchase flow. PENDING is
+  shown and never granted or acknowledged. A verified PURCHASED purchase is granted, cached, then
+  acknowledged; a failed acknowledgment retries at the next query (Play refunds unacknowledged
+  purchases after three days). A successful query without the purchase (refund, revocation,
+  another account) drops Play Pro and clears the cache.
+- **Offline policy**: the last verified purchase is stored in `play_purchase.json` and re-verified
+  on every read. When Play cannot be asked, it keeps Pro for at most 7 days after Play last
+  confirmed it (`OFFLINE_GRACE_MS`); a clock more than a day behind that confirmation does not count.
+  So a refund can go unnoticed for up to 7 days only while Play is unreachable. A fresh install
+  never gets Pro offline.
+- **Policy**: Play builds (`ATVOPT_DISTRIBUTION=play`) hide key entry in the UI and the backend
+  refuses `activate_license`. Ko-fi supporters get Pro through Play promo codes; redemption arrives
+  as a normal purchase (verified tests cover a promo-shaped purchase with no `orderId`).
+- **Not built**: server verification, RTDN, Voided Purchases reconciliation, account linking, tips.
+  Free settings/Home/snapshot undo is still unbuilt, so all copy promises only that re-enabling
+  apps and emergency recovery are always free.
 
 ## Approved product direction
 
-- Free compatibility checks before purchase; one-time non-consumable Pro, intended US price $2.99.
+- Free compatibility checks before purchase; one-time non-consumable Pro, intended US price $4.99 (owner decision 2026-10-31; was $2.99).
 - No timed trial, subscription or recurring charge.
 - Complimentary Pro for existing Ko-fi supporters uses the normal Google Play one-time-product
   promo redemption flow and the same verification/restore logic. No separate APK, client-only

@@ -6,6 +6,8 @@
   import { api } from "$lib/api";
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import { destructiveWarning } from "../../../shared/support";
+  import { onSupportTiersUpdated } from "$lib/support-updates";
 
   let snapshots = $state<SnapshotFile[]>([]);
   let loading = $state(true);
@@ -81,7 +83,8 @@
       Object.keys(plan.settings_to_write).length +
       plan.settings_to_delete.length +
       (plan.launcher_to_set ? 1 : 0);
-    if (!confirm(`Restore ${snap.filename} to ${previewState.deviceName}?\n\n${total} change(s). Disabled packages can be re-enabled via Emergency Recovery.`)) return;
+    const tierWarning = destructiveWarning(devices.find((d) => d.serial === serial)?.support);
+    if (!confirm(`Restore ${snap.filename} to ${previewState.deviceName}?\n\n${total} change(s). Disabled packages can be re-enabled via Emergency Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`)) return;
     applyBusy = true;
     applyErr = null;
     try {
@@ -126,7 +129,17 @@
     return iso.replace("T", " ").replace("Z", " UTC");
   }
 
-  onMount(load);
+  onMount(() => {
+    void load();
+    // Fetched support tiers replaced the ones this list was read with; only
+    // the devices need re-reading for the restore warning to be current.
+    return onSupportTiersUpdated(() => {
+      void api
+        .listDevices()
+        .then((devs) => (devices = devs))
+        .catch(() => {});
+    });
+  });
 </script>
 
 <section class="header-row">
