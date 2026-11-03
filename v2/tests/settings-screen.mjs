@@ -287,10 +287,10 @@ async function main() {
   let server, browser;
   try {
     const { createServer } = await import("vite");
-    const { chromium } = await import("playwright");
+    const { chromium, webkit } = await import("playwright");
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
     await server.listen();
-    browser = await chromium.launch();
+    browser = await (process.argv.includes("--webkit") ? webkit : chromium).launch();
     const base = serverURL(server);
     await reachAndReports({ browser, base });
     await sendLogs({ browser, base });
