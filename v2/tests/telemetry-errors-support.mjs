@@ -88,6 +88,13 @@ try {
     assert.equal(presentError(typo).message, typo);
     assert.equal(presentError("").message, "Something went wrong.");
 
+    const serverFailure = presentError("Log upload failed: the server answered 404 Not Found.", fire);
+    assert.equal(serverFailure.code, "upload_failed");
+    assert.equal(serverFailure.tierHint, null);
+    assert.doesNotMatch(serverFailure.message, /internet connection/i);
+    assert.match(serverFailure.message, /Local logs are still available/);
+    assert.match(errorDetails(serverFailure), /404 Not Found/);
+
     const text = errorDetails(p, { action: "Disable Netflix", tier: "Not supported", app: "ATV Optimizer (desktop)" });
     assert.match(text, /^Error: pm_failure$/m);
     assert.match(text, /^Action: Disable Netflix$/m);

@@ -21,6 +21,14 @@ guards, busy controls and narrow/light/dark fixture captures. This combined
 candidate supersedes the uninstalled `8f74731` package; do not install an
 intermediate candidate or restore the old prototype's whole Devices screen.
 
+The combined branch also integrates main `5191667` (PR #281): Settings keeps
+on-demand help and honest upload errors, with native server-only controls still
+inactive and native-specific help retained. Local check/build, Settings, shared
+error and native connection suites passed after resolving this merge. Both
+17-screen galleries were regenerated and Settings reviewed in both themes.
+The `04808b3` packaging run was superseded before installation; use the final
+merged candidate and its exact receipt for physical acceptance.
+
 ## Duplicate discovery follow-up — 2026-11-03
 
 Reproduced on the exact 66542dd app: two approved Shields plus additional IPv4/IPv6

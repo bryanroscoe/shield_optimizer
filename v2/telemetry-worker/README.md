@@ -239,6 +239,13 @@ Live since 2026-11-01 on the owner's Cloudflare account (free plan). The deploy 
 [PR #269](https://github.com/bryanroscoe/shield_optimizer/pull/269); that does not by itself show
 that a real app build has sent events.
 
+Diagnostics deployment verified 2026-11-03: migration `0003_diagnostics.sql` is applied and
+Worker version `7e0652bf-703c-4896-9a51-7c524943ff4d` serves the code from main
+`f52a73e00822e246f9a69d2e73ba9115f12ee035`. A synthetic desktop upload returned `201`,
+was retrievable through both admin support routes, and had its test address redacted.
+The support-tier endpoint remained available. This checks production storage and retrieval;
+it does not substitute for a native app or physical TV test.
+
 | | |
 | --- | --- |
 | URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |

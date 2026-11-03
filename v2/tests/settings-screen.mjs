@@ -77,7 +77,10 @@ async function reachAndReports({ browser, base }) {
   const id = privacy.locator("[data-support-id]");
   await id.waitFor();
   assert.equal(await id.innerText(), "7F3A-9C21", "the support ID is the short form of the install id");
-  assert.match(await privacy.innerText(), /Quote this ID when you report a problem so the developer can find your reports\./);
+  assert.doesNotMatch(await privacy.innerText(), /Quote this ID/);
+  await privacy.getByRole("button", { name: "About Support ID", exact: true }).click();
+  await privacy.getByText("Quote this ID when you report a problem so the developer can find your reports.").waitFor();
+  await privacy.getByRole("button", { name: "About Support ID", exact: true }).press("Escape");
   await privacy.getByRole("button", { name: "Copy", exact: true }).click();
   assert.deepEqual(await page.evaluate(() => window.__COPIED__), ["7F3A-9C21"]);
 
@@ -155,6 +158,8 @@ async function sendLogs({ browser, base }) {
   const notice = failing.locator("#privacy .error-notice");
   await notice.waitFor();
   assert.match(await notice.innerText(), /Send logs failed\./);
+  assert.match(await notice.innerText(), /upload_failed/);
+  assert.doesNotMatch(await notice.innerText(), /internet connection/);
   assert.equal(await failing.locator(".sent").count(), 0, "no success shown for a failed upload");
   await failing.close();
 }
@@ -214,9 +219,11 @@ async function sharedPreferences({ browser, base }) {
   const stop = page.locator("#adb").getByRole("checkbox", { name: /Stop ADB when quitting/ });
   await page.waitForFunction((el) => el && !el.disabled, await stop.elementHandle());
   assert.equal(await stop.isChecked(), false);
+  page.once("dialog", (dialog) => dialog.accept());
   await stop.click();
   await page.waitForFunction(() => localStorage.getItem("shieldopt.stopAdbOnQuit") === "true");
   await page.waitForFunction((el) => el && !el.disabled && el.checked, await stop.elementHandle());
+  await page.getByRole("button", { name: "About Stop ADB when quitting", exact: true }).click();
   assert.match(await page.locator("#adb").innerText(), /Android Studio, scrcpy/);
   await page.getByRole("link", { name: "Devices" }).click();
   const devicesBox = page.getByRole("checkbox", { name: "Stop ADB when quitting" });
@@ -265,6 +272,13 @@ async function nativeSettings({ browser, base }) {
     assert.equal(await section.getByRole('button', { name: 'Restart ADB', exact: true }).isDisabled(), true);
     assert.equal(await section.getByRole('checkbox', { name: 'Stop ADB when quitting' }).isDisabled(), true);
     assert.doesNotMatch(await section.innerText(), /adb from PATH|SHIELD_OPTIMIZER_ADB/);
+    await section.getByRole('button', { name: 'About ADB', exact: true }).click();
+    await section.getByText('Native Rust ADB is built into this app. Connection recovery is on Devices.').waitFor();
+    assert.doesNotMatch(await section.innerText(), /SHIELD_OPTIMIZER_ADB/);
+    await section.getByRole('button', { name: 'About ADB', exact: true }).press('Escape');
+    await section.getByRole('button', { name: 'About Restart ADB', exact: true }).click();
+    await section.getByText('Native ADB has no shared server.', { exact: false }).waitFor();
+    await section.getByRole('button', { name: 'About Restart ADB', exact: true }).press('Escape');
     if (!available) await section.getByText('Fixture identity unavailable').waitFor();
     assert.equal(await uploads(page), 0, 'visiting native settings never uploads logs');
     assert.equal(await page.evaluate(() => window.nativeCalls.some(c => ['install_adb', 'restart_adb', 'set_stop_adb_on_quit'].includes(c))), false);
@@ -308,15 +322,44 @@ async function narrow({ browser, base }) {
   await page.close();
 }
 
+
+async function compactHelp({ browser, base }) {
+  for (const width of [1200, 560, 320]) {
+    const page = await newPage(browser, [], { width, height: 900 });
+    await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
+    const privacy = page.locator("#privacy");
+    await privacy.locator("[data-support-id]").waitFor();
+    const notice = privacy.getByText(/ATV Optimizer sends anonymous reports:/);
+    assert.equal(await notice.isVisible(), false, "privacy explanation is collapsed by default");
+    const help = privacy.getByRole("button", { name: "About Share anonymous device and error reports", exact: true });
+    await help.focus();
+    await help.press("Enter");
+    assert.equal(await help.getAttribute("aria-expanded"), "true");
+    assert.equal(await notice.isVisible(), true);
+    assert.match(await privacy.innerText(), /No serial numbers, IP addresses/);
+    assert.match(await privacy.innerText(), /Turning this off stops sending at once/);
+    await help.press("Escape");
+    assert.equal(await help.getAttribute("aria-expanded"), "false");
+    assert.equal(await help.evaluate((el) => el === document.activeElement), true);
+    const checkbox = privacy.getByRole("checkbox", { name: "Share anonymous device and error reports", exact: true });
+    await privacy.locator('label[for="reports-toggle"]').click();
+    assert.equal(await checkbox.isChecked(), false, "the label still controls its checkbox");
+    assert.equal(await help.getAttribute("aria-expanded"), "false", "toggling does not open help");
+    await help.click();
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `help fits ${width}px`);
+    await page.close();
+  }
+}
+
 async function main() {
   const restore = setHarnessEnvironment();
   let server, browser;
   try {
     const { createServer } = await import("vite");
-    const { chromium } = await import("playwright");
+    const { chromium, webkit } = await import("playwright");
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
     await server.listen();
-    browser = await chromium.launch();
+    browser = await (process.argv.includes("--webkit") ? webkit : chromium).launch();
     const base = serverURL(server);
     await reachAndReports({ browser, base });
     await sendLogs({ browser, base });
@@ -326,6 +369,7 @@ async function main() {
     await nativeSettings({ browser, base });
     await failedSubprocessSettings({ browser, base });
     await narrow({ browser, base });
+    await compactHelp({ browser, base });
     console.log(
       "Settings screen passed: reached from the header and the first-run notice, the report switch and support ID agree with the Report a bug dialog, Send logs uploads only after confirmation and shows the ID to quote (or the shared error), theme / auto-update / Stop ADB when quitting / debug logging are the same settings as elsewhere, and the screen fits 560px.",
     );

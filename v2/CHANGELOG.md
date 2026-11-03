@@ -22,6 +22,9 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.
+- Log-upload errors no longer assume your internet connection caused a server failure.
+
 **Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
 restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
 still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use

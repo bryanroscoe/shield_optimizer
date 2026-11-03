@@ -95,7 +95,9 @@ of being labeled "ADB not found".
   `src/lib/ui-prefs.svelte.ts` (the header theme switch), Stop ADB when quitting in
   `src/lib/stop-adb-on-quit.svelte.ts` (Devices). Its Updates and About rows drive the layout's
   own update flow and dialogs through `src/lib/app-shell.ts`. Support ID and Send logs need the
-  backend's `support_id` and `upload_diagnostics`.
+  backend's `support_id` and `upload_diagnostics`. Settings explanations open from question-mark
+  controls (`HelpTip.svelte`); keep routine explanatory copy collapsed. The diagnostics Worker
+  and migration 0003 were deployed and verified with a synthetic upload and readback on 2026-11-03.
 
 - **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
   channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`

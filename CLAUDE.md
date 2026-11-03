@@ -171,6 +171,20 @@ The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shiel
 - The cask strips `com.apple.quarantine` in a `postflight` block. This is what lets users skip the macOS 15+ Gatekeeper dance after `brew install --cask`. Don't remove that block unless we start signing the build.
 - The `bump-tap` job in `.github/workflows/v2-release.yml` updates the cask on every release: downloads the universal DMG, computes the SHA256, rewrites `version` and `sha256` in `Casks/shield-optimizer.rb`, and pushes to the tap. It needs the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the tap repo with `contents:write`. If the secret is missing the job logs that and skips (rather than failing the whole release).
 
+## Interface copy: disclose help on demand
+
+Keep controls readable without a paragraph beneath each one. Use a clear label and show only
+current status or a consequence the person needs before acting. Remove text that merely narrates
+an obvious button or repeats its label. Put explanations, examples, troubleshooting, privacy
+details and advanced setup behind a nearby question-mark help control, expandable help, or an
+appropriate confirmation. Do not shrink text to make it fit.
+
+Help must work with click, touch and keyboard, have an accessible name and visible focus, and be
+readable at narrow widths and increased text size. Hover-only text is insufficient. Preserve
+privacy and sharing disclosures and destructive consequences in the relevant decision or
+confirmation; moving routine explanations into help must not remove informed consent. Review the
+whole changed screen for repeated microcopy before calling UI work finished.
+
 ## Conventions
 
 - **Commits**: always create a new commit. Never `--amend` unless explicitly asked. No `Co-Authored-By` trailers on commits.
