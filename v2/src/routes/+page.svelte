@@ -93,12 +93,12 @@
       // Structured probe first so we render the install pane on a clean
       // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
+      adbMissing = status.failure === "missing_binary";
       if (!status.available) {
-        adbMissing = true;
         devices = [];
+        if (!adbMissing) error = status.last_probe || "ADB could not be checked. Try Restart ADB.";
         return;
       }
-      adbMissing = false;
       devices = await api.listDevices();
     } catch (e) {
       error = String(e);
@@ -733,7 +733,7 @@
   // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing) return;
+    if (adbMissing || error) return;
     if (devices.some((d) => d.status === "device")) return;
     await scan();
   }

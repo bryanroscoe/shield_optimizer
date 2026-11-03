@@ -27,7 +27,8 @@ async function emptyConnectionHelp(browser, base) {
           const original = value.invoke;
           value.invoke = async (command, args) => {
             test.calls.push(command);
-            if (command === 'adb_status' && test.mode === 'missing') return { available: false, path: null };
+            if (command === 'adb_status' && test.mode === 'missing') return { available: false, failure: 'missing_binary', path: null, last_probe: 'No platform-tools found.' };
+            if (command === 'adb_status' && test.mode === 'probe-failed') return { available: false, failure: 'probe_failed', path: '/fixture/adb', last_probe: 'Simulated adb probe timeout' };
             if (command === 'list_devices' && test.mode === 'error') throw 'Simulated device-list failure';
             if (command === 'scan_network' && test.mode === 'scanning') {
               await new Promise(resolve => test.releaseScan = resolve);
@@ -86,6 +87,14 @@ async function emptyConnectionHelp(browser, base) {
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await page.getByText('Failed to list devices: Simulated device-list failure', { exact: true }).waitFor();
     assert.equal(await help.evaluate(el => el.open), false, 'a failed list does not claim empty discovery');
+    await page.evaluate(() => emptyHelp.mode = 'probe-failed');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByText('Failed to list devices: Simulated adb probe timeout', { exact: true }).waitFor();
+    assert.equal(await help.evaluate(el => el.open), false, 'a failed probe does not claim empty discovery');
+    assert.equal(await page.getByRole('heading', { name: 'No devices connected.', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Download platform-tools', exact: true }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Restart ADB', exact: true }).isEnabled(), true);
+
     await page.evaluate(() => emptyHelp.mode = 'empty');
     await page.getByRole('button', { name: 'Refresh', exact: true }).click();
     await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();

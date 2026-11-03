@@ -406,8 +406,10 @@
             Checking…
           {:else if adb.available}
             Using <span class="mono path">{adb.path ?? "adb from PATH"}</span>
-          {:else}
+          {:else if adb.failure === "missing_binary"}
             Not found{adb.path ? ` at ${adb.path}` : ""}.
+          {:else}
+            Couldn't check adb: {adb.last_probe || "Try Restart ADB."}
           {/if}
         </p>
         {#if installMessage}
@@ -415,7 +417,7 @@
         {/if}
       </div>
       <div class="row-control">
-        {#if adb && !adb.available}
+        {#if adb?.failure === "missing_binary"}
           <button class="primary" onclick={downloadAdb} disabled={installBusy}>
             <Icon name="download" size={14} />
             {installBusy ? "Installing…" : "Download platform-tools"}
@@ -434,7 +436,7 @@
         {/if}
       </div>
       <div class="row-control">
-        <button onclick={restartAdb} disabled={restartBusy || !adb?.available}>
+        <button onclick={restartAdb} disabled={restartBusy || !adb || adb.failure === "missing_binary"}>
           <Icon name="restart_alt" size={14} />
           {restartBusy ? "Restarting…" : "Restart ADB"}
         </button>

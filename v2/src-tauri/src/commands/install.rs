@@ -7,38 +7,58 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::driver::{cached_adb_binary, forget_cached_adb_binary};
-use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, SubprocessAdb};
+use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, AdbError, SubprocessAdb};
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
 use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
 
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdbStatusFailure {
+    MissingBinary,
+    ProbeFailed,
+}
+
 #[derive(Serialize)]
 pub struct AdbStatus {
-    /// Is an adb binary currently configured?
+    /// Did the availability probe succeed?
     pub available: bool,
+    pub failure: Option<AdbStatusFailure>,
     /// Path to the binary if discovery resolves one — useful in the UI for
     /// "Using adb at /opt/homebrew/bin/adb" diagnostics.
     pub path: Option<String>,
     /// What the last `adb devices` call returned, as a quick connectivity probe.
-    /// `None` when adb isn't available.
+    /// Includes the failure diagnostic when the probe fails.
     pub last_probe: Option<String>,
 }
 
 /// `adb_status` — fast diagnostic the UI shows when devices fail to list.
 #[tauri::command]
 pub async fn adb_status(state: State<'_, AppState>) -> Result<AdbStatus, String> {
+    adb_status_impl(state.inner()).await
+}
+
+async fn adb_status_impl(state: &AppState) -> Result<AdbStatus, String> {
     let adb = state.adb_snapshot().await;
     let path = cached_adb_binary().map(|p| p.display().to_string());
     let probe = adb.raw(&["devices"]).await;
     match probe {
         Ok(out) => Ok(AdbStatus {
-            available: true,
+            available: out.success(),
+            failure: (!out.success()).then_some(AdbStatusFailure::ProbeFailed),
             path,
-            last_probe: Some(out.stdout),
+            last_probe: Some(out.combined()),
         }),
         Err(e) => Ok(AdbStatus {
             available: false,
+            failure: Some(
+                if matches!(e, AdbError::BinaryNotFound | AdbError::BinaryMissing { .. }) {
+                    AdbStatusFailure::MissingBinary
+                } else {
+                    AdbStatusFailure::ProbeFailed
+                },
+            ),
             path,
             last_probe: Some(e.to_string()),
         }),
@@ -266,6 +286,82 @@ where
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn status_distinguishes_absent_binary_from_failed_probe() {
+        use shield_optimizer_core::adb::{AdbOutput, AdbResult};
+        struct Probe(std::sync::Mutex<Option<AdbResult<AdbOutput>>>);
+        #[async_trait::async_trait]
+        impl AdbDriver for Probe {
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                assert_eq!(args, &["devices"]);
+                self.0.lock().unwrap().take().unwrap()
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("status must not query a TV")
+            }
+        }
+        for (probe, expected) in [
+            (
+                Err(AdbError::BinaryNotFound),
+                Some(AdbStatusFailure::MissingBinary),
+            ),
+            (
+                Err(AdbError::BinaryMissing {
+                    path: "fixture/adb.exe".into(),
+                }),
+                Some(AdbStatusFailure::MissingBinary),
+            ),
+            (
+                Err(AdbError::Timeout { seconds: 30 }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Err(AdbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "fixture launch denied",
+                ))),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Err(AdbError::NonZeroExit {
+                    code: Some(1),
+                    stderr: "fixture server startup failed".into(),
+                }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: "fixture failed output".into(),
+                    exit_code: Some(1),
+                }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Ok(AdbOutput {
+                    stdout: "List of devices attached\n".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                None,
+            ),
+        ] {
+            let detail = match &probe {
+                Ok(out) => out.combined(),
+                Err(e) => e.to_string(),
+            };
+            let state = AppState::new(
+                Arc::new(Probe(std::sync::Mutex::new(Some(probe)))),
+                crate::engine::AppListBundle::default(),
+                "not-created".into(),
+            );
+            let result = adb_status_impl(&state).await.unwrap();
+            assert_eq!(result.failure, expected);
+            assert_eq!(result.available, expected.is_none());
+            assert_eq!(result.last_probe.as_deref(), Some(detail.as_str()));
+        }
+    }
 
     #[tokio::test(start_paused = true)]
     async fn restart_preserves_authorization_wait_without_repeated_connects() {
