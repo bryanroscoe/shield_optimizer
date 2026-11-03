@@ -3,6 +3,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/components/Icon.svelte";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
+  import HelpTip from "$lib/components/HelpTip.svelte";
   import ThemeToggle from "$lib/components/ThemeToggle.svelte";
   import { api } from "$lib/api";
   import { useAppShell } from "$lib/app-shell";
@@ -140,6 +141,9 @@
   function clickStopOnQuit(e: MouseEvent) {
     // As on Devices: the box moves only when the reply says the setting did.
     (e.currentTarget as HTMLInputElement).checked = stopOnQuit.setting?.enabled ?? false;
+    if (!stopOnQuit.setting?.enabled && !confirm(
+      "Stop the shared ADB server when this app quits? This also disconnects Android Studio, scrcpy and other tools using ADB.",
+    )) return;
     void toggleStopOnQuit();
   }
 
@@ -188,7 +192,6 @@
 <section class="header-row">
   <div class="header-title">
     <h1>Settings</h1>
-    <p class="muted small mono header-sub">this computer · applies to every TV</p>
   </div>
 </section>
 
@@ -198,8 +201,12 @@
 
     <div class="row">
       <div class="row-text">
-        <label class="row-label" for="reports-toggle">{TOGGLE_LABEL}</label>
-        <p class="row-help" id="reports-help">
+        <HelpTip label={TOGGLE_LABEL} forId="reports-toggle">
+          <p>{NOTICE_TEXT}</p>
+          <p>Turning this off stops sending at once and discards anything not yet sent.</p>
+        </HelpTip>
+        {#if !telemetry?.available}
+        <p class="row-note" role="status">
           {#if telemetry && !telemetry.available}
             This build doesn't send reports.
           {:else if !telemetry && !reports.read}
@@ -207,16 +214,14 @@
           {:else if !telemetry}
             Couldn't read this setting.
             <button class="inline-link" onclick={loadReports}>Check again</button>
-          {:else}
-            {NOTICE_TEXT} Turning this off stops sending at once and discards anything not yet sent.
           {/if}
         </p>
+        {/if}
       </div>
       <div class="row-control">
         <input
           id="reports-toggle"
           type="checkbox"
-          aria-describedby="reports-help"
           checked={telemetry?.enabled ?? false}
           disabled={!telemetry?.available}
           onchange={toggleReports}
@@ -229,12 +234,11 @@
 
     <div class="row">
       <div class="row-text">
-        <span class="row-label" id="support-id-label">Support ID</span>
-        <p class="row-help">
+        <HelpTip label="Support ID">
           Quote this ID when you report a problem so the developer can find your reports.
-        </p>
+        </HelpTip>
       </div>
-      <div class="row-control" aria-labelledby="support-id-label" role="group">
+      <div class="row-control" aria-label="Support ID" role="group">
         {#if supportId}
           <code class="support-id" data-support-id>{supportId}</code>
           <button onclick={() => copyId(supportId)}>
@@ -259,11 +263,9 @@
 
     <div class="row">
       <div class="row-text">
-        <span class="row-label">Send logs to developer</span>
-        <p class="row-help">
-          For a problem you're reporting: sends this app's logs once, now, so the developer can
-          look into it. Works with reports on or off.
-        </p>
+        <HelpTip label="Send logs to developer">
+          Sends this app's recent logs once, after you confirm. Works with reports on or off.
+        </HelpTip>
       </div>
       <div class="row-control">
         <button onclick={askToSend} disabled={sendStage !== "idle"}>
@@ -318,8 +320,7 @@
     <h2 id="appearance-title"><Icon name="tune" size={18} /> Appearance</h2>
     <div class="row">
       <div class="row-text">
-        <span class="row-label">Theme</span>
-        <p class="row-help">Auto follows your computer's light or dark setting.</p>
+        <HelpTip label="Theme">Auto follows your computer's light or dark setting.</HelpTip>
       </div>
       <div class="row-control">
         <ThemeToggle />
@@ -331,17 +332,14 @@
     <h2 id="updates-title"><Icon name="download" size={18} /> Updates</h2>
     <div class="row">
       <div class="row-text">
-        <label class="row-label" for="auto-update">Auto-update</label>
-        <p class="row-help" id="auto-update-help">
-          Automatically download and install updates on launch. Off, the header offers each update
-          with its notes first.
-        </p>
+        <HelpTip label="Auto-update" forId="auto-update">
+          Downloads and installs updates on launch. When off, you can review release notes before updating.
+        </HelpTip>
       </div>
       <div class="row-control">
         <input
           id="auto-update"
           type="checkbox"
-          aria-describedby="auto-update-help"
           checked={uiPrefs.autoUpdate}
           onchange={(e) => chooseAutoUpdate((e.currentTarget as HTMLInputElement).checked)}
         />
@@ -366,8 +364,6 @@
             minutes.
           {:else if shell.checkMessage}
             {shell.checkMessage}
-          {:else}
-            The app checks for updates each time it opens.
           {/if}
         </p>
       </div>
@@ -399,7 +395,10 @@
     <h2 id="adb-title"><Icon name="terminal" size={18} /> ADB</h2>
     <div class="row">
       <div class="row-text">
-        <span class="row-label">adb</span>
+        <HelpTip label="ADB">
+          <p>The app can download Google's official platform-tools into its own folder.</p>
+          <p>To use a different adb, set <code>SHIELD_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
+        </HelpTip>
         <p class="row-help">
           {#if adbError}
             Couldn't check adb: {adbError}
@@ -408,12 +407,8 @@
           {:else if adb.available}
             Using <span class="mono path">{adb.path ?? "adb from PATH"}</span>
           {:else}
-            Not found{adb.path ? ` at ${adb.path}` : ""}. The app can download Google's official
-            platform-tools into its own folder, with no system-wide changes.
+            Not found{adb.path ? ` at ${adb.path}` : ""}.
           {/if}
-        </p>
-        <p class="row-help">
-          To use a different adb, set <code>SHIELD_OPTIMIZER_ADB</code> to its full path and relaunch.
         </p>
         {#if installMessage}
           <p class="row-note">{installMessage}</p>
@@ -430,11 +425,10 @@
     </div>
     <div class="row">
       <div class="row-text">
-        <span class="row-label">Restart ADB</span>
-        <p class="row-help">
-          Stops and starts the shared adb server, then retries network connections. Other tools
-          using adb are disconnected too.
-        </p>
+        <HelpTip label="Restart ADB">
+          Stops and starts the shared ADB server, then retries network connections.
+          Other tools using ADB are disconnected too.
+        </HelpTip>
         {#if restartMessage}
           <p class="row-note">{restartMessage}</p>
         {/if}
@@ -448,13 +442,10 @@
     </div>
     <div class="row">
       <div class="row-text">
-        <label class="row-label" for="stop-adb-on-quit">
-          Stop ADB when quitting
-          {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
-            <span class="checking">checking…</span>
-          {/if}
-        </label>
-        <p class="row-help" id="stop-adb-help">{QUIT_ADB_TIP}</p>
+        <HelpTip label="Stop ADB when quitting" forId="stop-adb-on-quit">{QUIT_ADB_TIP}</HelpTip>
+        {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
+          <p class="row-note">Checking…</p>
+        {/if}
         {#if stopOnQuit.error}
           <p class="row-note quit-error">
             {stopOnQuit.error}
@@ -468,7 +459,6 @@
         <input
           id="stop-adb-on-quit"
           type="checkbox"
-          aria-describedby="stop-adb-help"
           checked={stopOnQuit.setting?.enabled ?? false}
           indeterminate={stopOnQuit.setting === null}
           disabled={stopOnQuit.setting === null}
@@ -482,17 +472,15 @@
     <h2 id="logs-title"><Icon name="description" size={18} /> Logs</h2>
     <div class="row">
       <div class="row-text">
-        <label class="row-label" for="debug-logging">Debug logging</label>
-        <p class="row-help" id="debug-logging-help">
-          While it's on, this session is also recorded (adb calls and the buttons you press) to
-          <span class="mono">logs/sessions</span>. Turn it on before reproducing a problem.
-        </p>
+        <HelpTip label="Debug logging" forId="debug-logging">
+          Records ADB calls and the buttons you press to <span class="mono">logs/sessions</span>.
+          Turn it on before reproducing a problem.
+        </HelpTip>
       </div>
       <div class="row-control">
         <input
           id="debug-logging"
           type="checkbox"
-          aria-describedby="debug-logging-help"
           checked={debugLogging}
           onchange={toggleDebugLogging}
         />
@@ -521,7 +509,6 @@
         <span class="row-label">
           ATV Optimizer <span class="mono">{shell.currentVersion ? `v${shell.currentVersion}` : ""}</span>
         </span>
-        <p class="row-help">Release notes for every version are on GitHub.</p>
       </div>
       <div class="row-control">
         <button onclick={() => openUrl(RELEASES_PAGE)}>
@@ -531,11 +518,9 @@
     </div>
     <div class="row">
       <div class="row-text">
-        <span class="row-label">Report a problem</span>
-        <p class="row-help">
-          Opens the bug report with this computer's diagnostics for you to review before anything
-          is shared.
-        </p>
+        <HelpTip label="Report a problem">
+          Review this computer's diagnostics before sharing a bug report.
+        </HelpTip>
       </div>
       <div class="row-control">
         <button onclick={() => shell.openBugReport()}>
@@ -561,12 +546,6 @@
   }
   .header-title h1 {
     margin: 0;
-  }
-  .header-sub {
-    margin: 0;
-  }
-  .small {
-    font-size: 0.82rem;
   }
   .settings {
     display: flex;
@@ -602,9 +581,6 @@
     display: block;
     font-weight: 550;
     font-size: 0.92rem;
-  }
-  label.row-label {
-    cursor: pointer;
   }
   .row-help {
     margin: 0.25rem 0 0;
@@ -677,12 +653,6 @@
   .sent {
     align-items: center;
     margin-bottom: 0.6rem;
-  }
-  .checking {
-    margin-left: 0.4rem;
-    font-weight: 400;
-    font-size: 0.78rem;
-    color: var(--fg-muted);
   }
   .inline-link {
     padding: 0;

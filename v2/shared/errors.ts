@@ -90,7 +90,7 @@ const PLAIN: Record<ErrorCode, string> = {
   partial_failure: "Some changes didn't apply.",
   upload_unavailable: "This build can't send logs. Use Copy details on the bug report instead.",
   upload_limited: "The log upload limit for today has been reached. Try again tomorrow, or copy the bug report instead.",
-  upload_failed: "The logs couldn't be sent. Check your internet connection and try again.",
+  upload_failed: "The logs couldn't be sent. Try again later. Local logs are still available.",
   unknown: "Something went wrong.",
 };
 
