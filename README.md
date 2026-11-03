@@ -5,6 +5,9 @@ APKs, adjust HDMI-CEC and frame-rate matching, and check device health, all from
 Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
 Android TV devices.
 
+> **Known ADB issue in 2.4.1:** A SHIELD TV Pro on macOS has been reported missing from Scan LAN
+> or going offline until connected with standalone ADB. [Workaround and status](#known-limitations).
+
 <img alt="ATV Optimizer walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
 <details>
@@ -87,9 +90,9 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 
 ### Can't find your TV?
 
-Use **Scan Network**, **Connect IP** or **Pair PIN**.
+Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
-**Scan Network** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
+**Scan LAN** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
 devices like the Shield use. It also checks the devices ADB has discovered over mDNS. That second
 check matters on Android 11+, where Wireless debugging listens on a random port that changes every
 time you toggle it, so a port sweep can't find it. If a TV is only advertising its pairing service,
@@ -98,7 +101,7 @@ the scan tells you and fills in the pairing address for you.
 **Pair PIN** is for Android 11+ Wireless debugging. On the TV, open **Pair device with pairing
 code** and enter the IP:port and code it shows. Pairing makes the TV trust your computer but doesn't
 connect to it. Go back to the main Wireless debugging screen and enter the IP:port shown *there* in
-**Connect IP**. It's a different port from the pairing one. If ADB connects the paired TV on its
+**Add by IP**. It's a different port from the pairing one. If ADB connects the paired TV on its
 own, it shows up when the device list refreshes.
 
 ## Safety
@@ -150,6 +153,20 @@ back on starts over under a new random ID. Builds made without a report server c
 nothing.
 
 ## Known limitations
+
+**ADB discovery and reconnection.**
+
+[Issue #235](https://github.com/bryanroscoe/shield_optimizer/issues/235) reports a SHIELD TV Pro on macOS running
+2.4.1 being missed by **Scan LAN**, or later appearing **OFFLINE**, until connected with standalone
+ADB and refreshed in the app. The full cause is still under investigation.
+
+If this happens, try **Add by IP** with the TV's current address, approve any debugging prompt on
+the TV, then **Refresh**. The reporter has not confirmed whether Add by IP avoids this failure;
+the recovery they verified used standalone ADB. **Restart ADB** disconnects other tools using the
+same server, and did not recover the reporter's connection in 2.4.1.
+
+Connection-recovery improvements are merged for the next desktop release and await physical
+confirmation of this report. They are not included in 2.4.1. Native Rust ADB remains experimental.
 
 **Fire TV launcher changes depend on the build.** Some Fire OS builds refuse changes to Amazon's
 protected stock launcher, including attempts to re-enable it. The app recognizing Projectivy or

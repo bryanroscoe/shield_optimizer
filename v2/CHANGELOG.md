@@ -22,6 +22,11 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+**Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
+restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
+still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use
+platform-tools; native Rust ADB remains experimental.
+
 - Keep native scan connection attempts in expandable Scan details instead of presenting failed addresses as extra TV cards. TVs awaiting approval stay visible; each attempt retains Retry, Forget and diagnostics. Supported Shield cards no longer repeat support badges and explanatory text.
 
 - ADB status now distinguishes missing platform-tools from timeout/startup errors,
@@ -33,6 +38,7 @@ this file and shows the newest few sections, dated, from its version button.
 - Native ADB testing: connect to subnet responders as they arrive, preserve transfer permission errors without writing them as file contents, require explicit upload success, and add protected Windows identity storage. Shipping builds still use platform-tools pending native acceptance.
 
 - Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
+
 - Desktop: edit the name and command of custom Shell bookmarks, and add built-in bookmarks for uninstalling a package and listing all, enabled, system, or APK-path packages. Package bookmarks target Android user 0 (#259, #262).
 - Desktop: filter the App List to enabled or disabled packages, including other installed apps. App inventory now targets user 0 to match package actions (#261, #233).
 - Desktop: add clearly labeled Delete controls to both snapshot lists, with confirmation and error handling. Deleting a local snapshot does not change the TV (#260).
@@ -52,6 +58,13 @@ this file and shows the newest few sections, dated, from its version button.
 - Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
 
 ## v2-2.4.1 — 2026-10-23
+
+**Known issue added 2026-11-03 — ADB discovery and reconnection:** a SHIELD TV Pro on macOS
+running 2.4.1 has been reported missing from Scan LAN, or later appearing OFFLINE, until connected
+with standalone ADB and refreshed in the app. In-app Restart ADB did not recover the reporter's
+connection. See [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) for the report and recovery details.
+Connection-recovery improvements are merged for the next desktop release and await physical
+confirmation; they are not included in 2.4.1.
 
 Google TV launcher switching works properly now: Setup Wraith, Google TV's setup helper, no longer takes the Home button back after you change launchers (#122, #157, #158). Also new: a Logs tab, Stop ADB when quitting, Report this app, app storage details, restart after updating, patch notes on demand, a proper right-click menu, and Ask again for a TV whose debugging prompt was missed. 2.3.1 was prepared but never published, and the 2.4.0 build failed before anything was
 published; everything both listed is in this release.
