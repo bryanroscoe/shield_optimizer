@@ -1,177 +1,142 @@
 # Native desktop ADB owner test — 2026-11-02
 
-## Main integration
-
-The next integration incorporates main `61e59ef` (PR #278: shell bookmarks,
-package-state filters, snapshot deletion and report-note prefilling). Release
-notes retain both branches; both galleries are regenerated from the combined UI.
-The merged frontend check/build and app-state-filter, shell-bookmarks,
-snapshot-delete, app-report, native-discovery, native-scan-progress and
-direct-adb-status regressions passed locally, as did formatting and workflow
-validation. Cross-platform CI and a newly packaged native app must validate this
-merge; the successful `c21790b` package is an earlier source revision and has not
-replaced the delivered app.
-
-All six CI checks passed at `fdf0bf1`, including simulated-device E2E. Local
-packaging remains constrained by free disk falling below 20 GiB. The `v2 Tests`
-manual workflow now accepts `native_test_app=true` to build a universal macOS
-owner-test app after Rust and frontend validation. It uploads a seven-day artifact
-with source/run provenance and binary/archive hashes; it creates no release or
-tag. The bundle uses `native-adb-default`, the existing isolated test identifier,
-an exact-revision window title, and verified ad-hoc signing. Download and physical
-acceptance are still required before replacing the delivered app below.
-
-The replacement owner merged main at `67b87c6598de3ebcae1a0aac3187db5790765b81`
-(settings #276 and diagnostics #277), keeping streaming native scan admission and
-all shared-transport cancellation/download behavior. Sweep counters observe the
-same stream rather than collecting it before native connection attempts. Pending
-handshakes do not generate a failed-connection diagnostic. Mobile discovery keeps
-Android NSD with the shared Rust transport and main's report controls.
-
-Native diagnostics identify the built-in client and skip host-server/session
-probes. Settings identifies native mode and disables platform-tools actions.
-Subprocess status uses typed missing-binary errors: timeout/startup/I/O failure
-retains its real diagnostic and Restart, rather than suggesting a download.
-The settings/privacy state from main and the subprocess shipping default remain.
-
-Local integrated workspace tests with direct-adb: 934 passed, zero failed, one
-existing live-device test ignored. Frontend check/build, native discovery and
-serialized-refresh regressions, telemetry/error tests, and Settings/status tests
-passed. The earlier compile caught a duplicate test import, fixed before the
-successful run. These are local macOS checks, not cross-platform CI acceptance.
-The integrated implementation is merge commit
-`05f1d816c3fa237750d660c2ccc8c4fedce9f56b` (parents bfb2a53 and 67b87c6).
-Workspace/all-targets Clippy with direct-adb and `-D warnings` passed after disk
-capacity recovered. Its first attempt was stopped while queued below the 20 GiB
-floor, with no target growth. A subsequent offline E2E build was stopped by the
-same disk floor before scenarios ran; its target growth was only 125 MB, below
-the runner's 1 GiB growth limit. This is incomplete validation, not a test pass.
-The workspace cleanup preview covers 2.6 GiB of mixed historical outputs and was
-not applied. No guard was disabled or relaxed.
-
-A rebuilt integrated app and its hardware retest remain outstanding; packaging was
-not attempted below the capacity floor. The delivery below is still the earlier
-binary and does not contain these integrated changes. The current PR head must
-have its own CI results; historical green runs are not merge-readiness evidence.
-The new status screenshot/video attached to the PR are fixture-only and contain
-no private LAN data. See local integration-* logs/receipts for exact checks.
-
 ## Current delivery
 
-The replacement implementation owner completed the immediate macOS acceptance.
-The app is running and ready for Bryan's testing; the PR remains draft for owner
-acceptance and the broader hardware checks below. Existing UI flows are preserved.
-Normal builds still use platform-tools. No release or shipping-default change.
+The integrated universal macOS owner-test app is running and ready for Bryan's
+continued testing. PR #268 remains draft for owner acceptance and the hardware
+checks below. Normal builds still use platform-tools. No release, tag, publication
+or shipping-default change occurred.
 
 PR: https://github.com/bryanroscoe/shield_optimizer/pull/268
 Branch: `feat/native-desktop-test-20261031`
-Built and physically tested source: `3e2f6cede53f999c87373327fb5ade82c2f1e976`.
-Download implementation: `b4df9fbd41b514a653fd5b20a7634d734476ead5`;
-`3e2f6ce` only corrects a comment. Later acceptance documentation does not change
-this binary.
+Built and physically tested source: `285f651267307435961787a23d179576a94ad195`.
+Later handoff-only commits do not change this binary.
 
 - Delivery: `~/Developer/.agent-tasks/shield-native-test-20261031/ATV Optimizer Native Discovery Test.app`
-- Window title: **ATV Optimizer — Native Rust ADB Test — Download Recovery Fix**
-- Executable SHA256: `9ba9cd36f34db30425738ccfae0691b5a7da13e8a3e80c44e893f6998c07f865`
-- Last verified running PID: **82951**. Recheck before subsequent work.
-- Backend: native Rust, `native-adb-default` compiled in.
-- Complete bundle ad-hoc signature passed strict verification. This is not
-  Apple-issued signing or notarization.
+- Window title: **ATV Optimizer — Native Rust ADB Test — 285f651**
+- Executable SHA256: `141431463f6195dd054610bd4ff7a49553e802fbb5ef3988a7aa37216f4f351e`
+- Last verified running PID: **27809**, 2026-11-03 UTC. Recheck before subsequent work.
+- Backend: native Rust, `native-adb-default` compiled in; label verified in UI.
+- Architectures: **arm64 and x86_64**, verified with `lipo -verify_arch`.
+- Complete bundle passed `codesign --verify --deep --strict`. Signing is ad-hoc,
+  not Apple-issued signing or notarization.
+- Build: https://github.com/bryanroscoe/shield_optimizer/actions/runs/41576615915
+  Artifact `13204802989`; provenance and both archive/binary hashes verified before
+  replacement. All seven jobs, including native packaging, succeeded.
 
-Use the exact delivery path, not the bundle ID; the generated bundle shares
-`com.shieldoptimizer.native-test`. Do not overwrite the running delivery. Quit it
-through the app, verify exit, replace, verify hash/signature, then launch and
-record the actual process/title. The previous screen-lock blocker is resolved.
-Old Recovery Fix PID2949 and Transfer & Scan Fix PID50015 exited before replacement.
+Use the exact delivery path, not the bundle ID (`com.shieldoptimizer.native-test`).
+The previous app was quit through its UI and its process exit verified before
+replacement. The replacement was verified again at the delivery path and launched;
+it was then quit/relaunched for a fresh-process discovery test. No security or
+permission settings were changed. Superseded bundles and the downloaded archive
+were removed after acceptance; small provenance receipts remain locally.
 
-## What the replacement owner found and fixed
+## Physical evidence on the delivered revision
 
-The staged 995fb2a app was launched and tested first. Discovery, retry and Forget
-worked, and the corrected sync parser reported a real permission denial instead
-of writing the error into the file. However, the denied download left an empty
-local file and evicted the selected TV connection; the next directory browse
-failed with `Not connected to a device`.
+Read-only testing used SHIELD TV (2017) and SHIELD TV Pro (2019):
 
-Native downloads now reuse the existing bounded, hardware-verified dedicated
-connection path. They stage bytes beside the destination and publish only after
-successful completion. A failed download preserves any previous destination,
-removes its temporary file and leaves the main TV session usable. Uploads are
-unchanged. No device write/replay or automatic reconnection is used to hide errors.
-
-The real TCP regression
-`native_download_publishes_only_success_and_keeps_selected_tv_connected` covers
-success and fragmented rejection after partial data, with absent and existing
-local destinations. It verifies a subsequent read on the original connection.
-
-## Current native hardware evidence
-
-On the exact delivered binary, using SHIELD TV (2017) and SHIELD TV Pro (2019):
-
-- Both approved TVs appeared ready. First subnet responder arrived in 12 ms;
-  authentication completed approximately 0.32 s and 0.58 s after subnet detection.
-  These are transport timestamps, not frame-accurate UI-ready timings.
-- Initial discovery finished in 6.52 s; repeat scan in 6.59 s. The mDNS window took
-  about 6 s while subnet connections proceeded earlier. Subnet admission took 1.02 s
-  initially and 0.28 s on repeat. Two samples on this LAN are not a cold-start bound.
-- Initial discovery found 10 addresses; repeat found 13 and displayed 11 endpoint rows
-  with 2 ready TVs. mDNS advertisements varied. Addresses/aliases are not physical
-  TV counts, and this does not prove every unapproved TV has been discovered.
-- Actual AUTH and failed cards remained visible. Retry changed one failed endpoint
-  to Unauthorized. Forget removed its row and socket while both ready TV sockets
-  stayed established. Repeat scan rediscovered that endpoint with AUTH guidance.
-- Denied `//system/build.prop` pull displayed Permission denied and preserved a
-  pre-existing local fixture byte-for-byte. The next directory browse succeeded
-  without reconnecting. No error bytes or temporary download files remained.
-- A subsequent `//system/etc/hosts` download through Files succeeded without
-  reconnecting: 56 bytes, SHA256
+- Both approved TVs appeared ready. Other discovered endpoints remained visible
+  with actual AUTH guidance, connecting state or concrete failure messages.
+- The first launch finished discovery in 6.77 s, repeat in 6.55 s, fresh-process
+  relaunch in 6.60 s and rediscovery in 6.55 s. These are backend scan timestamps,
+  not frame-accurate UI-ready timings. The mDNS observation window took about 6 s.
+- **Open observation:** the first launch's subnet sweep returned zero responders
+  in 12 ms, although mDNS still found both Shields. The three subsequent sweeps,
+  including a fresh-process launch, found four responders in about 1.02 s with
+  first responses in 12–14 ms. The cause of the initial zero is unproven; these
+  samples do not establish a reliable cold-start bound or complete LAN coverage.
+- Polling settled after outstanding handshakes failed: the Still connecting
+  message cleared, concrete failure rows remained, and both TVs stayed ready.
+- Each scan found 13 network addresses and settled to two ready TVs. Aliases are
+  not additional physical TVs. This does not prove every unapproved TV is found.
+- Retry of a timed-out IPv4 endpoint displayed AUTH guidance. Forget removed that
+  endpoint, reducing the count from 11 to 10 while both ready TVs remained. Scan
+  LAN rediscovered it and returned the count to 11.
+- Denied `//system/build.prop` download displayed Permission denied, preserved an
+  existing disposable local fixture byte-for-byte and left no staging file. The
+  next directory browse succeeded without reconnecting.
+- A subsequent `//system/etc/hosts` download succeeded without reconnecting:
+  56 bytes, SHA256
   `425c3e713d5bae19b031bc8639c20c6a23e311a54647ba1824cbf45969a11ff4`.
-- Actual native screenshots, AX states, socket checks and bounded app-log excerpts
-  are local under `takeover-acceptance/`. No broad TV logs or TV modifications were
-  used. Private LAN evidence has not been uploaded.
+- Native Devices, Settings and Files were visually inspected. Native Settings
+  disabled platform-tools/server controls. Reports were disabled in this test
+  build. Show system paths was restored off after read-only file testing.
+- Actual screenshots, AX states and bounded scan-log excerpts are private under
+  `acceptance-285f651/` in the local task directory. No device writes, broad TV-log
+  collection, telemetry upload or public upload of LAN evidence was performed.
 
-## Validation
+## Integration and validation
 
-All six CI checks passed at the exact built source 3e2f6ce:
-https://github.com/bryanroscoe/shield_optimizer/actions/runs/41467806541
-Linux/macOS/Windows Rust, desktop/mobile frontend and simulated-device E2E.
-The new TCP regression was also individually verified in macOS CI at b4df9fb,
-run 41466273759/job 125347897742. Existing vendor 123 tests passed there.
+The built revision merges main `61e59ef112ad55896e639354475f01fc8babc386`
+(PR #278: shell bookmarks, package-state filters, snapshot deletion and report-note
+prefilling) into the native branch. It also includes main's earlier Settings and
+mobile diagnostics work. Both sets of release notes were retained, both 17-screen
+galleries regenerated, and representative light/dark fixture screens inspected.
 
-Local frontend check: 0 errors / 0 warnings. Production frontend build, workspace
-formatting/diff checks, native macOS packaging and strict signature verification
-passed. Packaging exited 0 without memory/growth cutoff. Nonfatal nice/strip
-warnings occurred. The redundant local focused Rust test was canceled while
-queued after its exact regression passed in CI; it is not a local test pass.
+Local merged frontend check: **0 errors / 0 warnings**. Production build,
+app-state-filter, shell-bookmarks, snapshot-delete, app-report, native-discovery,
+native-scan-progress and direct-adb-status regressions passed. Workspace formatting,
+workflow validation and diff checks passed. No duplicate local compiler build was
+started; the shared compiler guard remained intact while other projects used it.
 
-Earlier 829 native/core/shared tests and 123 vendor tests at 995fb2a are historical
-coverage, not new local executions. No unchanged full suite was rerun merely
-because the local compiler queue was occupied.
+The manual run above passed Linux/macOS/Windows Rust checks, desktop/mobile
+frontend checks, simulated-device E2E and universal native packaging on the exact
+built source. Normal PR CI also passed its six validation jobs; its optional
+packaging job was skipped. That skip is not packaging evidence—the separate manual
+run is. Simulated E2E and physical testing remain distinct evidence.
 
-## Remaining limits
+Historical integrated tests at `05f1d816c3fa237750d660c2ccc8c4fedce9f56b` passed
+934 tests with one existing live test ignored, plus workspace/all-targets Clippy
+with direct-adb and `-D warnings`. Its local offline E2E compile was stopped by the
+disk floor before scenarios ran. The newer CI E2E pass supersedes that incomplete
+local attempt; it does not turn the stopped local attempt into a pass.
 
-No completed physical TV approval, successful TLS PIN pairing, upload/install,
-Remote, sleep/wake or packaged Windows/Linux hardware acceptance is claimed.
-Fast native Remote remains gated. The earlier public screenshots/video are
-explicitly simulated discovery evidence. Current native screenshots remain local;
-a new publicly shareable native download video is still an evidence gap.
-Owner-test readiness is distinct from merge/release certification.
+## Behaviors to preserve
+
+Native discovery streams subnet responders before mDNS finishes; owned connection
+jobs have bounded handshakes, cancellation and exact-endpoint retry/Forget.
+Authorization guidance requires an observed public-key AUTH packet. Verified
+hardware identity alone collapses aliases. Unknown devices remain unknown.
+
+Native sync parsing handles fragmented DATA/DONE/FAIL. Downloads use a dedicated,
+bounded, hardware-verified connection and atomic local publication; rejection
+preserves the destination and main session. The TCP regression
+`native_download_publishes_only_success_and_keeps_selected_tv_connected` covers
+success and partial-data rejection with existing/absent destinations, followed by
+a read on the original connection. Upload semantics were not changed by this fix.
+
+Native diagnostics skip host-server/session probes. Native Settings identifies the
+backend and disables platform-tools actions. Subprocess timeout/startup/I/O errors
+retain their real diagnostic and Restart instead of suggesting an ADB download.
+The subprocess shipping default, existing UI flows and privacy controls remain.
+
+## Remaining acceptance
+
+No completed physical first-time TV approval, successful TLS PIN pairing, device
+writes/upload/install, Remote, sleep/wake or packaged Windows/Linux hardware
+acceptance is claimed. Fast native Remote remains gated. Investigate the initial
+zero-responder sweep if it recurs; do not reset authorization keys or change OS
+security settings to conceal it. Public UI media remains explicitly simulated;
+there is no new public native download video. Owner-test readiness is distinct
+from merge/release certification. No formal approval was submitted.
 
 ## Workspace and cleanup
 
-Reuse `~/Developer/.worktrees/shield_optimizer/native-test-20261031` (~36 MiB).
-Keep unrelated primary-checkout changes untouched. Reuse the mixed-ownership
-`~/Developer/shield-issue205-20261019/v2/target` (~7.4 GiB); do not broad-clean it.
-All compiles use one job and the existing guard. The local runner/config and
-receipts remain in `~/Developer/.agent-tasks/shield-native-test-20261031/`.
+Retain these existing paths for owner testing and feedback, review **2026-11-07**:
 
-The only retained task delivery is the running app (~73 MiB). Superseded deliveries,
-duplicate staged bundles, this turn's frontend dependencies/output and test
-downloads were removed after verification; their small receipts remain. No own
-compiler/watcher/server remains. Source, final app, small private evidence and
-warm shared cache are retained for owner feedback, replacement implementation
-owner, review 2026-11-07. Review dates are not deletion authority.
+- `~/Developer/.worktrees/shield_optimizer/native-test-20261031` (~38 MiB), source
+  checkout for PR follow-up. Preserve unrelated primary-checkout edits.
+- The exact delivered universal app above (~144 MiB), intentionally running.
+- `~/Developer/.agent-tasks/shield-native-test-20261031/`, small receipts and private
+  acceptance evidence; parent/native ADB task owns this follow-up.
+- `~/Developer/shield-issue205-20261019/v2/target` (~7.6 GiB), mixed historical Cargo
+  ownership. It was not broadly cleaned and is not disposable under this task.
 
-Read `app-receipt.json`, `takeover-acceptance/receipt.json`, `manifest.md` and
-`takeover-cleanup-receipt.json` for exact local provenance and free-space readings.
-`candidate-current/app-receipt.json` now records removal of the duplicate staging
-copy; it is not another launch target.
+Own temporary frontend dependencies, build/capture output, superseded app,
+archive/staging and transfer fixtures were removed. No own compiler, watcher or
+server remains. Actual free-space readings during final cleanup were
+25,297,993,728 → 25,410,953,216 bytes; concurrent jobs also affect these readings.
+Review dates are review triggers, not deletion authority.
+
+Local authoritative receipts: `app-receipt.json`, `acceptance-285f651/receipt.json`,
+`cleanup-285f651.json`, `ci-285f651/provenance.json` and `manifest.md`.
