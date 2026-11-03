@@ -1,0 +1,98 @@
+# TCL L40S66E (40" FHD, Latin America / Argentina; device C06, product C06_2K_GB, model "Smart TV",
+# TCL client type TCL-LA-MT9221-01), Android TV 11 (API 30), build AR2101,
+# TCL software V8-T221T01-LF1V030, fingerprint TCL/C06_2K_GB/C06:11/AR2101/AR14:user/release-keys.
+# MediaTek MT9221 (ro.board.platform mt5867), 1280x720 UI, about 920 MB RAM (ro.config.low_ram=true),
+# 2.5 GB /data, ro.adb.secure=1. Same platform and firmware as examples/hitachi-cdh-le32smart21
+# (that one is a Hitachi-branded TCL); read examples/tcl-40s5400a too.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-l40s66e/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-l40s66e/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (the scripts' default, HOME priority 2, so it has to be
+# disabled). The only other HOME claimant is com.android.tv.settings/.system.FallbackHome.
+# Live TV app: com.tcl.tv. The remote's Input key opens its source picker.
+# Inputs come from com.tcl.tvinput: HDMI 1, HDMI 2, AV and the tuner.
+# launcher/ config used: live_tv_package com.tcl.tv; hidden_apps com.tcl.suspension and
+# com.tcl.partnercustomizer; reduced_motion true (see quirks). HDMI 1, HDMI 2, AV and Live TV all show
+# up in the Inputs menu.
+#
+# Applied in four batches on one real unit on 2026-10-20, each batch checked with screenshots and key
+# injection (Home, Input key source picker, Settings, Wi-Fi, Netflix). Tested on one day only (shorter
+# than CONTRIBUTING.md asks); I will report back if anything breaks.
+# Checked after the full list: launcher/ installed with pm install and is Home after a reboot; the
+# Inputs menu lists HDMI 1/2, AV and Live TV; the Input key still opens com.tcl.tv's source picker;
+# Wi-Fi stays connected across reboots.
+# YouTube, Prime Video and Paramount+ open; the Chromecast receiver is enabled and its services run.
+# Memory, A/B on the same unit (launcher/ as Home in both, reboot, 5 min wait): disabling this list made
+# no measurable difference to MemAvailable (about 337 vs 335 MB; 386 vs 387 MB after `am kill-all`);
+# with 1 GB and low_ram, Android fills the freed memory with cached apps. The gain is the launcher:
+# stock tvlauncher 64 to 90 MB PSS vs 36 to 38 MB for launcher/, plus no TCL promo processes restarting.
+#
+# Ad-blocking Private DNS was also enabled and validated (dns.adguard-dns.com); Netflix still opens,
+# YouTube's own ads are not blocked. Undo: tools/tv.py 'settings put global private_dns_mode opportunistic'
+#
+# Known quirks on this firmware:
+# - screencap -p on stdout is corrupted by MediaTek log lines ("Init wrapper sys mutex successful").
+#   Save to /sdcard and pull the file instead.
+# - launcher/ with normal motion was not smooth: 73% janky frames, median 28 ms per frame while moving
+#   focus (dumpsys gfxinfo). reduced_motion true brought it to 27% janky, median 6 ms.
+# - com.tcl.usercenter (TCL account) is switched back on by the system at every boot, as on the
+#   40S5400A. It stays idle, so it is left in the list.
+# - com.tcl.guard: here `pm disable-user` does stop TGuardService (not the case on the Hitachi).
+#   With TGuard enabled there was LESS free RAM, not more (about 370 vs 388 MB MemAvailable after
+#   `am kill-all`), so it stays off.
+# - setupwraith owned an old saved network, not the one in use; disabling it deleted only that old
+#   network. Check `dumpsys wifi | grep -o 'cname=[^ ]*'` first.
+# - After a reboot Play Store updates apps for a few minutes (com.android.vending about 90 MB), so
+#   MemAvailable right after boot is not a fair measurement.
+#
+# DO NOT DISABLE on this TV (kept and working):
+# com.tcl.tv                           # Live TV app, plays HDMI, source picker on the Input key
+# com.tcl.tvinput                      # TV input services for HDMI, AV and the tuner
+# com.tcl.suspension                   # Quick Panel / input menu; only hidden in the launcher config
+# com.tcl.providers.config             # TCL config provider
+# com.tcl.initsetup                    # setup flow, Wi-Fi
+# com.tcl.ttvs                         # firmware updater, not text-to-speech
+# com.tcl.rc.ota                       # remote control firmware updates
+# com.tcl.autopair                     # Bluetooth remote auto-pairing
+# com.tcl.tcl_bt_rcu_service           # Bluetooth remote
+# com.tcl.keyhelp                      # remote-key help/virtual keys
+# com.tcl.system.server                # remote-key plumbing
+# com.tcl.settings                     # picture/sound settings
+# com.tcl.inputmethod.international    # keyboard
+# com.google.android.tv.remote.service # phone remote / Android TV remote
+# com.android.location.fused           # reported to boot-loop when disabled
+
+# Telemetry
+com.google.android.feedback
+android.autoinstalls.config.tcl.device # partner-app auto installer config
+com.google.android.partnersetup        # RLZ pings
+com.google.android.syncadapters.calendar
+
+# Content, ads and promos
+com.google.android.tvrecommendations
+com.tcl.partnercustomizer              # TKey Channel and promo rows on the stock home
+com.tcl.waterfall.overseas             # TCL Channel web-video portal
+com.tcl.messagebox                     # TCL messages/popups, carries a ttvs receiver; updater unaffected
+com.tcl.esticker                       # store-demo sticker
+com.tcl.useragreement
+com.tcl.usercenter                     # TCL account, re-enabled by the system at boot (idle)
+
+# Background services
+com.tcl.guard                          # TGuard memory manager/cleaner (see quirks)
+com.google.android.apps.nbu.smartconnect.tv # data-saver VPN
+com.tcl.t_solo                         # TCL Bluetooth "listen alone"
+com.google.android.tungsten.setupwraith # first-run wizard, setup already done (check its Wi-Fi first)
+
+# Stock home, replaced by launcher/
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables the stock launcher itself, after Home has moved
+
+# Kept by choice on this unit: Netflix, YouTube, Prime Video, Paramount+, YouTube Music, Play Movies,
+# Play Games, Google Assistant (katniss), Chromecast (mediashell), photo screensaver (backdrop),
+# USB media player (com.tcl.ui_mediaCenter and its players).
+
+# Already disabled at the factory; left as-is.
+# au.com.stan.and                      # Stan
+# tv.wuaki.apptv                       # Rakuten TV
+# com.tcl.smartalexa                   # TCL Alexa bridge

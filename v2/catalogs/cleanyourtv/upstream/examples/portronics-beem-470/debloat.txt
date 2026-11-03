@@ -1,0 +1,98 @@
+# Portronics Beem 470 Smart LED Projector (Allwinner H713, sun50iw12p1), Android 11 (SDK 30)
+# Firmware UI_Veng.projector.20250922.160824, 1 GB RAM, 1920x1080 panel.
+# The firmware reports the generic Allwinner "ADT-3" / "adt3" identity, so match on the build
+# string rather than ro.product.model.
+#
+# Apply:   TV_HOST=<projector ip> tools/disable.sh examples/portronics-beem-470/debloat.txt
+# Undo:    TV_HOST=<projector ip> tools/restore.sh examples/portronics-beem-470/debloat.txt com.htc.htclauncherhighenglishd08
+# Everything is DISABLED, not uninstalled. Comment out anything you use.
+#
+# Tested on a retail unit: Wi-Fi, HDMI input switching, Netflix, JioHotstar, Prime Video, VLC,
+# SmartTube, Apple TV and the replacement launcher keep working. Re-enable the OTA packages before
+# checking for firmware updates. Casting/EShare packages (com.ecloud.*, com.eshare.*,
+# com.allshare.*) are deliberately left enabled.
+#
+# Firmware quirks worth knowing before you start:
+# - The remote's HOME key is ignored until both setup flags are set; otherwise the firmware keeps
+#   reporting "user setup is in progress":
+#       settings put secure user_setup_complete 1
+#       settings put global device_provisioned 1
+# - This firmware answers no ACTION_SETTINGS intent. With launcher/, add
+#   com.htc.htcsettings/com.htc.activity.HomeActivity to settings_fallback_components in config.xml,
+#   and com.htc.htcsettings to the <queries> in AndroidManifest.xml (a <package> line).
+# - The stock launcher is com.htc.htclauncherhighenglishd08; re-enable it if you remove launcher/.
+
+# Stock HTC launcher and its infrastructure, replaced by launcher/
+com.htc.htclauncherhighenglishd08      # stock Home; re-enable if the custom launcher is removed
+com.htc.expandsdk                      # service used by the HTC launcher/theme stack
+com.htc.screensaver                    # stock screensaver; ClockDream replaces it
+com.htc.storeos                        # HTC app store
+
+# HTC telemetry, factory test and updates
+com.htc.eventuploadservice             # usage/event uploader
+com.htc.htcotaupdate                   # OTA; re-enable to check for firmware updates
+com.htc.hyk_test                       # factory test app
+com.hysd.vafocus                       # vendor projector control/voice helper; see note below
+
+# Allwinner/Softwinner vendor apps not used on this model
+com.softwinner.awlivetv                # Live TV tuner UI; this model has no tuner
+com.softwinner.TvdVideo                # stock USB video player; VLC covers playback
+com.softwinner.TvdFileManager          # stock file manager
+com.softwinner.ImageParser             # stock image viewer
+com.softwinner.awlogsettings           # log-capture settings
+com.softwinner.screenshot              # Quick Settings screenshot tile
+com.softwinner.settingsassist          # settings OTA activity; re-enable with the OTA packages
+com.softwinner.settingssetup           # provisioning receiver; re-enable before a factory reset
+com.softwinner.provision               # provisioning app; re-enable before a factory reset
+com.softwinner.theme.color             # Allwinner theme overlay
+com.softwinner.theme.icon              # Allwinner theme overlay
+com.softwinner.update                  # Allwinner OTA; re-enable to check for firmware updates
+android.rockchip.update.service        # Rockchip updater left in this Allwinner image
+
+# Vendor accessibility helper, separate from the NFC stack (com.android.nfc)
+# NfxAccessibilityService v1.1.3; disabled without observed issues on this firmware.
+# Re-enable if you use its accessibility/gesture or remote-key features.
+com.android.nfx                        # vendor NfxAccessibilityService, not a typo for com.android.nfc
+
+# Stock Google apps replaced here
+com.google.android.youtube.tv          # replaced by SmartTube
+com.google.android.apps.searchlite.overlay
+org.chromium.webview_shell             # WebView shell; the WebView provider stays installed
+
+# Preloaded office suite
+com.mobisystems.office
+
+# AOSP apps and services with no use on a 1080p projector
+com.android.music
+com.android.musicfx
+com.android.dreams.basic
+com.android.wallpaperbackup
+com.android.wallpapercropper
+com.android.printspooler
+com.android.printservice.recommendation
+com.android.bips
+com.android.htmlviewer
+com.android.egg
+com.android.soundpicker
+com.android.providers.userdictionary
+com.android.providers.blockednumber
+com.android.cellbroadcastreceiver
+com.android.cellbroadcastservice
+com.android.nfc
+com.android.se
+com.android.bluetoothmidiservice
+com.android.hotspot2.osulogin
+com.android.pacprocessor
+com.android.proxyhandler
+com.android.localtransport
+com.android.backupconfirm
+com.android.sharedstoragebackup
+com.android.managedprovisioning
+com.android.onetimeinitializer
+com.android.dynsystem                # dynamic system updates, not used
+com.android.cts.ctsshim
+com.android.cts.priv.ctsshim
+
+# Note on com.hysd.vafocus: a vendor projector helper with keystone/HDMI/voice strings. It is not
+# the stock Settings or source menu, and both keep working here, but re-enable it if a stock
+# projector menu stops responding.

@@ -1,0 +1,52 @@
+# Vu 4K (ro.product.model "VU 4K", device lushan, manufacturer HVCL, MediaTek), Google TV / Android 12
+# (SDK 31), firmware STT2.230929.001.080. Sold in India. About 1.8 GB RAM.
+# Vu's own packages use the com.vt prefix (the same VIDAA/Hisense stack as examples/hisense-smarttv-4k-ffm,
+# with many com.hisense class names inside).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/vu-4k-lushan/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/vu-4k-lushan/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (build-and-install.sh finds and disables it; do not
+# list it here, it must go only after the new launcher is running). Live TV app: com.vt.tv.tvcenter (set it
+# as live_tv_package and hide it in launcher config.xml). HDMI 1-3 and AV come from com.vt.source.external.
+# Already disabled at the factory, so not listed: com.mediatek.tis, com.mediatek.dtv.tvinput.isdbtuner,
+# com.vt.source.tuner.
+#
+# USB debugging alone opens port 5555 (no wireless-debugging pairing needed). With the new launcher, the
+# remote's Input key still opens Vu's own input panel (com.vt.tv.input), so INPUT_KEY_SERVICE is not needed.
+# Tested on the day of the debloat (2026-10-19), not yet lived with for days: two reboots, both normal;
+# HDMI switching from the launcher's Inputs menu (opens com.vt.tv.tvcenter); apps launch from the dock.
+#
+# Do NOT disable com.vt.tv.smartsense, com.vt.tv.smartsense.ui or com.vt.tv.aiot: on the Hisense with the
+# same stack, disabling them sent the TV to Android Recovery on the next boot.
+# Kept on purpose: com.vt.tvservice, com.vt.avmiddleware, com.vt.edv.drmp, com.vt.tv.commonui,
+# com.vt.tv.input, com.vt.tv.videocolor (picture settings), com.vt.eula (consent state other apps read),
+# com.vt.tv.protector, com.vt.tv.customerlauncher, com.vt.udpserver, com.vt.fte, tv.mopa.ginga,
+# com.vt.tv.mediacenter (USB media player), com.vt.tv.dlna, the factory apps (com.vt.factory,
+# com.factory.tv.at, com.at.factory.androidtvaidlservice), com.mediatek.*.
+# Firmware updates left ON: com.vt.tv.ota, com.vt.remoteupgrade, com.vt.tv.usbota.
+# Casting left ON by choice: Chromecast (com.google.android.apps.mediashell), AirPlay (com.mediatek.AirplayAPK,
+# airplaydaemon, partner.airplay_sys, com.vt.tv.airplaykeycheck), Miracast (com.vt.tv.mobiledeviceconnectiontips).
+# Google Assistant (com.google.android.katniss) left ON by choice.
+
+# Vu telemetry: ACR ("Enhanced Viewing" content recognition, consent and promotion screens)
+com.vt.tv.evservice
+com.google.android.feedback
+
+# Ads, auto-installs, retail demo
+android.autoinstalls.config.google.gtvpai   # Play auto-install of partner apps
+com.vt.storemode                            # shop demo mode
+
+# Preloaded apps not used (by choice)
+com.google.android.play.games
+com.google.android.videos              # Google TV app (rent/buy movies)
+com.hisense.odinbrowser                # preloaded web browser
+com.vt.hishow                          # Vu "Family Moment" photo sharing, with its own screensaver
+com.vt.tv.singlelisten                 # Vu "My Music"
+com.mxtech.videoplayer.television      # MX Player
+com.vt.alexa                           # Alexa built-in (Google Assistant kept)
+
+# Google TV setup wizard: its RecoveryActivity claims Home at priority 1 and can crash-loop system_server
+# once launcherx is gone. Disable before build-and-install.sh; only used for first-time setup.
+com.google.android.tungsten.setupwraith

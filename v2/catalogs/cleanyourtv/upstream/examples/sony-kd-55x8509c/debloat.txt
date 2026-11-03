@@ -1,0 +1,63 @@
+# Sony BRAVIA KD-55X8509C (2015, "BRAVIA 4K 2015", device SVP-DTV15, MediaTek), EU firmware
+# Android TV 7.0 (API 24), build SVP4KDTV15_EU-user 7.0 NRD91N.S34 5.433, 1.5 GB RAM
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-kd-55x8509c/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-kd-55x8509c/debloat.txt com.google.android.leanbacklauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.leanbacklauncher (NOT com.google.android.tvlauncher, the restore.sh
+# default: pass it as the second argument).
+# Live TV / input app: com.sony.dtv.tvx. Keep it: it also plays every HDMI input. Hide it in config.xml;
+# the launcher's Inputs menu lists HDMI 1-4 and AV 1/2 correctly through it.
+# Keep: com.sony.dtv.tvinput.*, braviasync* (HDMI-CEC), remotepairing, uinputservice, imeproxy,
+# leanback.ime (default keyboard), settingsprovider, mtktvapi.agent, com.mediatek.*.
+# Left alone on purpose: com.sony.dtv.b2b.* other than vendorprotocol (hotel/pro mode plumbing),
+# com.opera.sdk.example (it is Sony's built-in browser, SonyBrowserUiActivity), systemupdate.
+# Already disabled at the factory/by owner: tv.samba.ssm, com.google.android.music, .videos,
+# .play.games, .marvin.talkback, .partnersetup, .syncadapters.contacts, b2b.hotelmenu, b2b.hotellanguage.
+# Not in this list so restore.sh leaves them off.
+#
+# Reported by @MarcusElmett in issue #104; transcribed as given, one afternoon of use at the time.
+#
+# Notes from this firmware:
+# - Used RAM went from 1,144 MB to 991 MB after this list and a reboot (dumpsys meminfo).
+# - Applied one afternoon with Chromecast and Prime Video kept; not yet lived with for weeks.
+#   If something breaks, re-enable it with `pm enable <package>` and please report it.
+
+# Telemetry, remote support, bug reports
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+com.sony.dtv.b2b.vendorprotocol                # Node.js broadcasting model/MAC/IP for Control4-style home automation
+
+# Sony and Google content, ads and recommendations
+com.sony.dtv.discovery                         # Discover bar, ~22 MB resident
+com.sony.dtv.bivlinfo                          # feeds Discover
+com.sony.dtv.sonyselect                        # Sony Select app store/promo tile
+com.sony.dtv.sonyshelf
+com.sony.dtv.recommendationservice
+com.sony.dtv.woprecommendation
+com.sony.dtv.irbrecommendation
+com.sony.dtv.networkrecommendation
+com.sony.dtv.watchtvrecommendation
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Retail demo
+com.sony.dtv.demomode
+
+# Preloaded help and apps
+com.sony.dtv.customersupport
+com.sony.dtv.smarthelp
+com.sony.dtv.imanual                           # i-Manual
+com.sony.dtv.bravialifehack
+com.sony.snei.video.hhvu                       # Sony Video Unlimited (service discontinued)
+com.google.android.inputmethod.japanese        # Japanese IME; the default keyboard is leanback.ime
+
+# Voice assistant, off by owner's choice (removes the remote's mic search)
+com.google.android.katniss
+com.google.android.speech.pumpkin
+
+# YouView (UK TV service), off by owner's choice
+com.sony.dtv.youview
+com.youview.tv.servicehost

@@ -1,0 +1,65 @@
+# Verizon Stream TV, 1st generation (WNC JS8V, Amlogic droidlogic), US
+# Android 12 (API 31), build SC.v6.6.3-20250328, security patch 2025-03-01. About 2 GB RAM, 1080p, Ethernet.
+# ro.product.manufacturer=wnc, ro.product.model=Stream TV, ro.adb.secure=1. A streaming box: HDMI out only, no inputs.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/verizon-stream-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/verizon-stream-tv/debloat.txt com.verizon.tv.launcher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Applied in small batches on 2026-10-20 with a screenshot after each, then a custom launcher installed and
+# the real remote pressed after each batch. Not yet lived with for days; if something breaks, re-enable it with
+# `pm enable <package>` and please report it.
+#
+# Stock launcher: com.verizon.tv.launcher (HomeActivity). Home claimants: the Verizon launcher and
+# com.android.tv.settings FallbackHome (-1000). setupwraith does NOT claim Home here. Live TV app: com.google.android.tv
+# (TvActivity; set it as live_tv_package). The box has no HDMI or tuner inputs. Live Channels is EMPTY unless an app
+# registers a TV input: with Pluto TV (tv.pluto.android, LiveTVInputService) enabled, Inputs > Live TV shows its channels
+# (checked); with Pluto disabled there was nothing, and live_tv_package is better left empty. Tablo and IPTV apps are
+# standalone apps (own guide), they do not feed Live Channels.
+# Already disabled at the factory, so not listed (restore.sh would turn them ON): com.google.android.tvlauncher,
+# com.google.android.tvrecommendations, com.google.android.feedback, com.google.android.play.games.
+#
+# Quirks on this firmware, all checked on the TV:
+# - Port 5555 opened with USB debugging and Network debugging on; stock adb and tools/tv.py both worked, with an
+#   "Allow USB debugging?" prompt on the first connect. Sideloading works (pm install -r), including a package that
+#   declares HOME; a base-only reinstall of a split APK gives INSTALL_FAILED_VERIFICATION_FAILURE, which is not a block.
+# - The remote is a Bluetooth remote. To pair a new one, hold OK + Apps (bottom right button) together for 6 seconds and release;
+#   the "Pairing your remote" screen is part of the stock launcher. Its buttons: D-pad, OK, Back, Home, Apps (sends
+#   KEYCODE_APP_SWITCH), Mic (KEY_SEARCH), Mute, Play/Pause, Volume. No app buttons. Non-functional buttons: INPUT, center color button
+# - With the stock launcher off the Apps button does nothing. The custom launcher answers it through HomeKeyService
+#   (HOME_KEY_SERVICE=1) once it also accepts KEYCODE_APP_SWITCH.
+# - The TV installed a firmware update (Android 10 QTT8.201201.004 to this build) while the work was in progress, so keep
+#   the OTA package if you want updates. A new build removed com.bc360.*, com.omni.sci, org.lineageos.tvcustomizer and
+#   added com.wnc.wnclogger, com.wnc.logger_provider_1 and com.wnc.tvcustomizer.
+# - com.verizon.tv.ams records app, screen and power events (AppState, Screen, TurnOff, Health) in a local event table
+#   and ships Firebase Crashlytics. Disabling it left the remote, Bluetooth pairing and Home working.
+# - Screenshots work on Home and in apps. AdGuard Private DNS (dns.adguard-dns.com) works and YouTube still loads.
+#
+# Kept on purpose: com.omni.ota (firmware updates, by owner's choice), com.omni.simplesetup, com.google.android.tv
+# (Live TV), tv.pluto.android (Pluto TV: the only TV input on this box, see the Live TV note above), com.google.android.tv.remote.service (phone remote), com.google.android.inputmethod.latin (keyboard),
+# Play Store, Play Services, Bluetooth, com.droidlogic.* and com.android.tv.settings, Netflix, Prime Video, YouTube,
+# Disney+, Hulu.
+# Left alone because their purpose is unclear from their components: com.wnc.wnclogger, com.wnc.logger_provider_1
+# (holds INTERNET), com.wnc.tvcustomizer.
+
+# Telemetry
+com.verizon.tv.ams                             # Verizon app/screen/power event recorder + Crashlytics
+
+# Off by owner's choice
+com.google.android.katniss                     # Assistant; the mic button does nothing without it
+com.google.android.apps.mediashell             # Chromecast built-in
+com.google.android.backdrop                    # ambient screensaver
+com.google.android.marvin.talkback             # TalkBack
+com.google.android.tts                         # text-to-speech
+com.google.android.videos                      # Play Movies & TV
+com.google.android.youtube.tvmusic             # YouTube Music
+com.google.android.youtube.tvunplugged         # YouTube TV
+com.hbo.hbonow                                 # HBO
+
+# Preloaded apps
+com.android.gallery3d                          # Gallery
+com.google.android.tv.setup.customizationsample
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+# setupwraith is left enabled: the saved Wi-Fi network belongs to it, and disabling it deletes that network.
+com.verizon.tv.launcher                        # Verizon home with sponsored Trending/Store tabs; also hosts the remote pairing screen

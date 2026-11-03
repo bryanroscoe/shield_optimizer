@@ -1,0 +1,97 @@
+# Xiaomi Mi Box S 2nd gen (model MiTV-AFKR0, codename jaws, Amlogic), Google TV / Android 11 (SDK 30),
+# 2 GB RAM. Fingerprints: Xiaomi/jaws/jaws:11/RTT0.211222.001/772:user/release-keys and
+# RTT0.211222.001.737 (validated 2026-10-19 on a Philco 4K TV) and RTT0.211222.001.683 (EU box, build 683 remote
+# scancodes — see README.md)
+# Second unit on 772 (EU box, validated 2026-10-25): same list, launcher owns Home across reboots. Its notes
+# are marked "772" below.
+#
+# Apply:   TV_HOST=<box ip> tools/disable.sh examples/xiaomi-mi-box-s-2nd-gen/debloat.txt
+# Undo:    TV_HOST=<box ip> tools/restore.sh examples/xiaomi-mi-box-s-2nd-gen/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. HOME claimants on stock: launcherx (priority 2),
+# com.google.android.tungsten.setupwraith/.RecoveryActivity (priority 1), Settings FallbackHome.
+# A streaming box: no HDMI-in or tuner, leave live_tv_package empty in config.xml; the Inputs pill hides itself.
+#
+# Tested: every package below was disabled in batches with screenshots in between, the launcher from
+# launcher/ was installed and owns Home, and Home and Wi-Fi both came back by themselves after a reboot.
+# Validated again 2026-10-19 on 737: launcher com.gathin.tvhome owns Home,
+# cname switched from setupwraith to com.android.tv.settings and survives reboot. Still provisional
+# until few-days soak per CONTRIBUTING.md, but second confirmation.
+#
+# Notes from this box:
+# - The stock adb on macOS connected fine on port 5555 once USB debugging was on; no wireless-debugging
+#   pairing and no tools/tv.py needed.
+# - Disabling launcherx alone makes Home resolve to setupwraith's RecoveryActivity; `cmd package
+#   set-home-activity` reports Success but does not take effect until setupwraith is disabled too.
+# - Right after disabling setupwraith, Wi-Fi dropped for about 20 seconds and the box asked for the Wi-Fi
+#   password again. Once it was re-entered, it stayed saved across a reboot.
+# - 772: forgetting and re-joining the network was not enough for tools/disable.sh: `dumpsys wifi` still
+#   listed a second, older saved network (a hidden one from first setup) with cname=setupwraith. Forget that
+#   one too (`cmd wifi list-networks` shows its id, `cmd wifi forget-network <id>`), then the guard passes
+#   and Wi-Fi stays up when the wizard is disabled.
+# - 772: Prime Video (com.amazon.amazonvideo.livingroom) came back enabled after the first reboot and again
+#   after the stock launcher was started once; the firmware (or Play) re-enables it. Disable it again or
+#   hide it from the launcher with hidden_apps; tools/check.py reports it as drift.
+# - After living with it: Wi-Fi, USB playback (with debugging off), Google Home, the phone remote,
+#   Chromecast from a Pixel and Google Assistant all still work. On 737, display is 1920x1080 UI
+#   with Settings > Tela e som > Resolução = 4k 60Hz (video 4K, HDR none on Philco 2016 EDID).
+# - The remote's shortcut buttons (Netflix, YouTube, Prime Video, Xiaomi TV+, Apps) all do nothing once
+#   launcherx is disabled. Prime Video and Xiaomi TV+ are disabled anyway; Netflix, YouTube and Apps were
+#   handled by launcherx, as on the Chromecast with Google TV (see that list for a Key Mapper remap).
+#   The launcher brings them back: the Bluetooth remote ("Xiaomi RC", Vendor_2717_Product_32b9.kl) sends
+#   Netflix as KEY_VIDEOPHONE -> 193 (BUTTON_6), YouTube as KEY_PRESENTATION -> 190 (BUTTON_3) and Prime
+#   Video as KEY_PLAY -> 194 (BUTTON_7). app_keys 193:com.netflix.ninja, 190:<youtube app>,
+#   194:<any app> with INPUT_KEY_SERVICE=1 launcher/build-and-install.sh; checked on 737 with the real
+#   remote (190 sent to SmartTube, 194 to Nuvio). The remote sleeps after a few seconds and drops the
+#   first press that wakes it, so press OK before each button while reading them with getevent -lt.
+#   772, from /vendor/usr/keylayout/Vendor_2717_Product_32b9.kl: Xiaomi TV+ is KEY_WWW -> scan 150 ->
+#   BUTTON_5 (192), Apps is KEY_CHAT -> scan 216 -> ALL_APPS (284), and there is a Settings key at scan 577
+#   (SETTINGS, 176) that this remote has no button for. The Apps button makes a good quick-settings button:
+#   settings_key_keycodes 284 with settings_key_panel and HOME_KEY_SERVICE=1 (Android itself grabs ALL_APPS
+#   before any app window sees it, so the Home helper has to filter it). With both helpers enabled a mapped
+#   button fires twice (a mute toggled back at once); enable one of them, HOME_KEY_SERVICE reads app_keys too.
+#
+# Kept on purpose: Google Assistant (katniss), Chromecast (mediashell), phone remote (tv.remote.service),
+# YouTube Music, Xiaomi USB media apps (mimusic2, mitv.gallery, mediaexplorer, mitv.videoplayer),
+# Miracast (smartshare, wfdsinkhelperservice), com.xiaomi.tvqs.overseas (not a quick settings panel: its
+# receivers are tvqs.action.UPLOAD, LOG, DROPBOX_ENTRY_ADDED and EXPORT_UPLOAD_LOG, a log and crash uploader;
+# untested disabled, so it stays a comment under Telemetry),
+# com.xiaomi.android.tvsetup.partnercustomizer (remote shortcut buttons - safe to disable if you don't
+# use the Netflix/YouTube/Prime shortcut keys; tested disabled on 737 with no other effect), mitv.service,
+# com.mi.bluetooth, com.droidlogic* (Amlogic system), com.xiaomi.gtv.settings.
+
+# Telemetry and attribution
+com.miui.tv.analytics                  # Mi analytics
+com.xiaomi.statistic                   # Xiaomi usage stats uploader
+com.google.android.feedback
+com.google.android.partnersetup        # Google RLZ attribution pings
+# com.xiaomi.tvqs.overseas             # log and crash uploader (772: untested disabled, see header)
+
+# Ad rows, promos and auto-installs
+com.mitv.tvhome.oemtab                 # Xiaomi ad row
+com.mitv.tvhome.michannel              # Mi content rows
+com.mitv.tvhome.mitvplus               # Mi TV+ ad-funded channels
+com.mitv.tvhome.atv                    # PatchWall
+com.xm.webcontent                      # Xiaomi web promos
+android.autoinstalls.config.xioami.mibox3   # Play auto-install of partner apps (sic, "xioami")
+
+# Xiaomi update service, off by choice; re-enable to check for a firmware update
+com.xiaomi.mitv.updateservice
+
+# Preloaded apps, off by choice
+com.amazon.amazonvideo.livingroom      # Prime Video
+com.google.android.videos              # Google TV / Play Movies
+com.google.android.play.games
+com.android.printspooler
+# com.google.android.youtube.tv        # optional: disable when using SmartTube (org.smarttube.stable)
+# com.netflix.ninja                    # optional: disable if unused
+
+# Remote shortcut handler on Mi Box S 2nd gen; disable when using CleanYourTV app_keys + InputKeyService
+# (see README.md, build 683). Safe on 737 when you do not rely on app_keys.
+# com.xiaomi.android.tvsetup.partnercustomizer
+
+# ONLY AFTER com.gathin.tvhome IS INSTALLED. Disabling launcherx alone hands Home to the setup wizard's
+# RecoveryActivity, so the wizard has to go too. Re-enable it before a factory reset (restore.sh does).
+# On this box Wi-Fi dropped right after disabling it and the password had to be re-entered once.
+com.google.android.tungsten.setupwraith

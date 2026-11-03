@@ -1,0 +1,42 @@
+# Skyworth SWTV-21AE ("Living Room TV"), Android TV 14, firmware UKNV.260824.001
+# ro.product.manufacturer=skyworth, device sunnyvale, MediaTek, about 0.9 GB RAM.
+# Stock launcher: com.google.android.tvlauncher (classic Android TV home, not Google TV launcherx).
+# Live TV and inputs: com.mediatek.wwtv.tvcenter.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/skyworth-swtv-21ae/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/skyworth-swtv-21ae/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Disabled before this debloat, so not listed (restore.sh would turn them ON):
+# com.smartdevice.recommendation, com.google.android.play.games, com.google.android.youtube.tvmusic,
+# com.google.android.marvin.talkback, com.amazon.amazonvideo.livingroom, org.liskovsoft.androidtv.rukeyboard.
+#
+# Quirks on this firmware, all checked on the TV:
+# - Port 5555 opened with USB debugging alone; no wireless-debugging pairing (unlike the Philips set).
+# - Live TV screenshots come back blank (protected video layer); check dumpsys topResumedActivity instead.
+# - Tested on the day of the debloat, not yet lived with for days.
+
+# Skyworth content, ads and preloads
+com.smartdevice.leanbacklauncher.customizer  # partner config that injects rows into the home screen
+fusion.android.tv.demo                       # shop demo player (Skyworth ePop)
+com.Smartdevice.emanual                      # on-screen manual
+
+# Telemetry and feedback
+com.google.android.feedback
+com.android.tv.feedbackconsent
+
+# Not used (by choice)
+com.google.android.youtube.tv                # official YouTube; SmartTube is used instead
+com.cltv.fast                                # iWedia free channels with ads; starts at boot
+com.google.android.backdrop                  # ambient screensaver; screensaver_components still names it, so
+                                             # point it at com.gathin.tvhome/.ClockDream (README, Clock screensaver)
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+com.google.android.tvrecommendations         # recommendation rows for the stock launcher
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables the stock launcher itself, after Home has moved
+
+# Kept on purpose: com.mediatek.wwtv.tvcenter / com.mediatek.tvinput / com.mediatek.tv.service (Live TV,
+# HDMI), com.mediatek.autopair (remote pairing at boot), com.smartdevice.global.service (remote keys),
+# com.smartdevice.factory, com.smartdevice.firewall (privacy screen, unclear), com.tianci.localmedia
+# (USB media), com.google.android.katniss (Assistant) and com.google.android.apps.mediashell (Chromecast)
+# by choice, both keyboards, Play Store, Play Services.

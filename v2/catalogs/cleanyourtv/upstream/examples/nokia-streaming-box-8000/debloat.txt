@@ -1,0 +1,64 @@
+# Nokia Streaming Box 8000 (Sagemcom/NES, product SEI600NK4, device HND, Amlogic), 2 GB RAM
+# Android TV 14 (SDK 34), build UKG3.240613.001, 32-bit (armeabi-v7a)
+#
+# Apply and undo: the commands in README.md here, NOT tools/disable.sh (this firmware refuses it).
+# Everything is SUSPENDED and barred from the background, not disabled or uninstalled.
+# Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (classic Android TV, not Google TV launcherx), with
+# Shop and Discover tabs. Only it and Settings' FallbackHome claim HOME; setupwraith does not.
+# No HDMI inputs (it's a box); a DTVKit tuner input (org.dtvkit.inputsource) is registered, and
+# live-TV streaming apps can add their own TIF inputs. com.nes.seilivetv and com.google.android.tv.axel ship
+# already disabled.
+#
+# Known quirks on this firmware:
+# - Port 5555 opens as soon as USB debugging is on; no pairing. The box also advertises
+#   _adb._tcp over mDNS, which is the quickest way to find it when DHCP moves it.
+# - The saved Wi-Fi belongs to com.google.uid.shared (GMS), not setupwraith.
+# - Network debugging does not survive a reboot: port 5555 refuses connections afterwards until it
+#   is switched on again in Developer options (USB debugging itself stays on).
+# - Every pm disable*/hide/uninstall --user 0 is refused ("This command is illegal!"), and the stock
+#   launcher has HOME priority 2, so this list is suspended instead (README.md here) and the
+#   stock launcher cannot be replaced yet.
+#
+# Kept on purpose (load-bearing, checked with dumpsys package):
+#   com.nes.blerc                  Bluetooth remote service (NesBleRemoteService)
+#   com.standard.irtvcontrol       IR control of the TV from the box remote (SetUpRemoteActivity)
+#   com.nes.tvglobalkeyhandler     remote app buttons
+#   com.nes.recents                recent-apps screen
+#   com.nes.remoteota.*            remote firmware updates (Realtek/Telink/Weina RCU OTA)
+#   com.nes.coreservice            front LED, OTA messages and an analytics receiver mixed together
+#   com.nes.daemon                 unknown NES daemon
+#   com.google.android.tvsetup.partnercustomizer   IR remote wizard + low-power-mode page
+#   com.droidlogic.*               Amlogic vendor (Settings, sleep timer, HDMI-CEC, picture)
+#   org.dtvkit.inputsource, com.android.providers.tv, Play Store/Services, Gboard,
+#   com.google.android.tv.remote.service (phone remote), com.google.android.tv.dfuservice
+# Kept by choice: Chromecast (com.google.android.apps.mediashell), Nokia OTA updater
+#   (com.droidlogic.updater) + NES device manager (com.nes.skywayclient: firmware check, privacy
+#   agreement), Netflix, Prime Video, YouTube, Play Games.
+
+# Telemetry, feedback and ad measurement
+com.google.android.feedback
+com.google.android.partnersetup                 # Google RLZ partner attribution pings
+com.android.adservices.api                      # Privacy Sandbox ad services
+com.android.ondevicepersonalization.services    # ad personalisation
+com.android.federatedcompute.services           # federated ad/usage learning
+
+# Content and ad services
+com.google.android.tvrecommendations            # recommendation rows for the stock launcher
+com.nes.leanbacklauncher.partnercustomizer      # Nokia's Shop/Discover row config for the stock launcher
+android.autoinstalls.config.sei                 # Play auto-install of partner apps
+
+# Factory/test leftovers and preloads nobody uses on a TV
+com.nes.dvb.playtest                            # DVB factory play test
+com.utsmta.app                                  # factory test, listens for USB sticks
+com.android.printspooler
+com.google.android.marvin.talkback              # re-enable if you need the screen reader
+
+# Off by choice
+com.google.android.youtube.tvmusic
+com.google.android.katniss                      # Google Assistant: the remote's mic button stops working
+com.google.android.backdrop                     # ambient screensaver, replaced by the launcher's Clock
+
+# Stock home: cannot be disabled or suspended away here (HOME priority 2, "core application").
+# com.google.android.tvlauncher

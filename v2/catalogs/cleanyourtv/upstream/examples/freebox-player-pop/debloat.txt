@@ -1,0 +1,95 @@
+# Freebox Player POP (Free, France; codename fbx8am, Amlogic, 2 GB RAM), Android TV 10 (API 29)
+# Tested on build QTT8.201201.002.v10.5.66.
+#
+# Apply:   TV_HOST=<player ip> tools/disable.sh examples/freebox-player-pop/debloat.txt
+# Undo:    TV_HOST=<player ip> tools/restore.sh examples/freebox-player-pop/debloat.txt net.oqee.launcher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Connecting: Settings > Device Preferences > About > Build x7, then Developer options > USB debugging.
+# Port 5555 opens with that alone (no separate Network debugging switch). ro.adb.secure=1, so each
+# computer still has to be accepted on screen. macOS: the Command Line Tools Python is blocked by Local
+# Network privacy ("No route to host" while nc reaches the port); a uv-managed Python works:
+#   uv venv --python 3.12 --managed-python tools/venv && uv pip install --python tools/venv/bin/python -r tools/requirements.txt
+#
+# Sideloading works. A test reinstall of a Play-installed app answered INSTALL_FAILED_VERIFICATION_FAILURE,
+# but logcat showed Play Protect blocking it for "missing splits" (base.apk pushed without its splits),
+# not a firmware gate; a normal single APK installs fine.
+#
+# Launcher: the stock home is OQEE (net.oqee.launcher, HOME priority 3). com.stremio.tv.boot also claims
+# HOME (priority 0) when Stremio is installed. Run launcher/build-and-install.sh with
+# STOCK_LAUNCHER=net.oqee.launcher; it disables OQEE after the swap.
+# setupwraith is not a HOME candidate here, but it owns a Wi-Fi network saved during first setup:
+# leave it enabled.
+# The Player has no HDMI input. Its TV inputs are the DVB-T tuner (org.dtvkit.inputsource, HW19,
+# fronted by fr.freebox.fbxdtvkit) and IPTV through OQEE (net.oqee.androidtv), which is the Live TV app.
+# The tuner reports itself as a hardware passthrough input, so the launcher's Inputs menu lists it next
+# to Live TV, and picking it sends a channel URI nothing answers ("not available"). Use the Live TV row
+# (live_tv_package net.oqee.androidtv), or put OQEE in the dock.
+# Location is off on the tested unit (location_mode=0), so the network pill reads "Wi-Fi", not the SSID.
+#
+# Spotify: keep Chromecast built-in (com.google.android.apps.mediashell). Spotify Connect from a phone
+# starts the TV app through it, even when Spotify is not on screen.
+# Ad-blocking DNS breaks Spotify here. dns.adguard-dns.com answers 0.0.0.0 for pixel.spotify.com, and
+# the TV app then stops at "Vérifiez votre connexion réseau". Worse, a session refreshed while it was
+# blocked stayed broken after the DNS went back: the app logged "invalid access token" until
+# `pm clear com.spotify.tv.android` and a new login. With Spotify, use a personal NextDNS / AdGuard
+# DNS profile that allowlists pixel.spotify.com, or no ad-blocking DNS at all.
+# Standby is not a reboot (uptime keeps counting), and ADB stays reachable through it.
+#
+# Leave alone: net.oqee.androidtv (TV), org.dtvkit.inputsource, fr.freebox.fbxdtvkit,
+# com.nes.dtvkitdatabackup (channel database), com.nes.blerc (Bluetooth remote),
+# fr.freebox.bleirlearner (remote's IR learning for the TV's power/volume), com.nes.tvglobalkeyhandler
+# (remote keys), com.nes.freeboxburnkey (key provisioning), fr.freebox.fbx8am.externalauth,
+# fr.freebox.fbxservices and fr.freebox.fbx8lc.canalsubscriptionservice (Free billing for partner apps),
+# fr.freebox.fbx8lc.fbxcustomization, fr.freebox.fbxshortcutsettings, com.droidlogic.* system services,
+# com.google.android.tungsten.setupwraith, Play Store / Services, the keyboard.
+
+# Telemetry and log collection
+fr.freebox.fbxstats                       # Free usage statistics (system uid, boot receiver)
+com.google.android.feedback               # Google feedback reports
+com.google.android.tv.bugreportsender     # bug report uploader
+com.droidlogic.readlog                    # Amlogic log dumper to USB storage
+
+# Ads, recommendations and partner auto-installs
+com.google.android.tvrecommendations      # recommendation rows
+android.autoinstalls.config.sei           # auto-installs partner apps
+
+# Factory and test leftovers
+com.nes.dvb.playtest                      # DVB playback factory test
+com.ctc                                   # "MediaProcessorDemoActivity"
+com.utsmta.app                            # factory test triggered by USB
+com.android.camera2                       # no camera on the Player
+com.android.printspooler                  # printing
+
+# Voice and casting (owner's choice; re-enable if you use them)
+com.google.android.katniss                # Google Assistant / voice search
+# com.google.android.apps.mediashell      # Chromecast built-in: KEEP. Spotify Connect from a phone wakes Spotify through it
+
+# Streaming apps the owner does not use (comment out the ones you watch)
+fr.tf1.mytf1.free                         # TF1+
+fr.m6.m6replay.free                       # M6+
+fr.francetv.pluzz                         # france.tv
+com.google.android.youtube.tv             # YouTube
+com.google.android.youtube.tvmusic        # YouTube Music
+com.canal.android.canal                   # Canal+
+com.disney.disneyplus                     # Disney+
+fr.freebox.disneypluslauncher             # Free's Disney+ shortcut
+com.nextinteractive.rmcbfmplay.tv.free    # RMC BFM Play
+org.videolan.vlc                          # VLC
+# Already disabled on the unit this list came from: com.netflix.ninja,
+# com.amazon.amazonvideo.livingroom, com.apple.atve.androidtv.appletv
+# Kept by choice: tv.arte.plus7, com.spotify.tv.android, com.stremio.one, com.stremio.tv.boot,
+# fr.freebox.fbx8lc.fbxdiags (Free's diagnostics app), firmware updates
+# (fr.freebox.fbx8lc.fbxupdater) and remote firmware updates (com.nes.remoteota.one/three).
+
+# Preloaded extras (owner's choice)
+fr.free.aktu                              # Free Aktu news
+fr.francetv.zouzous                       # Okoo (france.tv kids)
+fr.tfou.max                               # TFOU Max (TF1 kids)
+com.google.android.videos                 # Google TV / Play Movies
+com.google.android.play.games             # Play Games
+com.tcl.browser                           # TCL Browser (preinstalled as a user app)
+
+# Stock launcher: left enabled here. Disabling it before the new launcher is Home leaves the box with
+# none; STOCK_LAUNCHER=net.oqee.launcher makes build-and-install.sh disable it after the swap.
+# net.oqee.launcher                       # OQEE home screen

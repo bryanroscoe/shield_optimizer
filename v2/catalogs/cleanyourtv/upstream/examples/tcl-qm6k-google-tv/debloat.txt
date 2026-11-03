@@ -1,0 +1,87 @@
+# TCL QM6K Pro Google TV, 2025, US (device G08, model "Smart TV Pro", MediaTek tcl9618)
+# Android 14 (Google TV), firmware UTT2.250416.001 AU16
+# Also seen on the same G08 board with AU14 firmware, a "Smart TV Pro" sold outside the US (prasta1, PR #23);
+# that set needed Wireless-debugging pairing (docs/TROUBLESHOOTING.md, "USB debugging never opens port 5555").
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-qm6k-google-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-qm6k-google-tv/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV / HDMI app: com.tcl.tv.
+# Keep: com.tcl.tv, com.tcl.tvinput, com.tcl.dashboard, com.tcl.suspension, com.tcl.autopair,
+# com.tcl.systemserver, com.tcl.providers.config, com.tcl.initsetup, com.tcl.useragreement,
+# com.tcl.globalkeyoverlay, com.tcl.systemui.plugin, com.tcl.factory.view and all com.mediatek.*.
+# Unlike the 2023 G10 sets, com.tcl.ttvs and com.tcl.logkit ship ENABLED here.
+# Do NOT disable com.tcl.providers.config, com.tcl.initsetup or com.tcl.factory.view: together they dropped
+# the Wi-Fi connection outright on the AU14 set and it took a re-pair over ADB to get back in (#23).
+#
+# Known quirks on this firmware:
+# - Play Protect blocks the launcher ("built for an older version of Android") unless targetSdk >= 34.
+# - With launcherx disabled, setupwraith's RecoveryActivity claims HOME at priority 1 and shows a blank
+#   screen. Shell can't disable that one component, so the whole package is disabled below (it only
+#   runs first-time setup). While Home was blank the TV fell back to HDMI 1 and woke a console over CEC.
+# - Gear (keycode 83) and YouTube (190) only reach launcherx, so both go dead once it is disabled.
+#   config.json here maps them again; install the launcher with HOME_KEY_SERVICE=1 so the accessibility
+#   service binds and reads them, then push the theme:
+#     TV_HOST=<tv ip> HOME_KEY_SERVICE=1 launcher/build-and-install.sh
+#     TV_HOST=<tv ip> tools/theme.sh examples/tcl-qm6k-google-tv
+# - Soundbar on optical (S/PDIF) can't be powered or volume-controlled by the TV. Use HDMI 4 (eARC) and
+#   `cmd hdmi_control cec_setting set system_audio_control 1` (it ships 0 here).
+
+# TCL tracking and analytics
+com.tcl.ttvs                           # Samba TV ACR viewing tracking, TCL "BI" analytics, Alexa core, T-Cast
+com.tcl.logkit                         # log capture and upload
+com.tcl.usercenter                     # TCL account sign-in nags
+
+# TCL content, ads and promos
+com.tcl.tv.plus                        # TCL TV+ content app
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.partnercustomizer              # TCL tweaks to Google TV home rows
+com.tcl.interactive                    # TCL TIAS background service
+com.tcl.smartlink.core                 # bundles a silent app installer
+com.tcl.messagebox                     # TCL push messages and promos
+
+# Retail demo / hotel mode
+com.tcl.exhibit
+com.tcl.esticker
+com.tcl.hotelmenu
+
+# Preloaded apps and services
+com.tcl.ocean.instructions             # e-manual
+com.tcl.repairguide
+com.tcl.browser                        # TCL web browser
+com.tcl.ui_mediaCenter                 # re-enable to play media from USB drives
+com.tcl.smartalexa                     # Alexa
+android.autoinstalls.config.google.gtvpai   # silently installs partner apps
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.apps.tv.dreamx      # ambient mode screensaver (shows promos)
+com.google.android.play.games
+com.google.android.youtube.tvmusic
+
+# Needed for the custom launcher: see quirks above. Disable only AFTER launcher/ is installed.
+com.google.android.tungsten.setupwraith
+
+# Optional: uncomment what you don't use
+# com.netflix.ninja                    # Netflix, together with the next line
+# com.netflix.tokenmanager
+# com.google.android.tv.remote.service # Google TV phone-app remote
+# com.google.android.marvin.talkback   # screen reader
+# com.google.android.apps.mediashell   # Chromecast
+# com.tcl.gamebar                      # game mode / VRR overlay for consoles
+# com.tcl.airplay2                     # AirPlay, together with the next two lines
+# com.mediatek.AirplayAPK
+# com.mediatek.airplaydaemon
+# com.tcl.UpdatePeripheral             # TCL soundbar firmware updates
+# com.google.android.katniss           # Google Assistant voice
+
+# Reported safe on the AU14 firmware of the same G08 board (#23), not tried on this AU16 set
+# com.tcl.android.webview
+# com.tcl.t_solo                       # "listen alone" Bluetooth pairing helper
+# com.google.android.partnersetup      # partner attribution
+# com.google.android.onetimeinitializer
+# com.google.android.syncadapters.calendar
+# com.mediatek.speakerservice
+# com.mediatek.backgrounddetection
+# com.mediatek.support.webview

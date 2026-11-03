@@ -1,0 +1,135 @@
+# Insignia 55" Class F30 4K Fire TV (NS-55F301NA25, model AFTDCT31, codename duckie), Fire OS 7 / Android 9 (SDK 28),
+# firmware PS7715.5585N. Also a good starting point for other Insignia / Toshiba / Pioneer Fire TV Edition sets on Fire OS 7.
+#
+# FIRE OS: DEBLOAT ONLY. Fire OS will not let a third-party launcher take over Home: com.amazon.tv.launcher and
+# com.amazon.firehomestarter are protected packages (pm disable-user is refused), their HOME filter has priority 950,
+# and `cmd package set-home-activity` prints Success but is ignored. launcher/build-and-install.sh does not apply
+# here; this list removes Amazon's ads, telemetry and preloads around the stock home screen.
+# Live TV app: com.amazon.tv.livetv.
+#
+# Apply (bash):       TV_HOST=<tv ip> tools/disable.sh examples/insignia-ns55f301na25/debloat.txt
+# Undo  (bash):       TV_HOST=<tv ip> tools/restore.sh examples/insignia-ns55f301na25/debloat.txt com.amazon.tv.launcher
+# Apply (PowerShell): powershell -ExecutionPolicy Bypass -File tools\disable.ps1 -TvHost <tv ip> examples\insignia-ns55f301na25\debloat.txt
+# Undo  (PowerShell): powershell -ExecutionPolicy Bypass -File tools\restore.ps1 -TvHost <tv ip> examples\insignia-ns55f301na25\debloat.txt -Stock com.amazon.tv.launcher
+# (restore.sh re-enables every package the record holds as on, the stock launcher included, since it is what owned
+# Home. On Fire OS it was never off, and Fire OS refuses the attempt with a `Cannot disable a protected package`
+# stack trace once per run (reported on Fire OS 8), which the batch carries on past:
+# docs/TROUBLESHOOTING.md, 'Fire TV (Fire OS)'.)
+# Everything is DISABLED for user 0, not uninstalled. Comment out any line you want to keep.
+#
+# Keep enabled: com.amazon.tv.livetv, com.amazon.tv.quicksettings and com.amazon.tv.settings.v2 (HDMI/tuner inputs and
+# the Picture/Sound/System settings), com.apple.airplay.amazon.airplay if you use AirPlay/HomeKit.
+# Two packages in the telemetry group, com.amazon.device.metrics and com.amazon.ftvads.deeplinking, were reported as
+# protected on a Toshiba Fire TV (Fire OS 7): if disable.sh prints an error for them, that is why; everything else applies.
+# The Alexa, Prime Video, cast and OTA groups below are personal choices, marked as such: comment out what you use.
+
+# Amazon telemetry, ACR & analytics
+com.amazon.tv.acr                      # Automatic Content Recognition (viewing habits)
+com.amazon.device.metrics
+com.amazon.client.metrics
+com.amazon.client.metrics.api
+com.amazon.device.logmanager
+com.amazon.dp.logger
+com.amazon.perfcollection
+com.amazon.perfc
+com.amazon.tv.fw.metrics
+com.amazon.wirelessmetrics.service
+com.amazon.device.crashmanager
+com.amazon.hybridadidservice           # advertising ID service
+com.amazon.privacypassservice
+com.fireos.usagestats.proxy
+com.amazon.livedeviceservice
+com.amazon.audiolatencymeasurer
+
+# Sponsored ads, shopping & home screen recommendations
+com.amazon.ftvads.deeplinking          # Fire TV ad deep-linking
+com.amazon.media.recommendations
+com.amazon.tv.democontent.provider     # retail store demo videos
+com.amazon.sneakpeek
+com.amazon.shoptv.firetv.client        # Amazon Shopping on TV
+com.amazon.shoptv.client
+com.amazon.tv.csapp
+com.amazon.minerva.client.api
+com.amazon.providers.contentsupport
+
+# Amazon background sync, tutorials & cloud services
+com.amazon.device.sync
+com.amazon.sync.service
+com.amazon.sync.provider.ipc
+com.amazon.device.sync.sdk.internal
+com.amazon.device_remote_config_sync_service
+com.amazon.securitysyncclient
+com.amazon.ods.kindleconnect
+com.amazon.wifilocker                  # saves Wi-Fi passwords to Amazon cloud
+com.amazon.tahoe                       # FreeTime / Amazon Kids
+com.amazon.tcomm
+com.amazon.tcomm.client
+com.amazon.tcomm.jackson
+com.amazon.logan
+com.amazon.neopactservice
+com.amazon.neodelegate
+com.amazon.cloud9                      # Silk Browser background service
+com.amazon.fireos.cirruscloud
+com.fireos.arcus.proxy
+com.amazon.alta.h2clientservice
+com.amazon.rtcsessioncontroller
+com.amazon.communication.discovery
+com.amazon.dpcclient
+com.amazon.uxnotification
+com.amazon.tv.notificationcenter
+com.amazon.systemnotices
+com.amazon.tv.releasenotes
+com.amazon.storm.lightning.tutorial
+com.amazon.tmm.tutorial
+com.amazon.tv.oobe
+com.amazon.tv.ooberesource
+com.amazon.tv.legal.notices
+com.amazon.tv.legalresources
+com.amazon.tv.support
+com.amazon.cardinal
+com.amazon.csm.htmlruntime
+com.amazon.recess
+com.amazon.diode
+com.amazon.platform.fdrw
+com.amazon.dummy.settings
+com.amazon.dummy.contacts
+com.amazon.dummy.calendar
+com.amazon.dummy.gallery
+com.amazon.dummy.alarmclock
+com.amazon.dummy.music
+com.amazon.tv.legal.notices.overlay.localisation.common
+
+# Preloaded Amazon apps (personal choice)
+com.amazon.bueller.photos              # Amazon Photos
+com.amazon.bueller.music               # Amazon Music
+com.amazon.gamehub                     # Amazon Luna / GameHub
+com.amazon.spiderpork                  # Amazon Luna game player: Luna's "Open app" needs it (keep it with gamehub)
+com.amazon.tv.localgallery
+com.amazon.minitv.android.app          # Amazon MiniTV
+com.amazon.tv.website_launcher
+com.amazon.avod                        # Prime Video (comment out if you watch Prime Video)
+
+# Personal choice: Alexa (the voice remote stops working), Miracast/DIAL casting, OTA firmware updates (re-enable to
+# update), Matter and the Amazon single-sign-on helper some apps use to log in. Comment out what you rely on.
+com.amazon.alexamediaplayer.runtime.ftv
+com.amazon.alexa.datastore.app
+com.amazon.alexa.externalmediaplayer.fireos
+com.amazon.alexadirectivebrokerservice
+com.amazon.tv.alexanotifications
+com.amazon.tv.alexaalerts
+com.amazon.aca
+com.ivona.orchestrator                 # Alexa TTS engine
+com.ivona.tts.oem
+com.amazon.audiohome                   # Alexa Home Theater
+com.amazon.cast.sink                   # Miracast / Fire Cast sink (AirPlay is separate)
+com.amazon.whisperplay.contracts
+com.amazon.whisperplay.service.install
+com.amazon.whisperlink.core.android
+com.amazon.awvflingreceiver
+com.amazon.dialservice                 # DIAL cast receiver
+com.amazon.device.software.ota         # re-enable to check for firmware updates
+com.amazon.device.software.ota.override # re-enable to check for firmware updates
+com.amazon.tv.forcedotaupdater.v2      # re-enable to check for firmware updates
+com.amazon.tv.easyupgrade
+com.amazon.tv.mattercohost
+com.amazon.tv.ottssocompanionapp

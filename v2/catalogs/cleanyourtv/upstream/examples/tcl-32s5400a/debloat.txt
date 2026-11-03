@@ -1,0 +1,112 @@
+# TCL 32S5400A (2023, 32" FHD), unit with SonyLIV/YuppTV preloads: device C06, product C06_2K_GB,
+# model "Smart TV". Android TV 11 (SDK 30), build AR2101 / AR14, TCL software V8-T221T05-LF1V005,
+# security patch 2022-01-05. MediaTek MT9221 (ro.board.platform mt5867), 1 GB RAM (low_ram=true).
+# Same C06_2K_GB platform as the tested tcl-40s5400a list, on older firmware; that list is the
+# fuller reference for this platform and explains the HOME-priority and TGuard behaviour.
+#
+# Second unit, 2026-10-25: same C06 / C06_2K_GB, build AR2101, TCL software V8-T221T01-LF1V121. No
+# SonyLIV/YuppTV on this one (those two lines are skipped there); Netflix, Prime Video, Alexa
+# (com.tcl.smartalexa), Stan and Rakuten TV were already disabled when it arrived. The list below was applied
+# as is, plus the commented "second unit" block at the end, all checked the same day: launcher/ comes up as
+# Home after two reboots (the set boots straight to Home, not Live TV), HDMI 1 and the Inputs menu switch,
+# YouTube and Kodi open, and the physical remote's Input, YouTube, Settings and Home buttons all still work
+# with the stock launcher disabled and no key helper enabled. com.tcl.usercenter came back on at the first
+# reboot here too.
+#
+# Apply:  TV_HOST=<tv ip> tools/disable.sh examples/tcl-32s5400a/debloat.txt
+# Undo:   TV_HOST=<tv ip> tools/restore.sh examples/tcl-32s5400a/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (the default; launcher/build-and-install.sh disables
+# it after Home has moved). Live TV app: com.tcl.tv. Inputs: com.tcl.tvinput (2x HDMI, AV, tuner).
+#
+# Do not disable on this platform (kept; see tcl-40s5400a for the details):
+# com.tcl.tv (Live TV + HDMI), com.tcl.tvinput (HDMI/AV/tuner), com.tcl.tcl_bt_rcu_service
+# (Bluetooth remote), com.tcl.system.server (remote-key plumbing), com.tcl.autopair (Bluetooth
+# remote pairing), com.tcl.settings (picture/sound), com.tcl.dashboard (TCL HOME tile),
+# com.tcl.messagebox (carries the ttvs receiver), com.tcl.suspension (Quick Panel),
+# com.android.location.fused (boot-looped a 43S5400A into recovery on V325, #2803).
+#
+# Applied on 2026-10-20 and checked the same day (shorter than CONTRIBUTING.md asks; I will report
+# back if anything breaks). The first pass also disabled com.tcl.system.server, com.tcl.autopair,
+# com.tcl.settings, com.tcl.messagebox and com.tcl.dashboard; after comparing with tcl-40s5400a they
+# are not in this list, because the first three are remote/pairing/picture-sound plumbing. If an
+# earlier guide disabled them on your set, re-enable them:
+#   for p in com.tcl.system.server com.tcl.autopair com.tcl.settings com.tcl.messagebox com.tcl.dashboard; do
+#     TV_HOST=<tv ip> tools/tv.py "pm enable $p"; done
+# (pm enable takes one package at a time.)
+# Checked after the full list: a custom HOME app comes up after a reboot, YouTube opens, HDMI 1/2,
+# AV and Live TV switch, Wi-Fi and Settings open, Play Store and Play Services stay enabled.
+# Not tested: casting from a phone (the Cast receiver is kept), the physical remote's Input key,
+# TCL picture/sound settings and Bluetooth re-pairing.
+#
+# Quirks on this firmware:
+# - Stock tvlauncher declares HOME priority 2, so `cmd package set-home-activity` alone does not
+#   take Home while it is enabled. Disable it after the replacement is running.
+# - com.tcl.ttvs is the firmware updater, not text-to-speech. It is disabled below to stay on
+#   V8-T221T05-LF1V005; comment it out if you want OTA updates.
+# - screencap writes an empty file while an HDMI input is on screen. Press Home first.
+# - com.tcl.usercenter can be switched back on by the system at boot on some C06 units; it stays
+#   idle, so it is left in the list. Re-check `pm list packages -d` after a reboot.
+# - Storage reserve (second unit): the storage monitor keeps a fixed 500 MB free
+#   (`dumpsys devicestoragemonitor` shows lowBytes=524288000) on a 2.7 GB /data, and every install fails
+#   below it with "Requested internal only, but not enough space" - launcher/build-and-install.sh included.
+#   `tools/tv.py 'pm trim-caches 4G'` frees the app caches and was enough to get past it; check that
+#   devicestoragemonitor says level=NORMAL before installing. TGuard's "TV storage Low" popup comes from the
+#   same check and still showed once with com.tcl.guard disabled.
+# - `pm uninstall-updates` does not exist on this Android 11 build ("Unknown command").
+
+# TCL account, promos and content
+com.tcl.usercenter                     # TCL account; may be re-enabled by the system at boot
+com.tcl.guard                          # TGuard cleaner/support
+com.tcl.partnercustomizer              # promo rows on the stock home
+com.tcl.waterfall.overseas             # TCL web-video portal
+com.tcl.esticker                       # store-demo sticker (already off on this unit)
+com.tcl.audioplayer
+com.tcl.imageplayer
+com.tcl.copydatatotv                   # already off on this unit
+
+# Google extras
+com.google.android.feedback
+com.google.android.play.games
+com.google.android.videos              # Play Movies
+com.google.android.youtube.tvmusic
+
+# Regional preloads not used on this unit
+com.sonyliv
+com.yupptv.scope.tvapp
+
+# Firmware updater: kept, as on the 40S5400A; uncomment to stay on this build
+# com.tcl.ttvs
+
+# Extra packages also disabled on this unit, but deliberately not part of the recommended list:
+# com.tcl.useragreement, com.tcl.factory.view, com.tcl.initsetup, com.graymatrix.did,
+# com.android.sharedstoragebackup, com.android.backupconfirm, com.android.printspooler,
+# com.android.dreams.basic, com.android.proxyhandler, com.android.captiveportallogin,
+# com.android.hotspot2.osulogin. The proxy/captive-portal/Hotspot 2.0 ones can matter on hotel or
+# enterprise Wi-Fi; the setup/factory ones can matter after a factory reset; the AOSP dream is a
+# screensaver fallback.
+#
+# Already disabled when this unit arrived; left as-is (not part of this list).
+# au.com.stan.and
+# tv.wuaki.apptv
+# com.tcl.keyhelp
+
+# Second unit (V8-T221T01-LF1V121), disabled there and checked the same day only, so left commented.
+# Uncomment what you do not use:
+# android.autoinstalls.config.tcl.device   # partner-app auto installer config (in the tcl-40s5400a list)
+# com.google.android.tvrecommendations     # sponsored rows on the stock home
+# com.google.android.syncadapters.calendar
+# com.google.android.katniss               # Google Assistant / voice search: the mic button stops working
+# com.google.android.tv.assistant          # disable together with katniss
+# com.tcl.micmanager                       # remote microphone manager; together with katniss
+# com.google.android.tv.remote.service     # Google TV phone-app remote (casting does not need it)
+# com.tcl.ui_mediaCenter                   # USB media player, together with com.tcl.videoplayer
+# com.tcl.videoplayer                      # (com.tcl.audioplayer and com.tcl.imageplayer are in the list above)
+# com.tcl.t_solo                           # T-Solo: TV sound on Bluetooth headphones only
+# com.google.android.backdrop              # photo screensaver; screensaver_components was already
+#                                          # com.android.dreams.basic/.Colors on this unit
+# com.google.android.marvin.talkback       # TalkBack
+# com.google.android.tts                   # Google text-to-speech, together with TalkBack
+# com.tcl.dashboard                        # TCL Home panel, gift box and promo messages; kept above as a
+#                                          # precaution, but the remote's buttons all worked without it here

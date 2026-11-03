@@ -1,0 +1,89 @@
+# TCL 65" C7K QD-Mini LED Google TV, Brazil (device G08, model "Smart TV Pro", MediaTek mt5896)
+# Android 14 (Google TV), firmware UTT2.250416.001, product G08_4K_GB, locale pt-BR.
+# Same G08 board and build as examples/tcl-c755-google-tv; that list was the starting point.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-65c7k-google-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-65c7k-google-tv/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV / HDMI app: com.tcl.tv.
+# Keep: tv.mopa.ginga (Ginga, the Brazilian broadcast middleware for TV aberta), com.tcl.tv,
+# com.tcl.tvinput, com.tcl.suspension (the Input button's source panel), com.tcl.inputmethod.international
+# (the keyboard), com.google.android.tv.remote.service, com.dolby.*, and the other TCL/MediaTek system
+# services listed as kept in examples/tcl-c755-google-tv.
+# Applied and verified on a real unit on 2026-10-21 (same day, not yet lived with for days): HDMI
+# switching, TV aberta (Ginga) and the launcher as Home over Wi-Fi. Chromecast not tested yet.
+# setupwraith owned the saved Wi-Fi network: forget and re-join it in Settings first (it then belongs
+# to com.android.tv.settings), or disable.sh skips it and Home falls back to its RecoveryActivity.
+# dreamx kept on purpose (the owner likes the ambient screensaver).
+# Second unit: Australia, same G08 board and firmware (UTT2.250416.001 AU02, locale en-US), applied and verified
+# on 2026-11-02, a few hours so far and not yet lived with for days. It carries AU streaming apps (9Now, 10 play,
+# iview, SBS On Demand, 7plus, Stan, Plex, Netflix, Prime Video, YouTube) and none of the Brazil-only ones: the
+# three Brazil entries below (Claro TV+, Mercado Play, Speedtest) are not installed there. Everything on this
+# list stayed disabled across a reboot, HDMI switching from the launcher's Inputs menu worked, and boot lands
+# on the launcher, not Live TV. Chromecast was kept but not tested; the AU unit also kept firmware updates.
+# On the AU unit the launcher (columns 7) hides com.tcl.tv, com.tcl.suspension, com.tcl.dashboard and
+# com.tcl.t_solo from the grid (hidden_apps) rather than disabling them. See config.json.
+# Remote on the AU unit: Netflix 4062, Prime Video 4099, YouTube 190 (KEYCODE_BUTTON_3), gear 83, all scancode 240
+# and sent to launcherx, so they do nothing once it is disabled. The launcher's HomeKeyService
+# (HOME_KEY_SERVICE=1, app_keys and settings_key_keycodes) brings them back, but any bound accessibility helper
+# costs the held-volume ramp on this firmware (one step per press, ramps again with the helper off), so the
+# owner kept the ramp and no helpers.
+# Wireless debugging only switches on over Wi-Fi: on Ethernet the toggle flips straight back off.
+# Pair once over Wi-Fi, run `adb tcpip 5555`, and port 5555 then answers on either network until reboot.
+
+# TCL tracking and analytics
+com.tcl.ttvs                           # Samba TV ACR viewing tracking, TCL "BI" analytics, Alexa core, T-Cast
+com.tcl.logkit                         # log capture and upload
+com.tcl.usercenter                     # TCL account sign-in nags
+com.google.android.feedback
+com.android.tv.feedbackconsent
+
+# TCL content, ads and promos
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.partnercustomizer              # TCL tweaks to Google TV home rows
+com.tcl.interactive                    # TCL TIAS background service
+com.tcl.messagebox                     # TCL push messages and promos
+com.tcl.waterfall.overseas             # TCL movie/show recommendation browser
+
+# Retail demo / hotel mode
+com.tcl.exhibit                        # store demo mode switcher
+com.tcl.esticker                       # store / soundbar demo
+com.tcl.hotelmenu
+
+# Preloaded apps and services
+com.tcl.ocean.instructions             # e-manual
+com.tcl.repairguide
+com.tcl.smartalexa                     # Alexa
+com.tcl.guard                          # TCL "cleaner" / app manager
+android.autoinstalls.config.google.gtvpai   # silently installs partner apps
+com.google.android.partnersetup        # partner attribution
+
+# Off by choice on this unit
+com.google.android.katniss             # Google Assistant voice (mic button)
+com.tcl.ui_mediaCenter                 # USB media player
+com.tcl.gallery                        # USB photo gallery + TCL screensaver
+br.com.claro.now.smarttvclient         # Claro TV+
+com.mercadolibre.android.mplay_tv      # Mercado Play
+com.rma.speedtesttv                    # Speedtest
+
+# Off by choice on the Australian unit (uncomment any you never use)
+# com.tcl.airplay2                       # AirPlay receiver (com.mediatek.AirplayAPK and airplaydaemon below were left alone); off on the Australian unit
+# com.tcl.miracast                       # Miracast screen mirroring; off on the Australian unit
+# com.tcl.magiconnectfree                # TCL T-Cast / Magiconnect phone mirroring, shows as a launcher tile; off on the Australian unit
+# com.tcl.gamebar                        # game mode / VRR overlay; off on the Australian unit
+# au.com.stan.and                        # Stan, owner does not use it; off on the Australian unit
+# com.google.android.youtube.tvmusic     # YouTube Music; off on the Australian unit
+
+# Needed for the custom launcher. Disable only AFTER launcher/ is installed and set as Home:
+# with launcherx gone, setupwraith's RecoveryActivity claims HOME at priority 1 (blank screen).
+com.google.android.tungsten.setupwraith
+
+# Kept on this unit: uncomment if you don't use them
+# com.google.android.apps.tv.dreamx    # ambient screensaver, kept by choice; to disable, set screensaver_components to com.gathin.tvhome/.ClockDream first
+# com.google.android.apps.mediashell   # Chromecast
+# com.mediatek.AirplayAPK              # still enabled on the AU unit
+# com.mediatek.airplaydaemon
+# com.tcl.UpdatePeripheral             # TCL soundbar firmware updates
+# com.google.android.play.games

@@ -1,0 +1,100 @@
+# TCL 55C715 QLED (2020, Belgium), reports ro.product.model BeyondTV2 / device BeyondTV, board rtd285o (Realtek RT2851),
+# client type TCL-EU-RT2851-S1, software V8-R851T02-LF1V606 (AP06), Android TV 9 (API 28), build PPR1.180610.011,
+# security patch 2020-09-05, 2 GB RAM. Same firmware as examples/tcl-beyondtv-rt2851/, which was the starting point.
+# Second unit: TCL 55C718 (Finland), same build: ro.product.model BeyondTV2, fingerprint TCL/BeyondTV2/BeyondTV:9/PPR1.180610.011/AP06,
+# software V8-R851T02-LF1V606, client type TCL-EU-RT2851-S1, 2 GB RAM, armeabi-v7a, stock Home com.google.android.tvlauncher 7.7.15.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55c715/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55c715/debloat.txt
+# Stock launcher: com.google.android.tvlauncher (Android TV Home 7.x, Play-updated). Live TV app: com.tcl.tv
+# (launcher config: live_tv_package com.tcl.tv). The launcher's Inputs menu lists HDMI 1-3, AV and Live TV through
+# TvInputManager; no source_panel fallback needed. Network ADB (port 5555) was open as soon as USB debugging was on.
+#
+# Tested 2026-10-20 on a real unit: applied in the groups below with a screenshot after each, then rebooted three times.
+# Netflix, YouTube, Prime Video, Play Store, Play Movies, Live TV, HDMI through TCL's source menu and the launcher's
+# Inputs menu, Settings, Chromecast and the Bluetooth remote all kept working. MemAvailable went from 557 MB to
+# about 780 MB with the same apps; voice_ap dropped from ~27% of one core to ~3% once group 6 was off.
+# In daily family use since then (streaming apps, live TV through the set-top box on HDMI 1, casting); nothing beyond
+# the notes below had to be re-enabled.
+#
+# Quirks on this firmware:
+# - com.tcl.usercenter comes back enabled at every boot, even with its Play update removed (TCL's boot-time list;
+#   TV Settings also binds to it). Listed anyway: it stays off until the next reboot. Rakuten TV (tv.wuaki.apptv)
+#   does the same, see group 3.
+# - com.tcl.partnercustomizer also supplies the stock Android TV Home's Inputs icon (and the TCL Channel tile and a
+#   TV Guard shortcut). Disabling it removes the icon; the remote's Source button still works. No effect with a
+#   custom launcher.
+# - Disabling com.google.android.katniss (group 6) also disables search on the stock home screen, typed search too.
+# - Settings > Applications opens TCL "TV Guard" (com.tcl.tvweishi), and still does while it is disabled.
+# - Re-enable com.tcl.tvweishi and com.tcl.appmarket2 (group 7) while installing the launcher, as on the RT2851 list.
+# - 55C718: disable.sh skipped android.autoinstalls.config.tcl.device and com.google.android.leanbacklauncher.recommendations
+#   (the input-driver check found no permission block in dumpsys for them), so they stayed enabled; nothing else on the list
+#   needed an override. pm disable-user on com.tcl.usercenter is refused for the shell (SecurityException), as noted above.
+#
+# Status: 2026-10-27, 55C718 (Finland): groups 1 to 6 and 8 applied (com.tcl.versionUpdateApp and Chromecast left on), launcher
+# installed, then group 7 and com.google.android.backdrop disabled. Netflix, YouTube, Yle Areena, Live TV, HDMI through the
+# Inputs menu and the source key, and the remote worked after each step and after restarts; in daily use for 4 days since.
+# Re-enabled afterwards: none.
+#
+# Already disabled at the factory, left alone: the 14 uk.co.freeview.* apps, com.tcl.bootadservice,
+# com.tcl.common.terminalmanagerplus, com.tcl.smartalexa, com.tcl.notereminder, com.tcl.gallery, Stan, ZEE5, Eros Now,
+# LINE TV, Play Music, Play Games.
+#
+# DO NOT DISABLE (load-bearing on this firmware, as on tcl-beyondtv-rt2851):
+# com.tcl.tv com.tcl.tvinput com.tcl.tvpassthrough com.tcl.sourcemananger com.tcl.keycustomfunctionservice
+# com.tcl.framework.custom com.tcl.tcl_bt_rcu_service com.tcl.autopair com.google.android.tv.remote.service
+# com.tcl.inputmethod.international com.tcl.settings com.tcl.initsetup com.tcl.factory.view com.tcl.showmode
+# com.tcl.xian.StartandroidService com.tcl.appstatecontroller com.realtek.netflix.setting com.android.WifiCountryService
+# Also kept: com.tcl.videoplayer (serves Live TV info dialogs), com.tcl.audioplayer ("listen with the screen off"),
+# com.tcl.imageplayer, com.tcl.UpdatePeripheral (boot-time peripheral updater, purpose unclear), com.tcl.rc.ota.
+
+# 1. Telemetry and analytics
+com.tcl.bi                                  # TCL BI analytics
+com.google.android.feedback                 # "send feedback"
+com.google.android.tv.bugreportsender       # bug report uploader
+com.google.android.partnersetup             # partner-app attribution
+com.google.android.onetimeinitializer       # one-time setup leftovers
+android.autoinstalls.config.tcl.device      # partner-app auto installer
+
+# 2. Content, recommendation rows and promos
+com.google.android.tvrecommendations        # home-screen recommendation rows
+com.google.android.leanbacklauncher.recommendations
+com.tcl.partnercustomizer                   # TCL Channel tile, promo rows; also the stock home's Inputs icon (see above)
+com.tcl.messagebox                          # TCL message/promo box
+com.tcl.esticker                            # retail demo stickers
+com.tcl.cyberui                             # TCL content service, unused
+
+# 3. Preloads and background extras
+com.tcl.useragreement                       # end-user agreement screens
+com.tcl.android.webview                     # unused, Google WebView is the active provider
+com.tcl.keyhelp                             # remote-key help overlays
+# tv.wuaki.apptv                            # Rakuten TV: re-enabled at every boot like usercenter; removed for the user instead
+
+# 4. USB media, off by choice (the players stay, see above)
+com.tcl.ui_mediaCenter                      # USB media centre ("Centre multimédia" stays in the source menu, opens nothing)
+com.tcl.copydatatotv                        # copy-to-TV helper, starts at boot
+
+# 5. Off by choice
+com.tcl.miracast                            # Miracast screen mirroring
+com.tcl.MultiScreenInteraction_TV           # TCL T-Cast / MagiConnect
+com.tcl.versionUpdateApp                    # TCL firmware updater; no update since AP06 (2020)
+# com.google.android.apps.mediashell        # Chromecast, kept
+
+# 6. Voice, off by choice: the mic button and home-screen search go with it
+com.google.android.katniss                  # Google voice search
+com.google.android.speech.pumpkin           # offline speech recognition
+com.tcl.assistant                           # TCL's Google Assistant bridge
+com.tcl.micmanager                          # remote microphone manager
+com.google.android.tv.assistant             # Assistant LED service
+
+# 7. After the launcher is installed
+com.tcl.tvweishi                            # TCL "TV Guard" cleaner
+com.tcl.appmarket2                          # TCL app store (Play Store stays)
+
+# 8. Extras nobody used here
+com.tcl.usercenter                          # TCL account login (QR / phone binding); re-enabled at boot, see above
+com.google.android.marvin.talkback          # TalkBack screen reader
+com.android.printspooler                    # printing
+com.google.android.syncadapters.calendar    # calendar sync
+com.google.android.syncadapters.contacts    # contacts sync
+com.google.android.backdrop                 # Ambient-mode screensaver (pick another screensaver first)

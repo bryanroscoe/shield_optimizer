@@ -1,0 +1,42 @@
+# Amazon Fire TV, model AFTDEC012E (codename ginza), Android 11 (SDK 30), build RS8185.3885N
+# Tested on one unit, Fire OS (Amazon), so no Google services.
+#
+# FIRE OS: DEBLOAT ONLY. Amazon's launcher (com.amazon.tv.launcher) keeps Home, and its packages and components
+# cannot be disabled ("Cannot disable a protected package"), so this list does not install a launcher. It removes
+# Amazon's ads, telemetry and preloads. Details and what was tested: docs/TROUBLESHOOTING.md, "Fire TV (Fire OS)".
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/amazon-fire-tv-aftdec012e/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/amazon-fire-tv-aftdec012e/debloat.txt com.amazon.tv.launcher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Kept on purpose: Alexa, OTA updates, DIAL/whisperplay (Netflix and YouTube casting), Netflix, YouTube, Prime
+# Video, voice search and the stock launcher. Miracast, MiniTV, Disney+ and Tubi are listed at the bottom, commented
+# out, for the owner to decide.
+
+# Ads, content recognition, shopping
+com.amazon.shoptv.client
+com.amazon.tv.acr
+com.amazon.tv.democontent.provider
+
+# Telemetry and metrics
+com.amazon.neo.minerva
+com.amazon.neo.minerva.logcat
+com.amazon.wirelessmetrics.service
+com.amazon.perfcollection
+com.amazon.perfc
+com.amazon.dp.logger
+
+# Tutorials, promos and Amazon content preloads
+com.amazon.storm.lightning.tutorial
+com.amazon.tmm.tutorial
+com.amazon.gamehub
+com.amazon.bueller.music
+com.amazon.bueller.photos
+com.amazon.naatyam
+
+# Not disabled yet, the owner's choice: Miracast receiver (com.amazon.cast.sink), Freevee/MiniTV (com.amazon.minitv.android.app),
+# Disney+ (com.disney.disneyplus) and Tubi (com.tubitv.ott). Uncomment to disable.
+# com.amazon.cast.sink
+# com.amazon.minitv.android.app
+# com.disney.disneyplus
+# com.tubitv.ott

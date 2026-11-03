@@ -1,0 +1,60 @@
+# FFalcon (雷鸟) 鹤6 PRO 65S585C Pro (China), device tcl_mt5879_cn, MediaTek MT9653 (reported as mt5879),
+# Android 11 (SDK 30), build RQ3A.210705.001 / 2026012200 (2026-01-22), 3.7 GB RAM, armeabi-v7a only.
+# Same platform and the same firmware build as examples/tcl-q10g-pro/; read that list's notes first
+# (ADB via 本机信息 + UP DOWN LEFT RIGHT, no third-party launcher, no sideloading).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/ffalcon-65s585c-pro/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/ffalcon-65s585c-pro/debloat.txt com.tcl.cyberui
+#
+# Stock launcher: com.tcl.cyberui, the only HOME handler. Never disable it.
+# Nothing was disabled at the factory (`pm list packages -d` was empty).
+# com.tcl.bi from the tcl-q10g-pro list is not present on this unit.
+#
+# DO NOT DISABLE: com.tcl.cyberui, com.tcl.tv, com.tcl.settings, com.tcl.systemserver, com.tcl.ttvs,
+#   com.tcl.TFDS.service (persistent factory service), com.sohu.inputmethod.sogou.tv (only keyboard),
+#   com.tcl.appmarket2, com.tcl.guard, com.tcl.ui_mediaCenter, com.tcl.autopair (remote pairing),
+#   com.tcl.tcl_bt_rcu_service, com.tcl.providers.config, com.tcl.initsetup, com.tvos.
+#
+# Every group below is active. To keep a group, comment it out before running disable.sh. The recovery
+# record keeps the state from before the first run and adds names that join the list later.
+#
+# Tested 2026-10-20 on a real unit, then two full `reboot`s: Home, HDMI inputs and no crash-buffer
+# entries, and all packages below stayed disabled.
+# Wait at least 10 seconds after disable.sh before rebooting: PackageManager writes the new states to
+# disk after a short delay, and a reboot inside that window brings the packages back enabled.
+
+# Ad and telemetry reporting (tested on tcl-q10g-pro, same firmware)
+com.tcl.bootadservice                    # full-screen ad before Home
+com.tcl.profilemanager                   # audience / profile reporting
+com.tcl.xian.StartandroidService         # background reporting service
+com.tcl.logkit                           # log collection and upload
+com.tcl.recognize.service                # screen recognition; silent-install channel
+com.tcl.appreciate.art                   # art-wallpaper / screensaver promo content
+com.tcl.atomic.servicecenter             # home-screen recommendation cards
+com.tcl.c2dm.client                      # TCL push, long-lived connection
+com.tcl.wholenetsearch                   # whole-net search with VOD promotions
+com.tcl.playskill                        # "tips" promo app
+com.tcl.repairguide                      # repair-guide app
+com.tcl.useragreement                    # user-agreement popup
+android.autoinstalls.config.tcl.device   # first-boot auto-install of preloaded apps
+
+# Content apps with their own promo surfaces
+com.tcl.ffeducation                      # kids / education content
+com.tcl.ffkaraoke                        # karaoke
+
+# OPTIONAL: OTA. Re-enable when you want firmware updates.
+com.tcl.versionUpdateApp               # system OTA and app auto-update
+com.tcl.UpdatePeripheral               # peripheral firmware OTA, ~200 MB resident
+com.snm.upgrade                        # updateos, a second updater (not in tcl-q10g-pro; stayed disabled, updates not checked)
+
+# OPTIONAL: account. Re-enable to sign in to a TCL / FFalcon account or VIP.
+com.tcl.usercenter
+
+# OPTIONAL: voice. The remote's voice key does nothing afterwards.
+com.tcl.walleve                        # iFlytek voice engine, ~230 MB resident
+
+# OPTIONAL: small apps people often do not use (they stayed disabled; the apps themselves weren't tried)
+com.tcl.common.weather                 # weather widget and its background service
+com.tcl.tvsmartalbum                   # smart photo album
+com.tcl.weixin                         # WeChat on TV
+com.tcl.videocall                      # video calls

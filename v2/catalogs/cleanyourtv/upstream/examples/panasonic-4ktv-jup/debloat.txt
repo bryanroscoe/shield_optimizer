@@ -1,0 +1,53 @@
+# Panasonic 4KTV-JUP (Jupiter_PA, MediaTek), Android TV 11 (API 30), firmware 4.501 / RTM2.210929.137
+# armeabi-v7a, 1920x1080, ~1.7 GB RAM (about 50 MB free at idle before debloating).
+# This is a Panasonic/MediaTek Google TV build: there is no PatchWall or other OEM content stack.
+#
+# Stock launcher:  com.google.android.tvlauncher
+# Live TV app:     com.mediatek.wwtv.tvcenter  (Panasonic's TV UI; keep it, the Inputs menu opens it)
+# Never disable any com.mediatek.* package: they are the tuner, input and HDMI stack.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/panasonic-4ktv-jup/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/panasonic-4ktv-jup/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Status: disabled together on one TV on 2026-10-18 and checked with remote-key injection and screenshots
+# (launcher, HDMI/AV switching, Live TV). Nothing broke in that testing, but this list had under a day of
+# real use when submitted: treat it as a starting point, and re-enable anything you miss.
+#
+# Three apps claim HOME here (stock launcher, a third-party launcher, FallbackHome). After
+# installing launcher/, `cmd package set-home-activity` is needed before the stock one is disabled.
+
+# Google telemetry / setup leftovers
+com.google.android.feedback
+com.google.android.partnersetup
+com.google.android.onetimeinitializer
+
+# Recommendation and content services
+com.google.android.tvrecommendations
+com.mediatek.wwtv.tvrecommendation
+com.google.android.backdrop            # ambient-mode screensaver
+com.google.android.leanbacklauncher.partnercustomizer
+
+# Background services nobody needs on a TV
+com.android.printspooler
+com.android.htmlviewer
+com.android.backupconfirm
+com.android.sharedstoragebackup
+com.android.wallpaperbackup
+com.google.android.syncadapters.calendar
+com.android.providers.calendar
+com.google.android.tungsten.setupwraith  # setup wizard; re-enable before a factory-style re-setup
+
+# Panasonic preloads
+com.panasonic.ehelp
+com.panasonic.demomode
+com.panasonic.hotelmode
+
+# Streaming apps disabled by choice (comment out the ones you use)
+com.amazon.amazonvideo.livingroom
+com.google.android.youtube.tvmusic
+com.google.android.videos
+com.google.android.play.games
+
+# Stock Google TV launcher, replaced by launcher/
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables this one itself, after Home has moved
