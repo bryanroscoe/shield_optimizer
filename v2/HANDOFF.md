@@ -34,6 +34,14 @@ completion, backend unavailability, navigation, or its deadline. Pending handsha
 alone are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
 and the native driver/scan unit tests.
 
+The current native owner-test app also retains the optional grouped IPv4/IPv6
+address picker in collapsed Scan details. Scan tries alternative mDNS routes
+serially and suppresses redundant routes after a ready connection or observed
+AUTH; actual TV cards still merge only on verified hardware identity. The exact
+624fd2f candidate passed seven CI jobs and the two-Shield duplicate-route,
+explicit IPv6 selection and endpoint Retry/Forget checks. See the native handoff
+above for its merge-ref provenance and remaining hardware acceptance.
+
 macOS native builds declare their Local Network purpose and ADB Bonjour services in
 `src-tauri/Info.plist`. Keep separately installed development apps on a distinct local
 bundle identifier and sign the complete development bundle; `--no-sign` leaves only

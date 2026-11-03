@@ -16,9 +16,11 @@ The job uploads a signed universal debug app, not a release or updater artifact.
 For PR runs, `provenance.json` records the actual checkout commit (GitHub's merge
 ref), its source tree and the PR head separately. Verify all three against the run
 before accepting the app; do not assume the artifact name is the branch head.
-The completed manual `9383c7c` package remains a prior candidate, not evidence of
-the newer empty-help integration. Current delivery below stays unchanged until
-the PR-linked package and its physical acceptance are complete.
+Run `41736352516` passed all seven jobs and delivered the newer empty-help
+integration. Its merge-ref tree exactly matches PR head `624fd2f`; the verified
+app and physical acceptance are recorded below. The earlier manual `9383c7c`
+package was never installed. The opt-in label was removed after acceptance so
+documentation-only follow-up does not rebuild an identical app.
 
 ## Grouped connection choices retained — 2026-11-03
 
@@ -62,9 +64,9 @@ remain individually actionable, with the address shown once and one shared guide
 
 Frontend check/build and the expanded native scan UI regression passed locally.
 Rust regression coverage includes route suppression, AUTH, IPv6 fallback, stale
-success and separate services. The replacement app and cross-platform checks are
-not yet delivered at this source checkpoint; the current delivery below remains
-66542dd until its verified replacement receipt is recorded.
+success and separate services. The cross-platform checks and replacement app now
+passed the duplicate-route and address-picker acceptance below. This is a focused
+native owner-test result; broader hardware qualification remains open.
 
 ## Owner UI feedback — 2026-11-03
 
@@ -93,21 +95,22 @@ or shipping-default change occurred.
 
 PR: https://github.com/bryanroscoe/shield_optimizer/pull/268
 Branch: `feat/native-desktop-test-20261031`
-Built source: `66542dd556d088ca5baba86a9d08a2280f265d3a`; native UI verification
-is recorded below. Later main integration adds README/CHANGELOG documentation from
-`f52a73e` and updates this handoff; it does not alter driver or UI implementation.
-The delivered binary does not include those later documentation changes.
+PR source: `624fd2f9033e0b7c1f597e7bd940056fc1abc16b`.
+Built source: GitHub merge ref `697513bc6968437a4d411732abf6c0971d1b7ea7`.
+Both commits have tree `8f17be73b5d98ca695ffa010da3e29b2fbe42db9`.
+This receipt updates handoff documentation after that build; the delivered app
+does not include these later documentation changes.
 
 - Delivery: `~/Developer/.agent-tasks/shield-native-test-20261031/ATV Optimizer Native Discovery Test.app`
-- Window title: **ATV Optimizer — Native Rust ADB Test — 66542dd**
-- Executable SHA256: `4c8bf8da416c6c5cf41c021ca9cec851a25c3c531431973b93be974c56c11566`
-- Last verified running PID: **48668**, 2026-11-03 UTC. Recheck before subsequent work.
+- Window title: **ATV Optimizer — Native Rust ADB Test — 697513b**
+- Executable SHA256: `b1e20009353e58d21f69a2274550f00e32c14a78a8161a94cb9c92037a12de5e`
+- Last verified running PID: **84531**, 2026-11-03 UTC. Recheck before subsequent work.
 - Backend: native Rust, `native-adb-default` compiled in; label verified in UI.
 - Architectures: **arm64 and x86_64**, verified with `lipo -verify_arch`.
 - Complete bundle passed `codesign --verify --deep --strict`. Signing is ad-hoc,
   not Apple-issued signing or notarization.
-- Build: https://github.com/bryanroscoe/shield_optimizer/actions/runs/41650433571
-  Artifact `13237238859`; provenance and both archive/binary hashes verified before
+- Build: https://github.com/bryanroscoe/shield_optimizer/actions/runs/41736352516
+  Artifact `13279548229`; provenance and both archive/binary hashes verified before
   replacement. All seven jobs, including native packaging, succeeded.
 
 Use the exact delivery path, not the bundle ID (`com.shieldoptimizer.native-test`).
@@ -116,7 +119,33 @@ replacement. The replacement was verified again at the delivery path and launche
 permission settings were changed. Superseded bundles and the downloaded archive
 were removed after acceptance; small provenance receipts remain locally.
 
-## Native UI acceptance at 66542dd
+## Native UI acceptance at 697513b / PR source 624fd2f
+
+Launch verified the exact revision title and native backend label. The approved
+2017 Shield and 2019 Shield Pro appeared as two connected cards, one named card
+per TV, across four scans. Backend log intervals from subnet detection to scan
+completion were 6.31–6.78 seconds, with four subnet responders each time and first
+responses in 12–17 ms. These are observed backend intervals, not a cold-start or
+UI-readiness guarantee. Unapproved endpoints remained separate: observed AUTH
+requests used compact rows and one shared guide; failed attempts settled into
+collapsed Scan details.
+
+The grouped service/interface address picker exposed the known Shield's IPv4 and
+IPv6 routes. Selecting IPv6 changed the explicit Connect target without adding a
+device. Pressing Connect succeeded over that IPv6 route and still left one card
+per TV. Expired choices disabled Connect; Scan LAN refreshed them. Retry of one
+failed IPv4 endpoint produced an observed AUTH row, Forget removed that endpoint
+while both approved TVs stayed connected, and rescan restored it. Settings showed
+the built-in native backend and disabled shared-server controls. Returning to
+Devices retained both connected cards. Final native Devices and address-picker
+captures were visually inspected.
+
+Private screenshots, AX states, bounded scan excerpts and the exact receipt are
+under `acceptance-624fd2f/` in the task directory. This acceptance covers the
+duplicate-route/address-picker slice. Earlier physical download recovery testing
+belongs to the earlier binary below; it was not repeated on this candidate.
+
+## Prior native UI acceptance at 66542dd
 
 Launch verified the exact revision title and native backend label. Both approved
 Shields appeared connected; observed AUTH requests remained visible. The first
@@ -162,7 +191,7 @@ The previous delivered binary underwent read-only testing using SHIELD TV (2017)
   `acceptance-285f651/` in the local task directory. No device writes, broad TV-log
   collection, telemetry upload or public upload of LAN evidence was performed.
 
-## Integration and validation
+## Prior integration and validation
 
 The driver/UI base merges main `61e59ef112ad55896e639354475f01fc8babc386`
 (PR #278: shell bookmarks, package-state filters, snapshot deletion and report-note
@@ -221,22 +250,24 @@ from merge/release certification. No formal approval was submitted.
 
 ## Workspace and cleanup
 
-Retain these existing paths for owner testing and feedback, review **2026-11-07**:
+Retain these existing paths for owner testing and feedback, review **2026-11-10**:
 
-- `~/Developer/.worktrees/shield_optimizer/native-test-20261031` (~38 MiB), source
+- `~/Developer/.worktrees/shield_optimizer/native-test-20261031` (~44 MiB), source
   checkout for PR follow-up. Preserve unrelated primary-checkout edits.
-- The exact delivered universal app above (~144 MiB), intentionally running.
+- The exact delivered universal app above (~145 MiB), intentionally running.
 - `~/Developer/.agent-tasks/shield-native-test-20261031/`, small receipts and private
   acceptance evidence; parent/native ADB task owns this follow-up.
 - The former mixed Cargo target at `~/Developer/shield-issue205-20261019/v2/target`
   is now absent. This task did not remove it or create a new compiler cache.
 
-Own temporary frontend dependencies, build/capture output, superseded app,
-archive/staging and transfer fixtures were removed. No own compiler, watcher or
-server remains. Actual free-space readings during final cleanup were
-81,023,500,288 → 81,210,793,984 bytes; concurrent jobs also affect these readings.
-Review dates are review triggers, not deletion authority.
+Own temporary frontend dependencies, build/capture output, superseded app and
+downloaded archive/staging were removed. No own compiler, watcher or server
+remains. Actual free-space readings during final cleanup were
+67,420,688,384 → 67,608,064,000 bytes; concurrent jobs also affect these readings.
+The small existing root `node_modules` cache (~560 KiB) remains because its prior
+ownership is unverified. Review dates are review triggers, not deletion authority.
 
-Local current receipts: `app-receipt.json`, `acceptance-66542dd/receipt.json`,
-`cleanup-66542dd.json`, `ci-66542dd/provenance.json` and `manifest.md`. Earlier
+Local current receipts: `app-receipt.json`, `acceptance-624fd2f/receipt.json`,
+`cleanup-624fd2f.json`, `ci-624fd2f/provenance.json` and `manifest.md`. Parent/root
+owns the retained source, app and private evidence for owner testing. Earlier
 285f651 acceptance receipts preserve the separate download/driver test evidence.
