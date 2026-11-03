@@ -904,7 +904,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "set_private_dns":
       return { ok: true, message: "Private DNS updated.", reverted: false };
     case "list_snapshots":
-      return snapshots;
+      return [...snapshots];
+    case "delete_snapshot": {
+      const index = snapshots.findIndex((snapshot) => snapshot.path === args.snapshotPath);
+      if (index === -1) throw new Error("Snapshot not found");
+      snapshots.splice(index, 1);
+      return;
+    }
     case "snapshot_dir_path":
       return "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots";
     case "find_files":

@@ -2,6 +2,16 @@
 
 ## Main integration
 
+The next integration incorporates main `61e59ef` (PR #278: shell bookmarks,
+package-state filters, snapshot deletion and report-note prefilling). Release
+notes retain both branches; both galleries are regenerated from the combined UI.
+The merged frontend check/build and app-state-filter, shell-bookmarks,
+snapshot-delete, app-report, native-discovery, native-scan-progress and
+direct-adb-status regressions passed locally, as did formatting and workflow
+validation. Cross-platform CI and a newly packaged native app must validate this
+merge; the successful `c21790b` package is an earlier source revision and has not
+replaced the delivered app.
+
 All six CI checks passed at `fdf0bf1`, including simulated-device E2E. Local
 packaging remains constrained by free disk falling below 20 GiB. The `v2 Tests`
 manual workflow now accepts `native_test_app=true` to build a universal macOS

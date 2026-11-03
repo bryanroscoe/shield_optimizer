@@ -290,6 +290,7 @@
   }
   let catalogInventoryVersion = 0;
   let appSearch = $state("");
+  let packageStateFilter = $state<"all" | "enabled" | "disabled">("all");
   // Default on: the catalog lists ~70 known apps, most not present on any given
   // device, so an unfiltered list is mostly un-actionable "Missing" rows. Start
   // focused on what's installed; unticking reveals the full catalog.
@@ -354,6 +355,7 @@
 
   let visibleApps = $derived(
     apps.filter((a) => {
+      if (packageStateFilter !== "all" && appStates[a.package] !== packageStateFilter) return false;
       if (hideNotInstalled && appStates[a.package] === "missing") return false;
       // "Decided" is kept-by-you or already off the device; hiding both turns
       // the list into a worklist that shrinks as you work.
@@ -366,6 +368,7 @@
   );
   let visibleOthers = $derived(
     otherPackages.filter((o) => {
+      if (packageStateFilter !== "all" && (o.enabled ? "enabled" : "disabled") !== packageStateFilter) return false;
       if (!showSystemOthers && o.system) return false;
       return matchesSearch(o.name ?? o.package, o.package);
     }),
@@ -388,6 +391,9 @@
   let snapshots = $state<SnapshotFile[]>([]);
   let snapshotsLoaded = $state(false);
   let snapshotsErr = $state<string | null>(null);
+  let snapshotDeletePath = $state<string | null>(null);
+  let snapshotDeleteMsg = $state("");
+  let snapshotDeleteErr = $state<string | null>(null);
   let saveBusy = $state(false);
   let saveResult = $state<string>("");
   let previewPath = $state<string | null>(null);
@@ -1258,6 +1264,7 @@
   /// Open the App List on exactly this package.
   function openInAppList(pkg: string) {
     appSearch = pkg;
+    packageStateFilter = "all";
     hideNotInstalled = false;
     hideDecided = false;
     showSystemOthers = true;
@@ -1745,7 +1752,7 @@
   }
 
   async function saveSnapshot() {
-    if (!device) return;
+    if (!device || saveBusy || snapshotDeletePath) return;
     const label = (prompt("Name this snapshot (optional):", "") ?? "").trim();
     saveBusy = true;
     saveResult = "";
@@ -1761,6 +1768,7 @@
   }
 
   async function previewSnapshot(path: string) {
+    if (saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
     previewBusy = true;
     previewErr = null;
     preview = null;
@@ -1774,6 +1782,32 @@
       previewErr = String(e);
     } finally {
       previewBusy = false;
+    }
+  }
+
+  async function deleteSnapshot(snap: SnapshotFile) {
+    if (saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
+    if (!confirm(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`)) return;
+    const context = capturePageContext();
+    snapshotDeletePath = snap.path;
+    snapshotDeleteMsg = "";
+    snapshotDeleteErr = null;
+    try {
+      await api.deleteSnapshot(snap.path);
+      if (!pageContextIsCurrent(context)) return;
+      snapshots = snapshots.filter((s) => s.path !== snap.path);
+      if (previewPath === snap.path) {
+        previewPath = null;
+        preview = null;
+        previewErr = null;
+        applyResult = null;
+        applyErr = null;
+      }
+      snapshotDeleteMsg = `Deleted ${snap.label ?? snap.filename}.`;
+    } catch (e) {
+      if (pageContextIsCurrent(context)) snapshotDeleteErr = `Delete failed: ${e}`;
+    } finally {
+      if (pageContextIsCurrent(context)) snapshotDeletePath = null;
     }
   }
 
@@ -1808,7 +1842,7 @@
   }
 
   async function applySnapshot() {
-    if (!previewPath || !preview) return;
+    if (!previewPath || !preview || applyBusy || snapshotDeletePath) return;
     const total =
       preview.packages_to_disable.length +
       Object.keys(preview.settings_to_write).length +
@@ -2028,9 +2062,10 @@
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null;
-    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
+    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; packageStateFilter = "all"; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
+    snapshotDeletePath = null; snapshotDeleteMsg = ""; snapshotDeleteErr = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
     trimMessage = "";
@@ -3018,7 +3053,7 @@
       <div class="card-header">
         <h2><Icon name="apps" size={20} /> App List for {deviceTypeLabel(device.device_type)}</h2>
         <div class="header-actions">
-          <span class="muted">{apps.length} curated · {otherPackages.length} other</span>
+          <span class="muted">{visibleApps.length} of {apps.length} curated · {visibleOthers.length} of {otherPackages.length} other</span>
           <button onclick={loadApps} disabled={appsLoading}>
             {appsLoading ? "Loading…" : "Refresh"}
           </button>
@@ -3030,6 +3065,14 @@
           placeholder="Search apps by name or package…"
           bind:value={appSearch}
         />
+        <label class="app-state-filter">
+          Package state
+          <select bind:value={packageStateFilter}>
+            <option value="all">All states</option>
+            <option value="enabled">Enabled only</option>
+            <option value="disabled">Disabled only</option>
+          </select>
+        </label>
         <label class="inline-check">
           <input type="checkbox" bind:checked={hideNotInstalled} />
           Hide not installed
@@ -3396,7 +3439,7 @@
             disabled apps, Home app &amp; system settings for this device
           </p>
         </div>
-        <button class="primary" onclick={saveSnapshot} disabled={saveBusy}>
+        <button class="primary" onclick={saveSnapshot} disabled={saveBusy || !!snapshotDeletePath}>
           <Icon name="save" size={16} /> {saveBusy ? "Saving…" : "Save snapshot"}
         </button>
       </div>
@@ -3405,8 +3448,10 @@
           A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
         </p>
       </HelpDetails>
-      <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps.</p>
+      <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
       {#if saveResult}<p class="muted small">{saveResult}</p>{/if}
+      {#if snapshotDeleteMsg}<p class="muted small" role="status">{snapshotDeleteMsg}</p>{/if}
+      {#if snapshotDeleteErr}<div class="error" role="alert">{snapshotDeleteErr}</div>{/if}
       {#if snapshotsErr}<div class="error">{snapshotsErr}</div>{/if}
 
       <div class="snap-layout">
@@ -3431,8 +3476,14 @@
                     {#if selected}
                       <span class="tag installed">SELECTED</span>
                     {:else}
-                      <button class="small-action" onclick={() => previewSnapshot(s.path)}>Preview restore</button>
+                      <button class="small-action" onclick={() => previewSnapshot(s.path)} disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}>Preview restore</button>
                     {/if}
+                    <button
+                      class="small-action danger"
+                      onclick={() => deleteSnapshot(s)}
+                      disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}
+                      aria-label={`Delete ${s.filename}`}
+                    ><Icon name="delete" size={14} /> {snapshotDeletePath === s.path ? "Deleting…" : "Delete"}</button>
                   </span>
                 </div>
                 <div class="muted small mono snap-meta">
@@ -3563,7 +3614,7 @@
           <button
             class="primary apply-btn"
             onclick={applySnapshot}
-            disabled={applyBusy || applyResult !== null}
+            disabled={applyBusy || !!snapshotDeletePath || applyResult !== null}
           >
             {applyBusy ? "Restoring…" : applyResult ? "Restored" : "Restore this snapshot"}
           </button>
@@ -3653,6 +3704,7 @@
     <div hidden={activeTab !== "shell"}>
       <ShellTab
         {serial}
+        active={activeTab === "shell"}
         acknowledged={shellAcknowledged}
         onacknowledge={(next) => {
           shellAcknowledged = next;
@@ -5079,6 +5131,13 @@
     flex: 1;
     min-width: 220px;
     max-width: 380px;
+  }
+  .app-state-filter {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+    white-space: nowrap;
   }
   .inline-check {
     display: flex;

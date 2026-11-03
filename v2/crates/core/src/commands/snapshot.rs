@@ -1,6 +1,6 @@
 //! Snapshot save / load / apply-plan commands.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::State;
@@ -93,15 +93,26 @@ pub async fn delete_snapshot(
     snapshot_path: String,
 ) -> Result<(), String> {
     state.require_pro(Feature::Snapshot)?;
-    let path = PathBuf::from(&snapshot_path);
-    let canonical_path = tokio::fs::canonicalize(&path)
+    delete_snapshot_file(&state.snapshot_dir, Path::new(&snapshot_path)).await
+}
+
+async fn delete_snapshot_file(snapshot_dir: &Path, snapshot_path: &Path) -> Result<(), String> {
+    let canonical_path = tokio::fs::canonicalize(snapshot_path)
         .await
         .map_err(|e| format!("snapshot path: {e}"))?;
-    let canonical_dir = tokio::fs::canonicalize(&state.snapshot_dir)
+    let canonical_dir = tokio::fs::canonicalize(snapshot_dir)
         .await
         .map_err(|e| format!("snapshot dir: {e}"))?;
     if !canonical_path.starts_with(&canonical_dir) {
         return Err("snapshot path is outside the snapshot directory".into());
+    }
+    let metadata = tokio::fs::symlink_metadata(snapshot_path)
+        .await
+        .map_err(|e| format!("snapshot file: {e}"))?;
+    // Deleting a link's resolved target would remove a different file than the
+    // entry the user picked. Snapshots are regular JSON files, never links.
+    if !metadata.is_file() || canonical_path.extension().and_then(|e| e.to_str()) != Some("json") {
+        return Err("snapshot must be a regular JSON file".into());
     }
     tokio::fs::remove_file(&canonical_path)
         .await
@@ -635,10 +646,82 @@ async fn apply_settings_from_plan(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_settings_from_plan, current_settings_map, disable_from_plan, installed_and_disabled,
+        apply_settings_from_plan, current_settings_map, delete_snapshot_file, disable_from_plan,
+        installed_and_disabled,
     };
     use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::MockAdb;
+
+    #[tokio::test]
+    async fn delete_snapshot_removes_only_the_selected_local_file() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        tokio::fs::create_dir(&dir).await.unwrap();
+        let selected = dir.join("selected.json");
+        let other = dir.join("other.json");
+        tokio::fs::write(&selected, b"selected snapshot")
+            .await
+            .unwrap();
+        tokio::fs::write(&other, b"keep this snapshot")
+            .await
+            .unwrap();
+
+        delete_snapshot_file(&dir, &selected).await.unwrap();
+        assert!(!selected.exists());
+        assert_eq!(
+            tokio::fs::read(&other).await.unwrap(),
+            b"keep this snapshot"
+        );
+        assert!(delete_snapshot_file(&dir, &selected).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_snapshot_rejects_outside_paths_directories_and_other_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        tokio::fs::create_dir(&dir).await.unwrap();
+        let outside = root.path().join("outside.json");
+        let text = dir.join("notes.txt");
+        let directory = dir.join("directory.json");
+        tokio::fs::write(&outside, b"outside").await.unwrap();
+        tokio::fs::write(&text, b"notes").await.unwrap();
+        tokio::fs::create_dir(&directory).await.unwrap();
+
+        for path in [
+            &outside,
+            &text,
+            &directory,
+            &dir.join("../outside.json"),
+            &dir,
+        ] {
+            assert!(delete_snapshot_file(&dir, path).await.is_err(), "{path:?}");
+            assert!(path.exists(), "rejected path was removed: {path:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_snapshot_rejects_symlinks_without_removing_their_targets() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        tokio::fs::create_dir(&dir).await.unwrap();
+        let inside = dir.join("inside.json");
+        let outside = root.path().join("outside.json");
+        tokio::fs::write(&inside, b"inside").await.unwrap();
+        tokio::fs::write(&outside, b"outside").await.unwrap();
+        for (name, target) in [
+            ("inside-link.json", &inside),
+            ("outside-link.json", &outside),
+        ] {
+            let link = dir.join(name);
+            symlink(target, &link).unwrap();
+            assert!(delete_snapshot_file(&dir, &link).await.is_err());
+            assert!(link.exists());
+            assert!(target.exists());
+        }
+    }
 
     #[tokio::test]
     async fn snapshot_plan_requires_a_successful_disabled_read() {

@@ -87,6 +87,8 @@ of being labeled "ADB not found".
 
 ## Things the next reader needs that the code does not say
 
+- **RojasNet requests** (#258–#262): Shell bookmarks can be edited and include the requested user-0 package presets; App List has enabled/disabled filtering; both snapshot lists expose confirmed local deletion; app-report notes prefill GitHub Details from the redacted preview. App inventory and post-disable verification target user 0, matching package actions (#233). These changes are unreleased. Focused regressions are `test:shell-bookmarks`, `test:app-state-filter`, `test:snapshot-delete`, and `test:app-report`.
+
 - **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.
   Its switches are the same state as their other copies, not duplicates: the report setting
   lives in `src/lib/reports.svelte.ts` (also the Report a bug dialog), theme and auto-update in

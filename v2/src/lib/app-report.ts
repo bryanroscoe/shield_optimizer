@@ -237,6 +237,13 @@ export function appReportIssueUrl(
   url.searchParams.set("reason", APP_REPORT_REASONS.find((r) => r.id === reason)?.label ?? "Other");
   const short = url.toString();
   url.searchParams.set("report", text);
+  // Only the already-sanitized preview may supply the separate issue-form note.
+  try {
+    const note: unknown = JSON.parse(text)?.records?.[0]?.note;
+    if (typeof note === "string" && note.trim()) url.searchParams.set("details", note);
+  } catch {
+    // A malformed preview has no trustworthy note to duplicate into Details.
+  }
   const full = url.toString();
   return full.length <= APP_REPORT_PREFILL_LIMIT
     ? { url: full, prefilled: true }
