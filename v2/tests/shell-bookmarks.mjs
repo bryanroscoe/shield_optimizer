@@ -58,21 +58,54 @@ try {
   const name = page.getByRole('textbox', { name: 'Edit bookmark name', exact: true });
   const command = page.getByRole('textbox', { name: 'Edit bookmark command', exact: true });
   const save = page.getByRole('button', { name: 'Save changes', exact: true });
+  const evidencePause = async () => { if (evidence) await page.waitForTimeout(1000); };
   await page.goto(base);
   await page.waitForFunction(() => window.__BOOKMARK_TEST__?.ready === true);
   await page.getByText('NVIDIA SHIELD', { exact: false }).first().click();
   await page.getByRole('tab', { name: 'Shell', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: /^Edit the bookmark/ }).count(), 3, 'legacy invalid rows ignored');
-  assert.equal(await page.locator('.rail-pick').count(), 10, 'seven presets plus three custom');
+  assert.equal(await page.locator('.rail-pick').count(), 15, 'twelve presets plus three custom');
+  assert.ok(await page.locator('.rail-list').evaluate(el => el.scrollHeight > el.clientHeight),
+    'the longer bookmark list scrolls without pushing the editor below every row');
+  if (evidence) await page.screenshot({ path: resolve(evidence, 'shell-presets-simulated.png'), fullPage: true });
+  await evidencePause();
+  const shellInput = page.getByRole('textbox', { name: 'Shell command', exact: true });
+  const run = page.getByRole('button', { name: 'Run', exact: true });
+  const packagePresets = [
+    ['All packages', 'pm list packages --user 0'],
+    ['All packages with paths', 'pm list packages -f --user 0'],
+    ['System packages', 'pm list packages -s --user 0'],
+    ['Enabled packages', 'pm list packages -e --user 0'],
+    ['Disabled packages', 'pm list packages -d --user 0'],
+    ['Third-party packages', 'pm list packages -3 --user 0'],
+    ['Uninstall a package', 'pm uninstall --user 0 PACKAGE_NAME'],
+  ];
+  for (const [label, expected] of packagePresets) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    assert.equal(await shellInput.inputValue(), expected, `${label} targets user 0`);
+    assert.equal(await run.isDisabled(), true, 'selecting a preset cannot grant expert consent');
+    await shellInput.press('Control+Enter');
+    assert.equal(await page.evaluate(() => Number(sessionStorage.getItem('shell-call-count') ?? 0)), 0,
+      'preset selection and unacknowledged shortcuts never execute commands');
+  }
+  await evidencePause();
   await page.getByRole('checkbox', { name: /I understand these risks/ }).check();
+  for (const [label, expected] of packagePresets) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    assert.equal(await shellInput.inputValue(), expected);
+  }
+  assert.equal(await page.evaluate(() => Number(sessionStorage.getItem('shell-call-count') ?? 0)), 0,
+    'acknowledged preset selection still never executes commands');
   await page.getByRole('textbox', { name: 'Shell command', exact: true }).fill('echo main stays separate');
   await edit('Alpha').click();
   assert.ok(await name.evaluate(el => el === document.activeElement));
   await name.fill('  Renamed  ');
+  await evidencePause();
   await command.press('Control+Enter');
   await command.press('Meta+Enter');
   await save.click();
   await edit('Renamed').waitFor();
+  await evidencePause();
   assert.deepEqual((await stored()).map(b => b.label), ['Renamed', 'Beta', 'Uptime']);
   assert.equal((await stored())[0].command, 'echo alpha');
   assert.equal(await page.getByRole('textbox', { name: 'Shell command', exact: true }).inputValue(), 'echo main stays separate');
@@ -89,6 +122,7 @@ try {
   await edit('Both').click();
   await name.fill('Beta'); await save.click();
   await page.getByRole('alert').getByText(/already has that name/).waitFor();
+  await evidencePause();
   assert.equal((await stored()).length, 3);
   await name.fill(' '); await save.click();
   await page.getByRole('alert').getByText(/Enter a bookmark name and command/).waitFor();
@@ -153,12 +187,14 @@ try {
   await name.fill('Long multiline fixture');
   await command.fill(('echo ' + 'long-content-'.repeat(20) + '\n').repeat(8));
   if (evidence) await page.screenshot({ path: resolve(evidence, 'bookmark-editor-simulated.png'), fullPage: true });
+  await evidencePause();
   await page.setViewportSize({ width: 800, height: 1000 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'editor has no horizontal page overflow at 800px');
   await page.getByRole('form', { name: 'Edit custom bookmark' }).scrollIntoViewIfNeeded();
   await save.scrollIntoViewIfNeeded();
   await page.evaluate(() => scrollBy(0, 48));
   if (evidence) await page.screenshot({ path: resolve(evidence, 'bookmark-editor-narrow-simulated.png') });
+  await evidencePause();
   await command.focus(); await page.keyboard.press('Tab');
   assert.ok(await save.evaluate(el => el === document.activeElement));
   await page.keyboard.press('Tab');
@@ -168,9 +204,12 @@ try {
   assert.equal(await page.evaluate(() => Number(sessionStorage.getItem('shell-call-count') ?? 0)), 0, 'all bookmark interactions execute zero shell commands');
   await page.evaluate(() => localStorage.setItem('shieldopt.shellBookmarks', '{invalid json'));
   await page.reload(); await page.waitForFunction(() => window.__BOOKMARK_TEST__?.ready === true); await page.getByRole('tab', { name: 'Shell', exact: true }).click();
-  assert.equal(await page.locator('.rail-pick').count(), 7, 'malformed legacy JSON keeps built-in presets usable');
+  assert.equal(await page.locator('.rail-pick').count(), 12, 'malformed legacy JSON keeps built-in presets usable');
   assert.deepEqual(errors, []);
   const video = page.video(); await context.close();
-  if (evidence) await video.saveAs(resolve(evidence, 'bookmark-editing-simulated.webm'));
-  console.log('PASS: edit name/command/both; trim/blank/collision; order/count/reload/shared TVs; Cancel/Escape/navigation; legacy records; failed persistence; preset separation; keyboard/focus; zero run_shell; long multiline layout.');
+  if (evidence) {
+    await video.saveAs(resolve(evidence, 'bookmark-editing-simulated.webm'));
+    await video.delete();
+  }
+  console.log('PASS: all requested user-0 package presets; no automatic execution or consent; edit name/command/both; trim/blank/collision; order/count/reload/shared TVs; Cancel/Escape/navigation; legacy records; failed persistence; preset separation; keyboard/focus; zero run_shell; long multiline layout.');
 } finally { await browser?.close(); await server?.close(); }

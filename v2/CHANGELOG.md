@@ -22,6 +22,11 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: edit the name and command of custom Shell bookmarks, and add built-in bookmarks for uninstalling a package and listing all, enabled, system, or APK-path packages. Package bookmarks target Android user 0 (#259, #262).
+- Desktop: filter the App List to enabled or disabled packages, including other installed apps. App inventory now targets user 0 to match package actions (#261, #233).
+- Desktop: add clearly labeled Delete controls to both snapshot lists, with confirmation and error handling. Deleting a local snapshot does not change the TV (#260).
+- Desktop and Android: include the already-redacted Report this app note in the GitHub form's Details field, while preserving the manual-paste fallback for long reports (#258).
+
 - Desktop and Android: show each TV's support status (Fully supported, Supported, Beta, Not supported, Not verified) with a one-line explanation, and a clear banner on TVs the app doesn't support, such as Amazon Fire TV. The status is informational and never loosens a safety check.
 - Desktop and Android: anonymous device and error reports, on by default with a one-time notice and a setting to turn them off. Reports carry the TV's make, model and Android version and which actions worked; never serial numbers, IP addresses, TV names, app lists or file paths.
 - Desktop and Android: errors in connect, scan, pairing, app changes, Optimize and snapshot restore now show a plain-language message, a short error code and a Copy details button.

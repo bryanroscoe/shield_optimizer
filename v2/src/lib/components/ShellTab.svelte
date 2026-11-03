@@ -67,8 +67,13 @@
   );
 
   const PRESETS: ShellBookmark[] = [
-    { label: "Disabled packages", command: "pm list packages -d" },
-    { label: "Third-party packages", command: "pm list packages -3" },
+    { label: "All packages", command: "pm list packages --user 0" },
+    { label: "All packages with paths", command: "pm list packages -f --user 0" },
+    { label: "System packages", command: "pm list packages -s --user 0" },
+    { label: "Enabled packages", command: "pm list packages -e --user 0" },
+    { label: "Disabled packages", command: "pm list packages -d --user 0" },
+    { label: "Third-party packages", command: "pm list packages -3 --user 0" },
+    { label: "Uninstall a package", command: "pm uninstall --user 0 PACKAGE_NAME" },
     { label: "Current launcher", command: "cmd shortcut get-default-launcher" },
     { label: "Device properties", command: "getprop | grep ro.product" },
     { label: "Display state", command: "dumpsys display | grep -E 'mBaseDisplayInfo|modeId'" },
@@ -247,7 +252,7 @@
             onkeydown={onKeydown}
             rows="2"
             spellcheck="false"
-            placeholder="pm list packages -d"
+            placeholder="pm list packages -d --user 0"
             aria-label="Shell command"
           ></textarea>
         </div>
@@ -313,6 +318,7 @@
 
     <aside class="shell-rail">
       <p class="rail-label">Bookmarks · {bookmarks.length + PRESETS.length}</p>
+      <p class="muted small">Select a bookmark to fill the command. Package commands target user 0; replace <code>PACKAGE_NAME</code> before uninstalling.</p>
       <div class="rail-list">
         <!-- The whole row is the button, and its accessible name is the
              label alone — the command is `aria-hidden` so a preset is still
@@ -581,7 +587,8 @@
   .rail-list {
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    overflow: hidden;
+    max-height: 26rem;
+    overflow: auto;
   }
   .rail-item {
     display: flex;
