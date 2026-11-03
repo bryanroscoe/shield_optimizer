@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
+
 - Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.
 - Log-upload errors no longer assume your internet connection caused a server failure.
 
