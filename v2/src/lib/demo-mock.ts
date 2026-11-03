@@ -202,6 +202,7 @@ function demoFlag(name: string): boolean {
 }
 
 function demoDevices(): Device[] {
+  if (demoFlag("noDevices")) return [];
   const list = [device, unconfirmedDevice, usbDevice];
   if (demoFlag("notTv")) list.push(phoneDevice);
   if (demoFlag("fireTv")) list.push(fireTvDevice);
@@ -626,6 +627,11 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       };
     case "list_devices":
       return demoDevices();
+    case "scan_network": {
+      const connected = demoDevices().filter(d => d.connection === "network").map(d => d.serial);
+      return { subnet: null, found: connected, connected, unauthorized: [], failed: [], needs_pairing: [],
+        message: connected.length ? `Found ${connected.length} devices.` : "No devices found." };
+    }
     case "device_profile":
       return demoDevices().find((d) => d.serial === String(args.serial ?? "")) ?? device;
     case "collect_diagnostics":

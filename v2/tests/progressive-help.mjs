@@ -3,16 +3,145 @@ import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const evidence = process.env.HELP_EVIDENCE;
 const before = process.env.HELP_BEFORE === '1';
 process.env.VITE_DEMO = '1';
+
+async function emptyConnectionHelp(browser, base) {
+  const out = process.env.EMPTY_HELP_EVIDENCE;
+  if (out) await mkdir(out, { recursive: true });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 },
+    ...(out ? { recordVideo: { dir: `${out}/raw`, size: { width: 1280, height: 900 } } } : {}) });
+  const page = await context.newPage();
+  try {
+    await page.addInitScript(() => {
+      localStorage.clear();
+      localStorage.setItem('shieldopt.demo.noDevices', '1');
+      const test = window.emptyHelp = { calls: [], mode: 'empty', holdRestart: false, recover: false };
+      let internals;
+      Object.defineProperty(window, '__TAURI_INTERNALS__', {
+        configurable: true, get: () => internals,
+        set: (value) => {
+          const original = value.invoke;
+          value.invoke = async (command, args) => {
+            test.calls.push(command);
+            if (command === 'adb_status' && test.mode === 'missing') return { available: false, path: null };
+            if (command === 'list_devices' && test.mode === 'error') throw 'Simulated device-list failure';
+            if (command === 'scan_network' && test.mode === 'scanning') {
+              await new Promise(resolve => test.releaseScan = resolve);
+              return { found: [], connected: [], unauthorized: [], failed: [], needs_pairing: [], subnet: null, message: 'No devices found.' };
+            }
+            if (command === 'restart_adb') {
+              if (test.holdRestart) await new Promise(resolve => test.releaseRestart = resolve);
+              if (test.recover) localStorage.removeItem('shieldopt.demo.noDevices');
+              return { ok: true, server_ready: true, message: 'ADB server restarted.' };
+            }
+            return original(command, args);
+          };
+          internals = value;
+        },
+      });
+    });
+    await page.goto(base, { waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
+    await page.evaluate(() => {
+      const label = document.createElement('div');
+      label.textContent = 'SIMULATED desktop — no ADB server or TV';
+      label.style.cssText = 'position:fixed;bottom:0;right:0;z-index:99999;background:#17243a;color:white;padding:8px;font:13px sans-serif';
+      document.body.append(label);
+    });
+    const help = page.locator('.help-details').filter({ has: page.locator('summary', { hasText: 'Connection help' }) });
+    const summary = help.locator('summary');
+    const restart = help.getByRole('button', { name: 'Restart ADB from connection help', exact: true });
+    assert.equal(await help.evaluate(el => el.open), true, 'completed empty discovery opens help');
+    assert.ok(await restart.isVisible());
+    assert.equal(await page.evaluate(() => emptyHelp.calls.filter(c => c === 'restart_adb').length), 0, 'no automatic restart');
+    if (out) {
+      await page.screenshot({ path: `${out}/empty-help-open-simulated.png` });
+      await page.waitForTimeout(900);
+    }
+
+    let prompt = '';
+    page.once('dialog', async dialog => { prompt = dialog.message(); await dialog.dismiss(); });
+    await restart.click();
+    assert.match(prompt, /disconnects other tools using ADB/);
+    assert.equal(await page.evaluate(() => emptyHelp.calls.filter(c => c === 'restart_adb').length), 0, 'Cancel restarts nothing');
+    await page.evaluate(() => emptyHelp.holdRestart = true);
+    page.once('dialog', dialog => dialog.accept());
+    await restart.click();
+    await page.waitForFunction(() => typeof emptyHelp.releaseRestart === 'function');
+    assert.equal(await restart.isDisabled(), true, 'help restart is disabled while busy');
+    if (out) await page.waitForTimeout(700);
+    await page.evaluate(() => { emptyHelp.holdRestart = false; emptyHelp.releaseRestart(); });
+    await page.getByText('ADB server restarted.', { exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector('.connect-form input').disabled);
+    assert.equal(await help.evaluate(el => el.open), true, 'restart without recovery keeps the empty guidance visible');
+    assert.equal(await page.locator('.device-row.clickable').count(), 0, 'a restart alone never claims a TV connected');
+    assert.equal(await page.evaluate(() => emptyHelp.calls.filter(c => c === 'restart_adb').length), 1);
+    if (out) await page.screenshot({ path: `${out}/restart-still-empty-simulated.png` });
+
+    await page.evaluate(() => emptyHelp.mode = 'error');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByText('Failed to list devices: Simulated device-list failure', { exact: true }).waitFor();
+    assert.equal(await help.evaluate(el => el.open), false, 'a failed list does not claim empty discovery');
+    await page.evaluate(() => emptyHelp.mode = 'empty');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
+    assert.equal(await help.evaluate(el => el.open), true);
+
+    await page.evaluate(() => emptyHelp.mode = 'scanning');
+    await page.getByRole('button', { name: 'Scan LAN', exact: true }).click();
+    await page.getByText('Scanning for devices…', { exact: true }).waitFor();
+    assert.equal(await help.evaluate(el => el.open), false, 'in-flight discovery does not open empty guidance');
+    assert.equal(await page.getByRole('heading', { name: 'No devices connected.', exact: true }).count(), 0);
+    await page.evaluate(() => { emptyHelp.mode = 'empty'; emptyHelp.releaseScan(); });
+    await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
+    assert.equal(await help.evaluate(el => el.open), true, 'an empty scan opens help again');
+    await page.setViewportSize({ width: 720, height: 900 });
+    const bounds = await help.boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 720, 'help fits the desktop minimum width');
+    if (out) await page.screenshot({ path: `${out}/empty-help-narrow-simulated.png` });
+    await page.setViewportSize({ width: 1280, height: 900 });
+
+    await page.evaluate(() => emptyHelp.recover = true);
+    page.once('dialog', dialog => dialog.accept());
+    await restart.click();
+    await page.locator('.device-row.clickable').first().waitFor();
+    assert.equal(await help.evaluate(el => el.open), false, 'help collapses when devices become available');
+    assert.equal(await page.evaluate(() => emptyHelp.calls.filter(c => c === 'restart_adb').length), 2);
+    if (out) {
+      await page.screenshot({ path: `${out}/restart-recovered-simulated.png` });
+      await page.waitForTimeout(900);
+    }
+    await summary.focus(); await summary.press('Enter');
+    assert.equal(await help.evaluate(el => el.open), true, 'help remains available with devices');
+    await help.getByRole('button', { name: 'Pair PIN', exact: true }).click();
+    await page.locator('.pair-form').waitFor();
+    await help.getByRole('button', { name: 'Add by IP', exact: true }).click();
+    assert.equal(await page.getByPlaceholder('IP[:port] — e.g. 192.168.42.71').evaluate(el => el === document.activeElement), true);
+    await summary.focus(); await summary.press('Escape');
+    assert.equal(await help.evaluate(el => el.open), false);
+    assert.equal(await summary.evaluate(el => el === document.activeElement), true);
+    await page.evaluate(() => emptyHelp.mode = 'missing');
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.header-sub')?.textContent.includes('adb not found'));
+    assert.equal(await help.count(), 0, 'missing ADB shows its install flow instead');
+    if (out) {
+      const video = page.video(); await context.close();
+      await video.saveAs(`${out}/empty-connection-help-simulated.webm`);
+    }
+    console.log('Empty connection help passed: initial empty discovery, no automatic restart, confirmation/cancel, busy state, unchanged empty result, list error, scan in flight, recovery, narrow layout, keyboard, pairing/IP actions and missing ADB.');
+  } finally { await context.close(); }
+}
+
 let server, browser;
 try {
   server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } });
   await server.listen();
-  browser = await chromium.launch();
+  browser = await (process.argv.includes('--webkit') ? webkit : chromium).launch();
+  await emptyConnectionHelp(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
   if (evidence) await mkdir(evidence, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...(evidence && !before ? { recordVideo: { dir: `${evidence}/raw`, size: { width: 1280, height: 900 } } } : {}) });
   const page = await context.newPage();

@@ -163,6 +163,14 @@ async function captureScreens(page, shot) {
     await page.getByText("/opt/homebrew/bin/adb", { exact: false }).waitFor();
     await page.mouse.move(0, 0);
     await shot("settings");
+
+    await page.evaluate(() => localStorage.setItem("shieldopt.demo.noDevices", "1"));
+    await page.goto(BASE, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "No devices connected.", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Restart ADB from connection help", exact: true }).waitFor();
+    await page.mouse.move(0, 0);
+    await shot("no-devices");
+    await page.evaluate(() => localStorage.removeItem("shieldopt.demo.noDevices"));
 }
 
 async function main() {
