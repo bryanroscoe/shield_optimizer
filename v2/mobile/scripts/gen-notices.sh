@@ -37,7 +37,9 @@ if [[ -d "$MOBILE_DIR/node_modules" ]]; then
 fi
 
 ABOUT_JSON="$(mktemp -t atvopt-about)"
-trap 'rm -f "$ABOUT_JSON"' EXIT
+NOTICE_HEADER="$(mktemp -t atvopt-notice-header)"
+trap 'rm -f "$ABOUT_JSON" "$NOTICE_HEADER"' EXIT
+cat "$MOBILE_DIR/scripts/notices-header.md" "$MOBILE_DIR/android-runtime-notices.md" > "$NOTICE_HEADER"
 
 echo "Inventorying Cargo dependencies (cargo-about, Android targets)"
 (cd "$WORKSPACE_DIR" && cargo about generate \
@@ -49,7 +51,7 @@ echo "Inventorying Cargo dependencies (cargo-about, Android targets)"
 echo "Rendering notices for version $VERSION"
 python3 "$MOBILE_DIR/scripts/render-notices.py" \
   "$ABOUT_JSON" \
-  "$MOBILE_DIR/scripts/notices-header.md" \
+  "$NOTICE_HEADER" \
   "$VERSION" \
   "$MOBILE_DIR/THIRD-PARTY-NOTICES.md" \
   "$MOBILE_DIR/src/lib/notices.generated.ts"

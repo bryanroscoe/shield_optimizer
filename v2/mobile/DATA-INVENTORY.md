@@ -29,6 +29,13 @@ attempt is reported only as an `other` action with success or a `billing_<outcom
 id, purchase token, price, product or license data; cancels and pending payments are not reported). This is a scoped
 source finding, not a guarantee about every transitive dependency or the final merged artifact.
 
+The 2026-11-03 resolved Gradle audit now records Play Billing's Google DataTransport, Firebase
+encoder and Google Play services dependencies in `android-runtime-inventory.json`. The location
+library is present transitively; the compiled debug manifest declares no coarse/fine/background
+location permission. An encoder dependency is not itself Firebase Analytics, and an included
+location library is not proof of collection. Final Data safety must account for actual SDK
+behavior in the Play candidate, separately from the no-location guarantee of the reporting Worker.
+
 ## Draft policy outline requiring owner completion
 
 The Google Play rollout uses `bryanroscoe+atv@gmail.com` as the owner-approved public support and

@@ -75,8 +75,9 @@ See [`RELEASE.md`](RELEASE.md) for the full checklist. Open items:
 
 - The upload keystore exists and is backed up in the owner's vault. Still open: Play App Signing
   enrollment, a verified signed AAB/APK, a measured release size, and Android release automation.
-- Resolve the Android release runtime dependency graph and its notices
-  ([`ANDROID-DEPENDENCIES.md`](ANDROID-DEPENDENCIES.md)); the declaration-level list is not enough.
+- Compare the final Play candidate against the resolved Android runtime baseline and shipped
+  notices ([`ANDROID-DEPENDENCIES.md`](ANDROID-DEPENDENCIES.md)); 94 modules and upstream archive
+  notices were captured on 2026-11-03. Re-resolve after dependency changes.
 - A legal and privacy review. The Cargo notices accept five unmodified MPL-2.0 crates and the
   Unicode-3.0 family. [`DATA-INVENTORY.md`](DATA-INVENTORY.md) is a draft, not a published policy.
 - Google Play is the chosen mobile launch channel (owner instruction 2026-11-03), with the

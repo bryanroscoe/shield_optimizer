@@ -5,6 +5,26 @@ desktop app's `v2-*` tag pipeline (`.github/workflows/v2-release.yml`) is a sepa
 not be reused for mobile. `.github/workflows/v2-tests.yml` already runs the mobile gates on every change;
 building and uploading is still a local, manual step.
 
+## First install through Google Play
+
+The owner's first Play Store install uses **Internal testing**. It does not have to wait for
+public production access or the 12-tester / 14-day closed test. Use the same package and billing
+implementation as the eventual public release; do not substitute a debug or fixture build.
+
+1. Create the free app shell and configure the real per-app Play licensing public key. Set up
+   the merchant profile for the Pro product; Google may require owner identity, bank/tax details
+   or agreements. Finish the signed-artifact gates below.
+2. Test and release → Testing → Internal testing: add the owner's phone Google account to the
+   tester email list, upload the verified AAB, and roll out the internal release. Record the
+   versionCode, artifact SHA-256, app-signing certificate fingerprints and opt-in URL.
+3. On the phone, sign in with that tester account, open the opt-in link, join, then install from
+   Google Play. Verify the installed version and that Free access and recovery work.
+4. Add the owner's account to License testing before purchase tests; use Google's test payment
+   instruments, not a real charge. Complete the purchase/restore/pending/refund matrix in §6.
+5. Complete the physical phone/TV matrix and fix any failures. Internal availability alone is
+   not product acceptance. Then finish listing/declarations and roll out Closed testing to
+   start the account's required production-access clock.
+
 ## 0. Prerequisites (one time)
 
 - JDK 17 and the Android SDK: platform 36, build-tools 36, and an NDK (r27+).
@@ -126,6 +146,25 @@ The script **fails** if any dependency is GPL / LGPL / AGPL. Treat that as a rel
 than something to work around: it is the licence check that keeps the app sellable.
 
 ## 5. Build
+
+For the owner-authorized Play rollout, `scripts/build-play-release.py` reads signing inputs from
+`~/.config/atv-optimizer/play-upload.json` and the app's real Play Console RSA public key from
+`~/.config/atv-optimizer/play-license-key`. Both stay outside Git. It verifies the key parses,
+the upload keystore opens, the privacy page is live, source is clean, capacity is available and
+the proposed `versionCode` exceeds the operator-confirmed highest code on every track. It
+refuses fixture mode and unsigned-release overrides, keeps build jobs at one and sets Play mode.
+
+```sh
+python3 scripts/build-play-release.py --version-code 1000 --previous-version-code 0 --preflight-only
+python3 scripts/build-play-release.py --version-code 1000 --previous-version-code 0
+```
+
+Use `--previous-version-code 0` only when the Console confirms no upload exists. Set
+`JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` first. The default builds all four Android targets;
+`--target aarch64` narrows a deliberately arm64-only candidate. The build receipt records source,
+targets, artifact hashes, policy hash and public-key/certificate fingerprints; it deliberately
+leaves signature/bundletool/APK verification, 16 KiB runtime, Play pre-launch and device/purchase
+acceptance open. The command never uploads or installs anything.
 
 ### Build-time inputs for a Play build
 
