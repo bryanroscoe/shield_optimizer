@@ -16,6 +16,13 @@ code; this directory is only the backend. It runs on the Cloudflare free plan.
 
 ## What is collected
 
+The Android privacy policy is served at `GET /privacy` (also `HEAD`). Set the public
+`PRIVACY_CONTACT_EMAIL` Worker variable to the owner's approved support/privacy email before
+publication. The endpoint returns 503 with no caching until a valid email is configured; it
+never publishes a placeholder or reads request location. The mobile app links this page in
+More → Privacy and exposes the current full installation Support ID for deletion requests.
+The policy describes Android only: desktop's opt-in Send logs upload is a separate data flow.
+
 Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diagnostic`, with:
 
 | Field | Example | Notes |

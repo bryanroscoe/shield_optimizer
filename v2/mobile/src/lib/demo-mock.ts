@@ -134,10 +134,10 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     // covers a gallery frame.
     case "telemetry_settings":
     case "dismiss_telemetry_notice":
-      return { enabled: telemetryEnabled, available: true, notice_seen: true, support_id: null };
+      return { enabled: telemetryEnabled, available: true, notice_seen: true, support_id: telemetryEnabled ? "33333333-3333-4333-8333-333333333333" : null };
     case "set_telemetry_enabled":
       telemetryEnabled = Boolean(args.enabled);
-      return { enabled: telemetryEnabled, available: true, notice_seen: true, support_id: null };
+      return { enabled: telemetryEnabled, available: true, notice_seen: true, support_id: telemetryEnabled ? "33333333-3333-4333-8333-333333333333" : null };
     case "telemetry_action":
     case "telemetry_error":
       return null;

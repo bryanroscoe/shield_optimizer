@@ -31,7 +31,15 @@ source finding, not a guarantee about every transitive dependency or the final m
 
 ## Draft policy outline requiring owner completion
 
-- Identify app operator and privacy/support contact: **OWNER DECISION**.
+The Google Play rollout uses `bryanroscoe+atv@gmail.com` as the owner-approved public support and
+privacy contact (2026-11-03). The Worker serves the Android policy at `/privacy` only with a valid
+`PRIVACY_CONTACT_EMAIL`; More → Privacy opens that URL even when telemetry cannot load. While
+reports are enabled, the same card shows and copies the full current installation Support ID.
+Users must preserve it before opting out or resetting app data if requesting deletion of prior
+reports. Publication and the final signed artifact still need verification; source completion is
+not evidence that the policy URL is live or that the Play form has been submitted.
+
+- App operator: Bryan Roscoe; public privacy/support contact: `bryanroscoe+atv@gmail.com`.
 - Explain local TV management, authorization, data categories above and user-initiated external
   navigation/sharing. Validate any no-server/no-analytics statement against the final SDK graph.
 - State actual retention, deletion, OS backup/transfer and key revocation behavior after testing:

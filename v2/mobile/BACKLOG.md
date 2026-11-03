@@ -73,14 +73,17 @@ go-ahead; don't infer permission from a phone being powered on.
 
 See [`RELEASE.md`](RELEASE.md) for the full checklist. Open items:
 
-- Create the real keystore (or enroll Play App Signing), add a CI job that builds a signed AAB,
-  and measure the first signed release APK.
+- The upload keystore exists and is backed up in the owner's vault. Still open: Play App Signing
+  enrollment, a verified signed AAB/APK, a measured release size, and Android release automation.
 - Resolve the Android release runtime dependency graph and its notices
   ([`ANDROID-DEPENDENCIES.md`](ANDROID-DEPENDENCIES.md)); the declaration-level list is not enough.
 - A legal and privacy review. The Cargo notices accept five unmodified MPL-2.0 crates and the
   Unicode-3.0 family. [`DATA-INVENTORY.md`](DATA-INVENTORY.md) is a draft, not a published policy.
-- Choose the store or checkout that issues license keys, and back up
-  `~/.atvopt/license-signing-key.prod`.
+- Google Play is the chosen mobile launch channel (owner instruction 2026-11-03), with the
+  existing one-time $4.99 US Pro product. Finish Console setup and real Play purchase tests.
+- Privacy-policy serving and the in-app link/Support ID are implemented; verify the deployed
+  policy and complete Data safety from the final artifact. Listing copy, feature graphic and
+  six Play-sized screenshots are reproducible with `npm run store-assets` (`store-listing/`).
 - Complete the accessibility and navigation review.
 - Many installed apps are uncatalogued. Classify existing review coverage per package, model and
   version from the shared `crates/core/data/app-lists/` before asking for new device reads; unknown

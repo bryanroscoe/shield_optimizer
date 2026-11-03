@@ -23,6 +23,13 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
+`bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
+copyable installation Support ID while reports are on. `npm run store-assets` produces the
+Play listing's six portrait screenshots, icon and feature graphic in `store-listing/`, with
+copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
+Console setup and physical/purchase matrix separately; these changes do not clear those gates.
+
 The app is unreleased (`package.json` version `0.1.0`) and builds an unsigned debug APK.
 
 **Nothing in the current `v2/mobile` code has been verified on a phone or TV.** Earlier device
