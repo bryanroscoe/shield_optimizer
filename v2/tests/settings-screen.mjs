@@ -158,6 +158,8 @@ async function sendLogs({ browser, base }) {
   const notice = failing.locator("#privacy .error-notice");
   await notice.waitFor();
   assert.match(await notice.innerText(), /Send logs failed\./);
+  assert.match(await notice.innerText(), /upload_failed/);
+  assert.doesNotMatch(await notice.innerText(), /internet connection/);
   assert.equal(await failing.locator(".sent").count(), 0, "no success shown for a failed upload");
   await failing.close();
 }

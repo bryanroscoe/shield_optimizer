@@ -647,7 +647,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       // "Send logs to developer". Nothing leaves the page: the call is
       // recorded for tests, and `uploadFails` stands in for a failed upload.
       recordTelemetry(cmd, args);
-      if (demoFlag("uploadFails")) throw "demo: network unreachable";
+      if (demoFlag("uploadFails")) throw "Log upload failed: the server answered 503 Service Unavailable.";
       return { support_id: DEMO_SUPPORT_ID, bytes: 48_213 };
     case "plugin:updater|check":
       // The updater manifest has nothing newer. Without this the catch-all
