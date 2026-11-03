@@ -66,16 +66,16 @@ export function getShellBookmarks(): ShellBookmark[] {
     return raw.filter(
       (b): b is ShellBookmark =>
         !!b && typeof b.label === "string" && typeof b.command === "string",
-    );
+    ).map((b) => ({ label: b.label.trim(), command: b.command.trim() }))
+      .filter((b) => b.label && b.command);
   } catch {
     return [];
   }
 }
 
 export function setShellBookmarks(bookmarks: ShellBookmark[]): void {
-  if (typeof localStorage !== "undefined") {
-    localStorage.setItem(SHELL_BOOKMARKS_KEY, JSON.stringify(bookmarks));
-  }
+  if (typeof localStorage === "undefined") throw new Error("Local bookmark storage is unavailable");
+  localStorage.setItem(SHELL_BOOKMARKS_KEY, JSON.stringify(bookmarks));
 }
 
 const LAST_SEEN_VERSION_KEY = "shieldopt.lastSeenVersion";

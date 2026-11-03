@@ -216,6 +216,18 @@ jobs:
         working-directory: v2
         run: npm run test:playback-shell
 
+      - name: Custom shell bookmark editing
+        working-directory: v2
+        run: npm run test:shell-bookmarks
+
+      - name: App List enabled and disabled filters
+        working-directory: v2
+        run: npm run test:app-state-filter
+
+      - name: Snapshot deletion
+        working-directory: v2
+        run: npm run test:snapshot-delete
+
       # Every plan row must resolve its verdict, including rows the plan
       # proposes no action on.
       - name: Optimize safety on every row
