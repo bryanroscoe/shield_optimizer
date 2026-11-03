@@ -2,8 +2,10 @@
 
 End-to-end checklist for cutting an Android build. Nothing here is automated on a tag yet — the
 desktop app's `v2-*` tag pipeline (`.github/workflows/v2-release.yml`) is a separate track and must
-not be reused for mobile. `.github/workflows/v2-tests.yml` already runs the mobile gates on every change;
-building and uploading is still a local, manual step.
+not be reused for mobile. [`.github/workflows/v2-tests.yml`](../../.github/workflows/v2-tests.yml)
+runs host Rust checks/tests and mobile frontend check/build/browser regressions; it does not compile
+Android Rust or Kotlin, build an APK/AAB, or prove phone/TV behavior. Android artifact building and
+uploading are still local, manual steps.
 
 ## 0. Prerequisites (one time)
 
@@ -291,14 +293,19 @@ Starting state: Free (the account doesn't own `atvopt_pro`).
 ## Testing-candidate gates
 
 This is a preparation checklist, not approval to create credentials, upload or install a build.
-No purchase, trial or pricing policy is selected. Release polish takes priority over new features.
+The documented Play offer is a one-time `atvopt_pro` purchase at US $4.99, with Play-localized prices
+and no trial or subscription (see §6). That documentation does not verify the owner's Play Console
+configuration, account eligibility or completed purchase tests. Release polish takes priority over new features.
 
 - [ ] Record exact commit, lockfiles, SDK/NDK/JDK versions and selected ABIs.
 - [ ] Run host Rust fmt/clippy/tests, mobile `npm test`, check and build. Host CI is not an Android build.
 - [ ] Resolve and review the Android release runtime dependency graph and its notices (see
       `ANDROID-DEPENDENCIES.md`); notices for declaration sites are not a complete resolved graph.
 - [ ] Confirm signing-key ownership and durable custody through the owner. Do not generate keys
-      merely to make a build pass. Existing Gradle config can emit an unsigned release when absent.
+      merely to make a build pass. Gradle rejects release assemble/bundle/package tasks when signing
+      inputs are incomplete by default. `ATVOPT_ALLOW_UNSIGNED_RELEASE=1` permits a deliberate local
+      unsigned build and bypasses the non-Play AAB guard; it is not a distributable candidate and
+      must never be uploaded. The Play release license-key build check still applies (see §1 and §5).
 - [ ] Choose a new, never-uploaded `versionCode` across all tracks and build the candidate locally.
 - [ ] Verify the APK with `python3 scripts/verify-release-apk.py candidate.apk`, using SDK tool
       paths via `--apksigner`, `--zipalign`, `--apkanalyzer` as needed. All missing tools, signature,
@@ -341,6 +348,11 @@ Android dependency notices (now including the Play Billing Library) and privacy/
 remain open. Play billing v1 is implemented but has not run against a real Play account.
 The `mobile-release-preflight.yml` workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
 it does not build/sign an APK, validate the native Android transport, or publish anything.
+
+An Android compile-only CI job is a proposed future step, not implemented automation. Before adding
+it, review workflow triggers, runner/SDK/NDK setup, dependency downloads, resource/cost limits and
+artifact retention. It could catch Android Rust/Kotlin/manifest build failures without signing or
+uploading, but would not replace signed-artifact checks, Play billing tests or physical acceptance.
 
 ### Current external requirements to verify at submission
 
