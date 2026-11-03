@@ -55,7 +55,7 @@ async fn installed_and_disabled(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
 ) -> Result<(Vec<String>, Vec<String>), String> {
-    let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
+    let cmd = checked_batch_command(&["pm list packages --user 0", "pm list packages -d --user 0"]);
     let out = adb
         .shell(serial, &cmd)
         .await
@@ -197,7 +197,7 @@ pub async fn save_snapshot(
 
     // Pull all the inputs the engine needs.
     let disabled_out = adb
-        .shell(&serial, "pm list packages -d")
+        .shell(&serial, "pm list packages -d --user 0")
         .await
         .map_err(|e| format!("pm list packages -d: {e}"))?;
     let disabled_packages = parse_disabled_packages_output(&disabled_out.stdout);
@@ -354,12 +354,18 @@ pub struct ApplyResult {
     pub summary: String,
 }
 
+// A registered handler alone cannot authorize a failed/missing handoff.
+fn home_disable_allowed(plan: &SnapshotApplyPlan, launcher_set: bool) -> bool {
+    plan.launcher_not_installed.is_none() && (plan.launcher_to_set.is_none() || launcher_set)
+}
+
 /// Execute the disable portion of an apply-plan. Extracted for testability.
 /// Returns `(packages_disabled, packages_failed)`.
 async fn disable_from_plan(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
     packages_to_disable: &[String],
+    allow_home_disable: bool,
 ) -> (Vec<String>, Vec<String>) {
     let mut packages_disabled = Vec::new();
     let mut packages_failed = Vec::new();
@@ -372,10 +378,42 @@ async fn disable_from_plan(
             packages_failed.push(format!("{pkg} (refused: brick risk)"));
             continue;
         }
+        // Fresh inventory before EACH disable: earlier steps can remove an
+        // alternative Home. Unknown inventory never authorizes a disable.
+        let home = super::verification::checked_read(adb, serial,
+            "cmd package query-activities --user 0 -a android.intent.action.MAIN -c android.intent.category.HOME").await;
+        let handlers = home
+            .as_deref()
+            .map(super::launcher::parse_home_handler_packages);
+        match handlers {
+            Ok(handlers) if !handlers.is_empty() => {
+                if !allow_home_disable && handlers.iter().any(|handler| handler == pkg) {
+                    packages_failed.push(format!(
+                        "{pkg} (refused: replacement Home was not confirmed)"
+                    ));
+                    continue;
+                }
+                if crate::engine::is_last_enabled_home_handler(
+                    pkg,
+                    &handlers,
+                    super::loader::launchers(),
+                ) {
+                    packages_failed.push(format!("{pkg} (refused: last enabled Home app)"));
+                    continue;
+                }
+            }
+            _ => {
+                packages_failed.push(format!("{pkg} (refused: Home app inventory unavailable)"));
+                continue;
+            }
+        }
         let cmd = format!("pm disable-user --user 0 {pkg}");
         match adb.shell(serial, &cmd).await {
-            Ok(out) if !out.shell_reported_failure() => {
-                packages_disabled.push(pkg.clone());
+            Ok(out) if super::verification::succeeded(&out) => {
+                match super::verification::verify_package(adb, serial, pkg, false).await {
+                    Ok(()) => packages_disabled.push(pkg.clone()),
+                    Err(e) => packages_failed.push(format!("{pkg} ({e})")),
+                }
             }
             _ => packages_failed.push(pkg.clone()),
         }
@@ -432,39 +470,7 @@ pub async fn apply_snapshot(
         },
     );
 
-    // 1. Disable packages from the plan (additive only — never re-enable).
-    // A stock launcher with a paired setup helper (Google TV's Setup Wraith)
-    // needs the Home apps read before it goes off, so the helper can follow
-    // once Home is settled (#159). Snapshots from older app versions list
-    // stock without its helper.
-    let paired_stocks: Vec<String> = plan
-        .packages_to_disable
-        .iter()
-        .filter(|p| {
-            !crate::commands::loader::launchers()
-                .disable_with_for(p)
-                .is_empty()
-        })
-        .cloned()
-        .collect();
-    let home_inventory = if paired_stocks.is_empty() {
-        None
-    } else {
-        match adb
-            .shell(&serial, crate::commands::launcher::HOME_HANDLER_QUERY)
-            .await
-        {
-            Ok(out) if out.success() && !out.shell_reported_failure() => Some(
-                crate::commands::launcher::parse_home_handler_packages(&out.stdout),
-            )
-            .filter(|h| !h.is_empty()),
-            _ => None,
-        }
-    };
-    let (mut packages_disabled, mut packages_failed) =
-        disable_from_plan(adb.as_ref(), &serial, &plan.packages_to_disable).await;
-
-    // 2. Set launcher only when the plan says Home differs from the snapshot's;
+    // 1. Set launcher only when the plan says Home differs from the snapshot's;
     // `None` skips the whole switch ladder.
     let mut launcher_set = false;
     let mut launcher_message = None;
@@ -500,8 +506,47 @@ pub async fn apply_snapshot(
             } else {
                 r.last_error
             };
+        } else if let Err(error) = result {
+            launcher_message = Some(format!("Launcher change failed: {error}"));
         }
     }
+
+    // 2. Disable packages from the plan (additive only — never re-enable).
+    // A stock launcher with a paired setup helper (Google TV's Setup Wraith)
+    // needs the Home apps read before it goes off, so the helper can follow
+    // once Home is settled (#159). Snapshots from older app versions list
+    // stock without its helper.
+    let paired_stocks: Vec<String> = plan
+        .packages_to_disable
+        .iter()
+        .filter(|p| {
+            !crate::commands::loader::launchers()
+                .disable_with_for(p)
+                .is_empty()
+        })
+        .cloned()
+        .collect();
+    let home_inventory = if paired_stocks.is_empty() {
+        None
+    } else {
+        match adb
+            .shell(&serial, crate::commands::launcher::HOME_HANDLER_QUERY)
+            .await
+        {
+            Ok(out) if out.success() && !out.shell_reported_failure() => Some(
+                crate::commands::launcher::parse_home_handler_packages(&out.stdout),
+            )
+            .filter(|h| !h.is_empty()),
+            _ => None,
+        }
+    };
+    let (mut packages_disabled, mut packages_failed) = disable_from_plan(
+        adb.as_ref(),
+        &serial,
+        &plan.packages_to_disable,
+        home_disable_allowed(&plan, launcher_set),
+    )
+    .await;
 
     // 3. Settle each disabled stock launcher's setup helper now that Home is
     // where the snapshot wants it.
@@ -628,14 +673,30 @@ async fn apply_settings_from_plan(
             None => format!("settings delete {ns} {key}"),
         };
         match adb.shell(serial, &command).await {
-            Ok(out) if !out.shell_reported_failure() => {
+            Ok(out) if super::verification::succeeded(&out) => {
+                if let Err(e) = super::verification::verify_setting(
+                    adb,
+                    serial,
+                    ns,
+                    key,
+                    value.map(String::as_str),
+                )
+                .await
+                {
+                    settings_failed.push(format!("{k}: {e}"));
+                    continue;
+                }
                 if value.is_some() {
                     settings_written.push(k.clone());
                 } else {
                     settings_deleted.push(k.clone());
                 }
             }
-            Ok(out) => settings_failed.push(format!("{k}: {}", out.combined().trim())),
+            Ok(out) => settings_failed.push(format!(
+                "{k}: exit {:?}: {}",
+                out.exit_code,
+                out.combined().trim()
+            )),
             Err(e) => settings_failed.push(format!("{k}: {e}")),
         }
     }
@@ -860,6 +921,7 @@ mod tests {
             ],
         };
         let mock = MockAdb::default()
+            .on_shell("settings list global", &batched(&["empty="]))
             .on_shell_failure("settings delete global denied", "Error: permission denied");
         let log = mock.shell_log();
         let (written, deleted, failed) = apply_settings_from_plan(&mock, "serial", &plan).await;
@@ -871,7 +933,9 @@ mod tests {
             *calls,
             [
                 "settings put global empty ''",
+                &crate::adb::checked_batch_command(&["settings list global"]),
                 "settings delete global unset",
+                &crate::adb::checked_batch_command(&["settings list global"]),
                 "settings delete global denied"
             ]
         );
@@ -881,13 +945,21 @@ mod tests {
     async fn disable_from_plan_records_invalid_name_without_aborting() {
         // A snapshot file might contain a malformed or injected package name.
         // The invalid entry must go to packages_failed; valid ones still run.
-        let mock = MockAdb::default(); // empty stdout = pm success for all calls
+        let mock = restore_mock()
+            .on_shell(
+                "pm list packages -d --user 0 com.valid.package",
+                &batched(&["package:com.valid.package"]),
+            )
+            .on_shell(
+                "pm list packages -d --user 0 com.another.valid",
+                &batched(&["package:com.another.valid"]),
+            );
         let pkgs = vec![
             "com.valid.package".to_string(),
             "evil; reboot".to_string(),
             "com.another.valid".to_string(),
         ];
-        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
+        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs, true).await;
         assert_eq!(disabled, ["com.valid.package", "com.another.valid"]);
         assert_eq!(failed.len(), 1, "exactly the invalid entry should fail");
         assert!(
@@ -902,15 +974,203 @@ mod tests {
         // `pm disable-user` reports failure via stdout while `adb shell` still
         // exits 0 — that package must land in packages_failed, the others must
         // still succeed.
-        let mock = MockAdb::default()
-            .on_shell_failure("com.fails.pkg", "Failure [not installed for user 0]");
+        let mock = restore_mock()
+            .on_shell_failure(
+                "pm disable-user --user 0 com.fails.pkg",
+                "Failure [not installed for user 0]",
+            )
+            .on_shell(
+                "pm list packages -d --user 0 com.ok.one",
+                &batched(&["package:com.ok.one"]),
+            )
+            .on_shell(
+                "pm list packages -d --user 0 com.ok.two",
+                &batched(&["package:com.ok.two"]),
+            );
         let pkgs = vec![
             "com.ok.one".to_string(),
             "com.fails.pkg".to_string(),
             "com.ok.two".to_string(),
         ];
-        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
+        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs, true).await;
         assert_eq!(disabled, ["com.ok.one", "com.ok.two"]);
         assert_eq!(failed, ["com.fails.pkg"]);
+    }
+    fn restore_mock() -> MockAdb {
+        MockAdb::default().on_shell(
+            "query-activities --user 0",
+            &batched(&["packageName=com.example.home"]),
+        )
+    }
+
+    #[tokio::test]
+    async fn snapshot_refuses_last_home_without_an_installed_replacement() {
+        // The engine has already skipped the absent snapshot launcher. This
+        // sole stock handler must survive even though it is not never-disable.
+        let mock = MockAdb::default().on_shell(
+            "query-activities --user 0",
+            &batched(&["packageName=com.google.android.tvlauncher"]),
+        );
+        let log = mock.shell_log();
+        let (disabled, failed) =
+            disable_from_plan(&mock, "TV", &["com.google.android.tvlauncher".into()], true).await;
+        assert!(disabled.is_empty());
+        assert!(failed[0].contains("last enabled Home"));
+        assert!(!log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.starts_with("pm disable-user")));
+    }
+
+    #[tokio::test]
+    async fn snapshot_rechecks_home_after_each_sequential_disable() {
+        let mock = MockAdb::default()
+            .on_shell_seq(
+                "query-activities --user 0",
+                &[
+                    &batched(&["packageName=com.example.one\npackageName=com.example.two"]),
+                    &batched(&["packageName=com.example.two"]),
+                ],
+            )
+            .on_shell(
+                "pm list packages -d --user 0 com.example.one",
+                &batched(&["package:com.example.one"]),
+            );
+        let log = mock.shell_log();
+        let (disabled, failed) = disable_from_plan(
+            &mock,
+            "TV",
+            &["com.example.one".into(), "com.example.two".into()],
+            true,
+        )
+        .await;
+        assert_eq!(disabled, ["com.example.one"]);
+        assert!(failed[0].contains("last enabled Home"));
+        assert!(!log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c == "pm disable-user --user 0 com.example.two"));
+    }
+
+    #[tokio::test]
+    async fn snapshot_uncertain_home_inventory_fails_closed() {
+        for response in ["", "No activities found", "packageName=com.example.home\n"] {
+            let mock = MockAdb::default().on_shell("query-activities --user 0", response);
+            let log = mock.shell_log();
+            let (disabled, failed) =
+                disable_from_plan(&mock, "TV", &["com.example.app".into()], true).await;
+            assert!(disabled.is_empty());
+            assert!(failed[0].contains("inventory unavailable"));
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c.starts_with("pm disable-user")));
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_nonzero_disable_and_unconfirmed_state_are_failures() {
+        for mock in [
+            restore_mock().on_shell_exit("pm disable-user", "", 1),
+            restore_mock().on_shell("pm list packages -d --user 0", &batched(&[""])),
+        ] {
+            let (disabled, failed) =
+                disable_from_plan(&mock, "TV", &["com.example.app".into()], true).await;
+            assert!(disabled.is_empty());
+            assert_eq!(failed.len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_setting_nonzero_and_readback_mismatch_are_not_restored() {
+        let plan = super::compute_apply_plan(
+            &crate::engine::snapshot::Snapshot {
+                schema_version: super::SCHEMA_VERSION,
+                saved_at: "now".into(),
+                label: None,
+                device_name: "TV".into(),
+                device_serial: "TV".into(),
+                device_type: crate::engine::DeviceType::Unknown,
+                android_version: "".into(),
+                disabled_packages: vec![],
+                current_launcher: None,
+                settings: [("secure.screensaver_enabled".into(), "1".into())].into(),
+                absent_settings: vec![],
+            },
+            &super::ApplyPlanInputs {
+                target_device_type: crate::engine::DeviceType::Unknown,
+                currently_disabled: &[],
+                currently_installed: &[],
+                current_settings: &Default::default(),
+                current_launcher: None,
+            },
+        );
+        for mock in [
+            MockAdb::default().on_shell_exit("settings put", "", 1),
+            MockAdb::default()
+                .on_shell("settings list secure", &batched(&["screensaver_enabled=0"])),
+        ] {
+            let (written, deleted, failed) = apply_settings_from_plan(&mock, "TV", &plan).await;
+            assert!(written.is_empty() && deleted.is_empty());
+            assert_eq!(failed.len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_or_failed_replacement_never_authorizes_home_disable() {
+        let snapshot = crate::engine::snapshot::Snapshot {
+            schema_version: super::SCHEMA_VERSION,
+            saved_at: "now".into(),
+            label: None,
+            device_name: "TV".into(),
+            device_serial: "TV".into(),
+            device_type: crate::engine::DeviceType::Unknown,
+            android_version: "".into(),
+            disabled_packages: vec!["com.google.android.tvlauncher".into()],
+            current_launcher: Some("com.example.replacement".into()),
+            settings: Default::default(),
+            absent_settings: vec![],
+        };
+        for installed in [
+            vec!["com.google.android.tvlauncher".into()],
+            vec![
+                "com.google.android.tvlauncher".into(),
+                "com.example.replacement".into(),
+            ],
+        ] {
+            let plan = super::compute_apply_plan(
+                &snapshot,
+                &super::ApplyPlanInputs {
+                    target_device_type: crate::engine::DeviceType::Unknown,
+                    currently_disabled: &[],
+                    currently_installed: &installed,
+                    current_settings: &Default::default(),
+                    current_launcher: Some("com.google.android.tvlauncher"),
+                },
+            );
+            // First case: target missing. Second: setter failed even though
+            // Android registered the replacement. Neither authorizes takeover.
+            let mock = MockAdb::default().on_shell("query-activities --user 0", &batched(&[
+                "packageName=com.google.android.tvlauncher\npackageName=com.example.replacement"
+            ]));
+            let log = mock.shell_log();
+            let (disabled, failed) = disable_from_plan(
+                &mock,
+                "TV",
+                &plan.packages_to_disable,
+                super::home_disable_allowed(&plan, false),
+            )
+            .await;
+            assert!(disabled.is_empty());
+            assert!(failed[0].contains("replacement Home was not confirmed"));
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c.starts_with("pm disable-user")));
+        }
     }
 }
