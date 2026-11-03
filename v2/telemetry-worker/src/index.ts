@@ -6,6 +6,7 @@ import { DEFAULT_EVENT_LIMIT, MAX_EVENT_LIMIT, parseSupportQuery, supportLookup,
 import { readTiers, replaceTiers, validateTierRules } from "./tiers";
 import { admitUpload, releaseUpload, storeUpload, UPLOAD_MAX_BODY, uploadBytes, validateUpload } from "./uploads";
 import { MAX_BODY_BYTES, validateBatch } from "./validate";
+import { privacyPolicy } from "./privacy";
 
 export type { Env } from "./env";
 
@@ -163,6 +164,13 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
+
+  if (path === "/privacy") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return error(405, "method_not_allowed", {}, { allow: "GET, HEAD" });
+    }
+    return privacyPolicy(env, request.method === "HEAD");
+  }
 
   // Answer preflights without granting any origin. Native clients never send
   // them; browsers get a response that does not allow the cross-origin call.

@@ -1,0 +1,29 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+gradle.projectsEvaluated {
+  def app = gradle.rootProject.findProject(':app')
+  if (app == null) return
+  app.tasks.register('exportReleaseDependencyInventory') {
+    doLast {
+      def conf = app.configurations.getByName('universalReleaseRuntimeClasspath')
+      def ids = conf.incoming.resolutionResult.allComponents.collect { it.id }.findAll { it instanceof ModuleComponentIdentifier }
+      def poms = [:]
+      def query = app.dependencies.createArtifactResolutionQuery().forComponents(ids).withArtifacts(MavenModule, MavenPomArtifact).execute()
+      query.resolvedComponents.each { component ->
+        component.getArtifacts(MavenPomArtifact).each { pom ->
+          if (pom instanceof org.gradle.api.artifacts.result.ResolvedArtifactResult) poms[component.id.displayName] = pom.file.absolutePath
+        }
+      }
+      def artifacts = conf.incoming.artifactView { componentFilter { it instanceof ModuleComponentIdentifier } }.artifacts.artifacts
+      def rows = ids.collect { id ->
+        [coordinate: id.displayName, pom: poms[id.displayName], artifacts: artifacts.findAll { it.id.componentIdentifier == id }.collect { it.file.absolutePath }.sort()]
+      }.sort { it.coordinate }
+      def target = new File(System.getenv('ATVOPT_ANDROID_INVENTORY'))
+      target.text = JsonOutput.prettyPrint(JsonOutput.toJson(rows)) + '\n'
+      println("Exported ${rows.size()} resolved runtime artifacts")
+    }
+  }
+}

@@ -37,13 +37,17 @@ permissions:
 
 # Unrelated label events must neither start tests nor cancel a useful run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.run_id || 'ci' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.event.label.name != 'native-test-app' && github.run_id || 'ci' }}
   cancel-in-progress: true
 
 jobs:
   native-test-app:
-    if: github.event_name == 'workflow_dispatch' && inputs.native_test_app
-    needs: [rust, frontend]
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.native_test_app) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       contains(github.event.pull_request.labels.*.name, 'native-test-app'))
+    needs: [rust, frontend, e2e, frontend-mobile]
     name: Native ADB macOS test app
     runs-on: macos-latest
     timeout-minutes: 60
@@ -91,6 +95,8 @@ jobs:
         working-directory: v2
         run: npm run tauri -- build --debug --target universal-apple-darwin --features native-adb-default --bundles app --config "$RUNNER_TEMP/native-test.json"
       - name: Verify and archive the signed bundle
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -104,8 +110,11 @@ jobs:
           shasum -a 256 native-test-artifact/native-test-app.zip > native-test-artifact/archive-sha256.txt
           node --input-type=module <<'JS'
           import { writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
           writeFileSync('native-test-artifact/provenance.json', JSON.stringify({
             source: process.env.GITHUB_SHA,
+            pullRequestHead: process.env.PR_HEAD_SHA,
+            sourceTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
             run: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
             target: 'universal-apple-darwin', profile: 'debug',
             features: ['native-adb-default'], signing: 'ad-hoc',
@@ -125,7 +134,7 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 45
     name: Rust tests on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -198,7 +207,7 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 20
     name: Frontend type check
     runs-on: ubuntu-latest
@@ -441,7 +450,7 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 45
     name: End-to-end (simulated devices)
     runs-on: ubuntu-22.04
@@ -510,7 +519,7 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 20
     name: Mobile frontend type check
     runs-on: ubuntu-latest

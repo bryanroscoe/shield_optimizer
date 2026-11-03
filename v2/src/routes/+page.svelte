@@ -1160,15 +1160,11 @@
   </div>
 {:else if error}
   <div class="error" role="alert">{directUnavailable ? "Rust ADB unavailable" : "Failed to list devices"}: {error}</div>
-{:else if loading && sortedDevices.length === 0}
-  <div class="muted">Looking for devices…</div>
-{:else if sortedDevices.length === 0}
+{:else if (loading || scanBusy || (adbBackend === "direct" && nativeConnections.pending.length > 0)) && visibleDevices.length === 0}
+  <div class="muted">{scanBusy ? "Scanning for devices…" : loading ? "Looking for devices…" : "Connecting to discovered addresses…"}</div>
+{:else if visibleDevices.length === 0}
   <div class="empty">
     <h2>No devices connected.</h2>
-    <p class="muted">
-      Use Scan LAN or Add by IP above. A device that only offers Wireless debugging may need Pair
-      PIN first.
-    </p>
   </div>
 {:else}
   <ul class="device-list">
@@ -1429,15 +1425,28 @@
   </ul>
 {/if}
 
-{#if !adbMissing}
-  <HelpDetails label="Connection help">
+{#if !adbMissing && !directUnavailable}
+  <HelpDetails
+    label="Connection help"
+    open={!loading && !scanBusy && !error && visibleDevices.length === 0 && nativeConnections.pending.length === 0}
+  >
     <div class="callout devices-note">
       <Icon name="info" size={16} />
       <span>
-        <strong>Don't see your device?</strong> Some devices, mostly newer ones that only offer
-        Wireless debugging, need a one-time pairing: use
-        <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>. Devices with Network
-        debugging connect directly with
+        <strong>Don't see your device?</strong>
+        {#if adbBackend === "subprocess"}
+        Try
+        <button
+          class="inline-link"
+          aria-label="Restart ADB from connection help"
+          onclick={restartAdb}
+          disabled={restartBusy || connectBusy || adbMissing}
+        >{restartBusy ? "Restarting ADB…" : "Restart ADB"}</button> first.
+        {:else}
+          Check that Network debugging is enabled on the TV.
+        {/if}
+        Wireless debugging may need pairing with
+        <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>; Network debugging uses
         <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
       </span>
     </div>
@@ -1677,6 +1686,11 @@
   .inline-link:hover {
     background: none;
     text-decoration-thickness: 2px;
+  }
+  .inline-link:disabled {
+    color: var(--fg-muted);
+    cursor: default;
+    text-decoration: none;
   }
   .inline-link:focus-visible {
     outline: 2px solid var(--accent);

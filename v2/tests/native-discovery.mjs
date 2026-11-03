@@ -39,6 +39,7 @@ try {
     });
   });
   const page = await context.newPage();
+  const addByIp = page.locator('.connect-form').getByRole('button', { name: 'Add by IP', exact: true });
   const capture = async name => {
     if (!evidence) return;
     await page.screenshot({ path: `${evidence}/${name}-simulated.png` });
@@ -56,16 +57,16 @@ try {
   assert.equal(await page.getByText('Stop ADB when quitting', { exact: true }).count(), 0);
   const input = page.getByPlaceholder('IP[:port] — e.g. 192.168.42.71');
   await input.fill('192.0.2.71');
-  await page.getByRole('button', { name: 'Add by IP', exact: true }).click();
+  await addByIp.click();
   await page.getByText('Connecting… Look for Allow debugging', { exact: false }).waitFor();
   await page.waitForFunction(() => !!window.finishNativeConnect);
   await input.press("Enter");
   assert.equal(await page.evaluate(() => window.nativeCalls.filter(c => c.command === "connect_device").length), 1);
   await capture("native-approval");
   await page.evaluate(() => window.finishNativeConnect(false));
-  await page.getByRole('button', { name: 'Add by IP', exact: true }).waitFor();
+  await addByIp.waitFor();
   assert.equal(await input.inputValue(), '192.0.2.71');
-  await page.getByRole('button', { name: 'Add by IP', exact: true }).click();
+  await addByIp.click();
   await page.evaluate(() => window.finishNativeConnect(true));
   await page.getByText('NVIDIA SHIELD Android TV', { exact: true }).first().waitFor();
   await capture("native-devices");
@@ -75,9 +76,9 @@ try {
   await page.getByRole('button', { name: 'Pair', exact: true }).click();
   await page.waitForFunction(() => window.nativeCalls.some(c => c.command === 'pair_device'));
   assert.equal(await input.inputValue(), '192.0.2.72:');
-  assert.equal(await page.getByRole('button', { name: 'Add by IP', exact: true }).isDisabled(), true);
+  assert.equal(await addByIp.isDisabled(), true);
   await input.fill('192.0.2.72:41234');
-  assert.equal(await page.getByRole('button', { name: 'Add by IP', exact: true }).isEnabled(), true);
+  assert.equal(await addByIp.isEnabled(), true);
   const forbidden = await page.evaluate(() => window.nativeCalls.filter(c => ['connect_paired', 'probe_paired_connect', 'install_adb', 'restart_adb', 'local_address_for'].includes(c.command)));
   assert.deepEqual(forbidden, []);
   if (evidence) {

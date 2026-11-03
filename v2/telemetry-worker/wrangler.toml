@@ -27,6 +27,7 @@ migrations_dir = "migrations"
 crons = ["17 3 * * *"]
 
 [vars]
+PRIVACY_CONTACT_EMAIL = "bryanroscoe+atv@gmail.com"
 # Raw event rows older than this are purged by the cron trigger.
 RAW_RETENTION_DAYS = "90"
 # Log text (event log_excerpt, diag_uploads rows) is kept for less.

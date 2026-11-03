@@ -1,5 +1,25 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Current integration and package pipeline — 2026-11-03
+
+Main `d70e027` is integrated, including PR #282's automatic empty-scan help and
+PR #280's mobile release preparation. Native mode still hides shared-server
+restart controls, and connecting/approval rows do not count as an empty scan.
+The duplicate-route fix and grouped address picker remain intact.
+
+The `native-test-app` label opts a PR into the existing macOS native package job
+after all six validation jobs succeed. It reuses that PR run instead of starting
+a second full validation workflow. Manual dispatch remains available. `skip-ci`
+still pauses validation, and unrelated label events do not start or cancel checks.
+The job uploads a signed universal debug app, not a release or updater artifact.
+
+For PR runs, `provenance.json` records the actual checkout commit (GitHub's merge
+ref), its source tree and the PR head separately. Verify all three against the run
+before accepting the app; do not assume the artifact name is the branch head.
+The completed manual `9383c7c` package remains a prior candidate, not evidence of
+the newer empty-help integration. Current delivery below stays unchanged until
+the PR-linked package and its physical acceptance are complete.
+
 ## Grouped connection choices retained — 2026-11-03
 
 Owner feedback identified the optional address picker from prototype `efa1a18`.
