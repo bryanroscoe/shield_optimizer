@@ -106,15 +106,23 @@ Behavior changes:
   read. The client certificate follows AOSP's `GenerateX509Certificate` shape (`C=US, O=Android,
   CN=Adb`, serial 1, CA, `keyCertSign`/`cRLSign`/`digitalSignature`), keeps rcgen's wide validity
   window so a wrong phone clock cannot invalidate it, and is shared with pairing through
-  `tcp/tls_identity.rs`. A `certificate_required`, `unknown_ca`, `access_denied`,
-  `certificate_unknown` or `bad_certificate` alert, or the device hanging up once it has our
-  certificate and before its first message, becomes `RustADBError::TlsAuthRejected`.
+  `tcp/tls_identity.rs`. Only a `certificate_required`, `unknown_ca`, `access_denied`,
+  `certificate_unknown` or `bad_certificate` alert becomes `RustADBError::TlsAuthRejected`, as in
+  Kadb's `TlsErrorMapper`. An EOF, reset, abort or broken pipe during the handshake or before the
+  first message over TLS is `RustADBError::TlsConnectionClosed`: adbd always asks for our
+  certificate, so a hang-up after it went out looks the same whether the network dropped or the
+  key was refused, and claims nothing about pairing. (An earlier revision of this pass mapped
+  that hang-up to `TlsAuthRejected`.)
 - **Framing.** The header magic is checked on every header, zero-length ones included, and an
   unknown command is refused; both are `RustADBError::ProtocolError`. An incoming length above
-  the negotiated limit (1 MiB before negotiation) is refused before anything is allocated. An
-  outgoing payload above it is refused with `RustADBError::PayloadTooLarge` before anything is
-  written, because adbd drops the whole connection on an oversized packet. Header and payload go
-  out in one `write_all`, so a socket that accepts nothing is `WriteZero` rather than a busy loop.
+  the limit is refused before anything is allocated; before CNXN that limit is `MAX_PAYLOAD`
+  (1 MiB, as in AOSP's host). An outgoing payload above the limit is refused with
+  `RustADBError::PayloadTooLarge` before anything is written, because adbd drops the whole
+  connection on an oversized packet; before CNXN, writes stay within `MAX_PAYLOAD_V1` (4 KiB).
+  After CNXN both directions use the negotiated value. A transport that does not record the
+  negotiation (USB) writes at most 4 KiB: that is the `ADBMessageTransport::max_payload` default.
+  Header and payload go out in one gathered write, without copying the payload, so a socket that
+  accepts nothing is `WriteZero` rather than a busy loop.
 - **Sockets.** Every ADB TCP socket gets `TCP_NODELAY` and keepalive (15 s idle, 5 s interval, 3
   probes where the platform allows), best effort, through `socket2`, which the app already links.
 
@@ -125,8 +133,8 @@ New public API:
   and `property(&str)`.
 - `ADBTcpDevice::connection_info()`, `has_feature(&str)`, `max_payload()`;
   `ADBTcpService::connection_info()` and `ADBTcpService::new_with_timeouts_and_auth_timeout`.
-- `RustADBError::ProtocolError(String)`, `TlsAuthRejected(String)` and
-  `PayloadTooLarge(usize, usize)`.
+- `RustADBError::ProtocolError(String)`, `TlsAuthRejected(String)`,
+  `TlsConnectionClosed(io::Error)` and `PayloadTooLarge(usize, usize)`.
 - Crate-internal: `ADBMessageTransport::max_payload()` and `apply_connection_info()`, so
   sessions holding a transport clone can size their writes; `upgrade_connection` takes the
   remaining handshake time.
@@ -200,7 +208,8 @@ Behavior changes:
   `shell_v2` feature; the legacy shell is used only without it or when the v2 OPEN is refused.
   `shell_command_with_timeout` returns the new `ShellExit` (`Code(u8)` or `Unreported`, the latter
   only from the legacy shell). A v2 stream that closes before its exit packet, or inside a packet,
-  is `ADBShellV2ParseError` instead of `Ok(None)`. Output stays raw bytes, so UTF-8 split across
+  is the new `RustADBError::ShellExitUnknown` ("…its outcome is unknown") instead of `Ok(None)`;
+  `ADBShellV2ParseError` is kept for malformed packets. Output stays raw bytes, so UTF-8 split across
   packets or WRTEs is intact (Kadb decodes each packet separately). `exec_out_with_timeout` runs
   binary output over v2 or, without it, `exec:` rather than the pty-backed legacy `shell:`. As in
   AOSP's host and Kadb, a legacy `shell:` service name over 4 KiB (`MAX_PAYLOAD_V1`) is refused
@@ -217,7 +226,17 @@ Behavior changes:
   (timeout, lost framing) is returned as it is. Uninstall goes through the shell and trusts the v2
   exit status (Kadb), or the `Success` reply on the legacy shell.
 - **Framebuffer, remount, root, verity** read through `ADBService`. The framebuffer size is
-  bounded at 256 MiB; root fails on "cannot run as root".
+  bounded at 256 MiB. Root, remount and verity succeed once their OPEN is acknowledged: what adbd
+  prints is read best effort, and the connection dropping afterwards (adbd restarts itself after
+  `root:`) ends the message instead of failing the request. Root still fails on "cannot run as
+  root". Reboot, as before, succeeds on the OPEN acknowledgement alone.
+- **One bounded read-to-close.** Install replies, legacy `shell:`/`exec:` output, the root,
+  remount and verity messages and the post-answer drains all use `ADBService::read_to_close` with
+  a per-caller bound (64 KiB for status text, 64 MiB for legacy command output). Exceeding it is
+  `ADBRequestFailed`, never a silent truncation.
+- **Bounded pull.** `ADBTcpDevice::pull_with_limit(source, output, max_bytes)` stats and receives
+  in one sync session; a file the device reports over the limit is `RustADBError::FileTooLarge`
+  with nothing written.
 - **Early close is a request failure.** A sync or framebuffer stream that the device closes
   before its reply is complete is `ADBRequestFailed` ("the device closed … before it finished"),
   not `IOError(UnexpectedEof)`, so the app keeps the connection; an EOF on the socket itself stays
@@ -227,9 +246,10 @@ API changes:
 
 - `ADBTcpDevice::shell_command_with_timeout` returns `Result<ShellExit>` (was `Option<u8>`);
   `ADBDeviceExt::shell_command` still returns `Option<u8>`. New `ShellExit`,
-  `ADBTcpDevice::exec_out_with_timeout` and `ADBTcpDevice::install_apks`.
-- New errors `SyncFailed(String)`, `InstallFailed(String)` and `LocalIo(io::Error)`; none means the
-  connection is broken.
+  `ADBTcpDevice::exec_out_with_timeout`, `ADBTcpDevice::install_apks` and
+  `ADBTcpDevice::pull_with_limit`.
+- New errors `SyncFailed(String)`, `InstallFailed(String)`, `LocalIo(io::Error)`,
+  `ShellExitUnknown` and `FileTooLarge(u64, u64)`; none means the connection is broken.
 - `AdbStatResponse::file_size` and `mod_time` and `ADBListItem::size` and `time` are `u64`.
 
 Changed files, with the Kadb sources translated into each:

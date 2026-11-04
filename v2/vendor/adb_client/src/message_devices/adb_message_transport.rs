@@ -4,10 +4,30 @@ use crate::{
     Result,
     adb_transport::ADBTransport,
     message_devices::{
-        adb_connection_info::{ConnectionInfo, MAX_PAYLOAD},
+        adb_connection_info::{ConnectionInfo, MAX_PAYLOAD_V1},
         adb_transport_message::ADBTransportMessage,
     },
 };
+
+/// A socket read or write ran out of time: `WouldBlock` on Unix, `TimedOut`
+/// on Windows.
+pub(crate) const fn is_timeout(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    )
+}
+
+/// The peer or the network ended the connection (rather than one stream).
+pub(crate) const fn is_hang_up(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+    )
+}
 
 /// Safety net for every read that does not pass an explicit timeout. A silently
 /// dropped peer (phone roams to another AP, TV loses Wi-Fi) never delivers a
@@ -31,9 +51,10 @@ pub trait ADBMessageTransport: ADBTransport + Clone + Send + 'static {
     /// messages themselves enforce it on every later read and write.
     fn apply_connection_info(&mut self, _info: &ConnectionInfo) {}
 
-    /// Largest payload a message on this connection may carry.
+    /// Largest payload this side may send. A transport that does not record
+    /// the negotiated limit stays within what every adbd accepts.
     fn max_payload(&self) -> usize {
-        MAX_PAYLOAD as usize
+        MAX_PAYLOAD_V1
     }
 
     /// Read a message using given timeout on the underlying transport

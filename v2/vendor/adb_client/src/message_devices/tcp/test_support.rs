@@ -320,6 +320,11 @@ impl Peer {
         self.raw(MessageCommand::Clse, stream.remote, stream.local, &[]);
     }
 
+    /// Drop the whole connection, as adbd does when it restarts.
+    pub(crate) fn hang_up(&mut self) {
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+    }
+
     /// Wait for the host to hang up.
     pub(crate) fn finish(mut self) {
         drain(&mut self.stream);

@@ -100,10 +100,26 @@ pub enum RustADBError {
     /// cannot be trusted afterwards.
     #[error("ADB protocol error: {0}")]
     ProtocolError(String),
-    /// The device's TLS server refused this client's certificate, which is
-    /// how adbd reports that the key has not been paired with it.
+    /// The device's TLS server refused this client's certificate with an
+    /// explicit TLS alert, which is how adbd reports that the key has not
+    /// been paired with it.
     #[error("the device rejected this ADB key over TLS; pair it first ({0})")]
     TlsAuthRejected(String),
+    /// The connection closed or reset during the TLS handshake or before the
+    /// first message over TLS, without a TLS alert. A network drop does
+    /// this, and so might a device refusing the key silently; which one it
+    /// was is unknown.
+    #[error("the device closed the secure connection: {0}")]
+    TlsConnectionClosed(std::io::Error),
+    /// A shell protocol v2 command ended (its stream closed) before the
+    /// device reported an exit status. Whether the command ran, and how it
+    /// ended, is unknown. The connection itself may be intact.
+    #[error("the device closed the command before reporting a result; its outcome is unknown")]
+    ShellExitUnknown,
+    /// A file is larger than the caller allowed: its size, then the limit.
+    /// Nothing was transferred, and the connection is intact.
+    #[error("the file is {0} bytes, over the {1}-byte limit")]
+    FileTooLarge(u64, u64),
     /// A message payload is larger than the connection's negotiated maximum.
     /// It was refused before anything was written, so the connection is intact.
     #[error("message payload of {0} bytes exceeds the negotiated maximum of {1}")]

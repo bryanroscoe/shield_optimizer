@@ -90,8 +90,10 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
 - Every connection, dedicated streams included, runs its whole CNXN/TLS/AUTH handshake under one
   30 s deadline and negotiates features and the payload limit from the TV's CNXN
   (`ADBTcpDevice::connection_info()`). Sockets get `TCP_NODELAY` and keepalive, so a vanished TV
-  fails a silent read after about 30 s. A TLS refusal of our key is `TlsAuthRejected`, shown as
-  pairing guidance. Details: `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md` (2026-11-04).
+  fails a silent read after about 30 s. Only an explicit TLS alert refusing our key is
+  `TlsAuthRejected`, shown as pairing guidance; a hang-up during or right after the TLS handshake
+  is `TlsConnectionClosed`, whose message only suggests pairing again if it keeps happening.
+  Details: `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md` (2026-11-04).
 - Hot read paths (health, apps, optimize, launcher, display) are one sentinel-batched shell each
   (`crates/core/src/adb/batch.rs`).
 - **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery plus a network-change watch**
@@ -152,7 +154,8 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   next write when the connection changes. A write already dispatched cannot be recalled.
 - **Transport results claim only what the TV said** (vendored `adb_client`, see its
   `SHIELD-OPTIMIZER-PATCH.md`). An exit status comes only from shell v2 (`ShellExit::Code`); a v2
-  stream that closes before its exit packet is an error, never success. Only the legacy shell on a
+  stream that closes before its exit packet is `ShellExitUnknown`, never success, shown as "result
+  unknown" unless the liveness probe also fails. Only the legacy shell on a
   TV without `shell_v2` is `Unreported`, which `wireless_adb.rs` maps to 0 so the output text is
   judged. Push, pull and install succeed only on the device's `OKAY` or `Success`; a sync `FAIL`,
   an install `Failure`, a stream the TV closes early, a phone-side file error or a v2 stream

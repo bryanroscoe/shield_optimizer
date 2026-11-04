@@ -17,19 +17,19 @@ use crate::{
     Result, RustADBError,
     adb_transport::ADBTransport,
     message_devices::{
-        adb_connection_info::{ConnectionInfo, MAX_PAYLOAD},
-        adb_message_transport::ADBMessageTransport,
+        adb_connection_info::{ConnectionInfo, MAX_PAYLOAD, MAX_PAYLOAD_V1},
+        adb_message_transport::{ADBMessageTransport, is_hang_up, is_timeout},
         adb_transport_message::{ADBTransportMessage, ADBTransportMessageHeader},
         tcp::tls_identity::client_identity,
     },
 };
 use std::{
-    io::{self, Read, Write},
+    io::{self, IoSlice, Read, Write},
     net::{Shutdown, SocketAddr, TcpStream},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -73,8 +73,6 @@ enum CurrentConnection {
 #[derive(Debug)]
 struct TlsConnection {
     stream: StreamOwned<ClientConnection, TcpStream>,
-    /// The device asked for our client certificate and we sent it.
-    presented_certificate: bool,
     /// Nothing has arrived over TLS yet. A TLS 1.3 client finishes its side of
     /// the handshake before the server has checked the client certificate, so
     /// adbd's refusal of an unpaired key arrives on this first read.
@@ -115,6 +113,13 @@ impl Write for CurrentConnection {
         }
     }
 
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        match self {
+            Self::Tcp(tcp_stream) => tcp_stream.write_vectored(bufs),
+            Self::Tls(tls) => tls.stream.write_vectored(bufs),
+        }
+    }
+
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             Self::Tcp(tcp_stream) => tcp_stream.flush(),
@@ -126,9 +131,14 @@ impl Write for CurrentConnection {
 /// Per-connection state shared by every clone of the transport (sessions
 /// hold clones) without taking the connection lock: the limits from CNXN, and
 /// whether the byte stream has fallen out of step with ADB framing.
+///
+/// Until CNXN settles the limit, reads accept up to [`MAX_PAYLOAD`] (as
+/// AOSP's host does) and writes stay within [`MAX_PAYLOAD_V1`], which every
+/// adbd accepts. Afterwards both use the negotiated value.
 #[derive(Debug)]
 struct WireLimits {
-    max_payload: AtomicU32,
+    read_max: AtomicU32,
+    write_max: AtomicUsize,
     verify_checksums: AtomicBool,
     /// A read or write stopped part-way through a message, or the peer sent
     /// a malformed one. Nothing after that point can be parsed reliably.
@@ -138,28 +148,37 @@ struct WireLimits {
 impl WireLimits {
     const fn unnegotiated() -> Self {
         Self {
-            max_payload: AtomicU32::new(MAX_PAYLOAD),
+            read_max: AtomicU32::new(MAX_PAYLOAD),
+            write_max: AtomicUsize::new(MAX_PAYLOAD_V1),
             verify_checksums: AtomicBool::new(true),
             poisoned: AtomicBool::new(false),
         }
     }
 
     fn reset(&self) {
-        self.max_payload.store(MAX_PAYLOAD, Ordering::Relaxed);
+        self.read_max.store(MAX_PAYLOAD, Ordering::Relaxed);
+        self.write_max.store(MAX_PAYLOAD_V1, Ordering::Relaxed);
         self.verify_checksums.store(true, Ordering::Relaxed);
         self.poisoned.store(false, Ordering::Relaxed);
     }
 
     fn apply(&self, info: &ConnectionInfo) {
-        let max_payload = u32::try_from(info.max_payload()).unwrap_or(MAX_PAYLOAD);
-        self.max_payload
-            .store(max_payload.min(MAX_PAYLOAD), Ordering::Relaxed);
+        let max_payload = u32::try_from(info.max_payload())
+            .unwrap_or(MAX_PAYLOAD)
+            .min(MAX_PAYLOAD);
+        self.read_max.store(max_payload, Ordering::Relaxed);
+        self.write_max
+            .store(max_payload as usize, Ordering::Relaxed);
         self.verify_checksums
             .store(info.verifies_checksums(), Ordering::Relaxed);
     }
 
-    fn max_payload(&self) -> u32 {
-        self.max_payload.load(Ordering::Relaxed)
+    fn read_limit(&self) -> u32 {
+        self.read_max.load(Ordering::Relaxed)
+    }
+
+    fn write_limit(&self) -> usize {
+        self.write_max.load(Ordering::Relaxed)
     }
 
     fn verify_checksums(&self) -> bool {
@@ -212,13 +231,12 @@ impl TcpTransport {
             .cloned()
     }
 
-    fn tls_config(&self, presented: Arc<AtomicBool>) -> Result<ClientConfig> {
+    fn tls_config(&self) -> Result<ClientConfig> {
         let (chain, key) = client_identity(&self.private_key_path)?;
         let signing_key =
             rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(key))?;
-        let resolver = PresentedCertificate {
+        let resolver = ClientCertificate {
             key: Arc::new(CertifiedKey::new(chain, signing_key)),
-            presented,
         };
         Ok(ClientConfig::builder()
             .dangerous()
@@ -334,25 +352,27 @@ fn read_frame<R: Read>(
     Ok(message)
 }
 
-/// Header and payload leave together. Returns how many bytes the writer
-/// accepted before an error, so the caller knows whether a partial frame
-/// reached the stream. A writer that accepts nothing is `WriteZero` rather
-/// than a busy loop.
-fn write_frame<W: Write>(writer: &mut W, frame: &[u8]) -> (usize, io::Result<()>) {
+/// Header and payload leave together, gathered from their own buffers so a
+/// large payload is never copied. Returns how many bytes the writer accepted
+/// before an error, so the caller knows whether a partial frame reached the
+/// stream. A writer that accepts nothing is `WriteZero` rather than a busy
+/// loop.
+fn write_frame<W: Write>(writer: &mut W, header: &[u8], payload: &[u8]) -> (usize, io::Result<()>) {
+    let mut slices = [IoSlice::new(header), IoSlice::new(payload)];
+    let mut remaining: &mut [IoSlice<'_>] = &mut slices;
     let mut written = 0;
-    while written < frame.len() {
-        match writer.write(&frame[written..]) {
+    while !remaining.is_empty() {
+        match writer.write_vectored(remaining) {
             Ok(0) => return (written, Err(io::ErrorKind::WriteZero.into())),
-            Ok(accepted) => written += accepted,
+            Ok(accepted) => {
+                written += accepted;
+                IoSlice::advance_slices(&mut remaining, accepted);
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return (written, Err(error)),
         }
     }
     (written, writer.flush())
-}
-
-const fn is_timeout(kind: io::ErrorKind) -> bool {
-    matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
 fn handshake_timeout() -> RustADBError {
@@ -367,7 +387,6 @@ fn handshake_timeout() -> RustADBError {
 fn complete_handshake(
     stream: &mut StreamOwned<ClientConnection, TcpStream>,
     deadline: Instant,
-    presented: &AtomicBool,
 ) -> Result<()> {
     while stream.conn.is_handshaking() || stream.conn.wants_write() {
         let remaining = deadline.saturating_duration_since(Instant::now());
@@ -378,26 +397,13 @@ fn complete_handshake(
         stream.sock.set_write_timeout(Some(remaining))?;
         match stream.conn.complete_io(&mut stream.sock) {
             Ok((0, 0)) => {
-                return Err(tls_rejection(
-                    RustADBError::IOError(io::ErrorKind::UnexpectedEof.into()),
-                    presented.load(Ordering::SeqCst),
-                ));
+                return Err(tls_failure(RustADBError::IOError(
+                    io::ErrorKind::UnexpectedEof.into(),
+                )));
             }
             Ok(_) => {}
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) =>
-            {
-                return Err(handshake_timeout());
-            }
-            Err(error) => {
-                return Err(tls_rejection(
-                    RustADBError::IOError(error),
-                    presented.load(Ordering::SeqCst),
-                ));
-            }
+            Err(error) if is_timeout(error.kind()) => return Err(handshake_timeout()),
+            Err(error) => return Err(tls_failure(RustADBError::IOError(error))),
         }
     }
     Ok(())
@@ -419,33 +425,21 @@ const fn is_untrusted_key_alert(alert: AlertDescription) -> bool {
 }
 
 /// Map a failure during the TLS handshake, or on the first read after it, the
-/// way Kadb's `TlsErrorMapper` does: a refusal of our certificate becomes
-/// [`RustADBError::TlsAuthRejected`]. So does the device hanging up once it
-/// has our certificate, which is how some adbd builds refuse an unpaired key.
-fn tls_rejection(error: RustADBError, presented_certificate: bool) -> RustADBError {
+/// way Kadb's `TlsErrorMapper` does: only an explicit TLS alert refusing our
+/// certificate becomes [`RustADBError::TlsAuthRejected`]. adbd always asks
+/// for a certificate, so a hang-up after it went out says nothing about
+/// pairing: a Wi-Fi drop looks the same. That is
+/// [`RustADBError::TlsConnectionClosed`].
+fn tls_failure(error: RustADBError) -> RustADBError {
     let RustADBError::IOError(io_error) = error else {
         return error;
     };
-    let kind = io_error.kind();
     match io_error.downcast::<rustls::Error>() {
         Ok(rustls::Error::AlertReceived(alert)) if is_untrusted_key_alert(alert) => {
             RustADBError::TlsAuthRejected(format!("TLS alert {alert:?}"))
         }
         Ok(tls_error) => RustADBError::TLSError(tls_error),
-        Err(_)
-            if presented_certificate
-                && matches!(
-                    kind,
-                    io::ErrorKind::UnexpectedEof
-                        | io::ErrorKind::ConnectionReset
-                        | io::ErrorKind::ConnectionAborted
-                        | io::ErrorKind::BrokenPipe
-                ) =>
-        {
-            RustADBError::TlsAuthRejected(
-                "the device closed the connection after receiving our certificate".to_string(),
-            )
-        }
+        Err(io_error) if is_hang_up(io_error.kind()) => RustADBError::TlsConnectionClosed(io_error),
         Err(io_error) => RustADBError::IOError(io_error),
     }
 }
@@ -484,7 +478,7 @@ impl ADBMessageTransport for TcpTransport {
     }
 
     fn max_payload(&self) -> usize {
-        self.limits.max_payload() as usize
+        self.limits.write_limit()
     }
 
     fn read_message_with_timeout(
@@ -499,7 +493,7 @@ impl ADBMessageTransport for TcpTransport {
         let completion_timeout = read_timeout.max(FRAME_COMPLETION_TIMEOUT);
         let result = read_frame(
             &mut *raw_connection,
-            self.limits.max_payload(),
+            self.limits.read_limit(),
             self.limits.verify_checksums(),
             |connection| {
                 connection
@@ -522,7 +516,7 @@ impl ADBMessageTransport for TcpTransport {
                     tls.awaiting_first_message = false;
                     Ok(message)
                 }
-                Err(error) => Err(tls_rejection(error, tls.presented_certificate)),
+                Err(error) => Err(tls_failure(error)),
             };
         }
         result
@@ -543,13 +537,12 @@ impl ADBMessageTransport for TcpTransport {
                 max_payload,
             ));
         }
-        let mut frame = message.header().as_bytes();
-        frame.extend_from_slice(message.payload());
+        let header = message.header().as_bytes();
 
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
         raw_connection.set_write_timeout(write_timeout)?;
-        let (accepted, result) = write_frame(&mut *raw_connection, &frame);
+        let (accepted, result) = write_frame(&mut *raw_connection, &header, message.payload());
         if let Err(error) = result {
             // Only a timeout before any byte was taken leaves the outgoing
             // stream on a message boundary.
@@ -579,40 +572,35 @@ impl ADBMessageTransport for TcpTransport {
             }
         };
 
-        let presented = Arc::new(AtomicBool::new(false));
-        let config = self.tls_config(Arc::clone(&presented))?;
+        let config = self.tls_config()?;
         let conn = ClientConnection::new(Arc::new(config), self.address.ip().into())?;
         let mut stream = StreamOwned::new(conn, tcp_stream);
         // Driving the handshake here keeps it inside the caller's handshake
         // deadline; left to the first read it would run under that read's
         // much longer timeout.
-        complete_handshake(&mut stream, deadline, &presented)?;
+        complete_handshake(&mut stream, deadline)?;
         log::debug!("TLS handshake complete");
 
         *current_conn_locked = CurrentConnection::Tls(Box::new(TlsConnection {
             stream,
-            presented_certificate: presented.load(Ordering::SeqCst),
             awaiting_first_message: true,
         }));
         Ok(())
     }
 }
 
-/// Presents the one ADB identity whenever the server asks, and records that
-/// it asked, so a hang-up afterwards can be read as a refusal of the key.
+/// Presents the one ADB identity whenever the server asks.
 #[derive(Debug)]
-struct PresentedCertificate {
+struct ClientCertificate {
     key: Arc<CertifiedKey>,
-    presented: Arc<AtomicBool>,
 }
 
-impl ResolvesClientCert for PresentedCertificate {
+impl ResolvesClientCert for ClientCertificate {
     fn resolve(
         &self,
         _root_hint_subjects: &[&[u8]],
         _sigschemes: &[SignatureScheme],
     ) -> Option<Arc<CertifiedKey>> {
-        self.presented.store(true, Ordering::SeqCst);
         Some(Arc::clone(&self.key))
     }
 
@@ -803,7 +791,7 @@ mod tests {
     #[test]
     fn a_socket_that_accepts_nothing_is_write_zero_not_a_loop() {
         let mut writer = ZeroWriter { calls: 0 };
-        let (accepted, result) = write_frame(&mut writer, b"header and payload");
+        let (accepted, result) = write_frame(&mut writer, b"header", b"payload");
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WriteZero);
         assert_eq!(accepted, 0);
         assert_eq!(writer.calls, 1);
@@ -866,7 +854,7 @@ mod tests {
             AlertDescription::CertificateUnknown,
             AlertDescription::BadCertificate,
         ] {
-            let mapped = tls_rejection(io_error_with(rustls::Error::AlertReceived(alert)), false);
+            let mapped = tls_failure(io_error_with(rustls::Error::AlertReceived(alert)));
             assert!(
                 matches!(mapped, RustADBError::TlsAuthRejected(_)),
                 "{alert:?}: {mapped:?}"
@@ -876,34 +864,31 @@ mod tests {
 
     #[test]
     fn other_tls_failures_keep_their_own_error() {
-        let mapped = tls_rejection(
-            io_error_with(rustls::Error::AlertReceived(
-                AlertDescription::HandshakeFailure,
-            )),
-            true,
-        );
+        let mapped = tls_failure(io_error_with(rustls::Error::AlertReceived(
+            AlertDescription::HandshakeFailure,
+        )));
         assert!(matches!(mapped, RustADBError::TLSError(_)), "{mapped:?}");
 
-        let mapped = tls_rejection(RustADBError::IOError(io::ErrorKind::TimedOut.into()), true);
+        let mapped = tls_failure(RustADBError::IOError(io::ErrorKind::TimedOut.into()));
         assert!(matches!(mapped, RustADBError::IOError(_)), "{mapped:?}");
     }
 
     #[test]
-    fn a_hang_up_counts_as_rejection_only_after_our_certificate_went_out() {
-        let eof = || RustADBError::IOError(io::ErrorKind::UnexpectedEof.into());
-        assert!(matches!(
-            tls_rejection(eof(), true),
-            RustADBError::TlsAuthRejected(_)
-        ));
-        assert!(matches!(
-            tls_rejection(eof(), false),
-            RustADBError::IOError(_)
-        ));
-        let reset = RustADBError::IOError(io::ErrorKind::ConnectionReset.into());
-        assert!(matches!(
-            tls_rejection(reset, true),
-            RustADBError::TlsAuthRejected(_)
-        ));
+    fn a_hang_up_without_an_alert_never_claims_the_key_is_unpaired() {
+        // adbd always asks for our certificate, so a drop after it went out
+        // is as likely to be the network as a refusal.
+        for kind in [
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::ConnectionAborted,
+            io::ErrorKind::BrokenPipe,
+        ] {
+            let mapped = tls_failure(RustADBError::IOError(kind.into()));
+            assert!(
+                matches!(&mapped, RustADBError::TlsConnectionClosed(io) if io.kind() == kind),
+                "{kind:?}: {mapped:?}"
+            );
+        }
     }
 
     fn assert_out_of_step(result: Result<ADBTransportMessage>) {
@@ -1071,11 +1056,78 @@ mod tests {
 
     #[test]
     fn a_write_reports_how_much_of_the_frame_went_out() {
-        let (accepted, result) = write_frame(&mut AcceptsThenStalls { budget: 0 }, &[0; 30]);
+        let (accepted, result) =
+            write_frame(&mut AcceptsThenStalls { budget: 0 }, &[0; 24], &[0; 6]);
         assert_eq!(accepted, 0);
         assert!(is_timeout(result.unwrap_err().kind()));
-        let (accepted, result) = write_frame(&mut AcceptsThenStalls { budget: 7 }, &[0; 30]);
-        assert_eq!(accepted, 7);
+        let (accepted, result) =
+            write_frame(&mut AcceptsThenStalls { budget: 27 }, &[0; 24], &[0; 6]);
+        assert_eq!(accepted, 27);
         assert!(result.is_err());
+    }
+
+    /// Takes at most `step` bytes per call, gathering across buffers.
+    struct Trickle {
+        step: usize,
+        received: Vec<u8>,
+    }
+
+    impl Write for Trickle {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.write_vectored(&[IoSlice::new(buf)])
+        }
+
+        fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+            let mut taken = 0;
+            for buf in bufs {
+                let amount = buf.len().min(self.step - taken);
+                self.received.extend_from_slice(&buf[..amount]);
+                taken += amount;
+                if taken == self.step {
+                    break;
+                }
+            }
+            Ok(taken)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_frame_written_in_pieces_arrives_whole_and_in_order() {
+        let header: Vec<u8> = (0..24).collect();
+        let payload: Vec<u8> = (100..150).collect();
+        for step in [1, 5, 24, 25, 1000] {
+            let mut writer = Trickle {
+                step,
+                received: Vec::new(),
+            };
+            let (accepted, result) = write_frame(&mut writer, &header, &payload);
+            result.unwrap();
+            assert_eq!(accepted, 74, "step {step}");
+            assert_eq!(writer.received[..24], header[..], "step {step}");
+            assert_eq!(writer.received[24..], payload[..], "step {step}");
+        }
+    }
+
+    #[test]
+    fn writes_before_cnxn_stay_within_the_oldest_limit_but_reads_do_not() {
+        let limits = WireLimits::unnegotiated();
+        assert_eq!(limits.write_limit(), MAX_PAYLOAD_V1);
+        assert_eq!(limits.read_limit(), MAX_PAYLOAD);
+        let info = ConnectionInfo::negotiate(
+            crate::message_devices::adb_connection_info::A_VERSION_MIN,
+            256 * 1024,
+            b"device::features=shell_v2",
+        )
+        .unwrap();
+        limits.apply(&info);
+        assert_eq!(limits.write_limit(), 256 * 1024);
+        assert_eq!(limits.read_limit(), 256 * 1024);
+        limits.reset();
+        assert_eq!(limits.write_limit(), MAX_PAYLOAD_V1);
+        assert_eq!(limits.read_limit(), MAX_PAYLOAD);
     }
 }

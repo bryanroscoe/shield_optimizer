@@ -109,6 +109,19 @@ impl ADBTcpDevice {
             .exec_out_with_timeout(command, stdout, stderr, timeout)
     }
 
+    /// Pull `source` into `output` unless the device reports it larger than
+    /// `max_bytes`, which is [`crate::RustADBError::FileTooLarge`] with
+    /// nothing written. One sync session does the size check and the
+    /// transfer. `output` must still bound a file that grows meanwhile.
+    pub fn pull_with_limit(
+        &mut self,
+        source: &str,
+        output: &mut dyn Write,
+        max_bytes: u64,
+    ) -> Result<()> {
+        self.inner.pull_at_most(source, output, Some(max_bytes))
+    }
+
     /// Install one APK, or the base and splits of one app together, choosing
     /// the transport as AOSP's `adb install` does: streamed through
     /// `abb_exec` or `exec:cmd` when negotiated, otherwise pushed to
@@ -520,14 +533,14 @@ features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,abb_exec,sendrecv_
     }
 
     #[test]
-    fn a_hang_up_after_our_certificate_is_reported_as_not_paired() {
+    fn a_hang_up_after_our_certificate_is_a_closed_connection_not_a_pairing_verdict() {
         let (address, server, _seen) = stls_then(true, |tls, handshake| {
             handshake.unwrap();
             drop(tls);
         });
         let error = connect(address).unwrap_err();
         assert!(
-            matches!(error, RustADBError::TlsAuthRejected(_)),
+            matches!(error, RustADBError::TlsConnectionClosed(_)),
             "{error:?}"
         );
         server.join().unwrap();

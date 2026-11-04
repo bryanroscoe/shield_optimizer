@@ -178,7 +178,7 @@ impl WirelessAdb {
                 tracing::warn!(error = %error, "wireless transport error — cleared connection");
                 Err(format!("{CONNECTION_LOST_PREFIX}: {error}"))
             } else {
-                Err(error.to_string())
+                Err(request_error_message(&error))
             }
         })
         .await
@@ -444,18 +444,12 @@ impl AdbDriver for WirelessAdb {
                 AUTHORIZATION_TIMEOUT,
             )
             .map_err(|e| AdbError::Transport(e.to_string()))?;
-            let stat = device
-                .stat(&remote)
-                .map_err(|e| AdbError::Transport(e.to_string()))?;
-            if stat.file_size > max_bytes {
-                return Err(AdbError::Transport(
-                    "Download exceeds the file size limit.".into(),
-                ));
-            }
+            // The size check and the transfer share one sync session; the
+            // writer still stops a file that grows past the limit meanwhile.
             let mut writer = crate::limited_writer::LimitedWriter::new(file, max_bytes);
             device
-                .pull(&remote, &mut writer)
-                .map_err(|e| AdbError::Transport(e.to_string()))?;
+                .pull_with_limit(&remote, &mut writer, max_bytes)
+                .map_err(|e| AdbError::Transport(download_error_message(&e)))?;
             std::io::Write::flush(&mut writer)?;
             Ok(())
         })
@@ -695,9 +689,11 @@ pub type SharedWirelessAdb = Arc<WirelessAdb>;
 /// request adbd answered with a failure. `PayloadTooLarge` is refused before
 /// anything reaches the socket, so it leaves the connection intact, as do a
 /// sync `FAIL` (`SyncFailed`), a package-manager refusal (`InstallFailed`), a
-/// phone-side file error (`LocalIo`) and a shell v2 stream that closed
-/// without its exit status. A connection that lost framing mid-message
-/// reports `ProtocolError` on every later use.
+/// phone-side file error (`LocalIo`), a file over the caller's limit
+/// (`FileTooLarge`) and a shell v2 stream that closed without its exit status
+/// (`ShellExitUnknown`, still double-checked by the liveness probe). A
+/// connection that lost framing mid-message reports `ProtocolError` on every
+/// later use.
 fn is_fatal_transport_error(error: &RustADBError) -> bool {
     matches!(
         error,
@@ -705,6 +701,7 @@ fn is_fatal_transport_error(error: &RustADBError) -> bool {
             | RustADBError::PoisonError
             | RustADBError::TLSError(_)
             | RustADBError::TlsAuthRejected(_)
+            | RustADBError::TlsConnectionClosed(_)
             | RustADBError::UpgradeError(_)
             | RustADBError::WrongResponseReceived(..)
             | RustADBError::ProtocolError(_)
@@ -723,6 +720,24 @@ fn probe_alive(dev: &mut ADBTcpDevice) -> bool {
     )
     .is_ok()
         && String::from_utf8_lossy(&stdout).contains("ok")
+}
+
+/// What a request that failed on a still-live connection tells the user.
+fn request_error_message(error: &RustADBError) -> String {
+    match error {
+        RustADBError::ShellExitUnknown => {
+            "The TV ended the command before reporting a result, so whether it worked is unknown."
+                .to_string()
+        }
+        other => other.to_string(),
+    }
+}
+
+fn download_error_message(error: &RustADBError) -> String {
+    match error {
+        RustADBError::FileTooLarge(..) => "Download exceeds the file size limit.".to_string(),
+        other => other.to_string(),
+    }
 }
 
 /// Shell v2 reports the command's own exit status. The legacy shell, used
@@ -794,6 +809,11 @@ fn connect_error_message(error: &RustADBError) -> String {
     match error {
         RustADBError::TlsAuthRejected(_) => {
             "This TV hasn't paired with this phone. Pair it first with the code from Wireless debugging › Pair device with pairing code, then connect again.".to_string()
+        }
+        // No TLS alert: a network drop looks the same as a silent refusal,
+        // so this must not claim the phone is unpaired.
+        RustADBError::TlsConnectionClosed(_) => {
+            "The TV closed the secure connection. Check that the phone and TV are on the same network and try again. If this keeps happening, pair again from Wireless debugging › Pair device with pairing code.".to_string()
         }
         RustADBError::IOError(io)
             if matches!(
@@ -914,9 +934,10 @@ mod tests {
     }
 
     use super::{
-        connect_error_message, exit_code_for, install_outcome, is_fatal_transport_error,
-        normalize_pairing_code, pair_error_message, shell_timeout_for, split_install_args,
-        validate_requested_serial, SHELL_INACTIVITY_TIMEOUT, SLOW_SHELL_INACTIVITY_TIMEOUT,
+        connect_error_message, download_error_message, exit_code_for, install_outcome,
+        is_fatal_transport_error, normalize_pairing_code, pair_error_message,
+        request_error_message, shell_timeout_for, split_install_args, validate_requested_serial,
+        CONNECTION_LOST_PREFIX, SHELL_INACTIVITY_TIMEOUT, SLOW_SHELL_INACTIVITY_TIMEOUT,
     };
     use adb_client::tcp::PairingError;
     use adb_client::{RustADBError, ShellExit};
@@ -929,9 +950,8 @@ mod tests {
             RustADBError::SyncFailed("push: No space left on device".to_string()),
             RustADBError::InstallFailed("Failure [INSTALL_FAILED_OLDER_SDK]".to_string()),
             RustADBError::LocalIo(Error::new(ErrorKind::StorageFull, "phone full")),
-            RustADBError::ADBShellV2ParseError(
-                "the shell stream closed without reporting an exit status".to_string(),
-            ),
+            RustADBError::ShellExitUnknown,
+            RustADBError::FileTooLarge(10, 5),
         ] {
             assert!(!is_fatal_transport_error(&answered), "{answered:?}");
         }
@@ -1043,6 +1063,44 @@ mod tests {
         assert!(message.contains("hasn't paired"));
         assert!(message.contains("Pair device with pairing code"));
         assert!(!message.contains("CertificateUnknown"));
+    }
+
+    #[test]
+    fn a_closed_secure_connection_hedges_instead_of_claiming_unpaired() {
+        let message = connect_error_message(&RustADBError::TlsConnectionClosed(Error::new(
+            ErrorKind::ConnectionReset,
+            "raw reset",
+        )));
+        assert!(message.contains("closed the secure connection"));
+        assert!(message.contains("If this keeps happening, pair again"));
+        assert!(!message.contains("hasn't paired"));
+        assert!(!message.contains("raw reset"));
+        assert!(is_fatal_transport_error(
+            &RustADBError::TlsConnectionClosed(Error::new(ErrorKind::UnexpectedEof, "eof"),)
+        ));
+    }
+
+    #[test]
+    fn a_command_without_a_result_reads_as_unknown_not_as_a_parse_or_lost_connection() {
+        assert!(!is_fatal_transport_error(&RustADBError::ShellExitUnknown));
+        let message = request_error_message(&RustADBError::ShellExitUnknown);
+        assert!(message.contains("unknown"), "{message}");
+        assert!(!message.contains("pars"), "{message}");
+        assert!(!message.contains(CONNECTION_LOST_PREFIX), "{message}");
+        assert_eq!(
+            request_error_message(&RustADBError::ADBRequestFailed("x".to_string())),
+            RustADBError::ADBRequestFailed("x".to_string()).to_string()
+        );
+    }
+
+    #[test]
+    fn an_oversized_download_keeps_the_connection_and_says_why() {
+        let error = RustADBError::FileTooLarge(3 << 30, 2 << 30);
+        assert!(!is_fatal_transport_error(&error));
+        assert_eq!(
+            download_error_message(&error),
+            "Download exceeds the file size limit."
+        );
     }
 
     #[test]

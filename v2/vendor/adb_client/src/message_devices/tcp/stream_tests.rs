@@ -298,6 +298,48 @@ fn pull_uses_sta2_and_rcv2_when_negotiated() {
 }
 
 #[test]
+fn a_bounded_pull_checks_the_size_and_transfers_in_one_session() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let sync = peer.accept_open("sync:");
+        peer.sync_request(sync);
+        let mut stat = b"STAT".to_vec();
+        for value in [0o100_644_u32, 5, 1] {
+            stat.extend(value.to_le_bytes());
+        }
+        peer.send(sync, &stat, usize::MAX);
+        assert_eq!(peer.sync_request(sync), (*b"RECV", b"/sdcard/f".to_vec()));
+        let mut reply = sync_reply(*b"DATA", 5, b"hello");
+        reply.extend(sync_reply(*b"DONE", 0, &[]));
+        peer.send(sync, &reply, usize::MAX);
+        peer.expect_quit(sync);
+
+        // Too large: the same session ends with QUIT, no RECV, no second OPEN.
+        let sync = peer.accept_open("sync:");
+        peer.sync_request(sync);
+        let mut stat = b"STAT".to_vec();
+        for value in [0o100_644_u32, 5000, 1] {
+            stat.extend(value.to_le_bytes());
+        }
+        peer.send(sync, &stat, usize::MAX);
+        peer.expect_quit(sync);
+    });
+    let mut out = Vec::new();
+    device.pull_with_limit("/sdcard/f", &mut out, 5).unwrap();
+    assert_eq!(out, b"hello");
+    let mut out = Vec::new();
+    let error = device
+        .pull_with_limit("/sdcard/big", &mut out, 4096)
+        .unwrap_err();
+    assert!(
+        matches!(error, RustADBError::FileTooLarge(5000, 4096)),
+        "{error:?}"
+    );
+    assert!(out.is_empty());
+    drop(device);
+    join();
+}
+
+#[test]
 fn a_recv_fail_is_reported_with_its_reason() {
     let (mut device, join) = run("", 256 * 1024, |peer| {
         let sync = peer.accept_open("sync:");
@@ -470,7 +512,7 @@ fn a_v2_shell_that_closes_without_an_exit_status_is_an_error() {
         .shell_command_with_timeout(&"pm list packages", Some(&mut Vec::new()), None, TIMEOUT)
         .unwrap_err();
     assert!(
-        matches!(&error, RustADBError::ADBShellV2ParseError(m) if m.contains("exit status")),
+        matches!(&error, RustADBError::ShellExitUnknown),
         "{error:?}"
     );
     drop(device);
@@ -559,6 +601,29 @@ fn packets_for_other_streams_are_skipped_and_an_orphan_okay_is_closed() {
         .shell_command_with_timeout(&"cat", Some(&mut out), None, TIMEOUT)
         .unwrap();
     assert_eq!(out, b"fresh");
+    drop(device);
+    join();
+}
+
+#[test]
+fn legacy_output_past_its_bound_is_an_error_not_a_truncation() {
+    let (mut device, join) = run("", 1024 * 1024, |peer| {
+        let shell = peer.accept_open("shell:cat big");
+        // 64 MiB in 1 MiB WRTEs, then one byte more.
+        let chunk = vec![b'x'; 1024 * 1024];
+        for _ in 0..64 {
+            peer.send(shell, &chunk, usize::MAX);
+        }
+        peer.raw(MessageCommand::Write, shell.remote, shell.local, b"!");
+    });
+    let mut out = Vec::new();
+    let error = device
+        .shell_command_with_timeout(&"cat big", Some(&mut out), None, TIMEOUT)
+        .unwrap_err();
+    assert!(
+        matches!(&error, RustADBError::ADBRequestFailed(m) if m.contains("more than")),
+        "{error:?}"
+    );
     drop(device);
     join();
 }
@@ -874,6 +939,87 @@ fn uninstall_trusts_the_v2_exit_status() {
     assert!(
         error.to_string().contains("DELETE_FAILED_INTERNAL_ERROR"),
         "{error}"
+    );
+    drop(device);
+    join();
+}
+
+// ---- one-shot services that restart adbd or the device ----
+
+#[test]
+fn root_succeeds_when_adbd_restarts_after_answering() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let root = peer.accept_open("root:");
+        peer.send(root, b"restarting adbd as root\n", usize::MAX);
+        peer.hang_up();
+    });
+    device.root().unwrap();
+    drop(device);
+    join();
+}
+
+#[test]
+fn root_on_a_production_build_reports_the_refusal() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let root = peer.accept_open("root:");
+        peer.send(
+            root,
+            b"adbd cannot run as root in production builds\n",
+            usize::MAX,
+        );
+        peer.close(root);
+    });
+    let error = device.root().unwrap_err();
+    assert!(
+        matches!(&error, RustADBError::ADBRequestFailed(m) if m.contains("production builds")),
+        "{error:?}"
+    );
+    drop(device);
+    join();
+}
+
+#[test]
+fn reboot_succeeds_once_adbd_accepts_even_if_the_connection_drops() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        peer.accept_open("reboot:");
+        peer.hang_up();
+    });
+    device.reboot(crate::RebootType::System).unwrap();
+    drop(device);
+    join();
+}
+
+#[test]
+fn remount_and_verity_keep_what_arrived_before_the_connection_dropped() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let remount = peer.accept_open("remount:");
+        peer.send(remount, b"remount succeeded", usize::MAX);
+        peer.hang_up();
+    });
+    assert!(device.remount().unwrap().is_empty());
+    drop(device);
+    join();
+
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let verity = peer.accept_open("disable-verity:");
+        peer.send(verity, b"Verity disabled\n", usize::MAX);
+        peer.hang_up();
+    });
+    device.disable_verity().unwrap();
+    drop(device);
+    join();
+}
+
+#[test]
+fn a_refused_root_open_is_still_a_failure() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let (local, _) = peer.expect_open();
+        peer.raw(MessageCommand::Clse, 0, local, &[]);
+    });
+    let error = device.root().unwrap_err();
+    assert!(
+        matches!(error, RustADBError::ADBRequestFailed(_)),
+        "{error:?}"
     );
     drop(device);
     join();

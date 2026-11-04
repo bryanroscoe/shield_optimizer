@@ -316,6 +316,44 @@ impl<T: ADBMessageTransport> ADBService<T> {
         self.send(MessageCommand::Clse, &[])
     }
 
+    /// Read until the device closes the stream, passing what arrives to
+    /// `sink` (or discarding it), and return how many bytes that was. More
+    /// than `limit` bytes is an error rather than a silent truncation. A
+    /// failing `sink` is [`RustADBError::LocalIo`].
+    pub(crate) fn read_to_close(
+        &mut self,
+        mut sink: Option<&mut dyn Write>,
+        limit: usize,
+    ) -> Result<usize> {
+        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut total = 0_usize;
+        loop {
+            let read = match self.read(&mut buffer) {
+                Ok(0) => return Ok(total),
+                Ok(read) => read,
+                Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+                Err(error) => return Err(self.read_error(error, "the stream")),
+            };
+            total += read;
+            if total > limit {
+                return Err(RustADBError::ADBRequestFailed(format!(
+                    "the device sent more than {limit} bytes on one stream"
+                )));
+            }
+            if let Some(sink) = sink.as_mut() {
+                sink.write_all(&buffer[..read])
+                    .map_err(RustADBError::LocalIo)?;
+            }
+        }
+    }
+
+    /// [`Self::read_to_close`] into text, with invalid UTF-8 replaced.
+    pub(crate) fn read_text_to_close(&mut self, limit: usize) -> Result<String> {
+        let mut output = Vec::new();
+        self.read_to_close(Some(&mut output), limit)?;
+        Ok(String::from_utf8_lossy(&output).into_owned())
+    }
+
     /// Read and discard until the device closes the stream, waiting at most
     /// `timeout` for each packet and reading at most `limit` bytes. Used once
     /// a stream's answer is complete, so the device's CLSE is consumed here
@@ -324,17 +362,8 @@ impl<T: ADBMessageTransport> ADBService<T> {
     /// next request instead.
     pub(crate) fn drain_until_closed(&mut self, timeout: Duration, limit: usize) {
         self.read_timeout = self.read_timeout.min(timeout);
-        let mut discard = [0_u8; 512];
-        let mut drained = 0;
-        while drained <= limit {
-            match self.read(&mut discard) {
-                Ok(0) => return,
-                Ok(read) => drained += read,
-                Err(error) => {
-                    log::debug!("ADB stream did not close after its answer: {error}");
-                    return;
-                }
-            }
+        if let Err(error) = self.read_to_close(None, limit) {
+            log::debug!("ADB stream did not close after its answer: {error}");
         }
     }
 
@@ -812,6 +841,63 @@ mod tests {
             );
             assert!(transport.state.lock().unwrap().outgoing.is_empty());
         }
+    }
+
+    #[derive(Clone, Debug)]
+    struct UnnegotiatingTransport;
+
+    impl ADBTransport for UnnegotiatingTransport {
+        fn connect(&mut self) -> Result<()> {
+            Ok(())
+        }
+
+        fn disconnect(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    impl ADBMessageTransport for UnnegotiatingTransport {
+        fn read_message_with_timeout(&mut self, _: Duration) -> Result<ADBTransportMessage> {
+            Err(RustADBError::IOError(ErrorKind::TimedOut.into()))
+        }
+
+        fn write_message_with_timeout(
+            &mut self,
+            _: ADBTransportMessage,
+            _: Duration,
+        ) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_transport_that_does_not_negotiate_writes_only_what_every_adbd_accepts() {
+        let mut transport = UnnegotiatingTransport;
+        transport.apply_connection_info(&crate::ConnectionInfo::unnegotiated());
+        assert_eq!(
+            transport.max_payload(),
+            crate::message_devices::adb_connection_info::MAX_PAYLOAD_V1
+        );
+    }
+
+    #[test]
+    fn read_to_close_passes_everything_on_and_refuses_more_than_its_bound() {
+        let transport = FakeTransport::default();
+        transport.queue(MessageCommand::Write, 9, 7, b"hello ");
+        transport.queue(MessageCommand::Write, 9, 7, b"world");
+        transport.queue(MessageCommand::Clse, 9, 7, &[]);
+        let mut whole = service(&transport);
+        assert_eq!(whole.read_text_to_close(11).unwrap(), "hello world");
+
+        let transport = FakeTransport::default();
+        transport.queue(MessageCommand::Write, 9, 7, b"hello ");
+        transport.queue(MessageCommand::Write, 9, 7, b"world");
+        let mut over = service(&transport);
+        let error = over.read_text_to_close(10).unwrap_err();
+        assert!(
+            matches!(&error, RustADBError::ADBRequestFailed(m) if m.contains("more than 10")),
+            "{error:?}"
+        );
     }
 
     #[test]

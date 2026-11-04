@@ -15,12 +15,14 @@ pub(crate) const A_VERSION: u32 = A_VERSION_MIN;
 /// AOSP's host always answers STLS with this fixed value.
 pub(crate) const A_STLS_VERSION: u32 = 0x0100_0000;
 
-/// Connect and auth packets go out before either side knows the other's
-/// limit, so AOSP caps them at the oldest protocol's payload size.
+/// The oldest protocol's payload size, which every adbd accepts. Everything we
+/// send before CNXN settles the limit (CNXN, AUTH, STLS) stays within it, as
+/// in AOSP, and so does every write on a transport that does not record the
+/// negotiated limit.
 pub(crate) const MAX_PAYLOAD_V1: usize = 4 * 1024;
-/// Our receive limit, advertised in CNXN. It is also the bound on an incoming
-/// payload before negotiation, so a corrupt length can never make us allocate
-/// more than this.
+/// Our receive limit, advertised in CNXN. Before negotiation it bounds an
+/// incoming payload, as in AOSP's host, so a corrupt length can never make us
+/// allocate more than this; afterwards the negotiated value does.
 pub(crate) const MAX_PAYLOAD: u32 = 1024 * 1024;
 
 /// Features this client advertises. Each is client-driven: adbd only offers
@@ -55,7 +57,8 @@ pub struct ConnectionInfo {
 }
 
 impl ConnectionInfo {
-    /// The state before a device has answered CNXN.
+    /// The state before a device has answered CNXN: we may send only
+    /// [`MAX_PAYLOAD_V1`]-sized payloads.
     pub(crate) fn unnegotiated() -> Self {
         Self {
             protocol_version: A_VERSION_MIN,

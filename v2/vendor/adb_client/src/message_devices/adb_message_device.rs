@@ -12,7 +12,7 @@ use crate::{
         adb_connection_info::{
             A_STLS_VERSION, A_VERSION, ConnectionInfo, MAX_PAYLOAD, host_banner,
         },
-        adb_message_transport::ADBMessageTransport,
+        adb_message_transport::{ADBMessageTransport, is_timeout},
         adb_service::{ADBService, STREAM_WRITE_TIMEOUT, open_service_session, open_stream},
         adb_session::ADBSession,
         adb_transport_message::{
@@ -107,17 +107,8 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         if remaining.is_zero() {
             return Err(timed_out());
         }
-        // A socket read timeout surfaces as WouldBlock on Unix and TimedOut on
-        // Windows; report both the same way.
         match self.transport.read_message_with_timeout(remaining) {
-            Err(RustADBError::IOError(error))
-                if matches!(
-                    error.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) =>
-            {
-                Err(timed_out())
-            }
+            Err(RustADBError::IOError(error)) if is_timeout(error.kind()) => Err(timed_out()),
             other => other,
         }
     }

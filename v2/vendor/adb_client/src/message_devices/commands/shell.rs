@@ -21,6 +21,9 @@ use crate::{
 };
 
 const MAX_SHELL_PACKET: usize = 64 * 1024 * 1024;
+/// Bound on everything a legacy `shell:` or `exec:` stream may send, which
+/// has no packets of its own to bound.
+const MAX_LEGACY_OUTPUT: usize = 64 * 1024 * 1024;
 const SHELL_V2_FEATURE: &str = "shell_v2";
 /// How long to wait for adbd to close a shell stream after its exit packet.
 const CLOSE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -47,24 +50,19 @@ impl TryFrom<u8> for ShellChannel {
     }
 }
 
-/// Fill `buf`. `Ok(false)` means the stream ended cleanly before its first
-/// byte; ending part-way through is an error.
-fn fill(input: &mut dyn Read, buf: &mut [u8]) -> Result<bool> {
+/// Fill `buf`. A stream that ends first, cleanly or part-way through a
+/// packet, never delivered the exit status, so the outcome is unknown.
+fn fill(input: &mut dyn Read, buf: &mut [u8]) -> Result<()> {
     let mut filled = 0;
     while filled < buf.len() {
         match input.read(&mut buf[filled..]) {
-            Ok(0) if filled == 0 => return Ok(false),
-            Ok(0) => return Err(truncated_packet()),
+            Ok(0) => return Err(RustADBError::ShellExitUnknown),
             Ok(read) => filled += read,
             Err(error) if error.kind() == ErrorKind::Interrupted => {}
             Err(error) => return Err(adb_error(error)),
         }
     }
-    Ok(true)
-}
-
-fn truncated_packet() -> RustADBError {
-    RustADBError::ADBShellV2ParseError("the shell stream ended inside a packet".to_string())
+    Ok(())
 }
 
 fn write_local(writer: &mut dyn Write, bytes: &[u8]) -> Result<()> {
@@ -74,7 +72,7 @@ fn write_local(writer: &mut dyn Write, bytes: &[u8]) -> Result<()> {
 /// Decode shell v2 packets until the exit packet and return its status.
 /// Output is passed on as raw bytes, so a UTF-8 character split across
 /// packets or WRTEs reaches the writer intact. A stream that closes before
-/// the exit packet is an error: the command's outcome is unknown.
+/// the exit packet is [`RustADBError::ShellExitUnknown`].
 fn decode_shell_v2(
     input: &mut dyn Read,
     mut stdout: Option<&mut dyn Write>,
@@ -82,11 +80,7 @@ fn decode_shell_v2(
 ) -> Result<u8> {
     loop {
         let mut metadata = [0_u8; 5];
-        if !fill(input, &mut metadata)? {
-            return Err(RustADBError::ADBShellV2ParseError(
-                "the shell stream closed without reporting an exit status".to_string(),
-            ));
-        }
+        fill(input, &mut metadata)?;
         let channel = ShellChannel::try_from(metadata[0])?;
         let payload_size = u32::from_le_bytes(metadata[1..5].try_into()?) as usize;
         if payload_size > MAX_SHELL_PACKET {
@@ -101,9 +95,7 @@ fn decode_shell_v2(
         }
 
         let mut payload = vec![0_u8; payload_size];
-        if !payload.is_empty() && !fill(input, &mut payload)? {
-            return Err(truncated_packet());
-        }
+        fill(input, &mut payload)?;
         match channel {
             ShellChannel::Stdout => {
                 if let Some(writer) = stdout.as_mut() {
@@ -118,26 +110,6 @@ fn decode_shell_v2(
                 }
             }
             ShellChannel::ExitStatus => return Ok(payload[0]),
-        }
-    }
-}
-
-/// Copy a stream to its end (the device's CLSE).
-fn copy_to_end<T: ADBMessageTransport>(
-    stream: &mut ADBService<T>,
-    mut output: Option<&mut dyn Write>,
-) -> Result<()> {
-    let mut buffer = vec![0_u8; 64 * 1024];
-    loop {
-        match stream.read(&mut buffer) {
-            Ok(0) => return Ok(()),
-            Ok(read) => {
-                if let Some(writer) = output.as_mut() {
-                    write_local(*writer, &buffer[..read])?;
-                }
-            }
-            Err(error) if error.kind() == ErrorKind::Interrupted => {}
-            Err(error) => return Err(adb_error(error)),
         }
     }
 }
@@ -209,7 +181,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             )));
         }
         let mut stream = self.open_stream_service(service.as_bytes(), timeout)?;
-        copy_to_end(&mut stream, stdout)?;
+        stream.read_to_close(stdout, MAX_LEGACY_OUTPUT)?;
         Ok(ShellExit::Unreported)
     }
 
@@ -228,7 +200,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             return run_shell_v2(stream, Some(stdout), stderr);
         }
         let mut stream = self.open_service(&ADBLocalCommand::Exec(command.to_string()), timeout)?;
-        copy_to_end(&mut stream, Some(stdout))?;
+        stream.read_to_close(Some(stdout), MAX_LEGACY_OUTPUT)?;
         Ok(ShellExit::Unreported)
     }
 
@@ -367,10 +339,7 @@ mod tests {
             None,
         )
         .unwrap_err();
-        assert!(
-            matches!(error, RustADBError::ADBShellV2ParseError(ref m) if m.contains("without reporting an exit status")),
-            "{error:?}"
-        );
+        assert!(matches!(error, RustADBError::ShellExitUnknown), "{error:?}");
         assert_eq!(stdout, b"partial output");
     }
 
@@ -380,7 +349,7 @@ mod tests {
         for cut in [3, 7] {
             let error =
                 decode_shell_v2(&mut Cursor::new(bytes[..cut].to_vec()), None, None).unwrap_err();
-            assert!(error.to_string().contains("inside a packet"), "{error}");
+            assert!(matches!(error, RustADBError::ShellExitUnknown), "{error:?}");
         }
     }
 

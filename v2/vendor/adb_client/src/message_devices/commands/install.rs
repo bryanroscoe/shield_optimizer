@@ -153,21 +153,6 @@ fn copy_apk<T: ADBMessageTransport>(apk: &mut Apk, stream: &mut ADBService<T>) -
     Ok(())
 }
 
-/// Everything the command printed before closing, up to a bound.
-fn read_output<T: ADBMessageTransport>(stream: &mut ADBService<T>) -> Result<String> {
-    let mut output = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    while output.len() < INSTALL_OUTPUT_LIMIT {
-        match stream.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => output.extend_from_slice(&buffer[..read]),
-            Err(error) if error.kind() == ErrorKind::Interrupted => {}
-            Err(error) => return Err(adb_error(error)),
-        }
-    }
-    Ok(String::from_utf8_lossy(&output).into_owned())
-}
-
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     pub(crate) fn install(&mut self, apk_path: &dyn AsRef<Path>, user: Option<&str>) -> Result<()> {
         let mut options = Vec::new();
@@ -376,11 +361,11 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             // The package manager gave up and closed the stream. What it
             // printed (perhaps nothing) is the result; the connection is fine.
             if stream.closed_by_peer_during_write(&error) {
-                return read_output(&mut stream);
+                return stream.read_text_to_close(INSTALL_OUTPUT_LIMIT);
             }
             return Err(error);
         }
-        read_output(&mut stream)
+        stream.read_text_to_close(INSTALL_OUTPUT_LIMIT)
     }
 
     /// Run `pm <args>` and return its combined output and exit report.
