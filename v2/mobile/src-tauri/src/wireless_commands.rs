@@ -1,11 +1,9 @@
+use atv_optimizer_core::adb::AdbOutput;
+use atv_optimizer_core::commands::{devices::ConnectResult, AppState};
 use serde::Serialize;
-use shield_optimizer_core::adb::AdbOutput;
-use shield_optimizer_core::commands::{devices::ConnectResult, AppState};
 use tauri::State;
 
-use shield_optimizer_core::engine::telemetry_diag::{
-    discovery_diag, error_codes, Diag, DiagReason,
-};
+use atv_optimizer_core::engine::telemetry_diag::{discovery_diag, error_codes, Diag, DiagReason};
 
 use crate::wireless_adb::{
     DiscoveredAdbDevice, SharedWirelessAdb, WirelessStatus, DISCOVER_TIMEOUT_MS,
@@ -131,7 +129,7 @@ pub async fn wireless_status(
 
 #[tauri::command]
 pub async fn find_remote(
-    state: State<'_, shield_optimizer_core::commands::AppState>,
+    state: State<'_, atv_optimizer_core::commands::AppState>,
     serial: String,
 ) -> Result<ConnectResult, String> {
     let adb = state.adb_snapshot().await;
@@ -166,7 +164,7 @@ fn classify_find_remote(out: AdbOutput) -> ConnectResult {
 #[cfg(test)]
 mod tests {
     use super::classify_find_remote;
-    use shield_optimizer_core::adb::AdbOutput;
+    use atv_optimizer_core::adb::AdbOutput;
 
     #[test]
     fn find_remote_requires_a_successful_shell_result() {

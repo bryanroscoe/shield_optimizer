@@ -21,11 +21,11 @@
 
 use std::path::{Path, PathBuf};
 
+use atv_optimizer_core::adb::{parse_ls_output, AdbError, FileEntry};
+use atv_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
+use atv_optimizer_core::commands::{apps::ActionResult, AppState};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use shield_optimizer_core::adb::{parse_ls_output, AdbError, FileEntry};
-use shield_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
-use shield_optimizer_core::commands::{apps::ActionResult, AppState};
 use tauri::State;
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
@@ -173,7 +173,7 @@ fn bundle_files(dir: &Path, manifest: &BackupManifest) -> Result<Vec<PathBuf>, S
         .collect()
 }
 
-fn shell_failed(out: &shield_optimizer_core::adb::AdbOutput) -> bool {
+fn shell_failed(out: &atv_optimizer_core::adb::AdbOutput) -> bool {
     out.exit_code.is_some_and(|code| code != 0) || out.shell_reported_failure()
 }
 
@@ -612,18 +612,18 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl shield_optimizer_core::adb::AdbDriver for DownloadDriver {
+    impl atv_optimizer_core::adb::AdbDriver for DownloadDriver {
         async fn raw(
             &self,
             _: &[&str],
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             unreachable!()
         }
         async fn shell(
             &self,
             _: &str,
             _: &str,
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             unreachable!()
         }
         async fn pull_limited(
@@ -632,7 +632,7 @@ mod tests {
             remote: &str,
             local: &Path,
             limit: u64,
-        ) -> shield_optimizer_core::adb::AdbResult<()> {
+        ) -> atv_optimizer_core::adb::AdbResult<()> {
             assert_eq!(serial, "TV");
             assert_eq!(remote, "/sdcard/report.txt");
             assert_eq!(limit, MAX_PULL_BYTES);
@@ -692,22 +692,22 @@ mod tests {
     /// Records `raw_transfer` calls and answers with `reply`. Any `shell`
     /// call fails the test: a restore no longer stages files or runs `pm`.
     struct InstallDriver {
-        reply: fn() -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>,
+        reply: fn() -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>,
         calls: std::sync::Mutex<Vec<Vec<String>>>,
     }
 
     #[async_trait::async_trait]
-    impl shield_optimizer_core::adb::AdbDriver for InstallDriver {
+    impl atv_optimizer_core::adb::AdbDriver for InstallDriver {
         async fn raw(
             &self,
             _: &[&str],
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             unreachable!()
         }
         async fn raw_transfer(
             &self,
             args: &[&str],
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             self.calls
                 .lock()
                 .unwrap()
@@ -718,7 +718,7 @@ mod tests {
             &self,
             _: &str,
             command: &str,
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             panic!("restore ran a shell command: {command}")
         }
     }
@@ -745,7 +745,7 @@ mod tests {
 
     async fn restore_with(
         files: &[&str],
-        reply: fn() -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>,
+        reply: fn() -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>,
     ) -> (Result<ActionResult, String>, Vec<Vec<String>>, PathBuf) {
         let data = tempfile::tempdir().expect("data dir");
         let bundle = write_bundle(data.path(), files);
@@ -764,8 +764,8 @@ mod tests {
         (result, calls, canonical)
     }
 
-    fn success() -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
-        Ok(shield_optimizer_core::adb::AdbOutput {
+    fn success() -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
+        Ok(atv_optimizer_core::adb::AdbOutput {
             stdout: "Success\n".to_string(),
             stderr: String::new(),
             exit_code: Some(0),
@@ -826,7 +826,7 @@ mod tests {
         }
 
         let (result, _, _) = restore_with(&["000-base.apk"], || {
-            Ok(shield_optimizer_core::adb::AdbOutput {
+            Ok(atv_optimizer_core::adb::AdbOutput {
                 stdout: String::new(),
                 stderr: String::new(),
                 exit_code: Some(0),

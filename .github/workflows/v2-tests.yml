@@ -1,4 +1,4 @@
-# Shield Optimizer v2 CI — Rust tests, frontend checks and regression suites,
+# ATV Optimizer (v2) CI — Rust tests, frontend checks and regression suites,
 # simulated-device e2e, and the mobile frontend.
 #
 # This workflow does NOT run Tauri's full bundle build (that lives in
@@ -309,6 +309,10 @@ jobs:
         working-directory: v2
         run: npm run test:settings-screen
 
+      - name: macOS Local Network notice
+        working-directory: v2
+        run: npm run test:local-network-notice
+
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
         working-directory: v2
@@ -388,7 +392,7 @@ jobs:
       # The e2e feature is off in every other job, so lint it here.
       - name: Clippy (e2e feature)
         working-directory: v2
-        run: cargo clippy -p shield-optimizer-v2 -p e2e-server --features shield-optimizer-v2/e2e --all-targets -- -D warnings
+        run: cargo clippy -p atv-optimizer -p e2e-server --features atv-optimizer/e2e --all-targets -- -D warnings
 
       - name: npm run e2e
         working-directory: v2

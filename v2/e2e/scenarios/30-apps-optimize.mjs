@@ -21,7 +21,6 @@ export const scenarios = [
       const before = (await ctx.device(SHIELD.serial)).packages;
       await ctx.openDevice(SHIELD.key, "optimize");
       const page = ctx.page;
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
       await page.getByRole("button", { name: "Select all safe" }).waitFor();
       await page.waitForLoadState("networkidle");
       await ctx.step("plan built from the device");
@@ -76,7 +75,6 @@ export const scenarios = [
       const page = ctx.page;
       await page.getByRole("button", { name: "Keep", exact: true }).first().waitFor();
       await ctx.tab("optimize");
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
       await page.getByRole("button", { name: "Select all safe" }).waitFor();
       await page.waitForLoadState("networkidle");
       await page.getByRole("button", { name: "Select all safe" }).click();
@@ -123,7 +121,6 @@ export const scenarios = [
       const before = (await ctx.device(SHIELD.serial)).packages;
       await ctx.openDevice(SHIELD.key, "optimize");
       const page = ctx.page;
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
       await page.getByRole("button", { name: "Select all safe" }).waitFor();
       await page.waitForLoadState("networkidle");
       await page.getByRole("button", { name: "Select all safe" }).click();
@@ -155,7 +152,6 @@ export const scenarios = [
       const page = ctx.page;
       await page.getByRole("button", { name: "Keep", exact: true }).first().waitFor();
       await ctx.tab("optimize");
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
       await page.getByRole("button", { name: "Select all safe" }).waitFor();
       await page.waitForLoadState("networkidle");
       await page.getByRole("button", { name: "Select all safe" }).click();
@@ -231,7 +227,6 @@ export const scenarios = [
 
       // The wizard honours it: the kept app is not armed by default.
       await ctx.openDevice("192.0.2.44:5555", "optimize");
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
       await page.getByRole("button", { name: "Select all safe" }).waitFor();
       await page.waitForLoadState("networkidle");
       const planRow = page.locator("tr").filter({ hasText: pkg }).first();

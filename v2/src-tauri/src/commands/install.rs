@@ -11,7 +11,7 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
-use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
+use atv_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
 
 #[derive(Serialize)]
 pub struct AdbStatus {
@@ -125,13 +125,14 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     // Reconnect the network devices we saw before the restart.
     //
-    // Not on the first try. `start-server` returns as soon as the daemon has
-    // forked, and the TV's adbd needs a moment to free the socket the
-    // kill-server just tore down — connecting into that window fails with
-    // "No route to host" even though the device is up and port 5555 is open.
-    // Restarting by hand a second later then works, which is what makes this
-    // read as "ADB is broken" rather than "too early". So give each device a
-    // few attempts before calling it unreachable.
+    // Not on the first try only. `start-server` returns as soon as the daemon
+    // has forked, and a connect made straight after it has been seen to fail
+    // with "No route to host" and then work a second later. One cause is
+    // reproduced on macOS 26.6.2: a new binary's very first LAN connect can
+    // get EHOSTUNREACH even when Local Network access is allowed. Others are
+    // not ruled out (a TV still freeing the old socket), and a real Local
+    // Network block does not go away with retries (see `local_network.rs`).
+    // So give each device a few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     let mut unauthorized = Vec::new();
@@ -144,7 +145,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
             }
             // ADB auto-attaches paired mDNS services; their transport keys are
             // not socket addresses and must never be passed to `adb connect`.
-            if shield_optimizer_core::adb::is_network_endpoint(serial) {
+            if atv_optimizer_core::adb::is_network_endpoint(serial) {
                 match adb.raw(&["connect", serial]).await {
                     Ok(out) => {
                         let response = out.combined();
@@ -237,7 +238,7 @@ pub(crate) async fn install_with<F, Fut>(
     installer: F,
 ) -> Result<InstallResult, String>
 where
-    F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
+    F: FnOnce(Arc<atv_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);

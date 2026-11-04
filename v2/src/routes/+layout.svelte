@@ -32,6 +32,7 @@
     setReportsEnabled,
   } from "$lib/reports.svelte";
   import { loadUiPrefs, uiPrefs } from "$lib/ui-prefs.svelte";
+  import { watchLocalNetwork } from "$lib/local-network.svelte";
   import { provideAppShell } from "$lib/app-shell";
   import { installBreadcrumbs, setBreadcrumbsEnabled } from "$lib/breadcrumbs";
   import { parseReleaseNotes, type NoteBlock } from "$lib/release-notes";
@@ -213,6 +214,9 @@
     loadUiPrefs();
     // Keep Auto honest while the app is open, not just at launch.
     watchOsTheme();
+    // macOS: ask for Local Network access now, from the app itself, rather
+    // than from adb partway through the first scan.
+    const stopLocalNetworkWatch = watchLocalNetwork();
 
     getVersion()
       .then((running) => {
@@ -229,6 +233,7 @@
       .catch(() => {});
 
     checkForUpdate();
+    return stopLocalNetworkWatch;
   });
 
   function announceArrival(running: string) {

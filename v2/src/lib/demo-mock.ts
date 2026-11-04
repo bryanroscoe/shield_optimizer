@@ -261,7 +261,7 @@ function storeNativeStopAdbOnQuit(next: StopAdbOnQuit): StopAdbOnQuit {
 // the `stopAdbOnQuitHeld` flag. The command takes effect at once; only its
 // reply waits, like a slow IPC answer, until the test releases it.
 const heldReplies: Array<() => void> = [];
-const LOG_DIR = "/Users/you/Library/Application Support/ShieldOptimizer/logs";
+const LOG_DIR = "/Users/you/Library/Application Support/ATVOptimizer/logs";
 
 /// Stand-in for the real `collect_diagnostics`, in the same shape: host facts,
 /// then one device's identity and TV evidence, then a log tail. No package
@@ -301,7 +301,7 @@ function demoDiagnostics(serial: string | null): string {
       "",
     );
   }
-  lines.push("### Recent log", "", "```", "INFO shield_optimizer_v2_lib: adb located", "```", "");
+  lines.push("### Recent log", "", "```", "INFO atv_optimizer_lib: adb located", "```", "");
   return lines.join("\n");
 }
 
@@ -439,7 +439,7 @@ const tweaks: TweaksState = {
 
 const snapshots: SnapshotFile[] = [
   {
-    path: "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots/shield-living-room-2026-05-12.json",
+    path: "/Users/you/Library/Application Support/ATVOptimizer/snapshots/shield-living-room-2026-05-12.json",
     filename: "shield-living-room-2026-05-12.json",
     saved_at: "2026-05-12T18:42:09Z",
     label: "After debloat + Projectivy",
@@ -451,7 +451,7 @@ const snapshots: SnapshotFile[] = [
     launcher: "com.spocky.projengmenu",
   },
   {
-    path: "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots/shield-bedroom-2026-04-28.json",
+    path: "/Users/you/Library/Application Support/ATVOptimizer/snapshots/shield-bedroom-2026-04-28.json",
     filename: "shield-bedroom-2026-04-28.json",
     saved_at: "2026-04-28T09:15:33Z",
     label: null,
@@ -667,6 +667,12 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "log_dir_path":
       return LOG_DIR;
     case "open_log_dir":
+      return null;
+    case "local_network_access":
+      // The `localNetworkBlocked` flag shows the macOS notice; otherwise the
+      // demo is a computer with nothing to report.
+      return { status: demoFlag("localNetworkBlocked") ? "blocked" : "not_applicable" };
+    case "open_local_network_settings":
       return null;
     case "log_ui_event":
       return null;
@@ -918,7 +924,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return;
     }
     case "snapshot_dir_path":
-      return "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots";
+      return "/Users/you/Library/Application Support/ATVOptimizer/snapshots";
     case "find_files":
       return { hits: [], unsearched: [] };
     case "list_apks_in_folder":

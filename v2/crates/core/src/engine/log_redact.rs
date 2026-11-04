@@ -48,7 +48,7 @@ fn re(pattern: &str) -> Regex {
     Regex::new(pattern).expect("static log pattern")
 }
 
-/// `2026-11-02T14:03:22.123456Z  INFO shield_optimizer_core::adb::driver: `
+/// `2026-11-02T14:03:22.123456Z  INFO atv_optimizer_core::adb::driver: `
 static HEADER: LazyLock<Regex> = LazyLock::new(|| {
     re(
         r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z)\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(?:([a-z0-9_]+(?:::[a-z0-9_]+)*):\s)?(.*)$",
@@ -134,9 +134,11 @@ fn with_found<T>(text: &str, scrub: &Scrub, f: impl FnOnce(&Scrub) -> T) -> T {
 
 static CONTROL: LazyLock<Regex> = LazyLock::new(|| re(r"[\x00-\x08\x0b-\x1f\x7f]"));
 
-/// Log targets that belong to adb, connecting and discovery.
+/// Log targets that belong to adb, connecting and discovery. Logs copied
+/// over from before the rename carry the desktop crate's old name.
 fn is_connection_target(target: &str) -> bool {
-    target == "shield_optimizer_v2_lib"
+    target == "atv_optimizer_lib"
+        || target == "shield_optimizer_v2_lib"
         || target.contains("::adb")
         || [
             "::scan",
@@ -396,22 +398,22 @@ mod tests {
     /// A realistic slice of the desktop log, with every kind of identifier
     /// the app has been seen to write.
     const LOG: &str = "\
-2026-11-02T14:00:00.000001Z  INFO shield_optimizer_v2_lib: adb located adb=/Users/bryanr/Library/Application Support/ShieldOptimizer/platform-tools/adb
-2026-11-02T14:00:01.000002Z DEBUG shield_optimizer_v2_lib::adb::driver: adb invoke adb=\"C:\\Users\\Jane Doe\\AppData\\Local\\adb.exe\" args=[\"connect\", \"192.168.42.211:5555\"]
-2026-11-02T14:00:01.500000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"devices\"] ms=13 exit_code=Some(0) stderr= stdout=List of devices attached
+2026-11-02T14:00:00.000001Z  INFO atv_optimizer_lib: adb located adb=/Users/bryanr/Library/Application Support/ATVOptimizer/platform-tools/adb
+2026-11-02T14:00:01.000002Z DEBUG atv_optimizer_lib::adb::driver: adb invoke adb=\"C:\\Users\\Jane Doe\\AppData\\Local\\adb.exe\" args=[\"connect\", \"192.168.42.211:5555\"]
+2026-11-02T14:00:01.500000Z DEBUG atv_optimizer_lib::adb::driver: adb done args=[\"devices\"] ms=13 exit_code=Some(0) stderr= stdout=List of devices attached
 192.168.42.211:5555\tunauthorized
 adb-1324619053514-jBeCEe._adb-tls-connect._tcp\tdevice
 QWERTYUIOPAS\toffline
 [fe80::1c2:3ff:fe4d:5e6f%en0]:5555\toffline
-2026-11-02T14:00:02.000000Z  INFO shield_optimizer_core::commands::devices: connect finished address=10.0.0.5:5555 ok=false error=failed to connect to 'living-room-tv.local:5555': Connection refused
-2026-11-02T14:00:02.100000Z DEBUG shield_optimizer_core::adb::driver: adb done stdout=[persist.sys.device_name]: [Bryan's Living Room]
+2026-11-02T14:00:02.000000Z  INFO atv_optimizer_core::commands::devices: connect finished address=10.0.0.5:5555 ok=false error=failed to connect to 'living-room-tv.local:5555': Connection refused
+2026-11-02T14:00:02.100000Z DEBUG atv_optimizer_core::adb::driver: adb done stdout=[persist.sys.device_name]: [Bryan's Living Room]
 [ro.serialno]: [1324619053514]
 [ro.product.model]: [SHIELD Android TV]
 [ro.boot.wifimacaddr]: [3c:a6:f6:12:ab:cd]
-2026-11-02T14:00:02.200000Z  WARN shield_optimizer_core::commands::launcher: launcher read failed for com.example.secretapp
-2026-11-02T14:00:03.000000Z  INFO shield_optimizer_v2_lib::commands::scan: scan finished subnet=192.168.42 found=0 connected=0
-2026-11-02T14:00:03.100000Z  INFO shield_optimizer_core::commands::devices: device name=Bryan's Living Room host=Bryans-MacBook.local email bryan@example.com user=bryanr
-2026-11-02T14:00:04.000000Z  INFO shield_optimizer_core::telemetry: unrelated line from bryanr
+2026-11-02T14:00:02.200000Z  WARN atv_optimizer_core::commands::launcher: launcher read failed for com.example.secretapp
+2026-11-02T14:00:03.000000Z  INFO atv_optimizer_lib::commands::scan: scan finished subnet=192.168.42 found=0 connected=0
+2026-11-02T14:00:03.100000Z  INFO atv_optimizer_core::commands::devices: device name=Bryan's Living Room host=Bryans-MacBook.local email bryan@example.com user=bryanr
+2026-11-02T14:00:04.000000Z  INFO atv_optimizer_core::telemetry: unrelated line from bryanr
 ";
 
     const LEAKS: [&str; 19] = [
@@ -443,6 +445,17 @@ QWERTYUIOPAS\toffline
     }
 
     #[test]
+    fn lines_from_before_the_rename_still_count_as_connection_lines() {
+        let log = "2026-11-02T14:00:00.000001Z  INFO shield_optimizer_v2_lib: adb located\n\
+2026-11-02T14:00:01.000000Z  INFO shield_optimizer_core::commands::devices: connect finished\n\
+2026-11-02T14:00:02.000000Z  INFO shield_optimizer_core::telemetry: unrelated\n";
+        let out = connection_excerpt(log, &scrub()).expect("excerpt");
+        assert!(out.contains("adb located"), "{out}");
+        assert!(out.contains("connect finished"), "{out}");
+        assert!(!out.contains("unrelated"), "{out}");
+    }
+
+    #[test]
     fn the_excerpt_is_connection_lines_only_and_scrubbed() {
         let excerpt = connection_excerpt(LOG, &scrub()).expect("excerpt");
         assert_no_leaks(&excerpt);
@@ -450,7 +463,7 @@ QWERTYUIOPAS\toffline
         assert!(!excerpt.contains("launcher read failed"), "{excerpt}");
         // What makes it useful survives.
         for keep in [
-            "2026-11-02T14:00:02.000000Z INFO shield_optimizer_core::commands::devices: connect finished",
+            "2026-11-02T14:00:02.000000Z INFO atv_optimizer_core::commands::devices: connect finished",
             "Connection refused",
             "stderr=<none> stdout=<omitted>",
             "ms=13 exit_code=Some(0)",
@@ -474,7 +487,7 @@ QWERTYUIOPAS\toffline
         let mut log = String::new();
         for i in 0..500 {
             log.push_str(&format!(
-                "2026-11-02T14:00:00.{i:06}Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done ms={i} {}\n",
+                "2026-11-02T14:00:00.{i:06}Z DEBUG atv_optimizer_lib::adb::driver: adb done ms={i} {}\n",
                 "x".repeat(400)
             ));
         }
@@ -490,8 +503,8 @@ QWERTYUIOPAS\toffline
             "the newest lines are the ones kept"
         );
 
-        let short = "2026-11-02T14:00:00.000000Z  INFO shield_optimizer_v2_lib::adb::driver: a\n"
-            .repeat(200);
+        let short =
+            "2026-11-02T14:00:00.000000Z  INFO atv_optimizer_lib::adb::driver: a\n".repeat(200);
         assert_eq!(
             connection_excerpt(&short, &Scrub::default())
                 .unwrap()
@@ -502,7 +515,7 @@ QWERTYUIOPAS\toffline
         assert_eq!(connection_excerpt("", &Scrub::default()), None);
         assert_eq!(
             connection_excerpt(
-                "2026-11-02T14:00:00Z  INFO shield_optimizer_core::telemetry: x\n",
+                "2026-11-02T14:00:00Z  INFO atv_optimizer_core::telemetry: x\n",
                 &Scrub::default()
             ),
             None
@@ -546,13 +559,13 @@ QWERTYUIOPAS\toffline
     fn serials_from_an_earlier_session_are_found_in_the_log_itself() {
         // Nothing this session knows: the TV was connected before a restart.
         let log = "\
-2026-11-01T09:00:00.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"devices\"] stdout=List of devices attached
+2026-11-01T09:00:00.000000Z DEBUG atv_optimizer_lib::adb::driver: adb done args=[\"devices\"] stdout=List of devices attached
 ZXCVBNMLKJHG\tunauthorized
 POIUYTREWQLK    device usb:1-1 product:x
-2026-11-01T09:00:01.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb invoke args=[\"-s\", \"MNBVCXZLKJHG\", \"shell\", \"getprop\"]
-2026-11-01T09:00:02.000000Z  INFO shield_optimizer_core::commands::devices: forget finished serial=ASDFGHJKLQWE ok=true
-2026-11-01T09:00:03.000000Z DEBUG shield_optimizer_core::adb::driver: adb done stdout=[ro.serialno]: [QAZWSXEDCRFV]
-2026-11-01T09:00:04.000000Z  INFO shield_optimizer_core::commands::devices: later ZXCVBNMLKJHG POIUYTREWQLK MNBVCXZLKJHG ASDFGHJKLQWE QAZWSXEDCRFV gone
+2026-11-01T09:00:01.000000Z DEBUG atv_optimizer_lib::adb::driver: adb invoke args=[\"-s\", \"MNBVCXZLKJHG\", \"shell\", \"getprop\"]
+2026-11-01T09:00:02.000000Z  INFO atv_optimizer_core::commands::devices: forget finished serial=ASDFGHJKLQWE ok=true
+2026-11-01T09:00:03.000000Z DEBUG atv_optimizer_core::adb::driver: adb done stdout=[ro.serialno]: [QAZWSXEDCRFV]
+2026-11-01T09:00:04.000000Z  INFO atv_optimizer_core::commands::devices: later ZXCVBNMLKJHG POIUYTREWQLK MNBVCXZLKJHG ASDFGHJKLQWE QAZWSXEDCRFV gone
 ";
         let found = identifiers_in(log);
         for serial in [
@@ -589,14 +602,14 @@ POIUYTREWQLK    device usb:1-1 product:x
 
     /// The exact lines an independent review got past both redactors.
     const NAME_AND_DNS_LOG: &str = "\
-2026-11-02T14:00:00.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings get global device_name\"] ms=40 exit_code=Some(0) stderr= stdout=Bedroom Shield
-2026-11-02T14:00:01.000000Z  WARN shield_optimizer_v2_lib::adb::driver: adb timeout args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings put global device_name 'Kids Room TV'\"] ms=30001
-2026-11-02T14:00:02.000000Z  WARN shield_optimizer_v2_lib::adb::driver: adb exited nonzero args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings put global private_dns_specifier '1a2b3c.dns.nextdns.io'; settings put global private_dns_mode hostname\"] exit_code=Some(1) stderr=Error: connection timed out
+2026-11-02T14:00:00.000000Z DEBUG atv_optimizer_lib::adb::driver: adb done args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings get global device_name\"] ms=40 exit_code=Some(0) stderr= stdout=Bedroom Shield
+2026-11-02T14:00:01.000000Z  WARN atv_optimizer_lib::adb::driver: adb timeout args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings put global device_name 'Kids Room TV'\"] ms=30001
+2026-11-02T14:00:02.000000Z  WARN atv_optimizer_lib::adb::driver: adb exited nonzero args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings put global private_dns_specifier '1a2b3c.dns.nextdns.io'; settings put global private_dns_mode hostname\"] exit_code=Some(1) stderr=Error: connection timed out
 while talking to 1a2b3c.dns.nextdns.io
-2026-11-02T14:00:03.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings get global private_dns_specifier\"] ms=12 exit_code=Some(0) stderr= stdout=9f8e7d.dns.nextdns.io
-2026-11-02T14:00:04.000000Z  INFO shield_optimizer_core::commands::devices: rename failed: Device still reports device_name = \"Den TV\" after the write. dns private_dns_specifier=4a5b6c.dns.nextdns.io resolver 7x7.example-dns.net
-2026-11-02T14:00:04.500000Z  INFO shield_optimizer_core::commands::devices: probe 7x7.example-dns.net and 0123abcd.dns.nextdns.io failed
-2026-11-02T14:00:05.000000Z DEBUG shield_optimizer_v2_lib::adb::driver: adb done args=[\"shell\", \"getprop\"] ms=9 exit_code=Some(0) stderr= stdout=[persist.sys.device_name]: [Living Room]
+2026-11-02T14:00:03.000000Z DEBUG atv_optimizer_lib::adb::driver: adb done args=[\"-s\", \"192.168.1.20:5555\", \"shell\", \"settings get global private_dns_specifier\"] ms=12 exit_code=Some(0) stderr= stdout=9f8e7d.dns.nextdns.io
+2026-11-02T14:00:04.000000Z  INFO atv_optimizer_core::commands::devices: rename failed: Device still reports device_name = \"Den TV\" after the write. dns private_dns_specifier=4a5b6c.dns.nextdns.io resolver 7x7.example-dns.net
+2026-11-02T14:00:04.500000Z  INFO atv_optimizer_core::commands::devices: probe 7x7.example-dns.net and 0123abcd.dns.nextdns.io failed
+2026-11-02T14:00:05.000000Z DEBUG atv_optimizer_lib::adb::driver: adb done args=[\"shell\", \"getprop\"] ms=9 exit_code=Some(0) stderr= stdout=[persist.sys.device_name]: [Living Room]
 [ro.product.model]: [SHIELD Android TV]
 ";
 

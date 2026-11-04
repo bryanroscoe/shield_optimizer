@@ -83,7 +83,7 @@ clearly identified TV viewing apps Safe, combined with the exact publisher packa
 links recorded in the fixture. This is a manual functional/dependency review, not
 physical removal validation or a classification inferred from simulated UI.
 
-Reproduction: `cargo test --offline -p shield-optimizer-core commands::loader::tests`
+Reproduction: `cargo test --offline -p atv-optimizer-core commands::loader::tests`
 and `npm run test:reported-package-names`. The latter checks actual catalog fields,
 rendered Safe/Unknown/Caution labels and no automatic recommendation or default selection. Refreshed
 media is explicitly simulated. Cross-platform CI and hardware acceptance are

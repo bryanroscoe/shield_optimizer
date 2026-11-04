@@ -17,7 +17,7 @@
 </script>
 
 {#if mode !== "line"}
-  <span class="support-badge tier-{info.tier}" data-tier={info.tier} data-tip={line} data-tip-wrap>
+  <span class="support-badge tier-{info.tier}" data-tier={info.tier}>
     {TIER_LABEL[info.tier]}
   </span>
 {/if}

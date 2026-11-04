@@ -397,7 +397,7 @@
       <div class="row-text">
         <HelpTip label="ADB">
           <p>The app can download Google's official platform-tools into its own folder.</p>
-          <p>To use a different adb, set <code>SHIELD_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
+          <p>To use a different adb, set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
         </HelpTip>
         <p class="row-help">
           {#if adbError}
@@ -595,6 +595,7 @@
     color: var(--fg-secondary);
   }
   .row-control {
+    margin-left: auto;
     display: flex;
     flex-wrap: wrap;
     align-items: center;

@@ -5,9 +5,31 @@ failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 `.github/workflows/v2-release.yml`; macOS is also distributed via the Homebrew tap
-(`bryanroscoe/homebrew-shield-optimizer`).
+(`bryanroscoe/homebrew-shield-optimizer`, cask `atv-optimizer`).
 
 ## Unreleased on `main`
+
+**The next release must be 2.5.0 (a minor bump): it completes the rename.** The identifier is
+now `com.atvoptimizer.app`, the data folder `ATVOptimizer`, the binary `atv-optimizer`, and the
+crates `atv-optimizer` / `atv_optimizer_lib` / `atv-optimizer-core`. Before tagging:
+
+1. Merge the tap PR that renames the cask to `atv-optimizer` (bryanroscoe/homebrew-shield-optimizer#5,
+   branch `rename-atv-optimizer`) **right before** pushing the tag. The release's `bump-tap` job
+   edits `Casks/atv-optimizer.rb` and fails if that file is missing; merged too early, the
+   renamed cask points at 2.4.1 under the new token, which still works but says nothing new.
+2. Check that the `v2 Upgrade Tests` workflow (`.github/workflows/v2-upgrade-tests.yml`, scripts in
+   `scripts/upgrade-tests/`) passed on the commit being tagged. It builds the branch's NSIS, MSI
+   and macOS bundles and upgrades real published releases to them on fresh runners (NSIS from
+   2.2.0, 2.2.0 beside 2.4.1, silent, from a running 2.4.1, from 2.4.1, and a retry after a failed
+   copy; MSI from 2.4.1; macOS bundle replacement from 2.2.0 and 2.4.1, Homebrew-managed, and a
+   retry), so it
+   is the only pre-tag compile and run of `windows/hooks.nsh`; `v2-tests.yml` only runs Rust tests
+   on Windows. Then run the R steps ("Upgrades across the 2.5.0 rename") in
+   `../docs/DEVICE-TEST-SCRIPT.md` for what runners can't show: real in-app updates, Dock,
+   Login Items, the macOS Local Network prompt, and Linux (R9).
+3. After the tap PR merges and 2.5.0 is out, switch to the new cask token where it was left
+   alone until then: the root README's brew commands and `v2/Makefile`'s `brew` target. The old
+   token keeps working through the tap's `cask_renames.json`.
 
 Desktop help improvements and ADB connection recovery are pending release. Add by IP,
 Scan LAN and restart now verify transport readiness; the confirmed restart can retry
@@ -35,10 +57,39 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
   controls (`HelpTip.svelte`); keep routine explanatory copy collapsed. The diagnostics Worker
   and migration 0003 were deployed and verified with a synthetic upload and readback on 2026-11-03.
 
-- **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
-  channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
-  to the value the old name derived, so existing installs upgrade in place. The Homebrew tap and
-  cask token are still `shield-optimizer`; the cask's `url` names the renamed DMG.
+- **The rename to ATV Optimizer (2.5.0).** `src-tauri/src/rename.rs` runs first in `run()`,
+  before logging and before any webview. It copies the old `ShieldOptimizer` data folder
+  (everything except `platform-tools/`) and the old WebView profile (`~/Library/WebKit/<id>` on
+  macOS, `<local data>/<id>` on Windows and Linux, caches and lock files skipped) into
+  `<name>.migrating-<pid>`, checks that the source did not change meanwhile (else it retries
+  once), writes `.atvoptimizer-migrated` into the copy and renames it into place. A folder
+  without that marker is unfinished: an unmarked data folder is merged into (old entries it
+  lacks, plus the old `telemetry.json`, so the install id and opt-out survive); an unmarked
+  profile is renamed to `<id>.unmigrated-<time>` and copied again. If the data copy fails, the
+  session runs on the old folder, so nothing creates the new one and the next launch retries.
+  The profile is copied once: `.webview-profile-migrated` in the data folder stops it being
+  refilled after a user or an uninstaller deletes it. Unreadable non-essential files are
+  skipped and listed; snapshots, `telemetry.json`, `disabled-home-handlers.json` and the
+  localStorage store must copy. The old data is never moved or deleted, and failures are
+  logged without failing the launch. Old `shield-optimizer.*.log` files are renamed in the copy
+  so rotation covers them. The old downloaded adb is still found where it is
+  (`adb_path_in_legacy_install_root`). localStorage keys keep their `shieldopt.*` names: the
+  origin did not change, so the copied profile is read as is. Pinned on purpose, never to change:
+  the WiX `upgradeCode`, `bundle.publisher` (`shieldoptimizer`, the value the old identifier
+  derived, which NSIS and WiX use for `Software\shieldoptimizer\<product>` and the install-folder
+  lookup), the updater `pubkey` and endpoint, the repo name and the `v2-*` tags.
+  Windows: `src-tauri/windows/hooks.nsh` closes a running `shield-optimizer-v2.exe` before the
+  install (asking first unless silent or passive), then removes a leftover "Shield Optimizer"
+  install from 2.2.0 or earlier (files by name, shortcuts that still point at it, the Uninstall
+  and `Software\shieldoptimizer\Shield Optimizer` keys). It creates an "ATV Optimizer" shortcut
+  where it removed an old one and none exists, points taskbar pins at `atv-optimizer.exe`, and
+  gives this install's shortcuts the new AppUserModelID. It never touches app data or runs the
+  old uninstaller. The MSI has no hooks: MSI users were always major-upgraded in place.
+  macOS: a bundle still named `Shield Optimizer.app` is renamed to `ATV Optimizer.app` at
+  `RunEvent::Exit` (never on an update restart), unless it is translocated, the name is taken,
+  or a `shield-optimizer*`/`atv-optimizer*` cask is installed and the bundle is in
+  `/Applications` or `~/Applications`, where renaming it would break `brew upgrade`. The log is
+  flushed at exit so that line survives.
 - **Launchers are data**: `crates/core/data/app-lists/launchers.json`, parsed once in
   `loader.rs`. The Launcher list shows HOME handlers only. Don't add a `LEANBACK_LAUNCHER`
   query: every TV app's launch activity carries that category, so it lists every TV app as a
