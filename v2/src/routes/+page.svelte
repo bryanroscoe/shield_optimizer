@@ -960,7 +960,7 @@
       no system-wide changes, just a self-contained copy under your app-data folder.
     </p>
     <p class="muted small">
-      Already have <code>adb</code> installed? Set <code>SHIELD_OPTIMIZER_ADB</code> to its full path and relaunch.
+      Already have <code>adb</code> installed? Set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.
     </p>
     <button class="primary" onclick={downloadAdb} disabled={installBusy}>
       {installBusy ? "Installing…" : "Download platform-tools"}

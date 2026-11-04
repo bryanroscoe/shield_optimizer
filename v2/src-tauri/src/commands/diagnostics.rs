@@ -397,29 +397,31 @@ pub(crate) fn adb_source() -> AdbSource {
     let Some(path) = crate::adb::cached_adb_binary() else {
         return AdbSource::None;
     };
-    let custom = std::env::var_os("SHIELD_OPTIMIZER_ADB").map(PathBuf::from);
+    let custom = crate::rename::adb_override();
     let sdk_roots: Vec<PathBuf> = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
         .into_iter()
         .filter_map(std::env::var_os)
         .map(PathBuf::from)
         .collect();
-    classify_adb_source(
-        &path,
-        custom.as_deref(),
-        crate::adb::adb_path_in_install_root().as_deref(),
-        &sdk_roots,
-    )
+    let managed: Vec<PathBuf> = [
+        crate::adb::adb_path_in_install_root(),
+        crate::adb::install::adb_path_in_legacy_install_root(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    classify_adb_source(&path, custom.as_deref(), &managed, &sdk_roots)
 }
 
 fn classify_adb_source(
     path: &Path,
     custom: Option<&Path>,
-    managed: Option<&Path>,
+    managed: &[PathBuf],
     sdk_roots: &[PathBuf],
 ) -> AdbSource {
     if custom == Some(path) {
         AdbSource::Custom
-    } else if managed == Some(path) {
+    } else if managed.iter().any(|m| m == path) {
         AdbSource::Bundled
     } else if sdk_roots.iter().any(|root| path.starts_with(root)) {
         AdbSource::Sdk
@@ -893,12 +895,18 @@ mod tests {
 
     #[test]
     fn adb_source_follows_discovery_priority() {
-        let managed = PathBuf::from("/data/ShieldOptimizer/platform-tools/adb");
+        let managed = vec![
+            PathBuf::from("/data/ATVOptimizer/platform-tools/adb"),
+            PathBuf::from("/data/ShieldOptimizer/platform-tools/adb"),
+        ];
         let custom = PathBuf::from("/opt/custom/adb");
         let sdk = vec![PathBuf::from("/sdk")];
-        let classify =
-            |p: &str| classify_adb_source(Path::new(p), Some(&custom), Some(&managed), &sdk);
+        let classify = |p: &str| classify_adb_source(Path::new(p), Some(&custom), &managed, &sdk);
         assert_eq!(classify("/opt/custom/adb"), AdbSource::Custom);
+        assert_eq!(
+            classify("/data/ATVOptimizer/platform-tools/adb"),
+            AdbSource::Bundled
+        );
         assert_eq!(
             classify("/data/ShieldOptimizer/platform-tools/adb"),
             AdbSource::Bundled

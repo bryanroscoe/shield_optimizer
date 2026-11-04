@@ -573,7 +573,7 @@ fn main() {
     let _ = std::fs::remove_dir_all(&data_dir);
     std::fs::create_dir_all(&data_dir).expect("create data dir");
     // The scan's port sweep is answered from the simulated LAN (192.0.2.x).
-    std::env::set_var("SHIELD_OPTIMIZER_SUBNET", "192.0.2");
+    std::env::set_var("ATV_OPTIMIZER_SUBNET", "192.0.2");
     let log_control = diagnostics::init_logging(&data_dir);
 
     let sim = SimulatedAdb::empty();

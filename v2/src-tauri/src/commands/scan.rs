@@ -453,7 +453,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
             unauthorized: vec![],
             failed: vec![],
             needs_pairing: vec![],
-            message: "Could not detect default gateway. Set SHIELD_OPTIMIZER_SUBNET=\"a.b.c\" \
+            message: "Could not detect default gateway. Set ATV_OPTIMIZER_SUBNET=\"a.b.c\" \
                       to override, or use Add by IP."
                 .to_string(),
         });

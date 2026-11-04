@@ -47,16 +47,34 @@ pub enum InstallError {
 fn install_root() -> Option<PathBuf> {
     Some(
         dirs::data_local_dir()?
-            .join("ShieldOptimizer")
+            .join(crate::rename::DATA_DIR_NAME)
             .join("platform-tools"),
     )
+}
+
+fn adb_exe() -> &'static str {
+    if cfg!(windows) {
+        "adb.exe"
+    } else {
+        "adb"
+    }
 }
 
 /// Path to the adb binary inside `install_root`, regardless of whether it
 /// currently exists.
 pub fn adb_path_in_install_root() -> Option<PathBuf> {
-    let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
-    Some(install_root()?.join(exe))
+    Some(install_root()?.join(adb_exe()))
+}
+
+/// The platform-tools a release before the rename downloaded. The data-folder
+/// migration leaves it where it is, so it keeps working until a new install.
+pub fn adb_path_in_legacy_install_root() -> Option<PathBuf> {
+    Some(
+        dirs::data_local_dir()?
+            .join(crate::rename::LEGACY_DATA_DIR_NAME)
+            .join("platform-tools")
+            .join(adb_exe()),
+    )
 }
 
 /// Download and unpack platform-tools. Returns the path to the extracted
@@ -176,7 +194,12 @@ mod tests {
     #[test]
     fn install_root_is_under_data_local_dir() {
         let root = install_root().expect("data_local_dir resolves on test platform");
-        assert!(root.ends_with("ShieldOptimizer/platform-tools"));
+        assert!(root.ends_with("ATVOptimizer/platform-tools"));
+        let legacy = adb_path_in_legacy_install_root().unwrap();
+        assert!(legacy
+            .parent()
+            .unwrap()
+            .ends_with("ShieldOptimizer/platform-tools"));
     }
 
     #[test]

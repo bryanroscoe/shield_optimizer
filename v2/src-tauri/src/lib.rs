@@ -10,6 +10,7 @@
 #![allow(clippy::double_must_use)]
 pub mod adb;
 pub mod commands;
+pub mod rename;
 pub mod session;
 pub use atv_optimizer_core::engine;
 
@@ -35,13 +36,15 @@ use tauri::Manager;
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
 /// subdirectory).
 ///
-/// macOS: `~/Library/Application Support/ShieldOptimizer`
-/// Linux: `~/.local/share/ShieldOptimizer`
-/// Windows: `%LOCALAPPDATA%/ShieldOptimizer`
+/// macOS: `~/Library/Application Support/ATVOptimizer`
+/// Linux: `~/.local/share/ATVOptimizer`
+/// Windows: `%LOCALAPPDATA%/ATVOptimizer`
+///
+/// Releases before 2.5 used `ShieldOptimizer`; `rename` copies it over.
 fn default_data_dir() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("ShieldOptimizer")
+        .join(rename::DATA_DIR_NAME)
 }
 
 /// Driver used when no adb binary could be discovered at startup. Every call
@@ -192,12 +195,18 @@ pub fn run() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
+    // Before logging, so the log opens in the new data folder with the old
+    // logs already beside it, and before any webview exists, so the copied
+    // profile is the one it opens.
+    let migration = rename::migrate_host();
+
     // stdout *and* a rolling daily file under the data dir. A packaged app has
     // nowhere for stdout to go, so the file is the only copy that survives on
     // the machines where a bug actually happens.
     let data_dir = default_data_dir();
     let log_control = diagnostics::init_logging(&data_dir);
     session::install(log_control.dir(), log_control.debug_enabled());
+    migration.log();
 
     let app_lists = match loader::load_embedded_app_lists() {
         Ok(lists) => {

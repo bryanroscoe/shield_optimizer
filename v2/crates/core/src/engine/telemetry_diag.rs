@@ -74,7 +74,7 @@ pub enum AdbSource {
     Sdk,
     /// PATH or a well-known install location (Homebrew, /usr/bin…).
     System,
-    /// `SHIELD_OPTIMIZER_ADB`, set by the user.
+    /// `ATV_OPTIMIZER_ADB` (or its old name), set by the user.
     Custom,
     /// The phone app's in-process adb client; no binary or server.
     Builtin,
@@ -137,7 +137,7 @@ pub struct MdnsDiag {
 pub enum Gateway {
     Detected,
     NotDetected,
-    /// `SHIELD_OPTIMIZER_SUBNET` chose the subnet.
+    /// `ATV_OPTIMIZER_SUBNET` (or its old name) chose the subnet.
     Override,
 }
 
