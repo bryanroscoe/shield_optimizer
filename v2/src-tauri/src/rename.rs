@@ -300,12 +300,16 @@ fn marked(dir: &Path) -> bool {
 
 /// Returns the outcome and the data folder the session should use.
 fn migrate_data(old: &Path, new: &Path) -> (Outcome, PathBuf) {
-    if !old.is_dir() {
-        return (Outcome::NothingToMigrate, new.to_path_buf());
-    }
     if marked(new) {
         remove_stale_temps(new);
         return (Outcome::AlreadyMigrated, new.to_path_buf());
+    }
+    if !old.is_dir() {
+        // A fresh install is settled too: an old folder that turns up later
+        // (Migration Assistant, a restored backup, an old build run once)
+        // must not be merged over this install's consent and id.
+        mark_settled(new, MARKER);
+        return (Outcome::NothingToMigrate, new.to_path_buf());
     }
     if exists(new) {
         return match merge_into(old, new) {
@@ -314,9 +318,17 @@ fn migrate_data(old: &Path, new: &Path) -> (Outcome, PathBuf) {
         };
     }
     match copy_fresh(Kind::Data, old, new) {
-        Ok(stats) => (Outcome::Copied(stats), new.to_path_buf()),
+        Ok(Some(stats)) => (Outcome::Copied(stats), new.to_path_buf()),
+        // Another instance starting at the same time finished first.
+        Ok(None) => (Outcome::AlreadyMigrated, new.to_path_buf()),
         Err(e) => (Outcome::Failed(e.to_string()), old.to_path_buf()),
     }
+}
+
+/// Record that there was nothing to copy, creating the folder if needed.
+fn mark_settled(dir: &Path, marker: &str) {
+    let _ = std::fs::create_dir_all(dir);
+    let _ = std::fs::write(dir.join(marker), "nothing to copy: no earlier install\n");
 }
 
 /// `record` is the new data folder when this session uses it; the profile's
@@ -326,6 +338,11 @@ fn migrate_profile(old: &Path, new: &Path, record: Option<&Path>) -> Outcome {
         return Outcome::AlreadyMigrated;
     }
     if !old.is_dir() {
+        // Settled: an old profile that turns up later must not displace the
+        // live one.
+        if let Some(data) = record {
+            mark_settled(data, PROFILE_DONE);
+        }
         return Outcome::NothingToMigrate;
     }
     let note_done = || {
@@ -341,22 +358,44 @@ fn migrate_profile(old: &Path, new: &Path, record: Option<&Path>) -> Outcome {
     }
     let set_aside = if exists(new) {
         let aside = set_aside_path(new);
-        if let Err(e) = rename_with_retry(new, &aside) {
-            return Outcome::Failed(StepError::new("set aside", new, e).to_string());
+        match rename_with_retry(new, &aside) {
+            Ok(()) => Some(aside),
+            // Another instance set it aside or finished first.
+            Err(_) if marked(new) => {
+                note_done();
+                return Outcome::AlreadyMigrated;
+            }
+            Err(_) if !exists(new) => None,
+            Err(e) => return Outcome::Failed(StepError::new("set aside", new, e).to_string()),
         }
-        Some(aside)
     } else {
         None
     };
     match copy_fresh(Kind::Profile, old, new) {
-        Ok(stats) => {
+        Ok(Some(stats)) => {
             note_done();
             match set_aside {
                 Some(set_aside) => Outcome::Recopied { set_aside, stats },
                 None => Outcome::Copied(stats),
             }
         }
-        Err(e) => Outcome::Failed(e.to_string()),
+        Ok(None) => {
+            note_done();
+            Outcome::AlreadyMigrated
+        }
+        Err(e) => {
+            // Put back the profile the WebView has been using, so settings
+            // made since are kept and set-aside copies don't pile up; the
+            // next launch sets it aside again and retries.
+            let restored = match &set_aside {
+                Some(aside) if !exists(new) => match rename_with_retry(aside, new) {
+                    Ok(()) => String::new(),
+                    Err(re) => format!("; could not put back {}: {re}", aside.display()),
+                },
+                _ => String::new(),
+            };
+            Outcome::Failed(format!("{e}{restored}"))
+        }
     }
 }
 
@@ -385,8 +424,9 @@ fn set_aside_path(new: &Path) -> PathBuf {
 }
 
 /// Copy `old` to a new `new`, through a temp sibling, retrying once if the
-/// source changed during the copy.
-fn copy_fresh(kind: Kind, old: &Path, new: &Path) -> Result<Stats, StepError> {
+/// source changed during the copy. `None`: another instance starting at the
+/// same time put a finished copy in place first.
+fn copy_fresh(kind: Kind, old: &Path, new: &Path) -> Result<Option<Stats>, StepError> {
     if let Some(parent) = new.parent() {
         std::fs::create_dir_all(parent).map_err(|e| StepError::new("create", parent, e))?;
     }
@@ -399,10 +439,13 @@ fn copy_fresh(kind: Kind, old: &Path, new: &Path) -> Result<Stats, StepError> {
         match copy_once(kind, old, new, &temp) {
             Ok(stats) => {
                 remove_stale_temps(new);
-                return Ok(stats);
+                return Ok(Some(stats));
             }
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&temp);
+                if e.step == "rename" && marked(new) {
+                    return Ok(None);
+                }
                 let retry = e.step == "verify";
                 last = Some(e);
                 if !retry {
@@ -423,7 +466,6 @@ fn copy_once(kind: Kind, old: &Path, new: &Path, temp: &Path) -> Result<Stats, S
     let before = fingerprint(kind, old);
     let mut stats = Stats::default();
     std::fs::create_dir(temp).map_err(|e| StepError::new("create", temp, e))?;
-    copy_dir_permissions(old, temp);
     copy_tree(kind, old, temp, Path::new(""), false, &mut stats)?;
     if fingerprint(kind, old) != before {
         return Err(StepError::new(
@@ -434,6 +476,8 @@ fn copy_once(kind: Kind, old: &Path, new: &Path, temp: &Path) -> Result<Stats, S
     }
     std::fs::write(temp.join(MARKER), marker_text(old))
         .map_err(|e| StepError::new("mark", temp, e))?;
+    // Last, so a read-only original doesn't stop the copy into it.
+    copy_dir_permissions(old, temp);
     rename_with_retry(temp, new).map_err(|e| StepError::new("rename", temp, e))?;
     Ok(stats)
 }
@@ -614,34 +658,60 @@ fn copy_tree(
             }
         };
         if file_type.is_dir() {
-            if !(merge && dst.is_dir()) {
+            let created = !(merge && dst.is_dir());
+            if created {
                 if let Err(e) = std::fs::create_dir(&dst) {
                     tolerate(kind, &child, StepError::new("create", &dst, e), stats)?;
                     continue;
                 }
-                copy_dir_permissions(&src, &dst);
             }
             copy_tree(kind, from_root, to_root, &child, merge, stats)?;
+            // After the contents, so a read-only original doesn't stop them.
+            if created {
+                copy_dir_permissions(&src, &dst);
+            }
         } else if file_type.is_file() {
             if merge && exists(&dst) {
                 continue;
             }
-            match std::fs::copy(&src, &dst) {
+            match copy_file(&src, &dst, merge) {
                 Ok(bytes) => {
-                    keep_modified_time(&src, &dst);
                     stats.files += 1;
                     stats.bytes += bytes;
                 }
-                Err(e) => {
-                    let _ = std::fs::remove_file(&dst);
-                    tolerate(kind, &child, StepError::new("copy", &src, e), stats)?;
-                }
+                Err(e) => tolerate(kind, &child, StepError::new("copy", &src, e), stats)?,
             }
         } else {
             stats.skipped.push(display(&child));
         }
     }
     Ok(())
+}
+
+/// Copy one file, keeping its modification time. When merging into a live
+/// folder, write a temp name and rename it into place, so a crash can't leave
+/// a truncated file that later merges would keep.
+fn copy_file(src: &Path, dst: &Path, merge: bool) -> io::Result<u64> {
+    let target = if merge {
+        let name = dst
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        dst.with_file_name(format!("{name}{TEMP_SUFFIX}{}", std::process::id()))
+    } else {
+        dst.to_path_buf()
+    };
+    let result = std::fs::copy(src, &target).and_then(|bytes| {
+        keep_modified_time(src, &target);
+        if merge {
+            rename_with_retry(&target, dst)?;
+        }
+        Ok(bytes)
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&target);
+    }
+    result
 }
 
 /// Fail on an essential entry; skip and list anything else.
@@ -944,15 +1014,133 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_install_has_nothing_to_migrate() {
+    fn a_fresh_install_is_settled_so_a_later_old_folder_is_ignored() {
         let root = tempfile::tempdir().unwrap();
         let l = host(root.path());
         let m = migrate(&l);
         assert_eq!(m.data.2, Outcome::NothingToMigrate);
         assert_eq!(m.profile.2, Outcome::NothingToMigrate);
         assert_eq!(m.data_dir, l.data_new);
-        assert!(!l.data_new.exists());
+        assert!(l.data_new.join(MARKER).is_file());
+        assert!(l.data_new.join(PROFILE_DONE).is_file());
         assert!(!l.profile_new.exists());
+
+        // The app runs, then an old install turns up (Migration Assistant,
+        // a restored backup, an old build run once).
+        write(
+            &l.data_new.join("telemetry.json"),
+            "{\"enabled\":true,\"install_id\":\"new\"}",
+        );
+        write(&l.profile_new.join(MAC_STORE), "live");
+        old_install(&l);
+
+        let m = migrate(&l);
+        assert_eq!(m.data.2, Outcome::AlreadyMigrated);
+        assert_eq!(m.profile.2, Outcome::AlreadyMigrated);
+        assert_eq!(
+            read(&l.data_new.join("telemetry.json")),
+            "{\"enabled\":true,\"install_id\":\"new\"}"
+        );
+        assert_eq!(read(&l.profile_new.join(MAC_STORE)), "live");
+        assert!(!l.data_new.join("snapshots").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_recopy_puts_the_set_aside_profile_back() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        // The WebView's profile after an earlier failed copy, with a setting
+        // the user changed since.
+        write(&l.profile_new.join("WebsiteData/Default/salt"), "fresh");
+        let store = l.profile_old.join(MAC_STORE);
+        if !unreadable(&store) {
+            return;
+        }
+
+        for _ in 0..2 {
+            let m = migrate(&l);
+            assert!(
+                matches!(m.profile.2, Outcome::Failed(_)),
+                "{:?}",
+                m.profile.2
+            );
+            assert_eq!(
+                read(&l.profile_new.join("WebsiteData/Default/salt")),
+                "fresh"
+            );
+            let leftovers = std::fs::read_dir(l.profile_new.parent().unwrap())
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().contains(SET_ASIDE_SUFFIX))
+                .count();
+            assert_eq!(leftovers, 0, "set-aside profiles pile up");
+        }
+
+        set_mode(&store, 0o644);
+        assert!(matches!(migrate(&l).profile.2, Outcome::Recopied { .. }));
+        assert_eq!(read(&l.profile_new.join(MAC_STORE)), "settings");
+    }
+
+    #[test]
+    fn a_copy_another_instance_finished_first_is_used() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        // The other instance's finished copy lands before this one renames.
+        write(&l.data_new.join(MARKER), "other instance");
+
+        assert!(matches!(
+            copy_fresh(Kind::Data, &l.data_old, &l.data_new),
+            Ok(None)
+        ));
+        assert_eq!(read(&l.data_new.join(MARKER)), "other instance");
+        assert!(no_temps(&root.path().join("data")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_folder_is_copied_and_stays_read_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        set_mode(&l.data_old.join("snapshots"), 0o555);
+
+        let m = migrate(&l);
+
+        set_mode(&l.data_old.join("snapshots"), 0o755);
+        let copied = l.data_new.join("snapshots");
+        let mode = std::fs::metadata(&copied).unwrap().permissions().mode();
+        set_mode(&copied, 0o755);
+        assert!(matches!(m.data.2, Outcome::Copied(_)), "{:?}", m.data.2);
+        assert_eq!(mode & 0o777, 0o555);
+        assert!(copied.join("living-room.json").is_file());
+    }
+
+    #[test]
+    fn a_merge_leaves_no_temp_files() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        fresh_app_data(&l.data_new);
+
+        assert!(matches!(migrate(&l).data.2, Outcome::Merged(_)));
+
+        let mut stack = vec![l.data_new.clone()];
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(&dir).unwrap().flatten() {
+                assert!(
+                    !e.file_name().to_string_lossy().contains(TEMP_SUFFIX),
+                    "{:?}",
+                    e.path()
+                );
+                if e.file_type().unwrap().is_dir() {
+                    stack.push(e.path());
+                }
+            }
+        }
     }
 
     #[test]
