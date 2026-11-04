@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api, send } from "$lib/api";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
@@ -33,6 +33,7 @@
     keptPackages,
     resetToken,
     pageEpoch,
+    active,
     onRunStarted,
     onStatesChanged,
     onPlanLoaded,
@@ -49,6 +50,8 @@
     keptPackages: Set<string>;
     resetToken: number;
     pageEpoch: number;
+    /// Whether the tab is on screen. The plan loads itself when it is.
+    active: boolean;
     /// Called before the run's first mutation, so the page reports no
     /// cached state while packages change under it.
     onRunStarted: () => void;
@@ -138,6 +141,16 @@
       safetyByPackage = {};
     }
     seenContext = contextKey;
+  });
+
+  // Load the plan for the current mode whenever the tab is showing without
+  // one — on first visit and after a reset dropped it. Optimize is already
+  // the selected mode, so asking the user to click it to see anything read
+  // as a toggle that did nothing. A failed load waits for an explicit click.
+  $effect(() => {
+    if (active && !optimizePlan && !optimizePlanLoading && !optimizePlanErr && !optimizeRunning) {
+      untrack(() => void loadOptimizePlan(optimizeMode));
+    }
   });
 
   onDestroy(() => {
@@ -593,10 +606,10 @@
     <div class="error">{optimizePlanErr}</div>
   {/if}
 
-  {#if optimizePlanLoading}
+  {#if optimizePlanLoading || (!optimizePlan && !optimizePlanErr)}
     <p class="muted">Querying device…</p>
   {:else if !optimizePlan}
-    <p class="muted">Pick Optimize or Restore to load the plan.</p>
+    <p class="muted">Pick Optimize or Restore to try again.</p>
   {:else}
     {@const actionable = optimizePlan.items.filter((i) => effectiveAction(i) !== "skip").length}
     {@const totalRunning = optimizePlan.items

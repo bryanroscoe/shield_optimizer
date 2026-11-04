@@ -185,6 +185,20 @@ privacy and sharing disclosures and destructive consequences in the relevant dec
 confirmation; moving routine explanations into help must not remove informed consent. Review the
 whole changed screen for repeated microcopy before calling UI work finished.
 
+## Layout polish before handoff
+
+Review the whole changed desktop screen and similar rows before calling UI work finished. In
+summary rows, vertically center trailing actions against the complete title and metadata block,
+keep related controls grouped with consistent gaps, and let them wrap below the content when
+space is limited. Keep table cells in table layout; put flex action groups inside the cell.
+Preserve intentional top alignment for multi-section panels, warnings and directional controls.
+
+Run `cd v2 && npm run test:icon-alignment` and inspect both themes at a wide viewport, the
+720px desktop minimum and larger text. Check long names, selected/disabled states, spacing,
+clipping and keyboard access. Fix comparable layout problems found in the pass, and record the
+screens and remaining limits in PR evidence. Do not reduce text size or add explanatory copy to
+hide a layout problem.
+
 ## Conventions
 
 - **Commits**: always create a new commit. Never `--amend` unless explicitly asked. No `Co-Authored-By` trailers on commits.
