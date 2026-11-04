@@ -115,7 +115,6 @@ async function run(browser, base) {
       "If it's listed more than once, turn all of them on",
       "Then Restart ADB",
       "Don't Allow",
-      "belongs to an old build",
       "Little Snitch or LuLu",
     ]) {
       assert.ok(help.includes(phrase), `help mentions: ${phrase}`);

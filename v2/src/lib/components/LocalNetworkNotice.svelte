@@ -19,8 +19,7 @@
         </p>
         <p>
           macOS remembers an earlier Don't Allow, or a prompt that was dismissed, and doesn't ask
-          again. After an update it may list ATV Optimizer more than once, or show a switch that
-          looks on but belongs to an old build.
+          again.
         </p>
         <p>A VPN or a firewall app such as Little Snitch or LuLu can also block local connections.</p>
       </HelpTip>

@@ -5,8 +5,6 @@
 //! macOS attributes a helper's local network operations to the app that
 //! spawned it (Apple TN3179, "macOS considerations"). adb run from Terminal is
 //! exempt, which is why it can work there while the app's own adb fails.
-//! Ad hoc signed builds also get a new code identity each time, so macOS can
-//! treat an update as a new app (TN3179, "Build-time considerations").
 //!
 //! What it is not: after an update, an adb server the earlier version left
 //! running can be cut off by macOS for good (EHOSTUNREACH on every TV) while
@@ -183,8 +181,11 @@ pub fn classify(
 /// reached. Nothing is sent on a connection that opens; it is closed at once.
 ///
 /// Run from the app, not from adb, so it says what macOS allows this app now,
-/// whatever an older adb server is still being refused.
-pub async fn app_can_reach(addr: SocketAddr, connect_timeout: Duration) -> Reach {
+/// whatever an older adb server is still being refused. Private to the probe:
+/// the adb repair has its own (`adb::server_repair::app_reaches`, #286), and
+/// whichever lands second folds the two together.
+#[cfg(any(target_os = "macos", test))]
+async fn app_can_reach(addr: SocketAddr, connect_timeout: Duration) -> Reach {
     tokio::task::spawn_blocking(move || {
         retry_until_decided(
             ATTEMPTS,
