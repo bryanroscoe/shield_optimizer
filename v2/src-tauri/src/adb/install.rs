@@ -42,14 +42,10 @@ pub enum InstallError {
     NoInstallDir,
 }
 
-/// Where we extract platform-tools to — matches the `dirs::data_local_dir`
-/// convention used elsewhere for snapshots.
+/// Where we extract platform-tools to: inside the session's data folder,
+/// beside the snapshots.
 fn install_root() -> Option<PathBuf> {
-    Some(
-        dirs::data_local_dir()?
-            .join(crate::rename::DATA_DIR_NAME)
-            .join("platform-tools"),
-    )
+    Some(crate::rename::session_data_dir()?.join("platform-tools"))
 }
 
 fn adb_exe() -> &'static str {

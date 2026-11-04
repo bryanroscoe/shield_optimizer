@@ -5,7 +5,20 @@
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
   import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
-  import { explainAdbFailure, hostOf, subnetWarning } from "$lib/adb-errors";
+  import {
+    explainAdbFailure,
+    hostOf,
+    isNoRoute,
+    LOCAL_NETWORK_POSSIBLE,
+    subnetWarning,
+    type LocalNetworkHint,
+  } from "$lib/adb-errors";
+  import {
+    freshLocalNetworkStatus,
+    localNetwork,
+    openLocalNetworkSettings,
+  } from "$lib/local-network.svelte";
+  import LocalNetworkNotice from "$lib/components/LocalNetworkNotice.svelte";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
@@ -45,7 +58,7 @@
   /// adb's own words behind a failure `connectMessage` explains.
   let connectDetail = $state("");
   /// A failed Add by IP: adb's words plus the explanation adb-errors.ts gives.
-  let connectError = $state<{ raw: string; summary: string | null } | null>(null);
+  let connectError = $state<{ raw: string; summary: string | null; localNetwork: LocalNetworkHint } | null>(null);
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
@@ -57,6 +70,7 @@
   let pairBusy = $state(false);
   let pairMessage = $state("");
   let pairDetail = $state("");
+  let pairLocalNetwork = $state<LocalNetworkHint>(null);
   /// "typo?" when the pairing host is not on this computer's network.
   let pairWarning = $state<string | null>(null);
   let pairWarnToken = 0;
@@ -76,6 +90,9 @@
 
   let restartBusy = $state(false);
   let restartMessage = $state("");
+  /// macOS: a restart whose own reconnects still found no route, while the
+  /// probe can't tell whether the app is blocked.
+  const restartLocalNetwork = $derived(isNoRoute(restartMessage) && localNetwork.status === "unknown");
 
   let reportBusy = $state(false);
   let reportData = $state<DeviceReport[] | null>(null);
@@ -126,11 +143,12 @@
     }
   }
 
-  function showConnectFailure(address: string, raw: string) {
-    const explained = explainAdbFailure("connect", address, raw);
+  async function showConnectFailure(address: string, raw: string) {
+    const status = await freshLocalNetworkStatus(raw, address);
+    const explained = explainAdbFailure("connect", address, raw, status);
     connectMessage = "";
     connectDetail = "";
-    connectError = { raw: explained.raw, summary: explained.summary };
+    connectError = { raw: explained.raw, summary: explained.summary, localNetwork: explained.localNetwork };
   }
 
   /// The adb transport key `adb connect <address>` registers: a bare host
@@ -158,11 +176,11 @@
         await announceConnected(connectKey(address));
       } else {
         failedConnectAddress = address;
-        showConnectFailure(address, r.message);
+        await showConnectFailure(address, r.message);
       }
     } catch (e) {
       failedConnectAddress = address;
-      showConnectFailure(address, String(e));
+      await showConnectFailure(address, String(e));
     } finally {
       connectBusy = false;
     }
@@ -409,10 +427,12 @@
     return d.connection === "usb" ? '"Allow USB debugging?"' : '"Allow debugging?"';
   }
 
-  function showPairFailure(address: string, raw: string) {
-    const explained = explainAdbFailure("pair", address, raw);
+  async function showPairFailure(address: string, raw: string) {
+    const status = await freshLocalNetworkStatus(raw, address);
+    const explained = explainAdbFailure("pair", address, raw, status);
     pairMessage = explained.summary ?? explained.raw;
     pairDetail = explained.summary ? explained.raw : "";
+    pairLocalNetwork = explained.localNetwork;
   }
 
   $effect(() => {
@@ -439,6 +459,7 @@
     pairBusy = true;
     pairMessage = "";
     pairDetail = "";
+    pairLocalNetwork = null;
     pairNextStep = false;
     // Closing the panel bumps pairWaitToken. Capture it before the request so
     // a pair that finishes after the user cancelled never starts a wait that
@@ -462,10 +483,10 @@
         if (requestToken !== pairWaitToken || !pairOpen) return;
         void waitForConnect(address, host, r.instance);
       } else {
-        showPairFailure(address, r.message);
+        await showPairFailure(address, r.message);
       }
     } catch (e) {
-      showPairFailure(address, String(e));
+      await showPairFailure(address, String(e));
     } finally {
       pairPin = "";
       pairBusy = false;
@@ -546,7 +567,10 @@
       pairElapsed = Math.min(PAIR_CONNECT_WAIT_S, Math.floor((Date.now() - started) / 1000));
       if (Date.now() - started >= PAIR_CONNECT_WAIT_S * 1000) {
         if (lastFailure) {
-          const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message);
+          const status = await freshLocalNetworkStatus(lastFailure.message, lastFailure.address);
+          if (token !== pairWaitToken) return;
+          const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message, status);
+          pairLocalNetwork = explained.localNetwork;
           fallBackToManual(
             `It advertised ${lastFailure.address}, but connecting kept failing. ${explained.summary ?? ""}`.trim(),
             explained.raw,
@@ -584,6 +608,7 @@
     pairStage = "manual";
     pairMessage = why;
     pairDetail = detail;
+    if (!detail) pairLocalNetwork = null;
     if (pairWaitHost) connectAddress = `${pairWaitHost}:`;
     pairNextStep = true;
     await tick();
@@ -628,6 +653,7 @@
     try {
       const r = await api.restartAdb();
       restartMessage = r.message;
+      await freshLocalNetworkStatus(r.message);
       await refresh();
       if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
@@ -777,6 +803,25 @@
   </div>
 </section>
 
+<LocalNetworkNotice />
+
+<!-- What a macOS "No route to host" offers, by what the probe saw. -->
+{#snippet remedies(hint: LocalNetworkHint)}
+  <span class="remedies">
+    <button
+      onclick={restartAdb}
+      disabled={restartBusy || connectBusy || adbMissing}
+    >
+      <Icon name="restart_alt" size={14} /> {restartBusy ? "Restarting ADB…" : "Restart ADB"}
+    </button>
+    {#if hint === "restart_or_settings"}
+      <button onclick={openLocalNetworkSettings}>
+        <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
+      </button>
+    {/if}
+  </span>
+{/snippet}
+
 <!-- The board leads with Scan LAN and Add by IP. The other four stay, one
      row down, because every one of them is the only way to do the
      thing it does. -->
@@ -835,6 +880,9 @@
       error={connectError.raw}
       summary={connectError.summary}
     />
+    {#if connectError.localNetwork === "restart" || connectError.localNetwork === "restart_or_settings"}
+      <div class="connect-message plain">{@render remedies(connectError.localNetwork)}</div>
+    {/if}
   {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
@@ -844,6 +892,12 @@
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
+    {#if restartLocalNetwork}
+      <p class="connect-message muted plain">
+        {LOCAL_NETWORK_POSSIBLE}
+        <button class="inline-link" onclick={openLocalNetworkSettings}>Open Privacy &amp; Security</button>
+      </p>
+    {/if}
   {/if}
   {#if stopOnQuit.error}
     <p class="connect-message muted quit-error">
@@ -910,6 +964,9 @@
         <summary>Details</summary>
         <pre>{pairDetail}</pre>
       </details>
+    {/if}
+    {#if pairLocalNetwork === "restart" || pairLocalNetwork === "restart_or_settings"}
+      <div class="local-network-action">{@render remedies(pairLocalNetwork)}</div>
     {/if}
   </section>
 {/if}
@@ -1233,6 +1290,15 @@
         <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
       </span>
     </div>
+    {#if localNetwork.status && localNetwork.status !== "not_applicable"}
+      <p class="local-network-help">
+        On a Mac, after an update, macOS can cut off an ADB server the earlier version left
+        running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
+        in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+        → Local Network; if it already is, turn it off and on again (all of them, if it's listed
+        more than once), then Restart ADB.
+      </p>
+    {/if}
   </HelpDetails>
 {/if}
 
@@ -1395,6 +1461,14 @@
   }
   .devices-note {
     margin-top: 1rem;
+  }
+  .local-network-action {
+    margin-top: 0.4rem;
+  }
+  .remedies {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
   .inline-link {
     display: inline;
