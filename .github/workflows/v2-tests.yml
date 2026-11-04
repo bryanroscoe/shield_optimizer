@@ -444,7 +444,7 @@ jobs:
 
       - name: Install test browser
         working-directory: v2/mobile
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Mobile behavior regressions
         working-directory: v2/mobile
