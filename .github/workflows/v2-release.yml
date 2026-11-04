@@ -17,7 +17,7 @@
 # macOS builds are ad-hoc signed as the app's bundle identifier
 # (bundle.macOS.signingIdentity "-" in tauri.conf.json), the stable identity
 # Apple's local network privacy guidance (TN3179) asks for. The linker-only
-# signature Rust leaves behind is named `shield_optimizer_v2-<hash>`, changes
+# signature Rust leaves behind is named `atv_optimizer-<hash>`, changes
 # with every build, and leaves the bundle itself unsigned. "Verify macOS
 # signing identifier" below enforces this.
 #
@@ -340,9 +340,12 @@ jobs:
           sha=$(sha256sum /tmp/sho.dmg | awk '{print $1}')
           echo "SHA256: $sha"
 
+          # The cask was renamed from shield-optimizer; the tap's
+          # cask_renames.json moves existing installs over.
+          [[ -f Casks/atv-optimizer.rb ]] || { echo "Casks/atv-optimizer.rb missing: merge the tap's rename PR first"; exit 1; }
           python3 - <<PY
           import pathlib, re
-          p = pathlib.Path("Casks/shield-optimizer.rb")
+          p = pathlib.Path("Casks/atv-optimizer.rb")
           t = p.read_text()
           t, n1 = re.subn(r'version "[^"]+"', f'version "$version"', t, count=1)
           assert n1 == 1, "version line not found in cask"
@@ -353,11 +356,11 @@ jobs:
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/shield-optimizer.rb
+          git add Casks/atv-optimizer.rb
           if git diff --cached --quiet; then
             echo "Cask already up to date; nothing to commit."
           else
-            git commit -m "Bump shield-optimizer to $version"
+            git commit -m "Bump atv-optimizer to $version"
             git push
             echo "Tap updated to $version."
           fi

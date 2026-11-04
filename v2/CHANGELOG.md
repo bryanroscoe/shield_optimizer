@@ -22,6 +22,37 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- **ATV Optimizer now uses its own name everywhere, and moves your data over on first launch.**
+  The app identifier is now `com.atvoptimizer.app` and the data folder is `ATVOptimizer`
+  (`~/Library/Application Support`, `%LOCALAPPDATA%` or `~/.local/share`). The first launch copies
+  your settings, saved snapshots, screenshots, logs and anonymous report ID (with your choice to
+  send reports or not) from the old `ShieldOptimizer` folder and the old WebView profile. Nothing
+  is moved or deleted, so the old copies stay where they were. If the copy can't finish, the app
+  keeps using the old folder and tries again next launch. The adb the app downloaded is not
+  copied; the app keeps using it from the old folder until you install platform-tools again.
+- macOS: the first launch asks again whether ATV Optimizer may find devices on your local
+  network, because that permission belongs to the app identifier. Click **Allow**. System
+  Settings › Privacy & Security › Local Network may then list ATV Optimizer twice; the old entry
+  is the previous version and can be left alone. Until you allow it, the adb server the previous
+  version left running can't reach your TVs; after you allow it, the app restarts that server.
+- Windows: installing this version with the `-setup.exe` installer, or updating in the app from
+  a setup install, closes and removes a leftover **Shield Optimizer** install (from 2.2.0 or
+  earlier) that the 2.3.0 update left beside ATV Optimizer, with its shortcuts and its
+  Add/Remove Programs entry, and points your Start menu, desktop and taskbar shortcuts at the new
+  program. Your settings and data are not touched. The `.msi` installer doesn't do this; remove a
+  leftover Shield Optimizer from Add/Remove Programs yourself (without ticking "Delete the
+  application data").
+- Windows: if you installed with the `.msi`, a taskbar pin from 2.4.1 or earlier still points at
+  the old program, which the upgrade removed, so it no longer opens the app. Unpin it and pin ATV
+  Optimizer again. Start menu and desktop shortcuts are updated. The `-setup.exe` installer moves
+  pins over itself; if one still doesn't open the app, re-pin it the same way.
+- macOS: a copy still named `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you
+  quit it, unless a Homebrew cask manages it or that name is taken. Homebrew users: the cask is
+  now `atv-optimizer`, and `brew upgrade` moves you over.
+- Linux (`.deb` and `.rpm`): after updating from 2.4.1 or earlier in the app, the app may not
+  reopen by itself, because the program is now `atv-optimizer`. Reopen it from your app menu.
+- The adb and subnet overrides are now `ATV_OPTIMIZER_ADB` and `ATV_OPTIMIZER_SUBNET`. The old
+  `SHIELD_OPTIMIZER_*` names still work.
 - macOS: TVs no longer disappear after an update. The ADB server the previous version started kept running, and once the new version opened, macOS cut that server off from your network: every connection failed with "No route to host", even by IP, until ADB was restarted by hand. When the app can reach a TV that ADB can't, it now restarts ADB itself and tries again. The app is also signed under its own identifier now, instead of one that changed with every build.
 
 - Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.

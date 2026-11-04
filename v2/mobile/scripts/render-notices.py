@@ -22,8 +22,8 @@ from pathlib import Path
 FIRST_PARTY = {
     "atv-optimizer-mobile",
     "atvopt-license",
-    "shield-optimizer-core",
-    "shield-optimizer-v2",
+    "atv-optimizer-core",
+    "atv-optimizer",
     "tauri-plugin-atv-adb",
 }
 

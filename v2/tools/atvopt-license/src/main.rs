@@ -13,11 +13,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use atv_optimizer_core::license::{issue_license, parse_license};
 use chrono::{NaiveDate, Utc};
 use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
 use rand_core::OsRng;
-use shield_optimizer_core::license::{issue_license, parse_license};
 
 #[derive(Parser)]
 #[command(
@@ -201,7 +201,7 @@ fn rust_literal(bytes: &[u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shield_optimizer_core::license::public_key_for;
+    use atv_optimizer_core::license::public_key_for;
 
     #[test]
     fn private_key_file_round_trips() {

@@ -12,10 +12,10 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use shield_optimizer_core::adb::driver::process_output;
-use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
-use shield_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
+use atv_optimizer_core::adb::driver::process_output;
+use atv_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
+use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
+use atv_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
 
 use super::server_repair::{self, Reach, ReachProbe, RepairGate};
 use crate::session;
@@ -834,8 +834,10 @@ pub fn forget_cached_adb_binary() {
 /// SDK, and other common installs. This function walks a deterministic
 /// priority list:
 ///
-/// 1. `SHIELD_OPTIMIZER_ADB` env var (explicit user override)
-/// 2. App-managed platform-tools install
+/// 1. `ATV_OPTIMIZER_ADB` env var (explicit user override), or its old name
+///    `SHIELD_OPTIMIZER_ADB`
+/// 2. App-managed platform-tools install, then the one under the pre-rename
+///    data folder, which is not copied over (a running adb server holds it)
 /// 3. `ANDROID_HOME` / `ANDROID_SDK_ROOT` env vars + `platform-tools/adb`
 /// 4. PATH search (only finds adb on Linux/Windows or when the GUI was
 ///    launched from a shell that exported the right PATH)
@@ -849,8 +851,9 @@ pub fn forget_cached_adb_binary() {
 ///    or its parent, where v1 downloads its adb binary (the repo root).
 pub fn discover_adb_binary() -> Option<PathBuf> {
     let sources = AdbDiscoverySources {
-        explicit_override: std::env::var_os("SHIELD_OPTIMIZER_ADB").map(PathBuf::from),
+        explicit_override: crate::rename::adb_override(),
         managed_install: crate::adb::install::adb_path_in_install_root(),
+        legacy_managed_install: crate::adb::install::adb_path_in_legacy_install_root(),
         sdk_roots: ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
             .into_iter()
             .filter_map(std::env::var_os)
@@ -866,6 +869,7 @@ pub fn discover_adb_binary() -> Option<PathBuf> {
 struct AdbDiscoverySources {
     explicit_override: Option<PathBuf>,
     managed_install: Option<PathBuf>,
+    legacy_managed_install: Option<PathBuf>,
     sdk_roots: Vec<PathBuf>,
     well_known: Vec<PathBuf>,
     cwd: Option<PathBuf>,
@@ -886,6 +890,7 @@ where
         .explicit_override
         .into_iter()
         .chain(sources.managed_install)
+        .chain(sources.legacy_managed_install)
         .chain(
             sources
                 .sdk_roots
@@ -1153,7 +1158,7 @@ mod tests {
             redact_stdout_for_log("shell settings get global device_name", "Bedroom Shield\n"),
             "<redacted: a name or host the user set>"
         );
-        let cmd = shield_optimizer_core::adb::batch_command(&[
+        let cmd = atv_optimizer_core::adb::batch_command(&[
             "settings get global device_name",
             "getprop ro.product.model",
         ]);
@@ -1478,6 +1483,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: Some(explicit.clone()),
             managed_install: Some(temp.path().join("managed-adb")),
+            legacy_managed_install: None,
             sdk_roots: vec![temp.path().join("sdk")],
             well_known: vec![temp.path().join("well-known-adb")],
             cwd: Some(temp.path().join("launch-volume")),
@@ -1500,6 +1506,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: Some(temp.path().join("missing-explicit")),
             managed_install: Some(temp.path().join("missing-managed")),
+            legacy_managed_install: None,
             sdk_roots: vec![temp.path().join("missing-sdk")],
             well_known: Vec::new(),
             cwd: None,
@@ -1518,6 +1525,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: None,
             managed_install: Some(managed.clone()),
+            legacy_managed_install: None,
             sdk_roots: vec![temp.path().join("sdk")],
             well_known: vec![temp.path().join("well-known-adb")],
             cwd: Some(temp.path().join("launch-volume")),
@@ -1529,6 +1537,29 @@ mod tests {
             Path::is_file,
         );
 
+        assert_eq!(found.as_deref(), Some(managed.as_path()));
+    }
+
+    #[test]
+    fn discovery_prefers_the_new_managed_install_over_the_pre_rename_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed = temp.path().join("ATVOptimizer-adb");
+        let legacy = temp.path().join("ShieldOptimizer-adb");
+        std::fs::write(&legacy, b"fake adb").unwrap();
+        let sources = |managed: &Path| AdbDiscoverySources {
+            explicit_override: None,
+            managed_install: Some(managed.to_path_buf()),
+            legacy_managed_install: Some(legacy.clone()),
+            sdk_roots: Vec::new(),
+            well_known: Vec::new(),
+            cwd: None,
+        };
+
+        let found = discover_adb_binary_from(sources(&managed), || None, Path::is_file);
+        assert_eq!(found.as_deref(), Some(legacy.as_path()));
+
+        std::fs::write(&managed, b"fake adb").unwrap();
+        let found = discover_adb_binary_from(sources(&managed), || None, Path::is_file);
         assert_eq!(found.as_deref(), Some(managed.as_path()));
     }
 
@@ -1544,6 +1575,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: None,
             managed_install: None,
+            legacy_managed_install: None,
             sdk_roots: Vec::new(),
             well_known: vec![well_known.clone()],
             cwd: Some(volume.clone()),

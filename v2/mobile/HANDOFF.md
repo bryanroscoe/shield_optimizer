@@ -201,9 +201,9 @@ From `v2/`:
 
 ```
 cargo fmt --check
-cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile \
+cargo clippy -p atv-optimizer-core -p atv-optimizer -p atv-optimizer-mobile \
   -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing -p atvopt-license --all-targets -- -D warnings
-cargo test -p shield-optimizer-core -p atv-optimizer-mobile -p atvopt-license
+cargo test -p atv-optimizer-core -p atv-optimizer-mobile -p atvopt-license
 cd vendor/adb_client && cargo test --lib      # the vendored crate is outside the workspace
 ```
 

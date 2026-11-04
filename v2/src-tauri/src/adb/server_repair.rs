@@ -16,7 +16,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
-use shield_optimizer_core::adb::{AdbOutput, AdbResult};
+use atv_optimizer_core::adb::{AdbOutput, AdbResult};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
@@ -165,7 +165,7 @@ fn with_port(target: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shield_optimizer_core::adb::AdbError;
+    use atv_optimizer_core::adb::AdbError;
 
     fn output(stdout: &str) -> AdbResult<AdbOutput> {
         Ok(AdbOutput {

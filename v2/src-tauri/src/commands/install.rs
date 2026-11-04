@@ -11,7 +11,7 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
-use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
+use atv_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
 
 #[derive(Serialize)]
 pub struct AdbStatus {
@@ -145,7 +145,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
             }
             // ADB auto-attaches paired mDNS services; their transport keys are
             // not socket addresses and must never be passed to `adb connect`.
-            if shield_optimizer_core::adb::is_network_endpoint(serial) {
+            if atv_optimizer_core::adb::is_network_endpoint(serial) {
                 match adb.raw(&["connect", serial]).await {
                     Ok(out) => {
                         let response = out.combined();
@@ -238,7 +238,7 @@ pub(crate) async fn install_with<F, Fut>(
     installer: F,
 ) -> Result<InstallResult, String>
 where
-    F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
+    F: FnOnce(Arc<atv_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);

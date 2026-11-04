@@ -6,9 +6,9 @@ use std::time::Duration;
 use adb_client::tcp::{ADBTcpDevice, ADBTcpService, PairingError};
 use adb_client::{ADBDeviceExt, RebootType, RustADBError};
 use async_trait::async_trait;
+use atv_optimizer_core::adb::{AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult};
+use atv_optimizer_core::commands::devices::normalize_connect_address;
 use serde::Serialize;
-use shield_optimizer_core::adb::{AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult};
-use shield_optimizer_core::commands::devices::normalize_connect_address;
 
 use tauri_plugin_atv_adb::AdbExt;
 
