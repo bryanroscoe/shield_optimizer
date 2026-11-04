@@ -6,6 +6,11 @@
 //! spawned it (Apple TN3179, "macOS considerations"). adb run from Terminal is
 //! exempt, which is why it can work there while the app's own adb fails.
 //!
+//! Builds are only ad hoc signed, so each one has a different code identity
+//! and macOS treats an update as a new app without the old grant (TN3179,
+//! "Build-time considerations"). This module cannot fix that; it makes the
+//! state visible and the prompt timely.
+//!
 //! `local_network_access` does one local network operation from the app's own
 //! process, so the system alert appears at launch with our usage string
 //! instead of from adb in the middle of a scan, and reports what it saw. There
@@ -105,8 +110,11 @@ pub fn mdns_ptr_query(name: &str) -> Vec<u8> {
 
 pub const MDNS_PROBE_NAME: &str = "_adb-tls-connect._tcp.local";
 
-/// The Privacy & Security → Local Network pane. Fixed: nothing from the
-/// frontend reaches this command line.
+/// System Settings → Privacy & Security, at its Local Network anchor where
+/// macOS defines one. macOS 26.6 has no anchor for Local Network (its
+/// PrivacySecurity.searchTerms lists none) and opens Privacy & Security itself,
+/// one click away, which is why the button is labelled for that. Fixed:
+/// nothing from the frontend reaches this command line.
 pub const LOCAL_NETWORK_SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork";
 

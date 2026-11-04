@@ -102,7 +102,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(blocked.localNetwork, "blocked");
   assert.equal(
     blocked.summary,
-    "Couldn't reach 192.168.1.9. macOS is blocking ATV Optimizer from your local network. Turn ATV Optimizer on under Local Network in System Settings, then quit and reopen the app.",
+    "Couldn't reach 192.168.1.9. macOS is blocking ATV Optimizer from your local network. Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then Restart ADB.",
   );
   assert.ok(blocked.summary.includes(LOCAL_NETWORK_BLOCKED));
 

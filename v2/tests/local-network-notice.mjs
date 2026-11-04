@@ -106,10 +106,12 @@ async function run(browser, base) {
     assert.equal(await trigger.getAttribute("aria-expanded"), "true");
     const help = await helpText.innerText();
     for (const phrase of [
-      "find ATV Optimizer and turn it on",
-      "If it's already on, turn it off and back on",
-      "quit and reopen ATV Optimizer",
+      "then Local Network, and turn ATV Optimizer on",
+      "turn it off and on again",
+      "If it's listed more than once, turn all of them on",
+      "Then Restart ADB",
       "Don't Allow",
+      "belongs to an old build",
       "Little Snitch or LuLu",
     ]) {
       assert.ok(help.includes(phrase), `help mentions: ${phrase}`);
@@ -119,11 +121,11 @@ async function run(browser, base) {
     await page.keyboard.press("Escape");
     assert.equal(await trigger.getAttribute("aria-expanded"), "false", "Escape closes help");
 
-    await notice.getByRole("button", { name: "Open Local Network settings", exact: true }).click();
+    await notice.getByRole("button", { name: "Open Privacy & Security", exact: true }).click();
     assert.equal(await calls("open_local_network_settings"), 1);
 
     await page.evaluate(() => (window.ln.openFails = true));
-    await notice.getByRole("button", { name: "Open Local Network settings", exact: true }).click();
+    await notice.getByRole("button", { name: "Open Privacy & Security", exact: true }).click();
     await notice.getByText(/Couldn't open System Settings/).waitFor();
     await page.evaluate(() => (window.ln.openFails = false));
 
@@ -143,7 +145,7 @@ async function run(browser, base) {
     const err = page.locator(".connect-form .error-notice");
     await err.waitFor();
     assert.match(await err.innerText(), /Couldn't reach 192\.168\.1\.9\. macOS is blocking ATV Optimizer/);
-    assert.equal(await page.locator(".connect-form").getByRole("button", { name: "Open Local Network settings" }).count(), 0);
+    assert.equal(await page.locator(".connect-form").getByRole("button", { name: "Open Privacy & Security" }).count(), 0);
 
     // Access granted in System Settings; coming back to the window re-probes.
     const before = await calls("local_network_access");
@@ -172,7 +174,7 @@ async function run(browser, base) {
     assert.match(possible, /macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way\./);
     assert.doesNotMatch(possible, /macOS is blocking/);
     assert.equal(await notice.count(), 0, "unknown never shows the blocked notice");
-    const inline = page.locator(".connect-form").getByRole("button", { name: "Open Local Network settings", exact: true });
+    const inline = page.locator(".connect-form").getByRole("button", { name: "Open Privacy & Security", exact: true });
     await inline.waitFor();
     await shot("local-network-possible-connect-error");
     await inline.click();
@@ -185,9 +187,9 @@ async function run(browser, base) {
     await page.getByRole("heading", { name: "No devices connected.", exact: true }).waitFor();
     const macHelp = page.locator(".help-details .local-network-help");
     await macHelp.waitFor();
-    assert.match(await macHelp.innerText(), /On a Mac, check that ATV Optimizer is on under Local Network settings/);
+    assert.match(await macHelp.innerText(), /On a Mac, check that ATV Optimizer is on in Privacy & Security → Local Network\./);
     await shot("local-network-connection-help");
-    await macHelp.getByRole("button", { name: "Local Network settings", exact: true }).click();
+    await macHelp.getByRole("button", { name: "Privacy & Security", exact: true }).click();
     assert.equal(await calls("open_local_network_settings"), 1, "calls restart with the reload");
 
     if (out) {

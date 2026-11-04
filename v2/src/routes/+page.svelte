@@ -864,7 +864,7 @@
     {#if connectError.localNetwork === "possible"}
       <div class="connect-message plain">
         <button onclick={openLocalNetworkSettings}>
-          <Icon name="open_in_new" size={14} /> Open Local Network settings
+          <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
         </button>
       </div>
     {/if}
@@ -880,7 +880,7 @@
     {#if restartLocalNetwork === "possible"}
       <p class="connect-message muted plain">
         {localNetworkSentence(restartLocalNetwork)}
-        <button class="inline-link" onclick={openLocalNetworkSettings}>Open Local Network settings</button>
+        <button class="inline-link" onclick={openLocalNetworkSettings}>Open Privacy &amp; Security</button>
       </p>
     {/if}
   {/if}
@@ -952,7 +952,7 @@
     {/if}
     {#if pairLocalNetwork === "possible"}
       <button class="local-network-action" onclick={openLocalNetworkSettings}>
-        <Icon name="open_in_new" size={14} /> Open Local Network settings
+        <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
       </button>
     {/if}
   </section>
@@ -1279,9 +1279,10 @@
     </div>
     {#if localNetwork.status && localNetwork.status !== "not_applicable"}
       <p class="local-network-help">
-        On a Mac, check that ATV Optimizer is on under
-        <button class="inline-link" onclick={openLocalNetworkSettings}>Local Network settings</button>.
-        If it already is, turn it off and back on, then quit and reopen the app.
+        On a Mac, check that ATV Optimizer is on in
+        <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+        → Local Network. If it already is, turn it off and on again (all of them, if it's listed
+        more than once), then Restart ADB.
       </p>
     {/if}
   </HelpDetails>

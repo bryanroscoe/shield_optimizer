@@ -21,7 +21,7 @@ export interface ExplainedFailure {
   summary: string | null;
   /// adb's own words, trimmed.
   raw: string;
-  /// Show the "Open Local Network settings" button beside it.
+  /// Show the button that opens Privacy & Security beside it.
   localNetwork: LocalNetworkHint;
 }
 
@@ -45,7 +45,7 @@ export function localNetworkHint(raw: string, status: LocalNetworkStatus | null)
 }
 
 const LOCAL_NETWORK_SENTENCE: Record<"blocked" | "possible", string> = {
-  blocked: `${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on under Local Network in System Settings, then quit and reopen the app.`,
+  blocked: `${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then Restart ADB.`,
   possible:
     "macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall " +
     "app may be in the way.",
