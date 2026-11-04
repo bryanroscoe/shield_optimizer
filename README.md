@@ -57,6 +57,9 @@ only have to dismiss it once:
 - **Windows** (SmartScreen): **More info → Run anyway**.
 - **Linux**: `chmod +x ATV.Optimizer*.AppImage` before running the AppImage.
 
+On macOS 15+, also click **Allow** when macOS asks whether ATV Optimizer can find devices on your
+local network. Without it, the app can't reach any TV.
+
 ## Before you start
 
 Turn on ADB on the TV. You only do this once:
@@ -91,6 +94,13 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 ### Can't find your TV?
 
 Use **Scan LAN**, **Add by IP** or **Pair PIN**.
+
+**On a Mac, if nothing is found even by IP** while `adb connect` from Terminal still works, click
+**Restart ADB** first. After an update, macOS cuts off the ADB server the previous version left
+running. The app now restarts it by itself when it notices, and a manual restart does the same. If
+that doesn't help, macOS may be blocking the app: open System Settings → Privacy & Security →
+**Local Network** and turn ATV Optimizer on. If it already looks on, turn it off and on again. If
+it's listed more than once, turn every entry on. Then click **Restart ADB** again.
 
 **Scan LAN** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
 devices like the Shield use. It also checks the devices ADB has discovered over mDNS. That second

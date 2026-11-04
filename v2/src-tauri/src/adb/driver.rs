@@ -17,6 +17,7 @@ use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
 use shield_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
 
+use super::server_repair::{self, Reach, ReachProbe, RepairGate};
 use crate::session;
 
 /// The standard subprocess-backed driver. Wraps `tokio::process::Command`.
@@ -28,6 +29,11 @@ pub struct SubprocessAdb {
     /// production driver shares the process-wide counter, so a driver swapped
     /// in by `install_adb` is covered too.
     children: Arc<Leases>,
+    /// Restart a server macOS has cut off from the local network. Only macOS
+    /// does that; see `server_repair`.
+    repair_cut_off: bool,
+    reach: ReachProbe,
+    repairs: Arc<RepairGate>,
 }
 
 impl SubprocessAdb {
@@ -37,6 +43,9 @@ impl SubprocessAdb {
             binary,
             command_timeout: Duration::from_secs(30),
             children: Arc::clone(super::child_leases()),
+            repair_cut_off: cfg!(target_os = "macos"),
+            reach: ReachProbe::Network,
+            repairs: Arc::clone(super::server_repairs()),
         }
     }
 
@@ -58,6 +67,14 @@ impl SubprocessAdb {
 
     pub fn with_timeout(mut self, dur: Duration) -> Self {
         self.command_timeout = dur;
+        self
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn with_cut_off_repair(mut self, reach: Reach) -> Self {
+        self.repair_cut_off = true;
+        self.reach = ReachProbe::Fixed(reach);
+        self.repairs = Arc::default();
         self
     }
 
@@ -116,6 +133,42 @@ impl SubprocessAdb {
 
     async fn run(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.run_with_timeout(args, self.command_timeout).await
+    }
+
+    /// `failed` came from `args`, a connect or pair to `target` that started
+    /// at `started` and failed with "No route to host". Restart the server
+    /// and retry when this process reaches `target` itself; otherwise return
+    /// `failed` unchanged. See `server_repair`.
+    async fn repair_cut_off_server(
+        &self,
+        args: &[&str],
+        target: &str,
+        started: Instant,
+        failed: AdbResult<AdbOutput>,
+    ) -> AdbResult<AdbOutput> {
+        if custom_server_target(|name| std::env::var_os(name)).is_some() {
+            return failed;
+        }
+        let mut last_restart = self.repairs.lock().await;
+        match server_repair::decide(*last_restart, started) {
+            server_repair::Repair::Leave => return failed,
+            server_repair::Repair::Retry => {}
+            server_repair::Repair::Restart => {
+                if self.reach.probe(target).await != Reach::Reachable {
+                    return failed;
+                }
+                warn!("the adb server cannot reach a device this app reaches; restarting it");
+                let _ = self.run(&["kill-server"]).await;
+                let start = self.run(&["start-server"]).await;
+                *last_restart = Some(Instant::now());
+                if let Err(error) = start {
+                    warn!(%error, "adb start-server failed while replacing a cut-off server");
+                    return failed;
+                }
+            }
+        }
+        drop(last_restart);
+        self.run(args).await
     }
 
     async fn run_with_timeout(&self, args: &[&str], dur: Duration) -> AdbResult<AdbOutput> {
@@ -533,7 +586,15 @@ fn bounded_utf8(bytes: &[u8]) -> String {
 #[async_trait]
 impl AdbDriver for SubprocessAdb {
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
-        self.run(args).await
+        let started = Instant::now();
+        let result = self.run(args).await;
+        match server_repair::repairable_target(args) {
+            Some(target) if self.repair_cut_off && server_repair::reports_no_route(&result) => {
+                self.repair_cut_off_server(args, target, started, result)
+                    .await
+            }
+            _ => result,
+        }
     }
 
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
@@ -1557,6 +1618,152 @@ mod tests {
         assert_eq!(RESOLVES.load(Ordering::SeqCst), 2);
 
         forget_cached_adb_binary();
+    }
+
+    #[cfg(unix)]
+    mod cut_off_server_repair {
+        use super::*;
+
+        const TARGET: &str = "192.0.2.10:5555";
+
+        /// A stand-in adb whose server can reach nothing until it is
+        /// restarted, like one macOS cut off after an update. With
+        /// `restart_fixes` false, a restarted server is still cut off.
+        fn cut_off_adb(dir: &Path, restart_fixes: bool) -> PathBuf {
+            let adb = dir.join("adb");
+            let start = if restart_fixes {
+                "touch \"$DIR/fresh\""
+            } else {
+                ":"
+            };
+            crate::adb::write_script(
+                &adb,
+                &format!(
+                    "DIR='{}'\n\
+                     echo \"$*\" >> \"$DIR/calls\"\n\
+                     case \"$1\" in\n\
+                     kill-server) rm -f \"$DIR/fresh\" ;;\n\
+                     start-server) {start} ;;\n\
+                     connect|pair|devices)\n\
+                       if [ -f \"$DIR/fresh\" ]; then echo \"connected to $2\";\n\
+                       else echo \"failed to connect to '$2': No route to host\"; fi ;;\n\
+                     esac",
+                    dir.display()
+                ),
+            );
+            adb
+        }
+
+        fn calls(dir: &Path) -> Vec<String> {
+            std::fs::read_to_string(dir.join("calls"))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect()
+        }
+
+        #[tokio::test]
+        async fn a_cut_off_server_is_restarted_once_and_the_connect_retried() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            let out = driver.raw(&["connect", TARGET]).await.unwrap();
+            assert_eq!(out.stdout.trim(), format!("connected to {TARGET}"));
+            assert_eq!(
+                calls(dir.path()),
+                [
+                    format!("connect {TARGET}"),
+                    "kill-server".into(),
+                    "start-server".into(),
+                    format!("connect {TARGET}"),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn a_pair_is_retried_with_the_same_code() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            driver
+                .raw(&["pair", "192.0.2.10:37000", "123456"])
+                .await
+                .unwrap();
+            assert_eq!(
+                calls(dir.path()).last().unwrap(),
+                "pair 192.0.2.10:37000 123456"
+            );
+        }
+
+        #[tokio::test]
+        async fn the_server_is_left_alone_unless_this_app_reaches_the_device() {
+            for reach in [Reach::Unreachable, Reach::Unknown] {
+                let dir = tempfile::tempdir().unwrap();
+                let driver =
+                    SubprocessAdb::new(cut_off_adb(dir.path(), true)).with_cut_off_repair(reach);
+                let out = driver.raw(&["connect", TARGET]).await.unwrap();
+                assert!(out.stdout.contains("No route to host"), "{reach:?}");
+                assert_eq!(
+                    calls(dir.path()),
+                    [format!("connect {TARGET}")],
+                    "{reach:?}"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn concurrent_failures_share_one_restart() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            let (a, b) = tokio::join!(
+                driver.raw(&["connect", TARGET]),
+                driver.raw(&["connect", "192.0.2.11:5555"])
+            );
+            assert!(a.unwrap().stdout.starts_with("connected to"));
+            assert!(b.unwrap().stdout.starts_with("connected to"));
+            let restarts = calls(dir.path())
+                .iter()
+                .filter(|call| *call == "kill-server")
+                .count();
+            assert_eq!(restarts, 1);
+        }
+
+        #[tokio::test]
+        async fn a_server_still_failing_after_a_restart_is_not_restarted_again() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), false))
+                .with_cut_off_repair(Reach::Reachable);
+            for _ in 0..2 {
+                let out = driver.raw(&["connect", TARGET]).await.unwrap();
+                assert!(out.stdout.contains("No route to host"));
+            }
+            assert_eq!(
+                calls(dir.path()),
+                [
+                    format!("connect {TARGET}"),
+                    "kill-server".into(),
+                    "start-server".into(),
+                    format!("connect {TARGET}"),
+                    format!("connect {TARGET}"),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn other_commands_never_restart_the_server() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            driver.raw(&["devices"]).await.unwrap();
+            assert_eq!(calls(dir.path()), ["devices"]);
+        }
+
+        #[test]
+        fn only_macos_drivers_repair_by_default() {
+            let driver = SubprocessAdb::new(PathBuf::from("/nonexistent/adb"));
+            assert_eq!(driver.repair_cut_off, cfg!(target_os = "macos"));
+        }
     }
 
     #[test]
