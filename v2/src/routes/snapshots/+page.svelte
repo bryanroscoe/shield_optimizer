@@ -369,7 +369,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--bg-surface);
-    overflow: hidden;
+    overflow-x: auto;
   }
   .snap-table {
     width: 100%;
@@ -388,7 +388,7 @@
   .snap-table td {
     padding: 0.7rem 1rem;
     border-bottom: 1px solid var(--border);
-    vertical-align: top;
+    vertical-align: middle;
   }
   .snap-table tr:last-child td {
     border-bottom: none;
@@ -530,13 +530,21 @@
   }
   .preview-head {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 1rem;
   }
   .preview-head h2 {
     margin: 0;
     font-size: 1.1rem;
+  }
+  .preview-head > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .preview-head > button {
+    margin-left: auto;
   }
   .warning {
     background: var(--warn-surface);

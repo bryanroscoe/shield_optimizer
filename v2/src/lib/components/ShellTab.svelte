@@ -507,8 +507,7 @@
   .shell-prompt .shell-input:focus {
     outline: none;
   }
-  /* Aligned to the top of the input rather than stretched down its side: a
-     resizable textarea would make the button grow into a lime slab. */
+  /* Keep Run compact beside the resizable input. */
   .run-btn {
     flex: none;
     padding-inline: 1.4rem;
@@ -518,7 +517,7 @@
   .run-wrap {
     flex: none;
     display: inline-flex;
-    align-self: flex-start;
+    align-self: center;
   }
   .run-hint {
     margin: 0.4rem 0 0;
