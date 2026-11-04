@@ -23,10 +23,12 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now (2026-11-01)
+### What is in flight right now (2026-11-04)
 
-`v2-2.4.1` (2026-10-23) is still the latest desktop release; the `v2-2.4.0` tag's build failed and
-was never published. Merged on `main` since then and not yet in a release:
+`v2-2.5.0` (2026-11-04) is the latest desktop release. It completed the rename to ATV Optimizer
+(identifier `com.atvoptimizer.app`, Homebrew cask `atv-optimizer`) and shipped without the physical
+device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unverified on hardware.
+Shipped in 2.5.0 or live on the server side:
 
 - **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
   `https://atv-optimizer-telemetry.bryanroscoe.workers.dev`. Repo variable `ATVOPT_TELEMETRY_URL`

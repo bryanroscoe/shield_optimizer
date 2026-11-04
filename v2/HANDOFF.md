@@ -9,39 +9,28 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 ## Unreleased on `main`
 
-**The next release must be 2.5.0 (a minor bump): it completes the rename.** The identifier is
-now `com.atvoptimizer.app`, the data folder `ATVOptimizer`, the binary `atv-optimizer`, and the
-crates `atv-optimizer` / `atv_optimizer_lib` / `atv-optimizer-core`. Before tagging:
+Nothing yet. `v2-2.5.0` (2026-11-04) shipped the rename (identifier `com.atvoptimizer.app`, data
+folder `ATVOptimizer`, binary `atv-optimizer`, crates `atv-optimizer` / `atv_optimizer_lib` /
+`atv-optimizer-core`, Homebrew cask `atv-optimizer`) and the desktop connection work below; its
+notes are in `v2/CHANGELOG.md`.
 
-1. Merge the tap PR that renames the cask to `atv-optimizer` (bryanroscoe/homebrew-shield-optimizer#5,
-   branch `rename-atv-optimizer`) **right before** pushing the tag. The release's `bump-tap` job
-   edits `Casks/atv-optimizer.rb` and fails if that file is missing; merged too early, the
-   renamed cask points at 2.4.1 under the new token, which still works but says nothing new.
-2. Check that the `v2 Upgrade Tests` workflow (`.github/workflows/v2-upgrade-tests.yml`, scripts in
-   `scripts/upgrade-tests/`) passed on the commit being tagged. It builds the branch's NSIS, MSI
-   and macOS bundles and upgrades real published releases to them on fresh runners (NSIS from
-   2.2.0, 2.2.0 beside 2.4.1, silent, from a running 2.4.1, from 2.4.1, and a retry after a failed
-   copy; MSI from 2.4.1; macOS bundle replacement from 2.2.0 and 2.4.1, Homebrew-managed, and a
-   retry), so it
-   is the only pre-tag compile and run of `windows/hooks.nsh`; `v2-tests.yml` only runs Rust tests
-   on Windows. Then run the R steps ("Upgrades across the 2.5.0 rename") in
-   `../docs/DEVICE-TEST-SCRIPT.md` for what runners can't show: real in-app updates, Dock,
-   Login Items, the macOS Local Network prompt, and Linux (R9).
-3. After the tap PR merges and 2.5.0 is out, switch to the new cask token where it was left
-   alone until then: the root README's brew commands and `v2/Makefile`'s `brew` target. The old
-   token keeps working through the tap's `cask_renames.json`.
+**2.5.0 shipped without the physical device script, at Bryan's direction.** The `v2 Upgrade Tests`
+workflow passed on `1bd204a`, the commit under the version bump (all 16 jobs: NSIS, MSI and macOS
+bundle upgrades from 2.2.0 and 2.4.1, Homebrew-managed, retries), and `v2-tests.yml` passed there on
+all three OSes. Nothing has been run on real hardware: the R steps ("Upgrades across the 2.5.0
+rename") and D10–D12 (macOS Local Network) in `../docs/DEVICE-TEST-SCRIPT.md` are still open, so
+real in-app updates, Dock, Login Items, the Local Network prompt, `brew upgrade` through the rename
+(R7) and Linux (R9) are unverified. Treat reports in those areas as likely real.
 
-Desktop help improvements and ADB connection recovery are pending release. Add by IP,
-Scan LAN and restart now verify transport readiness; the confirmed restart can retry
-one unchanged failed address. The subprocess driver remains the default. Shared native
-ADB PR236 and its parity branches remain experimental, with hardware and Windows
-identity acceptance outstanding. These source fixes do not establish the full root
-cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
-their notes shipped in 2.4.1. Put
-the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
-heading to stay. Before tagging, run the
-physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
-`npm run e2e`.
+Desktop connection recovery: Add by IP, Scan LAN and restart verify transport readiness, and the
+confirmed restart can retry one unchanged failed address. On macOS, an adb server left running by
+the previous version is cut off from the network once the new version opens; the app restarts it
+when it can reach a TV that adb can't (`src-tauri/src/adb/server_repair.rs`). The subprocess driver
+remains the desktop default. Shared native ADB (PR236) and its parity branches remain
+experimental, with hardware and Windows identity acceptance outstanding. Reporter #235 has not
+confirmed a fix. Put the next change under `## Unreleased` in `v2/CHANGELOG.md`;
+`tests/notes-seen.mjs` expects that heading to stay. Before tagging, run the physical script in
+[`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and `npm run e2e`.
 
 ## Things the next reader needs that the code does not say
 
