@@ -273,3 +273,29 @@ advertised), its PTY shell session and TCP forwarder, and recursive push/pull. K
 deliberately not copied: unbounded waits, a legacy shell whose exit is reported as 0, decoding
 shell output per packet, accepting any `[…]` as a session id, and judging old `pm` output only
 by its first line.
+
+## Real-device verification and the Android 14 OKAY fix (2026-11-04)
+
+The transport was run against two NVIDIA Shields (Android 11, plain TCP), a Pixel 10 Pro's
+wireless-debugging port (Android 16, TLS) and an Android TV 14 emulator (pairing, TLS and plain
+TCP). Results and logs: `.agent-tasks/kadb-parity-20261104/device-test/host/RESULTS.md` on Bryan's
+machine.
+
+- **Spare OKAYs.** Android 14's adbd (`local_socket_flush_incoming` in
+  `packages/modules/adb/sockets.cpp`, `android14-release`) sends an OKAY after every flush into the
+  service that made progress, so one large WRTE can draw several. Android 13 and older send one. The
+  stream layer treated OKAY as a per-WRTE acknowledgement and failed every multi-packet push and
+  every install of an APK larger than one WRTE on Android 14 with `ProtocolError("Unexpected OKAY
+  while reading ADB service")`. `ADBService` now treats OKAY as AOSP's host does, as "ready for
+  more": any OKAY lets the next WRTE go and spares are skipped while reading. Each OKAY stands for
+  at least one byte adbd delivered, so more OKAYs than bytes written on a stream is a
+  `ProtocolError` rather than an endless loop. Tests: `spare_okays_after_a_write_are_skipped_by_the_next_read`,
+  `a_spare_okay_lets_the_next_write_go`, `more_okays_than_bytes_written_is_a_protocol_error`
+  (`adb_service.rs`), `push_survives_several_okays_for_each_write_as_android_14_sends` and
+  `a_multi_packet_install_survives_several_okays_for_each_write` (`tcp/stream_tests.rs`, with
+  `Peer::okays_per_write` in `tcp/test_support.rs`).
+- **`examples/device_smoke.rs`** (registered in `Cargo.toml`, since `autoexamples` is off): a
+  reusable smoke harness with `probe`, `suite`, `sync`, `pair`, `install`, `uninstall`, `shell` and
+  `latency` subcommands. Without arguments it prints usage and exits 0. Device files go only under
+  `/data/local/tmp/atvopt-devtest-*` and are removed; `uninstall` refuses packages outside
+  `com.atvoptimizer.devtest.`.

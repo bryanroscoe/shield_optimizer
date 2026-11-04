@@ -194,6 +194,9 @@ pub(crate) struct Peer {
     next_remote: u32,
     /// Payload size of every WRTE the host sent.
     pub(crate) host_writes: Vec<usize>,
+    /// OKAYs sent for each host WRTE. Android 13 and older send one; Android
+    /// 14 sends one per partial flush into the service, so often more.
+    pub(crate) okays_per_write: usize,
 }
 
 impl Peer {
@@ -216,6 +219,7 @@ impl Peer {
             host_bytes: std::collections::VecDeque::new(),
             next_remote: 100,
             host_writes: Vec::new(),
+            okays_per_write: 1,
         }
     }
 
@@ -289,7 +293,9 @@ impl Peer {
             );
             assert!(message.payload().len() <= self.max_payload);
             self.host_writes.push(message.payload().len());
-            self.raw(MessageCommand::Okay, stream.remote, stream.local, &[]);
+            for _ in 0..self.okays_per_write {
+                self.raw(MessageCommand::Okay, stream.remote, stream.local, &[]);
+            }
             self.host_bytes.extend(message.payload());
         }
         self.host_bytes.drain(..len).collect()

@@ -162,8 +162,13 @@ pub(crate) fn open_service_session<T: ADBMessageTransport>(
 }
 
 /// One logical stream as a byte stream, with AOSP's flow control: each WRTE
-/// we send waits for its OKAY, and each WRTE we receive is acknowledged once.
-/// Every packet's stream ids are checked.
+/// we send waits for an OKAY before the next goes out, and each WRTE we
+/// receive is acknowledged once. Every packet's stream ids are checked.
+///
+/// OKAY means only "ready for more", as in AOSP's host, and is not counted
+/// against WRTEs. Android 14's adbd (`local_socket_flush_incoming`) sends one
+/// after every partial flush of our data into the service, so a large WRTE
+/// can draw several. Spares are skipped wherever they arrive.
 #[derive(Debug)]
 pub(crate) struct ADBService<T: ADBMessageTransport> {
     session: ADBSession<T>,
@@ -174,6 +179,11 @@ pub(crate) struct ADBService<T: ADBMessageTransport> {
     peer_closed: bool,
     read_timeout: Duration,
     write_timeout: Duration,
+    /// Payload bytes sent in WRTEs, and OKAYs received after the OPEN. adbd
+    /// sends an OKAY only once it has delivered at least one more byte, so
+    /// more OKAYs than bytes is a broken peer rather than flow control.
+    bytes_written: u64,
+    okays_received: u64,
 }
 
 impl<T: ADBMessageTransport> ADBService<T> {
@@ -189,6 +199,8 @@ impl<T: ADBMessageTransport> ADBService<T> {
             peer_closed: false,
             read_timeout,
             write_timeout,
+            bytes_written: 0,
+            okays_received: 0,
         }
     }
 
@@ -300,6 +312,19 @@ impl<T: ADBMessageTransport> ADBService<T> {
         Ok(())
     }
 
+    /// Count an OKAY. One that no byte we sent can account for is refused,
+    /// so a peer cannot keep a reader spinning on empty acknowledgements.
+    fn note_okay(&mut self) -> std::io::Result<()> {
+        self.okays_received += 1;
+        if self.okays_received > self.bytes_written {
+            return Err(Self::protocol_error(format!(
+                "the device sent {} OKAYs for {} bytes written on one stream",
+                self.okays_received, self.bytes_written
+            )));
+        }
+        Ok(())
+    }
+
     const fn mark_peer_closed(&mut self) {
         // ADB protocol.txt explicitly says the recipient must not reply to
         // CLSE. Any pending local WRTE or CLSE is simply abandoned.
@@ -404,6 +429,8 @@ impl<T: ADBMessageTransport> Read for ADBService<T> {
                     self.mark_peer_closed();
                     return Ok(0);
                 }
+                // A spare "ready for more" after one of our writes.
+                MessageCommand::Okay => self.note_okay()?,
                 command => {
                     return Err(Self::protocol_error(format!(
                         "Unexpected {command} while reading ADB service"
@@ -425,10 +452,17 @@ impl<T: ADBMessageTransport> Write for ADBService<T> {
 
         let amount = buf.len().min(self.max_write());
         self.send(MessageCommand::Write, &buf[..amount])?;
+        self.bytes_written += amount as u64;
         loop {
             let response = self.receive()?;
             match response.header().command() {
-                MessageCommand::Okay => return Ok(amount),
+                // Possibly a spare from an earlier WRTE. Like AOSP's host,
+                // any OKAY lets the next WRTE go; adbd queues what it has
+                // not yet delivered.
+                MessageCommand::Okay => {
+                    self.note_okay()?;
+                    return Ok(amount);
+                }
                 MessageCommand::Write => self.acknowledge_payload(response)?,
                 MessageCommand::Clse => {
                     self.mark_peer_closed();
@@ -663,6 +697,76 @@ mod tests {
         let mut received = [0];
         assert_eq!(service.read(&mut received).unwrap(), 1);
         assert_eq!(received, *b"x");
+    }
+
+    /// Android 14's adbd, seen on a real Android TV 14 image: a 1 MiB sync
+    /// WRTE drew two OKAYs, so the next read met an OKAY before the reply.
+    #[test]
+    fn spare_okays_after_a_write_are_skipped_by_the_next_read() {
+        let transport = FakeTransport::default();
+        for _ in 0..3 {
+            transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        }
+        transport.queue(MessageCommand::Write, 9, 7, b"reply");
+        let mut service = service(&transport);
+
+        assert_eq!(service.write(b"abc").unwrap(), 3);
+        let mut received = [0; 5];
+        service.read_exact(&mut received).unwrap();
+        assert_eq!(&received, b"reply");
+        assert_message(
+            &transport.take_outgoing(),
+            MessageCommand::Write,
+            7,
+            9,
+            b"abc",
+        );
+        assert_message(&transport.take_outgoing(), MessageCommand::Okay, 7, 9, &[]);
+        assert!(transport.state.lock().unwrap().outgoing.is_empty());
+    }
+
+    #[test]
+    fn a_spare_okay_lets_the_next_write_go() {
+        let transport = FakeTransport::default();
+        transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        let mut service = service(&transport);
+
+        assert_eq!(service.write(b"one").unwrap(), 3);
+        assert_eq!(service.write(b"two").unwrap(), 3);
+        assert_message(
+            &transport.take_outgoing(),
+            MessageCommand::Write,
+            7,
+            9,
+            b"one",
+        );
+        assert_message(
+            &transport.take_outgoing(),
+            MessageCommand::Write,
+            7,
+            9,
+            b"two",
+        );
+    }
+
+    #[test]
+    fn more_okays_than_bytes_written_is_a_protocol_error() {
+        let transport = FakeTransport::default();
+        transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        let mut idle = service(&transport);
+        let error = idle.read(&mut [0; 4]).unwrap_err();
+        assert!(
+            matches!(adb_error(error), RustADBError::ProtocolError(m) if m.contains("1 OKAYs for 0 bytes")),
+        );
+
+        let transport = FakeTransport::default();
+        transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        let mut written = service(&transport);
+        written.write_all(b"x").unwrap();
+        let error = written.read(&mut [0; 4]).unwrap_err();
+        assert!(matches!(adb_error(error), RustADBError::ProtocolError(_)));
     }
 
     #[test]

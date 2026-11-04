@@ -230,6 +230,37 @@ fn push_splits_and_batches_writes_at_a_small_negotiated_payload() {
     join();
 }
 
+/// Android 14's adbd acknowledges a WRTE once per partial flush into the
+/// sync service. On a real Android TV 14 image a 5 MiB push drew two OKAYs
+/// per 1 MiB WRTE and failed with "Unexpected OKAY while reading".
+#[test]
+fn push_survives_several_okays_for_each_write_as_android_14_sends() {
+    let data: Vec<u8> = (0..20_000_u32).map(|n| (n % 251) as u8).collect();
+    let expected = data.clone();
+    let (mut device, join) = run("sendrecv_v2", 4096, move |peer| {
+        peer.okays_per_write = 3;
+        let sync = peer.accept_open("sync:");
+        peer.sync_request(sync);
+        peer.sync_header(sync);
+        peer.read_host(sync, 4);
+        let (received, _) = receive_pushed(peer, sync);
+        assert_eq!(received, expected);
+        peer.send(sync, &sync_reply(*b"OKAY", 0, &[]), usize::MAX);
+        peer.expect_quit(sync);
+        let shell = peer.accept_open("shell:echo ok");
+        peer.send(shell, b"ok\n", usize::MAX);
+        peer.close(shell);
+    });
+    device.push(&mut &data[..], &"/sdcard/big").unwrap();
+    let mut out = Vec::new();
+    device
+        .shell_command_with_timeout(&"echo ok", Some(&mut out), None, TIMEOUT)
+        .unwrap();
+    assert_eq!(out, b"ok\n");
+    drop(device);
+    join();
+}
+
 #[test]
 fn push_uses_send_v2_when_negotiated() {
     let (mut device, join) = run("sendrecv_v2", 256 * 1024, |peer| {
@@ -706,6 +737,25 @@ fn one_apk_streams_through_cmd_and_succeeds_on_success() {
         peer.close(install);
     });
     let output = device.install_apks(&[&apk.0], &["-r"], TIMEOUT).unwrap();
+    assert_eq!(output, "Success\n");
+    drop(device);
+    join();
+}
+
+/// The same Android 14 acknowledgements on a streamed install of an APK
+/// larger than one WRTE, which failed on the Android TV 14 image before the
+/// reply could be read.
+#[test]
+fn a_multi_packet_install_survives_several_okays_for_each_write() {
+    let apk = TempApk::new("base", &[7; 10_000]);
+    let (mut device, join) = run("cmd", 4096, |peer| {
+        peer.okays_per_write = 2;
+        let install = peer.accept_open("exec:cmd 'package' 'install' '-S' '10000'");
+        assert_eq!(peer.read_host(install, 10_000), vec![7; 10_000]);
+        peer.send(install, b"Success\n", usize::MAX);
+        peer.close(install);
+    });
+    let output = device.install_apks(&[&apk.0], &[], TIMEOUT).unwrap();
     assert_eq!(output, "Success\n");
     drop(device);
     join();
