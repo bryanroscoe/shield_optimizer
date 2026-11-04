@@ -29,11 +29,11 @@ TVs on your network, and updates itself. You don't need a terminal or any script
 
 ```sh
 brew tap bryanroscoe/shield-optimizer
-brew install --cask shield-optimizer
+brew install --cask atv-optimizer
 ```
 
 Homebrew clears the macOS quarantine flag for you, so the app opens with a normal double-click.
-Upgrade with `brew upgrade --cask shield-optimizer`, or let the app update itself.
+Upgrade with `brew upgrade --cask atv-optimizer`, or let the app update itself.
 
 ### Any platform: download an installer
 
@@ -195,8 +195,8 @@ settings, snapshots and logs over and leaves the old copies in place. On Windows
 Optimizer" install; the `.msi` doesn't, so remove that one from Add/Remove Programs yourself. On
 macOS, a `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you quit it. If you
 have both `Shield Optimizer.app` and `ATV Optimizer.app` (for example from installing a DMG beside
-an older copy), drag `Shield Optimizer.app` to the Trash. The Homebrew cask becomes
-`atv-optimizer` in 2.5.0; `shield-optimizer` keeps working and `brew upgrade` moves you over.
+an older copy), drag `Shield Optimizer.app` to the Trash. The Homebrew cask is now
+`atv-optimizer`; `shield-optimizer` keeps working and `brew upgrade` moves you over.
 
 ## ATV Optimizer for Android
 
