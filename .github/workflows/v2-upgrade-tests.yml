@@ -1,0 +1,324 @@
+# Upgrade tests across the 2.5.0 rename (identifier, data folder, binary).
+#
+# Builds the branch's installers once per OS (unsigned for the updater, no
+# telemetry endpoint), then upgrades real published releases to them on
+# fresh runners: NSIS and MSI on Windows, an in-place bundle replacement on
+# macOS (what tauri-plugin-updater does). Each scenario seeds the old data
+# folder before the old app first runs, uses the old app once, upgrades, and
+# checks the copied data and WebView profile, the untouched old copies, the
+# migration log, a no-op second launch, and the install itself (shortcuts,
+# Add/Remove entry, leftover "Shield Optimizer" install, bundle name).
+#
+# The telemetry host is blocked in the hosts file before anything launches.
+#
+# Scripts: v2/scripts/upgrade-tests/. Evidence for every scenario (results,
+# logs, listings, hash manifests, registry and shortcut dumps, localStorage
+# dumps) is uploaded as `upgrade-evidence-<scenario>`, pass or fail.
+#
+# The release workflow can call this before tagging (workflow_call); leave
+# `stage-version` empty there so the build keeps the version being released.
+
+name: v2 Upgrade Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
+    # No branch filter: stacked PRs need it too.
+    paths:
+      - 'v2/src-tauri/src/rename.rs'
+      - 'v2/src-tauri/src/lib.rs'
+      - 'v2/src-tauri/windows/**'
+      - 'v2/src-tauri/tauri.conf.json'
+      - 'v2/src-tauri/Cargo.toml'
+      - 'v2/scripts/upgrade-tests/**'
+      - '.github/workflows/v2-upgrade-tests.yml'
+  workflow_dispatch:
+    inputs:
+      stage-version:
+        description: 'Version stamped on the branch build: X.Y.Z, "next-minor", or empty to keep the checked-in one'
+        required: false
+        default: next-minor
+  workflow_call:
+    inputs:
+      stage-version:
+        description: 'Version stamped on the build: X.Y.Z, "next-minor", or empty to keep the checked-in one'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+# Unrelated label events must neither start tests nor cancel a useful run.
+concurrency:
+  group: ${{ github.workflow }}-upgrade-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.run_id || 'ci' }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      stage: ${{ steps.v.outputs.stage }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: v2/src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
+      - id: v
+        env:
+          REQUEST: ${{ github.event_name == 'pull_request' && 'next-minor' || inputs.stage-version }}
+        run: |
+          set -euo pipefail
+          current=$(python3 -c "import json; print(json.load(open('v2/src-tauri/tauri.conf.json'))['version'])")
+          case "$REQUEST" in
+            '') version="$current" ;;
+            next-minor) version=$(python3 -c "import sys; a, b, _ = sys.argv[1].split('-')[0].split('.'); print(f'{a}.{int(b) + 1}.0')" "$current") ;;
+            *) version="$REQUEST" ;;
+          esac
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::cannot stage '$version': only stable X.Y.Z versions"; exit 1; }
+          stage=$([[ "$version" != "$current" ]] && echo true || echo false)
+          echo "checked-in $current, testing as $version (stage: $stage)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "stage=$stage" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            bundles: nsis,msi
+          - os: macos-latest
+            label: macOS
+            # Native arch only: the release's universal build costs a second
+            # compile and changes nothing the migration does.
+            bundles: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/target
+          key: ${{ runner.os }}-cargo-v2-upgrade-${{ hashFiles('v2/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-v2-upgrade-
+
+      - name: Stage version ${{ needs.plan.outputs.version }}
+        if: needs.plan.outputs.stage == 'true'
+        shell: bash
+        run: python v2/scripts/upgrade-tests/stage_version.py "${{ needs.plan.outputs.version }}" v2
+
+      - name: Install frontend dependencies
+        working-directory: v2
+        run: npm ci
+
+      # No updater artifacts, so no signing key; and no ATVOPT_TELEMETRY_URL,
+      # so the build never reports anything.
+      - name: Build ${{ matrix.bundles }}
+        working-directory: v2
+        shell: bash
+        env:
+          ATVOPT_TELEMETRY_URL: ''
+        run: npx tauri build --bundles ${{ matrix.bundles }} --config "$GITHUB_WORKSPACE/v2/scripts/upgrade-tests/tauri.ci.conf.json"
+
+      - name: Collect bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          b=v2/target/release/bundle
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp $b/nsis/*-setup.exe dist/new-setup.exe
+            cp $b/msi/*.msi dist/new.msi
+          else
+            # The same layout as the updater's .app.tar.gz: one top folder.
+            tar -C $b/macos -czf dist/new-app.tar.gz "ATV Optimizer.app"
+          fi
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: new-${{ runner.os }}
+          path: dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  windows:
+    needs: [plan, build]
+    name: Windows ${{ matrix.scenario }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 2.2.0 was "Shield Optimizer": the new install lands beside it and
+          # the NSIS hook removes the old one. Updater args, then a fresh /S.
+          - scenario: nsis-2.2.0-update
+            old: 2.2.0
+            old-kind: nsis
+            upgrade: nsis-update
+          - scenario: nsis-2.2.0-silent
+            old: 2.2.0
+            old-kind: nsis
+            upgrade: nsis-silent
+          - scenario: nsis-2.4.1-update
+            old: 2.4.1
+            old-kind: nsis
+            upgrade: nsis-update
+          - scenario: msi-2.4.1
+            old: 2.4.1
+            old-kind: msi
+            upgrade: msi
+          - scenario: nsis-2.4.1-running
+            old: 2.4.1
+            old-kind: nsis
+            upgrade: nsis-update
+            running: true
+          - scenario: nsis-2.4.1-retry
+            old: 2.4.1
+            old-kind: nsis
+            upgrade: nsis-update
+            retry: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: v2/scripts/upgrade-tests
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: new-Windows
+          path: new
+
+      - name: Download ${{ matrix.old }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          pattern=$([[ "${{ matrix.old-kind }}" == msi ]] && echo '*_x64_en-US.msi' || echo '*_x64-setup.exe')
+          gh release download "v2-${{ matrix.old }}" --repo "$GITHUB_REPOSITORY" --pattern "$pattern" --dir old
+          ls -l old
+
+      - name: Run scenario
+        shell: pwsh
+        run: |
+          $old = (Get-ChildItem old | Select-Object -First 1).FullName
+          $new = if ('${{ matrix.upgrade }}' -eq 'msi') { 'new\new.msi' } else { 'new\new-setup.exe' }
+          $extra = @{}
+          if ('${{ matrix.running }}' -eq 'true') { $extra.RunningDuringInstall = $true }
+          if ('${{ matrix.retry }}' -eq 'true') { $extra.Retry = $true }
+          & v2/scripts/upgrade-tests/windows.ps1 -Scenario '${{ matrix.scenario }}' `
+            -OldKind '${{ matrix.old-kind }}' -OldInstaller $old -OldVersion '${{ matrix.old }}' `
+            -Upgrade '${{ matrix.upgrade }}' -NewInstaller (Resolve-Path $new).Path `
+            -NewVersion '${{ needs.plan.outputs.version }}' -Evidence "$env:RUNNER_TEMP\evidence" @extra
+
+      - name: Report
+        if: always()
+        shell: bash
+        run: python v2/scripts/upgrade-tests/upgrade_check.py report --results "$RUNNER_TEMP/evidence/results.jsonl" --scenario "Windows ${{ matrix.scenario }}" --summary "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-evidence-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
+
+  macos:
+    needs: [plan, build]
+    name: macOS ${{ matrix.scenario }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `Shield Optimizer.app` renames itself when it quits.
+          - scenario: bundle-2.2.0
+            old: 2.2.0
+          - scenario: bundle-2.4.1
+            old: 2.4.1
+          # A cask owns the bundle, so it keeps its name for brew.
+          - scenario: bundle-2.2.0-homebrew
+            old: 2.2.0
+            homebrew: '1'
+          - scenario: bundle-2.4.1-retry
+            old: 2.4.1
+            retry: '1'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: v2/scripts/upgrade-tests
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: new-macOS
+          path: new
+
+      - name: Download ${{ matrix.old }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "v2-${{ matrix.old }}" --repo "$GITHUB_REPOSITORY" --pattern '*_universal.dmg' --dir old
+          ls -l old
+
+      - name: Run scenario
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          OLD_VERSION: ${{ matrix.old }}
+          NEW_VERSION: ${{ needs.plan.outputs.version }}
+          HOMEBREW: ${{ matrix.homebrew || '0' }}
+          RETRY: ${{ matrix.retry || '0' }}
+        run: |
+          OLD_DMG=$(ls "$PWD"/old/*.dmg) NEW_TARBALL="$PWD/new/new-app.tar.gz" EVIDENCE="$RUNNER_TEMP/evidence" \
+            bash v2/scripts/upgrade-tests/macos.sh
+
+      - name: Report
+        if: always()
+        run: python v2/scripts/upgrade-tests/upgrade_check.py report --results "$RUNNER_TEMP/evidence/results.jsonl" --scenario "macOS ${{ matrix.scenario }}" --summary "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-evidence-${{ matrix.scenario }}
+          path: ${{ runner.temp }}/evidence/
+          retention-days: 14
