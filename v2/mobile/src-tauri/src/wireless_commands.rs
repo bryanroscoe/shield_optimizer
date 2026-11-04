@@ -20,7 +20,27 @@ pub struct DiscoveryResult {
     pub message: String,
 }
 
-/// Discovery that found nothing is reported (no log excerpt on the phone):
+fn discovered_adb_count(devices: &[DiscoveredAdbDevice]) -> usize {
+    devices
+        .iter()
+        .filter(|device| {
+            let service = device
+                .service
+                .trim()
+                .trim_end_matches('.')
+                .to_ascii_lowercase();
+            let service = service.strip_suffix(".local").unwrap_or(&service);
+            !device.host.trim().is_empty()
+                && device.port != 0
+                && matches!(
+                    service,
+                    "_adb._tcp" | "_adb-tls-connect._tcp" | "_adb-tls-pairing._tcp"
+                )
+        })
+        .count()
+}
+
+/// Discovery without an ADB service is reported (no log excerpt on the phone):
 /// how long it browsed and the error code if it failed outright.
 #[tauri::command]
 pub async fn wireless_discover(
@@ -29,7 +49,9 @@ pub async fn wireless_discover(
 ) -> Result<DiscoveryResult, String> {
     let started = std::time::Instant::now();
     let result = state.wireless.discover().await;
-    let found = result.as_ref().map_or(0, Vec::len);
+    let found = result
+        .as_ref()
+        .map_or(0, |devices| discovered_adb_count(devices));
     if found == 0 && app_state.telemetry.is_active() {
         app_state.telemetry.record_diagnostic(
             DiagReason::DiscoverEmpty,
@@ -162,8 +184,37 @@ fn classify_find_remote(out: AdbOutput) -> ConnectResult {
 
 #[cfg(test)]
 mod tests {
-    use super::classify_find_remote;
+    use super::{classify_find_remote, discovered_adb_count, DiscoveredAdbDevice};
     use atv_optimizer_core::adb::AdbOutput;
+
+    #[test]
+    fn advertised_names_do_not_hide_empty_adb_discovery() {
+        let record = |service: &str, host: &str, port| DiscoveredAdbDevice {
+            name: "Synthetic service".into(),
+            friendly_name: Some("Synthetic TV".into()),
+            network: Some("fixture".into()),
+            host: host.into(),
+            port,
+            service: service.into(),
+        };
+        let mut devices = vec![
+            record("_googlecast._tcp.", "192.0.2.42", 8009),
+            record("_androidtvremote2._tcp.", "", 0),
+            record("_adb-pretend._tcp.", "192.0.2.42", 5555),
+        ];
+        assert_eq!(discovered_adb_count(&devices), 0);
+        for service in [
+            "_adb._tcp.",
+            "_adb-tls-connect._tcp.",
+            "_ADB-TLS-PAIRING._TCP.local.",
+        ] {
+            devices.push(record(service, "192.0.2.42", 37123));
+        }
+        assert_eq!(discovered_adb_count(&devices), 3);
+        devices.push(record("_adb._tcp.", "", 5555));
+        devices.push(record("_adb._tcp.", "192.0.2.42", 0));
+        assert_eq!(discovered_adb_count(&devices), 3);
+    }
 
     #[test]
     fn find_remote_requires_a_successful_shell_result() {
