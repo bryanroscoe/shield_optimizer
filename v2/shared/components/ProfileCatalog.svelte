@@ -167,7 +167,7 @@
 
 <style>
   .profile-catalog { --catalog-surface: var(--bg-surface, var(--surface)); --catalog-inset: var(--bg-inset, var(--canvas)); --catalog-border: var(--border, var(--line)); --catalog-soft: var(--fg-secondary, var(--text-soft)); color: var(--fg-primary, var(--text)); max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
-  .catalog-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+  .catalog-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
   .eyebrow { color: var(--accent); text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; }
   h1 { margin: .4rem 0; font-size: clamp(1.5rem, 3vw, 2rem); line-height: 1.2; }
   h2 { margin: .35rem 0 .75rem; font-size: 1.1rem; line-height: 1.4; }

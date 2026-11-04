@@ -55,17 +55,17 @@ try {
   if (evidence) await labelSyntheticCapture(page);
   await exerciseProfileCatalog(page, () => page.evaluate(() => window.openedSources ?? []));
   if (evidence) {
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(900);
-    await page.screenshot({ path: join(evidence, "desktop-catalog-dark.png"), fullPage: true });
-    await page.emulateMedia({ colorScheme: "light" });
-    await page.waitForTimeout(900);
-    await page.screenshot({ path: join(evidence, "desktop-catalog-light.png"), fullPage: true });
-    await page.setViewportSize({ width: 820, height: 980 });
-    await page.addStyleTag({ content: "html{font-size:24px}" });
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "desktop catalog fits with enlarged text");
-    await page.screenshot({ path: join(evidence, "desktop-catalog-enlarged.png"), fullPage: true });
-    await page.waitForTimeout(900);
+    for (const theme of ["dark", "light"]) {
+      await page.emulateMedia({ colorScheme: theme });
+      for (const layout of [{ name: "", width: 1280, font: 16 }, { name: "minimum-", width: 720, font: 16 }, { name: "enlarged-", width: 720, font: 24 }]) {
+        await page.setViewportSize({ width: layout.width, height: 980 });
+        await page.addStyleTag({ content: `html{font-size:${layout.font}px}` });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.waitForTimeout(700);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `catalog fits ${layout.width}px with ${layout.font}px text in ${theme}`);
+        await page.screenshot({ path: join(evidence, `desktop-catalog-${layout.name}${theme}.png`), fullPage: true });
+      }
+    }
   }
   await page.goto(`${base}/catalog?package=${encodeURIComponent(pkg)}`, { waitUntil: "networkidle" });
   assert.equal(await page.getByRole("searchbox", { name: "Search package IDs" }).inputValue(), pkg);

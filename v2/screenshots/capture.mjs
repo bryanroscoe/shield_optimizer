@@ -107,9 +107,8 @@ async function captureScreens(page, shot) {
     await page.mouse.move(0, 0);
     await shot("app-list");
 
-    // 8. Optimize wizard — needs a click to load the plan.
+    // 8. Optimize wizard — the plan loads on its own.
     await page.locator("#tab-optimize").click();
-    await page.getByRole("button", { name: "Optimize", exact: true }).click();
     await page.getByText("Run", { exact: false }).first().waitFor().catch(() => {});
     await page.waitForTimeout(600);
     await shot("optimize");

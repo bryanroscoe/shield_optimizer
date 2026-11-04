@@ -595,6 +595,7 @@
     color: var(--fg-secondary);
   }
   .row-control {
+    margin-left: auto;
     display: flex;
     flex-wrap: wrap;
     align-items: center;

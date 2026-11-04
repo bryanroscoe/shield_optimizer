@@ -322,12 +322,18 @@ textarea:focus-visible {
    so the card's body reads as separate from its chrome. */
 .card-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding-bottom: 0.85rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid var(--border);
+}
+.card-header > button,
+.card-header > .header-actions {
+  margin-left: auto;
+  max-width: 100%;
 }
 .card-header .header-actions {
   display: flex;
