@@ -141,7 +141,7 @@ jobs:
 
       - name: Install test browser
         working-directory: v2
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium webkit
 
       - name: Pairing flow
         working-directory: v2
