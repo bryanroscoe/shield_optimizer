@@ -1,6 +1,6 @@
 [package]
 name = "atv-optimizer"
-version = "2.4.1"
+version = "2.5.0"
 description = "ATV Optimizer — desktop app for debloating and tuning Android TV devices"
 authors = ["Bryan Roscoe"]
 edition = "2021"
