@@ -216,6 +216,13 @@ jobs:
             old-kind: nsis
             upgrade: nsis-update
             retry: true
+          # A fresh 2.5.0 install that later finds old data beside it must
+          # leave its own data and profile alone.
+          - scenario: nsis-fresh-then-old-data
+            old: none
+            old-kind: nsis
+            upgrade: nsis-silent
+            fresh: true
     steps:
       - uses: actions/checkout@v5
         with:
@@ -231,6 +238,7 @@ jobs:
           path: new
 
       - name: Download ${{ matrix.old }}
+        if: matrix.fresh != true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -246,17 +254,19 @@ jobs:
       - name: Run scenario
         shell: pwsh
         run: |
-          $old = (Get-ChildItem old | Select-Object -First 1).FullName
+          $old = if (Test-Path old) { (Get-ChildItem old | Select-Object -First 1).FullName } else { '' }
+          $oldVersion = if ('${{ matrix.old }}' -eq 'none') { '2.4.1' } else { '${{ matrix.old }}' }
           $new = if ('${{ matrix.upgrade }}' -eq 'msi') { 'new\new.msi' } else { 'new\new-setup.exe' }
           $extra = @{}
           if ('${{ matrix.running }}' -eq 'true') { $extra.RunningDuringInstall = $true }
           if ('${{ matrix.retry }}' -eq 'true') { $extra.Retry = $true }
+          if ('${{ matrix.fresh }}' -eq 'true') { $extra.FreshThenOldData = $true }
           if ('${{ matrix.middle }}') {
             $extra.MiddleInstaller = (Get-ChildItem middle | Select-Object -First 1).FullName
             $extra.MiddleVersion = '${{ matrix.middle }}'
           }
           & v2/scripts/upgrade-tests/windows.ps1 -Scenario '${{ matrix.scenario }}' `
-            -OldKind '${{ matrix.old-kind }}' -OldInstaller $old -OldVersion '${{ matrix.old }}' `
+            -OldKind '${{ matrix.old-kind }}' -OldInstaller $old -OldVersion $oldVersion `
             -Upgrade '${{ matrix.upgrade }}' -NewInstaller (Resolve-Path $new).Path `
             -NewVersion '${{ needs.plan.outputs.version }}' -Evidence "$env:RUNNER_TEMP\evidence" @extra
 

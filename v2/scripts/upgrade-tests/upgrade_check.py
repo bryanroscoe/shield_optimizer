@@ -149,6 +149,32 @@ def cmd_seed(a):
     print(f"seeded {len(SEEDED)} files into {root}")
 
 
+# Planted after a fresh 2.5.0 install has made its own data: an old folder
+# that differs from the new one, so any copy or merge of it shows.
+PLANTED_TELEMETRY = {
+    "enabled": True,
+    "install_id": "0c4d9e1b-2a7f-4e55-8b1d-6f3a2c9e7d10",
+    "notice_seen": True,
+    "notice_version": 2,
+}
+PLANTED = {
+    "telemetry.json": json.dumps(PLANTED_TELEMETRY, separators=(",", ":")),
+    "snapshots/planted_20261003-080000.json": _snapshot("planted", "CI0000000009", ["com.example.planted"]),
+    "disabled-home-handlers.json": json.dumps({"CI0000000009": ["com.example.planted"]}),
+}
+
+
+def cmd_plant_old(a):
+    root = Path(a.data)
+    if root.exists():
+        sys.exit(f"{root} already exists; refusing to plant")
+    for rel, body in PLANTED.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(body.encode("utf-8"))
+    print(f"planted {len(PLANTED)} files into {root}")
+
+
 def cmd_manifest(a):
     m = manifest(Path(a.root), a.exclude or [])
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
@@ -192,8 +218,13 @@ def cmd_listing(a):
 
 
 def cmd_check_unchanged(a):
-    before = json.loads(Path(a.manifest).read_text(encoding="utf-8"))
-    after = manifest(Path(a.root), [])
+    ignore = [p.rstrip("/") for p in a.ignore or []]
+    before = {
+        r: v
+        for r, v in json.loads(Path(a.manifest).read_text(encoding="utf-8")).items()
+        if not any(r == p or r.startswith(p + "/") for p in ignore)
+    }
+    after = manifest(Path(a.root), ignore)
     allowed = [p.rstrip("/") + "/" for p in a.allow_added or []]
     added_ok = [r for r in after if r not in before and any(r.startswith(p) for p in allowed)]
     for rel in added_ok:
@@ -240,11 +271,12 @@ def cmd_check_telemetry(a):
 
 
 def cmd_check_no_temps(a):
+    marks = a.mark or [TEMP_MARK]
     found = []
     for parent in a.parents:
         p = Path(parent)
         if p.is_dir():
-            found += [e.name for e in p.iterdir() if TEMP_MARK in e.name]
+            found += [e.name for e in p.iterdir() if any(m in e.name for m in marks)]
     check(a.results, a.name, not found, ", ".join(found) or "none")
 
 
@@ -688,7 +720,9 @@ def cmd_ls_has(a):
 def cmd_check_ls(a):
     items, notes = ls_items(a.kind, Path(a.profile))
     got = ls_lookup(items, a.key)
-    if a.value is not None:
+    if a.absent:
+        ok = not got
+    elif a.value is not None:
         ok = got == [a.value]
     else:
         ok = len(got) == 1
@@ -753,6 +787,9 @@ def main():
     s = add("seed", cmd_seed)
     s.add_argument("--data", required=True)
 
+    s = add("plant-old", cmd_plant_old)
+    s.add_argument("--data", required=True)
+
     s = add("manifest", cmd_manifest)
     s.add_argument("--root", required=True)
     s.add_argument("--out", required=True)
@@ -767,6 +804,7 @@ def main():
     s.add_argument("--manifest", required=True)
     s.add_argument("--root", required=True)
     s.add_argument("--allow-added", action="append")
+    s.add_argument("--ignore", action="append", help="left out on both sides")
 
     s = add("check-seeded", cmd_check_seeded, True, True)
     s.add_argument("--old", required=True)
@@ -776,6 +814,7 @@ def main():
     s.add_argument("--new", required=True)
 
     s = add("check-no-temps", cmd_check_no_temps, True, True)
+    s.add_argument("--mark", action="append", help="name fragment to look for (default .migrating-)")
     s.add_argument("parents", nargs="+")
 
     s = add("count-log", cmd_count_log)
@@ -805,6 +844,7 @@ def main():
             s.add_argument("--value")
         if name == "check-ls":
             s.add_argument("--soft", action="store_true")
+            s.add_argument("--absent", action="store_true")
 
     s = add("record", cmd_record, True, True)
     s.add_argument("--status", choices=["ok", "warn", "fail"], required=True)
