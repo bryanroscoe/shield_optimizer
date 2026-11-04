@@ -3464,33 +3464,32 @@
           {#each snapshots as s (s.path)}
             {@const selected = previewPath === s.path}
             <li class:is-selected={selected}>
-              <span class="snap-icon" aria-hidden="true"><Icon name="history" size={18} /></span>
-              <div class="snap-main">
-                <div class="snap-title">
-                  <strong>{s.label ?? s.device_name}</strong>
-                  {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
-                  <!-- The action rides on the title's line so the summary below
-                       gets the full width; squeezed beside it, the summary
-                       wraps onto five lines. -->
-                  <span class="snap-actions">
-                    {#if selected}
-                      <span class="tag installed">SELECTED</span>
-                    {:else}
-                      <button class="small-action" onclick={() => previewSnapshot(s.path)} disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}>Preview restore</button>
-                    {/if}
-                    <button
-                      class="small-action danger"
-                      onclick={() => deleteSnapshot(s)}
-                      disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}
-                      aria-label={`Delete ${s.filename}`}
-                    ><Icon name="delete" size={14} /> {snapshotDeletePath === s.path ? "Deleting…" : "Delete"}</button>
-                  </span>
-                </div>
-                <div class="muted small mono snap-meta">
-                  {snapTimestamp(s.saved_at)} · {s.disabled_count} disabled ·
-                  {s.settings_count} settings · launcher {s.launcher ?? "—"}
+              <div class="snap-body">
+                <span class="snap-icon" aria-hidden="true"><Icon name="history" size={18} /></span>
+                <div class="snap-main">
+                  <div class="snap-title">
+                    <strong>{s.label ?? s.device_name}</strong>
+                    {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
+                  </div>
+                  <div class="muted small mono snap-meta">
+                    {snapTimestamp(s.saved_at)} · {s.disabled_count} disabled ·
+                    {s.settings_count} settings · launcher {s.launcher ?? "—"}
+                  </div>
                 </div>
               </div>
+              <span class="snap-actions">
+                {#if selected}
+                  <span class="tag installed">SELECTED</span>
+                {:else}
+                  <button class="small-action" onclick={() => previewSnapshot(s.path)} disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}>Preview restore</button>
+                {/if}
+                <button
+                  class="small-action danger"
+                  onclick={() => deleteSnapshot(s)}
+                  disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}
+                  aria-label={`Delete ${s.filename}`}
+                ><Icon name="delete" size={14} /> {snapshotDeletePath === s.path ? "Deleting…" : "Delete"}</button>
+              </span>
             </li>
           {/each}
         </ul>
@@ -4680,7 +4679,8 @@
   }
   .snap-list li {
     display: flex;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
     padding: 0.7rem 1rem;
     background: var(--bg-surface);
@@ -4785,6 +4785,13 @@
     justify-content: center;
     padding-block: 0.7rem;
   }
+  .snap-body {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1 1 20rem;
+    min-width: 0;
+  }
   .snap-main { flex: 1; min-width: 0; }
   .snap-title {
     display: flex;
@@ -4794,10 +4801,13 @@
     margin-bottom: 0.2rem;
   }
   .snap-actions {
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.4rem;
     align-items: center;
-    flex-shrink: 0;
+    min-width: 0;
+    max-width: 100%;
     margin-left: auto;
   }
   .snap-meta {
