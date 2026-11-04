@@ -91,7 +91,11 @@ gives teardown an owned server handle without using `ADBDeviceExt::exec`'s detac
 Teardown order:
 
 1. close the control stream so scrcpy exits naturally;
-2. best-effort `pkill -f shieldopt-scrcpy-server`;
+2. best-effort kill of every process whose environment carries our jar's `CLASSPATH`
+   (`KILL_OWN_SERVERS` in `crates/core/src/adb/remote_input.rs`). `pkill -f <jar>` never worked:
+   the jar is only in the environment, and the pattern matched pkill's own `sh -c` first. The same
+   kill runs before every cold start, so a server orphaned by a phone that vanished (the TV never
+   sees the dead socket) is cleared on the next start;
 3. close any long-lived server-command connection, if that fallback was required;
 4. remove the session from the registry before doing slow cleanup.
 

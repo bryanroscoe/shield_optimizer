@@ -5,8 +5,11 @@ The six-digit-code flow, implemented clean-room in Rust inside the vendored `adb
 `WirelessAdb::pair` in `mobile/src-tauri/src/wireless_adb.rs`.
 
 Modern Google TV builds don't offer Network debugging on `:5555`, so this flow is the only way the
-app can reach them. **It has never run against a real adbd**; until the manual test below passes,
-treat it as unverified and keep Network debugging as the documented fallback.
+app can reach them. **It has run against a real adbd once (2026-11-04):** the Android TV 14
+emulator's own pairing service, driven by `vendor/adb_client/examples/device_smoke.rs pair`. Pairing
+succeeded, a wrong code failed as `CodeMismatch`, and the TLS connect that followed needed no
+approval. It has not yet run on physical hardware or from the app's UI, so keep Network debugging as
+the documented fallback until the manual test below passes on a Pixel and a Google TV.
 
 ## Licensing
 
@@ -306,9 +309,11 @@ the property that limits an attacker to one password guess per connection, and i
 
 **Not proven — and this is the honest gap:**
 
-- **No end-to-end run against a real device.** The TLS handshake against `adbd`'s pairing server,
-  the exporter value both sides compute, and the device's acceptance of our `PeerInfo` are all
-  unverified in practice.
+- **No end-to-end run against physical hardware.** The TLS handshake against `adbd`'s pairing
+  server, the exporter value, the SPAKE2 exchange and the device's acceptance of our `PeerInfo`
+  passed against the Android TV 14 emulator's real adbd on 2026-11-04, which also settles the
+  BoringSSL wire-compatibility question below for that build. A Pixel and a Google TV have not
+  been tried.
 - **SPAKE2 wire compatibility with BoringSSL is verified against the *algorithm*, not against
   the *binary*.** The KAT pins the Rust against an independent Python model of the same source,
   which catches transcription and arithmetic mistakes but not a *misreading* shared by both.
@@ -377,8 +382,9 @@ code is readable on the phone screen rather than across the room.
 4. **Expected:** pairing succeeds and the connect that follows needs no on-TV approval.
 5. Check `tracing` output for `wireless pairing succeeded` and the logged `peer` GUID.
 
-Until at least the Pixel run has been done, treat code pairing as unproven, which is
-what the onboarding callout says, alongside the Network-debugging fallback.
+Until at least the Pixel run has been done, treat code pairing as unproven on hardware (the
+emulator run above is real adbd, not a real device), which is what the onboarding callout says,
+alongside the Network-debugging fallback.
 
 ## Where the code lives
 

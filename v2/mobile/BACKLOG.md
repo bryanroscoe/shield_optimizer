@@ -41,8 +41,9 @@ go-ahead; don't infer permission from a phone being powered on.
 2. **The app-restart report** ([#105](https://github.com/bryanroscoe/shield_optimizer/issues/105)).
    Follow the physical gate in [`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md): name the exact
    leaving action and correlate it with the Android lifecycle before changing any persistence.
-3. **Code pairing end to end** per [`PAIRING-PLAN.md`](PAIRING-PLAN.md): a host binary against the
-   Pixel's own pairing service first, then a Google TV from the app. A wrong code must fail
+3. **Code pairing end to end** per [`PAIRING-PLAN.md`](PAIRING-PLAN.md). The host binary
+   (`vendor/adb_client/examples/device_smoke.rs pair`) passed against the Android TV 14 emulator's
+   real adbd on 2026-11-04; still needed: the Pixel's own pairing service, then a Google TV from the app. A wrong code must fail
    cleanly, and a paired TV must then connect with no "Allow debugging" prompt.
 4. **Fast-remote Phase 4** per [`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md): concurrency on the
    Bedroom Shield; on both Shields hold-to-repeat, live-session background/resume before and after

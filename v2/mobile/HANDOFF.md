@@ -107,8 +107,10 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   reported as an error when nothing was found, never as "no TVs".
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired
-  through `WirelessAdb::pair`, but has never run against a real adbd. Onboarding keeps pointing
-  users at Network debugging as the fallback until `PAIRING-PLAN.md`'s manual test passes.
+  through `WirelessAdb::pair`. It passed against the Android TV 14 emulator's real adbd on
+  2026-11-04 (pair, wrong code, TLS connect with no prompt) but not yet on physical hardware or
+  from the app UI. Onboarding keeps pointing users at Network debugging as the fallback until
+  `PAIRING-PLAN.md`'s manual test passes on a Pixel and a Google TV.
   BoringSSL's SPAKE2 is a bespoke variant that is wire-incompatible with the RustCrypto `spake2`
   crate, so it is implemented directly on `curve25519-dalek`.
 - **No GPL code, anywhere in the transport.** The app is sold closed-source, so GPLv3 libraries
