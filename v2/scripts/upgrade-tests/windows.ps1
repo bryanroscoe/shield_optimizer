@@ -302,7 +302,9 @@ try {
     Step 'Lock one old data file and one old profile file so the first copy fails'
     $locked = @(
       (Get-ChildItem (Join-Path $OldData 'snapshots') -Filter '*.json' | Select-Object -First 1).FullName,
-      (Join-Path $OldProfile 'EBWebView\Local State'))
+      # Only Local Storage entries are essential to the profile copy; a
+      # locked cache or state file is skipped rather than failing it.
+      (Join-Path $OldProfile 'EBWebView\Default\Local Storage\leveldb\CURRENT'))
     Set-Content $lockSignal 'hold'
     $lockArgs = @('-NoProfile', '-File', (Join-Path $PSScriptRoot 'hold-locks.ps1'), $lockSignal) + $locked
     $lockProc = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList ($lockArgs | ForEach-Object { "`"$_`"" })

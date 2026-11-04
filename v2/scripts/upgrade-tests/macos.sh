@@ -108,7 +108,7 @@ run_app() { # mode(exec|open) bundle-path bundle-id label
     # tauri::process::restart reads CFBundleExecutable and spawns it directly.
     "$path/Contents/MacOS/$exe" >"$EVIDENCE/stdout-$label.txt" 2>&1 &
   else
-    open -n "$path" --stdout "$EVIDENCE/stdout-$label.txt" --stderr "$EVIDENCE/stdout-$label.txt"
+    open -n --stdout "$EVIDENCE/stdout-$label.txt" --stderr "$EVIDENCE/stdout-$label.txt" "$path"
   fi
   sleep "$run_seconds"
   if [[ -n "$(pids_of "$path")" ]]; then
