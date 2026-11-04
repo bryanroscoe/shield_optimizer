@@ -125,13 +125,14 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     // Reconnect the network devices we saw before the restart.
     //
-    // Not on the first try. `start-server` returns as soon as the daemon has
-    // forked, and the TV's adbd needs a moment to free the socket the
-    // kill-server just tore down — connecting into that window fails with
-    // "No route to host" even though the device is up and port 5555 is open.
-    // Restarting by hand a second later then works, which is what makes this
-    // read as "ADB is broken" rather than "too early". So give each device a
-    // few attempts before calling it unreachable.
+    // Not on the first try only. `start-server` returns as soon as the daemon
+    // has forked, and a connect made straight after it has been seen to fail
+    // with "No route to host" and then work a second later. One cause is
+    // reproduced on macOS 26.6.2: a new binary's very first LAN connect can
+    // get EHOSTUNREACH even when Local Network access is allowed. Others are
+    // not ruled out (a TV still freeing the old socket), and a real Local
+    // Network block does not go away with retries (see `local_network.rs`).
+    // So give each device a few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     let mut unauthorized = Vec::new();

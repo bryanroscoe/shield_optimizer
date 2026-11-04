@@ -309,6 +309,10 @@ jobs:
         working-directory: v2
         run: npm run test:settings-screen
 
+      - name: macOS Local Network notice
+        working-directory: v2
+        run: npm run test:local-network-notice
+
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
         working-directory: v2

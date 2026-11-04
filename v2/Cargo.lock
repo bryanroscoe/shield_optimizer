@@ -4457,6 +4457,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shield-optimizer-core",
+ "socket2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

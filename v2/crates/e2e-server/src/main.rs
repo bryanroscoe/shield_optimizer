@@ -34,7 +34,8 @@ use shield_optimizer_core::license::Entitlement;
 use shield_optimizer_v2_lib::commands::diagnostics;
 
 /// Commands answered here rather than dispatched: they reach the internet
-/// or the host desktop, which a test must not do.
+/// or the host desktop (or, for the Local Network probe, the host's real
+/// network), which a test must not do.
 fn intercepted(cmd: &str) -> Option<Value> {
     Some(match cmd {
         "check_for_update" => json!({
@@ -48,6 +49,8 @@ fn intercepted(cmd: &str) -> Option<Value> {
             json!({"ok": true, "path": "/simulated/platform-tools/adb", "message": "Simulated install."})
         }
         "open_log_dir" => Value::Null,
+        "local_network_access" => json!({"status": "not_applicable"}),
+        "open_local_network_settings" => Value::Null,
         _ => return None,
     })
 }
