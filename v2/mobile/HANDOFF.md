@@ -86,10 +86,22 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   missing remote file does not. Readers skip a bounded number of stray packets from finished
   streams, locks recover from poisoning, and the device identity is mirrored outside the device
   mutex so status calls never wait behind a running command.
+- Every connection, dedicated streams included, runs its whole CNXN/TLS/AUTH handshake under one
+  30 s deadline and negotiates features and the payload limit from the TV's CNXN
+  (`ADBTcpDevice::connection_info()`). Sockets get `TCP_NODELAY` and keepalive, so a vanished TV
+  fails a silent read after about 30 s. A TLS refusal of our key is `TlsAuthRejected`, shown as
+  pairing guidance. Details: `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md` (2026-11-04).
 - Hot read paths (health, apps, optimize, launcher, display) are one sentinel-batched shell each
   (`crates/core/src/adb/batch.rs`).
-- **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery only** (Android `NsdManager`, no
-  third-party native libraries).
+- **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery plus a network-change watch**
+  (Android `NsdManager` and `ConnectivityManager`, no third-party native libraries). Below API 34
+  it resolves one service at a time (NsdManager rejects concurrent resolves with
+  FAILURE_ALREADY_ACTIVE), with a 1 s per-resolve timeout and retries; API 34+ uses one
+  `ServiceInfoCallback` per service. Results are keyed by instance name and type, prefer IPv4,
+  keep IPv6-only TVs as bracketed hosts, and drop this phone's own advert. A scan requested while
+  one runs joins it. Below T-extensions 7 (Android 12 and below, un-updated 13) a scan holds a Wi-Fi
+  multicast lock, which the NsdManager docs require there. A discovery type that fails to start is
+  reported as an error when nothing was found, never as "no TVs".
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired
   through `WirelessAdb::pair`, but has never run against a real adbd. Onboarding keeps pointing
@@ -124,7 +136,10 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   silent one-shot recovery runs the same identity check as an explicit reconnect.
 - **Connection lifecycle.** Any error carrying the backend's "Connection to the TV was lost"
   prefix flips the session (`lib/connectionEvents.ts`): one silent redial of the same TV, then the
-  global `ConnectionBanner` (Retry / Switch TV). A 45 s heartbeat probes while the app is visible.
+  global `ConnectionBanner` (Retry / Switch TV). A 45 s heartbeat probes while the app is visible,
+  and so does a change of the phone's default network (`network-changed`, from the plugin's
+  `ConnectivityManager` callback): 1 s after a new network or a lost address, 4 s after the network
+  is lost with no replacement, debounced in `lib/networkWatch.ts`.
   Launch shows a saved-TV picker and auto-dials only when exactly one TV is saved and the last
   session wasn't ended by an explicit Disconnect (`atv.autoConnect.v1`), always naming the target
   with Cancel. "Add a TV" is a separate `addtv` route that never dials. The Android back button
@@ -183,7 +198,9 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
 - `v2/mobile/src-tauri/gen/android/` — the generated Android project, tracked **with hand edits**
   (icons, `AndroidManifest.xml`, `strings.xml`, `build.gradle.kts` signing config). Don't rerun
   `tauri android init`; it would overwrite them.
-- `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery plugin (Kotlin `NsdManager` + thin Rust).
+- `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery and network-watch plugin (Kotlin
+  `NsdManager`/`ConnectivityManager` + thin Rust). Its pure logic has JVM tests
+  (`android/src/test/`); CI does not run them.
 - `v2/mobile/tauri-plugin-atv-billing/` — the Google Play Billing adapter (Kotlin + thin Rust; no
   entitlement decisions).
 - `v2/vendor/adb_client/` — vendored MIT transport, outside the Cargo workspace.

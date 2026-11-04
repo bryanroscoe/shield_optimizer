@@ -4,6 +4,11 @@
   import { router, initBackHandler, type Screen } from "./lib/router.svelte";
   import { session } from "./lib/session.svelte";
   import { billing } from "./lib/billing.svelte";
+  import {
+    NETWORK_CHANGED_EVENT,
+    createNetworkProbe,
+    type NetworkChangePayload,
+  } from "./lib/networkWatch";
   import Onboarding from "./screens/Onboarding.svelte";
   import Dashboard from "./screens/Dashboard.svelte";
   import Diagnostics from "./screens/Diagnostics.svelte";
@@ -38,8 +43,9 @@
   }
 
   // A dropped TV socket is only visible when something talks to it. Probe on
-  // foreground resume and on a slow heartbeat so a dead connection turns into
-  // a silent reconnect (or the banner) within a minute instead of never.
+  // foreground resume, shortly after the phone's network changes, and on a
+  // slow heartbeat, so a dead connection turns into a silent reconnect (or the
+  // banner) within seconds of a Wi-Fi change and within a minute otherwise.
   const LIVENESS_HEARTBEAT_MS = 45_000;
 
   onMount(() => {
@@ -63,16 +69,25 @@
     // Fetched support tiers landed after the TV was profiled: re-read it so
     // the badge isn't stale. Absent outside Tauri (tests, the demo).
     let stopTierWatch: (() => void) | null = null;
+    let stopNetworkWatch: (() => void) | null = null;
     let unmounted = false;
+    const networkProbe = createNetworkProbe(probe);
     const hasEvents = "__TAURI_EVENT_PLUGIN_INTERNALS__" in window;
     if (hasEvents) listen("support-tiers-updated", () => {
       if (session.connectedDevice) void session.refreshDevices().catch(() => {});
     })
       .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
       .catch(() => {});
+    if (hasEvents) listen<NetworkChangePayload>(NETWORK_CHANGED_EVENT, (event) => {
+      networkProbe.notify(event.payload?.reason);
+    })
+      .then((stop) => (unmounted ? stop() : (stopNetworkWatch = stop)))
+      .catch(() => {});
     return () => {
       unmounted = true;
       stopTierWatch?.();
+      stopNetworkWatch?.();
+      networkProbe.cancel();
       cleanupBack();
       detachWatch();
       clearInterval(heartbeat);

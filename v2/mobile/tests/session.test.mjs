@@ -89,6 +89,27 @@ async function createPage(t, options = {}) {
         default: return { ok: true, transport: "channel", message: "done" };
       }
     } };
+    if (options.events) {
+      // Just enough of Tauri's event plugin for App.svelte's `listen` calls, plus
+      // `emitTauriEvent` to deliver a backend event to them.
+      const callbacks = new Map();
+      let nextId = 0;
+      window.eventListeners = [];
+      window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+      window.__TAURI_INTERNALS__.transformCallback = (callback) => {
+        callbacks.set(++nextId, callback);
+        return nextId;
+      };
+      window.handlers["plugin:event|listen"] = ({ event, handler }) => {
+        window.eventListeners.push({ event, handler, id: ++nextId });
+        return nextId;
+      };
+      window.emitTauriEvent = (event, payload) => {
+        for (const listener of window.eventListeners) {
+          if (listener.event === event) callbacks.get(listener.handler)?.({ event, id: listener.id, payload });
+        }
+      };
+    }
   }, options);
   await page.goto(origin);
   await page.evaluate(async () => {
@@ -243,6 +264,51 @@ test("one failed recovery stays lost until an explicit retry", async (t) => {
     return { automatic, lost, retried: window.session.isConnected };
   });
   assert.deepEqual(result, { automatic: 1, lost: "lost", retried: true });
+});
+
+async function openWithNetworkEvents(t) {
+  const page = await createPage(t, { activeHost: "A", events: true });
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.router.reset("dashboard");
+  });
+  await page.waitForFunction(() => window.eventListeners.some((l) => l.event === "network-changed"));
+  await page.evaluate(() => {
+    window.calls = [];
+    // The phone moved networks: the old socket is dead, a fresh connect works.
+    window.handlers.wireless_status = () => ({ connected: false });
+  });
+  return page;
+}
+
+test("a phone network change probes the TV within seconds, not on the heartbeat", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  const started = Date.now();
+  await page.evaluate(() => window.emitTauriEvent("network-changed", { reason: "changed" }));
+  await page.waitForFunction(
+    () => window.session.liveness === "live" && window.calls.some((c) => c.command === "wireless_connect"),
+    null,
+    { timeout: 5_000 },
+  );
+  const elapsed = Date.now() - started;
+  const commands = await page.evaluate(() => window.calls.map((c) => c.command));
+  assert.equal(commands.filter((c) => c === "wireless_status").length, 1);
+  assert.equal(commands.filter((c) => c === "wireless_connect").length, 1, "the one silent redial");
+  assert.ok(elapsed >= 900, `waited for the network to settle (${elapsed} ms)`);
+});
+
+test("a network change while the app is hidden leaves the probe to the resume check", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    window.emitTauriEvent("network-changed", { reason: "changed" });
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
+  const probes = await page.evaluate(() =>
+    window.calls.filter((c) => c.command === "wireless_status" || c.command === "wireless_connect").length,
+  );
+  assert.equal(probes, 0);
+  assert.equal(await page.evaluate(() => window.session.liveness), "live");
 });
 
 test("a silent recovery onto a different device does not inherit the old saved row or its name (#154 follow-up)", async (t) => {

@@ -13,8 +13,12 @@ go-ahead; don't infer permission from a phone being powered on.
    reconnect: a legacy `:5555` Shield without mDNS shows one Connected row; a Google TV whose port
    rotates shows the other-port state with no duplicate; an address change never carries a cached
    name or identity to a different TV; reconnect results are honest. Then the stability matrix:
-   - put the TV to sleep or turn off Wi-Fi mid-session: the app flips to "Reconnecting…" and then
-     the banner within about 45 s instead of staying green;
+   - put the TV to sleep mid-session: the app flips to "Reconnecting…" and then the banner within
+     about 45 s instead of staying green; turn off the phone's Wi-Fi or switch it to another network:
+     the same happens within about 15 s at most (the network-change probe), and a switch to a
+     network that reaches the TV reconnects silently;
+   - discovery on a phone below Android 14 lists every TV and service type on the network (the
+     serial resolve queue), and on Android 12 or older with the multicast lock;
    - a one-TV launch names the TV and can be cancelled; a two-TV launch waits for a choice;
    - Disconnect, kill the app, relaunch: it must not redial;
    - Optimize apply locks the tabs, and Cancel stops after the current item;
