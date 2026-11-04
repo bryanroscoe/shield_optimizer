@@ -41,8 +41,9 @@
   ${If} $R0 = 0
     ${IfNot} ${Silent}
     ${AndIf} $PassiveMode <> 1
+      ; Cancel stops the install, as the template's own running-app check does.
       MessageBox MB_OKCANCEL|MB_ICONINFORMATION "An earlier version of ATV Optimizer (or Shield Optimizer) is running. Select OK to close it." IDOK atvopt_close_old
-      Goto atvopt_close_old_done
+      Abort
     ${EndIf}
     atvopt_close_old:
     !if "${INSTALLMODE}" == "currentUser"
@@ -52,21 +53,44 @@
     !endif
     Pop $R0
     Sleep 500
-    atvopt_close_old_done:
   ${EndIf}
 !macroend
 
+; Not unpinned first: IStartMenuPinnedList::RemoveFromList would also drop
+; the taskbar pin, which ATVOPT_RETARGET_PINS has already moved over.
 !macro ATVOPT_REMOVE_LEGACY_SHORTCUT LINK FLAG
   ${If} ${FileExists} "${LINK}"
     !insertmacro IsShortcutTarget "${LINK}" "$R0\$R1"
     Pop $R2
     ${If} $R2 = 1
-      !insertmacro UnpinShortcut "${LINK}"
       Delete "${LINK}"
-      StrCpy ${FLAG} 1
-      DetailPrint "Removed old shortcut ${LINK}"
+      ; Without rights (the HKLM pass) the shortcut stays, and no
+      ; replacement is needed.
+      ${IfNot} ${FileExists} "${LINK}"
+        StrCpy ${FLAG} 1
+        DetailPrint "Removed old shortcut ${LINK}"
+      ${EndIf}
     ${EndIf}
   ${EndIf}
+!macroend
+
+; Point LINK at this install's program, starting in $INSTDIR (the template's
+; SetShortcutTarget sets only the path, and the old "Start in" folder may be
+; gone), with this identifier's AppUserModelID.
+!macro ATVOPT_POINT_LNK_HERE LINK
+  !insertmacro ComHlpr_CreateInProcInstance ${CLSID_ShellLink} ${IID_IShellLink} r0 ""
+  ${If} $0 P<> 0
+    ${IUnknown::QueryInterface} $0 '("${IID_IPersistFile}",.r1)'
+    ${If} $1 P<> 0
+      ${IPersistFile::Load} $1 '("${LINK}", ${STGM_READWRITE})'
+      ${IShellLink::SetPath} $0 '(w "$INSTDIR\${MAINBINARYNAME}.exe")'
+      ${IShellLink::SetWorkingDirectory} $0 '(w "$INSTDIR")'
+      ${IPersistFile::Save} $1 '("${LINK}",1)'
+      ${IUnknown::Release} $1 ""
+    ${EndIf}
+    ${IUnknown::Release} $0 ""
+  ${EndIf}
+  !insertmacro SetLnkAppUserModelId "${LINK}"
 !macroend
 
 ; Point taskbar pins whose target is OLD at the new program.
@@ -77,8 +101,7 @@
     !insertmacro IsShortcutTarget "${ATVOPT_PINS}\$R7" "${OLD}"
     Pop $R2
     ${If} $R2 = 1
-      !insertmacro SetShortcutTarget "${ATVOPT_PINS}\$R7" "$INSTDIR\${MAINBINARYNAME}.exe"
-      !insertmacro SetLnkAppUserModelId "${ATVOPT_PINS}\$R7"
+      !insertmacro ATVOPT_POINT_LNK_HERE "${ATVOPT_PINS}\$R7"
       DetailPrint "Pointed taskbar pin $R7 at ${MAINBINARYNAME}.exe"
     ${EndIf}
     FindNext $R6 $R7
@@ -89,13 +112,13 @@
 
 ; The identifier changed in 2.5.0, and the template only retargets an
 ; existing shortcut, so give this install's shortcuts the new
-; AppUserModelID too.
+; AppUserModelID and a "Start in" folder that exists.
 !macro ATVOPT_REFRESH_AUMID LINK
   ${If} ${FileExists} "${LINK}"
     !insertmacro IsShortcutTarget "${LINK}" "$INSTDIR\${MAINBINARYNAME}.exe"
     Pop $R2
     ${If} $R2 = 1
-      !insertmacro SetLnkAppUserModelId "${LINK}"
+      !insertmacro ATVOPT_POINT_LNK_HERE "${LINK}"
     ${EndIf}
   ${EndIf}
 !macroend
@@ -139,12 +162,13 @@
       DetailPrint "Removed old ${ATVOPT_LEGACY_PRODUCT} at $R0"
     ${EndIf}
 
-    ; No release set a Start menu folder, so the shortcut sits at the top.
+    ; Pins first (per user, in the installer's context), then the old
+    ; shortcuts. No release set a Start menu folder, so they sit at the top.
+    !insertmacro ATVOPT_RETARGET_PINS "$R0\$R1"
     SetShellVarContext ${CONTEXT}
     !insertmacro ATVOPT_REMOVE_LEGACY_SHORTCUT "$SMPROGRAMS\${ATVOPT_LEGACY_PRODUCT}.lnk" $R4
     !insertmacro ATVOPT_REMOVE_LEGACY_SHORTCUT "$DESKTOP\${ATVOPT_LEGACY_PRODUCT}.lnk" $R5
     !insertmacro SetContext
-    !insertmacro ATVOPT_RETARGET_PINS "$R0\$R1"
 
     DeleteRegKey ${ROOT} "${ATVOPT_LEGACY_UNINSTKEY}"
     DeleteRegKey ${ROOT} "${ATVOPT_LEGACY_MANUKEY}\${ATVOPT_LEGACY_PRODUCT}"
@@ -165,6 +189,8 @@
 
   ; An update only retargets an existing "ATV Optimizer" shortcut. A user who
   ; launched the old copy from its shortcuts would be left with none.
+  ; CreateShortcut's "Start in" is the output folder.
+  SetOutPath $INSTDIR
   ${If} $R4 = 1
   ${AndIfNot} ${FileExists} "$SMPROGRAMS\${PRODUCTNAME}.lnk"
     CreateShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
