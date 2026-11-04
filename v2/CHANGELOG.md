@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- macOS: TVs no longer disappear after an update. The ADB server the previous version started kept running, and once the new version opened, macOS cut that server off from your network: every connection failed with "No route to host", even by IP, until ADB was restarted by hand. When the app can reach a TV that ADB can't, it now restarts ADB itself and tries again. The app is also signed under its own identifier now, instead of one that changed with every build.
+
 - Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 
 - Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
