@@ -229,6 +229,12 @@ endgroup
 group "Run $OLD_VERSION once"
 run_app open "$app_path" "$old_id" "old-$OLD_VERSION"
 [[ -d "$old_profile" ]] || fatal "the old app did not create its WebKit profile at $old_profile"
+# 2.2.0 writes lastSeenVersion only once its update check (a request to
+# GitHub) answers, so a slow network can leave it unwritten. Run it again.
+for i in 2 3; do
+  py ls-has --kind webkit --profile "$old_profile" --key "$old_ls_key" >/dev/null && break
+  run_app open "$app_path" "$old_id" "old-$OLD_VERSION-run$i"
+done
 py ls-dump --kind webkit --profile "$old_profile" --out "$EVIDENCE/localstorage-old.json"
 py check-ls --results "$results" --name "old app wrote $old_ls_key on its own" \
   --kind webkit --profile "$old_profile" --key "$old_ls_key" --soft

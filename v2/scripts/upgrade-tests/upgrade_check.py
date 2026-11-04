@@ -678,6 +678,13 @@ def cmd_ls_inject(a):
     print(f"injected {a.key}={a.value} into {where}")
 
 
+def cmd_ls_has(a):
+    items, _ = ls_items(a.kind, Path(a.profile))
+    got = ls_lookup(items, a.key)
+    print(got)
+    sys.exit(0 if got else 1)
+
+
 def cmd_check_ls(a):
     items, notes = ls_items(a.kind, Path(a.profile))
     got = ls_lookup(items, a.key)
@@ -782,7 +789,12 @@ def main():
     s.add_argument("--max", type=int)
     s.add_argument("--soft", action="store_true")
 
-    for name, fn in (("ls-dump", cmd_ls_dump), ("ls-inject", cmd_ls_inject), ("check-ls", cmd_check_ls)):
+    for name, fn in (
+        ("ls-dump", cmd_ls_dump),
+        ("ls-inject", cmd_ls_inject),
+        ("ls-has", cmd_ls_has),
+        ("check-ls", cmd_check_ls),
+    ):
         s = add(name, fn, name == "check-ls", name == "check-ls")
         s.add_argument("--kind", choices=["webview2", "webkit"], required=True)
         s.add_argument("--profile", required=True)

@@ -14,6 +14,10 @@ param(
   [Parameter(Mandatory)] [string] $NewInstaller,
   [Parameter(Mandatory)] [string] $NewVersion,
   [Parameter(Mandatory)] [string] $Evidence,
+  # Installed beside the old one before the upgrade (2.2.0 then 2.4.1 is the
+  # side-by-side pair the 2.3.0 product rename left behind).
+  [string] $MiddleInstaller = '',
+  [string] $MiddleVersion = '',
   [switch] $RunningDuringInstall,
   [switch] $Retry
 )
@@ -258,6 +262,7 @@ function Check-Migrated([string] $Label) {
 $script:OldLsKey = $null
 $script:OldLsValue = $null
 $script:OldExe = $null
+$script:OldExes = @()
 $script:HadDesktop = $false
 $lockProc = $null
 $lockSignal = Join-Path $env:RUNNER_TEMP 'hold-locks.signal'
@@ -275,6 +280,7 @@ try {
   $script:OldExe = Find-Exe @($OldExeName)
   if (-not $script:OldExe) { throw "could not find $OldExeName after installing $OldVersion" }
   Record "old $OldVersion installed" $true $script:OldExe
+  $script:OldExes = @($script:OldExe)
   EndStep
 
   Step 'Seed the data folder before the old app first runs'
@@ -286,17 +292,41 @@ try {
   $pin.Save()
   EndStep
 
-  Step "Run $OldVersion once"
-  Run-App $script:OldExe 'com.shieldoptimizer.app' "old $OldVersion"
-  if (-not (Test-Path -LiteralPath (Join-Path $OldProfile 'EBWebView'))) {
-    throw "the old app did not create its WebView profile in $OldProfile"
-  }
   if ([version]$OldVersion -lt [version]'2.3.0') {
     $script:OldLsKey = 'shieldopt.lastSeenVersion'
   } else {
     $script:OldLsKey = 'shieldopt.notesSeenVersion'
   }
   $script:OldLsValue = $OldVersion
+
+  Step "Run $OldVersion once"
+  Run-App $script:OldExe 'com.shieldoptimizer.app' "old $OldVersion"
+  if (-not (Test-Path -LiteralPath (Join-Path $OldProfile 'EBWebView'))) {
+    throw "the old app did not create its WebView profile in $OldProfile"
+  }
+  # 2.2.0 writes lastSeenVersion only once its update check (a request to
+  # GitHub) answers, so a slow network can leave it unwritten. Run it again.
+  for ($i = 2; $i -le 3; $i++) {
+    & python -I $Tool ls-has --kind webview2 --profile $OldProfile --key $script:OldLsKey | Out-Null
+    if ($LASTEXITCODE -eq 0) { break }
+    Run-App $script:OldExe 'com.shieldoptimizer.app' "old $OldVersion (run $i, $script:OldLsKey not written yet)"
+  }
+  $global:LASTEXITCODE = 0
+  EndStep
+
+  if ($MiddleInstaller) {
+    Step "Install $MiddleVersion beside it and run it once"
+    Install 'nsis' $MiddleInstaller @('/S') 'middle'
+    $mid = Join-Path $Local "ATV Optimizer\$OldExeName"
+    $sideBySide = @(Get-UninstallEntries | Where-Object { $_.DisplayName -in @('Shield Optimizer', 'ATV Optimizer') })
+    Record "$MiddleVersion installed beside $OldVersion" ((Test-Path -LiteralPath $mid) -and $sideBySide.Count -eq 2) `
+      (($sideBySide | ForEach-Object { "$($_.DisplayName) $($_.DisplayVersion)" }) -join '; ')
+    $script:OldExes += $mid
+    Run-App $mid 'com.shieldoptimizer.app' "middle $MiddleVersion"
+    EndStep
+  }
+
+  Step 'Record the old state'
   Py ls-dump --kind webview2 --profile $OldProfile --out (Join-Path $Evidence 'localstorage-old.json')
   Py check-ls --results $Results --name "old app wrote $script:OldLsKey=$OldVersion on its own" `
     --kind webview2 --profile $OldProfile --key $script:OldLsKey --value $OldVersion --soft
@@ -417,7 +447,9 @@ try {
     $gone = -not (Test-Path "${root}:\Software\shieldoptimizer\Shield Optimizer")
     Record "$root\Software\shieldoptimizer\Shield Optimizer removed" $gone
   }
-  Record "old program $($script:OldExe) removed" (-not (Test-Path -LiteralPath $script:OldExe))
+  foreach ($exe in $script:OldExes) {
+    Record "old program $exe removed" (-not (Test-Path -LiteralPath $exe))
+  }
   if ($OldProduct -eq 'Shield Optimizer') {
     $oldDir = Split-Path $script:OldExe
     $left = @(if (Test-Path -LiteralPath $oldDir) { Get-ChildItem -LiteralPath $oldDir -Recurse -File | ForEach-Object FullName })

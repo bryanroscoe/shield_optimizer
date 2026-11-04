@@ -187,6 +187,13 @@ jobs:
             old: 2.2.0
             old-kind: nsis
             upgrade: nsis-update
+          # What most 2.2.0 users have: the in-app update to 2.3+ installed
+          # "ATV Optimizer" beside "Shield Optimizer" (R1).
+          - scenario: nsis-2.2.0-2.4.1-update
+            old: 2.2.0
+            middle: 2.4.1
+            old-kind: nsis
+            upgrade: nsis-update
           - scenario: nsis-2.2.0-silent
             old: 2.2.0
             old-kind: nsis
@@ -231,7 +238,10 @@ jobs:
           set -euo pipefail
           pattern=$([[ "${{ matrix.old-kind }}" == msi ]] && echo '*_x64_en-US.msi' || echo '*_x64-setup.exe')
           gh release download "v2-${{ matrix.old }}" --repo "$GITHUB_REPOSITORY" --pattern "$pattern" --dir old
-          ls -l old
+          if [[ -n "${{ matrix.middle }}" ]]; then
+            gh release download "v2-${{ matrix.middle }}" --repo "$GITHUB_REPOSITORY" --pattern '*_x64-setup.exe' --dir middle
+          fi
+          ls -l old middle 2>/dev/null || true
 
       - name: Run scenario
         shell: pwsh
@@ -241,6 +251,10 @@ jobs:
           $extra = @{}
           if ('${{ matrix.running }}' -eq 'true') { $extra.RunningDuringInstall = $true }
           if ('${{ matrix.retry }}' -eq 'true') { $extra.Retry = $true }
+          if ('${{ matrix.middle }}') {
+            $extra.MiddleInstaller = (Get-ChildItem middle | Select-Object -First 1).FullName
+            $extra.MiddleVersion = '${{ matrix.middle }}'
+          }
           & v2/scripts/upgrade-tests/windows.ps1 -Scenario '${{ matrix.scenario }}' `
             -OldKind '${{ matrix.old-kind }}' -OldInstaller $old -OldVersion '${{ matrix.old }}' `
             -Upgrade '${{ matrix.upgrade }}' -NewInstaller (Resolve-Path $new).Path `
