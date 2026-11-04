@@ -16,13 +16,14 @@
 //! All device I/O rides the shared `AdbDriver` seam (shell + `raw_transfer`),
 //! keeping `crates/core/engine` pure. Transfers are implemented by
 //! `WirelessAdb::pull_limited` and `WirelessAdb::raw_transfer` via
-//! `adb_client`'s sync service.
+//! `adb_client`'s sync service; restores use `raw_transfer`'s
+//! `install`/`install-multiple`, which stream to the package manager.
 
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use shield_optimizer_core::adb::{parse_ls_output, FileEntry};
+use shield_optimizer_core::adb::{parse_ls_output, AdbError, FileEntry};
 use shield_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
 use shield_optimizer_core::commands::{apps::ActionResult, AppState};
 use tauri::State;
@@ -421,16 +422,27 @@ pub async fn backup_apk(
     result
 }
 
-/// `restore_apk_backup` — push a path-confined complete bundle to a temporary
-/// TV directory and install every APK together. Cleanup runs on every result.
+/// `restore_apk_backup` — install every APK of a path-confined complete bundle
+/// together, the way `adb install-multiple -r` does. The driver streams them
+/// to the package manager (or, on TVs without `cmd`, stages them in
+/// `/data/local/tmp` and removes them again), and judges success by its
+/// `Success` reply.
 #[tauri::command]
 pub async fn restore_apk_backup(
     state: State<'_, AppState>,
     serial: String,
     backup_path: String,
 ) -> Result<ActionResult, String> {
+    restore_apk_backup_impl(state.inner(), &serial, &backup_path).await
+}
+
+async fn restore_apk_backup_impl(
+    state: &AppState,
+    serial: &str,
+    backup_path: &str,
+) -> Result<ActionResult, String> {
     let root = state.data_dir.join("backups");
-    let dir = confined_backup_path(&root, &backup_path)?;
+    let dir = confined_backup_path(&root, backup_path)?;
     if !dir.is_dir() {
         return Err(
             "This legacy backup may contain only base.apk and cannot be restored safely. Create a new complete backup first."
@@ -439,72 +451,42 @@ pub async fn restore_apk_backup(
     }
     let manifest = read_manifest(&dir)?;
     let files = bundle_files(&dir, &manifest)?;
-    let stamp = Utc::now().format("%Y%m%d%H%M%S%9f");
-    let remote_dir = format!("/data/local/tmp/atv-optimizer-restore-{stamp}");
+    let locals: Vec<String> = files
+        .iter()
+        .map(|file| file.to_string_lossy().into_owned())
+        .collect();
+    let verb = if locals.len() > 1 {
+        "install-multiple"
+    } else {
+        "install"
+    };
+    let mut args = vec!["-s", serial, verb, "-r"];
+    args.extend(locals.iter().map(String::as_str));
+
     let adb = state.adb_snapshot().await;
-    let mkdir = adb
-        .shell(&serial, &format!("mkdir -p {}", quote_path(&remote_dir)))
-        .await
-        .map_err(|e| format!("prepare restore: {e}"))?;
-    if shell_failed(&mkdir) {
-        return Err(format!(
-            "Could not prepare restore: {}",
-            mkdir.combined().trim()
-        ));
-    }
-
-    let result = async {
-        let mut remote_files = Vec::with_capacity(files.len());
-        for file in &files {
-            let name = file
-                .file_name()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| "Backup contains an invalid APK filename.".to_string())?;
-            let local = file.to_string_lossy().into_owned();
-            let remote = format!("{remote_dir}/{name}");
-            adb.raw_transfer(&["-s", &serial, "push", &local, &remote])
-                .await
-                .map_err(|e| format!("push {name}: {e}"))?;
-            remote_files.push(remote);
-        }
-
-        let verb = if remote_files.len() > 1 {
-            "install-multiple"
+    let (ok, message) = match adb.raw_transfer(&args).await {
+        Ok(out) => (
+            out.success() && out.combined().contains("Success"),
+            out.combined().trim().to_string(),
+        ),
+        // `adb install` exits nonzero with the package manager's reason.
+        Err(AdbError::NonZeroExit { stderr, .. }) => (false, stderr.trim().to_string()),
+        Err(e) => return Err(format!("install backup: {e}")),
+    };
+    Ok(ActionResult {
+        ok,
+        message: if ok {
+            format!(
+                "Restored {} from {} APK file(s).",
+                manifest.package,
+                files.len()
+            )
+        } else if message.is_empty() {
+            "The TV did not confirm that the backup was installed.".to_string()
         } else {
-            "install"
-        };
-        let paths = remote_files
-            .iter()
-            .map(|path| quote_path(path))
-            .collect::<Vec<_>>()
-            .join(" ");
-        let out = adb
-            .shell(&serial, &format!("pm {verb} -r {paths}"))
-            .await
-            .map_err(|e| format!("install backup: {e}"))?;
-        let message = out.combined().trim().to_string();
-        let ok = !shell_failed(&out) && message.to_ascii_lowercase().contains("success");
-        Ok(ActionResult {
-            ok,
-            message: if ok {
-                format!(
-                    "Restored {} from {} APK file(s).",
-                    manifest.package,
-                    files.len()
-                )
-            } else if message.is_empty() {
-                "The TV did not confirm that the backup was installed.".to_string()
-            } else {
-                message
-            },
-        })
-    }
-    .await;
-
-    let _ = adb
-        .shell(&serial, &format!("rm -rf {}", quote_path(&remote_dir)))
-        .await;
-    result
+            message
+        },
+    })
 }
 
 /// Resolve a delete target: path-confined to the backups root *and* a
@@ -704,6 +686,158 @@ mod tests {
                 .unwrap()
                 .count(),
             2
+        );
+    }
+
+    /// Records `raw_transfer` calls and answers with `reply`. Any `shell`
+    /// call fails the test: a restore no longer stages files or runs `pm`.
+    struct InstallDriver {
+        reply: fn() -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>,
+        calls: std::sync::Mutex<Vec<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl shield_optimizer_core::adb::AdbDriver for InstallDriver {
+        async fn raw(
+            &self,
+            _: &[&str],
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            unreachable!()
+        }
+        async fn raw_transfer(
+            &self,
+            args: &[&str],
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(args.iter().map(|arg| arg.to_string()).collect());
+            (self.reply)()
+        }
+        async fn shell(
+            &self,
+            _: &str,
+            command: &str,
+        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+            panic!("restore ran a shell command: {command}")
+        }
+    }
+
+    fn write_bundle(data_dir: &Path, files: &[&str]) -> PathBuf {
+        let dir = data_dir.join("backups").join("com.example-1");
+        std::fs::create_dir_all(&dir).expect("bundle dir");
+        for file in files {
+            std::fs::write(dir.join(file), b"apk").expect("apk");
+        }
+        let manifest = BackupManifest {
+            schema_version: BACKUP_SCHEMA_VERSION,
+            package: "com.example".to_string(),
+            saved_at: "2026-11-04T00:00:00Z".to_string(),
+            apk_files: files.iter().map(|file| file.to_string()).collect(),
+        };
+        std::fs::write(
+            dir.join(BACKUP_MANIFEST),
+            serde_json::to_vec(&manifest).expect("json"),
+        )
+        .expect("manifest");
+        dir
+    }
+
+    async fn restore_with(
+        files: &[&str],
+        reply: fn() -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>,
+    ) -> (Result<ActionResult, String>, Vec<Vec<String>>, PathBuf) {
+        let data = tempfile::tempdir().expect("data dir");
+        let bundle = write_bundle(data.path(), files);
+        let driver = std::sync::Arc::new(InstallDriver {
+            reply,
+            calls: Default::default(),
+        });
+        let state = AppState::new(
+            driver.clone(),
+            Default::default(),
+            data.path().to_path_buf(),
+        );
+        let result = restore_apk_backup_impl(&state, "TV", bundle.to_str().expect("utf8")).await;
+        let calls = driver.calls.lock().unwrap().clone();
+        let canonical = bundle.canonicalize().expect("canonical");
+        (result, calls, canonical)
+    }
+
+    fn success() -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        Ok(shield_optimizer_core::adb::AdbOutput {
+            stdout: "Success\n".to_string(),
+            stderr: String::new(),
+            exit_code: Some(0),
+        })
+    }
+
+    #[tokio::test]
+    async fn restore_installs_every_split_together_without_staging_on_the_tv() {
+        let (result, calls, bundle) =
+            restore_with(&["000-base.apk", "001-split_config.en.apk"], success).await;
+        let result = result.expect("restore");
+        assert!(result.ok, "{}", result.message);
+        assert_eq!(result.message, "Restored com.example from 2 APK file(s).");
+        let expected: Vec<String> = ["-s", "TV", "install-multiple", "-r"]
+            .iter()
+            .map(|arg| arg.to_string())
+            .chain(
+                ["000-base.apk", "001-split_config.en.apk"]
+                    .iter()
+                    .map(|file| bundle.join(file).to_string_lossy().into_owned()),
+            )
+            .collect();
+        assert_eq!(calls, [expected]);
+    }
+
+    #[tokio::test]
+    async fn a_single_apk_restore_uses_install() {
+        let (result, calls, _) = restore_with(&["000-base.apk"], success).await;
+        assert!(result.expect("restore").ok);
+        assert_eq!(calls[0][2], "install");
+    }
+
+    #[tokio::test]
+    async fn a_package_manager_refusal_is_reported_not_raised() {
+        let (result, _, _) = restore_with(&["000-base.apk"], || {
+            Err(AdbError::NonZeroExit {
+                code: Some(1),
+                stderr: "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]".to_string(),
+            })
+        })
+        .await;
+        let result = result.expect("an answer, not an error");
+        assert!(!result.ok);
+        assert_eq!(result.message, "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]");
+    }
+
+    #[tokio::test]
+    async fn a_transport_failure_is_an_error_and_exit_zero_without_success_is_not_ok() {
+        let (result, _, _) = restore_with(&["000-base.apk"], || {
+            Err(AdbError::Transport(
+                "Connection to the TV was lost: timed out".to_string(),
+            ))
+        })
+        .await;
+        match result {
+            Err(message) => assert!(message.contains("Connection to the TV was lost")),
+            Ok(_) => panic!("a lost connection must be an error"),
+        }
+
+        let (result, _, _) = restore_with(&["000-base.apk"], || {
+            Ok(shield_optimizer_core::adb::AdbOutput {
+                stdout: String::new(),
+                stderr: String::new(),
+                exit_code: Some(0),
+            })
+        })
+        .await;
+        let result = result.expect("answer");
+        assert!(!result.ok);
+        assert_eq!(
+            result.message,
+            "The TV did not confirm that the backup was installed."
         );
     }
 

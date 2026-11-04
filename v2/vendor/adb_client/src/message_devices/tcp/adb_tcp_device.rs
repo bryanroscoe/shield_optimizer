@@ -8,7 +8,7 @@ use crate::models::RemountInfo;
 use crate::tcp::tcp_transport::TcpTransport;
 use crate::utils::get_default_adb_key_path;
 use crate::{
-    ADBDeviceExt, ADBListItemType, ConnectionInfo, Result,
+    ADBDeviceExt, ADBListItemType, ConnectionInfo, Result, ShellExit,
     message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
 };
 
@@ -77,15 +77,55 @@ impl ADBTcpDevice {
     /// Run a shell command with a finite timeout for each transport response.
     /// This is useful for liveness probes, where an unbounded read would keep
     /// the owning connection mutex locked forever after a network loss.
+    ///
+    /// Shell protocol v2 is used whenever the device negotiated `shell_v2`
+    /// and returns [`ShellExit::Code`]. Only a device without it (or one
+    /// that refuses the v2 service) gets the legacy shell, which merges
+    /// stderr into stdout and returns [`ShellExit::Unreported`]. A v2 stream
+    /// that closes before its exit status is an error, never a success.
     pub fn shell_command_with_timeout(
         &mut self,
         command: &dyn AsRef<str>,
         stdout: Option<&mut dyn Write>,
         stderr: Option<&mut dyn Write>,
         timeout: Duration,
-    ) -> Result<Option<u8>> {
+    ) -> Result<ShellExit> {
         self.inner
-            .shell_command_prefer_v2_with_timeout(command, stdout, stderr, timeout)
+            .shell_command_with_timeout(command, stdout, stderr, timeout)
+    }
+
+    /// Run a command whose output is binary, like `adb exec-out`: shell v2
+    /// when negotiated, otherwise `exec:`, which (unlike the legacy shell)
+    /// never passes output through a pty. Without v2, stderr is merged into
+    /// `stdout` and there is no exit status.
+    pub fn exec_out_with_timeout(
+        &mut self,
+        command: &str,
+        stdout: &mut dyn Write,
+        stderr: Option<&mut dyn Write>,
+        timeout: Duration,
+    ) -> Result<ShellExit> {
+        self.inner
+            .exec_out_with_timeout(command, stdout, stderr, timeout)
+    }
+
+    /// Install one APK, or the base and splits of one app together, choosing
+    /// the transport as AOSP's `adb install` does: streamed through
+    /// `abb_exec` or `exec:cmd` when negotiated, otherwise pushed to
+    /// `/data/local/tmp` (and removed again) for `pm`. `options` are passed
+    /// to the package manager, e.g. `["-r"]`. Returns its `Success` reply.
+    /// Anything else is [`crate::RustADBError::InstallFailed`] with the
+    /// package manager's text, and an unfinished session is abandoned.
+    /// `timeout` bounds each wait for the device, including verification
+    /// after the last byte.
+    pub fn install_apks<P: AsRef<Path>>(
+        &mut self,
+        apks: &[P],
+        options: &[&str],
+        timeout: Duration,
+    ) -> Result<String> {
+        let paths: Vec<&Path> = apks.iter().map(AsRef::as_ref).collect();
+        self.inner.install_packages(&paths, options, timeout)
     }
 }
 
@@ -98,6 +138,7 @@ impl ADBDeviceExt for ADBTcpDevice {
         stderr: Option<&mut dyn Write>,
     ) -> Result<Option<u8>> {
         self.shell_command_with_timeout(command, stdout, stderr, DEFAULT_READ_TIMEOUT)
+            .map(ShellExit::code)
     }
 
     #[inline]

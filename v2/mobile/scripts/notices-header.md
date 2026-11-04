@@ -166,10 +166,11 @@ Source: <https://github.com/cocool97/adb_client>
 ### Kadb — Apache License 2.0 (logic translated into the vendored adb_client)
 
 Parts of the wireless-ADB connection layer in `v2/vendor/adb_client` — CNXN feature and payload
-negotiation, header validation, the TLS client-certificate shape and TLS error mapping, and TCP
-socket options — are Rust translations of logic from Kadb at commit `3d1c13e` (release 2.1.5). No
-Kadb code or binary ships in the app; the translated files and their Kadb sources are listed in
-`v2/vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
+negotiation, header validation, the TLS client-certificate shape and TLS error mapping, TCP
+socket options, logical-stream handling, the file-sync protocol, shell protocol selection and
+decoding, and the APK install and uninstall flows — are Rust translations of logic from Kadb at
+commit `3d1c13e` (release 2.1.5). No Kadb code or binary ships in the app; the translated files
+and their Kadb sources are listed in `v2/vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
 
 Copyright (c) 2024 Flyfish-Xu and Kadb contributors. Portions Copyright (c) 2021 mobile.dev inc.
 (dadb, from which Kadb derives). Licensed under the Apache License, Version 2.0 — full text

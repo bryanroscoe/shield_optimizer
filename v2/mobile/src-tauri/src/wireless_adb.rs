@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use adb_client::tcp::{ADBTcpDevice, ADBTcpService, PairingError};
-use adb_client::{ADBDeviceExt, RebootType, RustADBError};
+use adb_client::{ADBDeviceExt, RebootType, RustADBError, ShellExit};
 use async_trait::async_trait;
 use serde::Serialize;
 use shield_optimizer_core::adb::{AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult};
@@ -101,7 +101,8 @@ fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String
 /// call; the trait surface synthesizes `raw(["devices"])`, routes
 /// `shell`/screencap through the owned device, maps `reboot`, and streams
 /// `push`/`pull` through the sync service via `raw_transfer` and
-/// `pull_limited`. `pair` runs the
+/// `pull_limited`, and streams `install`/`install-multiple` to the package
+/// manager through `raw_transfer`. `pair` runs the
 /// Android-11 SPAKE2 code-pairing exchange in-crate; `forward` is structurally
 /// impossible on a phone and reports `Unsupported`.
 pub struct WirelessAdb {
@@ -446,7 +447,7 @@ impl AdbDriver for WirelessAdb {
             let stat = device
                 .stat(&remote)
                 .map_err(|e| AdbError::Transport(e.to_string()))?;
-            if u64::from(stat.file_size) > max_bytes {
+            if stat.file_size > max_bytes {
                 return Err(AdbError::Transport(
                     "Download exceeds the file size limit.".into(),
                 ));
@@ -547,6 +548,40 @@ impl AdbDriver for WirelessAdb {
                     exit_code: Some(0),
                 })
             }
+            ["-s", serial, verb @ ("install" | "install-multiple"), rest @ ..] => {
+                let (options, apks) =
+                    split_install_args(verb, rest).map_err(AdbError::Transport)?;
+                // Like push: a phone-storage error must not reach (and evict)
+                // a healthy TV connection.
+                for apk in &apks {
+                    std::fs::File::open(apk)
+                        .map_err(|e| AdbError::Transport(format!("open {}: {e}", apk.display())))?;
+                }
+                let outcome = self
+                    .on_device(serial, move |dev| {
+                        let options: Vec<&str> = options.iter().map(String::as_str).collect();
+                        install_outcome(dev.install_apks(
+                            &apks,
+                            &options,
+                            SLOW_SHELL_INACTIVITY_TIMEOUT,
+                        ))
+                    })
+                    .await
+                    .map_err(AdbError::Transport)?;
+                // The same contract as `adb install`: exit 0 with `Success`, or
+                // a nonzero exit carrying the package manager's reason.
+                match outcome {
+                    Ok(stdout) => Ok(AdbOutput {
+                        stdout,
+                        stderr: String::new(),
+                        exit_code: Some(0),
+                    }),
+                    Err(reason) => Err(AdbError::NonZeroExit {
+                        code: Some(1),
+                        stderr: reason,
+                    }),
+                }
+            }
             _ => Err(AdbError::Unsupported {
                 operation: "raw_transfer",
             }),
@@ -577,11 +612,7 @@ impl AdbDriver for WirelessAdb {
         Ok(AdbOutput {
             stdout,
             stderr,
-            // shell-v2 reports the real exit status. The shell-v1 fallback on
-            // very old devices has none; report 0 there so `success()` is not
-            // permanently false, and let `shell_reported_failure()` judge the
-            // text as it does for every other path.
-            exit_code: Some(code.map(|c| c as i32).unwrap_or(0)),
+            exit_code: Some(exit_code_for(code)),
         })
     }
 
@@ -598,16 +629,18 @@ impl AdbDriver for WirelessAdb {
             // `screencap -p` encodes on the TV (~1 MB). The framebuffer service
             // ships raw RGBA (~33 MB at 4K) and is only a fallback. stderr gets
             // its own sink so a warning can never be spliced into the PNG.
+            // Without shell v2 this runs over `exec:`, never the legacy
+            // shell, whose pty would rewrite the PNG's line endings.
             let mut out: Vec<u8> = Vec::new();
             let mut err: Vec<u8> = Vec::new();
-            let shot = dev.shell_command_with_timeout(
-                &"screencap -p",
-                Some(&mut out),
+            let shot = dev.exec_out_with_timeout(
+                "screencap -p",
+                &mut out,
                 Some(&mut err),
                 SHELL_INACTIVITY_TIMEOUT,
             );
             match shot {
-                Ok(_) if out.starts_with(b"\x89PNG") => Ok(out),
+                Ok(exit) if exit.code().unwrap_or(0) == 0 && out.starts_with(b"\x89PNG") => Ok(out),
                 _ => dev.framebuffer_bytes(),
             }
         })
@@ -660,7 +693,11 @@ pub type SharedWirelessAdb = Arc<WirelessAdb>;
 
 /// Errors that mean the socket or its framing is unusable, as opposed to a
 /// request adbd answered with a failure. `PayloadTooLarge` is refused before
-/// anything reaches the socket, so it leaves the connection intact.
+/// anything reaches the socket, so it leaves the connection intact, as do a
+/// sync `FAIL` (`SyncFailed`), a package-manager refusal (`InstallFailed`), a
+/// phone-side file error (`LocalIo`) and a shell v2 stream that closed
+/// without its exit status. A connection that lost framing mid-message
+/// reports `ProtocolError` on every later use.
 fn is_fatal_transport_error(error: &RustADBError) -> bool {
     matches!(
         error,
@@ -686,6 +723,55 @@ fn probe_alive(dev: &mut ADBTcpDevice) -> bool {
     )
     .is_ok()
         && String::from_utf8_lossy(&stdout).contains("ok")
+}
+
+/// Shell v2 reports the command's own exit status. The legacy shell, used
+/// only by devices without shell v2, reports none: it maps to 0 so
+/// `success()` is not permanently false there, and `shell_reported_failure()`
+/// judges its text as on every path. A v2 stream that ended without a status
+/// never reaches this; the transport returns it as an error.
+fn exit_code_for(exit: ShellExit) -> i32 {
+    match exit {
+        ShellExit::Code(code) => i32::from(code),
+        ShellExit::Unreported => 0,
+    }
+}
+
+/// Split `install`/`install-multiple` arguments into flag options (such as
+/// `-r`) and local APK paths. `install` takes exactly one APK.
+fn split_install_args(verb: &str, rest: &[&str]) -> Result<(Vec<String>, Vec<PathBuf>), String> {
+    let flags = rest.iter().take_while(|arg| arg.starts_with('-')).count();
+    let (options, paths) = rest.split_at(flags);
+    if let Some(bad) = options.iter().find(|option| {
+        option.len() < 2
+            || !option
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }) {
+        return Err(format!("Unsupported install option {bad:?}."));
+    }
+    match (verb, paths.len()) {
+        (_, 0) => Err("No APK to install.".to_string()),
+        ("install", n) if n > 1 => Err("install takes one APK; use install-multiple.".to_string()),
+        _ => Ok((
+            options.iter().map(|option| (*option).to_string()).collect(),
+            paths.iter().map(PathBuf::from).collect(),
+        )),
+    }
+}
+
+/// A package-manager refusal, or the TV refusing the staged copy on devices
+/// without `cmd`, is the install's answer, not a broken connection, so it is
+/// kept out of the error path that evicts it.
+fn install_outcome(
+    result: Result<String, RustADBError>,
+) -> Result<Result<String, String>, RustADBError> {
+    match result {
+        Ok(output) => Ok(Ok(output)),
+        Err(RustADBError::InstallFailed(reason)) => Ok(Err(reason)),
+        Err(error @ RustADBError::SyncFailed(_)) => Ok(Err(error.to_string())),
+        Err(error) => Err(error),
+    }
 }
 
 fn shell_timeout_for(command: &str) -> Duration {
@@ -828,13 +914,77 @@ mod tests {
     }
 
     use super::{
-        connect_error_message, is_fatal_transport_error, normalize_pairing_code,
-        pair_error_message, shell_timeout_for, validate_requested_serial, SHELL_INACTIVITY_TIMEOUT,
-        SLOW_SHELL_INACTIVITY_TIMEOUT,
+        connect_error_message, exit_code_for, install_outcome, is_fatal_transport_error,
+        normalize_pairing_code, pair_error_message, shell_timeout_for, split_install_args,
+        validate_requested_serial, SHELL_INACTIVITY_TIMEOUT, SLOW_SHELL_INACTIVITY_TIMEOUT,
     };
     use adb_client::tcp::PairingError;
-    use adb_client::RustADBError;
+    use adb_client::{RustADBError, ShellExit};
     use std::io::{Error, ErrorKind};
+    use std::path::PathBuf;
+
+    #[test]
+    fn answers_from_the_device_keep_the_connection_but_lost_framing_does_not() {
+        for answered in [
+            RustADBError::SyncFailed("push: No space left on device".to_string()),
+            RustADBError::InstallFailed("Failure [INSTALL_FAILED_OLDER_SDK]".to_string()),
+            RustADBError::LocalIo(Error::new(ErrorKind::StorageFull, "phone full")),
+            RustADBError::ADBShellV2ParseError(
+                "the shell stream closed without reporting an exit status".to_string(),
+            ),
+        ] {
+            assert!(!is_fatal_transport_error(&answered), "{answered:?}");
+        }
+        assert!(is_fatal_transport_error(&RustADBError::ProtocolError(
+            "the connection lost ADB message framing after an interrupted read or write; reconnect"
+                .to_string(),
+        )));
+    }
+
+    #[test]
+    fn only_shell_v2_reports_a_real_exit_status() {
+        assert_eq!(exit_code_for(ShellExit::Code(0)), 0);
+        assert_eq!(exit_code_for(ShellExit::Code(255)), 255);
+        // The legacy shell has no status; its text is judged instead.
+        assert_eq!(exit_code_for(ShellExit::Unreported), 0);
+    }
+
+    #[test]
+    fn install_arguments_split_into_flags_and_apks() {
+        let (options, apks) = split_install_args("install-multiple", &["-r", "/a.apk", "/b.apk"])
+            .expect("valid install-multiple");
+        assert_eq!(options, ["-r"]);
+        assert_eq!(apks, [PathBuf::from("/a.apk"), PathBuf::from("/b.apk")]);
+        let (options, apks) = split_install_args("install", &["/a.apk"]).expect("valid install");
+        assert!(options.is_empty());
+        assert_eq!(apks.len(), 1);
+        assert!(split_install_args("install", &["-r", "/a.apk", "/b.apk"]).is_err());
+        assert!(split_install_args("install-multiple", &["-r"]).is_err());
+        assert!(split_install_args("install", &["-r;reboot", "/a.apk"]).is_err());
+    }
+
+    #[test]
+    fn a_package_manager_refusal_is_an_answer_not_a_transport_error() {
+        assert_eq!(
+            install_outcome(Ok("Success\n".to_string())).unwrap(),
+            Ok("Success\n".to_string())
+        );
+        assert_eq!(
+            install_outcome(Err(RustADBError::InstallFailed(
+                "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]".to_string()
+            )))
+            .unwrap(),
+            Err("Failure [INSTALL_FAILED_VERSION_DOWNGRADE]".to_string())
+        );
+        assert_eq!(
+            install_outcome(Err(RustADBError::SyncFailed(
+                "push: No space left on device".to_string()
+            )))
+            .unwrap(),
+            Err("the device refused the file operation: push: No space left on device".to_string())
+        );
+        assert!(install_outcome(Err(RustADBError::ProtocolError("bad".to_string()))).is_err());
+    }
 
     #[test]
     fn only_socket_level_errors_are_fatal() {

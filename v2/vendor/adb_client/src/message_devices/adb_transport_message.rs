@@ -150,18 +150,6 @@ impl ADBTransportMessage {
             && ADBTransportMessageHeader::compute_crc32(&self.payload) == self.header.data_crc32
     }
 
-    pub fn assert_command(&self, expected_command: MessageCommand) -> Result<()> {
-        let our_command = self.header().command();
-        if expected_command == our_command {
-            return Ok(());
-        }
-
-        Err(RustADBError::WrongResponseReceived(
-            our_command.to_string(),
-            expected_command.to_string(),
-        ))
-    }
-
     pub const fn header(&self) -> &ADBTransportMessageHeader {
         &self.header
     }

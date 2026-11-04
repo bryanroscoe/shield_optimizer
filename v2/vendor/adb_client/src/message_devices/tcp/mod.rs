@@ -3,6 +3,8 @@
 mod adb_tcp_device;
 mod adb_tcp_service;
 mod pairing;
+#[cfg(test)]
+mod stream_tests;
 mod tcp_transport;
 #[cfg(test)]
 pub(crate) mod test_support;

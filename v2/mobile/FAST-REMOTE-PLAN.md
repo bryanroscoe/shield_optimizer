@@ -105,11 +105,11 @@ killed by an older cleanup task.
 ### Phase 1 — dependency API and protocol tests (built)
 
 The workspace pins `vendor/adb_client` through `[patch.crates-io]`. `adb_client::tcp::ADBTcpService`
-owns a dedicated authenticated connection and implements the raw stream with a conservative 4 KiB
-ADB payload cap. In-memory transport tests cover exact NUL-terminated `OPEN`, `WRTE`/`OKAY`,
-partial reads, interleaved traffic, multi-frame writes, physical EOF, malformed and zero IDs,
-timeouts, local close and peer `CLSE`. The patch cross-compiles for `aarch64-linux-android` with the
-mobile `framebuffer` feature.
+owns a dedicated authenticated connection and implements the raw stream, splitting writes at the
+payload size negotiated in CNXN (4 KiB on the oldest adbd). In-memory transport tests cover exact
+NUL-terminated `OPEN`, `WRTE`/`OKAY`, partial reads, interleaved traffic, multi-frame writes,
+physical EOF, malformed and zero IDs, timeouts, local close and peer `CLSE`. The patch
+cross-compiles for `aarch64-linux-android` with the mobile `framebuffer` feature.
 
 ### Phase 2 — mobile session transport (built)
 

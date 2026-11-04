@@ -95,7 +95,9 @@ pub enum RustADBError {
     InvalidIntegrity(u32, u32),
     /// The peer broke ADB framing or the connection handshake: a bad header
     /// magic, an unknown command, a payload longer than the negotiated limit,
-    /// or an impossible CNXN. The connection cannot be trusted afterwards.
+    /// or an impossible CNXN. Also returned by every use of a connection after
+    /// a read or write stopped part-way through a message. The connection
+    /// cannot be trusted afterwards.
     #[error("ADB protocol error: {0}")]
     ProtocolError(String),
     /// The device's TLS server refused this client's certificate, which is
@@ -106,6 +108,19 @@ pub enum RustADBError {
     /// It was refused before anything was written, so the connection is intact.
     #[error("message payload of {0} bytes exceeds the negotiated maximum of {1}")]
     PayloadTooLarge(usize, usize),
+    /// The device's file-sync service answered `FAIL`, for example for a
+    /// missing path or a destination it cannot write. The connection is intact.
+    #[error("the device refused the file operation: {0}")]
+    SyncFailed(String),
+    /// The device's package manager did not report `Success`. Carries what it
+    /// printed, such as `Failure [INSTALL_FAILED_VERSION_DOWNGRADE]`. The
+    /// connection is intact.
+    #[error("install failed: {0}")]
+    InstallFailed(String),
+    /// Reading or writing the local end of a transfer (a file on this host,
+    /// not on the device) failed. The connection is intact.
+    #[error(transparent)]
+    LocalIo(std::io::Error),
     /// Error while decoding base64 data
     #[error(transparent)]
     Base64DecodeError(#[from] base64::DecodeError),

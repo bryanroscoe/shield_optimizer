@@ -1,34 +1,20 @@
+use std::io::Read;
+
 use crate::{
     Result,
     message_devices::{
-        adb_message_device::ADBMessageDevice, adb_message_transport::ADBMessageTransport,
-        message_commands::MessageCommand,
+        adb_message_device::ADBMessageDevice,
+        adb_message_transport::{ADBMessageTransport, DEFAULT_READ_TIMEOUT},
+        adb_service::adb_error,
     },
     models::{ADBLocalCommand, RemountInfo},
 };
 
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     pub(crate) fn remount(&mut self) -> Result<Vec<RemountInfo>> {
-        self.open_session(&ADBLocalCommand::Remount)?;
-
-        let response = self.get_transport_mut().read_message()?;
-
-        response.assert_command(MessageCommand::Okay)?;
-
-        let mut response_str: Vec<String> = Vec::new();
-        loop {
-            let response = self.get_transport_mut().read_message()?;
-
-            if response.header().command() != MessageCommand::Write {
-                break;
-            }
-
-            let payload_str = String::from_utf8_lossy(response.payload());
-            let payload_str = payload_str.trim();
-
-            response_str.push(payload_str.to_string());
-        }
-
-        RemountInfo::from_str_response(&response_str.join("\n"))
+        let mut stream = self.open_service(&ADBLocalCommand::Remount, DEFAULT_READ_TIMEOUT)?;
+        let mut output = Vec::new();
+        stream.read_to_end(&mut output).map_err(adb_error)?;
+        RemountInfo::from_str_response(String::from_utf8_lossy(&output).trim())
     }
 }

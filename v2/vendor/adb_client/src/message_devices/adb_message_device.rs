@@ -1,6 +1,5 @@
 // Derived in part from Kadb (Apache-2.0): core/AdbConnection.kt.
 
-use rand::RngExt;
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -14,14 +13,13 @@ use crate::{
             A_STLS_VERSION, A_VERSION, ConnectionInfo, MAX_PAYLOAD, host_banner,
         },
         adb_message_transport::ADBMessageTransport,
-        adb_service::open_service_session,
+        adb_service::{ADBService, STREAM_WRITE_TIMEOUT, open_service_session, open_stream},
         adb_session::ADBSession,
         adb_transport_message::{
             ADBTransportMessage, AUTH_RSAPUBLICKEY, AUTH_SIGNATURE, AUTH_TOKEN,
         },
-        message_commands::{MessageCommand, MessageSubcommand},
+        message_commands::MessageCommand,
         models::{ADBRsaKey, read_adb_private_key},
-        utils::BinaryEncodable,
     },
     models::ADBLocalCommand,
 };
@@ -40,6 +38,10 @@ const MAX_AUTH_TOKENS: usize = 4;
 pub struct ADBMessageDevice<T: ADBMessageTransport> {
     transport: T,
     connection_info: ConnectionInfo,
+    /// Next local stream id. Ids count up from 1 like adbd's and are never
+    /// reused on a connection, so a late packet for a finished stream can
+    /// never be taken for a newer one.
+    next_local_id: u32,
 }
 
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
@@ -78,6 +80,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         let mut message_device = Self {
             transport,
             connection_info: ConnectionInfo::unnegotiated(),
+            next_local_id: 1,
         };
         message_device.connect(&private_key, auth_timeout)?;
 
@@ -219,8 +222,14 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         self.transport.write_message(reply)
     }
 
-    pub(crate) fn open_synchronization_session(&mut self) -> Result<ADBSession<T>> {
-        self.open_session(&ADBLocalCommand::Sync)
+    /// Zero is reserved for a failed OPEN and is skipped on wrap-around.
+    const fn allocate_local_id(&mut self) -> u32 {
+        let id = self.next_local_id;
+        self.next_local_id = match self.next_local_id.checked_add(1) {
+            Some(next) => next,
+            None => 1,
+        };
+        id
     }
 
     pub(crate) fn open_raw_service(
@@ -228,13 +237,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         service: &str,
         timeout: Duration,
     ) -> Result<ADBSession<T>> {
-        let mut rng = rand::rng();
-        let local_id = loop {
-            let candidate = rng.random();
-            if candidate != 0 {
-                break candidate;
-            }
-        };
+        let local_id = self.allocate_local_id();
         open_service_session(self.get_transport_mut(), service, local_id, timeout)
     }
 
@@ -247,71 +250,38 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         cmd: &ADBLocalCommand,
         timeout: Duration,
     ) -> Result<ADBSession<T>> {
-        let mut rng = rand::rng();
-        // Zero is reserved for a failed OPEN and must never be a real local id.
-        let local_id: u32 = loop {
-            let candidate = rng.random();
-            if candidate != 0 {
-                break candidate;
-            }
-        };
-
-        let message = ADBTransportMessage::try_new(
-            MessageCommand::Open,
-            local_id, // Our 'local-id'
-            0,
+        let local_id = self.allocate_local_id();
+        open_stream(
+            self.get_transport_mut(),
             cmd.to_string().as_bytes(),
-        )?;
-        self.transport.write_message(message)?;
-
-        // A late CLSE/WRTE from the previous stream may still be in flight;
-        // skip a bounded number of messages that are not addressed to us.
-        let mut skipped = 0usize;
-        let response = loop {
-            let candidate = self.transport.read_message_with_timeout(timeout)?;
-            if candidate.header().arg1() == local_id {
-                break candidate;
-            }
-            skipped += 1;
-            if skipped > 64 {
-                return Err(RustADBError::ADBRequestFailed(
-                    "Open session failed: too many messages for other streams".to_string(),
-                ));
-            }
-        };
-
-        if response.header().command() != MessageCommand::Okay {
-            return Err(RustADBError::ADBRequestFailed(format!(
-                "Open session failed: got {} in response instead of OKAY",
-                response.header().command()
-            )));
-        }
-
-        if response.header().arg1() != local_id {
-            return Err(RustADBError::ADBRequestFailed(format!(
-                "Open session failed: responses used {} for our local_id instead of {local_id}",
-                response.header().arg1()
-            )));
-        }
-
-        Ok(ADBSession::new(
-            self.transport.clone(),
             local_id,
-            response.header().arg0(),
-        ))
+            timeout,
+        )
     }
 
-    pub(crate) fn end_transaction(&mut self, session: &mut ADBSession<T>) -> Result<()> {
-        let quit_buffer = MessageSubcommand::Quit.with_arg(0u32);
-        session.send_and_expect_okay(ADBTransportMessage::try_new(
-            MessageCommand::Write,
-            session.local_id(),
-            session.remote_id(),
-            &quit_buffer.encode(),
-        )?)?;
+    /// Open `destination` as a byte stream whose reads wait at most
+    /// `read_timeout` for each packet.
+    pub(crate) fn open_stream_service(
+        &mut self,
+        destination: &[u8],
+        read_timeout: Duration,
+    ) -> Result<ADBService<T>> {
+        let local_id = self.allocate_local_id();
+        let session = open_stream(
+            self.get_transport_mut(),
+            destination,
+            local_id,
+            read_timeout,
+        )?;
+        Ok(ADBService::new(session, read_timeout, STREAM_WRITE_TIMEOUT))
+    }
 
-        let _discard_close = self.transport.read_message()?;
-        Ok(())
+    pub(crate) fn open_service(
+        &mut self,
+        cmd: &ADBLocalCommand,
+        read_timeout: Duration,
+    ) -> Result<ADBService<T>> {
+        self.open_stream_service(cmd.to_string().as_bytes(), read_timeout)
     }
 }
 

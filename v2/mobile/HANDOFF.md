@@ -75,10 +75,11 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   Corentin Liaud / `cocool97`; every local change is listed in its `SHIELD-OPTIMIZER-PATCH.md`).
   It talks straight to the TV's adbd: no adb binary, no adb server. Blocking calls run on
   `spawn_blocking`.
-- Capabilities: `shell` (shell-v2 framing for real stdout/stderr/exit status, shell-v1 fallback
-  for older devices), `raw_bytes`, synthesized `devices`/`disconnect`/`reboot`, push/pull through
-  `raw_transfer`, and dedicated byte-stream services (used by the fast remote). `forward`,
-  `connect`, `pair` and `spawn` through `raw` are unsupported.
+- Capabilities: `shell` (shell-v2 framing for real stdout/stderr/exit status, chosen by the
+  negotiated `shell_v2` feature, shell-v1 fallback for older devices), `raw_bytes` (`exec:` when
+  v2 is missing), synthesized `devices`/`disconnect`/`reboot`, push/pull and
+  `install`/`install-multiple` through `raw_transfer`, and dedicated byte-stream services (used by
+  the fast remote). `forward`, `connect`, `pair` and `spawn` through `raw` are unsupported.
 - A persistent RSA key is generated in `app_data_dir` (`ensure_adb_key`, PKCS#8 PEM). The first
   connect prompts "Allow debugging" on the TV; later connects are silent.
 - Every read is bounded: 30 s shell inactivity (180 s for installs/clears), a 120 s safety net
@@ -149,6 +150,15 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   including a reconnect to the same endpoint. Tweaks keys screensaver originals by verified
   hardware id (falling back to connection generation), and multi-setting writes stop before the
   next write when the connection changes. A write already dispatched cannot be recalled.
+- **Transport results claim only what the TV said** (vendored `adb_client`, see its
+  `SHIELD-OPTIMIZER-PATCH.md`). An exit status comes only from shell v2 (`ShellExit::Code`); a v2
+  stream that closes before its exit packet is an error, never success. Only the legacy shell on a
+  TV without `shell_v2` is `Unreported`, which `wireless_adb.rs` maps to 0 so the output text is
+  judged. Push, pull and install succeed only on the device's `OKAY` or `Success`; a sync `FAIL`,
+  an install `Failure`, a stream the TV closes early, a phone-side file error or a v2 stream
+  without an exit keep the connection, while lost framing (`ProtocolError` on every use after a
+  mid-message failure) evicts it. Restores go through `raw_transfer` `install`/`install-multiple`
+  (streamed to the package manager; staged `pm` only on TVs without `cmd`), not shell commands.
 - **Never fake data.** Failed loads show an error with retry, never a fabricated healthy device or
   placeholder metrics. Safety tags come only from core `safety_info`; Unknown (uncatalogued) is
   distinct from unavailable (the lookup failed), and Unknown is never auto-selected.

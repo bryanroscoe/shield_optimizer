@@ -82,8 +82,8 @@ header comment. No code was copied from them, and nothing was taken from any GPL
 Kadb (Apache-2.0, `github.com/flyfishxu/Kadb` at commit `3d1c13e`) is a Kotlin ADB client whose
 connection layer handles several cases this crate did not. Its logic was translated, not copied;
 each Rust file that carries translated logic says so in its first line, and the app's
-`mobile/THIRD-PARTY-NOTICES.md` carries the attribution. Sessions, sync, shell decoding and
-install are unchanged.
+`mobile/THIRD-PARTY-NOTICES.md` carries the attribution. Sessions, sync, shell and install were
+reworked afterwards; see the next section.
 
 Behavior changes:
 
@@ -156,3 +156,100 @@ no I/O timeout by default, in-memory keys, and regenerating a key that fails to 
 
 The USB transport gets the header magic check through the shared decoder but not the length
 check or negotiated limits; it is not built for the app.
+
+## Session, sync, shell and install hardening ported from Kadb (2026-11-04)
+
+The second pass over Kadb `3d1c13e` covers the stream layer. Translated logic is again marked in
+each file's first line. Every logical stream now goes through `ADBService`, so no command reads raw
+transport packets any more.
+
+Behavior changes:
+
+- **Stream ids and stray packets.** Local ids count up from 1 per connection (zero skipped on
+  wrap) instead of being random, so a late packet from a finished stream can never match a newer
+  one. Every reader (OPEN replies included) checks both ids and skips at most 64 packets for other
+  streams; more is a `ProtocolError`. As AOSP's host does, an orphan `OKAY` is answered with
+  `CLSE(0, remote)` so the device closes a service whose OPEN we abandoned; a stray `WRTE` or
+  `CLSE` gets nothing. A `CLSE` in reply to OPEN is the device refusing the service
+  (`ADBRequestFailed`); any other reply is a `ProtocolError`. A peer `CLSE` is never answered, and
+  data the device sent before it stays readable. `ADBSession` is now only an id holder; its
+  20 ms drain on drop is gone. The OPEN destination always carries AOSP's trailing NUL.
+- **Write sizing.** `ADBService` writes split at the negotiated max payload instead of 4 KiB. Sync
+  requests are batched into WRTEs of exactly that size, and each DATA chunk is at most
+  `min(64 KiB, max_payload - 8)`, so a TV with a small `maxdata` no longer gets
+  `PayloadTooLarge`. Bulk streams (sync, install) use a 30-second socket write bound
+  (`STREAM_WRITE_TIMEOUT`) instead of 2 seconds.
+- **Desync poisoning.** `TcpTransport` tracks how much of a frame it consumed. A failure after the
+  first byte (partial header or payload, timeout mid-message, bad magic, oversized length, bad
+  checksum) or a write that fails after taking any byte marks the connection poisoned; every
+  later read and write fails at once with `ProtocolError("…lost ADB message framing…")` until
+  `connect()` resets it. A timeout before the first byte of a frame stays clean. Once a frame has
+  started, the rest gets at least five seconds even when the wait for it was shorter.
+- **Sync as a byte stream** (`adb_sync.rs`, from `AdbSyncStream.kt`). Replies are parsed from the
+  stream, not from packet boundaries. Push reads the final `OKAY`/`FAIL` (it used to accept any
+  WRTE) and a `FAIL` is `RustADBError::SyncFailed` with the device's message; an early `FAIL`
+  mid-push stops sending data, sends DONE and reports the refusal, even if the device has also
+  closed the stream. Push sends mode `0o100644` (decimal, as AOSP does) and the current time
+  instead of `0777` and 0. Pull, stat and list handle `FAIL`; pull rejects DATA over 64 KiB. With
+  `stat_v2`, `ls_v2` and `sendrecv_v2` negotiated, stat uses `STA2` (follows symlinks, 64-bit
+  size, errno on failure), list uses `LIS2`/`DNT2` (entries the device could not lstat are left
+  out) and push/pull use `SND2`/`RCV2` with flags 0. The legacy all-zero `STAT` reply is an error.
+  QUIT is followed by a bounded wait for the device's close. Local reader or writer failures are
+  `RustADBError::LocalIo`, not `IOError`.
+- **Shell** (from `Kadb.kt` and `AdbShellStream.kt`). Shell v2 is chosen by the negotiated
+  `shell_v2` feature; the legacy shell is used only without it or when the v2 OPEN is refused.
+  `shell_command_with_timeout` returns the new `ShellExit` (`Code(u8)` or `Unreported`, the latter
+  only from the legacy shell). A v2 stream that closes before its exit packet, or inside a packet,
+  is `ADBShellV2ParseError` instead of `Ok(None)`. Output stays raw bytes, so UTF-8 split across
+  packets or WRTEs is intact (Kadb decodes each packet separately). `exec_out_with_timeout` runs
+  binary output over v2 or, without it, `exec:` rather than the pty-backed legacy `shell:`. As in
+  AOSP's host and Kadb, a legacy `shell:` service name over 4 KiB (`MAX_PAYLOAD_V1`) is refused
+  before its OPEN is sent.
+- **Install** (from `Kadb.kt`). `ADBTcpDevice::install_apks(paths, options, timeout)` follows
+  AOSP's choice: one APK streams through `exec:cmd package install … -S <size>`; several use an
+  `abb_exec` session (else `exec:cmd`) with `install-create`, `install-write … -` and
+  `install-commit`. Without `cmd`, APKs are pushed to `/data/local/tmp` and installed with `pm`
+  (`install`, or `install-create`/`install-write`/`install-commit`), and each temp file is
+  removed. Streamed steps must start with `Success`; `pm` output must have a `Success` line, no
+  `Failure` line and no nonzero reported exit. Anything else is `RustADBError::InstallFailed` with
+  the package manager's text; a failed session is abandoned. If the device closes the stream
+  mid-upload, what it printed before closing is the result; a write that fails any other way
+  (timeout, lost framing) is returned as it is. Uninstall goes through the shell and trusts the v2
+  exit status (Kadb), or the `Success` reply on the legacy shell.
+- **Framebuffer, remount, root, verity** read through `ADBService`. The framebuffer size is
+  bounded at 256 MiB; root fails on "cannot run as root".
+- **Early close is a request failure.** A sync or framebuffer stream that the device closes
+  before its reply is complete is `ADBRequestFailed` ("the device closed … before it finished"),
+  not `IOError(UnexpectedEof)`, so the app keeps the connection; an EOF on the socket itself stays
+  `IOError`.
+
+API changes:
+
+- `ADBTcpDevice::shell_command_with_timeout` returns `Result<ShellExit>` (was `Option<u8>`);
+  `ADBDeviceExt::shell_command` still returns `Option<u8>`. New `ShellExit`,
+  `ADBTcpDevice::exec_out_with_timeout` and `ADBTcpDevice::install_apks`.
+- New errors `SyncFailed(String)`, `InstallFailed(String)` and `LocalIo(io::Error)`; none means the
+  connection is broken.
+- `AdbStatResponse::file_size` and `mod_time` and `ADBListItem::size` and `time` are `u64`.
+
+Changed files, with the Kadb sources translated into each:
+
+- `src/message_devices/adb_sync.rs` (new) — `stream/AdbSyncStream.kt`
+- `src/message_devices/adb_service.rs` — `stream/AdbStream.kt`
+- `src/message_devices/commands/shell.rs` — `Kadb.kt`, `shell/AdbShellStream.kt`
+- `src/message_devices/commands/install.rs` — `Kadb.kt` (now also holds uninstall;
+  `commands/uninstall.rs` and `commands/utils/message_writer.rs` are removed)
+- `src/message_devices/tcp/tcp_transport.rs`, `adb_message_device.rs`, `adb_session.rs`,
+  `adb_transport_message.rs`, `commands/{push,pull,stat,list,framebuffer,remount,root,verity}.rs`,
+  `commands/utils/shell_message_writer.rs`, `tcp/adb_tcp_device.rs`, `models/shell_exit.rs`
+  (new), `models/adb_stat_response.rs`, `models/list_info.rs`, `models/mod.rs`,
+  `server_device/commands/list.rs`, `error.rs`, `lib.rs`, `mod.rs` files — plumbing
+- `src/message_devices/tcp/stream_tests.rs` (new, tests only) and `tcp/test_support.rs` — a
+  scripted fake device (`Peer`) for stream, sync, shell and install tests
+
+Not ported: Kadb's background reader thread and per-stream queues (one request runs at a time per
+connection here, so ids plus bounded skipping do the same job), `delayed_ack` flow control (not
+advertised), its PTY shell session and TCP forwarder, and recursive push/pull. Kadb weaknesses
+deliberately not copied: unbounded waits, a legacy shell whose exit is reported as 0, decoding
+shell output per packet, accepting any `[…]` as a session id, and judging old `pm` output only
+by its first line.

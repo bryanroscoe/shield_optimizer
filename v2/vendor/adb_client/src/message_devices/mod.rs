@@ -12,6 +12,7 @@ mod adb_message_device_commands;
 mod adb_message_transport;
 mod adb_service;
 mod adb_session;
+mod adb_sync;
 mod adb_transport_message;
 mod commands;
 mod message_commands;

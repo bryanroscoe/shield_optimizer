@@ -59,6 +59,11 @@ const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 ))]
 const KEEPALIVE_PROBES: u32 = 3;
 
+// Once the first byte of a message has arrived the rest is already in flight,
+// so it gets at least this long even when the caller's wait for a message was
+// much shorter. Giving up part-way would leave the stream out of step.
+const FRAME_COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[derive(Debug)]
 enum CurrentConnection {
     Tcp(TcpStream),
@@ -118,12 +123,16 @@ impl Write for CurrentConnection {
     }
 }
 
-/// Per-connection limits from CNXN, shared by every clone of the transport
-/// (sessions hold clones) without taking the connection lock.
+/// Per-connection state shared by every clone of the transport (sessions
+/// hold clones) without taking the connection lock: the limits from CNXN, and
+/// whether the byte stream has fallen out of step with ADB framing.
 #[derive(Debug)]
 struct WireLimits {
     max_payload: AtomicU32,
     verify_checksums: AtomicBool,
+    /// A read or write stopped part-way through a message, or the peer sent
+    /// a malformed one. Nothing after that point can be parsed reliably.
+    poisoned: AtomicBool,
 }
 
 impl WireLimits {
@@ -131,12 +140,14 @@ impl WireLimits {
         Self {
             max_payload: AtomicU32::new(MAX_PAYLOAD),
             verify_checksums: AtomicBool::new(true),
+            poisoned: AtomicBool::new(false),
         }
     }
 
     fn reset(&self) {
         self.max_payload.store(MAX_PAYLOAD, Ordering::Relaxed);
         self.verify_checksums.store(true, Ordering::Relaxed);
+        self.poisoned.store(false, Ordering::Relaxed);
     }
 
     fn apply(&self, info: &ConnectionInfo) {
@@ -153,6 +164,21 @@ impl WireLimits {
 
     fn verify_checksums(&self) -> bool {
         self.verify_checksums.load(Ordering::Relaxed)
+    }
+
+    fn poison(&self) {
+        self.poisoned.store(true, Ordering::Relaxed);
+    }
+
+    fn check_in_step(&self) -> Result<()> {
+        if self.poisoned.load(Ordering::Relaxed) {
+            return Err(RustADBError::ProtocolError(
+                "the connection lost ADB message framing after an interrupted read or write; \
+                 reconnect"
+                    .to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -229,17 +255,65 @@ fn configure_socket(stream: &TcpStream) {
     }
 }
 
+/// Why [`read_frame`] failed, and whether any of the frame had been consumed
+/// by then. A failure with nothing consumed (a read timeout between messages)
+/// leaves the stream in step; anything else does not.
+#[derive(Debug)]
+struct FrameError {
+    error: RustADBError,
+    consumed: bool,
+}
+
+impl FrameError {
+    const fn mid_frame(error: RustADBError) -> Self {
+        Self {
+            error,
+            consumed: true,
+        }
+    }
+}
+
+/// `read_exact` that reports how many bytes it consumed before failing.
+fn read_tracked<R: Read>(reader: &mut R, buf: &mut [u8]) -> (usize, io::Result<()>) {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => return (filled, Err(io::ErrorKind::UnexpectedEof.into())),
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return (filled, Err(error)),
+        }
+    }
+    (filled, Ok(()))
+}
+
 /// Read one message. The header is validated before its payload is read, so
-/// a corrupt length cannot drive the allocation.
+/// a corrupt length cannot drive the allocation. `frame_started` runs once,
+/// after the first byte arrives, so the caller can give the rest of the frame
+/// a longer deadline than the wait for it to begin.
 fn read_frame<R: Read>(
     reader: &mut R,
     max_payload: u32,
     verify_checksums: bool,
-) -> Result<ADBTransportMessage> {
+    frame_started: impl FnOnce(&mut R) -> io::Result<()>,
+) -> std::result::Result<ADBTransportMessage, FrameError> {
     let mut header_bytes = [0_u8; 24];
-    reader.read_exact(&mut header_bytes)?;
-    let header = ADBTransportMessageHeader::try_from(header_bytes)?;
-    header.check_payload_length(max_payload)?;
+    let (first, result) = read_tracked(reader, &mut header_bytes[..1]);
+    if let Err(error) = result {
+        return Err(FrameError {
+            error: error.into(),
+            consumed: first > 0,
+        });
+    }
+    frame_started(reader).map_err(|error| FrameError::mid_frame(error.into()))?;
+    let (_, result) = read_tracked(reader, &mut header_bytes[1..]);
+    result.map_err(|error| FrameError::mid_frame(error.into()))?;
+
+    let header =
+        ADBTransportMessageHeader::try_from(header_bytes).map_err(FrameError::mid_frame)?;
+    header
+        .check_payload_length(max_payload)
+        .map_err(FrameError::mid_frame)?;
     if header.data_length() == 0 {
         return Ok(ADBTransportMessage::from_header_and_payload(
             header,
@@ -248,22 +322,37 @@ fn read_frame<R: Read>(
     }
 
     let mut payload = vec![0_u8; header.data_length() as usize];
-    reader.read_exact(&mut payload)?;
+    let (_, result) = read_tracked(reader, &mut payload);
+    result.map_err(|error| FrameError::mid_frame(error.into()))?;
     let message = ADBTransportMessage::from_header_and_payload(header, payload);
     if verify_checksums && !message.check_message_integrity() {
-        return Err(RustADBError::InvalidIntegrity(
+        return Err(FrameError::mid_frame(RustADBError::InvalidIntegrity(
             ADBTransportMessageHeader::compute_crc32(message.payload()),
             message.header().data_crc32(),
-        ));
+        )));
     }
     Ok(message)
 }
 
-/// Header and payload leave in one `write_all`, which also turns a socket that
-/// stops accepting bytes into `WriteZero` instead of a busy loop.
-fn write_frame<W: Write>(writer: &mut W, frame: &[u8]) -> io::Result<()> {
-    writer.write_all(frame)?;
-    writer.flush()
+/// Header and payload leave together. Returns how many bytes the writer
+/// accepted before an error, so the caller knows whether a partial frame
+/// reached the stream. A writer that accepts nothing is `WriteZero` rather
+/// than a busy loop.
+fn write_frame<W: Write>(writer: &mut W, frame: &[u8]) -> (usize, io::Result<()>) {
+    let mut written = 0;
+    while written < frame.len() {
+        match writer.write(&frame[written..]) {
+            Ok(0) => return (written, Err(io::ErrorKind::WriteZero.into())),
+            Ok(accepted) => written += accepted,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return (written, Err(error)),
+        }
+    }
+    (written, writer.flush())
+}
+
+const fn is_timeout(kind: io::ErrorKind) -> bool {
+    matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
 fn handshake_timeout() -> RustADBError {
@@ -402,15 +491,28 @@ impl ADBMessageTransport for TcpTransport {
         &mut self,
         read_timeout: std::time::Duration,
     ) -> Result<ADBTransportMessage> {
+        self.limits.check_in_step()?;
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
 
         raw_connection.set_read_timeout(read_timeout)?;
+        let completion_timeout = read_timeout.max(FRAME_COMPLETION_TIMEOUT);
         let result = read_frame(
             &mut *raw_connection,
             self.limits.max_payload(),
             self.limits.verify_checksums(),
-        );
+            |connection| {
+                connection
+                    .socket()
+                    .set_read_timeout(Some(completion_timeout))
+            },
+        )
+        .map_err(|failure| {
+            if failure.consumed {
+                self.limits.poison();
+            }
+            failure.error
+        });
 
         if let CurrentConnection::Tls(tls) = &mut *raw_connection
             && tls.awaiting_first_message
@@ -431,6 +533,7 @@ impl ADBMessageTransport for TcpTransport {
         message: ADBTransportMessage,
         write_timeout: Duration,
     ) -> Result<()> {
+        self.limits.check_in_step()?;
         // adbd drops the whole connection on a packet over its limit, so an
         // oversized payload is refused here while the connection is intact.
         let max_payload = self.max_payload();
@@ -446,7 +549,15 @@ impl ADBMessageTransport for TcpTransport {
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
         raw_connection.set_write_timeout(write_timeout)?;
-        write_frame(&mut *raw_connection, &frame)?;
+        let (accepted, result) = write_frame(&mut *raw_connection, &frame);
+        if let Err(error) = result {
+            // Only a timeout before any byte was taken leaves the outgoing
+            // stream on a message boundary.
+            if accepted > 0 || !is_timeout(error.kind()) {
+                self.limits.poison();
+            }
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -625,7 +736,9 @@ mod tests {
         header[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
         // Only the header is available: a reader that trusted the length would
         // try to allocate 4 GiB and then hit EOF.
-        let error = read_frame(&mut Cursor::new(header), MAX_PAYLOAD, true).unwrap_err();
+        let error = read_frame(&mut Cursor::new(header), MAX_PAYLOAD, true, |_| Ok(()))
+            .unwrap_err()
+            .error;
         assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
     }
 
@@ -633,9 +746,11 @@ mod tests {
     fn payload_at_the_limit_is_accepted_and_one_byte_over_is_not() {
         let message = ADBTransportMessage::try_new(MessageCommand::Write, 1, 2, &[7; 64]).unwrap();
         let bytes = frame(&message);
-        let read = read_frame(&mut Cursor::new(bytes.clone()), 64, true).unwrap();
+        let read = read_frame(&mut Cursor::new(bytes.clone()), 64, true, |_| Ok(())).unwrap();
         assert_eq!(read.payload(), &vec![7; 64]);
-        let error = read_frame(&mut Cursor::new(bytes), 63, true).unwrap_err();
+        let error = read_frame(&mut Cursor::new(bytes), 63, true, |_| Ok(()))
+            .unwrap_err()
+            .error;
         assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
     }
 
@@ -646,7 +761,9 @@ mod tests {
             .header()
             .as_bytes();
         bytes[20] ^= 0x01;
-        let error = read_frame(&mut Cursor::new(bytes), MAX_PAYLOAD, true).unwrap_err();
+        let error = read_frame(&mut Cursor::new(bytes), MAX_PAYLOAD, true, |_| Ok(()))
+            .unwrap_err()
+            .error;
         assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
     }
 
@@ -655,12 +772,16 @@ mod tests {
         let message = ADBTransportMessage::try_new(MessageCommand::Write, 1, 2, b"abc").unwrap();
         let mut bytes = frame(&message);
         bytes[16..20].copy_from_slice(&0_u32.to_le_bytes());
-        let error = read_frame(&mut Cursor::new(bytes.clone()), MAX_PAYLOAD, true).unwrap_err();
+        let error = read_frame(&mut Cursor::new(bytes.clone()), MAX_PAYLOAD, true, |_| {
+            Ok(())
+        })
+        .unwrap_err()
+        .error;
         assert!(
             matches!(error, RustADBError::InvalidIntegrity(..)),
             "{error:?}"
         );
-        let read = read_frame(&mut Cursor::new(bytes), MAX_PAYLOAD, false).unwrap();
+        let read = read_frame(&mut Cursor::new(bytes), MAX_PAYLOAD, false, |_| Ok(())).unwrap();
         assert_eq!(read.payload(), b"abc");
     }
 
@@ -682,8 +803,9 @@ mod tests {
     #[test]
     fn a_socket_that_accepts_nothing_is_write_zero_not_a_loop() {
         let mut writer = ZeroWriter { calls: 0 };
-        let error = write_frame(&mut writer, b"header and payload").unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::WriteZero);
+        let (accepted, result) = write_frame(&mut writer, b"header and payload");
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WriteZero);
+        assert_eq!(accepted, 0);
         assert_eq!(writer.calls, 1);
     }
 
@@ -782,5 +904,178 @@ mod tests {
             tls_rejection(reset, true),
             RustADBError::TlsAuthRejected(_)
         ));
+    }
+
+    fn assert_out_of_step(result: Result<ADBTransportMessage>) {
+        match result {
+            Err(RustADBError::ProtocolError(message)) => {
+                assert!(message.contains("lost ADB message framing"), "{message}");
+            }
+            other => panic!("expected the poisoned-connection error, got {other:?}"),
+        }
+    }
+
+    fn connected_to(script: impl FnOnce(std::net::TcpStream) + Send + 'static) -> TcpTransport {
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            script(stream);
+        });
+        let mut transport = TcpTransport::new(address, PathBuf::new());
+        transport.connect().unwrap();
+        transport
+    }
+
+    #[test]
+    fn a_timeout_between_messages_leaves_the_connection_usable() {
+        let mut transport = connected_to(|mut stream| {
+            std::thread::sleep(Duration::from_millis(300));
+            let message = ADBTransportMessage::try_new(MessageCommand::Okay, 9, 7, &[]).unwrap();
+            stream.write_all(&frame(&message)).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
+        });
+
+        let error = transport
+            .read_message_with_timeout(Duration::from_millis(50))
+            .unwrap_err();
+        assert!(
+            matches!(&error, RustADBError::IOError(io) if is_timeout(io.kind())),
+            "{error:?}"
+        );
+        let message = transport
+            .read_message_with_timeout(Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(message.header().command(), MessageCommand::Okay);
+    }
+
+    #[test]
+    fn a_frame_that_has_started_gets_time_to_finish() {
+        let mut transport = connected_to(|mut stream| {
+            let message =
+                ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
+            let bytes = frame(&message);
+            stream.write_all(&bytes[..10]).unwrap();
+            std::thread::sleep(Duration::from_millis(300));
+            stream.write_all(&bytes[10..]).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
+        });
+
+        // The wait for the message to begin is short, but once ten header
+        // bytes are in, giving up would strand the other fourteen.
+        let message = transport
+            .read_message_with_timeout(Duration::from_millis(100))
+            .unwrap();
+        assert_eq!(message.payload(), b"hello");
+        let next = transport.read_message_with_timeout(Duration::from_millis(50));
+        assert!(matches!(next, Err(RustADBError::IOError(_))), "{next:?}");
+    }
+
+    #[test]
+    fn a_read_that_stops_mid_frame_poisons_the_connection() {
+        let mut transport = connected_to(|mut stream| {
+            let message =
+                ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
+            stream.write_all(&frame(&message)[..26]).unwrap();
+        });
+
+        assert_unexpected_eof(transport.read_message_with_timeout(Duration::from_secs(1)));
+        assert_out_of_step(transport.read_message_with_timeout(Duration::from_secs(1)));
+        let reply = ADBTransportMessage::try_new(MessageCommand::Okay, 7, 9, &[]).unwrap();
+        let error = transport
+            .write_message_with_timeout(reply, Duration::from_secs(1))
+            .unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+    }
+
+    #[test]
+    fn a_malformed_header_poisons_the_connection() {
+        let mut transport = connected_to(|mut stream| {
+            let mut bad = ADBTransportMessage::try_new(MessageCommand::Okay, 9, 7, &[])
+                .unwrap()
+                .header()
+                .as_bytes();
+            bad[20] ^= 0x01;
+            stream.write_all(&bad).unwrap();
+            let good = ADBTransportMessage::try_new(MessageCommand::Okay, 9, 7, &[]).unwrap();
+            stream.write_all(&frame(&good)).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
+        });
+
+        let error = transport
+            .read_message_with_timeout(Duration::from_secs(1))
+            .unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        // The well-formed message behind it is not trusted either.
+        assert_out_of_step(transport.read_message_with_timeout(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn reconnecting_clears_the_poison() {
+        let limits = WireLimits::unnegotiated();
+        limits.poison();
+        assert!(limits.check_in_step().is_err());
+        limits.reset();
+        assert!(limits.check_in_step().is_ok());
+    }
+
+    /// Returns `prefix`, then fails the way a socket read timeout does.
+    struct StallsAfter {
+        prefix: Vec<u8>,
+    }
+
+    impl Read for StallsAfter {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if self.prefix.is_empty() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            let amount = buf.len().min(self.prefix.len());
+            buf[..amount].copy_from_slice(&self.prefix[..amount]);
+            self.prefix.drain(..amount);
+            Ok(amount)
+        }
+    }
+
+    #[test]
+    fn only_a_timeout_before_the_first_byte_is_clean() {
+        let message = ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
+        let bytes = frame(&message);
+        for (cut, consumed) in [(0, false), (1, true), (24, true), (26, true)] {
+            let mut reader = StallsAfter {
+                prefix: bytes[..cut].to_vec(),
+            };
+            let failure = read_frame(&mut reader, MAX_PAYLOAD, true, |_| Ok(())).unwrap_err();
+            assert_eq!(failure.consumed, consumed, "cut at {cut}");
+        }
+    }
+
+    /// Accepts `budget` bytes, then times out.
+    struct AcceptsThenStalls {
+        budget: usize,
+    }
+
+    impl Write for AcceptsThenStalls {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.budget == 0 {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+            let amount = buf.len().min(self.budget);
+            self.budget -= amount;
+            Ok(amount)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_write_reports_how_much_of_the_frame_went_out() {
+        let (accepted, result) = write_frame(&mut AcceptsThenStalls { budget: 0 }, &[0; 30]);
+        assert_eq!(accepted, 0);
+        assert!(is_timeout(result.unwrap_err().kind()));
+        let (accepted, result) = write_frame(&mut AcceptsThenStalls { budget: 7 }, &[0; 30]);
+        assert_eq!(accepted, 7);
+        assert!(result.is_err());
     }
 }

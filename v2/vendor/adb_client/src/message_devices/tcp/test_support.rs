@@ -175,3 +175,195 @@ impl ClientCertVerifier for TestClientVerifier {
         ]
     }
 }
+
+/// One logical stream as the fake device sees it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Stream {
+    /// The host's id for the stream.
+    pub(crate) local: u32,
+    /// The fake device's id for it.
+    pub(crate) remote: u32,
+}
+
+/// The device end of a connection after CNXN, for scripting stream tests.
+/// It acknowledges each host WRTE the way adbd does and records their sizes.
+pub(crate) struct Peer {
+    stream: TcpStream,
+    max_payload: usize,
+    host_bytes: std::collections::VecDeque<u8>,
+    next_remote: u32,
+    /// Payload size of every WRTE the host sent.
+    pub(crate) host_writes: Vec<usize>,
+}
+
+impl Peer {
+    /// Answer the host's CNXN with `features` and `max_payload`.
+    pub(crate) fn connect(mut stream: TcpStream, features: &str, max_payload: u32) -> Self {
+        let cnxn = read_message(&mut stream).unwrap();
+        assert_eq!(cnxn.header().command(), MessageCommand::Cnxn);
+        let banner = format!("device::ro.product.model=Fake;features={features}");
+        write_message(
+            &mut stream,
+            MessageCommand::Cnxn,
+            0x0100_0000,
+            max_payload,
+            banner.as_bytes(),
+        )
+        .unwrap();
+        Self {
+            stream,
+            max_payload: max_payload as usize,
+            host_bytes: std::collections::VecDeque::new(),
+            next_remote: 100,
+            host_writes: Vec::new(),
+        }
+    }
+
+    pub(crate) fn next(&mut self) -> ADBTransportMessage {
+        read_message(&mut self.stream).unwrap()
+    }
+
+    pub(crate) fn raw(&mut self, command: MessageCommand, arg0: u32, arg1: u32, payload: &[u8]) {
+        write_message(&mut self.stream, command, arg0, arg1, payload).unwrap();
+    }
+
+    /// The next OPEN, skipping CLSEs for streams the host finished. Returns
+    /// the host's local id and the destination without its NUL.
+    pub(crate) fn expect_open(&mut self) -> (u32, String) {
+        loop {
+            let message = self.next();
+            match message.header().command() {
+                MessageCommand::Clse => {}
+                MessageCommand::Open => {
+                    let destination = message.payload();
+                    assert_eq!(destination.last(), Some(&0), "OPEN without its NUL");
+                    let destination =
+                        String::from_utf8(destination[..destination.len() - 1].to_vec()).unwrap();
+                    return (message.header().arg0(), destination);
+                }
+                other => panic!("expected OPEN, got {other}"),
+            }
+        }
+    }
+
+    pub(crate) fn accept(&mut self, local: u32) -> Stream {
+        let stream = Stream {
+            local,
+            remote: self.next_remote,
+        };
+        self.next_remote += 1;
+        self.raw(MessageCommand::Okay, stream.remote, local, &[]);
+        self.host_bytes.clear();
+        stream
+    }
+
+    /// Accept the next OPEN, asserting its destination.
+    pub(crate) fn accept_open(&mut self, expected: &str) -> Stream {
+        let (local, destination) = self.expect_open();
+        assert_eq!(destination, expected);
+        self.accept(local)
+    }
+
+    /// Send `data` in WRTEs of at most `chunk` bytes, each waiting for the
+    /// host's OKAY.
+    pub(crate) fn send(&mut self, stream: Stream, data: &[u8], chunk: usize) {
+        for part in data.chunks(chunk.max(1)) {
+            self.raw(MessageCommand::Write, stream.remote, stream.local, part);
+            let okay = self.next();
+            assert_eq!(okay.header().command(), MessageCommand::Okay);
+            assert_eq!(
+                (okay.header().arg0(), okay.header().arg1()),
+                (stream.local, stream.remote)
+            );
+        }
+    }
+
+    /// The next `len` bytes the host wrote on `stream`.
+    pub(crate) fn read_host(&mut self, stream: Stream, len: usize) -> Vec<u8> {
+        while self.host_bytes.len() < len {
+            let message = self.next();
+            assert_eq!(message.header().command(), MessageCommand::Write);
+            assert_eq!(
+                (message.header().arg0(), message.header().arg1()),
+                (stream.local, stream.remote)
+            );
+            assert!(message.payload().len() <= self.max_payload);
+            self.host_writes.push(message.payload().len());
+            self.raw(MessageCommand::Okay, stream.remote, stream.local, &[]);
+            self.host_bytes.extend(message.payload());
+        }
+        self.host_bytes.drain(..len).collect()
+    }
+
+    /// A sync request header: id and argument.
+    pub(crate) fn sync_header(&mut self, stream: Stream) -> ([u8; 4], u32) {
+        let header = self.read_host(stream, 8);
+        (
+            header[..4].try_into().unwrap(),
+            u32::from_le_bytes(header[4..].try_into().unwrap()),
+        )
+    }
+
+    /// A sync request: id and its length-prefixed body.
+    pub(crate) fn sync_request(&mut self, stream: Stream) -> ([u8; 4], Vec<u8>) {
+        let (id, len) = self.sync_header(stream);
+        (id, self.read_host(stream, len as usize))
+    }
+
+    /// QUIT, then close the stream as adbd does.
+    pub(crate) fn expect_quit(&mut self, stream: Stream) {
+        assert_eq!(self.sync_header(stream), (*b"QUIT", 0));
+        self.close(stream);
+    }
+
+    pub(crate) fn close(&mut self, stream: Stream) {
+        self.raw(MessageCommand::Clse, stream.remote, stream.local, &[]);
+    }
+
+    /// Wait for the host to hang up.
+    pub(crate) fn finish(mut self) {
+        drain(&mut self.stream);
+    }
+}
+
+/// A sync reply: id, little-endian argument, then `body`.
+pub(crate) fn sync_reply(id: [u8; 4], arg: u32, body: &[u8]) -> Vec<u8> {
+    let mut reply = id.to_vec();
+    reply.extend(arg.to_le_bytes());
+    reply.extend(body);
+    reply
+}
+
+/// A shell protocol v2 packet.
+pub(crate) fn shell_packet(channel: u8, payload: &[u8]) -> Vec<u8> {
+    let mut packet = vec![channel];
+    packet.extend(u32::try_from(payload.len()).unwrap().to_le_bytes());
+    packet.extend(payload);
+    packet
+}
+
+/// A file for install tests, removed when dropped.
+pub(crate) struct TempApk(pub(crate) PathBuf);
+
+impl TempApk {
+    pub(crate) fn new(tag: &str, bytes: &[u8]) -> Self {
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "adb_client_install_test_{}_{n}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("{tag}.apk"));
+        std::fs::write(&path, bytes).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for TempApk {
+    fn drop(&mut self) {
+        if let Some(dir) = self.0.parent() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
