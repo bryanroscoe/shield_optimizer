@@ -41,8 +41,11 @@ this file and shows the newest few sections, dated, from its version button.
   Add/Remove Programs entry, and points your Start menu, desktop and taskbar shortcuts at the new
   program. Your settings and data are not touched. The `.msi` installer doesn't do this; remove a
   leftover Shield Optimizer from Add/Remove Programs yourself (without ticking "Delete the
-  application data"). If a taskbar pin stops opening the app, unpin it and pin ATV Optimizer
-  again.
+  application data").
+- Windows: if you installed with the `.msi`, a taskbar pin from 2.4.1 or earlier still points at
+  the old program, which the upgrade removed, so it no longer opens the app. Unpin it and pin ATV
+  Optimizer again. Start menu and desktop shortcuts are updated. The `-setup.exe` installer moves
+  pins over itself; if one still doesn't open the app, re-pin it the same way.
 - macOS: a copy still named `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you
   quit it, unless a Homebrew cask manages it or that name is taken. Homebrew users: the cask is
   now `atv-optimizer`, and `brew upgrade` moves you over.

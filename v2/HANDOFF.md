@@ -17,13 +17,16 @@ crates `atv-optimizer` / `atv_optimizer_lib` / `atv-optimizer-core`. Before tagg
    branch `rename-atv-optimizer`) **right before** pushing the tag. The release's `bump-tap` job
    edits `Casks/atv-optimizer.rb` and fails if that file is missing; merged too early, the
    renamed cask points at 2.4.1 under the new token, which still works but says nothing new.
-2. Run the R steps ("Upgrades across the 2.5.0 rename") in `../docs/DEVICE-TEST-SCRIPT.md` on
-   Windows (NSIS and MSI) and macOS (DMG and brew), plus R9 on Linux. **No CI job compiles the
-   NSIS installer before a tag**: `v2-tests.yml` only runs Rust tests on Windows, so the
-   `windows/hooks.nsh` hooks are first compiled for real by the `v2-2.5.0` release job. They were
-   compiled locally with makensis 3.13 against tauri-cli 2.11.2's template includes and its
-   `nsis_tauri_utils` plugin, and have never run on Windows; a staging `-setup.exe` built on
-   Windows is the only pre-tag check.
+2. Check that the `v2 Upgrade Tests` workflow (`.github/workflows/v2-upgrade-tests.yml`, scripts in
+   `scripts/upgrade-tests/`) passed on the commit being tagged. It builds the branch's NSIS, MSI
+   and macOS bundles and upgrades real published releases to them on fresh runners (NSIS from
+   2.2.0, 2.2.0 beside 2.4.1, silent, from a running 2.4.1, from 2.4.1, and a retry after a failed
+   copy; MSI from 2.4.1; macOS bundle replacement from 2.2.0 and 2.4.1, Homebrew-managed, and a
+   retry), so it
+   is the only pre-tag compile and run of `windows/hooks.nsh`; `v2-tests.yml` only runs Rust tests
+   on Windows. Then run the R steps ("Upgrades across the 2.5.0 rename") in
+   `../docs/DEVICE-TEST-SCRIPT.md` for what runners can't show: real in-app updates, Dock,
+   Login Items, the macOS Local Network prompt, and Linux (R9).
 3. After the tap PR merges and 2.5.0 is out, switch to the new cask token where it was left
    alone until then: the root README's brew commands and `v2/Makefile`'s `brew` target. The old
    token keeps working through the tap's `cask_renames.json`.
