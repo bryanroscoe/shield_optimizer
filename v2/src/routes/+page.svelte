@@ -8,8 +8,8 @@
   import {
     explainAdbFailure,
     hostOf,
-    localNetworkHint,
-    localNetworkSentence,
+    isNoRoute,
+    LOCAL_NETWORK_POSSIBLE,
     subnetWarning,
     type LocalNetworkHint,
   } from "$lib/adb-errors";
@@ -90,8 +90,9 @@
 
   let restartBusy = $state(false);
   let restartMessage = $state("");
-  /// macOS: whether the restart's own failures look like Local Network privacy.
-  const restartLocalNetwork = $derived(localNetworkHint(restartMessage, localNetwork.status));
+  /// macOS: a restart whose own reconnects still found no route, while the
+  /// probe can't tell whether the app is blocked.
+  const restartLocalNetwork = $derived(isNoRoute(restartMessage) && localNetwork.status === "unknown");
 
   let reportBusy = $state(false);
   let reportData = $state<DeviceReport[] | null>(null);
@@ -143,7 +144,7 @@
   }
 
   async function showConnectFailure(address: string, raw: string) {
-    const status = await freshLocalNetworkStatus(raw);
+    const status = await freshLocalNetworkStatus(raw, address);
     const explained = explainAdbFailure("connect", address, raw, status);
     connectMessage = "";
     connectDetail = "";
@@ -427,7 +428,7 @@
   }
 
   async function showPairFailure(address: string, raw: string) {
-    const status = await freshLocalNetworkStatus(raw);
+    const status = await freshLocalNetworkStatus(raw, address);
     const explained = explainAdbFailure("pair", address, raw, status);
     pairMessage = explained.summary ?? explained.raw;
     pairDetail = explained.summary ? explained.raw : "";
@@ -566,7 +567,7 @@
       pairElapsed = Math.min(PAIR_CONNECT_WAIT_S, Math.floor((Date.now() - started) / 1000));
       if (Date.now() - started >= PAIR_CONNECT_WAIT_S * 1000) {
         if (lastFailure) {
-          const status = await freshLocalNetworkStatus(lastFailure.message);
+          const status = await freshLocalNetworkStatus(lastFailure.message, lastFailure.address);
           if (token !== pairWaitToken) return;
           const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message, status);
           pairLocalNetwork = explained.localNetwork;
@@ -804,6 +805,23 @@
 
 <LocalNetworkNotice />
 
+<!-- What a macOS "No route to host" offers, by what the probe saw. -->
+{#snippet remedies(hint: LocalNetworkHint)}
+  <span class="remedies">
+    <button
+      onclick={restartAdb}
+      disabled={restartBusy || connectBusy || adbMissing}
+    >
+      <Icon name="restart_alt" size={14} /> {restartBusy ? "Restarting ADB…" : "Restart ADB"}
+    </button>
+    {#if hint === "restart_or_settings"}
+      <button onclick={openLocalNetworkSettings}>
+        <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
+      </button>
+    {/if}
+  </span>
+{/snippet}
+
 <!-- The board leads with Scan LAN and Add by IP. The other four stay, one
      row down, because every one of them is the only way to do the
      thing it does. -->
@@ -862,12 +880,8 @@
       error={connectError.raw}
       summary={connectError.summary}
     />
-    {#if connectError.localNetwork === "possible"}
-      <div class="connect-message plain">
-        <button onclick={openLocalNetworkSettings}>
-          <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
-        </button>
-      </div>
+    {#if connectError.localNetwork === "restart" || connectError.localNetwork === "restart_or_settings"}
+      <div class="connect-message plain">{@render remedies(connectError.localNetwork)}</div>
     {/if}
   {/if}
   {#if scanMessage}
@@ -878,9 +892,9 @@
   {/if}
   {#if restartMessage}
     <p class="connect-message muted">{restartMessage}</p>
-    {#if restartLocalNetwork === "possible"}
+    {#if restartLocalNetwork}
       <p class="connect-message muted plain">
-        {localNetworkSentence(restartLocalNetwork)}
+        {LOCAL_NETWORK_POSSIBLE}
         <button class="inline-link" onclick={openLocalNetworkSettings}>Open Privacy &amp; Security</button>
       </p>
     {/if}
@@ -951,10 +965,8 @@
         <pre>{pairDetail}</pre>
       </details>
     {/if}
-    {#if pairLocalNetwork === "possible"}
-      <button class="local-network-action" onclick={openLocalNetworkSettings}>
-        <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
-      </button>
+    {#if pairLocalNetwork === "restart" || pairLocalNetwork === "restart_or_settings"}
+      <div class="local-network-action">{@render remedies(pairLocalNetwork)}</div>
     {/if}
   </section>
 {/if}
@@ -1280,9 +1292,10 @@
     </div>
     {#if localNetwork.status && localNetwork.status !== "not_applicable"}
       <p class="local-network-help">
-        On a Mac, check that ATV Optimizer is on in
-        <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
-        → Local Network. If it already is, turn it off and on again (all of them, if it's listed
+        On a Mac, after an update, macOS can cut off an ADB server the earlier version left
+        running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
+        in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+        → Local Network; if it already is, turn it off and on again (all of them, if it's listed
         more than once), then Restart ADB.
       </p>
     {/if}
@@ -1451,6 +1464,11 @@
   }
   .local-network-action {
     margin-top: 0.4rem;
+  }
+  .remedies {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
   .inline-link {
     display: inline;

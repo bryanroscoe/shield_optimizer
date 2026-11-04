@@ -5,28 +5,35 @@
 //! macOS attributes a helper's local network operations to the app that
 //! spawned it (Apple TN3179, "macOS considerations"). adb run from Terminal is
 //! exempt, which is why it can work there while the app's own adb fails.
+//! Ad hoc signed builds also get a new code identity each time, so macOS can
+//! treat an update as a new app (TN3179, "Build-time considerations").
 //!
-//! Builds are only ad hoc signed, so each one has a different code identity
-//! and macOS treats an update as a new app without the old grant (TN3179,
-//! "Build-time considerations"). This module cannot fix that; it makes the
-//! state visible and the prompt timely.
+//! What it is not: after an update, an adb server the earlier version left
+//! running can be cut off by macOS for good (EHOSTUNREACH on every TV) while
+//! the new app, and any server it starts, reach the LAN fine. And a new
+//! binary's very first LAN connect can fail with EHOSTUNREACH and work about
+//! a second later even when access is allowed. Both were reproduced on macOS
+//! 26.6.2 (2026-11-04). So "No route to host" from adb alone proves nothing,
+//! and one failed attempt here proves nothing either.
 //!
-//! `local_network_access` does one local network operation from the app's own
+//! `local_network_access` does local network operations from the app's own
 //! process, so the system alert appears at launch with our usage string
 //! instead of from adb in the middle of a scan, and reports what it saw. There
 //! is no API that reads the privilege (TN3179, "Check for local network
 //! access"), so the answer is evidence, not a reading: `Blocked` is claimed
-//! only when every attempt failed with "No route to host" on a network that is
-//! actually up. Anything less certain is `Unknown`, which claims nothing.
+//! only when every attempt, [`ATTEMPTS`] of them about a second apart, failed
+//! with "No route to host" on a network that is actually up. Anything less
+//! certain is `Unknown`, which claims nothing.
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use serde::Serialize;
 
 #[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalNetworkStatus {
-    /// A multicast datagram left on a LAN interface.
+    /// Traffic from this process reached the LAN.
     Allowed,
     /// Every attempt failed with EHOSTUNREACH while a LAN interface was up.
     Blocked,
@@ -51,16 +58,86 @@ pub enum ProbeOutcome {
     OtherError,
 }
 
-/// `EHOSTUNREACH` in Darwin's `<sys/errno.h>`. The probe only runs on macOS,
-/// so this is the only value it can mean; written out so the classification
-/// is testable on every platform CI runs on.
-const DARWIN_EHOSTUNREACH: i32 = 65;
+/// What a whole check (all its attempts) found.
+#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Reach {
+    /// Traffic got through: a datagram left, a connection opened, or the host
+    /// answered with a refusal.
+    Reached,
+    /// Every attempt failed with EHOSTUNREACH.
+    HostUnreachable,
+    /// Anything else: a timeout, another error. Claims nothing.
+    Inconclusive,
+}
+
+/// How many times a check tries before believing "No route to host", and how
+/// long it waits between tries.
+pub const ATTEMPTS: u32 = 3;
+pub const RETRY_DELAY: Duration = Duration::from_secs(1);
+
+/// `EHOSTUNREACH` and `ECONNREFUSED` for the platform this is built for,
+/// written out (Darwin `<sys/errno.h>`, Linux `<asm-generic/errno.h>`, Winsock)
+/// so the classification is testable everywhere CI runs.
+#[cfg(target_os = "macos")]
+const EHOSTUNREACH: i32 = 65;
+#[cfg(target_os = "linux")]
+const EHOSTUNREACH: i32 = 113;
+#[cfg(windows)]
+const EHOSTUNREACH: i32 = 10065;
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+const EHOSTUNREACH: i32 = i32::MIN;
 
 pub fn outcome_from_os_error(code: Option<i32>) -> ProbeOutcome {
     match code {
-        Some(DARWIN_EHOSTUNREACH) => ProbeOutcome::HostUnreachable,
+        Some(EHOSTUNREACH) => ProbeOutcome::HostUnreachable,
         _ => ProbeOutcome::OtherError,
     }
+}
+
+/// One TCP connect's result as reachability evidence.
+pub fn reach_from_connect(result: &std::io::Result<()>) -> Reach {
+    match result {
+        Ok(()) => Reach::Reached,
+        // A refusal is the host answering: the packet got there and back.
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused => Reach::Reached,
+        Err(e) => match outcome_from_os_error(e.raw_os_error()) {
+            ProbeOutcome::HostUnreachable => Reach::HostUnreachable,
+            _ => Reach::Inconclusive,
+        },
+    }
+}
+
+/// One round of the multicast probe (one datagram per LAN interface).
+pub fn reach_from_round(outcomes: &[ProbeOutcome]) -> Reach {
+    if outcomes.contains(&ProbeOutcome::Sent) {
+        Reach::Reached
+    } else if !outcomes.is_empty() && outcomes.iter().all(|o| *o == ProbeOutcome::HostUnreachable) {
+        Reach::HostUnreachable
+    } else {
+        Reach::Inconclusive
+    }
+}
+
+/// The retry rule both checks share: an attempt that got through or failed
+/// some other way decides at once; "No route to host" is believed only when
+/// all `attempts` say it, `pause` apart. macOS can refuse a new process's
+/// first LAN connect and allow the next.
+pub fn retry_until_decided(
+    attempts: u32,
+    mut attempt: impl FnMut() -> Reach,
+    mut pause: impl FnMut(),
+) -> Reach {
+    for i in 0..attempts.max(1) {
+        if i > 0 {
+            pause();
+        }
+        let reach = attempt();
+        if reach != Reach::HostUnreachable {
+            return reach;
+        }
+    }
+    Reach::HostUnreachable
 }
 
 /// Whether an interface address is on a network the privilege governs: an
@@ -80,17 +157,61 @@ pub fn is_lan_ipv4(
         && !ip.is_unspecified()
 }
 
-pub fn classify(lan_interfaces: usize, outcomes: &[ProbeOutcome]) -> LocalNetworkStatus {
+/// The status from the multicast check and, when the caller named one, a
+/// TCP check of a TV. The TV can only confirm access: a TV that can't be
+/// reached proves nothing about permission on its own, since it may be off.
+pub fn classify(
+    lan_interfaces: usize,
+    multicast: Reach,
+    target: Option<Reach>,
+) -> LocalNetworkStatus {
+    if multicast == Reach::Reached || target == Some(Reach::Reached) {
+        return LocalNetworkStatus::Allowed;
+    }
     if lan_interfaces == 0 {
         return LocalNetworkStatus::NoNetwork;
     }
-    if outcomes.contains(&ProbeOutcome::Sent) {
-        return LocalNetworkStatus::Allowed;
-    }
-    if !outcomes.is_empty() && outcomes.iter().all(|o| *o == ProbeOutcome::HostUnreachable) {
+    if multicast == Reach::HostUnreachable && target != Some(Reach::Inconclusive) {
         return LocalNetworkStatus::Blocked;
     }
     LocalNetworkStatus::Unknown
+}
+
+/// Whether this app's own process can reach `addr` over TCP: up to
+/// [`ATTEMPTS`] connects, [`RETRY_DELAY`] apart, each bounded by
+/// `connect_timeout`, under [`retry_until_decided`]. A refusal counts as
+/// reached. Nothing is sent on a connection that opens; it is closed at once.
+///
+/// Run from the app, not from adb, so it says what macOS allows this app now,
+/// whatever an older adb server is still being refused.
+pub async fn app_can_reach(addr: SocketAddr, connect_timeout: Duration) -> Reach {
+    tokio::task::spawn_blocking(move || {
+        retry_until_decided(
+            ATTEMPTS,
+            || {
+                reach_from_connect(
+                    &std::net::TcpStream::connect_timeout(&addr, connect_timeout).map(drop),
+                )
+            },
+            || std::thread::sleep(RETRY_DELAY),
+        )
+    })
+    .await
+    .unwrap_or(Reach::Inconclusive)
+}
+
+/// `host` or `host:port` as a socket address, port 5555 when absent. IP
+/// literals only: nothing is resolved.
+pub fn parse_target(target: &str) -> Option<SocketAddr> {
+    let t = target.trim();
+    if let Ok(addr) = t.parse::<SocketAddr>() {
+        return Some(addr);
+    }
+    t.trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<std::net::IpAddr>()
+        .ok()
+        .map(|ip| SocketAddr::new(ip, 5555))
 }
 
 /// A one-question mDNS query (RFC 6762) for `name`'s PTR records: the same
@@ -122,15 +243,16 @@ pub fn settings_command() -> (&'static str, [&'static str; 1]) {
     ("/usr/bin/open", [LOCAL_NETWORK_SETTINGS_URL])
 }
 
+/// The LAN interfaces and the multicast check across them.
 #[cfg(target_os = "macos")]
-fn probe() -> LocalNetworkStatus {
-    use std::net::{IpAddr, SocketAddr, UdpSocket};
+fn multicast_probe() -> (usize, Reach) {
+    use std::net::{IpAddr, UdpSocket};
 
     let interfaces = match if_addrs::get_if_addrs() {
         Ok(list) => list,
         Err(e) => {
             tracing::debug!(error = %e, "local network probe: could not list interfaces");
-            return LocalNetworkStatus::Unknown;
+            return (0, Reach::Inconclusive);
         }
     };
     let mut lan: Vec<Ipv4Addr> = Vec::new();
@@ -148,10 +270,13 @@ fn probe() -> LocalNetworkStatus {
         }
     }
     lan.truncate(4);
+    if lan.is_empty() {
+        return (0, Reach::Inconclusive);
+    }
 
     let query = mdns_ptr_query(MDNS_PROBE_NAME);
     let group = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)), 5353);
-    let attempt = |source: Ipv4Addr| -> ProbeOutcome {
+    let send_from = |source: Ipv4Addr| -> ProbeOutcome {
         let fail = |e: std::io::Error| outcome_from_os_error(e.raw_os_error());
         let socket = match UdpSocket::bind((source, 0)) {
             Ok(s) => s,
@@ -173,37 +298,56 @@ fn probe() -> LocalNetworkStatus {
             Err(e) => fail(e),
         }
     };
-    let outcomes: Vec<ProbeOutcome> = lan.iter().map(|ip| attempt(*ip)).collect();
-    let status = classify(lan.len(), &outcomes);
-    tracing::info!(
-        ?status,
-        interfaces = lan.len(),
-        ?outcomes,
-        "local network probe"
+    let reach = retry_until_decided(
+        ATTEMPTS,
+        || {
+            let outcomes: Vec<ProbeOutcome> = lan.iter().map(|ip| send_from(*ip)).collect();
+            tracing::debug!(?outcomes, "local network probe round");
+            reach_from_round(&outcomes)
+        },
+        || std::thread::sleep(RETRY_DELAY),
     );
-    status
+    (lan.len(), reach)
 }
 
+#[cfg(target_os = "macos")]
+const TARGET_CONNECT_TIMEOUT: Duration = Duration::from_millis(1500);
+
 /// Trigger the macOS Local Network alert from this process and report what
-/// the attempt saw. Off macOS it does nothing.
+/// the attempts saw. `target` (an IP literal, optionally with a port) adds a
+/// TCP check of that TV from the app itself. Off macOS it does nothing.
 #[tauri::command]
-pub async fn local_network_access() -> Result<LocalNetworkAccess, String> {
+pub async fn local_network_access(target: Option<String>) -> Result<LocalNetworkAccess, String> {
     #[cfg(target_os = "macos")]
     {
-        let status = tokio::task::spawn_blocking(probe)
+        let (lan, multicast) = tokio::task::spawn_blocking(multicast_probe)
             .await
             .map_err(|e| e.to_string())?;
+        let target_reach = match target.as_deref().and_then(parse_target) {
+            Some(addr) => Some(app_can_reach(addr, TARGET_CONNECT_TIMEOUT).await),
+            None => None,
+        };
+        let status = classify(lan, multicast, target_reach);
+        tracing::info!(
+            ?status,
+            interfaces = lan,
+            ?multicast,
+            ?target_reach,
+            "local network probe"
+        );
         Ok(LocalNetworkAccess { status })
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = target;
         Ok(LocalNetworkAccess {
             status: LocalNetworkStatus::NotApplicable,
         })
     }
 }
 
-/// Open System Settings at Privacy & Security → Local Network.
+/// Open System Settings at Privacy & Security (→ Local Network where macOS
+/// has a link for it).
 #[tauri::command]
 pub async fn open_local_network_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -229,15 +373,21 @@ pub async fn open_local_network_settings() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn only_ehostunreach_counts_as_unreachable() {
         assert_eq!(
+            outcome_from_os_error(Some(EHOSTUNREACH)),
+            ProbeOutcome::HostUnreachable
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
             outcome_from_os_error(Some(65)),
             ProbeOutcome::HostUnreachable
         );
-        // ENETUNREACH, EPERM, EADDRNOTAVAIL, and no errno at all.
-        for code in [Some(51), Some(1), Some(49), None] {
+        // Darwin ENETUNREACH, EPERM, EADDRNOTAVAIL, EHOSTDOWN, and no errno.
+        for code in [Some(51), Some(1), Some(49), Some(64), None] {
             assert_eq!(
                 outcome_from_os_error(code),
                 ProbeOutcome::OtherError,
@@ -247,35 +397,149 @@ mod tests {
     }
 
     #[test]
-    fn blocked_needs_a_network_and_every_attempt_unreachable() {
-        use ProbeOutcome::*;
-        assert_eq!(classify(1, &[HostUnreachable]), LocalNetworkStatus::Blocked);
+    fn a_connect_result_is_evidence_only_when_it_says_so() {
+        use std::io::{Error, ErrorKind};
+        assert_eq!(reach_from_connect(&Ok(())), Reach::Reached);
         assert_eq!(
-            classify(2, &[HostUnreachable, HostUnreachable]),
-            LocalNetworkStatus::Blocked
+            reach_from_connect(&Err(Error::from(ErrorKind::ConnectionRefused))),
+            Reach::Reached,
+            "a refusal is the host answering"
         );
-        // No LAN up: "No route to host" is just the truth, not a permission.
-        assert_eq!(classify(0, &[]), LocalNetworkStatus::NoNetwork);
         assert_eq!(
-            classify(0, &[HostUnreachable]),
-            LocalNetworkStatus::NoNetwork
+            reach_from_connect(&Err(Error::from_raw_os_error(EHOSTUNREACH))),
+            Reach::HostUnreachable
         );
-        // Mixed or other failures are not evidence of a block.
         assert_eq!(
-            classify(2, &[HostUnreachable, OtherError]),
-            LocalNetworkStatus::Unknown
+            reach_from_connect(&Err(Error::from(ErrorKind::TimedOut))),
+            Reach::Inconclusive
         );
-        assert_eq!(classify(1, &[OtherError]), LocalNetworkStatus::Unknown);
-        assert_eq!(classify(1, &[]), LocalNetworkStatus::Unknown);
     }
 
     #[test]
-    fn any_datagram_sent_means_allowed() {
+    fn rounds_reach_on_any_send_and_block_only_when_all_unreachable() {
         use ProbeOutcome::*;
-        assert_eq!(classify(1, &[Sent]), LocalNetworkStatus::Allowed);
+        assert_eq!(reach_from_round(&[HostUnreachable, Sent]), Reach::Reached);
         assert_eq!(
-            classify(2, &[HostUnreachable, Sent]),
+            reach_from_round(&[HostUnreachable, HostUnreachable]),
+            Reach::HostUnreachable
+        );
+        assert_eq!(
+            reach_from_round(&[HostUnreachable, OtherError]),
+            Reach::Inconclusive
+        );
+        assert_eq!(reach_from_round(&[]), Reach::Inconclusive);
+    }
+
+    /// Runs `retry_until_decided` over a script of attempt results.
+    fn run(script: &[Reach]) -> (Reach, usize, usize) {
+        let tried = Cell::new(0usize);
+        let paused = Cell::new(0usize);
+        let reach = retry_until_decided(
+            ATTEMPTS,
+            || {
+                let r = script[tried.get()];
+                tried.set(tried.get() + 1);
+                r
+            },
+            || paused.set(paused.get() + 1),
+        );
+        (reach, tried.get(), paused.get())
+    }
+
+    #[test]
+    fn a_first_failure_then_success_is_reached() {
+        use Reach::*;
+        assert_eq!(run(&[HostUnreachable, Reached]), (Reached, 2, 1));
+        assert_eq!(
+            run(&[HostUnreachable, HostUnreachable, Reached]),
+            (Reached, 3, 2)
+        );
+    }
+
+    #[test]
+    fn unreachable_is_believed_only_after_every_attempt() {
+        use Reach::*;
+        assert_eq!(
+            run(&[HostUnreachable, HostUnreachable, HostUnreachable]),
+            (HostUnreachable, 3, 2)
+        );
+        // Another answer decides at once, without waiting.
+        assert_eq!(run(&[Reached]), (Reached, 1, 0));
+        assert_eq!(run(&[HostUnreachable, Inconclusive]), (Inconclusive, 2, 1));
+    }
+
+    #[test]
+    fn status_claims_a_block_only_on_evidence() {
+        use Reach::*;
+        assert_eq!(
+            classify(1, HostUnreachable, None),
+            LocalNetworkStatus::Blocked
+        );
+        assert_eq!(
+            classify(1, HostUnreachable, Some(HostUnreachable)),
+            LocalNetworkStatus::Blocked
+        );
+        // The app itself reaching the TV settles it, whatever multicast said.
+        assert_eq!(
+            classify(1, HostUnreachable, Some(Reached)),
             LocalNetworkStatus::Allowed
+        );
+        assert_eq!(classify(1, Reached, None), LocalNetworkStatus::Allowed);
+        // A TV timing out (maybe off) leaves it unknown.
+        assert_eq!(
+            classify(1, HostUnreachable, Some(Inconclusive)),
+            LocalNetworkStatus::Unknown
+        );
+        assert_eq!(classify(1, Inconclusive, None), LocalNetworkStatus::Unknown);
+        assert_eq!(
+            classify(1, Inconclusive, Some(HostUnreachable)),
+            LocalNetworkStatus::Unknown,
+            "an unreachable TV alone is not a permission"
+        );
+        // No LAN up: "No route to host" is just the truth, not a permission.
+        assert_eq!(
+            classify(0, Inconclusive, None),
+            LocalNetworkStatus::NoNetwork
+        );
+        assert_eq!(
+            classify(0, HostUnreachable, Some(HostUnreachable)),
+            LocalNetworkStatus::NoNetwork
+        );
+    }
+
+    #[test]
+    fn targets_are_ip_literals_with_adb_default_port() {
+        assert_eq!(
+            parse_target("192.168.1.9"),
+            Some("192.168.1.9:5555".parse().unwrap())
+        );
+        assert_eq!(
+            parse_target(" 192.168.1.9:40000 "),
+            Some("192.168.1.9:40000".parse().unwrap())
+        );
+        assert_eq!(
+            parse_target("[fe80::1]:5555"),
+            Some("[fe80::1]:5555".parse().unwrap())
+        );
+        assert_eq!(parse_target("living-room.local"), None, "never resolved");
+        assert_eq!(parse_target("adb-X._adb-tls-connect._tcp"), None);
+        assert_eq!(parse_target(""), None);
+    }
+
+    #[tokio::test]
+    async fn app_can_reach_counts_a_listener_and_a_refusal_as_reached() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let open = listener.local_addr().unwrap();
+        assert_eq!(
+            app_can_reach(open, Duration::from_millis(500)).await,
+            Reach::Reached
+        );
+        drop(listener);
+        // Windows retries a refused loopback connect for about two seconds.
+        assert_eq!(
+            app_can_reach(open, Duration::from_secs(5)).await,
+            Reach::Reached,
+            "refused"
         );
     }
 
@@ -344,7 +608,10 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     async fn off_macos_nothing_is_probed() {
         assert_eq!(
-            local_network_access().await.unwrap().status,
+            local_network_access(Some("192.168.1.9".into()))
+                .await
+                .unwrap()
+                .status,
             LocalNetworkStatus::NotApplicable
         );
         assert!(open_local_network_settings().await.is_err());

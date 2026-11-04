@@ -42,6 +42,7 @@ async function run(browser, base) {
       }
       const t = (window.ln = {
         calls: [],
+        targets: [],
         openFails: false,
         get status() {
           return sessionStorage.getItem("ln.status") ?? "not_applicable";
@@ -58,6 +59,8 @@ async function run(browser, base) {
           const original = value.invoke;
           value.invoke = async (command, args) => {
             t.calls.push(command);
+            if (command === "local_network_access") t.targets.push(args?.target ?? null);
+            if (command === "restart_adb") return { ok: true, server_ready: true, message: "ADB server restarted." };
             if (command === "local_network_access") return { status: t.status };
             if (command === "open_local_network_settings") {
               if (t.openFails) throw "exit status: 1";
@@ -164,20 +167,48 @@ async function run(browser, base) {
     await page.waitForTimeout(200);
     assert.equal(await calls("local_network_access"), settled, "no re-probe once allowed");
 
-    // The probe could not tell: a no-route failure names it as a possibility.
+    // Allowed: the app itself reaches the network, so a no-route from adb
+    // points at a stale adb server. Restart ADB, never settings.
+    await page.getByPlaceholder("IP[:port]", { exact: false }).fill("192.168.1.9");
+    await page.getByRole("button", { name: "Add by IP" }).click();
+    await page.waitForFunction(() =>
+      document.querySelector(".connect-form .error-notice")?.textContent.includes("Try Restart ADB first"),
+    );
+    assert.equal(
+      await page.evaluate(() => window.ln.targets.at(-1)),
+      "192.168.1.9",
+      "the failure re-probes with the TV it was about",
+    );
+    const stale = await err.innerText();
+    assert.match(stale, /Couldn't reach 192\.168\.1\.9\. Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running\./);
+    assert.doesNotMatch(stale, /Local Network|Privacy|blocking/);
+    const remedies = page.locator(".connect-form .remedies");
+    await remedies.waitFor();
+    assert.equal(await remedies.getByRole("button", { name: "Open Privacy & Security" }).count(), 0, "allowed offers no settings");
+    await shot("local-network-allowed-stale-adb");
+    let confirmText = "";
+    page.once("dialog", async (d) => { confirmText = d.message(); await d.accept(); });
+    await remedies.getByRole("button", { name: "Restart ADB", exact: true }).click();
+    await page.getByText("ADB server restarted.", { exact: true }).waitFor();
+    assert.match(confirmText, /Restart the shared ADB server\?/, "the usual confirmation");
+    assert.equal(await calls("restart_adb"), 1);
+
+    // The probe could not tell: Restart ADB first, then Local Network.
     await page.evaluate(() => (window.ln.status = "unknown"));
     await page.getByPlaceholder("IP[:port]", { exact: false }).fill("192.168.1.9");
     await page.getByRole("button", { name: "Add by IP" }).click();
     await page.waitForFunction(() =>
-      document.querySelector(".connect-form .error-notice")?.textContent.includes("may also be blocking"),
+      document.querySelector(".connect-form .error-notice")?.textContent.includes("may be blocking"),
     );
     const possible = await err.innerText();
-    assert.match(possible, /macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way\./);
+    assert.match(possible, /Try Restart ADB first.*If that doesn't help, macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way\./s);
     assert.doesNotMatch(possible, /macOS is blocking/);
     assert.equal(await notice.count(), 0, "unknown never shows the blocked notice");
-    const inline = page.locator(".connect-form").getByRole("button", { name: "Open Privacy & Security", exact: true });
+    const both = page.locator(".connect-form .remedies");
+    await both.getByRole("button", { name: "Restart ADB", exact: true }).waitFor();
+    const inline = both.getByRole("button", { name: "Open Privacy & Security", exact: true });
     await inline.waitFor();
-    await shot("local-network-possible-connect-error");
+    await shot("local-network-unknown-connect-error");
     await inline.click();
     assert.equal(await calls("open_local_network_settings"), 3);
 
@@ -188,7 +219,9 @@ async function run(browser, base) {
     await page.getByRole("heading", { name: "No devices connected.", exact: true }).waitFor();
     const macHelp = page.locator(".help-details .local-network-help");
     await macHelp.waitFor();
-    assert.match(await macHelp.innerText(), /On a Mac, check that ATV Optimizer is on in Privacy & Security → Local Network\./);
+    const macText = await macHelp.innerText();
+    assert.match(macText, /On a Mac, after an update, macOS can cut off an ADB server the earlier version left running, and Restart ADB replaces it\./);
+    assert.match(macText, /check that ATV Optimizer is on in Privacy & Security → Local Network/);
     await shot("local-network-connection-help");
     await macHelp.getByRole("button", { name: "Privacy & Security", exact: true }).click();
     assert.equal(await calls("open_local_network_settings"), 1, "calls restart with the reload");
@@ -199,7 +232,7 @@ async function run(browser, base) {
       await video.saveAs(`${out}/local-network-notice-simulated.webm`);
     }
     console.log(
-      "Local Network notice passed: hidden off macOS and when allowed or unknown, shown on blocked with on-demand help (keyboard, Escape, narrow), deep-link button and its failure, focus re-probe clears it, no-route errors stated plainly only on evidence and as a possibility otherwise, and the Mac-only connection-help item.",
+      "Local Network notice passed: hidden off macOS and when allowed or unknown, shown on blocked with on-demand help (keyboard, Escape, narrow), deep-link button and its failure, focus re-probe clears it, no-route errors offer Restart ADB when allowed, Restart ADB then settings when unknown and state a block only on evidence, the failing TV is re-probed, and the Mac-only connection-help item.",
     );
   } finally {
     await context.close();

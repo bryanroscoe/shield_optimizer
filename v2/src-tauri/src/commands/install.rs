@@ -127,12 +127,12 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     //
     // Not on the first try only. `start-server` returns as soon as the daemon
     // has forked, and a connect made straight after it has been seen to fail
-    // with "No route to host" and then work when retried by hand a second
-    // later. Why is not established: a TV still tearing down the old socket
-    // is one guess; on macOS 15+, Local Network privacy denying the new adb
-    // server (which macOS holds to this app's permission) is another, and
-    // that one does not go away with retries (see `local_network.rs`). So
-    // give each device a few attempts before calling it unreachable.
+    // with "No route to host" and then work a second later. One cause is
+    // reproduced on macOS 26.6.2: a new binary's very first LAN connect can
+    // get EHOSTUNREACH even when Local Network access is allowed. Others are
+    // not ruled out (a TV still freeing the old socket), and a real Local
+    // Network block does not go away with retries (see `local_network.rs`).
+    // So give each device a few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     let mut unauthorized = Vec::new();

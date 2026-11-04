@@ -11,17 +11,23 @@ export type AdbOperation = "pair" | "connect";
 /// What the macOS Local Network probe (`local_network_access`) last saw.
 export type LocalNetworkStatus = "allowed" | "blocked" | "unknown" | "no_network" | "not_applicable";
 
-/// Whether a failure should point at macOS Local Network privacy: "blocked"
-/// when the probe saw macOS block this app, "possible" when it is a likely
-/// cause the probe could not confirm or rule out, null when it does not apply.
-export type LocalNetworkHint = "blocked" | "possible" | null;
+/// What a "No route to host" on macOS should point at, given the probe:
+/// - "blocked": the probe saw macOS block this app. Say so; the Devices notice
+///   carries the settings button.
+/// - "restart": the probe reached the network from the app itself, so the
+///   likely culprit is an adb server an earlier version left running, which
+///   macOS can cut off after an update. Restart ADB, not settings.
+/// - "restart_or_settings": the probe could not tell. Restart ADB first, then
+///   Local Network settings.
+/// - null: not macOS, no network, no answer yet, or not a no-route failure.
+export type LocalNetworkHint = "blocked" | "restart" | "restart_or_settings" | null;
 
 export interface ExplainedFailure {
   /// What to do about it, or null when the failure is not one we recognise.
   summary: string | null;
   /// adb's own words, trimmed.
   raw: string;
-  /// Show the button that opens Privacy & Security beside it.
+  /// Which macOS remedy to offer beside it (Restart ADB, Privacy & Security).
   localNetwork: LocalNetworkHint;
 }
 
@@ -33,28 +39,26 @@ export function isNoRoute(raw: string): boolean {
   return NO_ROUTE.test(String(raw ?? ""));
 }
 
-/// "No route to host" is what a macOS app without the Local Network privilege
-/// gets for every LAN address. Only the probe's own evidence makes it
-/// "blocked". A probe that sent fine, found no network, or isn't on macOS
-/// (or hasn't answered) adds nothing.
 export function localNetworkHint(raw: string, status: LocalNetworkStatus | null): LocalNetworkHint {
   if (!isNoRoute(raw)) return null;
   if (status === "blocked") return "blocked";
-  if (status === "unknown") return "possible";
+  if (status === "allowed") return "restart";
+  if (status === "unknown") return "restart_or_settings";
   return null;
 }
 
-const LOCAL_NETWORK_SENTENCE: Record<"blocked" | "possible", string> = {
-  blocked: `${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then Restart ADB.`,
-  possible:
-    "macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall " +
-    "app may be in the way.",
-};
+const STALE_SERVER =
+  "Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running.";
 
-/// The sentence to add for a hint, or null for none.
-export function localNetworkSentence(hint: LocalNetworkHint): string | null {
-  return hint ? LOCAL_NETWORK_SENTENCE[hint] : null;
-}
+/// macOS may be blocking local network access, or something else is.
+export const LOCAL_NETWORK_POSSIBLE =
+  "macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.";
+
+const LOCAL_NETWORK_SENTENCE: Record<"blocked" | "restart" | "restart_or_settings", string> = {
+  blocked: `${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then Restart ADB.`,
+  restart: `${STALE_SERVER} If that doesn't help, check the TV's current IP and that both devices are on the same local network.`,
+  restart_or_settings: `${STALE_SERVER} If that doesn't help, ${LOCAL_NETWORK_POSSIBLE.charAt(0).toLowerCase()}${LOCAL_NETWORK_POSSIBLE.slice(1)}`,
+};
 
 const WRONG_PIN = /wrong password|incorrect (pin|code|password)|bad (pin|code)/i;
 const DIALOG_GONE =
@@ -100,11 +104,7 @@ export function explainAdbFailure(
           "main Wireless debugging screen (not the pairing dialog).";
   }
 
-  if (hint === "blocked") {
-    summary = `Couldn't reach ${where}. ${LOCAL_NETWORK_SENTENCE.blocked}`;
-  } else if (hint === "possible" && summary) {
-    summary = `${summary} ${LOCAL_NETWORK_SENTENCE.possible}`;
-  }
+  if (hint) summary = `Couldn't reach ${where}. ${LOCAL_NETWORK_SENTENCE[hint]}`;
 
   return { summary, raw: text, localNetwork: hint };
 }

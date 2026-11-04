@@ -18,22 +18,29 @@ export const localNetwork = $state({
 const BLOCKED_RECHECK_MS = 5000;
 let inFlight: Promise<LocalNetworkStatus | null> | null = null;
 
-export function checkLocalNetwork(): Promise<LocalNetworkStatus | null> {
-  inFlight ??= api
-    .localNetworkAccess()
-    .then((r) => (localNetwork.status = r.status))
-    .catch(() => localNetwork.status)
-    .finally(() => {
-      inFlight = null;
-    });
+/// `target` (the TV a failure was about) is also tried from the app itself,
+/// which can confirm access; such a check is never shared with another.
+export function checkLocalNetwork(target: string | null = null): Promise<LocalNetworkStatus | null> {
+  const run = () =>
+    api
+      .localNetworkAccess(target)
+      .then((r) => (localNetwork.status = r.status))
+      .catch(() => localNetwork.status);
+  if (target) return run();
+  inFlight ??= run().finally(() => {
+    inFlight = null;
+  });
   return inFlight;
 }
 
-/// The probe says what it saw now; a failure that might be a block asks again
-/// first so its explanation is not based on a stale answer.
-export async function freshLocalNetworkStatus(raw: string): Promise<LocalNetworkStatus | null> {
+/// The probe says what it saw now; a no-route failure asks again first (of
+/// `target` too, when known) so its explanation is not based on a stale answer.
+export async function freshLocalNetworkStatus(
+  raw: string,
+  target: string | null = null,
+): Promise<LocalNetworkStatus | null> {
   if (!isNoRoute(raw)) return localNetwork.status;
-  return checkLocalNetwork();
+  return checkLocalNetwork(target);
 }
 
 export async function openLocalNetworkSettings() {

@@ -114,7 +114,9 @@ export const api = {
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
-  localNetworkAccess: () => invoke<LocalNetworkAccess>("local_network_access"),
+  /// `target`: an IP[:port] the app itself should try to reach as well.
+  localNetworkAccess: (target: string | null = null) =>
+    invoke<LocalNetworkAccess>("local_network_access", { target }),
   openLocalNetworkSettings: () => invoke<void>("open_local_network_settings"),
   stopAdbOnQuit: () => invoke<StopAdbOnQuit>("get_stop_adb_on_quit"),
   setStopAdbOnQuit: (enabled: boolean, generation: number) =>
