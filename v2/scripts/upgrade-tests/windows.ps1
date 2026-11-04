@@ -61,10 +61,18 @@ function Block-Telemetry {
   $hosts = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
   Add-Content -Path $hosts -Value "`r`n0.0.0.0 $TelemetryHost`r`n:: $TelemetryHost`r`n" -Encoding ascii
   ipconfig /flushdns | Out-Null
-  $addrs = @([System.Net.Dns]::GetHostAddresses($TelemetryHost) | ForEach-Object { $_.ToString() })
-  $blocked = $addrs.Count -gt 0 -and -not ($addrs | Where-Object { $_ -notin @('0.0.0.0', '::') })
-  if (-not $blocked) { throw "telemetry host still resolves to $($addrs -join ', ')" }
-  Record 'telemetry host blocked before any launch' $true ($addrs -join ', ')
+  # Windows answers a 0.0.0.0 hosts entry with "no data" rather than the
+  # address; either way nothing routable comes back.
+  try {
+    $addrs = @([System.Net.Dns]::GetHostAddresses($TelemetryHost) | ForEach-Object { $_.ToString() })
+    $how = $addrs -join ', '
+  } catch {
+    $addrs = @()
+    $how = "no address ($($_.Exception.Message))"
+  }
+  $routable = @($addrs | Where-Object { $_ -notin @('0.0.0.0', '::') })
+  if ($routable.Count -gt 0) { throw "telemetry host still resolves to $($routable -join ', ')" }
+  Record 'telemetry host blocked before any launch' $true $how
 }
 
 function Find-Exe([string[]] $Names) {
@@ -220,9 +228,9 @@ function Profile-Unchanged([string] $Label) {
 
 function Data-Unchanged([string] $Label) {
   $extra = @()
-  # With the fix, a launch whose copy failed keeps using the legacy folder,
-  # so it writes its log there. Everything else must stay as it was.
-  if ($Retry) { $extra = @('--exclude', 'logs') }
+  # A launch whose data copy failed runs on the legacy folder, so it adds
+  # its own log there. Every file that was already there must stay as it was.
+  if ($Retry) { $extra = @('--allow-added', 'logs') }
   Py check-unchanged --results $Results --name "old data folder unchanged ($Label)" `
     --manifest (Join-Path $Evidence 'manifest-old-data.json') --root $OldData @extra
 }

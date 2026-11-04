@@ -143,9 +143,9 @@ check_migrated() { # label
   py check-ls --results "$results" --name "old app's own localStorage key survived ($label)" \
     --kind webkit --profile "$new_profile" --key "$old_ls_key" --soft
   py check-no-temps --results "$results" --name "no *.migrating-* folders left ($label)" "$support" "$HOME/Library/WebKit"
-  # With the fix, a launch whose copy failed keeps using the legacy folder,
-  # so it writes its log there. Everything else must stay as it was.
-  [[ "$RETRY" == 1 ]] && extra=(--exclude logs)
+  # A launch whose data copy failed runs on the legacy folder, so it adds
+  # its own log there. Every file that was already there must stay as it was.
+  [[ "$RETRY" == 1 ]] && extra=(--allow-added logs)
   py check-unchanged --results "$results" --name "old data folder unchanged ($label)" \
     --manifest "$EVIDENCE/manifest-old-data.json" --root "$old_data" ${extra[@]+"${extra[@]}"}
   py check-unchanged --results "$results" --name "old profile unchanged ($label)" \

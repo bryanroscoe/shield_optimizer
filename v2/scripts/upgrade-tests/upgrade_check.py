@@ -193,17 +193,19 @@ def cmd_listing(a):
 
 def cmd_check_unchanged(a):
     before = json.loads(Path(a.manifest).read_text(encoding="utf-8"))
-    after = manifest(Path(a.root), a.exclude or [])
+    after = manifest(Path(a.root), [])
+    allowed = [p.rstrip("/") + "/" for p in a.allow_added or []]
+    added_ok = [r for r in after if r not in before and any(r.startswith(p) for p in allowed)]
+    for rel in added_ok:
+        del after[rel]
     diff = diff_manifest(before, after)
     if not before:
         check(a.results, a.name, False, f"the recorded manifest of {a.root} is empty")
         return
-    check(
-        a.results,
-        a.name,
-        not diff,
-        f"{len(before)} files identical" if not diff else "; ".join(diff[:15]),
-    )
+    detail = f"{len(before)} files identical" if not diff else "; ".join(diff[:15])
+    if added_ok:
+        detail += f" (new, allowed: {', '.join(added_ok[:5])})"
+    check(a.results, a.name, not diff, detail)
 
 
 def cmd_check_seeded(a):
@@ -757,7 +759,7 @@ def main():
     s = add("check-unchanged", cmd_check_unchanged, True, True)
     s.add_argument("--manifest", required=True)
     s.add_argument("--root", required=True)
-    s.add_argument("--exclude", action="append")
+    s.add_argument("--allow-added", action="append")
 
     s = add("check-seeded", cmd_check_seeded, True, True)
     s.add_argument("--old", required=True)
