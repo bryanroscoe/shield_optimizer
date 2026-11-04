@@ -22,11 +22,11 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
-- macOS: the app now asks for Local Network access when it starts, and says why, instead of the request coming from adb partway through the first scan. While macOS is blocking it (every TV then fails with "No route to host", even by IP, though adb in Terminal still works), Devices says so and offers to open Privacy & Security, where Local Network is, and the notice clears once access is on. A "No route to host" connect or pair failure on a Mac also mentions Local Network access as a possible cause.
-
 - Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 
 - Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
+
+- macOS: the app now asks for Local Network access when it starts, and says why, instead of the request coming from adb partway through the first scan. While macOS is blocking it (every TV then fails with "No route to host", even by IP, though adb in Terminal still works), Devices says so and offers to open Privacy & Security, where Local Network is, and the notice clears once access is on. A "No route to host" connect or pair failure on a Mac also mentions Local Network access as a possible cause.
 
 - Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.
 - Log-upload errors no longer assume your internet connection caused a server failure.

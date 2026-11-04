@@ -5,7 +5,7 @@ Run this on real hardware before tagging a v2 release. `npm run e2e` (see
 script covers what simulation and CI cannot: vendor firmware behavior, macOS permission (TCC)
 prompts, installer upgrades, and the Android runtime lifecycle of the mobile app.
 
-Step IDs are stable so other docs can cite them: **D1–D10** desktop basics, **A1–A10** upgrade,
+Step IDs are stable so other docs can cite them: **D1–D11** desktop basics, **A1–A10** upgrade,
 launcher and device-type checks, **M1–M8** the mobile app.
 
 Abort rule for every section: if a step leaves the TV without a launcher or with an unexpected
@@ -23,7 +23,7 @@ stop, and record the step.
 - Mobile: the debug APK sideloaded on an Android phone on the same LAN (the app runs on the phone
   and drives the TV; it is not installed on the TV). See `v2/mobile/HANDOFF.md` for the build.
 
-## Desktop (D1–D10, about 30 minutes)
+## Desktop (D1–D11, about 35 minutes)
 
 | Step | Action | Expected |
 |------|--------|----------|
@@ -37,6 +37,7 @@ stop, and record the step.
 | D8 | Sideload: pick a folder with APKs, quit and relaunch the app | The folder is remembered; nothing scans until Scan folder is clicked; on macOS no repeated volume prompt |
 | D9 | Files → App file backups for SmartTube (if installed) after SmartTube's Settings → Backup/Restore → Local backup | The `.zip` under `Documents/SmartTubeBackup` is found |
 | D10 | macOS 15+ only, bundled app opened from Finder or `open` (not `tauri dev`, which macOS credits to Terminal). Start with no Local Network decision for ATV Optimizer: a fresh install in a new macOS user account, or on macOS 27.2+ remove ATV Optimizer from System Settings → Privacy & Security → Local Network with the − button. (1) Launch. (2) Choose Don't Allow. (3) Click Open Privacy & Security, then Local Network; turn ATV Optimizer on and return to the app | (1) The Local Network alert appears at launch, before any scan, naming ATV Optimizer and showing its usage string ("…connects to your TV over your local network using ADB…"). (2) Devices shows "macOS is blocking ATV Optimizer from your local network." with Open Privacy & Security, and its ? help explains turning it off and on again (every entry, if listed more than once) and then Restart ADB. (3) The button opens System Settings at Privacy & Security (macOS 26.6 has no deeper link to Local Network; on a version that has one it lands there); within a few seconds of returning, the notice clears and Scan LAN finds the TV. Record the macOS version |
+| D11 | macOS 15+, after D10 with Local Network granted: install the next build (a newer staging or release DMG) over it and launch it. Depends on #286 (stable signing identity); before #286 lands, expect this to fail | No new Local Network alert; no blocked notice on Devices; Scan LAN still finds the TV. System Settings → Privacy & Security → Local Network lists ATV Optimizer once |
 
 ## Upgrade, launcher and device-type checks (A1–A10)
 

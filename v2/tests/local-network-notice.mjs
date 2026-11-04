@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createServer as createNetServer } from "node:net";
 import { createServer } from "vite";
 import { chromium, webkit } from "playwright";
 
@@ -207,7 +208,16 @@ async function run(browser, base) {
 
 let server, browser;
 try {
-  server = await createServer({ root, server: { host: "127.0.0.1", port: 0, hmr: false } });
+  // A free port of our own: vite reads port 0 as its default 5173, which a
+  // parallel run may hold.
+  const port = await new Promise((done, fail) => {
+    const probe = createNetServer().once("error", fail);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => done(port));
+    });
+  });
+  server = await createServer({ root, server: { host: "127.0.0.1", port, strictPort: true, hmr: false } });
   await server.listen();
   browser = await (process.argv.includes("--webkit") ? webkit : chromium).launch();
   await run(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
