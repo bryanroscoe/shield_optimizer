@@ -7,6 +7,7 @@
 pub mod driver;
 pub mod install;
 pub mod scan;
+pub mod server_repair;
 
 use std::sync::{Arc, LazyLock};
 
@@ -18,6 +19,13 @@ use tokio::process::Command;
 pub fn child_leases() -> &'static Arc<Leases> {
     static CHILDREN: LazyLock<Arc<Leases>> = LazyLock::new(Leases::new);
     &CHILDREN
+}
+
+/// One repair gate for every driver instance, so a driver swapped in by
+/// `install_adb` still knows about a restart the old one just did.
+pub fn server_repairs() -> &'static Arc<server_repair::RepairGate> {
+    static REPAIRS: LazyLock<Arc<server_repair::RepairGate>> = LazyLock::new(Arc::default);
+    &REPAIRS
 }
 
 /// Write an executable test script from a separate process. A file this

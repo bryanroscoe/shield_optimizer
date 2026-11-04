@@ -75,6 +75,13 @@ These are load-bearing — break them and the safety story falls over.
 - **Snapshots are versioned.** `schema_version == 0` is rejected. `schema_version > current` is rejected. Bump the constant in `engine/snapshot.rs` when the schema changes and write an explicit migration.
 - **Snapshot reads are path-confined** to `snapshot_dir` via `canonicalize` + `starts_with`. Keep that check on any new read path that takes a user-supplied snapshot location — zip-slip / traversal protection is the same pattern in `adb/install.rs`.
 - **The do-not-disable list is mandatory for curated actions.** `engine::safety::classify` / `is_never_disable` must gate every typed disable code path (apply-snapshot, optimize wizard, memory-table Disable button, stock-launcher wizard, panic-recovery's inverse, …). Desktop expert shell is an explicit opt-in exception: arbitrary shell expressions can bypass its lexical checks. It must remain bounded, clearly warn about destructive effects, and never claim the curated actions' safety guarantee. Mobile does not expose it.
+- **macOS cuts off an adb server left over from an older build.** macOS charges the adb server's
+  network use to the app that started it. The server outlives the app, and once a newer build
+  launches, every connection that old server makes fails with "No route to host" while the app
+  itself still reaches the TV. `v2/src-tauri/src/adb/server_repair.rs` restarts the server when a
+  connect or pair fails that way for an address the app reaches. Don't remove it, and don't
+  "fix" updates by changing the signing identifier: that was tested on macOS 26.6 and doesn't
+  lose or restore anything.
 - **Tauri commands return `Result<T, String>`.** The error type is serialized to the frontend. Convert with `.map_err(|e| e.to_string())`.
 - **Frontend is Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) on SvelteKit in SPA mode (`adapter-static`). No legacy stores.
 
@@ -160,10 +167,9 @@ doc that held them has been deleted.
   to be suspicious, and a SmartScreen "this looks like malware" banner confirms the fear. Linux
   needs no signing. Setup notes for when we do this are at the top of `.github/workflows/v2-release.yml`.
   Until then macOS builds are **ad-hoc signed as `com.shieldoptimizer.app`**
-  (`bundle.macOS.signingIdentity: "-"`), and the release fails if they aren't. Never ship the
-  linker-only signature: its identifier (`shield_optimizer_v2-<hash>`) changes every build, and macOS
-  keys the Local Network permission on that identifier, so every update silently cut the app (and
-  the adb server it starts) off from the TVs. A Developer ID costs Mac users one more re-grant.
+  (`bundle.macOS.signingIdentity: "-"`), and the release fails if they aren't: the linker-only
+  signature's identifier (`shield_optimizer_v2-<hash>`) changes every build and leaves the bundle
+  unsigned. Apple's local network guidance asks for a stable identity.
 - **Update-key custody.** The Tauri updater signs with Ed25519, and **the private key must never
   rotate** — doing so breaks auto-update for every installed copy on an older version, permanently.
   There is no recovery path except telling users to reinstall by hand. Where the key lives, who can

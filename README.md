@@ -95,12 +95,12 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 
 Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
-**On a Mac, check Local Network access first.** macOS 15+ blocks apps from your local network until
-you allow it, and the block also covers the ADB the app runs. The usual sign is that nothing is
-found, even by IP, while `adb connect` from Terminal still works (Terminal is exempt). Open
-System Settings → Privacy & Security → **Local Network** and turn ATV Optimizer on. If it already
-looks on, turn it off and on again. If it's listed more than once, turn every entry on. Then click
-**Restart ADB**. Versions up to 2.4.1 could lose this permission on every update.
+**On a Mac, if nothing is found even by IP** while `adb connect` from Terminal still works, click
+**Restart ADB** first. After an update, macOS cuts off the ADB server the previous version left
+running. The app now restarts it by itself when it notices, and a manual restart does the same. If
+that doesn't help, macOS may be blocking the app: open System Settings → Privacy & Security →
+**Local Network** and turn ATV Optimizer on. If it already looks on, turn it off and on again. If
+it's listed more than once, turn every entry on. Then click **Restart ADB** again.
 
 **Scan LAN** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
 devices like the Shield use. It also checks the devices ADB has discovered over mDNS. That second
