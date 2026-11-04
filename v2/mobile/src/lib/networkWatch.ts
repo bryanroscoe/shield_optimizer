@@ -16,8 +16,9 @@ export function networkProbeDelayMs(reason: unknown): number {
 }
 
 /// Trailing debounce: every change restarts the wait with its own delay, so a
-/// burst (Wi-Fi lost, a new network, its addresses) probes once, after the last.
-export function createNetworkProbe(probe: () => void): {
+/// burst (Wi-Fi lost, a new network, its addresses) probes once, after the last,
+/// and the probe gets that last reason: whether a network is there now.
+export function createNetworkProbe(probe: (reason: unknown) => void): {
   notify(reason: unknown): void;
   cancel(): void;
 } {
@@ -27,7 +28,7 @@ export function createNetworkProbe(probe: () => void): {
       clearTimeout(timer);
       timer = setTimeout(() => {
         timer = undefined;
-        probe();
+        probe(reason);
       }, networkProbeDelayMs(reason));
     },
     cancel() {

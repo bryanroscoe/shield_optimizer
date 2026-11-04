@@ -73,3 +73,17 @@ test("the event name and reasons match what the plugin emits", async () => {
   const reasons = [...kotlin.matchAll(/^\s+[A-Z]+\("([a-z]+)"\),$/gm)].map((m) => m[1]);
   assert.deepEqual(reasons, ["lost", "changed", "addresses"]);
 });
+
+test("the probe hears the reason that settled the burst", (t) => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  t.after(() => mock.timers.reset());
+  const reasons = [];
+  const probe = createNetworkProbe((reason) => reasons.push(reason));
+  probe.notify("lost");
+  mock.timers.tick(4_000);
+  probe.notify("lost");
+  mock.timers.tick(1_000);
+  probe.notify("changed");
+  mock.timers.tick(1_000);
+  assert.deepEqual(reasons, ["lost", "changed"]);
+});

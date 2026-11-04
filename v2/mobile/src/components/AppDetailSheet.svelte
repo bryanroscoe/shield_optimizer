@@ -404,7 +404,7 @@
           </button>
           {#if offerUninstall}
             <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => requestUninstall(app)}>
-              Uninstall<span class="pro-badge">PRO</span>
+              Uninstall{#if !session.isPro}<span class="pro-badge">PRO</span>{/if}
             </button>
           {/if}
         </div>

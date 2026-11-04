@@ -10,6 +10,7 @@
     savedHostHasMultipleIdentities,
     shouldAutoDialSavedDevices,
   } from "../lib/savedDevices";
+  import { approvalPromptMayExplain } from "../lib/connectFailure";
   import { buildDiscoveryRows } from "../lib/discoveryRows";
   import type { DiscoveryRow } from "../lib/discoveryRows";
   import { deviceTypeLabel } from "../lib/types";
@@ -366,13 +367,15 @@
     </div>
 
     {#if reconnectError}
-      <div class="callout accent" role="status">
-        <span class="msr">tv_gen</span>
-        <span>
-          If the TV shows <span class="soft">"Allow debugging?"</span>, choose
-          <span class="soft">Always allow</span>, select <span class="soft">Allow</span>, and retry.
-        </span>
-      </div>
+      {#if approvalPromptMayExplain(reconnectError)}
+        <div class="callout accent" role="status">
+          <span class="msr">tv_gen</span>
+          <span>
+            If the TV shows <span class="soft">"Allow debugging?"</span>, choose
+            <span class="soft">Always allow</span>, select <span class="soft">Allow</span>, and retry.
+          </span>
+        </div>
+      {/if}
       <ErrorNotice error={reconnectError} action="Reconnect to a saved TV" support={null} />
     {/if}
 
@@ -603,14 +606,16 @@
       </div>
 
       {#if error}
-        <div class="callout accent" role="status">
-          <span class="msr">tv_gen</span>
-          <span>
-            Try again, then look at the TV for <span class="soft">"Allow debugging?"</span>.
-            Choose <span class="soft">Always allow</span> when offered and select
-            <span class="soft">Allow</span> within 30 seconds.
-          </span>
-        </div>
+        {#if approvalPromptMayExplain(error)}
+          <div class="callout accent" role="status">
+            <span class="msr">tv_gen</span>
+            <span>
+              Try again, then look at the TV for <span class="soft">"Allow debugging?"</span>.
+              Choose <span class="soft">Always allow</span> when offered and select
+              <span class="soft">Allow</span> within 30 seconds.
+            </span>
+          </div>
+        {/if}
         <ErrorNotice {error} action="Connect to TV" support={null} />
       {:else}
         <div class="callout accent">

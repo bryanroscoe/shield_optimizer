@@ -142,7 +142,9 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   global `ConnectionBanner` (Retry / Switch TV). A 45 s heartbeat probes while the app is visible,
   and so does a change of the phone's default network (`network-changed`, from the plugin's
   `ConnectivityManager` callback): 1 s after a new network or a lost address, 4 s after the network
-  is lost with no replacement, debounced in `lib/networkWatch.ts`.
+  is lost with no replacement, debounced in `lib/networkWatch.ts`. A session that is already lost
+  gets one more silent redial when a network comes back (`session.onNetworkChange`), since its
+  first redial usually ran with no route; a loss alone, a heartbeat or a resume never spends one.
   Launch shows a saved-TV picker and auto-dials only when exactly one TV is saved and the last
   session wasn't ended by an explicit Disconnect (`atv.autoConnect.v1`), always naming the target
   with Cancel. "Add a TV" is a separate `addtv` route that never dials. The Android back button

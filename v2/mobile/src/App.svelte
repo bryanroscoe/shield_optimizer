@@ -71,7 +71,9 @@
     let stopTierWatch: (() => void) | null = null;
     let stopNetworkWatch: (() => void) | null = null;
     let unmounted = false;
-    const networkProbe = createNetworkProbe(probe);
+    const networkProbe = createNetworkProbe((reason) => {
+      if (document.visibilityState === "visible") void session.onNetworkChange(reason);
+    });
     const hasEvents = "__TAURI_EVENT_PLUGIN_INTERNALS__" in window;
     if (hasEvents) listen("support-tiers-updated", () => {
       if (session.connectedDevice) void session.refreshDevices().catch(() => {});

@@ -297,6 +297,53 @@ test("a phone network change probes the TV within seconds, not on the heartbeat"
   assert.ok(elapsed >= 900, `waited for the network to settle (${elapsed} ms)`);
 });
 
+test("a network that comes back redials a lost session once, with no tap on Retry", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  // The Wi-Fi went away: the probe fails and the one silent redial finds no route.
+  await page.evaluate(async () => {
+    window.handlers.wireless_connect = () => ({ ok: false, message: "Network is unreachable: no route." });
+    await window.session.checkLiveness();
+  });
+  assert.equal(await page.evaluate(() => window.session.liveness), "lost");
+  await page.evaluate(() => {
+    window.calls = [];
+    delete window.handlers.wireless_connect;
+    window.emitTauriEvent("network-changed", { reason: "changed" });
+  });
+  await page.waitForFunction(() => window.session.liveness === "live", null, { timeout: 5_000 });
+  const commands = await page.evaluate(() => window.calls.map((c) => c.command));
+  assert.equal(commands.filter((c) => c === "wireless_connect").length, 1);
+  assert.equal(commands.filter((c) => c === "wireless_status").length, 0, "a lost session is not probed first");
+});
+
+test("a lost session spends no redial on a network loss or on the heartbeat", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  const connects = await page.evaluate(async () => {
+    window.handlers.wireless_connect = () => ({ ok: false, message: "Network is unreachable: no route." });
+    await window.session.checkLiveness();
+    window.calls = [];
+    await window.session.onNetworkChange("lost");
+    await window.session.checkLiveness();
+    const afterLoss = window.calls.filter((c) => c.command === "wireless_connect").length;
+    // A returning network that still can't reach the TV leaves the banner up.
+    await window.session.onNetworkChange("addresses");
+    const afterReturn = window.calls.filter((c) => c.command === "wireless_connect").length;
+    await window.session.checkLiveness();
+    return { afterLoss, afterReturn, final: window.calls.filter((c) => c.command === "wireless_connect").length, liveness: window.session.liveness };
+  });
+  assert.deepEqual(connects, { afterLoss: 0, afterReturn: 1, final: 1, liveness: "lost" });
+});
+
+test("a network change after an explicit disconnect dials nothing", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  await page.evaluate(async () => {
+    await window.session.disconnect();
+    window.calls = [];
+    await window.session.onNetworkChange("changed");
+  });
+  assert.deepEqual(await page.evaluate(() => window.calls.map((c) => c.command)), []);
+});
+
 test("a network change while the app is hidden leaves the probe to the resume check", async (t) => {
   const page = await openWithNetworkEvents(t);
   await page.evaluate(() => {
@@ -587,6 +634,42 @@ test("authorization failure stays honest and a deliberate retry can open Dashboa
     stack: [...window.router.stack],
     connects: window.calls.filter((c) => c.command === "wireless_connect").length,
   })), { stack: ["dashboard"], connects: 2 });
+});
+
+test("a connect that never reached the TV doesn't send the user to look for an approval prompt", async (t) => {
+  const page = await createPage(t);
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "Connection refused: nothing at that address accepts ADB connections on this port. Check the port, and that Network debugging is enabled on the TV.",
+    });
+  });
+  await page.getByRole("button", { name: "Enter IP address manually" }).click();
+  await page.getByRole("textbox", { name: "TV IP address" }).fill("A");
+  await page.getByRole("button", { name: "Connect (no code)" }).click();
+  await page.getByRole("heading", { name: "Couldn't connect" }).waitFor();
+  assert.equal(await page.locator(".error-notice").getAttribute("data-code"), "connection_refused");
+  assert.equal(await page.getByText(/Allow debugging/).count(), 0);
+
+  for (const message of [
+    "Connection timed out: nothing answered at that address. Check the TV's IP address.",
+    "Network is unreachable: this phone has no route to that address.",
+  ]) {
+    await page.evaluate((message) => { window.handlers.wireless_connect = () => ({ ok: false, message }); }, message);
+    await page.getByRole("button", { name: "Try again" }).click();
+    await page.locator(".error-notice", { hasText: /took too long|Couldn't reach/ }).waitFor();
+    assert.equal(await page.getByText(/Allow debugging/).count(), 0, message);
+  }
+
+  // A TV that was reached but never approved still gets the prompt guidance.
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).",
+    });
+  });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.getByText(/look at the TV for/).waitFor();
 });
 
 test("explicit disconnect suppresses automatic saved-TV redial", async (t) => {

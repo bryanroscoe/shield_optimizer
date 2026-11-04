@@ -294,7 +294,7 @@ impl WirelessAdb {
                 AUTHORIZATION_TIMEOUT,
             )
             .map_err(|e| {
-                tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
+                tracing::warn!(serial = %serial, error = %e, "wireless connect failed");
                 connect_error_message(&e)
             })?;
             let mut guard = lock_recovering(&conn);
@@ -815,13 +815,22 @@ fn connect_error_message(error: &RustADBError) -> String {
         RustADBError::TlsConnectionClosed(_) => {
             "The TV closed the secure connection. Check that the phone and TV are on the same network and try again. If this keeps happening, pair again from Wireless debugging › Pair device with pairing code.".to_string()
         }
+        RustADBError::IOError(io) if is_timeout(io) && is_handshake_timeout(io) => {
+            "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).".to_string()
+        }
+        // A bare timeout is the TCP connect itself: nothing answered, so no
+        // approval prompt can be showing. The wording keeps "timed out" so the
+        // shared error codes read it as a timeout.
+        RustADBError::IOError(io) if is_timeout(io) => {
+            "Connection timed out: nothing answered at that address. Check the TV's IP address, that it's awake, and that the phone and TV are on the same network.".to_string()
+        }
         RustADBError::IOError(io)
             if matches!(
                 io.kind(),
-                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                std::io::ErrorKind::NetworkUnreachable | std::io::ErrorKind::HostUnreachable
             ) =>
         {
-            "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).".to_string()
+            "Network is unreachable: this phone has no route to that address. Check that the phone is on the TV's network, then try again.".to_string()
         }
         RustADBError::IOError(io)
             if matches!(
@@ -836,10 +845,27 @@ fn connect_error_message(error: &RustADBError) -> String {
         RustADBError::IOError(io)
             if matches!(io.kind(), std::io::ErrorKind::ConnectionRefused) =>
         {
-            "Couldn't reach the TV. Confirm Network debugging is enabled and the phone and TV are on the same network, then try again.".to_string()
+            "Connection refused: nothing at that address accepts ADB connections on this port. Check the port, and that Network debugging is enabled on the TV.".to_string()
         }
         _ => "Couldn't finish the secure ADB connection. Look for an Allow debugging prompt on the TV, approve it, and try again.".to_string(),
     }
+}
+
+fn is_timeout(io: &std::io::Error) -> bool {
+    matches!(
+        io.kind(),
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+    )
+}
+
+/// The vendored transport reports a CNXN/TLS/AUTH exchange that ran out its
+/// deadline with its own "… handshake timed out" error. The TCP connect's
+/// timeout is the operating system's, so only this one means the TV was
+/// reached and is waiting on (or ignoring) the approval prompt.
+/// `a_silent_tv_times_out_as_an_approval_wait` pins the vendored wording.
+fn is_handshake_timeout(io: &std::io::Error) -> bool {
+    io.get_ref()
+        .is_some_and(|inner| inner.to_string().contains("handshake timed out"))
 }
 
 /// Strip separators the TV's on-screen code is sometimes read back with and
@@ -943,6 +969,7 @@ mod tests {
     use adb_client::{RustADBError, ShellExit};
     use std::io::{Error, ErrorKind};
     use std::path::PathBuf;
+    use std::time::Duration;
 
     #[test]
     fn answers_from_the_device_keep_the_connection_but_lost_framing_does_not() {
@@ -1045,14 +1072,101 @@ mod tests {
     }
 
     #[test]
-    fn connect_timeout_explains_the_tv_approval_prompt() {
+    fn a_handshake_timeout_explains_the_tv_approval_prompt() {
         let message = connect_error_message(&RustADBError::IOError(Error::new(
             ErrorKind::TimedOut,
-            "raw OS timeout",
+            "ADB connection handshake timed out",
         )));
         assert!(message.contains("Allow"));
         assert!(message.contains("30 seconds"));
-        assert!(!message.contains("raw OS timeout"));
+        assert!(!message.contains("handshake"));
+    }
+
+    #[test]
+    fn a_tcp_connect_timeout_never_mentions_an_approval_prompt() {
+        // `TcpStream::connect_timeout` fails with a bare OS timeout.
+        for kind in [ErrorKind::TimedOut, ErrorKind::WouldBlock] {
+            let message = connect_error_message(&RustADBError::IOError(Error::from(kind)));
+            assert!(message.starts_with("Connection timed out"), "{message}");
+            assert!(message.contains("IP address"), "{message}");
+            assert!(!message.contains("Allow"), "{message}");
+            assert!(!message.contains("30 seconds"), "{message}");
+        }
+    }
+
+    #[test]
+    fn an_unreachable_network_says_so() {
+        for kind in [ErrorKind::NetworkUnreachable, ErrorKind::HostUnreachable] {
+            let message = connect_error_message(&RustADBError::IOError(Error::from(kind)));
+            assert!(message.starts_with("Network is unreachable"), "{message}");
+            assert!(!message.contains("Allow"), "{message}");
+        }
+    }
+
+    /// One 1024-bit key for the tests that need a real handshake attempt. It is
+    /// only parsed, never used to sign, so the size keeps debug keygen quick.
+    fn throwaway_key() -> (tempfile::TempDir, PathBuf) {
+        use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("adb_key");
+        let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 1024).expect("key");
+        let pem = key.to_pkcs8_pem(LineEnding::LF).expect("pem");
+        std::fs::write(&path, pem.as_bytes()).expect("write key");
+        (dir, path)
+    }
+
+    #[test]
+    fn a_silent_tv_times_out_as_an_approval_wait() {
+        // Accepts the socket and never answers CNXN, like a TV showing the
+        // "Allow debugging?" prompt. This pins the vendored transport's
+        // handshake-timeout wording that `is_handshake_timeout` relies on.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let holder = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().expect("accept");
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(socket);
+        });
+        let (_dir, key) = throwaway_key();
+        let Err(error) =
+            adb_client::tcp::ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+                addr,
+                &key,
+                Duration::from_millis(300),
+            )
+        else {
+            panic!("a silent peer cannot finish the handshake");
+        };
+        let message = connect_error_message(&error);
+        assert!(
+            message.contains("didn't approve debugging"),
+            "{error}: {message}"
+        );
+        holder.join().expect("holder");
+    }
+
+    #[test]
+    fn a_closed_port_is_a_refusal_not_an_approval_wait() {
+        let addr = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            listener.local_addr().expect("addr")
+        };
+        let (_dir, key) = throwaway_key();
+        let Err(error) =
+            adb_client::tcp::ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+                addr,
+                &key,
+                Duration::from_millis(300),
+            )
+        else {
+            panic!("nothing listens on a closed port");
+        };
+        let message = connect_error_message(&error);
+        assert!(
+            message.starts_with("Connection refused"),
+            "{error}: {message}"
+        );
+        assert!(!message.contains("Allow"), "{message}");
     }
 
     #[test]
@@ -1107,7 +1221,7 @@ mod tests {
     fn existing_connect_guidance_is_unchanged_by_new_errors() {
         let timeout = connect_error_message(&RustADBError::IOError(Error::new(
             ErrorKind::WouldBlock,
-            "raw",
+            "TLS handshake timed out",
         )));
         assert!(timeout.contains("30 seconds"));
         let closed = connect_error_message(&RustADBError::IOError(Error::new(
