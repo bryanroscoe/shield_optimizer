@@ -37,3 +37,6 @@ screenshots/palette.png
 .env.*
 .env.local
 !.env.example
+
+# Shell bookmark test Vite cache
+/.vite-bookmark-test/
