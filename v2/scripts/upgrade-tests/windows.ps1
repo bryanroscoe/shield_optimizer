@@ -4,12 +4,16 @@
 #
 # Every check is recorded (upgrade_check.py record/check-*) rather than thrown,
 # so one run reports every failure. Evidence lands in -Evidence either way.
+#
+# -FreshThenOldData instead installs the new build with no old data, runs it,
+# then plants an old data folder and profile beside it and checks that the
+# next launch leaves the new ones alone.
 
 param(
   [Parameter(Mandatory)] [string] $Scenario,
-  [Parameter(Mandatory)] [ValidateSet('nsis', 'msi')] [string] $OldKind,
-  [Parameter(Mandatory)] [string] $OldInstaller,
-  [Parameter(Mandatory)] [string] $OldVersion,
+  [ValidateSet('nsis', 'msi')] [string] $OldKind = 'nsis',
+  [string] $OldInstaller = '',
+  [string] $OldVersion = '2.4.1',
   [Parameter(Mandatory)] [ValidateSet('nsis-update', 'nsis-silent', 'msi')] [string] $Upgrade,
   [Parameter(Mandatory)] [string] $NewInstaller,
   [Parameter(Mandatory)] [string] $NewVersion,
@@ -19,7 +23,8 @@ param(
   [string] $MiddleInstaller = '',
   [string] $MiddleVersion = '',
   [switch] $RunningDuringInstall,
-  [switch] $Retry
+  [switch] $Retry,
+  [switch] $FreshThenOldData
 )
 
 $ErrorActionPreference = 'Stop'
@@ -106,10 +111,14 @@ function Get-Shortcuts {
     Get-ChildItem -LiteralPath $r.path -Filter '*.lnk' -Recurse -ErrorAction SilentlyContinue |
       Where-Object { $_.BaseName -match 'Optimizer' } |
       ForEach-Object {
-        $target = $shell.CreateShortcut($_.FullName).TargetPath
+        $lnk = $shell.CreateShortcut($_.FullName)
+        $target = $lnk.TargetPath
+        $workdir = $lnk.WorkingDirectory
         [pscustomobject]@{
           kind = $r.kind; path = $_.FullName; name = $_.BaseName; target = $target
           targetExists = [bool]($target -and (Test-Path -LiteralPath $target))
+          workdir = $workdir
+          workdirExists = [bool]($workdir -and (Test-Path -LiteralPath $workdir))
         }
       }
   }
@@ -275,6 +284,60 @@ try {
   }
   EndStep
 
+  if ($FreshThenOldData) {
+    Step 'Install the new build fresh, with no old data, and run it'
+    Install 'nsis' $NewInstaller @('/S') 'new'
+    $newExe = Find-Exe @($NewExeName)
+    Record "new $NewExeName installed" ([bool]$newExe) "$newExe"
+    if (-not $newExe) { throw "$NewExeName not found after a fresh install" }
+    Run-App $newExe 'com.atvoptimizer.app' 'new build (fresh first launch)'
+    for ($i = 2; $i -le 3; $i++) {
+      & python -I $Tool ls-has --kind webview2 --profile $NewProfile --key 'shieldopt.notesSeenVersion' | Out-Null
+      if ($LASTEXITCODE -eq 0) { break }
+      Run-App $newExe 'com.atvoptimizer.app' "new build (fresh launch $i, notesSeenVersion not written yet)"
+    }
+    $global:LASTEXITCODE = 0
+    Record 'fresh install marked its data folder as done' (Test-Path -LiteralPath (Join-Path $NewData '.atvoptimizer-migrated')) `
+      (@(Get-ChildItem -LiteralPath $NewData -Force -File | ForEach-Object Name) -join ', ') -Soft
+    EndStep
+
+    Step 'Plant an old data folder and an old profile beside the new ones'
+    Py plant-old --data $OldData
+    # A real profile to plant: a copy of the new one, with a marker key the
+    # new profile does not have.
+    Copy-Item -Recurse -LiteralPath $NewProfile -Destination $OldProfile
+    Py ls-inject --kind webview2 --profile $OldProfile --key $Marker --value $MarkerValue
+    Py manifest --root $NewData --out (Join-Path $Evidence 'manifest-new-data-before.json')
+    Py manifest --root $OldData --out (Join-Path $Evidence 'manifest-old-data.json')
+    Py manifest --root $OldProfile --out (Join-Path $Evidence 'manifest-old-profile.json')
+    Py ls-dump --kind webview2 --profile $NewProfile --out (Join-Path $Evidence 'localstorage-new-before.json')
+    Save-State 'before-relaunch'
+    EndStep
+
+    Step 'Launch again with the old data present'
+    Run-App $newExe 'com.atvoptimizer.app' 'new build (launch with old data present)'
+    EndStep
+
+    Step 'Check that nothing was migrated'
+    Py ls-dump --kind webview2 --profile $NewProfile --out (Join-Path $Evidence 'localstorage-new.json')
+    Py check-unchanged --results $Results --name 'new data folder untouched, telemetry.json included (logs aside)' `
+      --manifest (Join-Path $Evidence 'manifest-new-data-before.json') --root $NewData --ignore logs
+    Py check-ls --results $Results --name 'planted profile not copied in (its marker is absent)' `
+      --kind webview2 --profile $NewProfile --key $Marker --absent
+    Py check-ls --results $Results --name 'new profile kept its own notesSeenVersion' `
+      --kind webview2 --profile $NewProfile --key 'shieldopt.notesSeenVersion' --value $NewVersion
+    Py check-no-temps --results $Results --name 'no .unmigrated-* or .migrating-* folder beside the new ones' `
+      --mark '.unmigrated-' --mark '.migrating-' $Local
+    Py check-log --results $Results --name 'no migration logged' `
+      --logs (Join-Path $NewData 'logs') --logs (Join-Path $OldData 'logs') --pattern 'rename migration' --min 0 --max 0
+    Py check-unchanged --results $Results --name 'planted old data folder unchanged' `
+      --manifest (Join-Path $Evidence 'manifest-old-data.json') --root $OldData
+    Py check-unchanged --results $Results --name 'planted old profile unchanged' `
+      --manifest (Join-Path $Evidence 'manifest-old-profile.json') --root $OldProfile
+    EndStep
+    return
+  }
+
   Step "Install $OldProduct $OldVersion ($OldKind)"
   Install $OldKind $OldInstaller @('/S') 'old'
   $script:OldExe = Find-Exe @($OldExeName)
@@ -289,6 +352,9 @@ try {
   $shell = New-Object -ComObject WScript.Shell
   $pin = $shell.CreateShortcut((Join-Path $PinDir "$OldProduct.lnk"))
   $pin.TargetPath = $script:OldExe
+  # What pinning the old Start menu shortcut leaves: it starts in the old
+  # install folder, which the update removes for 2.2.0.
+  $pin.WorkingDirectory = Split-Path $script:OldExe
   $pin.Save()
   EndStep
 
@@ -466,10 +532,16 @@ try {
   }
   $stale = @($links | Where-Object { $_.kind -ne 'pin' -and (-not $_.targetExists -or $_.target -like "*\$OldExeName") })
   Record 'no Start menu or desktop shortcut points at a missing or old program' ($stale.Count -eq 0) (($stale | ForEach-Object { "$($_.path) -> $($_.target)" }) -join '; ')
+  $badDirs = @($links | Where-Object { $_.kind -ne 'pin' -and $_.workdir -and -not $_.workdirExists })
+  Record 'no Start menu or desktop shortcut starts in a missing folder' ($badDirs.Count -eq 0) `
+    (($links | Where-Object kind -ne 'pin' | ForEach-Object { "$($_.path) in '$($_.workdir)'" }) -join '; ')
   $pins = @($links | Where-Object kind -eq 'pin')
-  $pinOk = $pins.Count -ge 1 -and -not ($pins | Where-Object { -not $_.targetExists -or $_.target -notlike "*\$NewExeName" })
-  # The MSI has no hook, so nothing there retargets a pin; report it, don't fail on it.
-  Record 'taskbar pin retargeted to the new program' $pinOk (($pins | ForEach-Object { "$($_.path) -> $($_.target)" }) -join '; ') -Soft:($Upgrade -eq 'msi')
+  $badPins = @($pins | Where-Object { -not $_.targetExists -or $_.target -ne $newExe -or -not $_.workdirExists })
+  $pinOk = $pins.Count -ge 1 -and $badPins.Count -eq 0
+  # The MSI has no hook, so nothing there retargets a pin. Accepted and
+  # documented: report it, don't fail on it.
+  Record "taskbar pin opens $newExe and starts in a folder that exists" $pinOk `
+    (($pins | ForEach-Object { "$($_.path) -> $($_.target) in '$($_.workdir)'" }) -join '; ') -Soft:($Upgrade -eq 'msi')
   EndStep
 
   Step 'Next launch is a no-op'
