@@ -97,6 +97,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         quit::get_stop_adb_on_quit,
         quit::set_stop_adb_on_quit,
         scan::scan_network,
+        scan::discover_tv_names,
         launcher::list_launchers,
         launcher::current_launcher,
         launcher::channel_provider_disabled,
@@ -260,6 +261,7 @@ pub fn run() {
                 ..
             } => app.state::<AdbQuitControl>().note_restart(),
             tauri::RunEvent::Exit => {
+                adb::discovery::cancel_observations();
                 let state = app.state::<AppState>();
                 let control = app.state::<AdbQuitControl>();
                 tauri::async_runtime::block_on(quit::stop_adb_server_on_quit(

@@ -23,6 +23,8 @@
     <string>ATV Optimizer connects to your TV over your local network using ADB, to find it, read its apps and apply the changes you choose.</string>
     <key>NSBonjourServices</key>
     <array>
+      <string>_googlecast._tcp</string>
+      <string>_androidtvremote2._tcp</string>
       <string>_adb._tcp</string>
       <string>_adb-tls-connect._tcp</string>
       <string>_adb-tls-pairing._tcp</string>

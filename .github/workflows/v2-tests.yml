@@ -313,6 +313,10 @@ jobs:
         working-directory: v2
         run: npm run test:local-network-notice
 
+      - name: Friendly TV discovery
+        working-directory: v2
+        run: npm run test:friendly-tv-names
+
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
         working-directory: v2

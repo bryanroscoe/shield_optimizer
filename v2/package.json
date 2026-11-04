@@ -10,6 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:app-files-catalog": "node tests/app-files-catalog.mjs",
+    "test:friendly-tv-names": "node tests/friendly-tv-names.mjs",
     "test:pairing-flow": "node tests/pairing-flow.mjs",
     "test:adb-errors": "node tests/adb-errors.mjs",
     "test:sideload-scan": "node tests/sideload-scan.mjs",

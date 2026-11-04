@@ -4,7 +4,7 @@
   import { onMount, tick } from "svelte";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
-  import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
+  import type { Device, DeviceReport, PairedConnectProbe, TvObservation, TvDiscoveryReport } from "$lib/types";
   import {
     explainAdbFailure,
     hostOf,
@@ -21,6 +21,8 @@
   import LocalNetworkNotice from "$lib/components/LocalNetworkNotice.svelte";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
+  import TvDiscovery from "$lib/components/TvDiscovery.svelte";
+  import { observationFresh, discoverySetupHost } from "$lib/tv-discovery-rows";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import {
@@ -35,6 +37,32 @@
   import SupportBanner from "$lib/components/SupportBanner.svelte";
 
   let devices = $state<Device[]>([]);
+  let tvDiscovery = $state<TvDiscoveryReport | null>(null);
+  let tvDiscoveryReceivedAt = $state(0);
+  let tvDiscoveryError = $state("");
+  let namesLoading = false;
+  let disposed = false;
+  async function discoverNames() {
+    if (namesLoading) return;
+    namesLoading = true;
+    tvDiscovery = null;
+    tvDiscoveryError = "";
+    try {
+      const report = await api.discoverTvNames();
+      if (!disposed) { tvDiscovery = report; tvDiscoveryReceivedAt = performance.now(); }
+    } catch (error) {
+      if (!disposed) tvDiscoveryError = `Nearby TV names unavailable: ${error}`;
+    } finally { namesLoading = false; }
+  }
+  function setupUsingObservation(observation: TvObservation) {
+    if (!tvDiscovery || scanBusy || connectBusy || pairBusy || restartBusy) return;
+    if (!observationFresh(observation, performance.now() - tvDiscoveryReceivedAt, tvDiscovery.observation_max_age_ms)) return;
+    const host = discoverySetupHost(observation);
+    if (!host) return;
+    connectAddress = `${host}:`;
+    observationNeedsPort = true;
+    connectMessage = "Enter the ADB port shown on the TV. For Network debugging this is usually 5555; Wireless debugging shows a separate connect port.";
+  }
 
   /// Sort priority: authorized first (status === "device"), then unauthorized
   /// (the user can act on them via the inline guidance), then offline. Tiebreak
@@ -160,7 +188,7 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (!address) return;
+    if (!address || observationPortMissing) return;
     connectBusy = true;
     connectMessage = "";
     connectDetail = "";
@@ -172,6 +200,7 @@
         connectAddress = "";
         failedConnectAddress = "";
         pairNextStep = false;
+        observationNeedsPort = false;
         await refresh();
         await announceConnected(connectKey(address));
       } else {
@@ -221,6 +250,12 @@
   /// Set after a successful pair: the connect box holds the paired host and
   /// is waiting for the separate connect port (#88).
   let pairNextStep = $state(false);
+  let observationNeedsPort = $state(false);
+  const observationPortMissing = $derived(observationNeedsPort && !explicitConnectPort(connectAddress.trim()));
+  function explicitConnectPort(address: string): boolean {
+    const port = address.startsWith("[") ? /^\[[^\]]+\]:(\d+)$/.exec(address)?.[1] : /^[^:]+:(\d+)$/.exec(address)?.[1];
+    return !!port && Number(port) >= 1 && Number(port) <= 65535;
+  }
 
   /// The host part of a pairing address, without its port. The connect port
   /// is a different one, so only the host carries over.
@@ -235,7 +270,9 @@
   }
 
   async function scan() {
+    if (scanBusy || disposed) return;
     scanBusy = true;
+    void discoverNames();
     scanError = null;
     scanMessage = "Scanning local network…";
     try {
@@ -759,12 +796,14 @@
   // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing) return;
-    if (devices.some((d) => d.status === "device")) return;
+    if (disposed) return;
+    if (adbMissing || devices.some((d) => d.status === "device")) return;
     await scan();
   }
 
   onMount(() => {
+    // Names do not wait for an ADB binary, server, authorization or property reads.
+    void discoverNames();
     void bootDiscovery();
     void refreshStopOnQuit();
     // Fetched support tiers landed after the list was read: re-list so the
@@ -773,6 +812,7 @@
       if (!loading) void refresh();
     });
     return () => {
+      disposed = true;
       stopTierWatch();
       pairWaitToken++;
       reattachToken++;
@@ -833,7 +873,7 @@
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || restartBusy || !connectAddress.trim()}>
+  <button class="primary" onclick={connect} disabled={connectBusy || restartBusy || !connectAddress.trim() || observationPortMissing}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
   <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
@@ -887,6 +927,11 @@
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
   {/if}
+  {#if tvDiscovery}
+    <TvDiscovery report={tvDiscovery} receivedAt={tvDiscoveryReceivedAt} busy={scanBusy || connectBusy || pairBusy || restartBusy} onSetup={setupUsingObservation} />
+  {/if}
+  {#if tvDiscoveryError}<p class="connect-message muted">{tvDiscoveryError}</p>{/if}
+  {#each tvDiscovery?.warnings ?? [] as warning}<p class="connect-message muted">{warning}</p>{/each}
   {#if scanError}
     <ErrorNotice class="connect-message" error={scanError} action="Scan LAN" />
   {/if}
@@ -1359,6 +1404,7 @@
      reads as part of the name. */
   .device-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 1rem;
     padding: 0.9rem 1rem;
@@ -1370,6 +1416,8 @@
     text-decoration: none;
     color: inherit;
   }
+  .device-main { flex: 1 1 15rem; min-width: 0; overflow-wrap: anywhere; }
+  .device-name { flex-wrap: wrap; }
   .device-row.flash {
     animation: row-flash 2.4s ease-out;
   }
@@ -1433,6 +1481,7 @@
      (unauthorized) the buttons still sit on the icon's centre line. */
   .row-actions {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
     flex: none;

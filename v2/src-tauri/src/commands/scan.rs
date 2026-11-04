@@ -422,6 +422,14 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
     }
 }
 
+/// Read-only Cast and TV Remote names, independent of ADB and IPv4 gateway detection.
+#[tauri::command]
+pub async fn discover_tv_names() -> Result<crate::adb::discovery::TvDiscoveryReport, String> {
+    crate::adb::discovery::observe_names()
+        .await
+        .map_err(|error| error.to_string())
+}
+
 /// `scan_network` — sweep the local /24 for ADB-listening devices and try
 /// `adb connect` against each responder. Returns a structured summary so the
 /// UI can render counts and any per-IP failures.

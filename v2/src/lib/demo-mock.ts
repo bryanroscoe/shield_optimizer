@@ -627,6 +627,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       };
     case "list_devices":
       return demoDevices();
+    case "discover_tv_names": return { observations: [], warnings: [], observation_max_age_ms: 30_000 };
     case "scan_network": {
       const connected = demoDevices().filter(d => d.connection === "network").map(d => d.serial);
       return { subnet: null, found: connected, connected, unauthorized: [], failed: [], needs_pairing: [],

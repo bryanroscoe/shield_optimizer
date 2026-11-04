@@ -57,6 +57,7 @@ import type {
   StopAdbOnQuit,
   Safety,
   ScanResult,
+  TvDiscoveryReport,
   ScreenshotResult,
   SendTextResult,
   SetHomeAnyResult,
@@ -122,6 +123,7 @@ export const api = {
   setStopAdbOnQuit: (enabled: boolean, generation: number) =>
     invoke<StopAdbOnQuit>("set_stop_adb_on_quit", { enabled, generation }),
   scanNetwork: () => invoke<ScanResult>("scan_network"),
+  discoverTvNames: () => invoke<TvDiscoveryReport>("discover_tv_names"),
   reportAll: () => invoke<DeviceReport[]>("report_all"),
 
   listDevices: () => invoke<Device[]>("list_devices"),

@@ -587,3 +587,25 @@ export function deviceTypeLabel(t: DeviceType): string {
       return "Unknown";
   }
 }
+
+
+export type TvSource = "google_cast" | "android_tv_remote";
+export interface TvObservation {
+  source: TvSource;
+  instance: string;
+  friendly_name: string | null;
+  model: string | null;
+  address: string;
+  interface_name: string | null;
+  interface_index: number | null;
+  scope_id: number | null;
+  setup_host: string | null;
+  observed_age_ms: number;
+  cached: boolean;
+  warning: string | null;
+}
+export interface TvDiscoveryReport {
+  observations: TvObservation[];
+  warnings: string[];
+  observation_max_age_ms: number;
+}

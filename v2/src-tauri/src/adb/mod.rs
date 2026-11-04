@@ -4,6 +4,7 @@
 //! owns only the subprocess driver plus desktop-only platform-tools install and
 //! network scan helpers.
 
+pub(crate) mod discovery;
 pub mod driver;
 pub mod install;
 pub mod scan;

@@ -48,7 +48,8 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/scrcpy-server-v3.1"
+      "resources/scrcpy-server-v3.1",
+      "resources/discovery-THIRD-PARTY-NOTICES.txt"
     ],
     "macOS": {
       "signingIdentity": "-"

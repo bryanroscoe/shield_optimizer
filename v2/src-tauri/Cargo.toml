@@ -23,6 +23,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 atv-optimizer-core = { path = "../crates/core" }
+mdns-sd = { version = "=0.19.2", default-features = false }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"

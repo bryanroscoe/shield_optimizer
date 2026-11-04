@@ -45,6 +45,19 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
 
 ## Things the next reader needs that the code does not say
 
+- **Friendly TV names before authorization.** Desktop's independent `discover_tv_names` command
+  uses the bounded owner in `src-tauri/src/adb/discovery.rs`, extracted from the existing discovery
+  work without importing experimental native ADB. It browses only Cast and Android TV Remote,
+  without waiting for ADB or an IPv4 gateway. Cast `fn`/`md` require video-output capability (`ca & 1`);
+  Remote names come from the service instance. No service port or hardware identity crosses the
+  observation DTO. `TvDiscovery.svelte` displays each protocol/service/interface separately; identical
+  names never merge TVs or rename saved devices. Setup fills a host plus an empty port. Multiple
+  usable addresses require an explicit choice; cached, expired and ambiguous-interface observations
+  cannot seed setup. Fresh scans clear the choice. Notices for mdns-sd 0.19.2 and its new transitive
+  dependencies are bundled in `resources/discovery-THIRD-PARTY-NOTICES.txt`; the app license is unchanged.
+  `test:friendly-tv-names` uses synthetic fixtures in Chromium/WebKit and is wired into frontend CI.
+  Installed-build, macOS Local Network prompt and Windows/Linux/device acceptance remain outstanding.
+
 - **RojasNet requests** (#258–#262): Shell bookmarks can be edited and include the requested user-0 package presets; App List has enabled/disabled filtering; both snapshot lists expose confirmed local deletion; app-report notes prefill GitHub Details from the redacted preview. App inventory and post-disable verification target user 0, matching package actions (#233). These changes are unreleased. Focused regressions are `test:shell-bookmarks`, `test:app-state-filter`, `test:snapshot-delete`, and `test:app-report`.
 
 - **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.
