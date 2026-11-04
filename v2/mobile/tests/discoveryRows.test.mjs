@@ -650,3 +650,101 @@ test("rows are ordered by usability then recency, not by mDNS answer order", () 
     ],
   );
 });
+
+const metadata = (host, name, overrides = {}) => ({
+  host, port: 8009, name: "Cast-instance", friendly_name: name,
+  network: "test-network", service: "_googlecast._tcp.local.", ...overrides,
+});
+test("friendly advertisements enrich only a single ADB mapping on the same network", () => {
+  const adb = { ...advert("198.51.100.20", 5555, LEGACY, "adb-TV-A"), network: "test-network" };
+  const rows = buildDiscoveryRows([adb, metadata(adb.host, "Study TV")], [], offline);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, "Study TV");
+  assert.equal(rows[0].advertisedName, true);
+  assert.equal(rows[0].status, "found");
+  assert.deepEqual(rows[0].connectPorts, [5555]);
+  assert.equal(rows[0].savedTarget, undefined);
+});
+test("Cast-only discovery never supplies a connection or pairing port", () => {
+  const rows = buildDiscoveryRows([metadata("198.51.100.20", "Study TV")], [], offline);
+  assert.equal(rows[0].source, "advertisement");
+  assert.deepEqual(rows[0].connectPorts, []);
+  assert.deepEqual(rows[0].pairingPorts, []);
+});
+test("metadata cannot spoof a saved ADB identity, even at a saved address", () => {
+  const before = saved({ host: "198.51.100.20", name: "My nickname" });
+  const rows = buildDiscoveryRows([metadata(before.host, "Nearby TV", { name: "adb-shield-a" })], [before], offline);
+  assert.equal(rows.find(row => row.source === "advertisement").status, "found");
+  assert.equal(rows.find(row => row.source === "saved").name, "My nickname");
+  assert.equal(before.name, "My nickname");
+});
+test("ambiguous metadata and multiple ADB instances never select a friendly name", () => {
+  const host = "198.51.100.20";
+  const a = { ...advert(host, 5555, LEGACY, "adb-A"), network: "test-network" };
+  const rows = buildDiscoveryRows([a, metadata(host, "Study"), metadata(host, "Office")], [], offline);
+  assert.equal(rows.find(row => row.source === "discovery").name, "Android TV");
+  assert.equal(rows.find(row => row.source === "advertisement").name, "Nearby device");
+  const two = buildDiscoveryRows([a, { ...a, name: "adb-B", port: 5556 }, metadata(host, "Study")], [], offline);
+  assert.equal(two.find(row => row.source === "discovery").name, "Android TV");
+});
+test("different or missing interface context cannot rename an ADB endpoint", () => {
+  const host = "198.51.100.20";
+  for (const network of ["another-network", undefined]) {
+    const rows = buildDiscoveryRows([{ ...advert(host, 5555, LEGACY, "adb-A"), network }, metadata(host, "Study")], [], offline);
+    assert.equal(rows.find(row => row.source === "discovery").name, "Android TV");
+  }
+});
+test("duplicate friendly names at different hosts remain different rows", () => {
+  const rows = buildDiscoveryRows([metadata("198.51.100.20", "TV"), metadata("198.51.100.21", "TV")], [], offline);
+  assert.equal(rows.length, 2);
+  assert.notEqual(rows[0].key, rows[1].key);
+});
+test("untrusted and unknown service names never become names, ports or identity", () => {
+  const host = "198.51.100.20";
+  const rows = buildDiscoveryRows([
+    metadata(host, "bad\nname"), metadata(host, "x".repeat(129)), metadata(host, "bad\u202ename"),
+    advert(host, 9000, "_http._tcp", "adb-shield-a"),
+  ], [], offline);
+  assert.deepEqual(rows, []);
+});
+test("IPv6 discovery keeps scope and never mistakes Cast port for ADB", () => {
+  const rows = buildDiscoveryRows([metadata("[fe80::5%3]", "Study")], [], offline);
+  assert.equal(rows[0].host, "[fe80::5%3]");
+  assert.deepEqual(rows[0].connectPorts, []);
+});
+
+test("the authenticated live name outranks a stale advertised label", () => {
+  const host = "198.51.100.20";
+  const adb = { ...advert(host, 5555, LEGACY, "adb-A"), network: "test-network" };
+  const rows = buildDiscoveryRows([adb, metadata(host, "Stale label")], [], { ...liveAt(host, 5555, "A"), name: "Authenticated TV" });
+  assert.equal(rows[0].name, "Authenticated TV");
+  assert.notEqual(rows[0].advertisedName, true);
+});
+test("conflicting interface observations cannot offer manual setup as one device", () => {
+  const host = "198.51.100.20";
+  const rows = buildDiscoveryRows([metadata(host, "TV"), metadata(host, "TV", { network: "other-network" })], [], offline);
+  assert.equal(rows[0].name, "Nearby device");
+  assert.equal(rows[0].advertisementAmbiguous, true);
+});
+
+test("blank or whitespace-only network context never transfers a metadata label", () => {
+  for (const network of ["", " "]) {
+    const host = "198.51.100.20";
+    const adb = { ...advert(host, 5555, LEGACY, "adb-A"), network };
+    const rows = buildDiscoveryRows([adb, metadata(host, "Study", { network })], [], offline);
+    assert.equal(rows.find(row => row.source === "discovery").name, "Android TV");
+  }
+});
+
+test("older phones can list Remote instance names without resolving or guessing an endpoint", () => {
+  const unresolved = name => metadata("", name, { name, port: 0, service: "_androidtvremote2._tcp.", network: null });
+  const rows = buildDiscoveryRows([unresolved("Study"), unresolved("Guest")], [], offline);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(new Set(rows.map(row => row.name)), new Set(["Study", "Guest"]));
+  for (const row of rows) {
+    assert.equal(row.host, "");
+    assert.equal(row.source, "advertisement");
+    assert.deepEqual(row.connectPorts, []);
+    assert.deepEqual(row.pairingPorts, []);
+  }
+});

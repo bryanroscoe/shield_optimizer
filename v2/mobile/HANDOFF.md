@@ -23,6 +23,15 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Friendly-name discovery is implemented and unreleased: add-TV opens a bounded NSD scan for ADB,
+Google Cast and Android TV Remote. Advertised names are display hints, never saved identity or
+ADB authorization. Noncancelable older Android NSD lists Remote instance names without resolving
+metadata or guessing an endpoint. Cast/remote service ports never become ADB ports. See
+[`../../docs/FRIENDLY-DEVICE-DISCOVERY.md`](../../docs/FRIENDLY-DEVICE-DISCOVERY.md) for provenance,
+matching boundaries, validation and remaining physical-phone acceptance. The NSD owner reuses the
+reviewed resolver lifecycle from PR289 without importing that PR's transport rewrite.
+
+
 Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
 `bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
 copyable installation Support ID while reports are on. `npm run store-assets` produces the

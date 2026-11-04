@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Mobile automatically discovers advertised TV names when adding a TV. Discovery keeps saved nicknames and distinguishes nearby advertisements from verified ADB connections; setup requires the TV's actual ADB details.
+
 - Show friendly names advertised by Google Cast and Android TV Remote before ADB authorization. Names remain network observations; setup requires an explicit ADB port and an address choice when an announcement has multiple usable hosts.
 
 - **ATV Optimizer now uses its own name everywhere, and moves your data over on first launch.**

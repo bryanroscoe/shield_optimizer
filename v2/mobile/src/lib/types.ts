@@ -213,6 +213,8 @@ export interface PerformanceResult {
 /// One mDNS-discovered ADB service (pairing or connect, TLS or legacy).
 export interface Discovery {
   name: string;
+  friendly_name?: string | null;
+  network?: string | null;
   host: string;
   port: number;
   service: string;

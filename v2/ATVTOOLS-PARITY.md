@@ -13,7 +13,8 @@ aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 14+) controlling
 | Snapshots (state backup → restore/clone across devices) | ❌ | ✅ |
 | Launcher wizard (install/set/disable stock) | ❌ | ✅ |
 | Dedicated tweaks UI (CEC, frame-rate, animations, scaling) | ❌ (raw shell only) | ✅ |
-| Network scan / auto-discovery | partial (manual IP) | ✅ |
+| Network scan / auto-discovery | ✅ (observed in the phone app) | ✅ |
+| Friendly names before ADB authorization | ✅ (observed in the phone app) | Implemented, unreleased: Cast/TV Remote display observations; identity and ADB access remain separate |
 | Disable/enable/uninstall apps | ✅ (Pro) | ✅ |
 | Sideload APK | ✅ | ✅ |
 | **APK backup/extract (device → local file)** | ✅ | ✅ |

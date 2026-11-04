@@ -16,7 +16,9 @@ export type DiscoveryRowStatus =
 
 export interface DiscoveryRow {
   key: string;
-  source: "discovery" | "saved";
+  source: "discovery" | "saved" | "advertisement";
+  advertisedName?: boolean;
+  advertisementAmbiguous?: boolean;
   host: string;
   name: string;
   connectPorts: number[];
@@ -33,6 +35,7 @@ export interface LiveEndpoint {
   /// The live TV's reported hardware id, if any. A saved row only claims the
   /// live connection when this identity agrees with it.
   hardwareId?: string | null;
+  name?: string | null;
 }
 
 /// An advertised instance name plus the mDNS service type it arrived on.
@@ -46,7 +49,18 @@ type HostGroup = {
   connectPorts: Set<number>;
   pairingPorts: Set<number>;
   legacyConnectPorts: Set<number>;
+  networks: Set<string>;
 };
+
+function serviceType(service: string): string {
+  return service.trim().toLowerCase().replace(/^\.+|\.+$/g, "").replace(/\.local$/, "");
+}
+const ADB_TYPES = new Set(["_adb._tcp", "_adb-tls-connect._tcp", "_adb-tls-pairing._tcp"]);
+const METADATA_TYPES = new Set(["_googlecast._tcp", "_androidtvremote2._tcp"]);
+function safeName(value: string | null | undefined): string | null {
+  const name = value?.trim();
+  return name && name.length <= 128 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(name) ? name : null;
+}
 
 function validPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
@@ -90,6 +104,7 @@ function advertisedMatch(
   if (!wanted) return null;
   let match: "suffixed" | null = null;
   for (const { name, service } of instances) {
+    if (!ADB_TYPES.has(serviceType(service))) continue;
     const serial = advertisedSerial(name)?.toLowerCase();
     if (!serial) continue;
     if (serial === wanted) return "exact";
@@ -115,8 +130,18 @@ export function buildDiscoveryRows(
   // other host is stale. Only that advert is dropped, never the other
   // devices answering from the same address.
   const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
+  const metadata = new Map<string, Discovery[]>();
+  for (const item of discoveries) {
+    const type = serviceType(item.service);
+    const host = item.host.trim();
+    const unresolved = type === "_androidtvremote2._tcp" && !host && item.port === 0;
+    if (!METADATA_TYPES.has(type) || (!unresolved && (!host || !validPort(item.port))) || !safeName(item.friendly_name)) continue;
+    const key = unresolved ? `unresolved:${item.name}` : host;
+    metadata.set(key, [...(metadata.get(key) ?? []), item]);
+  }
   const hosts = new Map<string, HostGroup>();
   for (const discovery of discoveries) {
+    if (!ADB_TYPES.has(serviceType(discovery.service))) continue;
     const host = discovery.host.trim();
     if (!host || !validPort(discovery.port)) continue;
     if (
@@ -136,8 +161,10 @@ export function buildDiscoveryRows(
       connectPorts: new Set<number>(),
       pairingPorts: new Set<number>(),
       legacyConnectPorts: new Set<number>(),
+      networks: new Set<string>(),
     };
-    const name = discovery.name?.trim();
+    group.networks.add(discovery.network?.trim() ?? "");
+    const name = safeName(discovery.name);
     if (name) group.instances.push({ name, service: discovery.service });
     if (name && !name.startsWith("adb-")) group.names.add(name);
     if (discovery.service.includes("pairing")) {
@@ -179,6 +206,16 @@ export function buildDiscoveryRows(
       );
     }
     if (savedMatch) verified.add(savedMatch);
+    const observations = metadata.get(group.host) ?? [];
+    const observedNames = new Set(observations.map((item) => safeName(item.friendly_name)!));
+    const networks = new Set(observations.map((item) => item.network?.trim() ?? ""));
+    const instances = new Set(group.instances.map((item) => item.name));
+    // A live scan's one network/address mapping may supply a display hint only.
+    // Saved identity and actions remain determined exclusively by ADB evidence.
+    const observedName = observedNames.size === 1 && networks.size === 1 &&
+      group.networks.size === 1 && Boolean([...group.networks][0]) && networks.has([...group.networks][0]) &&
+      instances.size <= 1 ? [...observedNames][0] : null;
+    if (observedName) metadata.delete(group.host);
     rows.push({
       key: `discovery:${group.host}`,
       source: "discovery",
@@ -186,7 +223,8 @@ export function buildDiscoveryRows(
       // A serial match is verified identity, so the name this TV was saved
       // under is the honest label -- more useful than a generic fallback when
       // several TVs advertise nothing but their adb id.
-      name: savedMatch?.name ?? displayName(group.names),
+      name: savedMatch?.name ?? (isLive ? safeName(live.name) : null) ?? (group.names.size ? displayName(group.names) : observedName ?? "Android TV"),
+      ...(observedName && !savedMatch && !(isLive && safeName(live.name)) && !group.names.size ? { advertisedName: true } : {}),
       connectPorts,
       pairingPorts: [...group.pairingPorts].sort((a, b) => a - b),
       legacyConnectPorts: [...group.legacyConnectPorts].sort((a, b) => a - b),
@@ -257,6 +295,24 @@ export function buildDiscoveryRows(
           ? "saved-other-port"
           : "saved-missing",
       savedTarget: saved,
+    });
+  }
+
+  for (const [observationKey, observations] of metadata) {
+    const host = observations[0].host.trim();
+    const names = new Set(observations.map((item) => safeName(item.friendly_name)!));
+    const networks = new Set(observations.map((item) => item.network?.trim() ?? ""));
+    const ambiguous = names.size !== 1 || networks.size > 1;
+    // A Cast/Remote port is never an ADB port. These rows cannot connect or
+    // stand in for a saved TV, even when a name or address looks familiar.
+    rows.push({
+      key: `advertisement:${observationKey}`,
+      source: "advertisement",
+      host,
+      name: !ambiguous ? [...names][0] : "Nearby device",
+      advertisementAmbiguous: ambiguous,
+      advertisedName: true,
+      connectPorts: [], pairingPorts: [], legacyConnectPorts: [], status: "found",
     });
   }
 

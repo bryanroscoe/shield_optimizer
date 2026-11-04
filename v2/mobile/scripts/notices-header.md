@@ -163,6 +163,21 @@ appears in the Cargo inventory below with its upstream license text.
 
 Source: <https://github.com/cocool97/adb_client>
 
+### Kadb — Apache License 2.0 (Android NSD discovery adaptations)
+
+The Android discovery plugin's `AdbService.kt` and `DiscoveryLogic.kt` adapt the service-type
+normalization, service registry and address selection, plus Android 14 service-info callback
+lifecycle, from Kadb commit `3d1c13e8df261cc4a2bb57b03aa8c392cb8386c3` (release 2.1.5).
+These files were modified to support bounded TV-name observations, metadata filtering,
+non-actionable name-only fallback and safe ADB scheduling. This integration does not include
+Kadb's ADB transport implementation or its binary.
+
+Copyright (c) 2024 Flyfish-Xu and Kadb contributors. Portions Copyright (c) 2021 mobile.dev inc.
+(dadb, from which Kadb derives). Licensed under the Apache License, Version 2.0; its full text
+is reproduced in the Apache-2.0 section below.
+Source: <https://github.com/flyfishxu/Kadb/tree/3d1c13e8df261cc4a2bb57b03aa8c392cb8386c3>
+The pinned upstream tree contains LICENSE and no separate NOTICE file.
+
 ### Bundled npm-origin code and assets
 
 These packages are the sources of bundled code/assets. Geist 1.7.2 is retained as checked-in

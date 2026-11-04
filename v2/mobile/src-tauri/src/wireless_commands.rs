@@ -49,10 +49,9 @@ pub async fn wireless_discover(
     }
     let devices = result?;
     let message = if devices.is_empty() {
-        "No wireless-debugging pairing services found. Enter the TV's IP and pairing port manually."
-            .to_string()
+        "No TV services found. Enter the TV's ADB details manually.".to_string()
     } else {
-        format!("Found {} wireless-debugging service(s).", devices.len())
+        format!("Received {} discovery service record(s).", devices.len())
     };
     Ok(DiscoveryResult { devices, message })
 }

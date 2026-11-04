@@ -40,4 +40,5 @@ dependencies {
     // Discovery runs NsdManager on a coroutine dispatcher.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation(project(":tauri-android"))
+    testImplementation("junit:junit:4.13.2")
 }

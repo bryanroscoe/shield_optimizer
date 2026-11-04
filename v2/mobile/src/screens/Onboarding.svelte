@@ -47,7 +47,10 @@
 
   onMount(() => {
     savedDevices = listSavedDevices();
-    if (intent !== "launch" || savedDevices.length === 0) return;
+    if (intent !== "launch" || savedDevices.length === 0) {
+      void scan();
+      return;
+    }
     step = "reconnect";
     if (shouldAutoDialSavedDevices(savedDevices, autoConnectEnabled())) {
       attemptReconnect(savedDevices[0]);
@@ -111,8 +114,8 @@
 
   // Connection target + inputs
   let host = $state("");
-  let pairPort = $state(37099);
-  let connectPort = $state(5555);
+  let pairPort = $state<number | undefined>(37099);
+  let connectPort = $state<number | undefined>(5555);
   let code = $state("");
 
   let busy = $state(false);
@@ -132,6 +135,7 @@
     host: session.host,
     connectPort: session.connectPort,
     hardwareId: session.connectedDevice?.properties?.serial_number,
+    name: session.connectedDevice?.name,
   }));
 
   // This screen is reached to find a TV the phone has not used yet, so the
@@ -139,7 +143,7 @@
   const newRows = $derived(found.filter((row) => row.status === "found"));
   const knownRows = $derived(found.filter((row) => row.status !== "found"));
   const newLabel = $derived(
-    newRows.length === 1 ? "1 new TV" : `${newRows.length} new TVs`,
+    newRows.length === 1 ? "1 nearby device" : `${newRows.length} nearby devices`,
   );
 
   /// The single connect port a row offers when there is no choice to make.
@@ -185,6 +189,17 @@
     startConnect();
   }
 
+  function setupAdvertised(row: DiscoveryRow) {
+    leaveScan();
+    host = row.host;
+    connectPort = undefined;
+    pairPort = undefined;
+    connectAfterPair = null;
+    needsPairing = false;
+    manual = true;
+    step = "scan";
+  }
+
   function pairFound(row: DiscoveryRow, advertisedPort: number) {
     leaveScan();
     error = "";
@@ -222,18 +237,18 @@
   }
 
   function manualPair() {
-    if (!host) return;
+    if (!host || !Number.isInteger(pairPort) || !pairPort || pairPort < 1 || pairPort > 65535) return;
     leaveScan();
     error = "";
     notice = "";
     code = "";
-    connectAfterPair = Number(connectPort);
+    connectAfterPair = connectPort && Number.isInteger(connectPort) && connectPort >= 1 && connectPort <= 65535 ? connectPort : null;
     needsPairing = true;
     step = "pair";
   }
 
   function manualConnect() {
-    if (!host) return;
+    if (!host || !Number.isInteger(connectPort) || !connectPort || connectPort < 1 || connectPort > 65535) return;
     leaveScan();
     error = "";
     notice = "";
@@ -418,6 +433,9 @@
         <span class="device-body">
           <span class="device-name">{row.name}</span>
           <span class="mono device-addr">{endpointLabel(row)}</span>
+          {#if row.advertisedName}
+            <span class="device-tag">{row.advertisementAmbiguous ? "Conflicting advertisements" : row.source === "advertisement" ? row.host ? "Advertised · ADB not found" : "Advertised · address unavailable" : "Advertised name"}</span>
+          {/if}
           {#if row.status === "connected"}
             <span class="device-tag">Connected on :{session.connectPort}</span>
           {:else if row.status === "saved-verified"}
@@ -436,7 +454,12 @@
 
       {#snippet deviceRow(row: DiscoveryRow)}
         {@const solo = soloConnectPort(row)}
-        {#if solo !== null}
+        {#if row.source === "advertisement"}
+          <button class="device" aria-label={`Enter ADB details for ${row.name}`} disabled={row.advertisementAmbiguous} onclick={() => setupAdvertised(row)}>
+            {@render deviceBody(row)}
+            <span class="msr device-go" aria-hidden="true">arrow_forward</span>
+          </button>
+        {:else if solo !== null}
           <button class="device" onclick={() => connectFound(row, solo)}>
             {@render deviceBody(row)}
             <span class="msr device-go">arrow_forward</span>
@@ -521,8 +544,8 @@
           </label>
         </div>
         <div class="manual-actions">
-          <button class="primary small" disabled={!host} onclick={manualPair}>Pair with code</button>
-          <button class="ghost small" disabled={!host} onclick={manualConnect}>Connect (no code)</button>
+          <button class="primary small" disabled={!host || !Number.isInteger(pairPort) || !pairPort || pairPort < 1 || pairPort > 65535} onclick={manualPair}>Pair with code</button>
+          <button class="ghost small" disabled={!host || !Number.isInteger(connectPort) || !connectPort || connectPort < 1 || connectPort > 65535} onclick={manualConnect}>Connect (no code)</button>
         </div>
       </div>
     {/if}

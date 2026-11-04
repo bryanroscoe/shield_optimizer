@@ -52,6 +52,7 @@ async function createPage(t, options = {}) {
         switch (command) {
           case "get_entitlement": return "pro";
           case "wireless_connect": return { ok: true };
+          case "wireless_discover": return { devices: [], message: "No fixture services." };
           case "wireless_status": return { connected: true };
           case "list_devices": return [{
             id: 1,
@@ -99,6 +100,12 @@ async function createPage(t, options = {}) {
     window.api = api;
     window.lostEvents = 0;
     onConnectionLost(() => window.lostEvents++);
+  });
+  // Opening onboarding now performs an automatic read-only discovery. These
+  // tests measure the explicit action below, after startup has settled.
+  await page.evaluate(async () => {
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    window.calls = [];
   });
   return page;
 }
