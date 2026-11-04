@@ -74,6 +74,11 @@ axmldecoder = "0.5"
 # "scan found nothing" report. Addresses and names never leave the process.
 if-addrs = "0.15"
 
+# Sends the Local Network probe out of a chosen interface (IP_MULTICAST_IF).
+# Already in the tree through tokio.
+[target.'cfg(target_os = "macos")'.dependencies]
+socket2 = "0.6"
+
 [dev-dependencies]
 atv-optimizer-core = { path = "../crates/core", features = ["test-support"] }
 pretty_assertions = "1"

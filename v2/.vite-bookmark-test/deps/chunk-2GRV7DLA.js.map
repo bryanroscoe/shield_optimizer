@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../node_modules/esm-env/true.js", "../../node_modules/esm-env/false.js"],
+  "sourcesContent": ["export default true;\n", "export default false;\n"],
+  "mappings": ";AAAA,IAAO,eAAQ;;;ACAf,IAAO,gBAAQ;",
+  "names": []
+}

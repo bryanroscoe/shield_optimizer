@@ -30,7 +30,10 @@ use atv_optimizer_core::telemetry::{
     TelemetryConfig,
 };
 use commands::quit::{self, AdbQuitControl};
-use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
+use commands::{
+    app_report, backup, diagnostics, files, install, local_network, scan, sideload, update,
+    AppState,
+};
 use tauri::Manager;
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
@@ -103,6 +106,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         install::adb_status,
         install::install_adb,
         install::restart_adb,
+        local_network::local_network_access,
+        local_network::open_local_network_settings,
         quit::get_stop_adb_on_quit,
         quit::set_stop_adb_on_quit,
         scan::scan_network,
