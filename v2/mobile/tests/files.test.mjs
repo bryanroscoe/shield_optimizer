@@ -85,6 +85,8 @@ async function open(t) {
       "/": [
         { name: "sdcard", is_dir: true, is_symlink: true, size_bytes: 0, modified: "" },
         { name: "system", is_dir: true, is_symlink: false, size_bytes: 0, modified: "" },
+        // `ls -lA` reports a link's own type, so a directory link arrives like this.
+        { name: "etc", is_dir: false, is_symlink: true, size_bytes: 11, modified: "" },
       ],
       "/sdcard/Documents/SmartTubeBackup": [
         { name: "org.smarttube.stable_20260908.zip", is_dir: false, is_symlink: false, size_bytes: 10, modified: "" },
@@ -276,4 +278,15 @@ test("a copy completing after a TV switch does not mark the new TV's row copied"
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
   assert.equal(await page.getByText("Copied old.zip into this app's private storage.").count(), 0);
   assert.equal(await page.locator(".dl-list").count(), 0);
+});
+
+test("a link is listed but never offered as a download", async (t) => {
+  const page = await open(t);
+  await page.locator("button.crumb").first().click();
+  await page.getByText("system", { exact: true }).waitFor();
+  const link = page.locator(".file-row", { hasText: "etc" });
+  await link.getByText("link · can't be copied").waitFor();
+  assert.equal(await page.getByRole("button", { name: /\betc\b/ }).count(), 0);
+  await link.click();
+  assert.deepEqual(await callsOf(page, "pull_file"), []);
 });

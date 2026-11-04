@@ -238,3 +238,14 @@ test("Restore enable plans describe a disabled installed app to the detail sheet
   assert.equal(rows.planRowState(item({ kind: "skip", reason: "already_enabled" })), "enabled");
   assert.equal(rows.planRowState(item({ kind: "skip", reason: "not_installed" })), "missing");
 });
+
+test("a row's description is dropped only when the shown reason already says it", () => {
+  const sentence = "Sends usage statistics. Disabling stops them.";
+  assert.equal(rows.rowPurpose(sentence, sentence), "");
+  assert.equal(rows.rowPurpose(sentence, `Reviewed and rated medium risk. ${sentence}`), "");
+  assert.equal(rows.rowPurpose(` ${sentence} `, sentence), "");
+  assert.equal(rows.rowPurpose(sentence, ""), sentence);
+  assert.equal(rows.rowPurpose(sentence, "Review whether you use this app."), sentence);
+  assert.equal(rows.rowPurpose("", "anything"), "");
+  assert.equal(rows.rowPurpose(undefined, "anything"), "");
+});

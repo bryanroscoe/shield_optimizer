@@ -7,7 +7,6 @@ mod remount;
 mod root;
 mod shell;
 mod stat;
-mod uninstall;
 mod utils;
 mod verity;
 
