@@ -3724,6 +3724,7 @@
         {keptPackages}
         resetToken={optimizeResetToken}
         {pageEpoch}
+        active={activeTab === "optimize"}
         onRunStarted={optimizeRunStarted}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
