@@ -127,6 +127,20 @@ The development flow is:
 - `cd v2 && cargo test -p atv-optimizer-core -p atv-optimizer` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
 
+### Where the app keeps things
+
+| | macOS | Windows | Linux |
+|---|---|---|---|
+| Data (`<data_dir>`: snapshots, logs, telemetry, platform-tools) | `~/Library/Application Support/ATVOptimizer` | `%LOCALAPPDATA%\ATVOptimizer` | `~/.local/share/ATVOptimizer` |
+| WebView profile (every frontend setting, in localStorage) | `~/Library/WebKit/com.atvoptimizer.app` | `%LOCALAPPDATA%\com.atvoptimizer.app\EBWebView` | `~/.local/share/com.atvoptimizer.app` |
+
+Releases before 2.5.0 used `ShieldOptimizer` and `com.shieldoptimizer.app` in the same places.
+`src-tauri/src/rename.rs` copies them over on the first launch that finds the old copy and no new
+one, and never deletes the old. Set `ATV_OPTIMIZER_ADB` to use a specific adb and
+`ATV_OPTIMIZER_SUBNET` (`a.b.c`) to pick the scan subnet; the `SHIELD_OPTIMIZER_*` names still
+work. `tauri dev` runs the bare binary, so on macOS its profile is `~/Library/WebKit/atv-optimizer`
+instead.
+
 ## Telemetry and support tiers
 
 Anonymous reports are **on by default and opt-out**, and compiled in only when the build sets

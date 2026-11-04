@@ -144,7 +144,8 @@ The release workflow also regenerates the gallery on every `v2-*` tag (the `refr
 - **Windows MSI versioning gotcha** (two parts):
   - WiX rejects non-numeric pre-release identifiers — `0.1.0-beta` fails with "optional pre-release identifier in app version must be numeric-only…". So `release.sh` sets a numeric-only `bundle.windows.wix.version` (the human version stays as-is for Linux/macOS/NSIS).
   - **Windows Installer ignores the 4th version field** for upgrade detection — it compares only `major.minor.build`. An earlier scheme put the pre-release counter in the 4th field (`0.1.0.N`), so every beta read as `0.1.0` and Windows refused in-place upgrades ("uninstall the existing version first"). `release.sh` now encodes the counter into the **3rd (build)** field so each release strictly increases in semver order: `build3 = patch*1000 + typeBase + n` with type bands alpha 0 / beta 300 / rc 600 / stable 999 (e.g. `0.1.0-beta.3` → `0.1.303`, `0.1.0-rc.1` → `0.1.601`, `0.1.0` → `0.1.999`). If you hand-bump, set `bundle.windows.wix.version` with the same scheme.
-  - The MSI **UpgradeCode** is auto-derived by Tauri from `productName`/`identifier` and must stay stable for upgrades to work — **don't rename the product or change the identifier** without understanding it resets the UpgradeCode and orphans existing installs.
+  - The MSI **UpgradeCode** must stay stable for upgrades to work. Tauri derives it from the product name unless it is set, so it is **pinned** in `tauri.conf.json` (`bundle.windows.wix.upgradeCode`) to the value the original name produced; never change or remove it. `bundle.publisher` is pinned the same way (`shieldoptimizer`, what the original identifier derived): NSIS and WiX key `Software\<publisher>\<product>` and the remembered install folder on it.
+  - The 2.5.0 rename (identifier `com.atvoptimizer.app`, data folder `ATVOptimizer`, binary `atv-optimizer`) copies the old data and WebView profile on first launch (`v2/src-tauri/src/rename.rs`), and `v2/src-tauri/windows/hooks.nsh` removes a side-by-side "Shield Optimizer" NSIS install left by the 2.3.0 product rename. Overrides are `ATV_OPTIMIZER_ADB` / `ATV_OPTIMIZER_SUBNET`; the `SHIELD_OPTIMIZER_*` names still work. See `v2/HANDOFF.md`.
 - **Don't pipe `yes` into `release.sh`.** The auto-mode classifier blocks it (correctly) — the script's interactive gates are the safety net. Run it interactively, or pass `--yes` if you have deliberately decided to skip the gates (CI, or an agent acting on an explicit instruction).
 
 ### Still undone: signing and update-key custody
@@ -166,10 +167,10 @@ doc that held them has been deleted.
 
 ### Homebrew tap
 
-The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `shield-optimizer`, pointing at the universal `.dmg` from the latest `v2-*` release.
+The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `atv-optimizer` (renamed from `shield-optimizer` through the tap's `cask_renames.json`, so `brew upgrade` moves existing installs), pointing at the universal `.dmg` from the latest `v2-*` release. The tap repo keeps its name.
 
 - The cask strips `com.apple.quarantine` in a `postflight` block. This is what lets users skip the macOS 15+ Gatekeeper dance after `brew install --cask`. Don't remove that block unless we start signing the build.
-- The `bump-tap` job in `.github/workflows/v2-release.yml` updates the cask on every release: downloads the universal DMG, computes the SHA256, rewrites `version` and `sha256` in `Casks/shield-optimizer.rb`, and pushes to the tap. It needs the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the tap repo with `contents:write`. If the secret is missing the job logs that and skips (rather than failing the whole release).
+- The `bump-tap` job in `.github/workflows/v2-release.yml` updates the cask on every release: downloads the universal DMG, computes the SHA256, rewrites `version` and `sha256` in `Casks/atv-optimizer.rb`, and pushes to the tap. It needs the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the tap repo with `contents:write`. If the secret is missing the job logs that and skips (rather than failing the whole release).
 
 ## Interface copy: disclose help on demand
 

@@ -5,9 +5,23 @@ failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 `.github/workflows/v2-release.yml`; macOS is also distributed via the Homebrew tap
-(`bryanroscoe/homebrew-shield-optimizer`).
+(`bryanroscoe/homebrew-shield-optimizer`, cask `atv-optimizer`).
 
 ## Unreleased on `main`
+
+**The next release must be 2.5.0 (a minor bump): it completes the rename.** The identifier is
+now `com.atvoptimizer.app`, the data folder `ATVOptimizer`, the binary `atv-optimizer`, and the
+crates `atv-optimizer` / `atv_optimizer_lib` / `atv-optimizer-core`. Before tagging:
+
+1. Merge the tap PR that renames the cask to `atv-optimizer` (bryanroscoe/homebrew-shield-optimizer,
+   branch `rename-atv-optimizer`) **right before** pushing the tag. The release's `bump-tap` job
+   edits `Casks/atv-optimizer.rb` and fails if that file is missing; merged too early, the
+   renamed cask points at 2.4.1 under the new token, which still works but says nothing new.
+2. Run the upgrade checks in `../docs/DEVICE-TEST-SCRIPT.md` ("Upgrade from an earlier
+   release") on Windows (NSIS and MSI) and macOS (DMG and brew). The NSIS hook has only been
+   compiled by CI's Windows build, never run.
+3. After the release, switch the root README's brew commands to `atv-optimizer` (the old token
+   works through the tap's `cask_renames.json`, which is why they were left alone until then).
 
 Desktop help improvements and ADB connection recovery are pending release. Add by IP,
 Scan LAN and restart now verify transport readiness; the confirmed restart can retry
@@ -35,10 +49,27 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
   controls (`HelpTip.svelte`); keep routine explanatory copy collapsed. The diagnostics Worker
   and migration 0003 were deployed and verified with a synthetic upload and readback on 2026-11-03.
 
-- **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
-  channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
-  to the value the old name derived, so existing installs upgrade in place. The Homebrew tap and
-  cask token are still `shield-optimizer`; the cask's `url` names the renamed DMG.
+- **The rename to ATV Optimizer (2.5.0).** `src-tauri/src/rename.rs` runs first in `run()`,
+  before logging and before any webview. It copies the old `ShieldOptimizer` data folder
+  (everything except `platform-tools/` and `native-adb/`) and the old WebView profile
+  (`~/Library/WebKit/<id>` on macOS, `<local data>/<id>` on Windows and Linux, caches skipped) to
+  the new names, only when the old one exists and the new one does not. It copies into
+  `<name>.migrating-<pid>` and renames that into place, never moves or deletes the old data, and
+  logs every failure without failing the launch. Old `shield-optimizer.*.log` files are renamed
+  in the copy so rotation covers them. The old downloaded adb is still found where it is
+  (`adb_path_in_legacy_install_root`). localStorage keys keep their `shieldopt.*` names: the
+  origin did not change, so the copied profile is read as is. Pinned on purpose, never to change:
+  the WiX `upgradeCode`, `bundle.publisher` (`shieldoptimizer`, the value the old identifier
+  derived, which NSIS and WiX use for `Software\shieldoptimizer\<product>` and the install-folder
+  lookup), the updater `pubkey` and endpoint, the repo name and the `v2-*` tags.
+  Windows: `src-tauri/windows/hooks.nsh` (NSIS post-install) removes a leftover "Shield
+  Optimizer" install from 2.2.0 or earlier (files by name, shortcuts that still point at it, the
+  Uninstall and `Software\shieldoptimizer\Shield Optimizer` keys) and never touches app data or
+  runs the old uninstaller. macOS: a bundle still named `Shield Optimizer.app` is renamed to
+  `ATV Optimizer.app` at `RunEvent::Exit` (never on an update restart), unless it is
+  translocated, the name is taken, or a `shield-optimizer*`/`atv-optimizer*` cask is installed
+  and the bundle is in `/Applications` or `~/Applications`, where renaming it would break
+  `brew upgrade`. The MSI path has no hook: MSI users were always major-upgraded in place.
 - **Launchers are data**: `crates/core/data/app-lists/launchers.json`, parsed once in
   `loader.rs`. The Launcher list shows HOME handlers only. Don't add a `LEANBACK_LAUNCHER`
   query: every TV app's launch activity carries that category, so it lists every TV app as a

@@ -178,10 +178,12 @@ tracks a Toshiba Fire TV report that's still waiting on version and build detail
 
 **Unsigned builds.** See [First launch](#first-launch) above.
 
-**Renamed from Shield Optimizer.** It's the same app with the same settings and update channel.
-The Homebrew tap and cask are still called `shield-optimizer`, so `brew upgrade` keeps working. If
-you installed from the `.dmg`, you'll still have the old `Shield Optimizer.app` until you
-reinstall. After that you can drag the old one to the Trash.
+**Renamed from Shield Optimizer.** It's the same app with the same update channel. From 2.5.0 it
+also uses the new name for its data folder and app identifier: the first launch copies your
+settings, snapshots and logs over and leaves the old copies in place. On Windows, installing 2.5.0
+removes a leftover "Shield Optimizer" install. On macOS, a `Shield Optimizer.app` renames itself
+to `ATV Optimizer.app` when you quit it. The Homebrew cask becomes `atv-optimizer` in 2.5.0;
+`shield-optimizer` keeps working and `brew upgrade` moves you over.
 
 ## ATV Optimizer for Android
 

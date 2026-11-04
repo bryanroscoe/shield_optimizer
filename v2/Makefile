@@ -7,7 +7,7 @@ dev:
 	npm run tauri dev
 
 brew:
-	brew install --cask bryanroscoe/shield-optimizer/shield-optimizer
+	brew install --cask bryanroscoe/shield-optimizer/atv-optimizer
 
 setup:
 	@command -v brew >/dev/null 2>&1 || { echo "Homebrew not found. Install from https://brew.sh"; exit 1; }

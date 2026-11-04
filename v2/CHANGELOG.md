@@ -22,6 +22,23 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- **ATV Optimizer now uses its own name everywhere, and moves your data over on first launch.**
+  The app identifier is now `com.atvoptimizer.app` and the data folder is `ATVOptimizer`
+  (`~/Library/Application Support`, `%LOCALAPPDATA%` or `~/.local/share`). The first launch copies
+  your settings, saved snapshots, screenshots, logs and anonymous report ID from the old
+  `ShieldOptimizer` folder and the old WebView profile. Nothing is moved or deleted, so the old
+  copies stay where they were. The adb the app downloaded is not copied; the app keeps using it
+  from the old folder until you install platform-tools again. macOS may ask once more for Local
+  Network access, because that permission belongs to the app identifier.
+- Windows: installing this version removes a leftover **Shield Optimizer** install (from 2.2.0
+  or earlier) that the 2.3.0 update left beside ATV Optimizer, with its shortcuts and its
+  Add/Remove Programs entry. Your settings and data are not touched.
+- macOS: a copy still named `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you
+  quit it, unless a Homebrew cask manages it or that name is taken. Homebrew users: the cask is
+  now `atv-optimizer`, and `brew upgrade` moves you over.
+- The adb and subnet overrides are now `ATV_OPTIMIZER_ADB` and `ATV_OPTIMIZER_SUBNET`. The old
+  `SHIELD_OPTIMIZER_*` names still work.
+
 - Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 
 - Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.

@@ -138,8 +138,8 @@ e2e/capture-device.sh <adb-transport> <profile-name> --leanback true|false|unkno
 #   --anonymize-third-party [--keep-package PKG]   for a personal phone
 ```
 
-It uses the bundled adb at `~/Library/Application Support/ShieldOptimizer/platform-tools/adb`
-(override with `ADB=`), and refuses to touch a transport that is not already
+It uses the bundled adb at `~/Library/Application Support/ATVOptimizer/platform-tools/adb`
+(or the pre-2.5 `ShieldOptimizer` one; override with `ADB=`), and refuses to touch a transport that is not already
 `device`, so it never connects anything. It runs only `getprop`, `pm list packages` in every
 variant, `settings list`, `dumpsys meminfo`/`diskstats`/`package <home app>`,
 `cmd package query-activities`/`resolve-activity`, `wm size`/`density`,
@@ -167,9 +167,9 @@ can be toggled in Report a bug. The files are written to:
 
 | OS | Session files |
 |---|---|
-| macOS | `~/Library/Application Support/ShieldOptimizer/logs/sessions/` |
-| Windows | `%LOCALAPPDATA%\ShieldOptimizer\logs\sessions\` |
-| Linux | `~/.local/share/ShieldOptimizer/logs/sessions/` |
+| macOS | `~/Library/Application Support/ATVOptimizer/logs/sessions/` |
+| Windows | `%LOCALAPPDATA%\ATVOptimizer\logs\sessions\` |
+| Linux | `~/.local/share/ATVOptimizer/logs/sessions/` |
 
 Each run gets one file, `<startup UTC time>-<pid>.jsonl`. A file stops at 20 MB, and
 the newest 10 files are kept. The pairing PIN, typed Remote text and
@@ -181,7 +181,7 @@ never `logs/sessions/`.
 Replay one:
 
 ```sh
-npm run e2e:replay -- ~/Library/Application\ Support/ShieldOptimizer/logs/sessions/2026-09-30T14-03-22.123Z-4242.jsonl
+npm run e2e:replay -- ~/Library/Application\ Support/ATVOptimizer/logs/sessions/2026-09-30T14-03-22.123Z-4242.jsonl
 ```
 
 The server answers every adb call with what the device said at the time, in order. The
