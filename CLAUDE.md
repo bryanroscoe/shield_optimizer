@@ -169,7 +169,7 @@ doc that held them has been deleted.
   needs no signing. Setup notes for when we do this are at the top of `.github/workflows/v2-release.yml`.
   Until then macOS builds are **ad-hoc signed as `com.atvoptimizer.app`**
   (`bundle.macOS.signingIdentity: "-"`), and the release fails if they aren't: the linker-only
-  signature's identifier (`shield_optimizer_v2-<hash>`) changes every build and leaves the bundle
+  signature's identifier (`atv_optimizer-<hash>`, `shield_optimizer_v2-<hash>` before 2.5.0) changes every build and leaves the bundle
   unsigned. Apple's local network guidance asks for a stable identity.
 - **Update-key custody.** The Tauri updater signs with Ed25519, and **the private key must never
   rotate** — doing so breaks auto-update for every installed copy on an older version, permanently.

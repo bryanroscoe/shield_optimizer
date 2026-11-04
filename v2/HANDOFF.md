@@ -13,15 +13,20 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 now `com.atvoptimizer.app`, the data folder `ATVOptimizer`, the binary `atv-optimizer`, and the
 crates `atv-optimizer` / `atv_optimizer_lib` / `atv-optimizer-core`. Before tagging:
 
-1. Merge the tap PR that renames the cask to `atv-optimizer` (bryanroscoe/homebrew-shield-optimizer,
+1. Merge the tap PR that renames the cask to `atv-optimizer` (bryanroscoe/homebrew-shield-optimizer#5,
    branch `rename-atv-optimizer`) **right before** pushing the tag. The release's `bump-tap` job
    edits `Casks/atv-optimizer.rb` and fails if that file is missing; merged too early, the
    renamed cask points at 2.4.1 under the new token, which still works but says nothing new.
-2. Run the upgrade checks in `../docs/DEVICE-TEST-SCRIPT.md` ("Upgrade from an earlier
-   release") on Windows (NSIS and MSI) and macOS (DMG and brew). The NSIS hook has only been
-   compiled by CI's Windows build, never run.
-3. After the release, switch the root README's brew commands to `atv-optimizer` (the old token
-   works through the tap's `cask_renames.json`, which is why they were left alone until then).
+2. Run the R steps ("Upgrades across the 2.5.0 rename") in `../docs/DEVICE-TEST-SCRIPT.md` on
+   Windows (NSIS and MSI) and macOS (DMG and brew), plus R9 on Linux. **No CI job compiles the
+   NSIS installer before a tag**: `v2-tests.yml` only runs Rust tests on Windows, so the
+   `windows/hooks.nsh` hooks are first compiled for real by the `v2-2.5.0` release job. They were
+   compiled locally with makensis 3.13 against tauri-cli 2.11.2's template includes and its
+   `nsis_tauri_utils` plugin, and have never run on Windows; a staging `-setup.exe` built on
+   Windows is the only pre-tag check.
+3. After the tap PR merges and 2.5.0 is out, switch to the new cask token where it was left
+   alone until then: the root README's brew commands and `v2/Makefile`'s `brew` target. The old
+   token keeps working through the tap's `cask_renames.json`.
 
 Desktop help improvements and ADB connection recovery are pending release. Add by IP,
 Scan LAN and restart now verify transport readiness; the confirmed restart can retry
@@ -51,25 +56,37 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
 
 - **The rename to ATV Optimizer (2.5.0).** `src-tauri/src/rename.rs` runs first in `run()`,
   before logging and before any webview. It copies the old `ShieldOptimizer` data folder
-  (everything except `platform-tools/` and `native-adb/`) and the old WebView profile
-  (`~/Library/WebKit/<id>` on macOS, `<local data>/<id>` on Windows and Linux, caches skipped) to
-  the new names, only when the old one exists and the new one does not. It copies into
-  `<name>.migrating-<pid>` and renames that into place, never moves or deletes the old data, and
-  logs every failure without failing the launch. Old `shield-optimizer.*.log` files are renamed
-  in the copy so rotation covers them. The old downloaded adb is still found where it is
+  (everything except `platform-tools/`) and the old WebView profile (`~/Library/WebKit/<id>` on
+  macOS, `<local data>/<id>` on Windows and Linux, caches and lock files skipped) into
+  `<name>.migrating-<pid>`, checks that the source did not change meanwhile (else it retries
+  once), writes `.atvoptimizer-migrated` into the copy and renames it into place. A folder
+  without that marker is unfinished: an unmarked data folder is merged into (old entries it
+  lacks, plus the old `telemetry.json`, so the install id and opt-out survive); an unmarked
+  profile is renamed to `<id>.unmigrated-<time>` and copied again. If the data copy fails, the
+  session runs on the old folder, so nothing creates the new one and the next launch retries.
+  The profile is copied once: `.webview-profile-migrated` in the data folder stops it being
+  refilled after a user or an uninstaller deletes it. Unreadable non-essential files are
+  skipped and listed; snapshots, `telemetry.json`, `disabled-home-handlers.json` and the
+  localStorage store must copy. The old data is never moved or deleted, and failures are
+  logged without failing the launch. Old `shield-optimizer.*.log` files are renamed in the copy
+  so rotation covers them. The old downloaded adb is still found where it is
   (`adb_path_in_legacy_install_root`). localStorage keys keep their `shieldopt.*` names: the
   origin did not change, so the copied profile is read as is. Pinned on purpose, never to change:
   the WiX `upgradeCode`, `bundle.publisher` (`shieldoptimizer`, the value the old identifier
   derived, which NSIS and WiX use for `Software\shieldoptimizer\<product>` and the install-folder
   lookup), the updater `pubkey` and endpoint, the repo name and the `v2-*` tags.
-  Windows: `src-tauri/windows/hooks.nsh` (NSIS post-install) removes a leftover "Shield
-  Optimizer" install from 2.2.0 or earlier (files by name, shortcuts that still point at it, the
-  Uninstall and `Software\shieldoptimizer\Shield Optimizer` keys) and never touches app data or
-  runs the old uninstaller. macOS: a bundle still named `Shield Optimizer.app` is renamed to
-  `ATV Optimizer.app` at `RunEvent::Exit` (never on an update restart), unless it is
-  translocated, the name is taken, or a `shield-optimizer*`/`atv-optimizer*` cask is installed
-  and the bundle is in `/Applications` or `~/Applications`, where renaming it would break
-  `brew upgrade`. The MSI path has no hook: MSI users were always major-upgraded in place.
+  Windows: `src-tauri/windows/hooks.nsh` closes a running `shield-optimizer-v2.exe` before the
+  install (asking first unless silent or passive), then removes a leftover "Shield Optimizer"
+  install from 2.2.0 or earlier (files by name, shortcuts that still point at it, the Uninstall
+  and `Software\shieldoptimizer\Shield Optimizer` keys). It creates an "ATV Optimizer" shortcut
+  where it removed an old one and none exists, points taskbar pins at `atv-optimizer.exe`, and
+  gives this install's shortcuts the new AppUserModelID. It never touches app data or runs the
+  old uninstaller. The MSI has no hooks: MSI users were always major-upgraded in place.
+  macOS: a bundle still named `Shield Optimizer.app` is renamed to `ATV Optimizer.app` at
+  `RunEvent::Exit` (never on an update restart), unless it is translocated, the name is taken,
+  or a `shield-optimizer*`/`atv-optimizer*` cask is installed and the bundle is in
+  `/Applications` or `~/Applications`, where renaming it would break `brew upgrade`. The log is
+  flushed at exit so that line survives.
 - **Launchers are data**: `crates/core/data/app-lists/launchers.json`, parsed once in
   `loader.rs`. The Launcher list shows HOME handlers only. Don't add a `LEANBACK_LAUNCHER`
   query: every TV app's launch activity carries that category, so it lists every TV app as a

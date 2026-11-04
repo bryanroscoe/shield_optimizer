@@ -17,7 +17,7 @@
 # macOS builds are ad-hoc signed as the app's bundle identifier
 # (bundle.macOS.signingIdentity "-" in tauri.conf.json), the stable identity
 # Apple's local network privacy guidance (TN3179) asks for. The linker-only
-# signature Rust leaves behind is named `shield_optimizer_v2-<hash>`, changes
+# signature Rust leaves behind is named `atv_optimizer-<hash>`, changes
 # with every build, and leaves the bundle itself unsigned. "Verify macOS
 # signing identifier" below enforces this.
 #
