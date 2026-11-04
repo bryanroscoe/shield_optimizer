@@ -1,5 +1,32 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Approval clarity and offline-route follow-up — 2026-11-04
+
+An overnight disconnected IPv6 route reproduced a gap after the two-Shield test:
+the native transport still listed an unprofiled offline address after its scan
+job ended, so it escaped Scan details and appeared as an extra Unknown card.
+Unidentified offline network addresses now remain in Scan details with explicit
+Disconnected state, Retry connection, Forget and diagnostics. Profiled offline
+devices and USB rows retain their normal cards. No identities are inferred or
+merged from addresses, advertised names or a previously used route.
+
+Observed AUTH rows now say Approval requested and Retry approval. Shared guidance
+makes the initial automatic request explicit, refers to the device rather than
+assuming it is a TV, and does not promise that a dialog was displayed. Retry
+reconnects only the selected endpoint. A native offline transport whose scan job
+has ended now uses the same bounded connection path; it no longer reports
+already authorized without retrying.
+
+The UI regression reproduces the offline route without any pending/failed scan
+job, exercises retry through approval and Forget while both ready TV cards stay,
+and preserves profiled offline/USB cards. Rust regression coverage checks the
+exact offline endpoint and leaves a ready TV untouched. CI owns Rust validation
+and the replacement package; no local Cargo target was created. The previous
+verified delivery below is historical. The exact latest app, package provenance
+and physical acceptance are recorded in the local task's `app-receipt.json` and
+dated acceptance receipts after delivery. Use that receipt before subsequent
+live testing rather than assuming this source checkpoint is the installed app.
+
 ## Current integration and package pipeline — 2026-11-03
 
 Main `d70e027` is integrated, including PR #282's automatic empty-scan help and
@@ -86,7 +113,7 @@ now running at the delivery path below. Both approved Shields and pending AUTH
 requests were observed on the real native screen. Fixture screenshots/video are retained locally; no PR response was posted
 or edited without approved wording.
 
-## Current delivery
+## Verified delivery — 2026-11-03
 
 The integrated universal macOS owner-test app is running and ready for Bryan's
 continued testing. PR #268 remains draft for owner acceptance and the hardware

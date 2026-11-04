@@ -1019,7 +1019,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         ok: true,
         status: "unauthorized",
         message:
-          'Asked again. Look at the TV, check "Always allow from this computer" and choose Allow.',
+          'Approval requested again. Check the device for the debugging prompt, select "Always allow from this computer" if offered, and choose Allow.',
       };
     case "forget_device":
       return {

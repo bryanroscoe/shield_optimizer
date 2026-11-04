@@ -43,10 +43,11 @@
       return a.name.localeCompare(b.name);
     }),
   );
-  const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed");
+  const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed" || d.discoveryState === "offline");
   const scanAttempts = $derived(sortedDevices.filter(isScanAttempt));
   const visibleDevices = $derived(sortedDevices.filter(d => !isScanAttempt(d)));
   const isNativeApproval = (d: DeviceRow) => adbBackend === "direct" && d.status === "unauthorized" && !d.properties;
+  const canRetryConnection = (d: DeviceRow) => d.connection === "network" && (d.status === "unauthorized" || d.discoveryState === "failed" || d.discoveryState === "offline");
   const firstApproval = $derived(visibleDevices.find(isNativeApproval)?.serial);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -321,7 +322,7 @@
     nativeScanSummary = "";
     nativeDiscovery = null;
     if (adbBackend === "direct") monitorNativeConnections();
-    scanMessage = adbBackend === "direct" ? "Scanning local network… If your TV asks to allow debugging, approve ATV Optimizer." : "Scanning local network…";
+    scanMessage = adbBackend === "direct" ? "Scanning local network… Approve debugging on your device if prompted." : "Scanning local network…";
     try {
       const r = await api.scanNetwork();
       if (disposed) return;
@@ -474,9 +475,9 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
-    if ((d.status === "unauthorized" || d.discoveryState === "failed") && d.connection === "network") {
+    if (canRetryConnection(d)) {
       items.push({
-        label: d.discoveryState === "failed" ? "Try connecting again" : "Ask again on the TV",
+        label: d.status === "unauthorized" ? "Retry approval" : "Retry connection",
         disabled: repromptBusy === d.serial,
         run: () => repromptDevice(d),
       });
@@ -789,9 +790,7 @@
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
 
-  /// Drops this one TV's connection and dials it again, which is what makes
-  /// Android show the debugging prompt a second time. Nothing else is
-  /// redialled, so no other TV prompts.
+  // A fresh connection resends authorization; only the device can display its prompt.
   async function repromptDevice(d: Device) {
     repromptBusy = d.serial;
     connectMessage = "";
@@ -801,7 +800,7 @@
       connectMessage = r.message;
       await refresh();
     } catch (e) {
-      connectMessage = `Could not ask ${d.name} again: ${e}`;
+      connectMessage = `Could not reconnect to ${d.name}: ${e}`;
     } finally {
       repromptBusy = null;
     }
@@ -989,26 +988,26 @@
     <p class="connect-message muted">{scanMessage}</p>
   {/if}
   {#if adbBackend === "direct" && !scanBusy && nativeConnections.pending.length > 0}
-    <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses. Approve debugging on the TV if prompted; ready TVs appear automatically.</p>
+    <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses. Approve debugging on the device if prompted; ready devices appear automatically.</p>
   {/if}
   {#if hasScanDetails}
     <details class="adb-details connect-details" bind:open={scanDetailsOpen}>
-      <summary>Scan details{#if scanAttempts.length} — {scanAttempts.length} other connection attempts{/if}</summary>
+      <summary>Scan details{#if scanAttempts.length} — {scanAttempts.length} other connection {scanAttempts.length === 1 ? "attempt" : "attempts"}{/if}</summary>
       {#if scanDetailsOpen && nativeDiscovery}
         <NativeConnectionChoices report={nativeDiscovery} receivedAt={discoveryReceivedAt} busy={scanBusy || connectBusy || pairBusy || restartBusy || backendUnavailable} onChoose={connectUsingAdvertisement} />
       {/if}
       {#if scanAttempts.length}
-        <p class="muted small">These addresses haven't connected. They may include multiple addresses for one device.</p>
+        <p class="muted small">These addresses aren't connected. They may include multiple routes to one device.</p>
         <ul class="scan-attempts">
           {#each scanAttempts as d (d.serial)}
             <li class="scan-attempt" data-serial={d.serial}>
               <div class="scan-attempt-info">
                 <span class="mono">{d.serial}</span>
-                <span class="muted small">{d.discoveryState === "connecting" ? "Connecting…" : "Didn't connect"}</span>
+                <span class="muted small">{d.discoveryState === "connecting" ? "Connecting…" : d.discoveryState === "offline" ? "Disconnected" : "Didn't connect"}</span>
               </div>
               <div class="scan-attempt-actions">
-                {#if d.discoveryState === "failed"}
-                  <button class="row-action" onclick={() => repromptDevice(d)} disabled={repromptBusy === d.serial}>Try again</button>
+                {#if canRetryConnection(d)}
+                  <button class="row-action" onclick={() => repromptDevice(d)} disabled={repromptBusy === d.serial}>{repromptBusy === d.serial ? "Connecting…" : d.discoveryState === "offline" ? "Retry connection" : "Try again"}</button>
                 {/if}
                 <button class="row-action" onclick={() => copyDiagnostics(d)} disabled={diagnosticsBusy === d.serial}>
                   {diagnosticsBusy === d.serial ? "Copying…" : diagnosticsCopied === d.serial ? "Copied" : "Copy diagnostics"}
@@ -1172,10 +1171,10 @@
       {@const href = deviceHref(d)}
       {#if d.serial === firstApproval}
         <li class="approval-guidance">
-          <p class="muted small">Approve <strong>Allow debugging</strong> on the TV and select <strong>Always allow from this computer</strong>. Connections update automatically.</p>
+          <p class="muted small">Approval was requested automatically. Check the device for an <strong>Allow debugging</strong> prompt and select <strong>Always allow from this computer</strong> if offered. Connections update automatically.</p>
           <details class="small">
-            <summary>No prompt on the TV?</summary>
-            <p>Wake the TV, then use <strong>Ask again</strong> beside its address. Some TVs call the prompt “Allow USB debugging” even over the network.</p>
+            <summary>No prompt on the device?</summary>
+            <p>Wake the device, then use <strong>Retry approval</strong> beside its address to reconnect and resend the request. Some devices call the prompt “Allow USB debugging” even over the network.</p>
             <p>As a last resort, Developer options → Revoke USB debugging authorizations un-trusts every computer. Reconnect afterward.</p>
           </details>
         </li>
@@ -1287,7 +1286,7 @@
               <div class="device-name">
                 <span>{d.name}</span>
                 {#if d.status === "unauthorized"}
-                  <span class="status-tag unauthorized">UNAUTHORIZED</span>
+                  <span class="status-tag unauthorized">{isNativeApproval(d) ? "Approval requested" : "UNAUTHORIZED"}</span>
                 {:else if d.discoveryState === "connecting"}
                   <span class="status-tag">CONNECTING…</span>
                 {:else if d.discoveryState === "failed"}
@@ -1340,7 +1339,7 @@
                   <ol class="small unauthorized-fallback">
                     <li>Wake the TV; the prompt can be hidden behind the screensaver.</li>
                     {#if d.connection === "network"}
-                      <li>Click <strong>Ask again</strong>; this TV, and only this one, shows the prompt again.</li>
+                      <li>Click <strong>Retry approval</strong> to reconnect this address and resend the request. Check the device for the prompt.</li>
                     {:else}
                       <li>Unplug the cable and plug it back in; the prompt reappears.</li>
                     {/if}
@@ -1384,14 +1383,14 @@
                   Open anyway
                 </button>
               {/if}
-              {#if (d.status === "unauthorized" || d.discoveryState === "failed") && d.connection === "network"}
+              {#if canRetryConnection(d)}
                 <button
                   class="row-action primary"
                   onclick={() => repromptDevice(d)}
                   disabled={repromptBusy === d.serial}
-                  data-tip="Reconnects this TV so it shows the debugging prompt again · no other TV is touched"
+                  data-tip="Reconnects only this address and retries authorization. Check the device for a debugging prompt."
                 >
-                  {repromptBusy === d.serial ? (adbBackend === "direct" ? "Connecting…" : "Asking…") : d.discoveryState === "failed" ? "Try again" : "Ask again"}
+                  {repromptBusy === d.serial ? "Connecting…" : d.status === "unauthorized" ? "Retry approval" : "Try again"}
                 </button>
               {/if}
               <button

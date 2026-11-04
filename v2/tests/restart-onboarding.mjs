@@ -84,7 +84,7 @@ try {
     }
     if (scenario === 'auth') {
       await page.getByText('failed to authenticate — approve this computer on the TV, then refresh', { exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Retry approval', exact: true }).waitFor();
       assert.equal(await page.locator('.device-row.clickable').count(), 0);
       if (evidence) await page.screenshot({ path: `${evidence}/restart-auth-simulated.png` });
     }

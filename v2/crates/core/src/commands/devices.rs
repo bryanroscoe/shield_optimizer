@@ -545,19 +545,17 @@ pub const READVERTISE_MESSAGE: &str = "Disconnected, but the device is still adv
 #[derive(Serialize, Debug)]
 pub struct RepromptResult {
     pub ok: bool,
-    /// What adb holds for this device afterwards: `unauthorized` (the TV is
-    /// asking again), `device` (it was approved meanwhile), or `none`.
+    /// What adb holds afterwards: `unauthorized` (approval still needed),
+    /// `device` (approved), or `none`.
     pub status: String,
     pub message: String,
 }
 
-/// `reprompt_device` — show the "Allow debugging?" prompt again on one TV.
+/// `reprompt_device` — reconnect one endpoint to retry authorization.
 ///
-/// Android shows the prompt once per connection. Once it is missed or
-/// dismissed, the transport stays `unauthorized` and redialling the same
-/// address is a no-op ("already connected"), so nothing ever asks again. The
-/// prompt needs a fresh connection: drop this one transport and dial it
-/// again. Only this device is touched, so no other TV prompts.
+/// Redialling an existing unauthorized transport can be a no-op ("already
+/// connected"). Drop only this transport to send a fresh request; the device
+/// controls whether it displays a dialog.
 #[tauri::command]
 pub async fn reprompt_device(
     state: State<'_, AppState>,
@@ -576,7 +574,18 @@ pub async fn reprompt_device_impl(
     serial: &str,
 ) -> Result<RepromptResult, String> {
     let adb = state.adb_snapshot().await;
-    if native_scan_has_endpoint(&*adb, serial).await {
+    let native_attempt = native_scan_has_endpoint(&*adb, serial).await;
+    let entry = if native_attempt {
+        None
+    } else {
+        transport_entry(&*adb, serial).await?
+    };
+    let native_offline = !adb.uses_host_server()
+        && crate::adb::is_network_endpoint(serial)
+        && entry.as_ref().is_some_and(|entry| {
+            entry.status == DeviceStatus::Offline && entry.connection == ConnectionType::Network
+        });
+    if native_attempt || native_offline {
         adb.raw(&["disconnect", serial])
             .await
             .map_err(|e| format!("disconnect: {e}"))?;
@@ -591,11 +600,10 @@ pub async fn reprompt_device_impl(
             message: if ready {
                 "Connected and authorized."
             } else {
-                "Connecting again. Approve debugging on the TV if prompted; this row updates automatically."
+                "Reconnecting to this address. Check the device for a debugging prompt; this row updates automatically."
             }.into(),
         });
     }
-    let entry = transport_entry(&*adb, serial).await?;
     let Some(entry) = entry else {
         return Ok(RepromptResult {
             ok: false,
@@ -645,8 +653,8 @@ pub async fn reprompt_device_impl(
     let (ok, message) = match after {
         Some(DeviceStatus::Unauthorized) => (
             true,
-            "Asked again. Look at the TV, check \"Always allow from this computer\" and choose \
-             Allow."
+            "Approval requested again. Check the device for the debugging prompt, select \
+             \"Always allow from this computer\" if offered, and choose Allow."
                 .to_string(),
         ),
         Some(DeviceStatus::Device) => (true, "Connected and authorized.".to_string()),
@@ -1456,6 +1464,77 @@ mod tests {
                 "disconnect 192.0.2.2:5555",
                 "scan_connect 192.0.2.2:5555",
                 "disconnect 192.0.2.1:5555",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn native_offline_route_retries_without_a_scan_job_and_leaves_ready_tv_alone() {
+        use crate::adb::{AdbOutput, AdbResult, ScanConnectOutcome};
+        use std::sync::{Arc, Mutex};
+        const OFFLINE: &str = "[fe80::abcd%14]:5555";
+        const READY: &str = "192.0.2.42:5555";
+        struct NativeOffline {
+            calls: Mutex<Vec<String>>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for NativeOffline {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                self.calls.lock().unwrap().push(args.join(" "));
+                let stdout = match args {
+                    ["devices"] => {
+                        format!("List of devices attached\n{READY}\tdevice\n{OFFLINE}\toffline\n")
+                    }
+                    ["disconnect", target] if *target == OFFLINE => String::new(),
+                    _ => panic!("must not disconnect another TV or use a blocking connect"),
+                };
+                Ok(AdbOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn scan_connect(
+                &self,
+                address: &str,
+                _: std::time::Duration,
+            ) -> AdbResult<ScanConnectOutcome> {
+                assert_eq!(address, OFFLINE);
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("scan_connect {address}"));
+                Ok(ScanConnectOutcome::Pending)
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("retry must not probe hardware identity or other TVs")
+            }
+        }
+        let adb = Arc::new(NativeOffline {
+            calls: Mutex::new(Vec::new()),
+        });
+        let state = AppState::new(
+            adb.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let retried = reprompt_device_impl(&state, OFFLINE).await.unwrap();
+        assert!(retried.ok);
+        assert_eq!(retried.status, "none");
+        assert!(!retried.message.contains("already authorized"));
+        let ready = reprompt_device_impl(&state, READY).await.unwrap();
+        assert!(ready.ok);
+        assert_eq!(ready.status, "device");
+        assert_eq!(
+            *adb.calls.lock().unwrap(),
+            [
+                "devices",
+                &format!("disconnect {OFFLINE}"),
+                &format!("scan_connect {OFFLINE}"),
+                "devices"
             ]
         );
     }

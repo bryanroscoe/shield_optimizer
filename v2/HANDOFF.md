@@ -55,8 +55,10 @@ LAN sweep hits now start connecting as each responder arrives, before the remain
 subnet probes or mDNS observation window finish. Scan diagnostics record subnet
 detection, first responder, sweep admission and mDNS elapsed times to distinguish
 cold-network delays from authorization waits.
-Unapproved and failed native endpoints stay visible in the existing device list,
-with Ask again/Try again and Forget acting on that exact endpoint. Authorization
+Unapproved native endpoints stay visible in the existing device list with
+Approval requested and Retry approval. Failed or unidentified offline network
+addresses stay in Scan details with exact-endpoint retry, Forget and diagnostics;
+they are not additional identified devices. Authorization
 guidance is shown only after the transport actually sends its public-key AUTH
 packet; a timeout alone does not establish authorization state. Test discovery
 with no previously approved TVs, not just successful reconnections.

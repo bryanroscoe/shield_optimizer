@@ -1,12 +1,16 @@
 import type { Device, ScanConnectionProgress } from "$lib/types";
 
 export type DeviceRow = Device & {
-  discoveryState?: "connecting" | "approval" | "failed";
+  discoveryState?: "connecting" | "approval" | "failed" | "offline";
   discoveryError?: string;
 };
 
 export function nativeScanRows(devices: Device[], progress: ScanConnectionProgress): DeviceRow[] {
-  const rows = new Map<string, DeviceRow>(devices.map(device => [device.serial, device]));
+  const rows = new Map<string, DeviceRow>(devices.map(device => [device.serial,
+    device.status === "offline" && device.connection === "network" && !device.properties
+      ? { ...device, discoveryState: "offline" }
+      : device,
+  ]));
   const approvals = new Set(progress.awaiting_authorization ?? []);
   const add = (serial: string, state: DeviceRow["discoveryState"], message?: string) => {
     const existing = rows.get(serial);
