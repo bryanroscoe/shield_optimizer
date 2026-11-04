@@ -61,7 +61,12 @@ pub fn outcome_from_os_error(code: Option<i32>) -> ProbeOutcome {
 /// Whether an interface address is on a network the privilege governs: an
 /// up, broadcast-capable IPv4 interface (TN3179's definition of a local
 /// network, which excludes VPN tunnels), not loopback, not 169.254/16.
-pub fn is_lan_ipv4(ip: Ipv4Addr, broadcast_capable: bool, running: bool, point_to_point: bool) -> bool {
+pub fn is_lan_ipv4(
+    ip: Ipv4Addr,
+    broadcast_capable: bool,
+    running: bool,
+    point_to_point: bool,
+) -> bool {
     broadcast_capable
         && running
         && !point_to_point
@@ -123,8 +128,12 @@ fn probe() -> LocalNetworkStatus {
     let mut lan: Vec<Ipv4Addr> = Vec::new();
     for iface in &interfaces {
         if let if_addrs::IfAddr::V4(v4) = &iface.addr {
-            if is_lan_ipv4(v4.ip, v4.broadcast.is_some(), iface.is_oper_up(), iface.is_p2p())
-                && !lan.contains(&v4.ip)
+            if is_lan_ipv4(
+                v4.ip,
+                v4.broadcast.is_some(),
+                iface.is_oper_up(),
+                iface.is_p2p(),
+            ) && !lan.contains(&v4.ip)
             {
                 lan.push(v4.ip);
             }
@@ -158,7 +167,12 @@ fn probe() -> LocalNetworkStatus {
     };
     let outcomes: Vec<ProbeOutcome> = lan.iter().map(|ip| attempt(*ip)).collect();
     let status = classify(lan.len(), &outcomes);
-    tracing::info!(?status, interfaces = lan.len(), ?outcomes, "local network probe");
+    tracing::info!(
+        ?status,
+        interfaces = lan.len(),
+        ?outcomes,
+        "local network probe"
+    );
     status
 }
 
@@ -210,10 +224,17 @@ mod tests {
 
     #[test]
     fn only_ehostunreach_counts_as_unreachable() {
-        assert_eq!(outcome_from_os_error(Some(65)), ProbeOutcome::HostUnreachable);
+        assert_eq!(
+            outcome_from_os_error(Some(65)),
+            ProbeOutcome::HostUnreachable
+        );
         // ENETUNREACH, EPERM, EADDRNOTAVAIL, and no errno at all.
         for code in [Some(51), Some(1), Some(49), None] {
-            assert_eq!(outcome_from_os_error(code), ProbeOutcome::OtherError, "{code:?}");
+            assert_eq!(
+                outcome_from_os_error(code),
+                ProbeOutcome::OtherError,
+                "{code:?}"
+            );
         }
     }
 
@@ -221,12 +242,21 @@ mod tests {
     fn blocked_needs_a_network_and_every_attempt_unreachable() {
         use ProbeOutcome::*;
         assert_eq!(classify(1, &[HostUnreachable]), LocalNetworkStatus::Blocked);
-        assert_eq!(classify(2, &[HostUnreachable, HostUnreachable]), LocalNetworkStatus::Blocked);
+        assert_eq!(
+            classify(2, &[HostUnreachable, HostUnreachable]),
+            LocalNetworkStatus::Blocked
+        );
         // No LAN up: "No route to host" is just the truth, not a permission.
         assert_eq!(classify(0, &[]), LocalNetworkStatus::NoNetwork);
-        assert_eq!(classify(0, &[HostUnreachable]), LocalNetworkStatus::NoNetwork);
+        assert_eq!(
+            classify(0, &[HostUnreachable]),
+            LocalNetworkStatus::NoNetwork
+        );
         // Mixed or other failures are not evidence of a block.
-        assert_eq!(classify(2, &[HostUnreachable, OtherError]), LocalNetworkStatus::Unknown);
+        assert_eq!(
+            classify(2, &[HostUnreachable, OtherError]),
+            LocalNetworkStatus::Unknown
+        );
         assert_eq!(classify(1, &[OtherError]), LocalNetworkStatus::Unknown);
         assert_eq!(classify(1, &[]), LocalNetworkStatus::Unknown);
     }
@@ -235,7 +265,10 @@ mod tests {
     fn any_datagram_sent_means_allowed() {
         use ProbeOutcome::*;
         assert_eq!(classify(1, &[Sent]), LocalNetworkStatus::Allowed);
-        assert_eq!(classify(2, &[HostUnreachable, Sent]), LocalNetworkStatus::Allowed);
+        assert_eq!(
+            classify(2, &[HostUnreachable, Sent]),
+            LocalNetworkStatus::Allowed
+        );
     }
 
     #[test]
@@ -243,11 +276,22 @@ mod tests {
         let home = Ipv4Addr::new(192, 168, 1, 20);
         assert!(is_lan_ipv4(home, true, true, false));
         assert!(!is_lan_ipv4(Ipv4Addr::LOCALHOST, true, true, false));
-        assert!(!is_lan_ipv4(Ipv4Addr::new(169, 254, 3, 4), true, true, false));
+        assert!(!is_lan_ipv4(
+            Ipv4Addr::new(169, 254, 3, 4),
+            true,
+            true,
+            false
+        ));
         assert!(!is_lan_ipv4(Ipv4Addr::UNSPECIFIED, true, true, false));
-        assert!(!is_lan_ipv4(home, false, true, false), "not broadcast-capable");
+        assert!(
+            !is_lan_ipv4(home, false, true, false),
+            "not broadcast-capable"
+        );
         assert!(!is_lan_ipv4(home, true, false, false), "not running");
-        assert!(!is_lan_ipv4(Ipv4Addr::new(10, 8, 0, 2), true, true, true), "VPN tunnel");
+        assert!(
+            !is_lan_ipv4(Ipv4Addr::new(10, 8, 0, 2), true, true, true),
+            "VPN tunnel"
+        );
     }
 
     #[test]
