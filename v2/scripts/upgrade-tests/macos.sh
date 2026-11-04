@@ -140,8 +140,12 @@ check_migrated() { # label
   py check-telemetry --results "$results" --name "telemetry.json kept (same install id, still off) ($label)" --new "$new_data"
   py check-ls --results "$results" --name "localStorage marker survived in the new profile ($label)" \
     --kind webkit --profile "$new_profile" --key "$marker" --value "$marker_value"
+  # 2.5.0 rewrites notesSeenVersion itself, so only 2.2.0's lastSeenVersion
+  # (which nothing writes any more) must keep the old value.
+  local value=()
+  [[ "$old_ls_key" == shieldopt.lastSeenVersion ]] && value=(--value "$OLD_VERSION")
   py check-ls --results "$results" --name "old app's own localStorage key survived ($label)" \
-    --kind webkit --profile "$new_profile" --key "$old_ls_key" --soft
+    --kind webkit --profile "$new_profile" --key "$old_ls_key" ${value[@]+"${value[@]}"} --soft
   py check-no-temps --results "$results" --name "no *.migrating-* folders left ($label)" "$support" "$HOME/Library/WebKit"
   # A launch whose data copy failed runs on the legacy folder, so it adds
   # its own log there. Every file that was already there must stay as it was.

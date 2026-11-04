@@ -245,10 +245,11 @@ function Check-Migrated([string] $Label) {
   Py check-telemetry --results $Results --name "telemetry.json kept (same install id, still off) ($Label)" --new $NewData
   Py check-ls --results $Results --name "localStorage marker survived in the new profile ($Label)" `
     --kind webview2 --profile $NewProfile --key $Marker --value $MarkerValue
-  if ($OldLsKey) {
-    Py check-ls --results $Results --name "old app's own localStorage key survived ($Label)" `
-      --kind webview2 --profile $NewProfile --key $OldLsKey --value $OldLsValue --soft
-  }
+  # 2.5.0 rewrites notesSeenVersion itself, so only 2.2.0's lastSeenVersion
+  # (which nothing writes any more) must keep the old value.
+  $valueArgs = if ($OldLsKey -eq 'shieldopt.lastSeenVersion') { @('--value', $OldLsValue) } else { @() }
+  Py check-ls --results $Results --name "old app's own localStorage key survived ($Label)" `
+    --kind webview2 --profile $NewProfile --key $OldLsKey @valueArgs --soft
   Py check-no-temps --results $Results --name "no *.migrating-* folders left ($Label)" $Local
   Data-Unchanged $Label
   Profile-Unchanged $Label
@@ -344,6 +345,12 @@ try {
     $stopped = $oldRunning.WaitForExit(5000)
     Record 'installer stopped the running old app' $stopped "pid $($oldRunning.Id)"
     if (-not $stopped) { Close-App $oldRunning 'com.shieldoptimizer.app' | Out-Null }
+    # The second old run wrote to its own folders, so the baseline for "old
+    # data unchanged" is taken now, once its WebView has exited too.
+    $clean = Wait-WebView 'com.shieldoptimizer.app'
+    Py manifest --root $OldData --out (Join-Path $Evidence 'manifest-old-data.json')
+    Py manifest --root $OldProfile --out (Join-Path $Evidence 'manifest-old-profile.json')
+    Record 'old WebView exited before the old folders were re-recorded' $clean -Soft
   }
   $newExe = Find-Exe @($NewExeName)
   Record "new $NewExeName installed" ([bool]$newExe) "$newExe"
