@@ -23,6 +23,8 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
 
 ## Things the next reader needs that the code does not say
 
+- **Source catalog** (`shared/components/ProfileCatalog.svelte`, desktop `/catalog`, mobile More → Device & package catalog) exposes the MIT source snapshot under `catalogs/cleanyourtv/`. It is research information with original source/profile context and the full MIT notice. Package-detail links prefill an identity but require explicit source-profile selection. The view never reads or matches the connected device and has no action or safety-classification imports. Core app lists, safety and support tiers remain the action authorities. `test:profile-catalog` and mobile `profile-catalog.test.mjs` cover source isolation and navigation.
+
 - **RojasNet requests** (#258–#262): Shell bookmarks can be edited and include the requested user-0 package presets; App List has enabled/disabled filtering; both snapshot lists expose confirmed local deletion; app-report notes prefill GitHub Details from the redacted preview. App inventory and post-disable verification target user 0, matching package actions (#233). These changes are unreleased. Focused regressions are `test:shell-bookmarks`, `test:app-state-filter`, `test:snapshot-delete`, and `test:app-report`.
 
 - **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.

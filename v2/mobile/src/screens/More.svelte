@@ -188,6 +188,7 @@
     {
       label: "Help",
       tools: [
+        { screen: "catalog", icon: "search", title: "Device & package catalog", desc: "Browse source profiles and package observations", pro: false },
         { screen: "riskguide", icon: "help", title: "Safety tiers & actions", desc: "What each tier and action means", pro: false },
       ],
     },

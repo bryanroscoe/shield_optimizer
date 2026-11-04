@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- **Device and package source catalog** — browse 427 device profiles and 1,971 package IDs from the bundled MIT-attributed source, with original keep/comment/disable context and pinned links. Available from Catalog on desktop, More on mobile and Research sources in package details. Source observations remain unreviewed and do not select apps or change removal verdicts.
+
 - Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
 
 - Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.

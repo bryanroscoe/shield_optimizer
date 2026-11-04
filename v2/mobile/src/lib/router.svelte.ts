@@ -24,6 +24,7 @@ export type Screen =
   | "snapshots"
   | "devices"
   | "riskguide"
+  | "catalog"
   | "files"
   | "backups";
 
@@ -62,6 +63,7 @@ function syncHistory(depth: number): void {
 
 class Router {
   stack = $state<Screen[]>(["onboarding"]);
+  catalogPackage = $state("");
 
   get current(): Screen {
     return this.stack[this.stack.length - 1];
@@ -78,9 +80,10 @@ class Router {
   /// Tab-aware navigation. Tabs re-root the stack under the dashboard so the
   /// Home tab always lands on the dashboard and back from any tab returns
   /// there; detail screens push onto the stack.
-  navigate(screen: Screen): void {
+  navigate(screen: Screen, packageQuery = ""): void {
     if (session.applyInProgress) return;
     if (screen === this.current) return;
+    if (screen === "catalog") this.catalogPackage = packageQuery;
     if (TABS.has(screen)) {
       this.stack =
         screen === "dashboard" ? ["dashboard"] : ["dashboard", screen];

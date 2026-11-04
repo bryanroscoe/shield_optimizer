@@ -1,10 +1,17 @@
 # CleanYourTV informational package leads
 
 This offline catalog preserves package observations from a pinned MIT source for
-research through ATV Optimizer's existing review process. Its intended consumer
-is a developer or reviewer using the read-only Python lookup below. Profile
-membership records what the upstream author wrote. Each result is unreviewed and
-non-actionable.
+research through ATV Optimizer's existing review process. The app's read-only
+source browser and the Python lookup below expose the original observations.
+Profile membership records what the upstream author wrote. Each result is
+unreviewed and non-actionable.
+
+The app also exposes a read-only source browser at Catalog on desktop and
+More → Device & package catalog on mobile. Package-detail links prefill a package
+identity and require the person to choose a source profile. This browser displays
+the selected upstream material without matching it to the connected TV. The full
+MIT notice is bundled in its Source attribution section. Core app lists, safety
+and support tiers retain their existing authorities.
 
 The source is Gathin23/cleanyourtv at commit
 `8672e68e8a24c1258e4662cd11daa4ed13795dad`. Full attribution and modification

@@ -515,6 +515,7 @@
         <a href="/snapshots" class:active={$page.url.pathname.startsWith("/snapshots")}>
           Snapshots
         </a>
+        <a href="/catalog" class:active={$page.url.pathname.startsWith("/catalog")}>Catalog</a>
       </nav>
       <div class="header-tools">
         <button
