@@ -159,6 +159,11 @@ doc that held them has been deleted.
   than it looks for this audience specifically: people installing a debloater already have reason
   to be suspicious, and a SmartScreen "this looks like malware" banner confirms the fear. Linux
   needs no signing. Setup notes for when we do this are at the top of `.github/workflows/v2-release.yml`.
+  Until then macOS builds are **ad-hoc signed as `com.shieldoptimizer.app`**
+  (`bundle.macOS.signingIdentity: "-"`), and the release fails if they aren't. Never ship the
+  linker-only signature: its identifier (`shield_optimizer_v2-<hash>`) changes every build, and macOS
+  keys the Local Network permission on that identifier, so every update silently cut the app (and
+  the adb server it starts) off from the TVs. A Developer ID costs Mac users one more re-grant.
 - **Update-key custody.** The Tauri updater signs with Ed25519, and **the private key must never
   rotate** — doing so breaks auto-update for every installed copy on an older version, permanently.
   There is no recovery path except telling users to reinstall by hand. Where the key lives, who can

@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- macOS: updates no longer lose Local Network access. Earlier builds carried a signature that changed with every version, so macOS treated each update as a new app and quietly blocked it from your TVs. The app is now signed under its own identifier, which stays the same from one update to the next. Updating from 2.4.1 or earlier still needs one last trip to System Settings → Privacy & Security → Local Network to turn ATV Optimizer on.
+
 - Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 
 - Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
