@@ -9,13 +9,23 @@
 #   - windows-latest → .msi + .exe
 # All artifacts land on a GitHub Release for the tag.
 #
-# Signing: intentionally unsigned. Users will see the macOS "unidentified
+# Signing: no paid certificates yet. Users will see the macOS "unidentified
 # developer" Gatekeeper prompt and the Windows SmartScreen warning on first
 # launch — both are dismissible. The README's "First launch" section
-# documents the workaround. When we're ready to add signing:
+# documents the workaround.
+#
+# macOS builds are ad-hoc signed as the app's bundle identifier
+# (bundle.macOS.signingIdentity "-" in tauri.conf.json), the stable identity
+# Apple's local network privacy guidance (TN3179) asks for. The linker-only
+# signature Rust leaves behind is named `shield_optimizer_v2-<hash>`, changes
+# with every build, and leaves the bundle itself unsigned. "Verify macOS
+# signing identifier" below enforces this.
+#
+# When we're ready to add signing:
 #   - SIGNING(macOS): set APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD,
 #     APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID as
 #     repo secrets and tauri-action picks them up automatically.
+#     APPLE_SIGNING_IDENTITY overrides the ad-hoc "-".
 #   - SIGNING(Windows): an EV cert ($300-500/yr) buys immediate SmartScreen
 #     trust. Add WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD and
 #     tauri-action signs the .msi / .exe.
@@ -107,6 +117,7 @@ jobs:
           body+="- **macOS** (Gatekeeper): the first-launch dialog on macOS 15+ only offers \"Move to Trash\" or \"Done\" — click **Done**, then either:"$'\n'
           body+="    - **Terminal:** \`xattr -dr com.apple.quarantine \"/Applications/ATV Optimizer.app\"\` (one-time, then double-click as normal)"$'\n'
           body+="    - **GUI:** System Settings → Privacy & Security → scroll to the \"ATV Optimizer was blocked\" message → **Open Anyway** → enter password"$'\n'
+          body+="- **macOS** (Local Network): click **Allow** when macOS asks to find devices on your local network. If no TV is found, click **Restart ADB**. If that doesn't help, open System Settings → Privacy & Security → Local Network, turn ATV Optimizer off and on again (every entry, if it's listed more than once), then click **Restart ADB** again."$'\n'
           body+="- **Windows** (SmartScreen): \"More info\" → \"Run anyway\"."$'\n'
           body+="- **Linux**: \`chmod +x ATV.Optimizer*.AppImage\` before running."$'\n\n'
           body+="See the [README](https://github.com/${{ github.repository }}#readme) for setup and feature docs."
@@ -207,6 +218,24 @@ jobs:
           prerelease: ${{ needs.notes.outputs.prerelease == 'true' }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
+
+      # A failure here also holds back the Homebrew bump and the updater
+      # manifest, which both need this job, so no installed copy updates to a
+      # build signed any other way. See the header.
+      - name: Verify macOS signing identifier
+        if: matrix.os == 'macos-latest'
+        working-directory: v2
+        run: |
+          set -euo pipefail
+          app="target/universal-apple-darwin/release/bundle/macos/ATV Optimizer.app"
+          expected=$(jq -r .identifier src-tauri/tauri.conf.json)
+          info=$(codesign -dv "$app" 2>&1)
+          echo "$info"
+          grep -qx "Identifier=$expected" <<<"$info" || {
+            echo "::error::macOS app is signed as '$(sed -n 's/^Identifier=//p' <<<"$info")', expected '$expected'"
+            exit 1
+          }
+          codesign --verify --deep --strict --verbose=2 "$app"
 
       # The AppImage bundles Ubuntu 22.04's libwayland-*, which shadows the
       # host's copy and breaks EGL display creation on newer Wayland stacks

@@ -38,6 +38,7 @@ this file and shows the newest few sections, dated, from its version button.
   now `atv-optimizer`, and `brew upgrade` moves you over.
 - The adb and subnet overrides are now `ATV_OPTIMIZER_ADB` and `ATV_OPTIMIZER_SUBNET`. The old
   `SHIELD_OPTIMIZER_*` names still work.
+- macOS: TVs no longer disappear after an update. The ADB server the previous version started kept running, and once the new version opened, macOS cut that server off from your network: every connection failed with "No route to host", even by IP, until ADB was restarted by hand. When the app can reach a TV that ADB can't, it now restarts ADB itself and tries again. The app is also signed under its own identifier now, instead of one that changed with every build.
 
 - Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 

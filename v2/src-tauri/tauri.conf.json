@@ -50,6 +50,9 @@
     "resources": [
       "resources/scrcpy-server-v3.1"
     ],
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "windows": {
       "wix": {
         "version": "2.4.1999",
