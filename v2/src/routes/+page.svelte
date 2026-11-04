@@ -567,6 +567,7 @@
       if (Date.now() - started >= PAIR_CONNECT_WAIT_S * 1000) {
         if (lastFailure) {
           const status = await freshLocalNetworkStatus(lastFailure.message);
+          if (token !== pairWaitToken) return;
           const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message, status);
           pairLocalNetwork = explained.localNetwork;
           fallBackToManual(
