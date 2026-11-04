@@ -60,9 +60,9 @@ pub struct LogControl {
     /// `None` when the file layer could not be created — the app still runs
     /// and still logs to stdout, the toggle just has nothing to switch.
     apply: Option<Box<dyn Fn(bool) -> bool + Send + Sync>>,
-    /// Dropping this stops the background writer flushing, so it has to live
-    /// as long as the app does.
-    _guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    /// Dropping this flushes the background writer and stops it, so it lives
+    /// until `flush_and_close` on exit.
+    guard: std::sync::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
 }
 
 impl LogControl {
@@ -72,6 +72,13 @@ impl LogControl {
 
     pub fn debug_enabled(&self) -> bool {
         self.debug.load(Ordering::Relaxed)
+    }
+
+    /// Flush the log file and stop writing it. Lines logged afterwards reach
+    /// stdout only. Called last thing on exit.
+    pub fn flush_and_close(&self) {
+        let guard = self.guard.lock().map(|mut g| g.take()).unwrap_or_default();
+        drop(guard);
     }
 }
 
@@ -115,7 +122,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
                 dir,
                 debug: AtomicBool::new(false),
                 apply: None,
-                _guard: None,
+                guard: std::sync::Mutex::new(None),
             };
         }
     };
@@ -141,7 +148,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
             let filter = EnvFilter::new(if debug { DEBUG_FILTER } else { INFO_FILTER });
             handle.reload(filter).is_ok()
         })),
-        _guard: Some(guard),
+        guard: std::sync::Mutex::new(Some(guard)),
     }
 }
 

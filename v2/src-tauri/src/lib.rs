@@ -36,20 +36,6 @@ use commands::{
 };
 use tauri::Manager;
 
-/// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
-/// subdirectory).
-///
-/// macOS: `~/Library/Application Support/ATVOptimizer`
-/// Linux: `~/.local/share/ATVOptimizer`
-/// Windows: `%LOCALAPPDATA%/ATVOptimizer`
-///
-/// Releases before 2.5 used `ShieldOptimizer`; `rename` copies it over.
-fn default_data_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(rename::DATA_DIR_NAME)
-}
-
 /// Driver used when no adb binary could be discovered at startup. Every call
 /// returns the actionable `BinaryNotFound` error so the UI tells the user
 /// exactly what to do.
@@ -202,13 +188,17 @@ pub fn run() {
 
     // Before logging, so the log opens in the new data folder with the old
     // logs already beside it, and before any webview exists, so the copied
-    // profile is the one it opens.
+    // profile is the one it opens. The data folder is `ATVOptimizer` under
+    // the local data dir (`~/Library/Application Support`, `%LOCALAPPDATA%`,
+    // `~/.local/share`), or the old `ShieldOptimizer` for a session whose
+    // copy failed, so the next launch tries again.
     let migration = rename::migrate_host();
+    let data_dir = migration.data_dir.clone();
+    rename::set_session_data_dir(data_dir.clone());
 
     // stdout *and* a rolling daily file under the data dir. A packaged app has
     // nowhere for stdout to go, so the file is the only copy that survives on
     // the machines where a bug actually happens.
-    let data_dir = default_data_dir();
     let log_control = diagnostics::init_logging(&data_dir);
     session::install(log_control.dir(), log_control.debug_enabled());
     migration.log();
@@ -280,6 +270,9 @@ pub fn run() {
                 if !control.is_restarting() {
                     rename_bundle_on_exit();
                 }
+                // The file writer is non-blocking; without this the last
+                // lines (the quit stop, the bundle rename) can be lost.
+                app.state::<diagnostics::LogControl>().flush_and_close();
             }
             _ => {}
         });

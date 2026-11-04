@@ -1,20 +1,30 @@
 //! Moving an existing install over from the Shield Optimizer names.
 //!
-//! Every release before this one used the identifier `com.shieldoptimizer.app`
+//! Every release before 2.5.0 used the identifier `com.shieldoptimizer.app`
 //! and the `ShieldOptimizer` data folder. The identifier decides where the
 //! WebView keeps its profile (every frontend setting is in its localStorage),
 //! so both have to be carried over or the update looks like a fresh install.
 //!
-//! The rules: act only when the old copy exists and the new one does not;
-//! copy, never move or delete, so the old data stays for a retry or a
-//! downgrade; build each copy in a temporary sibling and rename it into place,
-//! so a crash never leaves a half-filled folder that would block the retry;
-//! and treat every failure as something to log, never a reason not to start.
+//! The rules:
+//! - Copy, never move or delete, so the old data stays for a retry or a
+//!   downgrade.
+//! - Build each copy in a temporary sibling, write a completion marker into
+//!   it, then rename it into place. A folder without the marker is not a
+//!   finished copy, whoever made it.
+//! - If the data folder cannot be copied, run this session on the old one,
+//!   so nothing creates the new folder and the next launch really retries.
+//! - Copy the WebView profile once. The data folder records that it was done,
+//!   so a profile the user or an uninstaller deletes later is not refilled
+//!   with the old settings.
+//! - Every failure is logged, never a reason not to start.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::{Duration, SystemTime};
 
 /// The app data folder, under the OS's local data directory.
 pub const DATA_DIR_NAME: &str = "ATVOptimizer";
@@ -28,17 +38,23 @@ pub const LEGACY_ADB_ENV: &str = "SHIELD_OPTIMIZER_ADB";
 pub const SUBNET_ENV: &str = "ATV_OPTIMIZER_SUBNET";
 pub const LEGACY_SUBNET_ENV: &str = "SHIELD_OPTIMIZER_SUBNET";
 
+/// Written into a copy just before it is renamed into place.
+const MARKER: &str = ".atvoptimizer-migrated";
+/// Written into the data folder once the WebView profile has been copied.
+const PROFILE_DONE: &str = ".webview-profile-migrated";
+
 /// Daily log files written before the rename start with this.
 const LEGACY_LOG_PREFIX: &str = "shield-optimizer.";
 
-/// Data-folder entries that are not copied. Both are downloads the app can
-/// fetch again, and a running adb server keeps files open in them on Windows.
-/// The old platform-tools stay usable where they are (see `adb::install`).
-const DATA_DIR_SKIP: &[&str] = &["platform-tools", "native-adb"];
+/// Not copied: a download the app can fetch again, which a running adb
+/// server keeps open on Windows. The old copy stays usable where it is (see
+/// `adb::install`). `native-adb/` holds the native ADB identity key and is
+/// copied.
+const DATA_DIR_SKIP: &[&str] = &["platform-tools"];
 
 /// WebView profile entries that are caches or locks, at any depth. Chromium
-/// (WebView2) and WebKitGTK rebuild them; copying them only costs time and,
-/// for a lock file, can fail outright.
+/// (WebView2), leveldb and WebKitGTK rebuild them; copying them only costs
+/// time and, for a lock file, can fail outright.
 const PROFILE_SKIP: &[&str] = &[
     "Cache",
     "Code Cache",
@@ -51,10 +67,18 @@ const PROFILE_SKIP: &[&str] = &[
     "DawnWebGPUCache",
     "Crashpad",
     "lockfile",
+    "LOCK",
     "WebKitCache",
 ];
 
 const TEMP_SUFFIX: &str = ".migrating-";
+const SET_ASIDE_SUFFIX: &str = ".unmigrated-";
+
+/// Waits between tries of the final rename. Antivirus scanners and the
+/// Windows indexer briefly hold new files open.
+const RENAME_BACKOFF_MS: &[u64] = &[100, 200, 400, 800, 1600];
+/// How long to wait before copying again when the source changed under us.
+const RECOPY_DELAY: Duration = Duration::from_secs(1);
 
 /// `name`, or the variable's pre-rename spelling when `name` is unset.
 fn env_with_legacy(name: &str, legacy: &str) -> Option<OsString> {
@@ -69,6 +93,22 @@ pub fn adb_override() -> Option<PathBuf> {
 /// The user's scan subnet: `ATV_OPTIMIZER_SUBNET`, else the old name.
 pub fn subnet_override() -> Option<String> {
     env_with_legacy(SUBNET_ENV, LEGACY_SUBNET_ENV).and_then(|v| v.into_string().ok())
+}
+
+static SESSION_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// The data folder this session uses: the new one, or the old one when the
+/// copy failed. Set once by `run()`.
+pub fn set_session_data_dir(dir: PathBuf) {
+    let _ = SESSION_DATA_DIR.set(dir);
+}
+
+/// The session's data folder, or the new one when `run()` has not chosen.
+pub fn session_data_dir() -> Option<PathBuf> {
+    SESSION_DATA_DIR
+        .get()
+        .cloned()
+        .or_else(|| dirs::data_local_dir().map(|d| d.join(DATA_DIR_NAME)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,18 +130,19 @@ impl Os {
     }
 }
 
-/// One folder to carry over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Data,
+    Profile,
+}
+
+/// Where the old and new copies live.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Item {
-    pub label: &'static str,
-    pub old: PathBuf,
-    pub new: PathBuf,
-    /// Skipped when found directly inside `old`.
-    skip_top: &'static [&'static str],
-    /// Skipped wherever they are found.
-    skip_any: &'static [&'static str],
-    /// Rename `logs/shield-optimizer.*` so log rotation keeps counting them.
-    rename_logs: bool,
+pub struct Layout {
+    pub data_old: PathBuf,
+    pub data_new: PathBuf,
+    pub profile_old: PathBuf,
+    pub profile_new: PathBuf,
 }
 
 /// The folders to carry over on `os`.
@@ -112,79 +153,100 @@ pub struct Item {
 /// `<data_local>/<identifier>` (WebView2 adds `EBWebView` inside it); WKWebView
 /// on macOS keeps it in `~/Library/WebKit/<bundle identifier>`, with the HTTP
 /// cache separately in `~/Library/Caches`, which is not copied.
-pub fn items(os: Os, data_local: &Path, home: &Path) -> Vec<Item> {
+pub fn layout(os: Os, data_local: &Path, home: &Path) -> Layout {
     let profile_root = match os {
         Os::Mac => home.join("Library").join("WebKit"),
         Os::Windows | Os::Linux => data_local.to_path_buf(),
     };
-    vec![
-        Item {
-            label: "data folder",
-            old: data_local.join(LEGACY_DATA_DIR_NAME),
-            new: data_local.join(DATA_DIR_NAME),
-            skip_top: DATA_DIR_SKIP,
-            skip_any: &[],
-            rename_logs: true,
-        },
-        Item {
-            label: "webview profile",
-            old: profile_root.join(LEGACY_IDENTIFIER),
-            new: profile_root.join(IDENTIFIER),
-            skip_top: &[],
-            skip_any: PROFILE_SKIP,
-            rename_logs: false,
-        },
-    ]
+    Layout {
+        data_old: data_local.join(LEGACY_DATA_DIR_NAME),
+        data_new: data_local.join(DATA_DIR_NAME),
+        profile_old: profile_root.join(LEGACY_IDENTIFIER),
+        profile_new: profile_root.join(IDENTIFIER),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     /// No old copy: a fresh install.
     NothingToMigrate,
-    /// The new folder exists already; nothing was touched.
-    AlreadyPresent,
-    Copied {
-        files: u64,
-        bytes: u64,
-        skipped: Vec<String>,
+    /// Done on an earlier launch; nothing was touched.
+    AlreadyMigrated,
+    Copied(Stats),
+    /// The new data folder already existed without a completion marker. Old
+    /// entries it lacked were copied in, and the old `telemetry.json` won.
+    Merged(Stats),
+    /// The new profile already existed without a completion marker (the
+    /// WebView made it after a failed copy). It was renamed to `set_aside`
+    /// and the old profile copied again.
+    Recopied {
+        set_aside: PathBuf,
+        stats: Stats,
     },
-    /// The new folder was not created; the old one is unchanged.
+    /// Nothing usable was created; the old data is unchanged and the next
+    /// launch tries again. For the data folder this session uses the old one.
     Failed(String),
 }
 
-#[derive(Debug, Default)]
-pub struct Report {
-    pub entries: Vec<(Item, Outcome)>,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Stats {
+    pub files: u64,
+    pub bytes: u64,
+    /// Skipped by rule, plus non-essential entries that could not be read.
+    pub skipped: Vec<String>,
 }
 
-impl Report {
-    /// Write the report to the log. Called once logging is up, which is
-    /// after the migration so the logs land in the new folder.
+#[derive(Debug)]
+pub struct Migration {
+    /// The data folder this session should use.
+    pub data_dir: PathBuf,
+    pub data: (PathBuf, PathBuf, Outcome),
+    pub profile: (PathBuf, PathBuf, Outcome),
+}
+
+impl Migration {
+    /// Write the outcome to the log. Called once logging is up, which is
+    /// after the migration so the logs land in the session's data folder.
     pub fn log(&self) {
-        for (item, outcome) in &self.entries {
+        for (label, (old, new, outcome)) in [
+            ("data folder", &self.data),
+            ("webview profile", &self.profile),
+        ] {
             match outcome {
-                Outcome::NothingToMigrate | Outcome::AlreadyPresent => tracing::debug!(
-                    item = item.label,
-                    outcome = ?outcome,
-                    "rename migration"
-                ),
-                Outcome::Copied {
-                    files,
-                    bytes,
-                    skipped,
-                } => tracing::info!(
-                    item = item.label,
-                    from = %item.old.display(),
-                    to = %item.new.display(),
-                    files,
-                    bytes,
-                    skipped = ?skipped,
+                Outcome::NothingToMigrate | Outcome::AlreadyMigrated => {
+                    tracing::debug!(item = label, outcome = ?outcome, "rename migration")
+                }
+                Outcome::Copied(stats) => tracing::info!(
+                    item = label,
+                    from = %old.display(),
+                    to = %new.display(),
+                    files = stats.files,
+                    bytes = stats.bytes,
+                    skipped = ?stats.skipped,
                     "rename migration copied"
                 ),
+                Outcome::Merged(stats) => tracing::warn!(
+                    item = label,
+                    from = %old.display(),
+                    to = %new.display(),
+                    files = stats.files,
+                    skipped = ?stats.skipped,
+                    "rename migration: the new folder existed without a completion marker; merged the old entries it lacked"
+                ),
+                Outcome::Recopied { set_aside, stats } => tracing::warn!(
+                    item = label,
+                    from = %old.display(),
+                    to = %new.display(),
+                    set_aside = %set_aside.display(),
+                    files = stats.files,
+                    skipped = ?stats.skipped,
+                    "rename migration: the new profile existed without a completion marker; set it aside and copied again"
+                ),
                 Outcome::Failed(error) => tracing::warn!(
-                    item = item.label,
-                    from = %item.old.display(),
-                    to = %item.new.display(),
+                    item = label,
+                    from = %old.display(),
+                    to = %new.display(),
+                    session_data_dir = %self.data_dir.display(),
                     error = %error,
                     "rename migration failed; the old data is untouched and it will be tried again next launch"
                 ),
@@ -193,77 +255,240 @@ impl Report {
     }
 }
 
-/// Carry every item over. Never panics and never fails the launch.
-pub fn migrate(items: &[Item]) -> Report {
-    Report {
-        entries: items
-            .iter()
-            .map(|item| (item.clone(), migrate_item(item)))
-            .collect(),
+/// Carry the data folder, then the profile, over. Never panics and never
+/// fails the launch.
+pub fn migrate(layout: &Layout) -> Migration {
+    let (data_outcome, data_dir) = migrate_data(&layout.data_old, &layout.data_new);
+    let record = (data_dir == layout.data_new).then_some(data_dir.as_path());
+    let profile_outcome = migrate_profile(&layout.profile_old, &layout.profile_new, record);
+    Migration {
+        data: (
+            layout.data_old.clone(),
+            layout.data_new.clone(),
+            data_outcome,
+        ),
+        profile: (
+            layout.profile_old.clone(),
+            layout.profile_new.clone(),
+            profile_outcome,
+        ),
+        data_dir,
     }
 }
 
 /// The host's folders, for `run()`.
-pub fn migrate_host() -> Report {
-    match (dirs::data_local_dir(), dirs::home_dir()) {
-        (Some(data_local), Some(home)) => migrate(&items(Os::host(), &data_local, &home)),
-        _ => Report::default(),
+pub fn migrate_host() -> Migration {
+    let Some(data_local) = dirs::data_local_dir() else {
+        let data_dir = PathBuf::from(".").join(DATA_DIR_NAME);
+        return Migration {
+            data: (PathBuf::new(), data_dir.clone(), Outcome::NothingToMigrate),
+            profile: (PathBuf::new(), PathBuf::new(), Outcome::NothingToMigrate),
+            data_dir,
+        };
+    };
+    let home = dirs::home_dir().unwrap_or_else(|| data_local.clone());
+    migrate(&layout(Os::host(), &data_local, &home))
+}
+
+fn exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
+fn marked(dir: &Path) -> bool {
+    dir.join(MARKER).is_file()
+}
+
+/// Returns the outcome and the data folder the session should use.
+fn migrate_data(old: &Path, new: &Path) -> (Outcome, PathBuf) {
+    if !old.is_dir() {
+        return (Outcome::NothingToMigrate, new.to_path_buf());
+    }
+    if marked(new) {
+        remove_stale_temps(new);
+        return (Outcome::AlreadyMigrated, new.to_path_buf());
+    }
+    if exists(new) {
+        return match merge_into(old, new) {
+            Ok(stats) => (Outcome::Merged(stats), new.to_path_buf()),
+            Err(e) => (Outcome::Failed(e.to_string()), old.to_path_buf()),
+        };
+    }
+    match copy_fresh(Kind::Data, old, new) {
+        Ok(stats) => (Outcome::Copied(stats), new.to_path_buf()),
+        Err(e) => (Outcome::Failed(e.to_string()), old.to_path_buf()),
     }
 }
 
-fn migrate_item(item: &Item) -> Outcome {
-    if !item.old.is_dir() {
+/// `record` is the new data folder when this session uses it; the profile's
+/// completion is noted there.
+fn migrate_profile(old: &Path, new: &Path, record: Option<&Path>) -> Outcome {
+    if record.is_some_and(|data| data.join(PROFILE_DONE).is_file()) {
+        return Outcome::AlreadyMigrated;
+    }
+    if !old.is_dir() {
         return Outcome::NothingToMigrate;
     }
-    if std::fs::symlink_metadata(&item.new).is_ok() {
-        remove_stale_temps(&item.new);
-        return Outcome::AlreadyPresent;
+    let note_done = || {
+        if let Some(data) = record {
+            let _ = std::fs::create_dir_all(data);
+            let _ = std::fs::write(data.join(PROFILE_DONE), marker_text(old));
+        }
+    };
+    if marked(new) {
+        remove_stale_temps(new);
+        note_done();
+        return Outcome::AlreadyMigrated;
     }
-    let temp = temp_path(&item.new, std::process::id());
-    match copy_into_place(item, &temp) {
+    let set_aside = if exists(new) {
+        let aside = set_aside_path(new);
+        if let Err(e) = rename_with_retry(new, &aside) {
+            return Outcome::Failed(StepError::new("set aside", new, e).to_string());
+        }
+        Some(aside)
+    } else {
+        None
+    };
+    match copy_fresh(Kind::Profile, old, new) {
         Ok(stats) => {
-            remove_stale_temps(&item.new);
-            Outcome::Copied {
-                files: stats.files,
-                bytes: stats.bytes,
-                skipped: stats.skipped,
+            note_done();
+            match set_aside {
+                Some(set_aside) => Outcome::Recopied { set_aside, stats },
+                None => Outcome::Copied(stats),
             }
         }
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&temp);
-            Outcome::Failed(e.to_string())
-        }
+        Err(e) => Outcome::Failed(e.to_string()),
     }
 }
 
-fn copy_into_place(item: &Item, temp: &Path) -> Result<Stats, StepError> {
-    if let Some(parent) = item.new.parent() {
+fn marker_text(old: &Path) -> String {
+    format!(
+        "copied from {} by ATV Optimizer {} at {}\n",
+        old.display(),
+        env!("CARGO_PKG_VERSION"),
+        chrono::Utc::now().to_rfc3339()
+    )
+}
+
+fn set_aside_path(new: &Path) -> PathBuf {
+    let name = new
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let mut candidate = new.with_file_name(format!("{name}{SET_ASIDE_SUFFIX}{stamp}"));
+    let mut n = 2;
+    while exists(&candidate) {
+        candidate = new.with_file_name(format!("{name}{SET_ASIDE_SUFFIX}{stamp}-{n}"));
+        n += 1;
+    }
+    candidate
+}
+
+/// Copy `old` to a new `new`, through a temp sibling, retrying once if the
+/// source changed during the copy.
+fn copy_fresh(kind: Kind, old: &Path, new: &Path) -> Result<Stats, StepError> {
+    if let Some(parent) = new.parent() {
         std::fs::create_dir_all(parent).map_err(|e| StepError::new("create", parent, e))?;
     }
+    let temp = temp_path(new, std::process::id());
+    let mut last = None;
+    for attempt in 0..2 {
+        if attempt > 0 {
+            std::thread::sleep(RECOPY_DELAY);
+        }
+        match copy_once(kind, old, new, &temp) {
+            Ok(stats) => {
+                remove_stale_temps(new);
+                return Ok(stats);
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&temp);
+                let retry = e.step == "verify";
+                last = Some(e);
+                if !retry {
+                    break;
+                }
+            }
+        }
+    }
+    Err(last.expect("at least one attempt"))
+}
+
+fn copy_once(kind: Kind, old: &Path, new: &Path, temp: &Path) -> Result<Stats, StepError> {
     // Only this process's own leftover: another process could be mid-copy in
     // a temp of its own.
-    if std::fs::symlink_metadata(temp).is_ok() {
+    if exists(temp) {
         std::fs::remove_dir_all(temp).map_err(|e| StepError::new("clear", temp, e))?;
     }
+    let before = fingerprint(kind, old);
     let mut stats = Stats::default();
     std::fs::create_dir(temp).map_err(|e| StepError::new("create", temp, e))?;
-    copy_tree(&item.old, temp, item, true, &mut stats)?;
-    if item.rename_logs {
-        rename_legacy_logs(&temp.join(crate::commands::diagnostics::LOG_DIR_NAME));
+    copy_dir_permissions(old, temp);
+    copy_tree(kind, old, temp, Path::new(""), false, &mut stats)?;
+    if fingerprint(kind, old) != before {
+        return Err(StepError::new(
+            "verify",
+            old,
+            io::Error::other("the old folder changed while it was being copied"),
+        ));
     }
-    std::fs::rename(temp, &item.new).map_err(|e| StepError::new("rename", temp, e))?;
+    std::fs::write(temp.join(MARKER), marker_text(old))
+        .map_err(|e| StepError::new("mark", temp, e))?;
+    rename_with_retry(temp, new).map_err(|e| StepError::new("rename", temp, e))?;
     Ok(stats)
 }
 
-#[derive(Debug, Default)]
-struct Stats {
-    files: u64,
-    bytes: u64,
-    skipped: Vec<String>,
+/// Fill a new data folder that exists without a marker: copy the old entries
+/// it lacks, take the old `telemetry.json` (so the install id and the user's
+/// opt-out survive), and mark it done.
+fn merge_into(old: &Path, new: &Path) -> Result<Stats, StepError> {
+    let before = fingerprint(Kind::Data, old);
+    let mut stats = Stats::default();
+    copy_tree(Kind::Data, old, new, Path::new(""), true, &mut stats)?;
+    let telemetry = old.join("telemetry.json");
+    if telemetry.is_file() {
+        let staged = new.join(format!("telemetry.json{TEMP_SUFFIX}{}", std::process::id()));
+        std::fs::copy(&telemetry, &staged).map_err(|e| StepError::new("copy", &telemetry, e))?;
+        keep_modified_time(&telemetry, &staged);
+        rename_with_retry(&staged, &new.join("telemetry.json")).map_err(|e| {
+            let _ = std::fs::remove_file(&staged);
+            StepError::new("rename", &staged, e)
+        })?;
+    }
+    if fingerprint(Kind::Data, old) != before {
+        return Err(StepError::new(
+            "verify",
+            old,
+            io::Error::other("the old folder changed while it was being merged"),
+        ));
+    }
+    std::fs::write(new.join(MARKER), marker_text(old))
+        .map_err(|e| StepError::new("mark", new, e))?;
+    Ok(stats)
+}
+
+fn rename_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+    let mut delays = RENAME_BACKOFF_MS.iter();
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if is_transient(&e) => match delays.next() {
+                Some(ms) => std::thread::sleep(Duration::from_millis(*ms)),
+                None => return Err(e),
+            },
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+/// Access denied or a sharing violation (Windows error 32): a scanner has
+/// the file open for a moment.
+fn is_transient(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::PermissionDenied || (cfg!(windows) && e.raw_os_error() == Some(32))
 }
 
 #[derive(Debug)]
-struct StepError {
+pub struct StepError {
     step: &'static str,
     path: PathBuf,
     source: io::Error,
@@ -285,44 +510,175 @@ impl fmt::Display for StepError {
     }
 }
 
-/// Copy `from` into the existing directory `to`. Symlinks and special files
-/// are skipped rather than followed, so nothing outside `from` is read.
+fn is_skipped(kind: Kind, rel: &Path, name: &str) -> bool {
+    match kind {
+        Kind::Data => rel.as_os_str().is_empty() && DATA_DIR_SKIP.contains(&name),
+        Kind::Profile => PROFILE_SKIP.contains(&name),
+    }
+}
+
+/// What the copy cannot do without: losing any of these loses the user's
+/// snapshots, report id and opt-out, launcher bookkeeping or settings.
+fn is_essential(kind: Kind, rel: &Path) -> bool {
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    match kind {
+        Kind::Data => match parts.first().map(String::as_str) {
+            Some("snapshots") => true,
+            Some("telemetry.json" | "disabled-home-handlers.json") => parts.len() == 1,
+            _ => false,
+        },
+        Kind::Profile => {
+            parts.iter().any(|p| {
+                let p = p.to_ascii_lowercase();
+                p == "localstorage" || p == "local storage"
+            }) || parts.ends_with(&["WebsiteData".into(), "Default".into(), "salt".into()])
+        }
+    }
+}
+
+/// Every file to be copied, with its size and modification time.
+fn fingerprint(kind: Kind, root: &Path) -> BTreeMap<PathBuf, (u64, Option<SystemTime>)> {
+    fn walk(
+        kind: Kind,
+        root: &Path,
+        rel: &Path,
+        out: &mut BTreeMap<PathBuf, (u64, Option<SystemTime>)>,
+    ) {
+        let Ok(entries) = std::fs::read_dir(root.join(rel)) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if is_skipped(kind, rel, &name.to_string_lossy()) {
+                continue;
+            }
+            let child = rel.join(&name);
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.is_dir() {
+                walk(kind, root, &child, out);
+            } else if meta.is_file() {
+                out.insert(child, (meta.len(), meta.modified().ok()));
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(kind, root, Path::new(""), &mut out);
+    out
+}
+
+/// Copy the directory `from_root/rel` into `to_root/rel'`. In merge mode an
+/// existing destination file is kept and an existing directory is merged
+/// into. Symlinks and special files are skipped rather than followed, so
+/// nothing outside the old folder is read. A failure on an essential entry
+/// fails the copy; any other is skipped and listed.
 fn copy_tree(
-    from: &Path,
-    to: &Path,
-    item: &Item,
-    top: bool,
+    kind: Kind,
+    from_root: &Path,
+    to_root: &Path,
+    rel: &Path,
+    merge: bool,
     stats: &mut Stats,
 ) -> Result<(), StepError> {
-    let entries = std::fs::read_dir(from).map_err(|e| StepError::new("read", from, e))?;
+    let from = from_root.join(rel);
+    let entries = match std::fs::read_dir(&from) {
+        Ok(entries) => entries,
+        Err(e) => return tolerate(kind, rel, StepError::new("read", &from, e), stats),
+    };
     for entry in entries {
-        let entry = entry.map_err(|e| StepError::new("read", from, e))?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                tolerate(kind, rel, StepError::new("read", &from, e), stats)?;
+                continue;
+            }
+        };
         let name = entry.file_name();
-        let src = entry.path();
-        let dst = to.join(&name);
-        let name_str = name.to_string_lossy();
-        if (top && item.skip_top.iter().any(|s| *s == name_str))
-            || item.skip_any.iter().any(|s| *s == name_str)
-        {
-            stats.skipped.push(display_rel(&item.old, &src));
+        let name_str = name.to_string_lossy().into_owned();
+        let child = rel.join(&name);
+        if is_skipped(kind, rel, &name_str) {
+            stats.skipped.push(display(&child));
             continue;
         }
-        let file_type = entry
-            .file_type()
-            .map_err(|e| StepError::new("stat", &src, e))?;
+        let src = entry.path();
+        let dst = to_root.join(rel).join(dest_name(kind, rel, &name));
+        let file_type = match entry.file_type() {
+            Ok(t) => t,
+            Err(e) => {
+                tolerate(kind, &child, StepError::new("stat", &src, e), stats)?;
+                continue;
+            }
+        };
         if file_type.is_dir() {
-            std::fs::create_dir(&dst).map_err(|e| StepError::new("create", &dst, e))?;
-            copy_tree(&src, &dst, item, false, stats)?;
+            if !(merge && dst.is_dir()) {
+                if let Err(e) = std::fs::create_dir(&dst) {
+                    tolerate(kind, &child, StepError::new("create", &dst, e), stats)?;
+                    continue;
+                }
+                copy_dir_permissions(&src, &dst);
+            }
+            copy_tree(kind, from_root, to_root, &child, merge, stats)?;
         } else if file_type.is_file() {
-            let bytes = std::fs::copy(&src, &dst).map_err(|e| StepError::new("copy", &src, e))?;
-            keep_modified_time(&src, &dst);
-            stats.files += 1;
-            stats.bytes += bytes;
+            if merge && exists(&dst) {
+                continue;
+            }
+            match std::fs::copy(&src, &dst) {
+                Ok(bytes) => {
+                    keep_modified_time(&src, &dst);
+                    stats.files += 1;
+                    stats.bytes += bytes;
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&dst);
+                    tolerate(kind, &child, StepError::new("copy", &src, e), stats)?;
+                }
+            }
         } else {
-            stats.skipped.push(display_rel(&item.old, &src));
+            stats.skipped.push(display(&child));
         }
     }
     Ok(())
+}
+
+/// Fail on an essential entry; skip and list anything else.
+fn tolerate(kind: Kind, rel: &Path, error: StepError, stats: &mut Stats) -> Result<(), StepError> {
+    if is_essential(kind, rel) || rel.as_os_str().is_empty() {
+        Err(error)
+    } else {
+        stats
+            .skipped
+            .push(format!("{} ({})", display(rel), error.source));
+        Ok(())
+    }
+}
+
+/// `logs/shield-optimizer.2026-11-04.log` is copied as
+/// `logs/atv-optimizer.2026-11-04.log`, so the appender's keep-seven rotation
+/// covers the old files too.
+fn dest_name(kind: Kind, rel: &Path, name: &std::ffi::OsStr) -> OsString {
+    let in_logs =
+        kind == Kind::Data && rel == Path::new(crate::commands::diagnostics::LOG_DIR_NAME);
+    match name
+        .to_str()
+        .and_then(|n| n.strip_prefix(LEGACY_LOG_PREFIX))
+    {
+        Some(rest) if in_logs => {
+            format!("{}.{rest}", crate::commands::diagnostics::LOG_FILE_PREFIX).into()
+        }
+        _ => name.to_os_string(),
+    }
+}
+
+/// `native-adb/` is private to its owner; a copy must not be readable by
+/// anyone the original was not.
+fn copy_dir_permissions(src: &Path, dst: &Path) {
+    if let Ok(meta) = std::fs::metadata(src) {
+        let _ = std::fs::set_permissions(dst, meta.permissions());
+    }
 }
 
 /// The newest-log lookup in diagnostics goes by modification time, and on
@@ -336,36 +692,8 @@ fn keep_modified_time(src: &Path, dst: &Path) {
     }
 }
 
-fn display_rel(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
-}
-
-/// `shield-optimizer.2026-11-04.log` becomes `atv-optimizer.2026-11-04.log`,
-/// so the appender's keep-seven rotation covers the old files too. A name
-/// already taken keeps the old spelling.
-fn rename_legacy_logs(logs: &Path) {
-    let Ok(entries) = std::fs::read_dir(logs) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(rest) = name
-            .to_str()
-            .and_then(|n| n.strip_prefix(LEGACY_LOG_PREFIX))
-        else {
-            continue;
-        };
-        let renamed = logs.join(format!(
-            "{}.{rest}",
-            crate::commands::diagnostics::LOG_FILE_PREFIX
-        ));
-        if std::fs::symlink_metadata(&renamed).is_err() {
-            let _ = std::fs::rename(entry.path(), renamed);
-        }
-    }
+fn display(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 fn temp_path(new: &Path, pid: u32) -> PathBuf {
@@ -505,8 +833,8 @@ mod tests {
         std::fs::write(path, body).unwrap();
     }
 
-    fn data_item(root: &Path) -> Item {
-        items(Os::Linux, root, root).remove(0)
+    fn read(path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap()
     }
 
     /// Every file under `dir`, relative, with its contents.
@@ -514,11 +842,12 @@ mod tests {
         fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) {
             for entry in std::fs::read_dir(dir).unwrap().flatten() {
                 let path = entry.path();
+                let rel = display(path.strip_prefix(root).unwrap());
                 if entry.file_type().unwrap().is_dir() {
-                    out.push((display_rel(root, &path) + "/", Vec::new()));
+                    out.push((rel + "/", Vec::new()));
                     walk(root, &path, out);
                 } else {
-                    out.push((display_rel(root, &path), std::fs::read(&path).unwrap()));
+                    out.push((rel, std::fs::read(&path).unwrap()));
                 }
             }
         }
@@ -528,13 +857,20 @@ mod tests {
         out
     }
 
-    fn old_install(root: &Path) -> PathBuf {
-        let old = root.join(LEGACY_DATA_DIR_NAME);
+    fn host(root: &Path) -> Layout {
+        layout(Os::Mac, &root.join("data"), &root.join("home"))
+    }
+
+    const OLD_TELEMETRY: &str = "{\"enabled\":false,\"install_id\":\"abc\"}";
+    const MAC_STORE: &str = "WebsiteData/Default/h/h/LocalStorage/localstorage.sqlite3";
+
+    fn old_install(l: &Layout) {
+        let old = &l.data_old;
         write(
             &old.join("snapshots/living-room.json"),
             "{\"schema_version\":3}",
         );
-        write(&old.join("telemetry.json"), "{\"install_id\":\"abc\"}");
+        write(&old.join("telemetry.json"), OLD_TELEMETRY);
         write(&old.join("support-tiers.json"), "{}");
         write(&old.join("disabled-home-handlers.json"), "{}");
         write(&old.join("screenshots/TV.png"), "png");
@@ -544,8 +880,38 @@ mod tests {
         );
         write(&old.join("logs/sessions/s.jsonl"), "{}\n");
         write(&old.join("platform-tools/adb"), "binary");
-        write(&old.join("native-adb/key"), "secret");
-        old
+        write(&old.join("native-adb/identity.pkcs8.pem"), "key");
+        write(&l.profile_old.join(MAC_STORE), "settings");
+        write(&l.profile_old.join("WebsiteData/Default/salt"), "salt");
+    }
+
+    /// What the app writes into a data folder on a launch that did not copy.
+    fn fresh_app_data(dir: &Path) {
+        write(
+            &dir.join("telemetry.json"),
+            "{\"enabled\":true,\"install_id\":\"new\"}",
+        );
+        write(&dir.join("logs/atv-optimizer.2026-11-04.log"), "new log\n");
+    }
+
+    fn no_temps(root: &Path) -> bool {
+        std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().contains(TEMP_SUFFIX))
+    }
+
+    #[cfg(unix)]
+    fn set_mode(path: &Path, mode: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    /// Root reads everything, so permission-based failures cannot be staged.
+    #[cfg(unix)]
+    fn unreadable(path: &Path) -> bool {
+        set_mode(path, 0o000);
+        std::fs::read(path).is_err()
     }
 
     #[test]
@@ -559,57 +925,60 @@ mod tests {
     fn layouts_follow_each_os() {
         let data = Path::new("/d");
         let home = Path::new("/h");
-        let mac = items(Os::Mac, data, home);
-        assert_eq!(mac[0].old, Path::new("/d/ShieldOptimizer"));
-        assert_eq!(mac[0].new, Path::new("/d/ATVOptimizer"));
+        let mac = layout(Os::Mac, data, home);
+        assert_eq!(mac.data_old, Path::new("/d/ShieldOptimizer"));
+        assert_eq!(mac.data_new, Path::new("/d/ATVOptimizer"));
         assert_eq!(
-            mac[1].old,
+            mac.profile_old,
             Path::new("/h/Library/WebKit/com.shieldoptimizer.app")
         );
         assert_eq!(
-            mac[1].new,
+            mac.profile_new,
             Path::new("/h/Library/WebKit/com.atvoptimizer.app")
         );
         for os in [Os::Windows, Os::Linux] {
-            let other = items(os, data, home);
-            assert_eq!(other[1].old, Path::new("/d/com.shieldoptimizer.app"));
-            assert_eq!(other[1].new, Path::new("/d/com.atvoptimizer.app"));
+            let other = layout(os, data, home);
+            assert_eq!(other.profile_old, Path::new("/d/com.shieldoptimizer.app"));
+            assert_eq!(other.profile_new, Path::new("/d/com.atvoptimizer.app"));
         }
     }
 
     #[test]
     fn a_fresh_install_has_nothing_to_migrate() {
         let root = tempfile::tempdir().unwrap();
-        let report = migrate(&items(Os::Linux, root.path(), root.path()));
-        assert!(report
-            .entries
-            .iter()
-            .all(|(_, o)| *o == Outcome::NothingToMigrate));
-        assert!(!root.path().join(DATA_DIR_NAME).exists());
+        let l = host(root.path());
+        let m = migrate(&l);
+        assert_eq!(m.data.2, Outcome::NothingToMigrate);
+        assert_eq!(m.profile.2, Outcome::NothingToMigrate);
+        assert_eq!(m.data_dir, l.data_new);
+        assert!(!l.data_new.exists());
+        assert!(!l.profile_new.exists());
     }
 
     #[test]
-    fn an_old_install_is_copied_and_left_untouched() {
+    fn an_old_install_is_copied_marked_and_left_untouched() {
         let root = tempfile::tempdir().unwrap();
-        let old = old_install(root.path());
-        let before = tree(&old);
+        let l = host(root.path());
+        old_install(&l);
+        let before = (tree(&l.data_old), tree(&l.profile_old));
 
-        let outcome = migrate_item(&data_item(root.path()));
+        let m = migrate(&l);
 
-        let Outcome::Copied { files, skipped, .. } = &outcome else {
-            panic!("{outcome:?}");
+        let Outcome::Copied(stats) = &m.data.2 else {
+            panic!("{:?}", m.data.2);
         };
-        assert_eq!(*files, 7);
-        let mut skipped = skipped.clone();
-        skipped.sort();
-        assert_eq!(skipped, ["native-adb", "platform-tools"]);
-        assert_eq!(tree(&old), before, "the old folder changed");
-
-        let new = root.path().join(DATA_DIR_NAME);
-        assert_eq!(
-            std::fs::read_to_string(new.join("telemetry.json")).unwrap(),
-            "{\"install_id\":\"abc\"}"
+        assert_eq!(stats.files, 8);
+        assert_eq!(stats.skipped, ["platform-tools"]);
+        assert!(
+            matches!(m.profile.2, Outcome::Copied(_)),
+            "{:?}",
+            m.profile.2
         );
+        assert_eq!(m.data_dir, l.data_new);
+        assert_eq!((tree(&l.data_old), tree(&l.profile_old)), before);
+
+        let new = &l.data_new;
+        assert_eq!(read(&new.join("telemetry.json")), OLD_TELEMETRY);
         for kept in [
             "snapshots/living-room.json",
             "support-tiers.json",
@@ -617,20 +986,239 @@ mod tests {
             "screenshots/TV.png",
             "logs/sessions/s.jsonl",
             "logs/atv-optimizer.2026-11-03.log",
+            "native-adb/identity.pkcs8.pem",
+            MARKER,
+            PROFILE_DONE,
         ] {
             assert!(new.join(kept).is_file(), "{kept} missing");
         }
         assert!(!new.join("logs/shield-optimizer.2026-11-03.log").exists());
         assert!(!new.join("platform-tools").exists());
-        assert!(!new.join("native-adb").exists());
-        assert!(no_temps(root.path()));
+        assert_eq!(read(&l.profile_new.join(MAC_STORE)), "settings");
+        assert!(l.profile_new.join(MARKER).is_file());
+        assert!(no_temps(&root.path().join("data")));
+    }
+
+    #[test]
+    fn a_marked_copy_is_never_touched_again() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        migrate(&l);
+        write(&l.data_new.join("telemetry.json"), "{\"changed\":true}");
+        let before = (tree(&l.data_new), tree(&l.profile_new));
+
+        let m = migrate(&l);
+
+        assert_eq!(m.data.2, Outcome::AlreadyMigrated);
+        assert_eq!(m.profile.2, Outcome::AlreadyMigrated);
+        assert_eq!((tree(&l.data_new), tree(&l.profile_new)), before);
+    }
+
+    #[test]
+    fn a_deleted_profile_is_not_refilled_once_migrated() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        migrate(&l);
+        // "Delete app data", or the user clearing settings by hand.
+        std::fs::remove_dir_all(&l.profile_new).unwrap();
+
+        let m = migrate(&l);
+
+        assert_eq!(m.profile.2, Outcome::AlreadyMigrated);
+        assert!(!l.profile_new.exists(), "old settings came back");
+    }
+
+    #[test]
+    fn an_unmarked_data_folder_is_merged_and_keeps_the_old_report_id() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        fresh_app_data(&l.data_new);
+
+        let m = migrate(&l);
+
+        assert!(matches!(m.data.2, Outcome::Merged(_)), "{:?}", m.data.2);
+        assert_eq!(m.data_dir, l.data_new);
+        let new = &l.data_new;
+        // The old opt-out and install id win over the fresh defaults.
+        assert_eq!(read(&new.join("telemetry.json")), OLD_TELEMETRY);
+        assert_eq!(
+            read(&new.join("logs/atv-optimizer.2026-11-04.log")),
+            "new log\n"
+        );
+        assert!(new.join("logs/atv-optimizer.2026-11-03.log").is_file());
+        assert!(new.join("snapshots/living-room.json").is_file());
+        assert!(new.join(MARKER).is_file());
+        assert!(no_temps(new));
+        assert_eq!(migrate(&l).data.2, Outcome::AlreadyMigrated);
+    }
+
+    #[test]
+    fn an_unmarked_profile_is_set_aside_and_copied_again() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        // The WebView made this after an earlier copy failed.
+        write(&l.profile_new.join("WebsiteData/Default/salt"), "fresh");
+
+        let m = migrate(&l);
+
+        let Outcome::Recopied { set_aside, .. } = &m.profile.2 else {
+            panic!("{:?}", m.profile.2);
+        };
+        assert_eq!(read(&set_aside.join("WebsiteData/Default/salt")), "fresh");
+        assert_eq!(read(&l.profile_new.join(MAC_STORE)), "settings");
+        assert_eq!(
+            read(&l.profile_new.join("WebsiteData/Default/salt")),
+            "salt"
+        );
+        assert!(l.data_new.join(PROFILE_DONE).is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_data_copy_runs_the_session_on_the_old_folder_and_retries() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        let snapshot = l.data_old.join("snapshots/living-room.json");
+        if !unreadable(&snapshot) {
+            return;
+        }
+
+        let m = migrate(&l);
+
+        assert!(matches!(m.data.2, Outcome::Failed(_)), "{:?}", m.data.2);
+        assert_eq!(
+            m.data_dir, l.data_old,
+            "the session must use the old folder"
+        );
+        assert!(!l.data_new.exists());
+        assert!(no_temps(&root.path().join("data")));
+        assert_eq!(read(&l.data_old.join("telemetry.json")), OLD_TELEMETRY);
+        // The profile is copied, but not recorded in the old folder.
+        assert!(
+            matches!(m.profile.2, Outcome::Copied(_)),
+            "{:?}",
+            m.profile.2
+        );
+        assert!(!l.data_old.join(PROFILE_DONE).exists());
+
+        set_mode(&snapshot, 0o644);
+        let m = migrate(&l);
+        assert!(matches!(m.data.2, Outcome::Copied(_)), "{:?}", m.data.2);
+        assert_eq!(m.data_dir, l.data_new);
+        assert_eq!(read(&l.data_new.join("telemetry.json")), OLD_TELEMETRY);
+        // The profile's own marker is noted in the new folder now.
+        assert_eq!(m.profile.2, Outcome::AlreadyMigrated);
+        assert!(l.data_new.join(PROFILE_DONE).is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_profile_copy_is_retried_after_the_webview_made_a_fresh_one() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        let store = l.profile_old.join(MAC_STORE);
+        if !unreadable(&store) {
+            return;
+        }
+
+        let m = migrate(&l);
+        assert!(
+            matches!(m.profile.2, Outcome::Failed(_)),
+            "{:?}",
+            m.profile.2
+        );
+        assert!(!l.profile_new.exists());
+        assert!(!l.data_new.join(PROFILE_DONE).exists());
+        // What WebKit does on that launch: start an empty profile.
+        write(&l.profile_new.join("WebsiteData/Default/salt"), "fresh");
+
+        set_mode(&store, 0o644);
+        let m = migrate(&l);
+        assert!(
+            matches!(m.profile.2, Outcome::Recopied { .. }),
+            "{:?}",
+            m.profile.2
+        );
+        assert_eq!(read(&l.profile_new.join(MAC_STORE)), "settings");
+        assert!(l.data_new.join(PROFILE_DONE).is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_extra_file_is_skipped_not_fatal() {
+        let root = tempfile::tempdir().unwrap();
+        let l = host(root.path());
+        old_install(&l);
+        let log = l.data_old.join("logs/shield-optimizer.2026-11-03.log");
+        if !unreadable(&log) {
+            return;
+        }
+
+        let m = migrate(&l);
+
+        set_mode(&log, 0o644);
+        let Outcome::Copied(stats) = &m.data.2 else {
+            panic!("{:?}", m.data.2);
+        };
+        assert!(
+            stats
+                .skipped
+                .iter()
+                .any(|s| s.starts_with("logs/shield-optimizer.2026-11-03.log (")),
+            "{:?}",
+            stats.skipped
+        );
+        assert!(l.data_new.join("snapshots/living-room.json").is_file());
+        assert!(!l
+            .data_new
+            .join("logs/atv-optimizer.2026-11-03.log")
+            .exists());
+    }
+
+    #[test]
+    fn essentials_are_named() {
+        for rel in [
+            "snapshots",
+            "snapshots/a.json",
+            "telemetry.json",
+            "disabled-home-handlers.json",
+        ] {
+            assert!(is_essential(Kind::Data, Path::new(rel)), "{rel}");
+        }
+        for rel in [
+            "logs/x.log",
+            "screenshots/a.png",
+            "native-adb/key",
+            "x/telemetry.json",
+        ] {
+            assert!(!is_essential(Kind::Data, Path::new(rel)), "{rel}");
+        }
+        for rel in [
+            "EBWebView/Default/Local Storage/leveldb/000003.log",
+            "WebsiteData/Default/h/h/LocalStorage/localstorage.sqlite3",
+            "WebsiteData/Default/salt",
+            "localstorage/tauri_localhost_0.localstorage",
+        ] {
+            assert!(is_essential(Kind::Profile, Path::new(rel)), "{rel}");
+        }
+        assert!(!is_essential(
+            Kind::Profile,
+            Path::new("EBWebView/Default/Preferences")
+        ));
     }
 
     #[test]
     fn copied_files_keep_their_modification_time() {
         let root = tempfile::tempdir().unwrap();
-        let old = old_install(root.path());
-        let log = old.join("logs/shield-optimizer.2026-11-03.log");
+        let l = host(root.path());
+        old_install(&l);
+        let log = l.data_old.join("logs/shield-optimizer.2026-11-03.log");
         let then =
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
         std::fs::OpenOptions::new()
@@ -640,174 +1228,130 @@ mod tests {
             .set_modified(then)
             .unwrap();
 
-        migrate_item(&data_item(root.path()));
+        migrate(&l);
 
-        let copied = root
-            .path()
-            .join(DATA_DIR_NAME)
-            .join("logs/atv-optimizer.2026-11-03.log");
+        let copied = l.data_new.join("logs/atv-optimizer.2026-11-03.log");
         assert_eq!(std::fs::metadata(copied).unwrap().modified().unwrap(), then);
     }
 
     #[test]
-    fn nothing_happens_when_both_exist() {
+    fn a_change_to_the_old_folder_shows_in_its_fingerprint() {
         let root = tempfile::tempdir().unwrap();
-        old_install(root.path());
-        let new = root.path().join(DATA_DIR_NAME);
-        write(&new.join("telemetry.json"), "{\"install_id\":\"new\"}");
-        let before = tree(&new);
-
-        assert_eq!(
-            migrate_item(&data_item(root.path())),
-            Outcome::AlreadyPresent
+        let l = host(root.path());
+        old_install(&l);
+        let before = fingerprint(Kind::Data, &l.data_old);
+        assert!(!before.keys().any(|k| k.starts_with("platform-tools")));
+        write(
+            &l.data_old.join("logs/shield-optimizer.2026-11-03.log"),
+            "old log, longer\n",
         );
-        assert_eq!(tree(&new), before);
+        assert_ne!(fingerprint(Kind::Data, &l.data_old), before);
     }
 
     #[test]
     fn a_temp_left_by_a_crash_does_not_block_the_retry() {
         let root = tempfile::tempdir().unwrap();
-        old_install(root.path());
-        let new = root.path().join(DATA_DIR_NAME);
+        let l = host(root.path());
+        old_install(&l);
         // A crashed launch, and this process's own pid from an earlier run.
-        let crashed = temp_path(&new, 999_999);
+        let crashed = temp_path(&l.data_new, 999_999);
         write(&crashed.join("snapshots/half.json"), "{");
-        let own = temp_path(&new, std::process::id());
+        let own = temp_path(&l.data_new, std::process::id());
         write(&own.join("partial"), "x");
 
-        let outcome = migrate_item(&data_item(root.path()));
+        let m = migrate(&l);
 
-        assert!(matches!(outcome, Outcome::Copied { .. }), "{outcome:?}");
-        assert!(!new.join("snapshots/half.json").exists());
-        assert!(!new.join("partial").exists());
-        assert!(new.join("snapshots/living-room.json").is_file());
-        assert!(no_temps(root.path()));
+        assert!(matches!(m.data.2, Outcome::Copied(_)), "{:?}", m.data.2);
+        assert!(!l.data_new.join("snapshots/half.json").exists());
+        assert!(!l.data_new.join("partial").exists());
+        assert!(l.data_new.join("snapshots/living-room.json").is_file());
+        assert!(no_temps(&root.path().join("data")));
     }
 
     #[test]
-    fn a_stale_temp_is_cleared_once_the_new_folder_exists() {
+    fn a_stale_temp_is_cleared_once_the_new_folder_is_done() {
         let root = tempfile::tempdir().unwrap();
-        old_install(root.path());
-        let new = root.path().join(DATA_DIR_NAME);
-        std::fs::create_dir_all(&new).unwrap();
-        write(&temp_path(&new, 4242).join("x"), "x");
+        let l = host(root.path());
+        old_install(&l);
+        migrate(&l);
+        write(&temp_path(&l.data_new, 4242).join("x"), "x");
         // Not ours: a different suffix is never removed.
-        write(&root.path().join("ATVOptimizer.migrating-notes/x"), "x");
+        let notes = root.path().join("data/ATVOptimizer.migrating-notes/x");
+        write(&notes, "x");
 
-        assert_eq!(
-            migrate_item(&data_item(root.path())),
-            Outcome::AlreadyPresent
-        );
-        assert!(!temp_path(&new, 4242).exists());
-        assert!(root.path().join("ATVOptimizer.migrating-notes/x").exists());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_copy_failure_leaves_no_new_folder_and_the_old_one_intact() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = tempfile::tempdir().unwrap();
-        let old = old_install(root.path());
-        let locked = old.join("snapshots/living-room.json");
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-        if std::fs::read(&locked).is_ok() {
-            // Running as root: permissions cannot make the copy fail.
-            return;
-        }
-
-        let outcome = migrate_item(&data_item(root.path()));
-
-        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
-        assert!(!root.path().join(DATA_DIR_NAME).exists());
-        assert!(no_temps(root.path()));
-        assert_eq!(
-            std::fs::read_to_string(old.join("telemetry.json")).unwrap(),
-            "{\"install_id\":\"abc\"}"
-        );
-        assert!(old.join("platform-tools/adb").is_file());
-
-        // The next launch, with the problem gone, succeeds.
-        assert!(matches!(
-            migrate_item(&data_item(root.path())),
-            Outcome::Copied { .. }
-        ));
+        assert_eq!(migrate(&l).data.2, Outcome::AlreadyMigrated);
+        assert!(!temp_path(&l.data_new, 4242).exists());
+        assert!(notes.exists());
     }
 
     #[test]
     fn the_profile_copy_skips_caches_and_locks_at_any_depth() {
         let root = tempfile::tempdir().unwrap();
-        let item = items(Os::Windows, root.path(), root.path()).remove(1);
-        let ebwebview = item.old.join("EBWebView");
+        let l = layout(Os::Windows, &root.path().join("local"), root.path());
+        let ebwebview = l.profile_old.join("EBWebView");
         write(
             &ebwebview.join("Default/Local Storage/leveldb/000003.log"),
             "ls",
         );
+        write(&ebwebview.join("Default/Local Storage/leveldb/LOCK"), "");
         write(&ebwebview.join("Default/Cache/Cache_Data/data_0"), "cache");
         write(&ebwebview.join("Default/Code Cache/js/index"), "cache");
         write(&ebwebview.join("GrShaderCache/data_0"), "cache");
         write(&ebwebview.join("lockfile"), "");
         write(&ebwebview.join("Local State"), "{}");
 
-        let outcome = migrate_item(&item);
-
-        let Outcome::Copied { files, .. } = outcome else {
-            panic!("{outcome:?}");
+        let Outcome::Copied(stats) = migrate(&l).profile.2 else {
+            panic!("profile not copied");
         };
-        assert_eq!(files, 2);
-        let new = item.new.join("EBWebView");
+        assert_eq!(stats.files, 2);
+        let new = l.profile_new.join("EBWebView");
         assert!(new
             .join("Default/Local Storage/leveldb/000003.log")
             .is_file());
         assert!(new.join("Local State").is_file());
-        assert!(!new.join("Default/Cache").exists());
-        assert!(!new.join("Default/Code Cache").exists());
-        assert!(!new.join("GrShaderCache").exists());
-        assert!(!new.join("lockfile").exists());
-    }
-
-    #[test]
-    fn mac_profile_is_copied_whole() {
-        let root = tempfile::tempdir().unwrap();
-        let home = root.path().join("home");
-        let item = items(Os::Mac, &root.path().join("data"), &home).remove(1);
-        let ls = "WebsiteData/Default/abc/abc/LocalStorage/localstorage.sqlite3";
-        write(&item.old.join(ls), "sqlite");
-        write(&item.old.join("WebsiteData/Default/salt"), "salt");
-
-        assert!(matches!(
-            migrate_item(&item),
-            Outcome::Copied { files: 2, .. }
-        ));
-        assert_eq!(
-            std::fs::read_to_string(item.new.join(ls)).unwrap(),
-            "sqlite"
-        );
-        assert!(home.join("Library/WebKit/com.atvoptimizer.app").is_dir());
+        for gone in [
+            "Default/Local Storage/leveldb/LOCK",
+            "Default/Cache",
+            "Default/Code Cache",
+            "GrShaderCache",
+            "lockfile",
+        ] {
+            assert!(!new.join(gone).exists(), "{gone} copied");
+        }
     }
 
     #[cfg(unix)]
     #[test]
-    fn symlinks_are_not_followed() {
+    fn symlinks_are_not_followed_and_private_folders_stay_private() {
         let root = tempfile::tempdir().unwrap();
-        let old = old_install(root.path());
+        let l = host(root.path());
+        old_install(&l);
         write(&root.path().join("elsewhere/secret"), "outside");
-        std::os::unix::fs::symlink(root.path().join("elsewhere"), old.join("link")).unwrap();
+        std::os::unix::fs::symlink(root.path().join("elsewhere"), l.data_old.join("link")).unwrap();
+        set_mode(&l.data_old.join("native-adb"), 0o700);
 
-        let outcome = migrate_item(&data_item(root.path()));
-
-        let Outcome::Copied { skipped, .. } = outcome else {
-            panic!("{outcome:?}");
+        let Outcome::Copied(stats) = migrate(&l).data.2 else {
+            panic!("data not copied");
         };
-        assert!(skipped.contains(&"link".to_string()));
-        assert!(!root.path().join(DATA_DIR_NAME).join("link").exists());
+
+        assert!(stats.skipped.contains(&"link".to_string()));
+        assert!(!l.data_new.join("link").exists());
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(l.data_new.join("native-adb"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
     }
 
-    fn no_temps(root: &Path) -> bool {
-        std::fs::read_dir(root)
-            .unwrap()
-            .flatten()
-            .all(|e| !e.file_name().to_string_lossy().contains(TEMP_SUFFIX))
+    #[test]
+    fn a_rename_onto_a_missing_parent_is_not_retried_forever() {
+        let root = tempfile::tempdir().unwrap();
+        let from = root.path().join("a");
+        std::fs::create_dir(&from).unwrap();
+        let started = std::time::Instant::now();
+        assert!(rename_with_retry(&from, &root.path().join("missing/b")).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     fn fake_bundle(parent: &Path, name: &str) -> PathBuf {
