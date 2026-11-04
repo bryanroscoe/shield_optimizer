@@ -278,25 +278,29 @@ fn multicast_probe() -> (usize, Reach) {
     let query = mdns_ptr_query(MDNS_PROBE_NAME);
     let group = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 251)), 5353);
     let send_from = |source: Ipv4Addr| -> ProbeOutcome {
-        let fail = |e: std::io::Error| outcome_from_os_error(e.raw_os_error());
+        // The errno is what tells a block from anything else; keep it in the log.
+        let fail = |stage: &str, e: std::io::Error| {
+            tracing::debug!(stage, errno = ?e.raw_os_error(), error = %e, "local network probe attempt failed");
+            outcome_from_os_error(e.raw_os_error())
+        };
         let socket = match UdpSocket::bind((source, 0)) {
             Ok(s) => s,
-            Err(e) => return fail(e),
+            Err(e) => return fail("bind", e),
         };
         // Out of this interface, so a Mac with no default route still has a
         // route for the group and the only reason left to refuse is policy.
         if let Err(e) = socket2::SockRef::from(&socket).set_multicast_if_v4(&source) {
-            return fail(e);
+            return fail("multicast_if", e);
         }
         let _ = socket.set_multicast_ttl_v4(255);
         // Connecting is the operation TN3179 recommends for raising the alert;
         // the send is what shows whether traffic is let through.
         if let Err(e) = socket.connect(group) {
-            return fail(e);
+            return fail("connect", e);
         }
         match socket.send(&query) {
             Ok(_) => ProbeOutcome::Sent,
-            Err(e) => fail(e),
+            Err(e) => fail("send", e),
         }
     };
     let reach = retry_until_decided(
