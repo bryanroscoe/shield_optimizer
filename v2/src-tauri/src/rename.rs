@@ -398,6 +398,104 @@ fn remove_stale_temps(new: &Path) {
     }
 }
 
+/// What happened to a macOS bundle still named for the old product.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BundleRename {
+    /// The executable is not inside `X.app/Contents/MacOS`.
+    NotABundle,
+    /// The bundle already has the new name, or one the user chose.
+    NotLegacyName,
+    /// Gatekeeper runs quarantined apps from a randomized read-only copy.
+    Translocated,
+    /// Homebrew records this bundle by its old name; renaming it would make
+    /// `brew upgrade` fail to find it. Brew replaces it on upgrade instead.
+    HomebrewManaged,
+    SiblingExists(PathBuf),
+    /// The folder holding the bundle is not writable by this user.
+    NotWritable,
+    Renamed {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    Failed(String),
+}
+
+pub const LEGACY_BUNDLE_NAME: &str = "Shield Optimizer.app";
+pub const BUNDLE_NAME: &str = "ATV Optimizer.app";
+
+/// Where the host's Homebrew lives (Apple silicon, then Intel). A GUI app
+/// does not see `HOMEBREW_PREFIX`.
+pub const CASKROOMS: &[&str] = &["/opt/homebrew/Caskroom", "/usr/local/Caskroom"];
+
+/// Rename `Shield Optimizer.app` to `ATV Optimizer.app` beside it.
+///
+/// Runs as the app exits, never at startup: the running process keeps its
+/// launch path for `current_exe`, resources and the updater, so renaming
+/// under it would break all three until the next launch. Not run on the way
+/// to an update restart, which relaunches from the old path.
+pub fn rename_legacy_bundle(exe: &Path, home: &Path, caskrooms: &[&Path]) -> BundleRename {
+    let Some(bundle) = bundle_of(exe) else {
+        return BundleRename::NotABundle;
+    };
+    if bundle.file_name().and_then(|n| n.to_str()) != Some(LEGACY_BUNDLE_NAME) {
+        return BundleRename::NotLegacyName;
+    }
+    if bundle
+        .components()
+        .any(|c| c.as_os_str() == "AppTranslocation")
+    {
+        return BundleRename::Translocated;
+    }
+    let Some(parent) = bundle.parent() else {
+        return BundleRename::NotABundle;
+    };
+    if homebrew_manages(parent, home, caskrooms) {
+        return BundleRename::HomebrewManaged;
+    }
+    let target = parent.join(BUNDLE_NAME);
+    if std::fs::symlink_metadata(&target).is_ok() {
+        return BundleRename::SiblingExists(target);
+    }
+    // The rename is the writability check: it is atomic, so a folder this
+    // user cannot write leaves everything exactly as it was.
+    match std::fs::rename(&bundle, &target) {
+        Ok(()) => BundleRename::Renamed {
+            from: bundle,
+            to: target,
+        },
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(30) => {
+            BundleRename::NotWritable
+        }
+        Err(e) => BundleRename::Failed(e.to_string()),
+    }
+}
+
+fn bundle_of(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    let named = |p: &Path, n: &str| p.file_name().and_then(|f| f.to_str()) == Some(n);
+    let is_app = bundle
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("app"));
+    (named(macos, "MacOS") && named(contents, "Contents") && is_app).then(|| bundle.to_path_buf())
+}
+
+/// A cask for this app is installed and the bundle sits where casks put apps.
+fn homebrew_manages(parent: &Path, home: &Path, caskrooms: &[&Path]) -> bool {
+    let in_appdir = parent == Path::new("/Applications") || parent == home.join("Applications");
+    in_appdir
+        && caskrooms.iter().any(|root| {
+            std::fs::read_dir(root).is_ok_and(|entries| {
+                entries.flatten().any(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    name.starts_with("shield-optimizer") || name.starts_with("atv-optimizer")
+                })
+            })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -710,5 +808,126 @@ mod tests {
             .unwrap()
             .flatten()
             .all(|e| !e.file_name().to_string_lossy().contains(TEMP_SUFFIX))
+    }
+
+    fn fake_bundle(parent: &Path, name: &str) -> PathBuf {
+        let exe = parent.join(name).join("Contents/MacOS/atv-optimizer");
+        write(&exe, "bin");
+        exe
+    }
+
+    #[test]
+    fn an_old_bundle_is_renamed_beside_itself() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = fake_bundle(root.path(), LEGACY_BUNDLE_NAME);
+
+        let outcome = rename_legacy_bundle(&exe, root.path(), &[]);
+
+        let new = root.path().join(BUNDLE_NAME);
+        assert_eq!(
+            outcome,
+            BundleRename::Renamed {
+                from: root.path().join(LEGACY_BUNDLE_NAME),
+                to: new.clone(),
+            }
+        );
+        assert!(new.join("Contents/MacOS/atv-optimizer").is_file());
+        assert!(!root.path().join(LEGACY_BUNDLE_NAME).exists());
+    }
+
+    #[test]
+    fn a_bundle_is_left_alone_when_the_new_name_is_taken() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = fake_bundle(root.path(), LEGACY_BUNDLE_NAME);
+        fake_bundle(root.path(), BUNDLE_NAME);
+
+        assert_eq!(
+            rename_legacy_bundle(&exe, root.path(), &[]),
+            BundleRename::SiblingExists(root.path().join(BUNDLE_NAME))
+        );
+        assert!(exe.is_file());
+    }
+
+    #[test]
+    fn other_bundles_and_layouts_are_left_alone() {
+        let root = tempfile::tempdir().unwrap();
+        let renamed = fake_bundle(root.path(), BUNDLE_NAME);
+        let custom = fake_bundle(root.path(), "My Copy.app");
+        assert_eq!(
+            rename_legacy_bundle(&renamed, root.path(), &[]),
+            BundleRename::NotLegacyName
+        );
+        assert_eq!(
+            rename_legacy_bundle(&custom, root.path(), &[]),
+            BundleRename::NotLegacyName
+        );
+        assert_eq!(
+            rename_legacy_bundle(
+                &root.path().join("target/debug/atv-optimizer"),
+                root.path(),
+                &[]
+            ),
+            BundleRename::NotABundle
+        );
+    }
+
+    #[test]
+    fn a_translocated_bundle_is_left_alone() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = fake_bundle(
+            &root.path().join("AppTranslocation/1234-ABCD/d"),
+            LEGACY_BUNDLE_NAME,
+        );
+        assert_eq!(
+            rename_legacy_bundle(&exe, root.path(), &[]),
+            BundleRename::Translocated
+        );
+        assert!(exe.is_file());
+    }
+
+    #[test]
+    fn a_homebrew_bundle_in_the_appdir_is_left_for_brew() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        let exe = fake_bundle(&home.join("Applications"), LEGACY_BUNDLE_NAME);
+        let caskroom = root.path().join("Caskroom");
+        std::fs::create_dir_all(caskroom.join("shield-optimizer@2.0.0")).unwrap();
+
+        assert_eq!(
+            rename_legacy_bundle(&exe, &home, &[&caskroom]),
+            BundleRename::HomebrewManaged
+        );
+        assert!(exe.is_file());
+
+        // The same cask, but the bundle was copied somewhere brew does not
+        // manage: renamed.
+        let elsewhere = fake_bundle(&root.path().join("Downloads"), LEGACY_BUNDLE_NAME);
+        assert!(matches!(
+            rename_legacy_bundle(&elsewhere, &home, &[&caskroom]),
+            BundleRename::Renamed { .. }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_folder_is_reported_and_unchanged() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let parent = root.path().join("ro");
+        let exe = fake_bundle(&parent, LEGACY_BUNDLE_NAME);
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o555)).unwrap();
+
+        let outcome = rename_legacy_bundle(&exe, root.path(), &[]);
+
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        if outcome == BundleRename::NotWritable {
+            assert!(exe.is_file());
+        } else {
+            // Root can write anywhere.
+            assert!(
+                matches!(outcome, BundleRename::Renamed { .. }),
+                "{outcome:?}"
+            );
+        }
     }
 }

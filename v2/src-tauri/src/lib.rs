@@ -271,7 +271,25 @@ pub fn run() {
                     state.inner(),
                     control.inner(),
                 ));
+                #[cfg(target_os = "macos")]
+                if !control.is_restarting() {
+                    rename_bundle_on_exit();
+                }
             }
             _ => {}
         });
+}
+
+/// Give a bundle the updater left at `Shield Optimizer.app` the new name.
+#[cfg(target_os = "macos")]
+fn rename_bundle_on_exit() {
+    let (Ok(exe), Some(home)) = (std::env::current_exe(), dirs::home_dir()) else {
+        return;
+    };
+    let caskrooms: Vec<&std::path::Path> =
+        rename::CASKROOMS.iter().map(std::path::Path::new).collect();
+    match rename::rename_legacy_bundle(&exe, &home, &caskrooms) {
+        rename::BundleRename::NotABundle | rename::BundleRename::NotLegacyName => {}
+        outcome => tracing::info!(outcome = ?outcome, "legacy bundle rename"),
+    }
 }

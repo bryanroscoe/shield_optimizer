@@ -86,6 +86,11 @@ impl AdbQuitControl {
         self.state().restarting = true;
     }
 
+    /// This exit is an update restart, which relaunches from the same path.
+    pub fn is_restarting(&self) -> bool {
+        self.state().restarting
+    }
+
     /// Decide once whether this exit may stop the server; every later call
     /// is told it was already handled.
     fn claim(&self) -> Result<(), QuitStop> {
