@@ -107,16 +107,16 @@ pub fn reports_no_route(result: &AdbResult<AdbOutput>) -> bool {
 
 /// A newly launched build's first connection is refused this way for about a
 /// second while macOS evaluates it, so the probe retries before concluding.
-const PROBE_ATTEMPTS: u32 = 3;
+pub(crate) const PROBE_ATTEMPTS: u32 = 3;
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
-const PROBE_RETRY_DELAY: Duration = Duration::from_secs(1);
+pub(crate) const PROBE_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 /// adb's port when a connect target names none.
 const DEFAULT_ADB_PORT: u16 = 5555;
 
 /// `EHOSTUNREACH`. `ErrorKind::HostUnreachable` needs Rust 1.83, and this
 /// crate supports 1.81.
-const HOST_UNREACHABLE: Option<i32> = if cfg!(target_os = "macos") {
+pub(crate) const HOST_UNREACHABLE: Option<i32> = if cfg!(target_os = "macos") {
     Some(65)
 } else if cfg!(target_os = "linux") {
     Some(113)

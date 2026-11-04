@@ -1,0 +1,226 @@
+{
+  "hash": "04767fc8",
+  "configHash": "1e8a4254",
+  "lockfileHash": "59726151",
+  "browserHash": "e72747c5",
+  "optimized": {
+    "svelte": {
+      "src": "../../node_modules/svelte/src/index-client.js",
+      "file": "svelte.js",
+      "fileHash": "5748fe43",
+      "needsInterop": false
+    },
+    "svelte/animate": {
+      "src": "../../node_modules/svelte/src/animate/index.js",
+      "file": "svelte_animate.js",
+      "fileHash": "01436145",
+      "needsInterop": false
+    },
+    "svelte/attachments": {
+      "src": "../../node_modules/svelte/src/attachments/index.js",
+      "file": "svelte_attachments.js",
+      "fileHash": "ffbe52f9",
+      "needsInterop": false
+    },
+    "svelte/easing": {
+      "src": "../../node_modules/svelte/src/easing/index.js",
+      "file": "svelte_easing.js",
+      "fileHash": "c207055d",
+      "needsInterop": false
+    },
+    "svelte/internal": {
+      "src": "../../node_modules/svelte/src/internal/index.js",
+      "file": "svelte_internal.js",
+      "fileHash": "16c7c2d6",
+      "needsInterop": true
+    },
+    "svelte/internal/client": {
+      "src": "../../node_modules/svelte/src/internal/client/index.js",
+      "file": "svelte_internal_client.js",
+      "fileHash": "9d75131b",
+      "needsInterop": false
+    },
+    "svelte/internal/disclose-version": {
+      "src": "../../node_modules/svelte/src/internal/disclose-version.js",
+      "file": "svelte_internal_disclose-version.js",
+      "fileHash": "b38e8534",
+      "needsInterop": false
+    },
+    "svelte/internal/flags/async": {
+      "src": "../../node_modules/svelte/src/internal/flags/async.js",
+      "file": "svelte_internal_flags_async.js",
+      "fileHash": "83324a73",
+      "needsInterop": false
+    },
+    "svelte/internal/flags/legacy": {
+      "src": "../../node_modules/svelte/src/internal/flags/legacy.js",
+      "file": "svelte_internal_flags_legacy.js",
+      "fileHash": "a24d46fd",
+      "needsInterop": false
+    },
+    "svelte/internal/flags/tracing": {
+      "src": "../../node_modules/svelte/src/internal/flags/tracing.js",
+      "file": "svelte_internal_flags_tracing.js",
+      "fileHash": "bead8f91",
+      "needsInterop": false
+    },
+    "svelte/legacy": {
+      "src": "../../node_modules/svelte/src/legacy/legacy-client.js",
+      "file": "svelte_legacy.js",
+      "fileHash": "83f194f7",
+      "needsInterop": false
+    },
+    "svelte/motion": {
+      "src": "../../node_modules/svelte/src/motion/index.js",
+      "file": "svelte_motion.js",
+      "fileHash": "0c05cf8f",
+      "needsInterop": false
+    },
+    "svelte/reactivity": {
+      "src": "../../node_modules/svelte/src/reactivity/index-client.js",
+      "file": "svelte_reactivity.js",
+      "fileHash": "4f956a53",
+      "needsInterop": false
+    },
+    "svelte/reactivity/window": {
+      "src": "../../node_modules/svelte/src/reactivity/window/index.js",
+      "file": "svelte_reactivity_window.js",
+      "fileHash": "465a196d",
+      "needsInterop": false
+    },
+    "svelte/store": {
+      "src": "../../node_modules/svelte/src/store/index-client.js",
+      "file": "svelte_store.js",
+      "fileHash": "92283e47",
+      "needsInterop": false
+    },
+    "svelte/transition": {
+      "src": "../../node_modules/svelte/src/transition/index.js",
+      "file": "svelte_transition.js",
+      "fileHash": "a750316e",
+      "needsInterop": false
+    },
+    "svelte/events": {
+      "src": "../../node_modules/svelte/src/events/index.js",
+      "file": "svelte_events.js",
+      "fileHash": "545c09ac",
+      "needsInterop": false
+    },
+    "svelte > clsx": {
+      "src": "../../node_modules/clsx/dist/clsx.mjs",
+      "file": "svelte___clsx.js",
+      "fileHash": "bcbb74b8",
+      "needsInterop": false
+    },
+    "@tauri-apps/api/app": {
+      "src": "../../node_modules/@tauri-apps/api/app.js",
+      "file": "@tauri-apps_api_app.js",
+      "fileHash": "f0910209",
+      "needsInterop": false
+    },
+    "@tauri-apps/api/core": {
+      "src": "../../node_modules/@tauri-apps/api/core.js",
+      "file": "@tauri-apps_api_core.js",
+      "fileHash": "01e4a953",
+      "needsInterop": false
+    },
+    "@tauri-apps/api/event": {
+      "src": "../../node_modules/@tauri-apps/api/event.js",
+      "file": "@tauri-apps_api_event.js",
+      "fileHash": "227ba749",
+      "needsInterop": false
+    },
+    "@tauri-apps/api/webview": {
+      "src": "../../node_modules/@tauri-apps/api/webview.js",
+      "file": "@tauri-apps_api_webview.js",
+      "fileHash": "ca4b3a3d",
+      "needsInterop": false
+    },
+    "@tauri-apps/plugin-dialog": {
+      "src": "../../node_modules/@tauri-apps/plugin-dialog/dist-js/index.js",
+      "file": "@tauri-apps_plugin-dialog.js",
+      "fileHash": "858662c6",
+      "needsInterop": false
+    },
+    "@tauri-apps/plugin-opener": {
+      "src": "../../node_modules/@tauri-apps/plugin-opener/dist-js/index.js",
+      "file": "@tauri-apps_plugin-opener.js",
+      "fileHash": "72d3505e",
+      "needsInterop": false
+    },
+    "@tauri-apps/plugin-process": {
+      "src": "../../node_modules/@tauri-apps/plugin-process/dist-js/index.js",
+      "file": "@tauri-apps_plugin-process.js",
+      "fileHash": "4a9b8618",
+      "needsInterop": false
+    },
+    "@tauri-apps/plugin-updater": {
+      "src": "../../node_modules/@tauri-apps/plugin-updater/dist-js/index.js",
+      "file": "@tauri-apps_plugin-updater.js",
+      "fileHash": "3f6b458d",
+      "needsInterop": false
+    },
+    "devalue": {
+      "src": "../../node_modules/devalue/index.js",
+      "file": "devalue.js",
+      "fileHash": "53dcc2cd",
+      "needsInterop": false
+    },
+    "esm-env": {
+      "src": "../../node_modules/esm-env/index.js",
+      "file": "esm-env.js",
+      "fileHash": "9fceb1d7",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-XX76PQH4": {
+      "file": "chunk-XX76PQH4.js"
+    },
+    "chunk-CMUBLXJB": {
+      "file": "chunk-CMUBLXJB.js"
+    },
+    "chunk-YQTFE5VL": {
+      "file": "chunk-YQTFE5VL.js"
+    },
+    "chunk-I27VMTMH": {
+      "file": "chunk-I27VMTMH.js"
+    },
+    "chunk-AHPNBAME": {
+      "file": "chunk-AHPNBAME.js"
+    },
+    "chunk-7RQDXF5S": {
+      "file": "chunk-7RQDXF5S.js"
+    },
+    "chunk-7QVV7TAH": {
+      "file": "chunk-7QVV7TAH.js"
+    },
+    "chunk-7MHAMVTJ": {
+      "file": "chunk-7MHAMVTJ.js"
+    },
+    "chunk-KDVGFZWC": {
+      "file": "chunk-KDVGFZWC.js"
+    },
+    "chunk-764NIRZ7": {
+      "file": "chunk-764NIRZ7.js"
+    },
+    "chunk-YY3KXDTM": {
+      "file": "chunk-YY3KXDTM.js"
+    },
+    "chunk-RA5JWBT7": {
+      "file": "chunk-RA5JWBT7.js"
+    },
+    "chunk-RDQBLHQD": {
+      "file": "chunk-RDQBLHQD.js"
+    },
+    "chunk-2GRV7DLA": {
+      "file": "chunk-2GRV7DLA.js"
+    },
+    "chunk-6ZD2PQMF": {
+      "file": "chunk-6ZD2PQMF.js"
+    },
+    "chunk-UGBVNEQM": {
+      "file": "chunk-UGBVNEQM.js"
+    }
+  }
+}
