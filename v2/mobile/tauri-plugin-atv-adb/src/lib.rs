@@ -7,7 +7,9 @@
 //! app's `WirelessAdb` (`impl AdbDriver`) via the pure-Rust `adb_client` crate,
 //! so no adb binary, no adb server, and no GPL transport code ships. The plugin
 //! has no JS-invokable commands; the frontend talks to the app's `wireless_*`
-//! commands, which call [`AdbExt::adb`].
+//! commands, which call [`AdbExt::adb`]. On Android it also watches the phone's
+//! default network and emits [`NETWORK_CHANGED_EVENT`] so the frontend can probe
+//! the TV connection at once instead of on its next heartbeat.
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
@@ -18,7 +20,11 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::DiscoveredAdbDevice;
+pub use models::{DiscoveredAdbDevice, NetworkChange};
+
+/// App event emitted (Android only) when the phone's default network is lost or
+/// replaced, or loses an address. Payload: [`NetworkChange`].
+pub const NETWORK_CHANGED_EVENT: &str = "network-changed";
 
 #[cfg(not(mobile))]
 mod desktop;

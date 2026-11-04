@@ -8,6 +8,7 @@ mod host_features;
 mod list_info;
 mod reboot_type;
 mod remount_info;
+mod shell_exit;
 mod sync_command;
 
 #[cfg(feature = "framebuffer")]
@@ -23,6 +24,7 @@ pub use host_features::HostFeatures;
 pub use list_info::{ADBListItem, ADBListItemType};
 pub use reboot_type::RebootType;
 pub use remount_info::RemountInfo;
+pub use shell_exit::ShellExit;
 pub use sync_command::SyncCommand;
 
 #[cfg(feature = "framebuffer")]

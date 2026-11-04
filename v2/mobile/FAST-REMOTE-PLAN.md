@@ -91,7 +91,11 @@ gives teardown an owned server handle without using `ADBDeviceExt::exec`'s detac
 Teardown order:
 
 1. close the control stream so scrcpy exits naturally;
-2. best-effort `pkill -f shieldopt-scrcpy-server`;
+2. best-effort kill of every process whose environment carries our jar's `CLASSPATH`
+   (`KILL_OWN_SERVERS` in `crates/core/src/adb/remote_input.rs`). `pkill -f <jar>` never worked:
+   the jar is only in the environment, and the pattern matched pkill's own `sh -c` first. The same
+   kill runs before every cold start, so a server orphaned by a phone that vanished (the TV never
+   sees the dead socket) is cleared on the next start;
 3. close any long-lived server-command connection, if that fallback was required;
 4. remove the session from the registry before doing slow cleanup.
 
@@ -105,11 +109,11 @@ killed by an older cleanup task.
 ### Phase 1 — dependency API and protocol tests (built)
 
 The workspace pins `vendor/adb_client` through `[patch.crates-io]`. `adb_client::tcp::ADBTcpService`
-owns a dedicated authenticated connection and implements the raw stream with a conservative 4 KiB
-ADB payload cap. In-memory transport tests cover exact NUL-terminated `OPEN`, `WRTE`/`OKAY`,
-partial reads, interleaved traffic, multi-frame writes, physical EOF, malformed and zero IDs,
-timeouts, local close and peer `CLSE`. The patch cross-compiles for `aarch64-linux-android` with the
-mobile `framebuffer` feature.
+owns a dedicated authenticated connection and implements the raw stream, splitting writes at the
+payload size negotiated in CNXN (4 KiB on the oldest adbd). In-memory transport tests cover exact
+NUL-terminated `OPEN`, `WRTE`/`OKAY`, partial reads, interleaved traffic, multi-frame writes,
+physical EOF, malformed and zero IDs, timeouts, local close and peer `CLSE`. The patch
+cross-compiles for `aarch64-linux-android` with the mobile `framebuffer` feature.
 
 ### Phase 2 — mobile session transport (built)
 

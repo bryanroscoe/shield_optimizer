@@ -420,6 +420,16 @@
                 </div>
                 <span class="msr f-chevron">chevron_right</span>
               </button>
+            {:else if e.is_symlink}
+              <!-- The listing can't tell where a link points, and copying one
+                   fails on the TV, so it is shown but not offered. -->
+              <div class="file-row link-row">
+                <span class="msr f-icon" aria-hidden="true">open_in_new</span>
+                <div class="f-body">
+                  <span class="f-name">{e.name}</span>
+                  <span class="f-sub mono">link · can't be copied</span>
+                </div>
+              </div>
             {:else}
               <button class="file-row" class:done disabled={busyName !== ""} onclick={() => pull(e)}>
                 <span class="msr f-icon">{iconFor(e)}</span>
@@ -615,7 +625,8 @@
     background: color-mix(in srgb, var(--accent) 8%, var(--surface));
     border-color: color-mix(in srgb, var(--accent) 28%, transparent);
   }
-  .file-row:disabled {
+  .file-row:disabled,
+  .file-row.link-row {
     cursor: default;
   }
   .f-icon {

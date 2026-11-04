@@ -124,11 +124,11 @@ export function buildDiscoveryRows(
   savedDevices: SavedDevice[],
   live: LiveEndpoint,
 ): DiscoveryRow[] {
-  // mDNS entries can outlive the TV that published them (the Android side
-  // ignores onServiceLost), so the connected TV's own reported id outranks
-  // any advert: it names the live row, and an advert for that same TV at any
-  // other host is stale. Only that advert is dropped, never the other
-  // devices answering from the same address.
+  // mDNS entries can outlive the TV that published them (a one-shot scan only
+  // drops a service whose goodbye arrives while it runs), so the connected
+  // TV's own reported id outranks any advert: it names the live row, and an
+  // advert for that same TV at any other host is stale. Only that advert is
+  // dropped, never the other devices answering from the same address.
   const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
   const metadata = new Map<string, Discovery[]>();
   for (const item of discoveries) {

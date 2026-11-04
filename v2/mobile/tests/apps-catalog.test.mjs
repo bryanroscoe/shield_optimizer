@@ -601,3 +601,13 @@ for (const transition of ['package', 'reconnect']) test(`report safety: late she
   assert.equal((await copiedSafety(page, report, preview)).current_verdict, 'unknown');
   assert.equal(await page.evaluate(() => calls.filter(c => c.command === 'safety_info').length), before, 'a successful current sheet verdict needs no report retry');
 });
+
+test("the Uninstall button marks Pro only while the plan is Free", async (t) => {
+  const page = await openApps(t);
+  await page.locator('.app-row[data-package="com.example.streambox"]').click();
+  const uninstall = page.locator(".sheet .act-btn", { hasText: "Uninstall" });
+  await uninstall.waitFor();
+  assert.equal(await uninstall.locator(".pro-badge").count(), 0);
+  await page.evaluate(() => { window.session.entitlement = "free"; });
+  await uninstall.locator(".pro-badge", { hasText: "PRO" }).waitFor();
+});

@@ -161,14 +161,27 @@ The Android discovery plugin's `AdbService.kt` and `DiscoveryLogic.kt` adapt the
 normalization, service registry and address selection, plus Android 14 service-info callback
 lifecycle, from Kadb commit `3d1c13e8df261cc4a2bb57b03aa8c392cb8386c3` (release 2.1.5).
 These files were modified to support bounded TV-name observations, metadata filtering,
-non-actionable name-only fallback and safe ADB scheduling. This integration does not include
-Kadb's ADB transport implementation or its binary.
+non-actionable name-only fallback and safe ADB scheduling. These discovery adaptations are separate from the transport translations described below.
 
 Copyright (c) 2024 Flyfish-Xu and Kadb contributors. Portions Copyright (c) 2021 mobile.dev inc.
 (dadb, from which Kadb derives). Licensed under the Apache License, Version 2.0; its full text
 is reproduced in the Apache-2.0 section below.
 Source: <https://github.com/flyfishxu/Kadb/tree/3d1c13e8df261cc4a2bb57b03aa8c392cb8386c3>
 The pinned upstream tree contains LICENSE and no separate NOTICE file.
+
+### Kadb — Apache License 2.0 (logic translated into the vendored adb_client)
+
+Parts of the wireless-ADB connection layer in `v2/vendor/adb_client` — CNXN feature and payload
+negotiation, header validation, the TLS client-certificate shape and TLS error mapping, TCP
+socket options, logical-stream handling, the file-sync protocol, shell protocol selection and
+decoding, and the APK install and uninstall flows — are Rust translations of logic from Kadb at
+commit `3d1c13e` (release 2.1.5). No Kadb code or binary ships in the app; the translated files
+and their Kadb sources are listed in `v2/vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
+
+Copyright (c) 2024 Flyfish-Xu and Kadb contributors. Portions Copyright (c) 2021 mobile.dev inc.
+(dadb, from which Kadb derives). Licensed under the Apache License, Version 2.0 — full text
+reproduced in the Apache-2.0 section below.
+Source: <https://github.com/flyfishxu/Kadb>
 
 ### Bundled npm-origin code and assets
 

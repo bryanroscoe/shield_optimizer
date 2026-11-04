@@ -224,7 +224,7 @@ test("a stale advert at an old host never shows the live TV a second time (#115)
   const shieldA = saved({ host: "192.168.1.20", hardwareId: "shield-a", name: "Shield A" });
 
   // A is live on a new host whose advert does not identify it, while its old
-  // advert lingers because the Android side ignores onServiceLost.
+  // advert lingers in the phone's mDNS cache.
   const advertised = buildDiscoveryRows(
     [
       advert("192.168.1.10", 5555, LEGACY, "adb-shield-a"),

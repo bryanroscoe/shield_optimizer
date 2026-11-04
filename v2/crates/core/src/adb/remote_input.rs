@@ -37,6 +37,15 @@ const SCRCPY_VERSION: &str = "3.1";
 /// Where the server jar is pushed on the device.
 const DEVICE_JAR_PATH: &str = "/data/local/tmp/shieldopt-scrcpy-server.jar";
 
+/// Kills every server launched from our jar, and nothing else. The jar path is
+/// only in the server's environment (`CLASSPATH`), never in its argv, so
+/// `pkill -f <jar>` misses it — and that pattern also matches the `sh -c`
+/// running pkill, which kills itself first (verified on a SHIELD, Android 11).
+/// Matching the exact CLASSPATH leaves a user's own scrcpy session alone.
+const KILL_OWN_SERVERS: &str = "for p in /proc/[0-9]*; do \
+     grep -qs 'CLASSPATH=/data/local/tmp/shieldopt-scrcpy-server.jar' \"$p/environ\" \
+     && kill \"${p#/proc/}\"; done; true";
+
 /// Bundled jar location, relative to both the Tauri resource root (for
 /// `BaseDirectory::Resource`) and the crate root (dev fallback). Resolved at
 /// runtime by `commands::state::resolve_scrcpy_server_jar`.
@@ -207,6 +216,11 @@ impl RemoteInputSession {
         if !pushed.success() {
             return Err(format!("scrcpy: push server jar: {}", pushed.combined()));
         }
+        // A phone that vanished without closing its session leaves the server
+        // running: the TV never sees the dead socket. Callers only start when
+        // this process holds no session for the device, so any server from our
+        // jar is an orphan.
+        let _ = adb.shell(serial, KILL_OWN_SERVERS).await;
 
         let scid = next_scid();
         let server_service = format!("shell:{}", resident_server_command(&scid));
@@ -319,10 +333,7 @@ impl RemoteInputSession {
         if let Some(server_stream) = self.server_stream.take() {
             drop_blocking_stream(server_stream).await;
         }
-        let _ = self
-            .adb
-            .shell(&self.serial, "pkill -f shieldopt-scrcpy-server")
-            .await;
+        let _ = self.adb.shell(&self.serial, KILL_OWN_SERVERS).await;
     }
 }
 
@@ -344,7 +355,7 @@ async fn cleanup_android_start(
         drop_blocking_stream(stream).await;
     }
     drop_blocking_stream(server_stream).await;
-    let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
+    let _ = adb.shell(serial, KILL_OWN_SERVERS).await;
 }
 
 /// Reserve a free local TCP port by binding to `:0` and reading back the
@@ -436,6 +447,8 @@ impl RemoteInputSession {
         adb.raw_transfer(&as_str_args(&push))
             .await
             .map_err(|e| format!("scrcpy: push server jar: {e}"))?;
+        // Clear servers orphaned by an earlier session that never closed.
+        let _ = adb.shell(serial, KILL_OWN_SERVERS).await;
 
         let scid = next_scid();
         let port = pick_free_local_port()?;
@@ -521,18 +534,12 @@ impl RemoteInputSession {
 
     /// Graceful teardown. Order matters (verified on device): close the control
     /// socket FIRST — the server exits on its own the instant the socket drops —
-    /// then a belt-and-suspenders `pkill` for any lingering server process, then
+    /// then a belt-and-suspenders kill of any lingering server process, then
     /// reap the local child and remove the adb forward. `Drop` is the
     /// best-effort backstop; prefer this.
     pub async fn close(mut self) {
         let _ = self.stream.shutdown().await;
-        // Match our jar's name, not "com.genymobile.scrcpy" — the broad pattern
-        // would also kill a desktop scrcpy session the user has open against
-        // this same device.
-        let _ = self
-            .adb
-            .shell(&self.serial, "pkill -f shieldopt-scrcpy-server")
-            .await;
+        let _ = self.adb.shell(&self.serial, KILL_OWN_SERVERS).await;
         let _ = self._child.start_kill();
         let _ = self
             .adb
@@ -625,6 +632,14 @@ mod tests {
         // 1 type byte + 4 length bytes + 300 payload bytes.
         assert_eq!(got.len(), 5 + 300);
         assert_eq!(&got[1..5], &300u32.to_be_bytes());
+    }
+
+    #[test]
+    fn kill_own_servers_matches_our_classpath_in_the_environment() {
+        assert!(KILL_OWN_SERVERS.contains("/environ"));
+        assert!(KILL_OWN_SERVERS.contains(&format!("'CLASSPATH={DEVICE_JAR_PATH}'")));
+        assert!(!KILL_OWN_SERVERS.contains("pkill"));
+        assert!(!KILL_OWN_SERVERS.contains("com.genymobile"));
     }
 
     #[test]
