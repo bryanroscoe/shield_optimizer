@@ -6,6 +6,7 @@ pub mod usb;
 /// Device reachable over TCP related definition
 pub mod tcp;
 
+mod adb_connection_info;
 mod adb_message_device;
 mod adb_message_device_commands;
 mod adb_message_transport;
@@ -17,4 +18,5 @@ mod message_commands;
 mod models;
 mod utils;
 
+pub use adb_connection_info::ConnectionInfo;
 pub use utils::BinaryDecodable;

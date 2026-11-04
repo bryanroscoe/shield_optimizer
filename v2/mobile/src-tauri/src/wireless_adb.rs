@@ -637,12 +637,16 @@ impl AdbDriver for WirelessAdb {
         let service = service.to_string();
         tokio::task::spawn_blocking(move || {
             ensure_adb_key(&key_path).map_err(AdbError::Transport)?;
-            ADBTcpService::new_with_timeouts(
+            // The stream's own connection repeats the CNXN/TLS/AUTH handshake,
+            // which may need the TV's approval again, so it gets the main
+            // connection's bound.
+            ADBTcpService::new_with_timeouts_and_auth_timeout(
                 addr,
                 &service,
                 key_path,
                 Duration::from_secs(2),
                 Duration::from_secs(2),
+                AUTHORIZATION_TIMEOUT,
             )
             .map(|stream| Box::new(stream) as Box<dyn AdbByteStream>)
             .map_err(|e| AdbError::Transport(e.to_string()))
@@ -655,15 +659,19 @@ impl AdbDriver for WirelessAdb {
 pub type SharedWirelessAdb = Arc<WirelessAdb>;
 
 /// Errors that mean the socket or its framing is unusable, as opposed to a
-/// request adbd answered with a failure.
+/// request adbd answered with a failure. `PayloadTooLarge` is refused before
+/// anything reaches the socket, so it leaves the connection intact.
 fn is_fatal_transport_error(error: &RustADBError) -> bool {
     matches!(
         error,
         RustADBError::IOError(_)
             | RustADBError::PoisonError
             | RustADBError::TLSError(_)
+            | RustADBError::TlsAuthRejected(_)
             | RustADBError::UpgradeError(_)
             | RustADBError::WrongResponseReceived(..)
+            | RustADBError::ProtocolError(_)
+            | RustADBError::InvalidIntegrity(..)
             | RustADBError::ADBShellNotSupported
     )
 }
@@ -698,6 +706,9 @@ fn shell_timeout_for(command: &str) -> Duration {
 
 fn connect_error_message(error: &RustADBError) -> String {
     match error {
+        RustADBError::TlsAuthRejected(_) => {
+            "This TV hasn't paired with this phone. Pair it first with the code from Wireless debugging › Pair device with pairing code, then connect again.".to_string()
+        }
         RustADBError::IOError(io)
             if matches!(
                 io.kind(),
@@ -872,6 +883,50 @@ mod tests {
         assert!(message.contains("Allow"));
         assert!(message.contains("30 seconds"));
         assert!(!message.contains("raw OS timeout"));
+    }
+
+    #[test]
+    fn an_unpaired_key_explains_how_to_pair() {
+        let message = connect_error_message(&RustADBError::TlsAuthRejected(
+            "TLS alert CertificateUnknown".to_string(),
+        ));
+        assert!(message.contains("hasn't paired"));
+        assert!(message.contains("Pair device with pairing code"));
+        assert!(!message.contains("CertificateUnknown"));
+    }
+
+    #[test]
+    fn existing_connect_guidance_is_unchanged_by_new_errors() {
+        let timeout = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::WouldBlock,
+            "raw",
+        )));
+        assert!(timeout.contains("30 seconds"));
+        let closed = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::UnexpectedEof,
+            "raw",
+        )));
+        assert!(closed.contains("closed the connection"));
+        let protocol =
+            connect_error_message(&RustADBError::ProtocolError("bad header magic".to_string()));
+        assert!(protocol.contains("Allow debugging"));
+        assert!(!protocol.contains("magic"));
+    }
+
+    #[test]
+    fn framing_and_trust_failures_evict_but_a_refused_oversized_write_does_not() {
+        assert!(is_fatal_transport_error(&RustADBError::ProtocolError(
+            "bad header magic".to_string(),
+        )));
+        assert!(is_fatal_transport_error(&RustADBError::InvalidIntegrity(
+            1, 2
+        )));
+        assert!(is_fatal_transport_error(&RustADBError::TlsAuthRejected(
+            "TLS alert UnknownCA".to_string(),
+        )));
+        assert!(!is_fatal_transport_error(&RustADBError::PayloadTooLarge(
+            70_000, 4_096,
+        )));
     }
 
     #[test]

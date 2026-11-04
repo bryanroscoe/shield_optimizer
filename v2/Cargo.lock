@@ -26,6 +26,7 @@ dependencies = [
  "rustls-pki-types",
  "sha1",
  "sha2",
+ "socket2",
  "subtle",
  "thiserror 2.0.18",
 ]

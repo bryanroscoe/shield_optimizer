@@ -1,10 +1,18 @@
+// Derived in part from Kadb (Apache-2.0): core/AdbConnection.kt.
+
 use rand::RngExt;
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use crate::{
     Result, RustADBError,
     message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
     message_devices::{
+        adb_connection_info::{
+            A_STLS_VERSION, A_VERSION, ConnectionInfo, MAX_PAYLOAD, host_banner,
+        },
         adb_message_transport::ADBMessageTransport,
         adb_service::open_service_session,
         adb_session::ADBSession,
@@ -18,35 +26,44 @@ use crate::{
     models::ADBLocalCommand,
 };
 
-const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+/// Bound on the whole handshake when the caller does not choose one.
+pub(crate) const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// One token is answered with our signature, every later one with our public
+/// key, as AOSP's host does. A device that keeps asking past this is not
+/// going to accept us.
+const MAX_AUTH_TOKENS: usize = 4;
 
 /// Generic structure representing an ADB device reachable over an [`ADBMessageTransport`].
 /// Structure is totally agnostic over which transport is truly used.
 #[derive(Debug)]
 pub struct ADBMessageDevice<T: ADBMessageTransport> {
     transport: T,
+    connection_info: ConnectionInfo,
 }
 
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
-    /// Instantiate a new [`ADBMessageTransport`]
+    /// Instantiate a new [`ADBMessageTransport`]. The connection handshake is
+    /// bounded by a 10-second default.
     pub fn new<P: AsRef<Path>>(transport: T, adb_private_key_path: P) -> Result<Self> {
-        Self::new_inner(transport, adb_private_key_path, None)
+        Self::new_inner(transport, adb_private_key_path, DEFAULT_AUTH_TIMEOUT)
     }
 
-    /// Instantiate a new [`ADBMessageTransport`] with a finite timeout for each
-    /// connection and RSA-authorization response.
+    /// Instantiate a new [`ADBMessageTransport`] whose whole connection
+    /// handshake, including the TLS upgrade and waiting for the user to
+    /// approve the RSA key, must finish within `auth_timeout`.
     pub fn new_with_auth_timeout<P: AsRef<Path>>(
         transport: T,
         adb_private_key_path: P,
         auth_timeout: Duration,
     ) -> Result<Self> {
-        Self::new_inner(transport, adb_private_key_path, Some(auth_timeout))
+        Self::new_inner(transport, adb_private_key_path, auth_timeout)
     }
 
     fn new_inner<P: AsRef<Path>>(
         transport: T,
         adb_private_key_path: P,
-        auth_timeout: Option<Duration>,
+        auth_timeout: Duration,
     ) -> Result<Self> {
         let private_key = if let Some(private_key) = read_adb_private_key(&adb_private_key_path)? {
             private_key
@@ -58,7 +75,10 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             ADBRsaKey::new_random()?
         };
 
-        let mut message_device = Self { transport };
+        let mut message_device = Self {
+            transport,
+            connection_info: ConnectionInfo::unnegotiated(),
+        };
         message_device.connect(&private_key, auth_timeout)?;
 
         Ok(message_device)
@@ -68,118 +88,135 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         &mut self.transport
     }
 
-    /// Send initial connect
-    fn connect(&mut self, private_key: &ADBRsaKey, auth_timeout: Option<Duration>) -> Result<()> {
-        self.get_transport_mut().connect()?;
+    /// What the CNXN exchange negotiated with this device.
+    pub(crate) const fn connection_info(&self) -> &ConnectionInfo {
+        &self.connection_info
+    }
 
-        let message = ADBTransportMessage::try_new(
-            MessageCommand::Cnxn,
-            0x0100_0000,
-            1_048_576,
-            format!("host::{}\0", env!("CARGO_PKG_NAME")).as_bytes(),
-        )?;
-
-        self.get_transport_mut().write_message(message)?;
-
-        let message = match auth_timeout {
-            Some(timeout) => self
-                .get_transport_mut()
-                .read_message_with_timeout(timeout)?,
-            None => self.get_transport_mut().read_message()?,
+    fn read_before(&mut self, deadline: Instant) -> Result<ADBTransportMessage> {
+        let timed_out = || {
+            RustADBError::IOError(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "ADB connection handshake timed out",
+            ))
         };
-
-        // Check if a client is requesting a secure connection and upgrade it if necessary
-        match message.header().command() {
-            MessageCommand::Stls => {
-                self.get_transport_mut()
-                    .write_message(ADBTransportMessage::try_new(
-                        MessageCommand::Stls,
-                        1,
-                        0,
-                        &[],
-                    )?)?;
-                self.get_transport_mut().upgrade_connection()?;
-                log::debug!("Connection successfully upgraded from TCP to TLS");
-                Ok(())
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(timed_out());
+        }
+        // A socket read timeout surfaces as WouldBlock on Unix and TimedOut on
+        // Windows; report both the same way.
+        match self.transport.read_message_with_timeout(remaining) {
+            Err(RustADBError::IOError(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                Err(timed_out())
             }
-            MessageCommand::Cnxn => {
-                log::debug!("Unencrypted connection established");
-                Ok(())
-            }
-            MessageCommand::Auth => {
-                log::debug!("Authentication required");
-                self.auth_handshake(message, private_key, auth_timeout)
-            }
-            _ => Err(crate::RustADBError::WrongResponseReceived(
-                "Expected CNXN, STLS or AUTH command".to_string(),
-                message.header().command().to_string(),
-            )),
+            other => other,
         }
     }
 
-    fn auth_handshake(
+    /// Run the CNXN handshake as Kadb's `AdbConnection.connect` does: answer
+    /// STLS and AUTH until the device sends CNXN, then negotiate from it.
+    /// Everything shares one deadline, so a device that trickles replies
+    /// cannot stretch the wait. The socket is fresh, so a stream packet
+    /// (OKAY, WRTE, CLSE, OPEN) here can only be a broken peer and fails the
+    /// handshake rather than being skipped.
+    fn connect(&mut self, private_key: &ADBRsaKey, auth_timeout: Duration) -> Result<()> {
+        self.transport.connect()?;
+        let deadline = Instant::now() + auth_timeout;
+
+        self.transport.write_message(ADBTransportMessage::try_new(
+            MessageCommand::Cnxn,
+            A_VERSION,
+            MAX_PAYLOAD,
+            &host_banner(),
+        )?)?;
+
+        let mut upgraded = false;
+        let mut auth_tokens = 0_usize;
+        let mut message = self.read_before(deadline)?;
+        loop {
+            match message.header().command() {
+                MessageCommand::Cnxn => break,
+                MessageCommand::Stls => {
+                    if upgraded {
+                        return Err(RustADBError::ProtocolError(
+                            "device requested a second TLS upgrade".to_string(),
+                        ));
+                    }
+                    self.transport.write_message(ADBTransportMessage::try_new(
+                        MessageCommand::Stls,
+                        A_STLS_VERSION,
+                        0,
+                        &[],
+                    )?)?;
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    self.transport.upgrade_connection(remaining)?;
+                    upgraded = true;
+                    log::debug!("Connection successfully upgraded from TCP to TLS");
+                }
+                MessageCommand::Auth => {
+                    auth_tokens += 1;
+                    self.answer_auth(message, private_key, auth_tokens)?;
+                }
+                other => {
+                    return Err(RustADBError::WrongResponseReceived(
+                        other.to_string(),
+                        "CNXN, STLS or AUTH".to_string(),
+                    ));
+                }
+            }
+            message = self.read_before(deadline)?;
+        }
+
+        let header = message.header();
+        let info = ConnectionInfo::negotiate(header.arg0(), header.arg1(), message.payload())?;
+        self.transport.apply_connection_info(&info);
+        log::info!(
+            "Connected: protocol {:#010x}, max payload {}, features {:?}, device banner {}",
+            info.protocol_version(),
+            info.max_payload(),
+            info.features(),
+            String::from_utf8_lossy(message.payload())
+        );
+        self.connection_info = info;
+        Ok(())
+    }
+
+    fn answer_auth(
         &mut self,
         message: ADBTransportMessage,
         private_key: &ADBRsaKey,
-        auth_timeout: Option<Duration>,
+        auth_tokens: usize,
     ) -> Result<()> {
-        match message.header().command() {
-            MessageCommand::Auth => {
-                log::debug!("Authentication required");
-            }
-            _ => return Ok(()),
+        if message.header().arg0() != AUTH_TOKEN {
+            return Err(RustADBError::ADBRequestFailed(format!(
+                "Received AUTH message with type != 1 ({})",
+                message.header().arg0()
+            )));
+        }
+        if auth_tokens > MAX_AUTH_TOKENS {
+            return Err(RustADBError::ProtocolError(format!(
+                "device sent {auth_tokens} AUTH tokens without accepting our key"
+            )));
         }
 
-        // At this point, we should have received an AUTH message with arg0 == 1
-        let auth_message = match message.header().arg0() {
-            AUTH_TOKEN => message,
-            v => {
-                return Err(RustADBError::ADBRequestFailed(format!(
-                    "Received AUTH message with type != 1 ({v})"
-                )));
-            }
+        let reply = if auth_tokens == 1 {
+            log::debug!("Authentication required");
+            let sign = private_key.sign(message.into_payload())?;
+            ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_SIGNATURE, 0, &sign)?
+        } else {
+            // The device did not recognise our signature; offer the key so it
+            // can show its "Allow USB debugging?" prompt.
+            let mut pubkey = private_key.android_pubkey_encode()?.into_bytes();
+            pubkey.push(b'\0');
+            ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_RSAPUBLICKEY, 0, &pubkey)?
         };
-
-        let sign = private_key.sign(auth_message.into_payload())?;
-
-        let message = ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_SIGNATURE, 0, &sign)?;
-
-        self.transport.write_message(message)?;
-
-        let received_response = match auth_timeout {
-            Some(timeout) => self.transport.read_message_with_timeout(timeout)?,
-            None => self.transport.read_message()?,
-        };
-
-        if received_response.header().command() == MessageCommand::Cnxn {
-            log::info!(
-                "Authentication OK, device info {}",
-                String::from_utf8(received_response.into_payload())?
-            );
-            return Ok(());
-        }
-
-        let mut pubkey = private_key.android_pubkey_encode()?.into_bytes();
-        pubkey.push(b'\0');
-
-        let message =
-            ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_RSAPUBLICKEY, 0, &pubkey)?;
-
-        self.transport.write_message(message)?;
-
-        let response = self
-            .transport
-            .read_message_with_timeout(auth_timeout.unwrap_or(DEFAULT_AUTH_TIMEOUT))
-            .and_then(|message| {
-                message.assert_command(MessageCommand::Cnxn)?;
-                Ok(message)
-            })?;
-
-        log::info!(
-            "Authentication OK, device info {}",
-            String::from_utf8(response.into_payload())?
-        );
-        Ok(())
+        self.transport.write_message(reply)
     }
 
     pub(crate) fn open_synchronization_session(&mut self) -> Result<ADBSession<T>> {

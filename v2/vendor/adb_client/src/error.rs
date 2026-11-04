@@ -93,6 +93,19 @@ pub enum RustADBError {
     /// Integrity of the received message cannot be validated
     #[error("Invalid integrity. Expected CRC32 {0}, got {1}")]
     InvalidIntegrity(u32, u32),
+    /// The peer broke ADB framing or the connection handshake: a bad header
+    /// magic, an unknown command, a payload longer than the negotiated limit,
+    /// or an impossible CNXN. The connection cannot be trusted afterwards.
+    #[error("ADB protocol error: {0}")]
+    ProtocolError(String),
+    /// The device's TLS server refused this client's certificate, which is
+    /// how adbd reports that the key has not been paired with it.
+    #[error("the device rejected this ADB key over TLS; pair it first ({0})")]
+    TlsAuthRejected(String),
+    /// A message payload is larger than the connection's negotiated maximum.
+    /// It was refused before anything was written, so the connection is intact.
+    #[error("message payload of {0} bytes exceeds the negotiated maximum of {1}")]
+    PayloadTooLarge(usize, usize),
     /// Error while decoding base64 data
     #[error(transparent)]
     Base64DecodeError(#[from] base64::DecodeError),
