@@ -20,11 +20,11 @@
 
 use std::path::{Path, PathBuf};
 
+use atv_optimizer_core::adb::{parse_ls_output, FileEntry};
+use atv_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
+use atv_optimizer_core::commands::{apps::ActionResult, AppState};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use shield_optimizer_core::adb::{parse_ls_output, FileEntry};
-use shield_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
-use shield_optimizer_core::commands::{apps::ActionResult, AppState};
 use tauri::State;
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
@@ -172,7 +172,7 @@ fn bundle_files(dir: &Path, manifest: &BackupManifest) -> Result<Vec<PathBuf>, S
         .collect()
 }
 
-fn shell_failed(out: &shield_optimizer_core::adb::AdbOutput) -> bool {
+fn shell_failed(out: &atv_optimizer_core::adb::AdbOutput) -> bool {
     out.exit_code.is_some_and(|code| code != 0) || out.shell_reported_failure()
 }
 
@@ -630,18 +630,18 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl shield_optimizer_core::adb::AdbDriver for DownloadDriver {
+    impl atv_optimizer_core::adb::AdbDriver for DownloadDriver {
         async fn raw(
             &self,
             _: &[&str],
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             unreachable!()
         }
         async fn shell(
             &self,
             _: &str,
             _: &str,
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             unreachable!()
         }
         async fn pull_limited(
@@ -650,7 +650,7 @@ mod tests {
             remote: &str,
             local: &Path,
             limit: u64,
-        ) -> shield_optimizer_core::adb::AdbResult<()> {
+        ) -> atv_optimizer_core::adb::AdbResult<()> {
             assert_eq!(serial, "TV");
             assert_eq!(remote, "/sdcard/report.txt");
             assert_eq!(limit, MAX_PULL_BYTES);

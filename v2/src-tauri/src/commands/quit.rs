@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::State;
 use tokio::time::Instant;
 
-use shield_optimizer_core::adb::{Leases, ServerStop};
+use atv_optimizer_core::adb::{Leases, ServerStop};
 
 use super::AppState;
 
@@ -179,8 +179,8 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
-    use shield_optimizer_core::engine::AppListBundle;
+    use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+    use atv_optimizer_core::engine::AppListBundle;
 
     use super::*;
 

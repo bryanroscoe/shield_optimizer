@@ -8,7 +8,7 @@
 //! bug can capture the run that failed.
 //!
 //! The bundle itself is formatted by the pure
-//! [`shield_optimizer_core::engine::diagnostics`] module; everything here is
+//! [`atv_optimizer_core::engine::diagnostics`] module; everything here is
 //! the I/O that feeds it.
 
 use std::io::{Read, Seek, SeekFrom};
@@ -22,20 +22,22 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer};
 
-use shield_optimizer_core::adb::AdbDriver;
-use shield_optimizer_core::commands::{devices, launcher, AppState};
-use shield_optimizer_core::engine::diagnostics::{
+use atv_optimizer_core::adb::AdbDriver;
+use atv_optimizer_core::commands::{devices, launcher, AppState};
+use atv_optimizer_core::engine::diagnostics::{
     format_diagnostics, DeviceDiagnostics, DiagnosticsInput,
 };
-use shield_optimizer_core::engine::log_redact::{self, Scrub};
-use shield_optimizer_core::engine::telemetry::{format_support_id, telemetry_device};
-use shield_optimizer_core::engine::telemetry_diag::{
+use atv_optimizer_core::engine::log_redact::{self, Scrub};
+use atv_optimizer_core::engine::telemetry::{format_support_id, telemetry_device};
+use atv_optimizer_core::engine::telemetry_diag::{
     adb_diag, mdns_diag, net_diag, transport_counts, AdbSource, Diag, Gateway, NetInterface,
 };
-use shield_optimizer_core::telemetry::ExcerptSource;
+use atv_optimizer_core::telemetry::ExcerptSource;
 
 /// Subdirectory of the app data dir that holds the rolling log files.
-const LOG_DIR_NAME: &str = "logs";
+pub(crate) const LOG_DIR_NAME: &str = "logs";
+/// Daily log files are `<prefix>.<date>.log`.
+pub(crate) const LOG_FILE_PREFIX: &str = "atv-optimizer";
 /// One file per day, a week back. Long enough to cover "it broke sometime last
 /// week", short enough that nobody's disk notices.
 const KEEP_LOG_FILES: usize = 7;
@@ -48,7 +50,7 @@ const LOG_TAIL_LINES: usize = 200;
 /// and reqwest internals, which makes the bundle worse, not better.
 const INFO_FILTER: &str = "info";
 const DEBUG_FILTER: &str =
-    "info,shield_optimizer_v2_lib=debug,shield_optimizer_core=debug,shield_optimizer_v2=debug";
+    "info,atv_optimizer_lib=debug,atv_optimizer_core=debug,atv_optimizer=debug";
 
 /// Managed state for the log file: where it is, whether debug is on, and the
 /// switch that changes the running filter.
@@ -97,7 +99,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
     let appender = match std::fs::create_dir_all(&dir).ok().and_then(|()| {
         tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("shield-optimizer")
+            .filename_prefix(LOG_FILE_PREFIX)
             .filename_suffix("log")
             .max_log_files(KEEP_LOG_FILES)
             .build(&dir)
@@ -282,28 +284,28 @@ fn home_handler_components(stdout: &str) -> Vec<String> {
 /// Read from the package lists because a disabled one never answers the HOME
 /// query; `None` when they could not be read.
 async fn setup_helper_states(
-    adb: &dyn shield_optimizer_core::adb::AdbDriver,
+    adb: &dyn atv_optimizer_core::adb::AdbDriver,
     serial: &str,
 ) -> Option<Vec<(String, bool)>> {
-    let cmd = shield_optimizer_core::adb::checked_batch_command(&[
+    let cmd = atv_optimizer_core::adb::checked_batch_command(&[
         "pm list packages",
         "pm list packages -d",
     ]);
     let out = adb.shell(serial, &cmd).await.ok()?;
-    let sections = shield_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
+    let sections = atv_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
     setup_helper_states_from(&sections[0], &sections[1])
 }
 
 /// An Android device always has packages, so an empty installed list is an
 /// unreadable answer, not proof the helper is absent.
 fn setup_helper_states_from(installed: &str, disabled: &str) -> Option<Vec<(String, bool)>> {
-    let installed = shield_optimizer_core::adb::parse_installed_packages_output(installed);
+    let installed = atv_optimizer_core::adb::parse_installed_packages_output(installed);
     if installed.is_empty() {
         return None;
     }
-    let disabled = shield_optimizer_core::adb::parse_disabled_packages_output(disabled);
+    let disabled = atv_optimizer_core::adb::parse_disabled_packages_output(disabled);
     Some(
-        shield_optimizer_core::commands::loader::launchers()
+        atv_optimizer_core::commands::loader::launchers()
             .transient_home_holders
             .iter()
             .filter(|p| installed.contains(p))
@@ -605,7 +607,7 @@ pub struct DiagnosticsUploadResult {
 struct UploadBody<'a> {
     schema: u32,
     install_id: &'a str,
-    app: shield_optimizer_core::engine::telemetry::AppKind,
+    app: atv_optimizer_core::engine::telemetry::AppKind,
     app_version: &'a str,
     os: &'a str,
     ts: String,
@@ -630,7 +632,7 @@ fn transport_serials(devices_output: &str) -> Vec<String> {
 
 /// One line per adb transport: state, transport and the TV's public build
 /// properties. No serial or name.
-fn device_lines(list: &[shield_optimizer_core::engine::types::Device]) -> Vec<String> {
+fn device_lines(list: &[atv_optimizer_core::engine::types::Device]) -> Vec<String> {
     list.iter()
         .map(|d| {
             let status = serde_json::to_value(d.status)
@@ -849,7 +851,7 @@ mod tests {
         assert!(log_tail(dir.path(), 200).is_empty());
 
         std::fs::write(
-            dir.path().join("shield-optimizer.2026-09-30.log"),
+            dir.path().join("atv-optimizer.2026-09-30.log"),
             "log line\n",
         )
         .unwrap();
@@ -917,13 +919,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("shield-optimizer.2026-11-01.log"),
+            dir.path().join("atv-optimizer.2026-11-01.log"),
             "old 1\nold 2\n",
         )
         .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(
-            dir.path().join("shield-optimizer.2026-11-02.log"),
+            dir.path().join("atv-optimizer.2026-11-02.log"),
             "new 1\nnew 2\n",
         )
         .unwrap();
@@ -940,10 +942,10 @@ mod tests {
 
     #[test]
     fn device_summaries_carry_no_serial_or_name() {
-        use shield_optimizer_core::engine::types::{
+        use atv_optimizer_core::engine::types::{
             ConnectionType, Device, DeviceProperties, DeviceStatus,
         };
-        use shield_optimizer_core::engine::{DeviceType, SupportInfo, TvEvidence};
+        use atv_optimizer_core::engine::{DeviceType, SupportInfo, TvEvidence};
         let list = vec![
             Device {
                 id: 1,
@@ -995,7 +997,7 @@ mod tests {
         assert!(log_tail(dir.path(), 200).is_empty());
 
         let body: String = (1..=300).map(|n| format!("line {n}\n")).collect();
-        std::fs::write(dir.path().join("shield-optimizer.2026-09-19.log"), body).unwrap();
+        std::fs::write(dir.path().join("atv-optimizer.2026-09-19.log"), body).unwrap();
 
         let tail = log_tail(dir.path(), 200);
         assert_eq!(tail.len(), 200);

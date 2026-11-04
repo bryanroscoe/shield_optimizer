@@ -301,7 +301,7 @@ function demoDiagnostics(serial: string | null): string {
       "",
     );
   }
-  lines.push("### Recent log", "", "```", "INFO shield_optimizer_v2_lib: adb located", "```", "");
+  lines.push("### Recent log", "", "```", "INFO atv_optimizer_lib: adb located", "```", "");
   return lines.join("\n");
 }
 

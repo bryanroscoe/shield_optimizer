@@ -124,7 +124,7 @@ npm run tauri build
 
 The development flow is:
 - `cd v2 && npm run tauri dev` to run the GUI
-- `cd v2 && cargo test -p shield-optimizer-core -p shield-optimizer-v2` to run Rust tests
+- `cd v2 && cargo test -p atv-optimizer-core -p atv-optimizer` to run Rust tests
 - `cd v2 && npm run check` to type-check the frontend
 
 ## Telemetry and support tiers

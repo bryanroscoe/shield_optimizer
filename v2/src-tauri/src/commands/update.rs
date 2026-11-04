@@ -63,7 +63,7 @@ struct ReleaseLookup {
 /// app by hand, neither of which goes through the in-app updater.
 async fn fetch_releases(current: &str) -> Result<ReleaseLookup, String> {
     let client = reqwest::Client::builder()
-        .user_agent("shield-optimizer-update-check")
+        .user_agent("atv-optimizer-update-check")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;

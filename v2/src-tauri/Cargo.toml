@@ -1,28 +1,28 @@
 [package]
-name = "shield-optimizer-v2"
+name = "atv-optimizer"
 version = "2.4.1"
-description = "Shield Optimizer v2 — Tauri/Rust rewrite of the Android TV debloater"
+description = "ATV Optimizer — desktop app for debloating and tuning Android TV devices"
 authors = ["Bryan Roscoe"]
 edition = "2021"
 rust-version = "1.81"
-default-run = "shield-optimizer-v2"
+default-run = "atv-optimizer"
 
 [lib]
 # The `_lib` suffix is necessary to keep the lib name unique vs. the bin name
 # on Windows (see https://github.com/rust-lang/cargo/issues/8519).
-name = "shield_optimizer_v2_lib"
+name = "atv_optimizer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 # Dev-only: the E2E server (crates/e2e-server) runs the real command layer
 # against the simulated adb. Never enabled in a release build.
-e2e = ["shield-optimizer-core/test-support", "tauri/test"]
+e2e = ["atv-optimizer-core/test-support", "tauri/test"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-shield-optimizer-core = { path = "../crates/core" }
+atv-optimizer-core = { path = "../crates/core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -75,7 +75,7 @@ axmldecoder = "0.5"
 if-addrs = "0.15"
 
 [dev-dependencies]
-shield-optimizer-core = { path = "../crates/core", features = ["test-support"] }
+atv-optimizer-core = { path = "../crates/core", features = ["test-support"] }
 pretty_assertions = "1"
 tempfile = "3"
 # `start_paused` — lets the reconnect-backoff tests advance time instantly

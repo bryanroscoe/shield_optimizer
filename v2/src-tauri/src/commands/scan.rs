@@ -10,11 +10,11 @@ use crate::adb::{
     local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet_with_stats,
     subnet_overridden, AdbDriver, MdnsService, SweepStats, ADB_NETWORK_PORT,
 };
-use shield_optimizer_core::engine::telemetry_diag::{
+use atv_optimizer_core::engine::telemetry_diag::{
     connect_diag, error_codes, sweep_diag, DiagReason, Gateway,
 };
-use shield_optimizer_core::engine::types::DeviceStatus;
-use shield_optimizer_core::telemetry::Telemetry;
+use atv_optimizer_core::engine::types::DeviceStatus;
+use atv_optimizer_core::telemetry::Telemetry;
 
 use super::AppState;
 
@@ -788,7 +788,7 @@ pub async fn local_address_for(host: String) -> Result<Option<String>, String> {
 // attached. Ignored in CI; run by hand:
 //   SHIELD_TEST_PAIR_ADDRESS=192.168.42.211:45439 SHIELD_TEST_HARDWARE_ID=58040DLCH005YV \
 //   SHIELD_TEST_MDNS_INSTANCE=adb-58040DLCH005YV-jBeCEe \
-//     cargo test -p shield-optimizer-v2 live_forget_then_auto_connect -- --ignored --nocapture
+//     cargo test -p atv-optimizer live_forget_then_auto_connect -- --ignored --nocapture
 // Forgets every transport of that hardware id, checks none is left, then does
 // what the Pair PIN flow does after a pair: polls mDNS for the connect port
 // and dials it. Disconnect and reconnect only; nothing on the device changes.
@@ -797,11 +797,11 @@ mod live {
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
-    use shield_optimizer_core::commands::devices::{
+    use atv_optimizer_core::commands::devices::{
         connect_paired_impl, forget_device_impl, list_devices_impl, probe_paired_connect_impl,
         PairedConnectProbe,
     };
-    use shield_optimizer_core::engine::AppListBundle;
+    use atv_optimizer_core::engine::AppListBundle;
 
     use super::AppState;
     use crate::adb::{parse_device_list, AdbDriver, SubprocessAdb};
@@ -1065,7 +1065,7 @@ mod tests {
     async fn an_offline_transport_does_not_stop_the_scan_redialling() {
         // #128: a stale offline mDNS transport must not count as attached,
         // or the advertised endpoint is never dialled again.
-        use shield_optimizer_core::commands::test_support::MockAdb;
+        use atv_optimizer_core::commands::test_support::MockAdb;
         let mock = MockAdb::default().on_raw(
             "devices",
             "List of devices attached\n\
@@ -1095,7 +1095,7 @@ mod tests {
         // #128: redialling an unauthorized mDNS key by host:port
         // makes a second unauthorized row that can never be merged, and
         // cannot answer the prompt on the TV anyway.
-        use shield_optimizer_core::commands::test_support::MockAdb;
+        use atv_optimizer_core::commands::test_support::MockAdb;
         let mock = MockAdb::default().on_raw(
             "devices",
             "List of devices attached\n\
@@ -1370,7 +1370,7 @@ mod tests {
 #[cfg(test)]
 mod command_stage_tests {
     use super::*;
-    use shield_optimizer_core::adb::{AdbError, AdbOutput, AdbResult};
+    use atv_optimizer_core::adb::{AdbError, AdbOutput, AdbResult};
     use std::collections::{BTreeMap, VecDeque};
     use std::sync::Mutex;
 

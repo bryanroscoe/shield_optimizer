@@ -12,10 +12,10 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use shield_optimizer_core::adb::driver::process_output;
-use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
-use shield_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
+use atv_optimizer_core::adb::driver::process_output;
+use atv_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
+use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
+use atv_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
 
 use crate::session;
 
@@ -1092,7 +1092,7 @@ mod tests {
             redact_stdout_for_log("shell settings get global device_name", "Bedroom Shield\n"),
             "<redacted: a name or host the user set>"
         );
-        let cmd = shield_optimizer_core::adb::batch_command(&[
+        let cmd = atv_optimizer_core::adb::batch_command(&[
             "settings get global device_name",
             "getprop ro.product.model",
         ]);

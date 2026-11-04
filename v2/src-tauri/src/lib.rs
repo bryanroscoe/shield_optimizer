@@ -1,6 +1,6 @@
-//! Shield Optimizer v2 — desktop Tauri entry point.
+//! ATV Optimizer — desktop Tauri entry point.
 //!
-//! Shared engine and driver-generic commands live in `shield_optimizer_core`.
+//! Shared engine and driver-generic commands live in `atv_optimizer_core`.
 //! This crate keeps the desktop-only subprocess ADB driver, installer/updater,
 //! host-network scan, and file-path based commands.
 
@@ -11,25 +11,25 @@
 pub mod adb;
 pub mod commands;
 pub mod session;
-pub use shield_optimizer_core::engine;
+pub use atv_optimizer_core::engine;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use adb::SubprocessAdb;
-use commands::quit::{self, AdbQuitControl};
-use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
-use shield_optimizer_core::commands::{
+use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use atv_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
     shell, snapshot, telemetry, tuning,
 };
-use shield_optimizer_core::engine::telemetry::AppKind;
-use shield_optimizer_core::license::Entitlement;
-use shield_optimizer_core::telemetry::{
+use atv_optimizer_core::engine::telemetry::AppKind;
+use atv_optimizer_core::license::Entitlement;
+use atv_optimizer_core::telemetry::{
     install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
     TelemetryConfig,
 };
+use commands::quit::{self, AdbQuitControl};
+use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
 use tauri::Manager;
 
 /// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`

@@ -7,7 +7,7 @@ use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use shield_optimizer_core::adb::Lease;
+use atv_optimizer_core::adb::Lease;
 
 use thiserror::Error;
 

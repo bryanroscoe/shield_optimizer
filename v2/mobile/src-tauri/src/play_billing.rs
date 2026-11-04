@@ -15,12 +15,12 @@
 //! This source never touches the Ed25519 offline license. The two are kept
 //! separate and combined only by [`effective_entitlement`].
 
+use atv_optimizer_core::license::Entitlement;
 use base64::Engine as _;
 use rsa::pkcs8::DecodePublicKey;
 use rsa::{Pkcs1v15Sign, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
-use shield_optimizer_core::license::Entitlement;
 use tauri_plugin_atv_billing::{response_code, RawPurchase};
 
 /// The one Play product that unlocks Pro: a non-consumable one-time product.
