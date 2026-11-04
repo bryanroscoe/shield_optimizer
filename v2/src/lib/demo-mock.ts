@@ -668,6 +668,12 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return LOG_DIR;
     case "open_log_dir":
       return null;
+    case "local_network_access":
+      // The `localNetworkBlocked` flag shows the macOS notice; otherwise the
+      // demo is a computer with nothing to report.
+      return { status: demoFlag("localNetworkBlocked") ? "blocked" : "not_applicable" };
+    case "open_local_network_settings":
+      return null;
     case "log_ui_event":
       return null;
     case "health_report":

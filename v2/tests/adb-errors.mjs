@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const v2Root = dirname(dirname(fileURLToPath(import.meta.url)));
 const source = readFileSync(join(v2Root, "src/lib/adb-errors.ts"), "utf8");
-const { explainAdbFailure, subnetWarning, hostOf } = await import(
+const { explainAdbFailure, subnetWarning, hostOf, localNetworkHint, localNetworkSentence, LOCAL_NETWORK_BLOCKED } = await import(
   "data:text/javascript," + encodeURIComponent(stripTypeScriptTypes(source, { mode: "strip" }))
 );
 
@@ -92,4 +92,53 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(instanceSerial(bad), null, String(bad));
 }
 
-console.log("adb errors passed: pair/connect failures map to guidance with raw details kept, unknown errors are not guessed at, and the subnet typo warning only fires on readable IPv4.");
+
+// macOS Local Network privacy. "No route to host" points at it only on the
+// probe's evidence ("blocked": stated plainly) or when the probe could not
+// tell ("unknown": a likely cause). Elsewhere it adds nothing.
+{
+  const raw = "adb connect: adb process failed (exit code Some(1)): failed to connect to '192.168.1.9:5555': No route to host";
+  const blocked = explainAdbFailure("connect", "192.168.1.9", raw, "blocked");
+  assert.equal(blocked.localNetwork, "blocked");
+  assert.equal(
+    blocked.summary,
+    "Couldn't reach 192.168.1.9. macOS is blocking ATV Optimizer from your local network. Turn ATV Optimizer on under Local Network in System Settings, then quit and reopen the app.",
+  );
+  assert.ok(blocked.summary.includes(LOCAL_NETWORK_BLOCKED));
+
+  const possible = explainAdbFailure("connect", "192.168.1.9", raw, "unknown");
+  assert.equal(possible.localNetwork, "possible");
+  assert.match(possible.summary, /^Couldn't reach 192\.168\.1\.9\. Check the TV's current IP/);
+  assert.match(possible.summary, /macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way\.$/);
+  assert.doesNotMatch(possible.summary, /macOS is blocking/, "a likely cause, never a certainty");
+
+  const pairPossible = explainAdbFailure("pair", "192.168.1.9:40000", "error: no route to host", "unknown");
+  assert.equal(pairPossible.localNetwork, "possible");
+  assert.match(pairPossible.summary, /pairing dialog.*macOS may also be blocking/);
+
+  for (const status of ["allowed", "no_network", "not_applicable", null, undefined]) {
+    const r = explainAdbFailure("connect", "192.168.1.9", raw, status);
+    assert.equal(r.localNetwork, null, String(status));
+    assert.doesNotMatch(r.summary, /macOS/, String(status));
+  }
+  // The default (no status passed) is the old behaviour exactly.
+  assert.equal(explainAdbFailure("connect", "192.0.2.1:5555", "No route to host").localNetwork, null);
+
+  // Other failures never mention it, whatever the probe said.
+  for (const other of ["Connection refused", "Operation timed out", "Network is unreachable", "something new"]) {
+    assert.equal(explainAdbFailure("connect", "192.168.1.9", other, "blocked").localNetwork, null, other);
+    assert.equal(localNetworkHint(other, "unknown"), null, other);
+  }
+  assert.equal(localNetworkHint("connect: Host is unreachable", "unknown"), "possible");
+  assert.equal(localNetworkHint("os error 65 (EHOSTUNREACH)", "blocked"), "blocked");
+  assert.equal(localNetworkHint("", "blocked"), null);
+
+  // Restart ADB's message carries adb's own words for each failed device.
+  const restart =
+    "ADB server restarted.\nCould not reconnect after 4 tries: 192.168.1.9:5555: failed to connect to '192.168.1.9:5555': No route to host — check the TV is awake";
+  assert.equal(localNetworkHint(restart, "unknown"), "possible");
+  assert.equal(localNetworkSentence("possible"), "macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.");
+  assert.equal(localNetworkSentence(null), null);
+}
+
+console.log("adb errors passed: pair/connect failures map to guidance with raw details kept, unknown errors are not guessed at, the subnet typo warning only fires on readable IPv4, and No route to host points at macOS Local Network only on probe evidence or as a stated possibility.");

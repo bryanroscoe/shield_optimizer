@@ -125,13 +125,14 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     // Reconnect the network devices we saw before the restart.
     //
-    // Not on the first try. `start-server` returns as soon as the daemon has
-    // forked, and the TV's adbd needs a moment to free the socket the
-    // kill-server just tore down — connecting into that window fails with
-    // "No route to host" even though the device is up and port 5555 is open.
-    // Restarting by hand a second later then works, which is what makes this
-    // read as "ADB is broken" rather than "too early". So give each device a
-    // few attempts before calling it unreachable.
+    // Not on the first try only. `start-server` returns as soon as the daemon
+    // has forked, and a connect made straight after it has been seen to fail
+    // with "No route to host" and then work when retried by hand a second
+    // later. Why is not established: a TV still tearing down the old socket
+    // is one guess; on macOS 15+, Local Network privacy denying the new adb
+    // server (which macOS holds to this app's permission) is another, and
+    // that one does not go away with retries (see `local_network.rs`). So
+    // give each device a few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     let mut unauthorized = Vec::new();

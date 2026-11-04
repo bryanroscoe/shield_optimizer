@@ -8,11 +8,52 @@
 
 export type AdbOperation = "pair" | "connect";
 
+/// What the macOS Local Network probe (`local_network_access`) last saw.
+export type LocalNetworkStatus = "allowed" | "blocked" | "unknown" | "no_network" | "not_applicable";
+
+/// Whether a failure should point at macOS Local Network privacy: "blocked"
+/// when the probe saw macOS block this app, "possible" when it is a likely
+/// cause the probe could not confirm or rule out, null when it does not apply.
+export type LocalNetworkHint = "blocked" | "possible" | null;
+
 export interface ExplainedFailure {
   /// What to do about it, or null when the failure is not one we recognise.
   summary: string | null;
   /// adb's own words, trimmed.
   raw: string;
+  /// Show the "Open Local Network settings" button beside it.
+  localNetwork: LocalNetworkHint;
+}
+
+export const LOCAL_NETWORK_BLOCKED = "macOS is blocking ATV Optimizer from your local network.";
+
+const NO_ROUTE = /no route to host|host is unreachable|ehostunreach/i;
+
+export function isNoRoute(raw: string): boolean {
+  return NO_ROUTE.test(String(raw ?? ""));
+}
+
+/// "No route to host" is what a macOS app without the Local Network privilege
+/// gets for every LAN address. Only the probe's own evidence makes it
+/// "blocked". A probe that sent fine, found no network, or isn't on macOS
+/// (or hasn't answered) adds nothing.
+export function localNetworkHint(raw: string, status: LocalNetworkStatus | null): LocalNetworkHint {
+  if (!isNoRoute(raw)) return null;
+  if (status === "blocked") return "blocked";
+  if (status === "unknown") return "possible";
+  return null;
+}
+
+const LOCAL_NETWORK_SENTENCE: Record<"blocked" | "possible", string> = {
+  blocked: `${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on under Local Network in System Settings, then quit and reopen the app.`,
+  possible:
+    "macOS may also be blocking local network access for ATV Optimizer, or a VPN or firewall " +
+    "app may be in the way.",
+};
+
+/// The sentence to add for a hint, or null for none.
+export function localNetworkSentence(hint: LocalNetworkHint): string | null {
+  return hint ? LOCAL_NETWORK_SENTENCE[hint] : null;
 }
 
 const WRONG_PIN = /wrong password|incorrect (pin|code|password)|bad (pin|code)/i;
@@ -30,8 +71,14 @@ function clean(raw: string): string {
     .trim();
 }
 
-export function explainAdbFailure(op: AdbOperation, target: string, raw: string): ExplainedFailure {
+export function explainAdbFailure(
+  op: AdbOperation,
+  target: string,
+  raw: string,
+  localNetwork: LocalNetworkStatus | null = null,
+): ExplainedFailure {
   const text = clean(String(raw ?? ""));
+  const hint = localNetworkHint(text, localNetwork);
   const where = target.trim() || "that address";
   let summary: string | null = null;
 
@@ -53,7 +100,13 @@ export function explainAdbFailure(op: AdbOperation, target: string, raw: string)
           "main Wireless debugging screen (not the pairing dialog).";
   }
 
-  return { summary, raw: text };
+  if (hint === "blocked") {
+    summary = `Couldn't reach ${where}. ${LOCAL_NETWORK_SENTENCE.blocked}`;
+  } else if (hint === "possible" && summary) {
+    summary = `${summary} ${LOCAL_NETWORK_SENTENCE.possible}`;
+  }
+
+  return { summary, raw: text, localNetwork: hint };
 }
 
 function ipv4Octets(host: string): number[] | null {

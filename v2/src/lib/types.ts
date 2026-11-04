@@ -2,6 +2,7 @@
 // and src-tauri/src/commands/*.rs. Keep in sync.
 
 import type { SupportInfo } from "../../shared/support";
+import type { LocalNetworkStatus } from "./adb-errors";
 
 export type ConnectionType = "network" | "usb";
 export type DeviceStatus = "device" | "unauthorized" | "offline";
@@ -250,6 +251,12 @@ export interface DeviceReport {
   name: string;
   report: HealthReport | null;
   error: string | null;
+}
+
+/// What the macOS Local Network probe saw. "blocked" is claimed only on
+/// evidence; "not_applicable" off macOS. See `local_network.rs`.
+export interface LocalNetworkAccess {
+  status: LocalNetworkStatus;
 }
 
 export interface RestartResult {

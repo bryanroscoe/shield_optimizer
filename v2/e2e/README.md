@@ -48,9 +48,10 @@ The bridge forwards app commands verbatim. Plugin calls (opener, dialog,
 updater, process, events) and `navigator.clipboard` get recording stubs instead,
 because they would otherwise reach the host desktop. A scenario reads them
 from `window.__E2E__.calls` or `.clipboard`, and can preset
-`window.__E2E__.dialogResult` for a file picker. Three commands are answered by the server
-instead of dispatched, because they would reach the internet or the desktop:
-`check_for_update`, `install_adb` and `open_log_dir`.
+`window.__E2E__.dialogResult` for a file picker. Five commands are answered by the server
+instead of dispatched, because they would reach the internet, the desktop or the host's real
+network: `check_for_update`, `install_adb`, `open_log_dir`, `local_network_access` (answers
+`not_applicable`) and `open_local_network_settings`.
 
 The subnet sweep in Scan LAN is answered from the simulated network
 (`SWEEP_OVERRIDE` in `src-tauri/src/adb/scan.rs`, which compiles only with `e2e`), on

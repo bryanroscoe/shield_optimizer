@@ -18,7 +18,10 @@ use std::sync::Arc;
 
 use adb::SubprocessAdb;
 use commands::quit::{self, AdbQuitControl};
-use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
+use commands::{
+    app_report, backup, diagnostics, files, install, local_network, scan, sideload, update,
+    AppState,
+};
 use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 use shield_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
@@ -100,6 +103,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         install::adb_status,
         install::install_adb,
         install::restart_adb,
+        local_network::local_network_access,
+        local_network::open_local_network_settings,
         quit::get_stop_adb_on_quit,
         quit::set_stop_adb_on_quit,
         scan::scan_network,
