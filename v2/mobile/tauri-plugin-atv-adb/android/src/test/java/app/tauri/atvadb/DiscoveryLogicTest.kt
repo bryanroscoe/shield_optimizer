@@ -18,14 +18,27 @@ class DiscoveryLogicTest {
       assertEquals(spelling, "_adb._tcp.", canonicalServiceType(spelling))
     }
     assertEquals(connect, canonicalServiceType("_adb-tls-connect._tcp"))
+    assertEquals(CAST_SERVICE_TYPE, canonicalServiceType("_GOOGLECAST._tcp.local."))
     assertNull(canonicalServiceType("_http._tcp."))
     assertNull(canonicalServiceType(null))
+  }
+
+  @Test fun optionalNamesNeverUseTheLegacySingleResolveSlot() {
+    for (api in listOf(24, 30, 32, 33)) {
+      assertEquals(ADB_SERVICE_TYPES, discoveryServiceTypes(api))
+      assertFalse(CAST_SERVICE_TYPE in discoveryServiceTypes(api))
+    }
+    for (api in listOf(34, 35, 36, 37)) {
+      assertEquals(ADB_SERVICE_TYPES + CAST_SERVICE_TYPE, discoveryServiceTypes(api))
+    }
   }
 
   @Test fun recordsOfAnotherTypeAreNotAccepted() {
     assertTrue(belongsTo("_adb-tls-connect._tcp", connect))
     assertFalse(belongsTo("_adb-tls-pairing._tcp.", connect))
     assertTrue(belongsTo("garbled", connect))
+    assertFalse(belongsTo(CAST_SERVICE_TYPE, connect))
+    assertFalse(belongsTo(connect, CAST_SERVICE_TYPE))
   }
 
   @Test fun ipv4IsPreferredWhateverTheOrder() {
@@ -93,6 +106,94 @@ class DiscoveryLogicTest {
     assertTrue(message!!, message.contains("_adb._tcp error 0"))
     assertNull(startFailureMessage(2, mapOf("_adb._tcp." to 0)))
     assertNull(startFailureMessage(0, emptyMap()))
+    assertNull(startFailureMessage(0, mapOf(CAST_SERVICE_TYPE to 0)))
+    assertFalse(allAdbDiscoveryFailed(setOf(CAST_SERVICE_TYPE)))
+    assertFalse(allAdbDiscoveryFailed(ADB_SERVICE_TYPES.take(2).toSet() + CAST_SERVICE_TYPE))
+    assertTrue(allAdbDiscoveryFailed(ADB_SERVICE_TYPES.toSet()))
+  }
+}
+
+class FriendlyDiscoveryNamesTest {
+  private val legacy = "_adb._tcp."
+  private val adbKey = ServiceKey("adb-tv-a", legacy)
+  private val castKey = ServiceKey("cast-receiver-a", CAST_SERVICE_TYPE)
+  private val adb = DiscoveredAdbDevice("adb-tv-a", "192.0.2.10", 5555, legacy)
+  private fun cast(name: String?, host: String = adb.host) =
+    DiscoveredAdbDevice("opaque-cast-id", host, 8009, CAST_SERVICE_TYPE, name)
+
+  @Test fun castTxtNamesDecodeStrictlyWithoutChangingTheirUnicode() {
+    assertEquals("Studio TV", castFriendlyName(" Studio TV ".toByteArray()))
+    assertEquals("テレビ 📺", castFriendlyName("テレビ 📺".toByteArray(Charsets.UTF_8)))
+    for (bad in listOf(null, byteArrayOf(), "  ".toByteArray(), "\u0000".toByteArray(), "TV\nName".toByteArray(), byteArrayOf(0xc3.toByte(), 0x28), ByteArray(256) { 65 })) {
+      assertNull(castFriendlyName(bad))
+    }
+  }
+
+  @Test fun castOnlyResultsNeverCreateAnAdbEndpointOrSettleTheScan() {
+    val results = DiscoveredServices()
+    results.upsert(castKey, cast("Studio TV"))
+    assertEquals(0, results.count())
+    assertTrue(results.snapshot().isEmpty())
+    assertFalse(ScanSettle.shouldStop(2_000, results.count(), 0, 1_000))
+  }
+
+  @Test fun aNameArrivingBeforeOrAfterAdbEnrichesOnlyThatCurrentEndpoint() {
+    for (castFirst in listOf(true, false)) {
+      val results = DiscoveredServices()
+      if (castFirst) results.upsert(castKey, cast("Studio TV"))
+      results.upsert(adbKey, adb)
+      if (!castFirst) results.upsert(castKey, cast("Studio TV"))
+      val result = results.snapshot().single()
+      assertEquals("Studio TV", result.friendlyName)
+      assertEquals(adb.name, result.name)
+      assertEquals(adb.port, result.port)
+      assertEquals(adb.service, result.service)
+      assertEquals(1, results.count())
+    }
+  }
+
+  @Test fun namesCanMatchAnAddressFamilyOtherThanThePreferredConnectionAddress() {
+    val results = DiscoveredServices()
+    results.upsert(adbKey, adb, setOf(adb.host, "[2001:db8::10]"))
+    results.upsert(castKey, cast("Studio TV", "[2001:db8::10]"))
+    assertEquals("Studio TV", results.snapshot().single().friendlyName)
+    assertEquals(adb.host, results.snapshot().single().host)
+  }
+
+  @Test fun namesAtOtherEndpointsAreNeverBorrowed() {
+    val results = DiscoveredServices()
+    results.upsert(adbKey, adb)
+    results.upsert(castKey, cast("Another TV", "192.0.2.20"))
+    assertNull(results.snapshot().single().friendlyName)
+  }
+
+  @Test fun conflictingNamesAreUnnamedAndLostMetadataIsRemoved() {
+    val results = DiscoveredServices()
+    val other = ServiceKey("cast-other", CAST_SERVICE_TYPE)
+    results.upsert(adbKey, adb)
+    results.upsert(castKey, cast("Studio TV"))
+    results.upsert(other, cast("Kitchen TV"))
+    assertNull(results.snapshot().single().friendlyName)
+    results.remove(other)
+    assertEquals("Studio TV", results.snapshot().single().friendlyName)
+    results.remove(castKey)
+    assertNull(results.snapshot().single().friendlyName)
+    results.upsert(castKey, cast("New name"))
+    results.upsert(castKey, null)
+    assertNull(results.snapshot().single().friendlyName)
+  }
+
+  @Test fun closingFreezesTheResultAndTheNextScanHasNoCachedNames() {
+    val results = DiscoveredServices()
+    results.upsert(adbKey, adb)
+    results.upsert(castKey, cast("Studio TV"))
+    results.close()
+    results.upsert(castKey, cast("Late callback"))
+    results.remove(adbKey)
+    assertEquals("Studio TV", results.snapshot().single().friendlyName)
+    val nextScan = DiscoveredServices()
+    nextScan.upsert(adbKey, adb)
+    assertNull(nextScan.snapshot().single().friendlyName)
   }
 }
 
@@ -167,6 +268,21 @@ class SerialResolveQueueTest {
     queue.remove("b")
     queue.resolved(lastToken())
     assertEquals(listOf("a"), started.map { it.first })
+  }
+
+  @Test fun losingAnActiveServiceCancelsItAndRejectsItsLateCallbackAfterRediscovery() {
+    queue.enqueue("a")
+    val old = lastToken()
+    queue.remove("a")
+    assertEquals(listOf("a"), abandoned)
+    queue.enqueue("a")
+    val current = lastToken()
+    assertTrue(old != current)
+    queue.resolved(old)
+    queue.failed(old, alreadyActive = true)
+    assertEquals(1, queue.pending())
+    queue.resolved(current)
+    assertEquals(0, queue.pending())
   }
 
   @Test fun closeAbandonsTheResolveInFlightAndStartsNothing() {

@@ -30,13 +30,22 @@ Play listing's six portrait screenshots, icon and feature graphic in `store-list
 copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
 Console setup and physical/purchase matrix separately; these changes do not clear those gates.
 
-The app is unreleased (`package.json` version `0.1.0`). A real arm64 debug APK compiled on
+Current source prepares mobile `0.1.2` / versionCode `1002`; it is not a released or physically
+accepted update. Play `0.1.1` / `1001` (binary source `33a215d`) was installed from Google Play on
+a Pixel 10 Pro running Android 17 on 2026-11-05. Native startup and discovery of four LAN
+endpoints passed. Phone-to-TV authorization, connected features and Play billing acceptance
+remain incomplete. A physical SHIELD received authorization requests without displaying its
+dialog. An owner-approved restart completed; a fresh connection is still unverified. Do not
+describe the connection as fixed.
+
+A real arm64 debug APK compiled on
 2026-11-03 with JDK 21, SDK 36 and NDK 28.2, including the Kotlin Play Billing plugin. That
 qualification predates the new privacy UI bundle and is not a signed Play candidate or device
 acceptance. The resolved Android runtime graph and upstream notices are now captured in
 `android-runtime-inventory.json` / `android-runtime-notices.md`; compare the final release.
 
-**Nothing in the current `v2/mobile` code has been verified on a phone or TV.** Earlier device
+**The full phone/TV acceptance matrix remains open.** The limited Play 1001 smoke checks above
+do not qualify the new 1002 source or connected behavior. Earlier device
 sessions (a Pixel 10 Pro against two Nvidia Shields) proved the transport, the fast-remote channel
 and legacy network-debugging connect, but they predate most of today's code. Everything else
 described here rests on host evidence: Rust unit tests, and a browser suite that drives the real
@@ -106,7 +115,16 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   keep IPv6-only TVs as bracketed hosts, and drop this phone's own advert. A scan requested while
   one runs joins it. Below T-extensions 7 (Android 12 and below, un-updated 13) a scan holds a Wi-Fi
   multicast lock, which the NsdManager docs require there. A discovery type that fails to start is
-  reported as an error when nothing was found, never as "no TVs".
+  reported as an error when nothing was found, never as "no TVs". On Android 14+ optional Cast
+  discovery (`_googlecast._tcp`, TXT `fn`) supplies current-scan friendly display names by intersecting
+  resolved addresses with an ADB advert; Cast-only services never become connection targets or
+  count as found TVs. Missing, malformed or conflicting names show "Name unavailable". Raw ADB
+  instances remain intact for serial recognition, and advertised labels never establish saved-TV
+  identity. Lost services and completed scans reject late updates; Cast discovery failure does
+  not report an ADB discovery failure. Older phones browse only ADB services: an optional Cast
+  lookup could otherwise hold their single resolve slot and hide TVs. They retain saved or
+  meaningful ADB names, with the same honest fallback. Before authorization, the selected name stays visible with
+  its endpoint through connection progress and errors.
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired
   through `WirelessAdb::pair`. It passed against the Android TV 14 emulator's real adbd on

@@ -816,7 +816,7 @@ fn connect_error_message(error: &RustADBError) -> String {
             "The TV closed the secure connection. Check that the phone and TV are on the same network and try again. If this keeps happening, pair again from Wireless debugging › Pair device with pairing code.".to_string()
         }
         RustADBError::IOError(io) if is_timeout(io) && is_handshake_timeout(io) => {
-            "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).".to_string()
+            "The TV connection timed out during setup. If the TV shows an Allow debugging prompt, approve it, then retry. If no prompt appears, restart the TV before trying again.".to_string()
         }
         // A bare timeout is the TCP connect itself: nothing answered, so no
         // approval prompt can be showing. The wording keeps "timed out" so the
@@ -1072,13 +1072,15 @@ mod tests {
     }
 
     #[test]
-    fn a_handshake_timeout_explains_the_tv_approval_prompt() {
+    fn a_handshake_timeout_does_not_claim_an_approval_prompt_was_shown() {
         let message = connect_error_message(&RustADBError::IOError(Error::new(
             ErrorKind::TimedOut,
             "ADB connection handshake timed out",
         )));
         assert!(message.contains("Allow"));
-        assert!(message.contains("30 seconds"));
+        assert!(message.contains("timed out"));
+        assert!(message.contains("If no prompt appears"));
+        assert!(!message.contains("didn't approve"));
         assert!(!message.contains("handshake"));
     }
 
@@ -1116,10 +1118,8 @@ mod tests {
     }
 
     #[test]
-    fn a_silent_tv_times_out_as_an_approval_wait() {
-        // Accepts the socket and never answers CNXN, like a TV showing the
-        // "Allow debugging?" prompt. This pins the vendored transport's
-        // handshake-timeout wording that `is_handshake_timeout` relies on.
+    fn a_peer_silent_before_auth_does_not_claim_the_user_missed_approval() {
+        // This peer never sends AUTH, so no approval request is established.
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         let holder = std::thread::spawn(move || {
@@ -1139,7 +1139,7 @@ mod tests {
         };
         let message = connect_error_message(&error);
         assert!(
-            message.contains("didn't approve debugging"),
+            message.contains("timed out") && !message.contains("didn't approve"),
             "{error}: {message}"
         );
         holder.join().expect("holder");
@@ -1223,7 +1223,8 @@ mod tests {
             ErrorKind::WouldBlock,
             "TLS handshake timed out",
         )));
-        assert!(timeout.contains("30 seconds"));
+        assert!(timeout.contains("timed out"));
+        assert!(!timeout.contains("didn't approve"));
         let closed = connect_error_message(&RustADBError::IOError(Error::new(
             ErrorKind::UnexpectedEof,
             "raw",

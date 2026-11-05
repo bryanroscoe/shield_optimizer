@@ -156,6 +156,31 @@ async function connectManually(page, host) {
   await page.getByRole("button", { name: "Open dashboard" }).waitFor();
 }
 
+test("surrounding whitespace in a manual IP keeps the authenticated TV selected", async (t) => {
+  const page = await createPage(t);
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = ({ host }) => {
+      window.activeHost = host.trim();
+      return { ok: true, message: "Connected." };
+    };
+  });
+  const result = await page.evaluate(async () => {
+    const result = await window.session.connect(" 192.0.2.10 ", 5555);
+    return {
+      ok: result.ok,
+      live: window.session.isConnected,
+      host: window.session.host,
+      serial: window.session.connectedDevice?.serial,
+      invokedHost: window.calls.find(c => c.command === "wireless_connect").args.host,
+      savedHost: window.savedDevices.listSavedDevices()[0]?.host,
+    };
+  });
+  assert.deepEqual(result, {
+    ok: true, live: true, host: "192.0.2.10", serial: "192.0.2.10:5555",
+    invokedHost: "192.0.2.10", savedHost: "192.0.2.10",
+  });
+});
+
 test("hardware Back and direct navigation keep Optimize cancellable", async (t) => {
   const page = await open(t, "optimize");
   await page.evaluate(() => {
@@ -671,6 +696,17 @@ test("a connect that never reached the TV doesn't send the user to look for an a
   });
   await page.getByRole("button", { name: "Try again" }).click();
   await page.getByText(/look at the TV for/).waitFor();
+
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "The TV connection timed out during setup. If the TV shows an Allow debugging prompt, approve it, then retry. If no prompt appears, restart the TV before trying again.",
+    });
+  });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.locator(".en-msg", { hasText: "If no prompt appears" }).waitFor();
+  assert.equal(await page.locator(".error-notice").getAttribute("data-code"), "timeout");
+  assert.equal(await page.locator(".callout").count(), 0);
 });
 
 test("explicit disconnect suppresses automatic saved-TV redial", async (t) => {
