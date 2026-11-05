@@ -14,6 +14,9 @@ name = "atv_optimizer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+# Built-in Rust ADB is the default engine; Settings → ADB switches to Google
+# platform-tools. `--no-default-features` builds a platform-tools-only app.
+default = ["native-adb-default"]
 native-adb-default = ["direct-adb"]
 direct-adb = ["dep:atv-direct-adb", "dep:mdns-sd"]
 # Dev-only: the E2E server (crates/e2e-server) runs the real command layer

@@ -189,13 +189,15 @@ jobs:
         working-directory: v2
         run: cargo test --workspace
 
-      - name: Experimental direct desktop backend
+      # The workspace steps above build the default app, with the built-in
+      # engine. This keeps the platform-tools-only build (the fallback) working.
+      - name: Desktop without the built-in engine
         working-directory: v2
-        run: cargo test -p atv-optimizer --features direct-adb --lib -- --test-threads=1
+        run: cargo test -p atv-optimizer --no-default-features --lib -- --test-threads=1
 
-      - name: Experimental direct desktop Clippy
+      - name: Desktop without the built-in engine, Clippy
         working-directory: v2
-        run: cargo clippy -p atv-optimizer --features direct-adb --all-targets -- -D warnings
+        run: cargo clippy -p atv-optimizer --no-default-features --all-targets -- -D warnings
 
       - name: Vendored transport tests
         working-directory: v2/vendor/adb_client

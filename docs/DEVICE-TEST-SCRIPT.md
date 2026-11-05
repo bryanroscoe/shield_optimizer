@@ -140,8 +140,8 @@ approval, cancel during the prompt, PIN pairing with right and wrong codes. What
 the app itself on your LAN (its launch scan dials every TV), TVs other than the two Shields, real
 Wireless debugging hardware, and Windows/Linux.
 
-Preconditions: the native build of the commit under test (the PR's "Native ADB macOS test app"
-artifact, or a build with `--features native-adb-default`); a TV that has never approved the app's
+Preconditions: a build of the commit under test (normal builds start on Built-in; the PR's
+"Native ADB macOS test app" artifact is a separately labeled copy); a TV that has never approved the app's
 built-in key, or one where you accept clearing its approvals (TV Settings → Developer options →
 Revoke USB debugging authorizations); a Google TV or other Android 11+ TV with Wireless
 debugging; the devtest APKs or any small APK you are willing to install and remove.
@@ -164,7 +164,7 @@ debugging; the devtest APKs or any small APK you are willing to install and remo
 | N14 | Settings → ADB engine: switch to Google platform-tools, use a TV, switch back to Built-in | Each switch takes effect without relaunching; Devices follows; Restart ADB and Stop ADB when quitting are usable only with platform-tools |
 | N15 | USB: plug a TV in by USB with Built-in selected, then switch to platform-tools | Built-in is network-only and doesn't list it; platform-tools does |
 | N16 | Upgrade from 2.5.0 (platform-tools) to the native build with an adb server still running | TVs connect through Built-in; any TV that never approved the built-in key asks once; the old server doesn't interfere |
-| N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
+| N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. If Windows Firewall asks about ATV Optimizer (mDNS discovery listens for TV announcements), allow private networks. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
 | N18 | Linux, packaged build (.deb or AppImage): same as N17 | Works as on macOS; the key is under `~/.local/share/ATVOptimizer/native-adb` with mode 700/600 |
 
 ## Mobile (M1–M8, about 20 minutes, phone on the same LAN)

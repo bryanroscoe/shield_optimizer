@@ -40,6 +40,9 @@ async function nativeEmptyConnectionHelp(browser, base) {
     assert.equal(await page.getByRole('button', { name: /Restart ADB/ }).count(), 0, 'native help never offers a host-server restart');
     assert.equal(await help.getByRole('button', { name: 'Pair PIN', exact: true }).isVisible(), true);
     assert.equal(await help.getByRole('button', { name: 'Add by IP', exact: true }).isVisible(), true);
+    // Built-in is network-only: USB needs the platform-tools engine.
+    assert.match(await help.innerText(), /Connected by USB\? Built-in ADB works over the network only; choose Google platform-tools in Settings\./);
+    assert.equal(await help.getByRole('link', { name: 'Settings', exact: true }).getAttribute('href'), '/settings#adb');
     assert.equal(await page.evaluate(() => window.nativeEmptyCalls.some(c => ['restart_adb', 'install_adb', 'set_stop_adb_on_quit'].includes(c))), false);
   } finally { await page.close(); }
 }

@@ -27,18 +27,14 @@ this file and shows the newest few sections, dated, from its version button.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
 - Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
 
-### Native Rust ADB (desktop test builds only)
+### Built-in ADB
 
-Normal desktop builds still use platform-tools. These apply to the labeled native test build:
-
-- Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
-- Native ADB testing: connect to subnet responders as they arrive, preserve transfer permission errors without writing them as file contents, require explicit upload success, and add protected Windows identity storage. Shipping builds still use platform-tools pending native acceptance.
-- Keep native scan connection attempts in expandable Scan details instead of presenting failed addresses as extra TV cards. TVs awaiting approval stay visible; each attempt retains Retry, Forget and diagnostics. Supported Shield cards no longer repeat support badges and explanatory text.
-- Native discovery stops dialing alternative addresses for one advertised service once a route is ready or awaiting approval. Unreachable routes retain IPv4/IPv6 fallback. Approval rows show the address once with shared instructions rather than repeated device cards and guides.
-- Native Scan details retains grouped mDNS service addresses with an explicit IPv4/IPv6 connection selector. Stale observations require a new scan, and pairing ports remain separate from connection addresses.
-- Native approval rows say Approval requested and Retry approval, making the initial request explicit without promising a dialog. Unidentified offline network routes stay in Scan details with working endpoint-specific retry instead of appearing as extra Unknown devices.
-- macOS: with native ADB, a "No route to host" no longer suggests Restart ADB or a stale ADB server. A Local Network block says to turn ATV Optimizer on and try again; when the app itself reaches the network, Local Network is not blamed.
-- Settings › ADB › **ADB engine** chooses between the built-in engine and Google platform-tools, saved across launches and applied without a restart. If the built-in engine can't set up its key, the app uses platform-tools for that session and Settings says why. `ATV_OPTIMIZER_TRANSPORT` still overrides the choice for one launch.
+- **Desktop now connects to your TVs with its own built-in ADB**, the same Rust code the Android app uses, instead of Google's `adb` and its background server. Nothing to download first. Scan LAN, Add by IP and Pair PIN work as before.
+- **Each TV asks "Allow USB debugging?" once** for the built-in engine's own key, even if it already trusts Google's `adb` on this computer. While it waits, the TV's row says Approval requested, with Retry approval.
+- **Settings › ADB › ADB engine** switches between Built-in and Google platform-tools at any time, without relaunching, and remembers the choice. Use platform-tools for a TV connected by USB (built-in is network-only) or if a TV doesn't work well with the built-in engine. If the built-in engine can't set up its key, the app uses platform-tools and Settings says why.
+- Scan LAN connects to TVs as they answer instead of after the whole sweep, and keeps failed and duplicate addresses in Scan details rather than as extra TV cards. Two addresses are shown as one TV only when the TV reports the same hardware ID.
+- File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
+- macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
 
 ## v2-2.5.0 — 2026-11-04
 

@@ -1506,6 +1506,10 @@
         Wireless debugging may need pairing with
         <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>; Network debugging uses
         <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
+        {#if adbBackend === "direct"}
+          Connected by USB? Built-in ADB works over the network only; choose Google platform-tools in
+          <a class="inline-link" href="/settings#adb">Settings</a>.
+        {/if}
       </span>
     </div>
     {#if localNetwork.status && localNetwork.status !== "not_applicable"}

@@ -29,11 +29,11 @@ Desktop connection recovery: Add by IP, Scan LAN and restart verify transport re
 confirmed restart can retry one unchanged failed address. On macOS, an adb server left running by
 the previous version is cut off from the network once the new version opens; the app restarts it
 when it can reach a TV that adb can't (`src-tauri/src/adb/server_repair.rs`). The subprocess driver
-remains the desktop default. Native desktop ADB is PR #268: it shares the mobile Rust transport
-(`crates/direct-adb`, vendored `adb_client`), the `native-adb-default` feature builds a labeled
-test app, and normal builds stay on platform-tools. Its handoff is `NATIVE-ADB-HANDOFF.md`;
-physical approval, TLS PIN pairing, upload/install, Remote and packaged Windows/Linux acceptance
-are outstanding. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
+was the desktop default through 2.5.0. PR #268 makes the built-in Rust ADB (the mobile
+transport, `crates/direct-adb` and vendored `adb_client`) the default engine, with Settings ›
+ADB › ADB engine switching back to platform-tools (Bryan, 2026-11-05). Its handoff is
+`NATIVE-ADB-HANDOFF.md`; the release that ships it waits for Bryan's hardware batch,
+`../docs/DEVICE-TEST-SCRIPT.md` N1–N18. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
 `server_repair.rs` stays for the platform-tools path and its fallback even once native is the
 default. Reporter #235 has not
 confirmed a fix. Put the next change under `## Unreleased` in `v2/CHANGELOG.md`;

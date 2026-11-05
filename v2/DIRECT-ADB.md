@@ -1,12 +1,12 @@
-# Native desktop test integration (2026-10-31)
+# Built-in (native Rust) desktop ADB
 
-The desktop can use the same Rust transport crate as mobile without changing the
-Devices flow. Normal builds still select platform-tools. For an app that starts in
-native mode even when opened in Finder:
-
-```sh
-CARGO_BUILD_JOBS=1 npm run tauri -- build --debug --features native-adb-default --bundles app
-```
+The desktop connects to TVs with the same Rust transport as the Android app
+(`crates/direct-adb`, vendored `adb_client`), without Google's `adb` or its server. It is
+the default engine in normal builds (Cargo default feature `native-adb-default`);
+Settings › ADB › **ADB engine** switches to Google platform-tools at any time. A
+platform-tools-only app builds with `--no-default-features`, which CI also tests. A
+labeled owner-test bundle (`com.atvoptimizer.native-test`) comes from the PR's opt-in
+`native-test-app` CI job.
 
 Devices shows **Native Rust ADB · direct connection** when active. Add by IP and
 Scan LAN connect directly to the TV; Scan LAN combines fresh mDNS endpoints with
@@ -32,8 +32,8 @@ The engine for a launch is decided in this order:
    value is a configuration error: every ADB call fails with the message and nothing
    falls back.
 2. The saved Settings choice.
-3. The build default: built-in only in builds with feature `native-adb-default`,
-   otherwise platform-tools. Normal builds keep platform-tools.
+3. The build default: built-in in builds with feature `native-adb-default` (the
+   default), platform-tools in a `--no-default-features` build.
 
 **Fallback.** When the built-in engine is selected but cannot start, because the build
 lacks feature `direct-adb` or its identity cannot be created or validated, that session
@@ -56,18 +56,20 @@ The label changes to **Platform-tools ADB**. Switching does not replay any opera
 
 ## Limits
 
-Windows first-run native identity is unsupported in this integration. Physical TV
-acceptance, file/install operations, and cross-OS validation must be completed before
-making native the shipping default. Native Remote currently uses compatibility shell
-input; the fast Remote path remains gated, so hold-to-repeat and full Unicode input are
-not yet at parity.
-
-The notes below record the earlier implementation stages; observation-only picker
-prototypes are not the integrated Devices UI.
+Built-in is network-only: a TV connected by USB needs Google platform-tools, and the
+connection help on Devices says so. Remote uses shell input under built-in; the fast
+native Remote path stays gated, so hold-to-repeat and full Unicode input are not yet at
+parity. Each TV approves the built-in engine's own key once; the platform-tools key is
+never read, imported or replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
+N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
 
 ---
 
-# Experimental desktop direct ADB
+# History: the first desktop direct ADB stage (2026-10-25, superseded)
+
+Kept for the reasoning behind the design. Several limits below no longer hold: the app
+now creates its own key, split APKs install, the engine is chosen in Settings, and
+built-in is the default.
 
 This is an opt-in development backend, not a replacement for the released desktop transport.
 No phone, TV or hardware stability has been verified for this desktop adapter. It does not claim

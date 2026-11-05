@@ -55,7 +55,6 @@ async function captureScreens(page, shot) {
     // 2. Pairing, caught while it waits for the device to advertise its
     // connect port (the demo never advertises one, so the frame is stable).
     await page.locator(".connect-form").getByRole("button", { name: "Pair PIN" }).click();
-    await page.getByText("the app connects automatically", { exact: false }).waitFor();
     await page.getByText("Do not reuse the pairing port.", { exact: false }).waitFor();
     const pairAddress = page.getByPlaceholder("IP:pair_port — e.g. 192.168.42.71:43219");
     const pairPin = page.getByPlaceholder("6-digit PIN");
@@ -167,14 +166,14 @@ async function captureScreens(page, shot) {
     // 18. Settings, reached from the header gear.
     await page.getByRole("link", { name: "Settings" }).click();
     await page.locator("[data-support-id]").waitFor();
-    await page.getByText("/opt/homebrew/bin/adb", { exact: false }).waitFor();
+    await page.getByText("Native Rust ADB · direct connection", { exact: false }).waitFor();
     await page.mouse.move(0, 0);
     await shot("settings");
 
     await page.evaluate(() => localStorage.setItem("shieldopt.demo.noDevices", "1"));
     await page.goto(BASE, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "No devices connected.", exact: true }).waitFor();
-    await page.getByRole("button", { name: "Restart ADB from connection help", exact: true }).waitFor();
+    await page.getByText("Connected by USB?", { exact: false }).waitFor();
     await page.mouse.move(0, 0);
     await shot("no-devices");
     await page.evaluate(() => localStorage.removeItem("shieldopt.demo.noDevices"));
@@ -205,6 +204,8 @@ async function main() {
         deviceScaleFactor: 2, // crisp retina PNGs
         colorScheme: scheme.name, // drives prefers-color-scheme → app "Auto"
       });
+      // The gallery shows what a fresh install runs: the built-in engine.
+      await context.addInitScript(() => localStorage.setItem("shieldopt.demo.adbEngineBuiltin", "1"));
       const page = await context.newPage();
 
       let n = 0;
