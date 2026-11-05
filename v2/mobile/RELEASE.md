@@ -1,9 +1,82 @@
 # Releasing ATV Optimizer for Android
 
-End-to-end checklist for cutting an Android build. Nothing here is automated on a tag yet — the
-desktop app's `v2-*` tag pipeline (`.github/workflows/v2-release.yml`) is a separate track and must
-not be reused for mobile. `.github/workflows/v2-tests.yml` already runs the mobile gates on every change;
-building and uploading is still a local, manual step.
+End-to-end checklist for cutting an Android build. The build, verification and Play upload are
+automated on `mobile-v*` tags by `.github/workflows/mobile-play-release.yml` (see
+[Automated release (CI)](#automated-release-ci)); the desktop app's `v2-*` tag pipeline
+(`.github/workflows/v2-release.yml`) is a separate track and must not be reused for mobile.
+`.github/workflows/v2-tests.yml` runs the mobile gates on every change. The local commands below
+remain the reference and the fallback.
+
+## Automated release (CI)
+
+Push a tag `mobile-vX.Y.Z[-pre]` on a commit that is on `main`:
+
+```sh
+mobile/scripts/bump-version.sh 0.1.2   # then commit, PR and merge as usual
+git tag -a mobile-v0.1.2 -m "ATV Optimizer for Android 0.1.2" <merged commit> && git push origin mobile-v0.1.2
+```
+
+The `release` job of `mobile-play-release.yml` then, in the `google-play` environment:
+
+1. refuses a revision that is not on `main` and a tag that disagrees with `tauri.conf.json`;
+2. resolves the versionCode (`bundle.android.versionCode` if set, else derived from the version,
+   see §2) and asks Play for the highest code it holds across every bundle, APK and track
+   release; a code that is not above it fails here, before anything is built;
+3. checks the keystore's certificate against the recorded upload certificate;
+4. builds with `scripts/build-play-release.py` (all four ABIs, Play mode, telemetry URL);
+5. runs `scripts/verify-play-bundle.py`: AAB JAR signature and upload certificate, `bundletool
+   validate`, manifest package and versionCode, then the universal APK bundletool generates and the
+   Gradle universal APK through `verify-release-apk.py` with the same certificate check;
+6. keeps the AAB, APK, build receipt and verification JSON as a 30-day workflow artifact;
+7. uploads the AAB with `scripts/play-publish.py` and creates a **draft** release on the
+   **internal** track. Nothing reaches testers until you open Play Console → Test and release →
+   Internal testing → the draft → **Review release** → **Start rollout**.
+
+**Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
+and verified, no upload), `publish` (pick the track, e.g. `alpha` for the default Closed testing
+track, and `draft` or `completed`) or `smoke`. `completed` is refused by Play while the app has
+never been published. A versionCode override is there for re-spinning one version; it must still
+be above everything on Play.
+
+The `smoke` job runs on every PR that touches the workflow, its toolchain action or these
+scripts: the same build and verification with a throwaway keystore and a random license key, no
+secrets and no upload. It proves the pipeline before a real tag depends on it.
+
+CI covers the build, signature and static artifact gates and the versionCode check. It does not
+cover the Play pre-launch report, actual 16 KB page-size runtime, the phone/TV matrix or the
+purchase script; those stay in [Testing-candidate gates](#testing-candidate-gates).
+
+### One-time setup
+
+1. **First upload by hand.** The Play Developer API cannot create the first release of a new app.
+   If Play Console shows no upload yet, do §5 and §7 once locally.
+2. **Service account.** Google Cloud console (any project) → enable the *Google Play Android
+   Developer API* → IAM → Service accounts → create one (no Cloud roles) → Keys → Add key → JSON.
+   Save it as `~/.config/atv-optimizer/play-service-account.json` (mode 600) and in 1Password.
+   Then Play Console → **Users and permissions** → Invite new users → the service account's email
+   → App permissions → ATV Optimizer → grant *View app information*, *Release apps to testing
+   tracks* and, only when you want CI to ship production, *Release to production*. Access can take
+   a few minutes to apply.
+3. **Load the environment.** `mobile/scripts/setup-play-ci.sh --dry-run` prints what it will set;
+   without `--dry-run` it creates the `google-play` environment (deploys only from `main` and
+   `mobile-v*` tags) and sets, from the same local files `build-play-release.py` reads:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `ATVOPT_UPLOAD_KEYSTORE_B64` | secret | base64 of the upload keystore |
+   | `ATVOPT_UPLOAD_KEYSTORE_PASSWORD` / `ATVOPT_UPLOAD_KEY_PASSWORD` | secret | its passwords |
+   | `PLAY_SERVICE_ACCOUNT_JSON` | secret | the service-account key |
+   | `ATVOPT_UPLOAD_KEY_ALIAS` | variable | the key alias |
+   | `ATVOPT_UPLOAD_CERT_SHA256` | variable | SHA-256 of the upload certificate; CI refuses any other keystore |
+   | `ATVOPT_PLAY_LICENSE_KEY` | variable | the Play licensing public key (public, kept out of Git) |
+
+   Re-run it after rotating any of them. Optionally add yourself as a required reviewer on the
+   environment so every run waits for an approval click.
+
+If a run fails, read the step that failed: credential and versionCode problems stop before the
+build, and a rejected artifact is never uploaded. Delete a wrong tag with
+`git push origin :refs/tags/mobile-vX.Y.Z` before re-tagging; a versionCode Play has already
+accepted can never be reused, even if its release is discarded.
 
 ## First install through Google Play
 
@@ -165,6 +238,8 @@ Use `--previous-version-code 0` only when the Console confirms no upload exists.
 targets, artifact hashes, policy hash and public-key/certificate fingerprints; it deliberately
 leaves signature/bundletool/APK verification, 16 KiB runtime, Play pre-launch and device/purchase
 acceptance open. The command never uploads or installs anything.
+`scripts/verify-play-bundle.py` closes the signature, bundletool and APK gates for that output
+(CI runs it with the same arguments; see the workflow's Verify step).
 
 ### Build-time inputs for a Play build
 
@@ -375,11 +450,12 @@ implemented; see `LICENSING.md`. Neither implementation establishes current phon
 
 ### Still missing or unresolved
 
-SAF import/export, mobile release automation, verified signed APK/AAB evidence, complete resolved
+SAF import/export, verified signed APK/AAB evidence, complete resolved
 Android dependency notices (now including the Play Billing Library) and privacy/store disclosures
 remain open. Play billing v1 is implemented but has not run against a real Play account.
-The `mobile-release-preflight.yml` workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
-it does not build/sign an APK, validate the native Android transport, or publish anything.
+The `mobile-release-preflight.yml` workflow unit-tests the release scripts with synthetic artifacts and
+mocked SDK/Play responses. `mobile-play-release.yml` builds, signs, verifies and uploads (see
+[Automated release (CI)](#automated-release-ci)); neither validates the native Android transport.
 
 ### Current external requirements to verify at submission
 
