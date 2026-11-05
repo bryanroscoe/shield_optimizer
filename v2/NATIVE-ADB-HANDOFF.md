@@ -1,5 +1,17 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Built-in is the default; ready for the hardware batch — 2026-11-05
+
+- Bryan chose built-in Rust ADB as the default engine with Settings switching back to
+  platform-tools. Normal builds include it (`default = ["native-adb-default"]`);
+  `--no-default-features` builds the platform-tools-only app, which CI tests.
+- Pair PIN connects by itself under built-in: the pair reports the TV's `[guid=…]` and
+  `mdns services` is answered from one native browse (see `DIRECT-ADB.md`, Pairing).
+- Test packages for the batch come from the PR's `native-test-app` label: macOS app,
+  Windows installer, Linux AppImage. The last verified macOS app (`bbc84eb`, run
+  42100618827) is in the task folder; Windows/Linux artifacts expire after 7 days.
+- Open: Bryan's batch (N1–N18), then the release. Fast native Remote stays gated.
+
 ## Engine setting, device checks and the hardware batch — 2026-11-05
 
 - **Settings → ADB → ADB engine** (Built-in / Google platform-tools) is saved in
