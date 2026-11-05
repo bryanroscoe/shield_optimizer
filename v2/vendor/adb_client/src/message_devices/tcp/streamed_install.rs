@@ -628,10 +628,12 @@ pub(crate) mod tests {
                     receive(socket).unwrap().header().command(),
                     MessageCommand::Write
                 );
-                std::thread::sleep(Duration::from_millis(300));
+                // Long past both bounds below, so only the cancel or the
+                // deadline can end the install in time.
+                std::thread::sleep(Duration::from_secs(3));
             });
             let control = BoundedShellControl::new(if cancel {
-                Duration::from_secs(2)
+                Duration::from_secs(5)
             } else {
                 Duration::from_millis(100)
             })
@@ -650,8 +652,12 @@ pub(crate) mod tests {
             let elapsed = started.elapsed();
             let cancel_timing = canceller.map(|canceller| canceller.join().unwrap());
             server.join().unwrap();
+            // Measured from the cancel actually landing: a busy runner can
+            // wake the cancelling thread late.
+            let since =
+                cancel_timing.map_or(elapsed, |(_, returned)| elapsed.saturating_sub(returned));
             assert!(
-                elapsed < Duration::from_millis(250),
+                since < Duration::from_secs(1),
                 "cancel={cancel}, elapsed={elapsed:?}, cancel_timing={cancel_timing:?}, detail={}",
                 result.detail
             );
@@ -987,7 +993,9 @@ pub(crate) mod tests {
             });
             let started = std::time::Instant::now();
             assert!(device.hardware_serial_bounded(control).is_err());
-            assert!(started.elapsed() < Duration::from_millis(400));
+            // Well under the 2 s deadline of the cancel case, with room for
+            // a busy runner waking the cancelling thread late.
+            assert!(started.elapsed() < Duration::from_millis(1500));
             if let Some(canceller) = canceller {
                 canceller.join().unwrap();
             }

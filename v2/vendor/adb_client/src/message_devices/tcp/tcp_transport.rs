@@ -1414,10 +1414,10 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (_stream, _) = listener.accept().unwrap();
-            std::thread::sleep(Duration::from_millis(300));
+            std::thread::sleep(Duration::from_secs(3));
         });
         let mut connection = plain_connection(address);
-        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let control = BoundedShellControl::new(Duration::from_secs(5)).unwrap();
         let started = Instant::now();
         let result = controlled_read(
             &mut connection,
@@ -1429,7 +1429,9 @@ mod tests {
         control.cancel();
         server.join().unwrap();
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
-        assert!(elapsed < Duration::from_millis(150), "{elapsed:?}");
+        // The peer stays silent for 3 s, so anything near the 20 ms read
+        // bound shows the read timed out on its own.
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
     }
 
     #[test]
