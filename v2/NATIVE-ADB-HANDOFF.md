@@ -1,5 +1,23 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Engine setting, device checks and the hardware batch — 2026-11-05
+
+- **Settings → ADB → ADB engine** (Built-in / Google platform-tools) is saved in
+  `<data folder>/adb-engine.json` and swaps the driver without relaunching. Precedence:
+  `ATV_OPTIMIZER_TRANSPORT`, then the saved choice, then the build default (still platform-tools
+  for normal builds; flipping it is Bryan's call). If the built-in engine cannot start (no key
+  storage, or a build without it) the app uses platform-tools and Settings shows why, with Try
+  again. Never per command. See `DIRECT-ADB.md`.
+- **Checked without Bryan** with `vendor/adb_client/examples/device_smoke.rs` on the merged crate:
+  both Shields (`suite` 28/28, `control` 17/17, single/split/3 MiB/corrupt/downgrade installs,
+  devtest package removed) and the Android TV 14 emulator (plain and TLS: both suites, first-time
+  approval, cancel during the prompt, PIN pairing). Logs stay local in the task folder. Found and
+  fixed: Android 14 adbd closes ~1 in 10 TLS connections opened right after the previous one
+  closed, before answering; the handshake now retries that once (`greet` in
+  `adb_message_device.rs`).
+- **Not run by agents:** the desktop app on Bryan's LAN. Its launch scan dials every TV, and two
+  TVs there must not be prompted. Bryan's batch is `docs/DEVICE-TEST-SCRIPT.md` N1–N18.
+
 ## Main 2.5.0 and Kadb parity merged — 2026-11-05
 
 Main `2af122f` is integrated: the 2.5.0 rename, the vendored `adb_client` Kadb parity rewrite
