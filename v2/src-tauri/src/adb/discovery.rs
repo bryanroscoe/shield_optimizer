@@ -1,8 +1,8 @@
 //! Observation-only mDNS snapshots. No endpoint is dialed by this module.
-use mdns_sd::{DaemonEvent, DaemonStatus, ScopedIp, ServiceDaemon, ServiceEvent};
 use atv_optimizer_core::adb::{
     AdbError, AdbResult, Lease, NativeAdvertisement, NativeDiscoveryReport, NativeServiceKind,
 };
+use mdns_sd::{DaemonEvent, DaemonStatus, ScopedIp, ServiceDaemon, ServiceEvent};
 use std::{
     collections::BTreeMap,
     mem::ManuallyDrop,

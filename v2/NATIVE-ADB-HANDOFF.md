@@ -1,5 +1,35 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Main 2.5.0 and Kadb parity merged — 2026-11-05
+
+Main `2af122f` is integrated: the 2.5.0 rename, the vendored `adb_client` Kadb parity rewrite
+(#289), the macOS adb server repair (#286) and the Local Network notice (#288).
+
+- **Vendored crate.** Main's rewrite is the base: CNXN/maxdata negotiation, one handshake
+  deadline, monotonic stream ids, spare-OKAY tolerance (Android 14), desync poisoning, sync v2
+  (`adb_sync.rs`), `ShellExit`, `install_apks` and `pull_with_limit`. #268's required-key
+  constructors, cancelable handshake with AUTH observer, bounded shell-v2, bound services and
+  guarded streamed install are rebuilt on it. #268's own sync parser is gone; its regression
+  cases run on main's fake adbd and found one gap in main (a sync OKAY before DONE counted as a
+  finished upload). A `Success` reply before the last APK byte is sent is not confirmed success.
+  `SHIELD-OPTIMIZER-PATCH.md` describes both histories.
+- **Shared transport (`crates/direct-adb`, now package `atv-direct-adb`).** Carries main's mobile
+  fixes: an unreported or lost shell exit never becomes success, sync refusals keep the TV
+  connected, lost framing drops the connection, TLS rejection says pair first while a TLS
+  hang-up claims nothing. Installs use one dedicated, hardware-verified connection and then
+  `install_apks`, so split installs (`install-multiple`) now work on desktop native too.
+  Screenshots use `exec:` when a TV lacks shell v2.
+- **Renames.** Feature `atv-optimizer/direct-adb`; `native-adb-default` is unchanged. Overrides
+  `ATV_OPTIMIZER_TRANSPORT` and `ATV_OPTIMIZER_DIRECT_KEY` (never released, so no old names).
+  Test bundle id `com.atvoptimizer.native-test`, so macOS asks for Local Network again once.
+- **Key location.** `<data folder>/native-adb/identity.pkcs8.pem` in the session's data folder,
+  which `rename.rs` copies from `ShieldOptimizer` with the folder's permissions. A key is never
+  created in `migrate_host`'s working-directory fallback.
+- **macOS.** `server_repair.rs` lives inside the platform-tools driver, so it never runs under
+  native and stays for platform-tools and its fallback (Bryan, 2026-11-05). Under native a
+  "No route to host" never suggests Restart ADB or a stale server: blocked says turn ATV
+  Optimizer on and try again, unknown offers Privacy & Security only, allowed blames nothing.
+
 ## Approval clarity and offline-route follow-up — 2026-11-04
 
 An overnight disconnected IPv6 route reproduced a gap after the two-Shield test:

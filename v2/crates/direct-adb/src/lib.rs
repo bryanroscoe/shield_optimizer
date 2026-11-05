@@ -873,28 +873,28 @@ impl AdbDriver for WirelessAdb {
             }
         };
         self.on_device_controlled(serial, SHELL_INACTIVITY_TIMEOUT, |dev, control| {
-            // Keep stderr separate from PNG bytes; refuse the unbounded framebuffer path.
-            // Only shell v2 is binary-safe here: the legacy shell runs under
-            // a pty that rewrites the PNG's line endings, so it is refused
-            // rather than returning a corrupted image.
-            if !dev.has_feature("shell_v2") {
-                return Err(RustADBError::ADBRequestFailed(
-                    "This TV's ADB has no shell v2, so screenshots are unavailable over this connection."
-                        .into(),
-                ));
-            }
+            // Binary-safe either way: shell v2 when negotiated (stderr kept
+            // apart, exit status), else `exec:`, which never runs under the
+            // pty that would rewrite the PNG's line endings. The unbounded
+            // framebuffer fallback stays refused.
             let mut out: Vec<u8> = Vec::new();
             let mut err: Vec<u8> = Vec::new();
             let mut bounded_out =
                 crate::limited_writer::LimitedWriter::new(&mut out, 64 * 1024 * 1024);
             let mut bounded_err = crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
-            let exit = dev.shell_command_with_control(
-                &"screencap -p",
-                Some(&mut bounded_out),
+            let exit = dev.exec_out_with_control(
+                "screencap -p",
+                &mut bounded_out,
                 Some(&mut bounded_err),
                 control,
             )?;
-            if exit == Some(0) && out.starts_with(b"\x89PNG") {
+            let completed = match exit {
+                ShellExit::Code(code) => code == 0,
+                // `exec:` reports no status; only the PNG signature below can
+                // show it worked.
+                ShellExit::Unreported => true,
+            };
+            if completed && out.starts_with(b"\x89PNG") {
                 Ok(out)
             } else {
                 Err(RustADBError::ADBRequestFailed(

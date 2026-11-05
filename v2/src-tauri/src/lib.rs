@@ -77,9 +77,7 @@ impl AdbDriver for ConfigurationError {
     async fn shell(&self, _serial: &str, _command: &str) -> AdbResult<AdbOutput> {
         Err(AdbError::Initialization(self.0.clone()))
     }
-    async fn discover_network(
-        &self,
-    ) -> AdbResult<atv_optimizer_core::adb::NativeDiscoveryReport> {
+    async fn discover_network(&self) -> AdbResult<atv_optimizer_core::adb::NativeDiscoveryReport> {
         Err(AdbError::Initialization(self.0.clone()))
     }
     async fn pull_limited(&self, _: &str, _: &str, _: &std::path::Path, _: u64) -> AdbResult<()> {
@@ -126,7 +124,10 @@ impl AdbDriver for ConfigurationError {
 /// local data folder, `migrate_host` falls back to the working directory;
 /// a key must never be created there.
 #[cfg(feature = "direct-adb")]
-fn identity_app_data(local_data: Option<PathBuf>, data_dir: &std::path::Path) -> Result<PathBuf, String> {
+fn identity_app_data(
+    local_data: Option<PathBuf>,
+    data_dir: &std::path::Path,
+) -> Result<PathBuf, String> {
     match local_data {
         Some(root) if data_dir.starts_with(&root) => Ok(data_dir.to_path_buf()),
         _ => Err("Rust ADB could not find the app storage folder. Reopen the app after restoring access to your user profile. Existing identities were not replaced.".to_string()),
@@ -134,9 +135,8 @@ fn identity_app_data(local_data: Option<PathBuf>, data_dir: &std::path::Path) ->
 }
 
 fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
-    let selection = adb::selection::parse_selection(
-        std::env::var("ATV_OPTIMIZER_TRANSPORT").ok().as_deref(),
-    );
+    let selection =
+        adb::selection::parse_selection(std::env::var("ATV_OPTIMIZER_TRANSPORT").ok().as_deref());
     let adb: Arc<dyn AdbDriver> = match selection {
         Ok(adb::selection::TransportSelection::Subprocess) => subprocess_driver(),
         Ok(adb::selection::TransportSelection::Direct) => {
@@ -412,8 +412,7 @@ mod initialization_tests {
         let session = std::path::Path::new("/fixture-profile/ATVOptimizer");
         assert!(identity_app_data(None, session).is_err());
         assert_eq!(
-            identity_app_data(Some(std::path::PathBuf::from("/fixture-profile")), session)
-                .unwrap(),
+            identity_app_data(Some(std::path::PathBuf::from("/fixture-profile")), session).unwrap(),
             session
         );
         let working_directory = std::path::Path::new(".").join("ATVOptimizer");

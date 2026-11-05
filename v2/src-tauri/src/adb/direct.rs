@@ -482,9 +482,7 @@ impl AdbDriver for DirectNetworkAdb {
         false
     }
 
-    async fn discover_network(
-        &self,
-    ) -> AdbResult<atv_optimizer_core::adb::NativeDiscoveryReport> {
+    async fn discover_network(&self) -> AdbResult<atv_optimizer_core::adb::NativeDiscoveryReport> {
         let lease = Arc::new(
             self.pool
                 .operations
