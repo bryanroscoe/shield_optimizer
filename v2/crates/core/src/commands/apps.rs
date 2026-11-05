@@ -1284,8 +1284,9 @@ mod tests {
         // override that. A preinstalled Google app outside `-3` stays system.
         let all = "package:com.amazon.music.tv\npackage:com.google.android.youtube.tv";
         let third = "package:com.amazon.music.tv";
-        let state =
+        let mut state =
             state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&[all, third, ""])));
+        state.app_lists = crate::commands::loader::load_embedded_app_lists().unwrap();
         let others = list_installed_packages_impl(&state, "serial")
             .await
             .unwrap();
