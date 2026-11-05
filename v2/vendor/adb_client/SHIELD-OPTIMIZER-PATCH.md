@@ -506,3 +506,29 @@ ids, its OPEN label redaction (the rewrite's errors already name only the servic
 `shell_command_prefer_v2_with_timeout` (shell v2 is chosen by the negotiated feature), its sync
 code in `adb_session.rs`, and its transport payload check (the rewrite's negotiated limit
 applies).
+
+## Real-device check of the merged crate, and one handshake retry (2026-11-05)
+
+`examples/device_smoke.rs` gained two subcommands for the desktop layer: `control` (controlled
+handshake and handoff, bounded hardware-ID reads that keep the connection, ID binding match and
+mismatch, controlled shell, exec-out screenshot and a 1 MiB push/pull round trip, deadline and
+cancel interrupting `sleep 30`, the dedicated bounded shell's streams, 256 KiB limit and partial
+output on timeout, identity-bound shell and service, and a mismatched ID never running the
+command) and `approve` (a key the device may not trust yet: the AUTH observer, the approval
+prompt, `--cancel-after-prompt`). Both print the hardware ID's length, never its value.
+
+Results on the merged crate: both Shields (Android 11, plain TCP) `suite` 28/28, `control` 17/17
+and the install cases; the Android TV 14 emulator `suite` 28/28 and `control` 17/17 on the plain
+port and over TLS after pairing, first-time approval with the observer firing ~45 ms after
+connect, a trusted reconnect in ~35 ms, and a cancel during approval closing the socket ~10 ms
+later.
+
+Over TLS, adbd sometimes closed a connection without answering CNXN when it came right after the
+previous connection closed: 2 of 20 back-to-back connects on the emulator, 0 of 30 with 300 ms
+between them, 0 of 20 on the plain port. `ADBMessageDevice::greet` now opens one fresh
+connection, 150 ms later and within the same deadline, when the socket closes before any reply;
+nothing has been asked of the device by then. A close after any reply, or a second silent close,
+is returned as before. After the change: 40/40 back-to-back TLS connects and five `control` runs
+at 17/17. Tests: `a_connection_closed_before_any_reply_is_tried_once_more`,
+`a_second_silent_close_is_returned_without_a_third_attempt`,
+`a_close_after_the_device_answered_is_not_retried` (`tcp/stream_tests.rs`).

@@ -18,7 +18,10 @@ use std::{
 
 use adb_client::{
     ADBDeviceExt, ADBListItemType, RustADBError, ShellExit,
-    tcp::{ADBTcpDevice, pair},
+    tcp::{
+        ADBTcpDevice, BoundedShellControl, BoundedShellTermination, open_bound_service, pair,
+        run_bounded_shell, run_identity_bound_shell,
+    },
 };
 use sha2::{Digest, Sha256};
 
@@ -34,6 +37,8 @@ usage:
   device_smoke uninstall <addr> --key <pem> <package>
   device_smoke shell     <addr> --key <pem> <command>
   device_smoke latency   <addr> --key <pem> [--count <n>]
+  device_smoke control   <addr> --key <pem>
+  device_smoke approve   <addr> --key <pem> [--auth-timeout <secs>] [--cancel-after-prompt <secs>]
 
 <addr> is ip:port. <pem> is a PKCS#8 PEM RSA key; the device must trust it
 (or will prompt for it within --auth-timeout, default 10 s).
@@ -56,6 +61,7 @@ struct Args {
     count: usize,
     framebuffer: bool,
     expect_failure: bool,
+    cancel_after_prompt: Option<Duration>,
     options: Vec<String>,
 }
 
@@ -68,6 +74,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         count: 20,
         framebuffer: false,
         expect_failure: false,
+        cancel_after_prompt: None,
         options: Vec::new(),
     };
     let mut iter = raw.iter();
@@ -98,6 +105,12 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
             "--opt" => args.options.push(value("--opt")?),
             "--framebuffer" => args.framebuffer = true,
             "--expect-failure" => args.expect_failure = true,
+            "--cancel-after-prompt" => {
+                let secs: f64 = value("--cancel-after-prompt")?
+                    .parse()
+                    .map_err(|e| format!("--cancel-after-prompt: {e}"))?;
+                args.cancel_after_prompt = Some(Duration::from_secs_f64(secs));
+            }
             _ => args.positional.push(arg.clone()),
         }
     }
@@ -443,6 +456,368 @@ fn latency(report: &mut Report, device: &mut ADBTcpDevice, count: usize) {
             ms(pick(1.0))
         ),
     );
+}
+
+fn control(seconds: f64) -> Result<BoundedShellControl, String> {
+    BoundedShellControl::new(Duration::from_secs_f64(seconds)).map_err(|e| e.to_string())
+}
+
+/// The deadline/cancel layer the desktop app uses: controlled handshake and
+/// handoff, bounded identity reads, controlled shell/exec/sync, the dedicated
+/// bounded shell and identity-bound services. Prints the hardware ID's length,
+/// never its value. Device files only under `DEVICE_TMP_PREFIX`.
+fn cmd_control(args: &Args) -> Result<ExitCode, String> {
+    let [_, addr] = args.positional.as_slice() else {
+        return Err("control <addr> --key <pem>".into());
+    };
+    let addr = parse_addr(addr)?;
+    let key = args.key.clone().ok_or("--key is required")?;
+    let mut report = Report::default();
+    let tag = now_nanos();
+    let remote = format!("{DEVICE_TMP_PREFIX}control-{tag}");
+    let marker = format!("{DEVICE_TMP_PREFIX}marker-{tag}");
+
+    let prompted = std::cell::Cell::new(false);
+    let started = Instant::now();
+    let mut device = match ADBTcpDevice::new_with_control_and_auth_observer(
+        addr,
+        &key,
+        true,
+        control(15.0)?,
+        &|| prompted.set(true),
+    ) {
+        Ok(device) => device,
+        Err(error) => {
+            report.check("control.connect", false, describe(&error));
+            return Ok(report.finish());
+        }
+    };
+    let handoff = device.finish_connection();
+    report.check(
+        "control.connect_and_handoff",
+        handoff.is_ok() && !prompted.get(),
+        format!(
+            "in {} approval_prompt={} handoff={:?}",
+            ms(started.elapsed()),
+            prompted.get(),
+            handoff.err()
+        ),
+    );
+
+    let serial = device.hardware_serial_bounded(control(10.0)?);
+    report.check(
+        "control.hardware_serial",
+        matches!(&serial, Ok(s) if !s.is_empty()),
+        match &serial {
+            Ok(s) => format!("len={}", s.len()),
+            Err(e) => describe(e),
+        },
+    );
+    // Callers pass the trimmed ID, as the app's `verified_hardware_id` does.
+    let serial = serial.map(|s| s.trim().to_string()).unwrap_or_default();
+    let again = device.hardware_serial_bounded(control(10.0)?);
+    report.check(
+        "control.connection_kept_after_identity_read",
+        again.as_ref().is_ok_and(|s| s.trim() == serial),
+        format!(
+            "second read same={}",
+            again.as_ref().is_ok_and(|s| s.trim() == serial)
+        ),
+    );
+    let bound = device.verify_hardware_binding_bounded(&serial, control(10.0)?);
+    report.check(
+        "control.binding_matches",
+        bound.is_ok(),
+        format!("{:?}", bound.err()),
+    );
+
+    let mut out = Vec::new();
+    let exit =
+        device.shell_command_with_control(&"echo control-ok", Some(&mut out), None, control(10.0)?);
+    report.check(
+        "control.shell",
+        matches!(exit, Ok(Some(0))) && out == b"control-ok\n",
+        format!("{exit:?} stdout={:?}", String::from_utf8_lossy(&out)),
+    );
+
+    let mut png = Vec::new();
+    let mut err = Vec::new();
+    let exit =
+        device.exec_out_with_control("screencap -p", &mut png, Some(&mut err), control(20.0)?);
+    report.check(
+        "control.exec_out_screencap",
+        matches!(exit, Ok(ShellExit::Code(0))) && png.starts_with(b"\x89PNG"),
+        format!(
+            "{exit:?} bytes={} png={}",
+            png.len(),
+            png.starts_with(b"\x89PNG")
+        ),
+    );
+
+    let payload = pseudo_random(1024 * 1024 + 17, tag);
+    let pushed = device.push_with_control(&mut Cursor::new(&payload), &remote, control(30.0)?);
+    let mut back = Vec::new();
+    let pulled = device.pull_with_control(&remote, &mut back, control(30.0)?);
+    report.check(
+        "control.push_pull_roundtrip",
+        pushed.is_ok() && pulled.is_ok() && sha256_hex(&back) == sha256_hex(&payload),
+        format!(
+            "push={:?} pull={:?} bytes={} sha256_match={}",
+            pushed.err(),
+            pulled.err(),
+            back.len(),
+            sha256_hex(&back) == sha256_hex(&payload)
+        ),
+    );
+
+    let started = Instant::now();
+    let exit = device.shell_command_with_control(&"sleep 30", None, None, control(1.5)?);
+    let elapsed = started.elapsed();
+    report.check(
+        "control.deadline_interrupts_shell",
+        exit.is_err() && elapsed < Duration::from_secs(4),
+        format!("after {}: {exit:?}", ms(elapsed)),
+    );
+    drop(device);
+
+    let mut device =
+        match ADBTcpDevice::new_with_required_key_and_control(addr, &key, &control(60.0)?) {
+            Ok(device) => device,
+            Err(error) => {
+                report.check("control.reconnect", false, describe(&error));
+                return Ok(report.finish());
+            }
+        };
+    let cancel = control(30.0)?;
+    let canceller = cancel.clone();
+    let worker = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(1));
+        canceller.cancel();
+    });
+    let started = Instant::now();
+    let exit = device.shell_command_with_control(&"sleep 30", None, None, cancel);
+    let elapsed = started.elapsed();
+    let _ = worker.join();
+    report.check(
+        "control.cancel_interrupts_shell",
+        exit.is_err() && elapsed < Duration::from_secs(4),
+        format!("after {}: {exit:?}", ms(elapsed)),
+    );
+    drop(device);
+
+    let verify = control(10.0)?;
+    let wrong = ADBTcpDevice::new_with_required_key_and_control(addr, &key, &control(30.0)?)
+        .and_then(|mut d| d.verify_hardware_binding_bounded("not-this-tv", verify));
+    report.check(
+        "control.binding_mismatch_refused",
+        wrong.is_err(),
+        format!("{:?}", wrong.err()),
+    );
+
+    let both = run_bounded_shell(addr, &key, "echo out; echo err >&2; exit 3", control(15.0)?);
+    report.check(
+        "bounded.streams_and_exit",
+        matches!(&both, Ok(o) if o.termination == BoundedShellTermination::Completed
+            && o.exit_code == Some(3) && o.stdout == b"out\n" && o.stderr == b"err\n"),
+        format!("{both:?}"),
+    );
+    let flood = run_bounded_shell(addr, &key, "yes | head -c 1000000", control(30.0)?);
+    report.check(
+        "bounded.output_limit",
+        matches!(&flood, Ok(o) if o.termination == BoundedShellTermination::OutputLimit
+            && o.stdout.len() <= 256 * 1024 && !o.stdout.is_empty()),
+        match &flood {
+            Ok(o) => format!("{:?} stdout={}", o.termination, o.stdout.len()),
+            Err(e) => describe(e),
+        },
+    );
+    let started = Instant::now();
+    let slow = run_bounded_shell(addr, &key, "echo partial; sleep 30", control(2.0)?);
+    let elapsed = started.elapsed();
+    report.check(
+        "bounded.timeout_keeps_partial_output",
+        matches!(&slow, Ok(o) if o.termination == BoundedShellTermination::Timeout
+            && o.stdout == b"partial\n")
+            && elapsed < Duration::from_secs(5),
+        format!("after {}: {slow:?}", ms(elapsed)),
+    );
+
+    let matched = run_identity_bound_shell(addr, &key, "echo bound-ok", &serial, control(15.0)?);
+    report.check(
+        "bounded.identity_bound_shell",
+        matches!(&matched, Ok(o) if o.exit_code == Some(0) && o.stdout == b"bound-ok\n"),
+        format!(
+            "{:?}",
+            matched
+                .as_ref()
+                .map(|o| (o.exit_code, String::from_utf8_lossy(&o.stdout).into_owned()))
+        ),
+    );
+    let refused = run_identity_bound_shell(
+        addr,
+        &key,
+        &format!("touch {marker}"),
+        "not-this-tv",
+        control(15.0)?,
+    );
+    let service = open_bound_service(addr, &key, &serial, "shell:echo service-ok", control(15.0)?);
+    let mut text = String::new();
+    let read = service.map(|mut s| std::io::Read::read_to_string(&mut s, &mut text));
+    report.check(
+        "bound_service.matching_id",
+        matches!(read, Ok(Ok(_))) && text.contains("service-ok"),
+        format!(
+            "{:?} text={text:?}",
+            read.as_ref()
+                .map(|r| r.as_ref().map(|_| ()).map_err(|e| e.kind()))
+        ),
+    );
+    let wrong_service = open_bound_service(
+        addr,
+        &key,
+        "not-this-tv",
+        &format!("shell:touch {marker}"),
+        control(15.0)?,
+    );
+
+    let mut device = match connect(addr, args) {
+        Ok((device, _)) => device,
+        Err(error) => {
+            report.check("control.final_connect", false, describe(&error));
+            return Ok(report.finish());
+        }
+    };
+    let out = run(
+        &mut device,
+        &format!("ls {marker} 2>/dev/null | wc -l"),
+        COMMAND_TIMEOUT,
+    );
+    report.check(
+        "identity_mismatch_never_runs_the_command",
+        refused.is_err()
+            && wrong_service.is_err()
+            && String::from_utf8_lossy(&out.stdout).trim() == "0",
+        format!(
+            "shell={:?} service={:?} marker_files={:?}",
+            refused.err(),
+            wrong_service.err(),
+            String::from_utf8_lossy(&out.stdout).trim()
+        ),
+    );
+    let out = run(
+        &mut device,
+        &format!(
+            "rm -f {remote} {marker}; ls {DEVICE_TMP_PREFIX}control-{tag} {marker} 2>/dev/null | wc -l"
+        ),
+        COMMAND_TIMEOUT,
+    );
+    report.check(
+        "control.cleanup",
+        String::from_utf8_lossy(&out.stdout).trim() == "0",
+        format!(
+            "remaining={:?}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        ),
+    );
+    Ok(report.finish())
+}
+
+/// The app's connect path with a key the TV may not trust yet: one control
+/// across TLS/AUTH/approval, the AUTH observer, then the handoff. With
+/// `--cancel-after-prompt`, cancel that many seconds after the observer fired
+/// and report how fast the attempt ended.
+fn cmd_approve(args: &Args) -> Result<ExitCode, String> {
+    let [_, addr] = args.positional.as_slice() else {
+        return Err("approve <addr> --key <pem>".into());
+    };
+    let addr = parse_addr(addr)?;
+    let key = args.key.clone().ok_or("--key is required")?;
+    let mut report = Report::default();
+    let attempt = BoundedShellControl::new(args.auth_timeout).map_err(|e| e.to_string())?;
+    let canceller = attempt.clone();
+    let prompted = std::sync::Arc::new(std::sync::Mutex::new(None::<Instant>));
+    let seen = std::sync::Arc::clone(&prompted);
+    let started = Instant::now();
+    let cancel_after = args.cancel_after_prompt;
+    let watcher = std::thread::spawn(move || {
+        let Some(delay) = cancel_after else { return };
+        loop {
+            if let Some(at) = *seen.lock().unwrap() {
+                std::thread::sleep(delay.saturating_sub(at.elapsed()));
+                canceller.cancel();
+                return;
+            }
+            if canceller.remaining().is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    });
+    let observed = std::sync::Arc::clone(&prompted);
+    let result =
+        ADBTcpDevice::new_with_control_and_auth_observer(addr, &key, true, attempt, &|| {
+            let mut at = observed.lock().unwrap();
+            if at.is_none() {
+                *at = Some(Instant::now());
+                println!(
+                    "INFO approval: public key sent after {}",
+                    ms(started.elapsed())
+                );
+            }
+        });
+    let elapsed = started.elapsed();
+    let prompt_at = *prompted.lock().unwrap();
+    let _ = watcher.join();
+    match (result, cancel_after) {
+        (Ok(mut device), None) => {
+            let handoff = device.finish_connection();
+            report.check(
+                "approve.connected",
+                handoff.is_ok(),
+                format!(
+                    "after {} prompt_observed={} handoff={:?}",
+                    ms(elapsed),
+                    prompt_at.is_some(),
+                    handoff.err()
+                ),
+            );
+            let out = run(&mut device, "echo approved", COMMAND_TIMEOUT);
+            report.check(
+                "approve.first_command",
+                matches!(out.exit, Ok(ShellExit::Code(0))) && out.stdout == b"approved\n",
+                exit_text(&out.exit),
+            );
+        }
+        (Ok(_), Some(_)) => {
+            report.check("approve.cancelled", false, "connected despite the cancel");
+        }
+        (Err(error), Some(delay)) => {
+            let after_cancel = prompt_at.map(|at| at.elapsed().saturating_sub(delay));
+            report.check(
+                "approve.cancelled",
+                prompt_at.is_some() && after_cancel.is_some_and(|d| d < Duration::from_secs(2)),
+                format!(
+                    "prompt_observed={} ended {:?} after the cancel: {}",
+                    prompt_at.is_some(),
+                    after_cancel.map(ms),
+                    describe(&error)
+                ),
+            );
+        }
+        (Err(error), None) => {
+            report.check(
+                "approve.connected",
+                false,
+                format!(
+                    "after {} prompt_observed={}: {}",
+                    ms(elapsed),
+                    prompt_at.is_some(),
+                    describe(&error)
+                ),
+            );
+        }
+    }
+    Ok(report.finish())
 }
 
 fn cmd_latency(args: &Args) -> Result<ExitCode, String> {
@@ -958,6 +1333,8 @@ fn main() -> ExitCode {
         Some("uninstall") => cmd_uninstall(&args),
         Some("shell") => cmd_shell(&args),
         Some("latency") => cmd_latency(&args),
+        Some("control") => cmd_control(&args),
+        Some("approve") => cmd_approve(&args),
         _ => Err("unknown subcommand".into()),
     };
     result.unwrap_or_else(|message| {

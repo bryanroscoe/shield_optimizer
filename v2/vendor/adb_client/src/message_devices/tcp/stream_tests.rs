@@ -1699,3 +1699,97 @@ fn controlled_exec_out_ends_at_its_deadline_and_a_spent_control_sends_nothing() 
     drop(device);
     join();
 }
+
+// ---- a connection adbd closes before answering CNXN ----
+
+/// Accepts one connection per script, in order, and counts them.
+fn adbd_sequence(
+    scripts: Vec<Box<dyn FnOnce(std::net::TcpStream) + Send>>,
+) -> (SocketAddr, std::thread::JoinHandle<usize>) {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut scripts = scripts.into_iter();
+        let mut accepted = 0;
+        let quiet_until = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < quiet_until {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    accepted += 1;
+                    match scripts.next() {
+                        Some(script) => script(stream),
+                        None => drop(stream),
+                    }
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        accepted
+    });
+    (address, handle)
+}
+
+fn hang_up_after_cnxn(mut stream: std::net::TcpStream) {
+    let cnxn = super::test_support::read_message(&mut stream).unwrap();
+    assert_eq!(cnxn.header().command(), MessageCommand::Cnxn);
+}
+
+#[test]
+fn a_connection_closed_before_any_reply_is_tried_once_more() {
+    let (address, server) = adbd_sequence(vec![
+        Box::new(hang_up_after_cnxn),
+        Box::new(|stream| {
+            let mut peer = Peer::connect(stream, "shell_v2", 256 * 1024);
+            let _ = peer.try_next(Duration::from_secs(1));
+        }),
+    ]);
+    let started = std::time::Instant::now();
+    let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+        address,
+        shared_test_key(),
+        TIMEOUT,
+    );
+    assert!(device.is_ok(), "{:?}", device.err());
+    assert!(started.elapsed() >= Duration::from_millis(150));
+    drop(device);
+    assert_eq!(server.join().unwrap(), 2);
+}
+
+#[test]
+fn a_second_silent_close_is_returned_without_a_third_attempt() {
+    let (address, server) = adbd_sequence(vec![
+        Box::new(hang_up_after_cnxn),
+        Box::new(hang_up_after_cnxn),
+    ]);
+    let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+        address,
+        shared_test_key(),
+        TIMEOUT,
+    );
+    assert!(
+        matches!(&device, Err(RustADBError::IOError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof),
+        "{:?}",
+        device.err()
+    );
+    assert_eq!(server.join().unwrap(), 2);
+}
+
+#[test]
+fn a_close_after_the_device_answered_is_not_retried() {
+    let (address, server) = adbd_sequence(vec![Box::new(|mut stream| {
+        let _ = super::test_support::read_message(&mut stream).unwrap();
+        // Ask for authentication, then hang up: the device did answer.
+        super::test_support::write_message(&mut stream, MessageCommand::Auth, 1, 0, &[7; 20])
+            .unwrap();
+        let _ = super::test_support::read_message(&mut stream);
+    })]);
+    let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+        address,
+        shared_test_key(),
+        TIMEOUT,
+    );
+    assert!(device.is_err());
+    assert_eq!(server.join().unwrap(), 1);
+}

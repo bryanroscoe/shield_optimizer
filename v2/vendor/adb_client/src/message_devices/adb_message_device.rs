@@ -177,6 +177,44 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         }
     }
 
+    /// Open the socket, send CNXN and return the device's first reply.
+    ///
+    /// Android 14's adbd sometimes closes a connection to its TLS port
+    /// without answering when it arrives right after the previous one closed
+    /// (about 1 in 10 back-to-back connects on the Android TV 14 emulator; none
+    /// with 300 ms between them, and none on the plain port). Nothing has been
+    /// asked of the device at that point, so one fresh connection is tried.
+    /// A close after any reply, or a second silent close, is returned as is.
+    fn greet(&mut self, deadline: Instant) -> Result<ADBTransportMessage> {
+        const RETRY_PAUSE: Duration = Duration::from_millis(150);
+        let mut retried = false;
+        loop {
+            self.transport.connect()?;
+            self.transport.write_message(ADBTransportMessage::try_new(
+                MessageCommand::Cnxn,
+                A_VERSION,
+                MAX_PAYLOAD,
+                &host_banner(),
+            )?)?;
+            match self.read_before(deadline) {
+                Err(RustADBError::IOError(error))
+                    if !retried && error.kind() == std::io::ErrorKind::UnexpectedEof =>
+                {
+                    retried = true;
+                    let _ = self.transport.disconnect();
+                    let pause = deadline
+                        .saturating_duration_since(Instant::now())
+                        .min(RETRY_PAUSE);
+                    if pause < RETRY_PAUSE {
+                        return Err(RustADBError::IOError(error));
+                    }
+                    std::thread::sleep(pause);
+                }
+                other => return other,
+            }
+        }
+    }
+
     /// Run the CNXN handshake as Kadb's `AdbConnection.connect` does: answer
     /// STLS and AUTH until the device sends CNXN, then negotiate from it.
     /// Everything shares one deadline, so a device that trickles replies
@@ -189,20 +227,12 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         auth_timeout: Duration,
         public_key_sent: Option<&dyn Fn()>,
     ) -> Result<()> {
-        self.transport.connect()?;
         let deadline = Instant::now() + auth_timeout;
-
-        self.transport.write_message(ADBTransportMessage::try_new(
-            MessageCommand::Cnxn,
-            A_VERSION,
-            MAX_PAYLOAD,
-            &host_banner(),
-        )?)?;
+        let mut message = self.greet(deadline)?;
 
         let mut upgraded = false;
         let mut auth_tokens = 0_usize;
         let mut public_key_reported = false;
-        let mut message = self.read_before(deadline)?;
         loop {
             match message.header().command() {
                 MessageCommand::Cnxn => break,
