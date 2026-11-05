@@ -44,11 +44,10 @@ Run `generate-sources.sh` again whenever `Cargo.lock` or `package-lock.json` cha
 Flathub hosts each app's manifest in its own repo, `flathub/io.github.bryanroscoe.ATVOptimizer`,
 created by a submission PR. Full steps: <https://docs.flathub.org/docs/for-app-authors/submission>.
 
-1. **Licence.** The repo's `LICENSE` grants no redistribution right, so Flathub would list the
-   app as proprietary (`LicenseRef-proprietary`, as the metainfo says now). Flathub accepts
-   that only with the copyright holder's permission to redistribute. Either add a sentence to
-   `LICENSE` granting Flathub permission to build and distribute the Flatpak, or switch to an
-   open source licence and update `project_license`.
+1. **Licence.** The app is freeware with all rights reserved. `LICENSE` grants Flathub alone
+   permission to build and distribute unmodified packages, which is what Flathub needs to host
+   a proprietary app. The metainfo says `LicenseRef-proprietary`, so the listing shows
+   "Proprietary".
 2. Fork `flathub/flathub`, branch from `new-pr`, and add:
    - the manifest, with the `type: dir` source replaced by
      ```yaml
