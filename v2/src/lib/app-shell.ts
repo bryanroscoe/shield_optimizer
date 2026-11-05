@@ -13,6 +13,8 @@ export interface AppShell {
   readonly restartFailed: boolean;
   /// A published tag the updater manifest has not caught up with yet.
   readonly rollingOutVersion: string | null;
+  /// Flatpak delivers updates; the in-app updater and its switch are off.
+  readonly updatesViaFlatpak: boolean;
   readonly checking: boolean;
   /// The outcome of the last check started from Settings, "" before one.
   readonly checkMessage: string;

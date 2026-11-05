@@ -423,6 +423,8 @@ export interface AdbStatus {
   last_probe: string | null;
 }
 
+export type UpdateChannel = "self" | "flatpak";
+
 export interface UpdateInfo {
   current: string;
   latest: string | null;
