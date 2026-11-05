@@ -60,10 +60,16 @@ test("reviewed source leads appear in mobile Optimize as unchecked Caution choic
     await page.getByRole("button", { name: /^Optional/ }).click();
     if (evidence) {
       await first.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
+      await first.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
       await page.screenshot({ path: join(evidence, "mobile-optimize-reviewed.png") });
       await page.setViewportSize({ width: 320, height: 800 });
       await page.addStyleTag({ content: "html{font-size:22px}" });
       await first.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
+      await first.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(400);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "new optional choices fit narrow enlarged text");
       await page.screenshot({ path: join(evidence, "mobile-optimize-narrow.png") });
     }
