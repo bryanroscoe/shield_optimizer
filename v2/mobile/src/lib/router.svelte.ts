@@ -44,11 +44,21 @@ export function isTabScreen(screen: Screen): boolean {
 // navigation.
 let hasSpare = false;
 let ignorePops = 0;
+/// A screen's own step back (onboarding's pairing and approval wait). While
+/// set, Back runs it instead of popping, even at the root.
+let localBack: (() => void) | null = null;
+/// The stack depth last synced, kept outside the reactive stack: a screen's
+/// teardown reads state as it was before the change that unmounted it.
+let syncedDepth = 1;
 
 function syncHistory(depth: number): void {
-  const wantSpare = depth > 1;
+  syncedDepth = depth;
+  const wantSpare = depth > 1 || localBack !== null;
   try {
     if (wantSpare && !hasSpare) {
+      // A removal still in flight would pop this new entry (or step past the
+      // page) instead of the old one; the pop handler re-syncs once it lands.
+      if (ignorePops > 0) return;
       history.pushState({ d: depth }, "");
       hasSpare = true;
     } else if (!wantSpare && hasSpare) {
@@ -121,6 +131,15 @@ class Router {
 
 export const router = new Router();
 
+/// Set or clear the screen-local Back handler. Replacing one handler with
+/// another leaves the spare history entry alone; set it from the screen body
+/// and clear it only when the screen goes away, never as clear-then-set.
+export function setLocalBack(handler: (() => void) | null): void {
+  if (handler === localBack) return;
+  localBack = handler;
+  syncHistory(syncedDepth);
+}
+
 /// Wire the hardware/gesture back button. A user press consumes the spare
 /// history entry and fires `popstate`; we pop our stack and `syncHistory`
 /// re-seeds the spare only while we are still below the root.
@@ -128,9 +147,16 @@ export function initBackHandler(): () => void {
   const onPop = () => {
     if (ignorePops > 0) {
       ignorePops -= 1;
+      if (ignorePops === 0) syncHistory(syncedDepth);
       return;
     }
     hasSpare = false;
+    const handler = localBack;
+    if (handler && !session.applyInProgress) {
+      handler();
+      syncHistory(router.stack.length);
+      return;
+    }
     router.back();
   };
   window.addEventListener("popstate", onPop);

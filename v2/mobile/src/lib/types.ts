@@ -389,6 +389,12 @@ export interface SnapshotApplyPlan {
   current_launcher: string | null;
   /// The snapshot's launcher when it isn't installed on this TV.
   launcher_not_installed: string | null;
+  /// The snapshot's launcher when it is installed but disabled here. A restore
+  /// never re-enables anything, so it is skipped.
+  launcher_disabled: string | null;
+  /// Listed as disabled in the snapshot but kept on so the TV keeps a Home
+  /// screen; `reason` is display-ready.
+  packages_kept: { package: string; reason: string }[];
   settings_to_write: Record<string, string>;
   settings_to_delete: string[];
   settings_already_set: string[];

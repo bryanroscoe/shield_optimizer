@@ -524,8 +524,9 @@ test("canceled connect cannot update the session when its old reply arrives", as
   const page = await open(t);
   const result = await page.evaluate(async () => {
     window.handlers.wireless_connect = () => new Promise((resolve) => { window.releaseConnect = resolve; });
-    const old = window.session.connect("B", 5555);
-    await window.session.cancelConnect();
+    let attempt = 0;
+    const old = window.session.connect("B", 5555, (generation) => { attempt = generation; });
+    await window.session.cancelConnect(attempt);
     window.releaseConnect({ ok: true });
     const canceled = await old;
     window.handlers.wireless_connect = () => ({ ok: false });
