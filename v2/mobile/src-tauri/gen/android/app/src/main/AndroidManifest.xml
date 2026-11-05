@@ -11,8 +11,15 @@
          needs only INTERNET and CHANGE_WIFI_MULTICAST_STATE.
          com.android.vending.BILLING is merged from the billing plugin. -->
 
+    <!-- No Android backup or device transfer of app data (it holds the ADB key
+         paired TVs trust). allowBackup="false" covers Android 11 and lower; on
+         Android 12+ it no longer stops device transfer, so dataExtractionRules
+         excludes everything from both. Play restores purchases itself. -->
     <application
         android:name=".App"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.atv_optimizer_mobile"

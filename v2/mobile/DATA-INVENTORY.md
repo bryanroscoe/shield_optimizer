@@ -7,9 +7,9 @@ final signed artifact, merged manifest and SDK graph before completing store dis
 | Data / activity | Code evidence | Current behavior / disclosure topic |
 |---|---|---|
 | Saved TV endpoints, labels, hardware ID, fingerprint, auto-connect preference | `src/lib/savedDevices.ts`, `identity.ts`, `session.svelte.ts` | Local saved-TV storage; identity distinguishes TVs, never merely an IP. Explain removal and automatic reconnect controls. |
-| ADB authorization / pairing material | `src-tauri/src/wireless_adb.rs`, vendored adb_client | Local authentication material enabling access to TVs the user authorizes; disclose safeguarding and how to revoke on the TV. |
+| ADB authorization / pairing material | `src-tauri/src/wireless_adb.rs`, vendored adb_client | Local authentication material (`adb_key` in app data) enabling access to TVs the user authorizes; excluded from Android backup and device transfer (below). Disclose safeguarding and how to revoke on the TV. |
 | TV installed-app inventory, diagnostics, settings, screenshots and remote input | shared core commands, `src/lib/api.ts` | Sent between phone and selected TV. Legacy ADB and TLS pairing are distinct transports; do not promise all LAN traffic is encrypted. |
-| Pulled files, APK bundles and snapshots | `src-tauri/src/file_commands.rs`, shared snapshot/files commands | App storage can contain user/device information. SAF export is not implemented. Verify deletion and OS backup behavior before promising retention/deletion. |
+| Pulled files, APK bundles and snapshots | `src-tauri/src/file_commands.rs`, shared snapshot/files commands | App storage can contain user/device information. SAF export is not implemented. Excluded from Android backup and device transfer (below); verify deletion behavior before promising retention/deletion. |
 | License key and visible licensee | `src-tauri/src/lib.rs`, `LICENSING.md` | `license.json` in app data; offline signature verification at startup. Licensee may be a name/email embedded by issuer. Sideload/dev builds only; Play builds refuse key entry. |
 | Google Play purchase of Pro | `src-tauri/src/billing_commands.rs`, `play_billing.rs`, `tauri-plugin-atv-billing/` | Play Billing Library (Google) handles payment; the app never sees payment details. The app receives the signed purchase record (order id, purchase token, time, package, product) from Play, verifies it on the phone and stores the last verified one in `play_purchase.json` in app data. No purchase data is sent to the developer; there is no verification server. Declare per Play's guidance for apps using Play billing. |
 | Debug/diagnostic logs | `src/lib/log.ts`, native tracing and `read_debug_log` | Explain logs and redaction limits. Review before sharing; logs are not automatically proof of anonymization. |
@@ -28,6 +28,20 @@ without `ATVOPT_TELEMETRY_URL`. Purchase records are never part of those reports
 attempt is reported only as an `other` action with success or a `billing_<outcome>` code (no order
 id, purchase token, price, product or license data; cancels and pending payments are not reported). This is a scoped
 source finding, not a guarantee about every transitive dependency or the final merged artifact.
+
+Android backup and device transfer are off for all app data. The app manifest sets
+`android:allowBackup="false"` and `android:fullBackupContent="false"` (Android 11 and lower) and
+`android:dataExtractionRules="@xml/data_extraction_rules"`, which excludes every domain (app files,
+databases, shared preferences, WebView storage including saved TVs, external app files and
+device-protected storage) from both cloud backup and device-to-device transfer (Android 12 and
+higher, where `allowBackup` alone no longer stops a transfer). So the ADB key, `telemetry.json`
+(install id and opt-out), `license.json`, `play_purchase.json`, snapshots, pulled files and saved
+TVs never leave the phone that way. A new or reset phone starts empty: TVs must be authorized
+again, and reports start from their default (on, with a new install id and the first-launch
+notice shown again). Play restores a Pro
+purchase from the Google account on its own (launch query or Restore purchases); a license key must
+be entered again. Source finding; confirm with `adb shell bmgr backupnow` / a transfer on a device
+before stating it in the policy.
 
 The 2026-11-03 resolved Gradle audit now records Play Billing's Google DataTransport, Firebase
 encoder and Google Play services dependencies in `android-runtime-inventory.json`. The location
@@ -49,8 +63,9 @@ not evidence that the policy URL is live or that the Play form has been submitte
 - App operator: Bryan Roscoe; public privacy/support contact: `bryanroscoe+atv@gmail.com`.
 - Explain local TV management, authorization, data categories above and user-initiated external
   navigation/sharing. Validate any no-server/no-analytics statement against the final SDK graph.
-- State actual retention, deletion, OS backup/transfer and key revocation behavior after testing:
-  **VERIFICATION REQUIRED**, not a promise that uninstall securely erases every copy. Telemetry:
+- State actual retention, deletion and key revocation behavior after testing:
+  **VERIFICATION REQUIRED**, not a promise that uninstall securely erases every copy. OS
+  backup/transfer is excluded in the manifest (above); confirm on a device before stating it. Telemetry:
   90-day raw retention is the owner's stated policy for the Worker; the client cannot enforce it.
 - Select distribution, payment processing and any trial policy: **OWNER DECISION**. Revisit
   disclosures when billing or verification servers are added. Telemetry now exists (above):
