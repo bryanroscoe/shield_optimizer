@@ -19,6 +19,9 @@ pub fn allowed(command: &str) -> bool {
             | "probe_paired_connect"
             | "connect_paired"
             | "local_address_for"
+            // Both answered by `intercepted`: no probe or System Settings launch.
+            | "local_network_access"
+            | "open_local_network_settings"
             | "rename_device"
             | "health_report"
             | "media_report"
@@ -127,6 +130,9 @@ mod tests {
         assert!(!allowed("dismiss_telemetry_notice"));
         assert!(allowed("remote_open"));
         assert!(allowed("scan_network"));
+        // Answered by the server's intercept table, never by the host.
+        assert!(allowed("local_network_access"));
+        assert!(allowed("open_local_network_settings"));
         assert!(!allowed("new_unreviewed_command"));
         assert!(!allowed("plugin:opener|open_url"));
     }

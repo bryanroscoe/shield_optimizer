@@ -1473,12 +1473,19 @@ fn a_total_deadline_interrupts_a_stat_or_a_download_that_never_ends() {
             peer.send(sync, &stat, usize::MAX);
             peer.sync_request(sync);
             for _ in 0..300 {
-                peer.raw(
-                    MessageCommand::Write,
-                    sync.remote,
-                    sync.local,
-                    &sync_reply(*b"DATA", 1, b"x"),
-                );
+                // The host hangs up once its deadline passes; that ends the
+                // download here, whichever of the write or the read sees it.
+                if peer
+                    .try_raw(
+                        MessageCommand::Write,
+                        sync.remote,
+                        sync.local,
+                        &sync_reply(*b"DATA", 1, b"x"),
+                    )
+                    .is_err()
+                {
+                    return;
+                }
                 match peer.try_next(Duration::from_secs(3)) {
                     Ok(message) if message.header().command() == MessageCommand::Okay => {}
                     _ => return,

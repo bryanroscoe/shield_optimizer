@@ -243,6 +243,18 @@ impl Peer {
         write_message(&mut self.stream, command, arg0, arg1, payload).unwrap();
     }
 
+    /// [`Self::raw`] for a peer that may already have been hung up on: a
+    /// host that ran out its deadline closes the socket, so the write can fail.
+    pub(crate) fn try_raw(
+        &mut self,
+        command: MessageCommand,
+        arg0: u32,
+        arg1: u32,
+        payload: &[u8],
+    ) -> io::Result<()> {
+        write_message(&mut self.stream, command, arg0, arg1, payload)
+    }
+
     /// The next OPEN, skipping CLSEs for streams the host finished. Returns
     /// the host's local id and the destination without its NUL.
     pub(crate) fn expect_open(&mut self) -> (u32, String) {
