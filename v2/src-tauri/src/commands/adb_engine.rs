@@ -481,6 +481,9 @@ mod tests {
         assert_eq!(selection::load_saved(dir.path()), Some(AdbEngine::Builtin));
     }
 
+    // Builds without the engine refuse the switch; see
+    // `a_build_without_builtin_refuses_it_but_still_saves_platform_tools`.
+    #[cfg(feature = "direct-adb")]
     #[tokio::test]
     async fn switching_swaps_the_live_driver_both_ways_and_saves_the_choice() {
         let dir = tempfile::tempdir().unwrap();
