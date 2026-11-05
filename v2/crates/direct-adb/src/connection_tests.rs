@@ -507,10 +507,10 @@ async fn native_download_publishes_only_success_and_keeps_selected_tv_connected(
 }
 
 #[tokio::test]
-async fn a_silent_tv_times_out_as_an_approval_wait() {
-    // Accepts the socket and never answers CNXN, like a TV showing the
-    // "Allow debugging?" prompt. This pins the vendored transport's
-    // handshake-timeout wording that `is_handshake_timeout` relies on.
+async fn a_peer_silent_before_auth_does_not_claim_the_user_missed_approval() {
+    // This peer never sends AUTH, so no approval request is established.
+    // It pins the vendored transport's handshake-timeout wording that
+    // `is_handshake_timeout` relies on.
     let key = fixture_key();
     let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -525,7 +525,10 @@ async fn a_silent_tv_times_out_as_an_approval_wait() {
         .connect_within("127.0.0.1", port, 1, Duration::from_millis(300))
         .await
         .unwrap_err();
-    assert!(error.contains("didn't approve debugging"), "{error}");
+    assert!(
+        error.contains("timed out") && !error.contains("didn't approve"),
+        "{error}"
+    );
     assert!(driver.info().is_none());
     peer.join().unwrap();
 }

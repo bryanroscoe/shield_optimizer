@@ -1082,7 +1082,7 @@ fn connect_error_message(error: &RustADBError) -> String {
             "The TV closed the secure connection. Check that this device and the TV are on the same network and try again. If this keeps happening, pair again from Wireless debugging › Pair device with pairing code.".to_string()
         }
         RustADBError::IOError(io) if is_timeout(io) && is_handshake_timeout(io) => {
-            "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).".to_string()
+            "The TV connection timed out during setup. If the TV shows an Allow debugging prompt, approve it, then retry. If no prompt appears, restart the TV before trying again.".to_string()
         }
         // A bare timeout is the TCP connect itself: nothing answered, so no
         // approval prompt can be showing. The wording keeps "timed out" so the
@@ -1127,8 +1127,9 @@ fn is_timeout(io: &std::io::Error) -> bool {
 /// The vendored transport reports a CNXN/TLS/AUTH exchange that ran out its
 /// deadline with its own "… handshake timed out" error. The TCP connect's
 /// timeout is the operating system's, so only this one means the TV was
-/// reached and is waiting on (or ignoring) the approval prompt.
-/// `a_silent_tv_times_out_as_an_approval_wait` pins the vendored wording.
+/// reached. It does not show that an approval prompt appeared: a TV can go
+/// quiet before asking for one. `a_peer_silent_before_auth_does_not_claim_the_user_missed_approval`
+/// pins the vendored wording.
 fn is_handshake_timeout(io: &std::io::Error) -> bool {
     io.get_ref()
         .is_some_and(|inner| inner.to_string().contains("handshake timed out"))
@@ -1320,13 +1321,15 @@ mod tests {
     }
 
     #[test]
-    fn a_handshake_timeout_explains_the_tv_approval_prompt() {
+    fn a_handshake_timeout_does_not_claim_an_approval_prompt_was_shown() {
         let message = connect_error_message(&RustADBError::IOError(Error::new(
             ErrorKind::TimedOut,
             "ADB connection handshake timed out",
         )));
         assert!(message.contains("Allow"));
-        assert!(message.contains("30 seconds"));
+        assert!(message.contains("timed out"));
+        assert!(message.contains("If no prompt appears"));
+        assert!(!message.contains("didn't approve"));
         assert!(!message.contains("handshake"));
     }
 
@@ -1407,7 +1410,8 @@ mod tests {
             ErrorKind::WouldBlock,
             "TLS handshake timed out",
         )));
-        assert!(timeout.contains("30 seconds"));
+        assert!(timeout.contains("timed out"));
+        assert!(!timeout.contains("didn't approve"));
         let closed = connect_error_message(&RustADBError::IOError(Error::new(
             ErrorKind::UnexpectedEof,
             "raw",

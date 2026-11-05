@@ -1,6 +1,6 @@
 [package]
 name = "atv-optimizer-mobile"
-version = "0.1.1"
+version = "0.1.2"
 description = "ATV Optimizer Android app"
 authors = ["Bryan Roscoe"]
 edition = "2021"
