@@ -6,8 +6,8 @@ script covers what simulation and CI cannot: vendor firmware behavior, macOS per
 prompts, installer upgrades, and the Android runtime lifecycle of the mobile app.
 
 Step IDs are stable so other docs can cite them: **D1–D12** desktop basics, **A1–A10** upgrade,
-launcher and device-type checks, **R1–R9** upgrades across the 2.5.0 rename, **M1–M8** the mobile
-app.
+launcher and device-type checks, **R1–R9** upgrades across the 2.5.0 rename, **N1–N18** the
+built-in (native Rust) ADB engine, **M1–M8** the mobile app.
 
 Abort rule for every section: if a step leaves the TV without a launcher or with an unexpected
 disabled app, use Restore / Emergency Recovery (desktop) or More → Emergency recovery (mobile),
@@ -128,6 +128,44 @@ tagged or committed:
 If no Windows machine is available before tagging, run A1 immediately after the release workflow
 finishes, on the published MSI, and treat a failure as a stop-ship: pull the release and cut a
 patch.
+
+## Built-in ADB engine (N1–N18, about 60 minutes)
+
+The desktop app's own Rust ADB (PR #268), chosen in Settings → ADB → ADB engine. Already covered
+without you, so not repeated here: the vendored transport against both Shields (Android 11, plain
+TCP) and the Android TV 14 emulator (plain and TLS) with `examples/device_smoke.rs` — `suite`
+28/28, `control` 17/17 (deadline/cancel, bounded shell, identity-bound services, a mismatched
+hardware ID never running the command), single/split/3 MiB/corrupt/downgrade installs, first-time
+approval, cancel during the prompt, PIN pairing with right and wrong codes. What only you can do is
+the app itself on your LAN (its launch scan dials every TV), TVs other than the two Shields, real
+Wireless debugging hardware, and Windows/Linux.
+
+Preconditions: the native build of the commit under test (the PR's "Native ADB macOS test app"
+artifact, or a build with `--features native-adb-default`); a TV that has never approved the app's
+built-in key, or one where you accept clearing its approvals (TV Settings → Developer options →
+Revoke USB debugging authorizations); a Google TV or other Android 11+ TV with Wireless
+debugging; the devtest APKs or any small APK you are willing to install and remove.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| N1 | macOS: first launch of the native build from Finder | The Local Network alert appears once (the test build has its own identifier) → Allow. Settings → ADB shows "Built-in" selected; Devices says "Native Rust ADB · direct connection" |
+| N2 | With TVs that approved the earlier native test app (both Shields have), launch and let the scan run | They connect with no prompt on the TV: the key moved from `ShieldOptimizer/native-adb` to `ATVOptimizer/native-adb` with the 2.5.0 rename |
+| N3 | A TV that has never approved this key: Scan LAN, watch the TV, choose Allow with "Always allow" | The row says Approval requested while the TV asks; within a few seconds of Allow it becomes a normal TV card. Repeat with Cancel/Deny on another TV (or after revoking): the row stays awaiting approval with Retry approval, nothing else breaks |
+| N4 | Wireless debugging TV: Pair PIN with the code and pairing port; then let it connect on the connect port. Then a wrong PIN once | Pairs, connects on the separate connect port, survives an app restart without pairing again. Wrong PIN: "The PIN didn't match…" |
+| N5 | Same TV: open Files, then immediately a download, a Device Logs read and an install, back to back | Each works first time (adbd on Android 14 sometimes drops a TLS connection opened right after another; the app now retries that once) |
+| N6 | Files: upload a small file to `/sdcard/Download`, download it back; upload to `/system` | Same bytes back; `/system` fails with the TV's reason, no "success" |
+| N7 | Install APK: a single APK, the same with replace, a split APK set (base + split), a corrupt file | Each installs or fails with the package manager's own `Failure […]` text; nothing reports success that didn't happen. Uninstall the test package afterwards |
+| N8 | Remote tab: D-pad, Home, Back, type text, hold a key | Works; note the delay per press (fast native Remote is still off, so this is shell input) |
+| N9 | Screenshot, Device Logs, a Shell bookmark, the health report | All return real data |
+| N10 | Optimize: disable then re-enable one harmless app; snapshot and restore | Same results as with platform-tools |
+| N11 | Put a TV to sleep from its remote, wait a minute, wake it | Its card goes offline, then reconnects by itself or with Retry, without a second card for the same TV |
+| N12 | Turn the Mac's Wi-Fi off for 20 seconds, then on | Cards go offline without the app hanging; they come back after a scan or Retry |
+| N13 | Quit during a large download or install | The app quits within a few seconds and leaves no helper running on the TV |
+| N14 | Settings → ADB engine: switch to Google platform-tools, use a TV, switch back to Built-in | Each switch takes effect without relaunching; Devices follows; Restart ADB and Stop ADB when quitting are usable only with platform-tools |
+| N15 | USB: plug a TV in by USB with Built-in selected, then switch to platform-tools | Built-in is network-only and doesn't list it; platform-tools does |
+| N16 | Upgrade from 2.5.0 (platform-tools) to the native build with an adb server still running | TVs connect through Built-in; any TV that never approved the built-in key asks once; the old server doesn't interfere |
+| N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
+| N18 | Linux, packaged build (.deb or AppImage): same as N17 | Works as on macOS; the key is under `~/.local/share/ATVOptimizer/native-adb` with mode 700/600 |
 
 ## Mobile (M1–M8, about 20 minutes, phone on the same LAN)
 
