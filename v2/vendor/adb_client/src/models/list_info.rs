@@ -58,11 +58,11 @@ pub struct ADBListItem {
     /// The name of the file, not the path
     pub name: String,
     /// The unix time stamp of when it was last modified
-    pub time: u32,
+    pub time: u64,
     /// The unix mode of the file, used for permissions and special bits
     pub permissions: u32,
-    /// The size of the file
-    pub size: u32,
+    /// The size of the file. 64-bit when the device supports `ls_v2`.
+    pub size: u64,
 }
 
 impl Display for ADBListItem {

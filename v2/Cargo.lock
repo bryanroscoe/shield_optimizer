@@ -26,6 +26,7 @@ dependencies = [
  "rustls-pki-types",
  "sha1",
  "sha2",
+ "socket2",
  "subtle",
  "thiserror 2.0.18",
 ]
@@ -369,11 +370,69 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "atv-optimizer"
+version = "2.5.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "atv-optimizer-core",
+ "axmldecoder",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "futures-util",
+ "if-addrs",
+ "pretty_assertions",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "socket2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "zip 2.4.2",
+]
+
+[[package]]
+name = "atv-optimizer-core"
+version = "2.5.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "ed25519-dalek",
+ "pretty_assertions",
+ "quick-xml",
+ "regex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "atv-optimizer-mobile"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "adb_client",
  "async-trait",
+ "atv-optimizer-core",
  "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
@@ -382,7 +441,6 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
- "shield-optimizer-core",
  "tauri",
  "tauri-build",
  "tauri-plugin-atv-adb",
@@ -400,11 +458,11 @@ name = "atvopt-license"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atv-optimizer-core",
  "chrono",
  "clap",
  "ed25519-dalek",
  "rand_core 0.6.4",
- "shield-optimizer-core",
 ]
 
 [[package]]
@@ -1339,10 +1397,10 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "e2e-server"
 version = "0.0.0"
 dependencies = [
+ "atv-optimizer",
+ "atv-optimizer-core",
  "serde",
  "serde_json",
- "shield-optimizer-core",
- "shield-optimizer-v2",
  "tauri",
  "tokio",
 ]
@@ -3819,11 +3877,11 @@ name = "registry-triage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "atv-optimizer-core",
  "chrono",
  "regex",
  "serde",
  "serde_json",
- "shield-optimizer-core",
 ]
 
 [[package]]
@@ -4414,62 +4472,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f40ca3c46823713e0d4209592e8d6e826aa57e928f09752619fc696c499637f6"
 dependencies = [
  "lazy_static",
-]
-
-[[package]]
-name = "shield-optimizer-core"
-version = "2.4.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "ed25519-dalek",
- "pretty_assertions",
- "quick-xml",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "shield-optimizer-v2"
-version = "2.4.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "axmldecoder",
- "base64 0.22.1",
- "chrono",
- "dirs 5.0.1",
- "futures-util",
- "if-addrs",
- "pretty_assertions",
- "regex",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "shield-optimizer-core",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "zip 2.4.2",
 ]
 
 [[package]]

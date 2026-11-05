@@ -11,7 +11,11 @@
 # CAPTURE_EXTRA_REDACT; each is replaced case-insensitively with "REDACTED".
 set -euo pipefail
 
-ADB="${ADB:-$HOME/Library/Application Support/ShieldOptimizer/platform-tools/adb}"
+# The app's own platform-tools; releases before 2.5 kept them under ShieldOptimizer.
+if [[ -z "${ADB:-}" ]]; then
+  ADB="$HOME/Library/Application Support/ATVOptimizer/platform-tools/adb"
+  [[ -x "$ADB" ]] || ADB="$HOME/Library/Application Support/ShieldOptimizer/platform-tools/adb"
+fi
 
 usage() {
   echo "usage: $0 <adb-serial-or-transport> <profile-name> [--leanback true|false|unknown] [--notes TEXT]" >&2

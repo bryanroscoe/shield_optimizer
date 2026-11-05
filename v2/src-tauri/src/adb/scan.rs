@@ -26,11 +26,12 @@ pub const ADB_NETWORK_PORT: u16 = 5555;
 /// Determine the local /24 subnet by reading the default gateway. Returns the
 /// first three octets (e.g. `[192, 168, 42]`).
 ///
-/// Honors the `SHIELD_OPTIMIZER_SUBNET` env var (e.g. `"192.168.42"`) which
+/// Honors the `ATV_OPTIMIZER_SUBNET` env var (or its old name
+/// `SHIELD_OPTIMIZER_SUBNET`, e.g. `"192.168.42"`) which
 /// matches v1's `-Subnet` CLI flag. Falls back to OS-specific subprocess
 /// parsing when unset.
 pub async fn local_subnet_prefix() -> Option<[u8; 3]> {
-    if let Ok(s) = std::env::var("SHIELD_OPTIMIZER_SUBNET") {
+    if let Some(s) = crate::rename::subnet_override() {
         if let Some(prefix) = parse_prefix(&s) {
             return Some(prefix);
         }
@@ -43,10 +44,9 @@ pub async fn local_subnet_prefix() -> Option<[u8; 3]> {
     Some([octets[0], octets[1], octets[2]])
 }
 
-/// Did `SHIELD_OPTIMIZER_SUBNET` choose the subnet, rather than the gateway?
+/// Did `ATV_OPTIMIZER_SUBNET` choose the subnet, rather than the gateway?
 pub fn subnet_overridden() -> bool {
-    std::env::var("SHIELD_OPTIMIZER_SUBNET")
-        .ok()
+    crate::rename::subnet_override()
         .and_then(|s| parse_prefix(&s))
         .is_some()
 }

@@ -16,9 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
 
+use atv_optimizer_core::commands::AppState;
+use atv_optimizer_core::license::Entitlement;
 use serde::Serialize;
-use shield_optimizer_core::commands::AppState;
-use shield_optimizer_core::license::Entitlement;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_atv_billing::{response_code, BillingExt, ProductInfo, RawPurchase};
 
@@ -551,9 +551,9 @@ pub async fn billing_purchase(app: AppHandle) -> Result<PurchaseOutcome, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use atv_optimizer_core::commands::test_support::{state_with, MockAdb};
+    use atv_optimizer_core::license::Feature;
     use serde::Deserialize;
-    use shield_optimizer_core::commands::test_support::{state_with, MockAdb};
-    use shield_optimizer_core::license::Feature;
 
     const PACKAGE: &str = "com.atvoptimizer.mobile";
     const NOW: i64 = 1_761_900_000_000;
@@ -812,12 +812,11 @@ mod tests {
             Err("LOCKED:tweaks_write".to_string())
         );
 
-        let recovered =
-            shield_optimizer_core::commands::recovery::panic_recovery_impl(&state, "TV")
-                .await
-                .expect("emergency recovery stays free");
+        let recovered = atv_optimizer_core::commands::recovery::panic_recovery_impl(&state, "TV")
+            .await
+            .expect("emergency recovery stays free");
         assert_eq!(recovered.restored, vec!["com.example.one"]);
-        let enabled = shield_optimizer_core::commands::apps::enable_package_impl(
+        let enabled = atv_optimizer_core::commands::apps::enable_package_impl(
             &state,
             "TV",
             "com.example.two",

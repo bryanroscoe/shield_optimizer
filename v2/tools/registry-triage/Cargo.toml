@@ -13,7 +13,7 @@ name = "registry-triage"
 path = "src/main.rs"
 
 [dependencies]
-shield-optimizer-core = { path = "../../crates/core" }
+atv-optimizer-core = { path = "../../crates/core" }
 anyhow = "1"
 chrono = "0.4"
 regex = "1"

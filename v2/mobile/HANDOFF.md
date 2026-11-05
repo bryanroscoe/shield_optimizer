@@ -48,6 +48,8 @@ The open physical gates are GitHub [#93](https://github.com/bryanroscoe/shield_o
 (the app-restart report), code pairing against a real adbd, and fast-remote Phase 4. See
 `BACKLOG.md` P0.
 
+Optimize now recognizes eight additional reviewed package identities from shared `common.json` as optional Disable-if-unused suggestions. Each retains Caution, default Keep and explicit Restore selection; no source-profile matching is involved. Evidence and exclusions: [`../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md`](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md).
+
 ## 1. What this is
 
 A phone/tablet app (**Tauri 2 + Rust + Svelte 5**, in `v2/mobile/`) that drives an **Android TV
@@ -75,10 +77,11 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   Corentin Liaud / `cocool97`; every local change is listed in its `SHIELD-OPTIMIZER-PATCH.md`).
   It talks straight to the TV's adbd: no adb binary, no adb server. Blocking calls run on
   `spawn_blocking`.
-- Capabilities: `shell` (shell-v2 framing for real stdout/stderr/exit status, shell-v1 fallback
-  for older devices), `raw_bytes`, synthesized `devices`/`disconnect`/`reboot`, push/pull through
-  `raw_transfer`, and dedicated byte-stream services (used by the fast remote). `forward`,
-  `connect`, `pair` and `spawn` through `raw` are unsupported.
+- Capabilities: `shell` (shell-v2 framing for real stdout/stderr/exit status, chosen by the
+  negotiated `shell_v2` feature, shell-v1 fallback for older devices), `raw_bytes` (`exec:` when
+  v2 is missing), synthesized `devices`/`disconnect`/`reboot`, push/pull and
+  `install`/`install-multiple` through `raw_transfer`, and dedicated byte-stream services (used by
+  the fast remote). `forward`, `connect`, `pair` and `spawn` through `raw` are unsupported.
 - A persistent RSA key is generated in `app_data_dir` (`ensure_adb_key`, PKCS#8 PEM). The first
   connect prompts "Allow debugging" on the TV; later connects are silent.
 - Every read is bounded: 30 s shell inactivity (180 s for installs/clears), a 120 s safety net
@@ -86,14 +89,30 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   missing remote file does not. Readers skip a bounded number of stray packets from finished
   streams, locks recover from poisoning, and the device identity is mirrored outside the device
   mutex so status calls never wait behind a running command.
+- Every connection, dedicated streams included, runs its whole CNXN/TLS/AUTH handshake under one
+  30 s deadline and negotiates features and the payload limit from the TV's CNXN
+  (`ADBTcpDevice::connection_info()`). Sockets get `TCP_NODELAY` and keepalive, so a vanished TV
+  fails a silent read after about 30 s. Only an explicit TLS alert refusing our key is
+  `TlsAuthRejected`, shown as pairing guidance; a hang-up during or right after the TLS handshake
+  is `TlsConnectionClosed`, whose message only suggests pairing again if it keeps happening.
+  Details: `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md` (2026-11-04).
 - Hot read paths (health, apps, optimize, launcher, display) are one sentinel-batched shell each
   (`crates/core/src/adb/batch.rs`).
-- **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery only** (Android `NsdManager`, no
-  third-party native libraries).
+- **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery plus a network-change watch**
+  (Android `NsdManager` and `ConnectivityManager`, no third-party native libraries). Below API 34
+  it resolves one service at a time (NsdManager rejects concurrent resolves with
+  FAILURE_ALREADY_ACTIVE), with a 1 s per-resolve timeout and retries; API 34+ uses one
+  `ServiceInfoCallback` per service. Results are keyed by instance name and type, prefer IPv4,
+  keep IPv6-only TVs as bracketed hosts, and drop this phone's own advert. A scan requested while
+  one runs joins it. Below T-extensions 7 (Android 12 and below, un-updated 13) a scan holds a Wi-Fi
+  multicast lock, which the NsdManager docs require there. A discovery type that fails to start is
+  reported as an error when nothing was found, never as "no TVs".
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired
-  through `WirelessAdb::pair`, but has never run against a real adbd. Onboarding keeps pointing
-  users at Network debugging as the fallback until `PAIRING-PLAN.md`'s manual test passes.
+  through `WirelessAdb::pair`. It passed against the Android TV 14 emulator's real adbd on
+  2026-11-04 (pair, wrong code, TLS connect with no prompt) but not yet on physical hardware or
+  from the app UI. Onboarding keeps pointing users at Network debugging as the fallback until
+  `PAIRING-PLAN.md`'s manual test passes on a Pixel and a Google TV.
   BoringSSL's SPAKE2 is a bespoke variant that is wire-incompatible with the RustCrypto `spake2`
   crate, so it is implemented directly on `curve25519-dalek`.
 - **No GPL code, anywhere in the transport.** The app is sold closed-source, so GPLv3 libraries
@@ -124,7 +143,12 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   silent one-shot recovery runs the same identity check as an explicit reconnect.
 - **Connection lifecycle.** Any error carrying the backend's "Connection to the TV was lost"
   prefix flips the session (`lib/connectionEvents.ts`): one silent redial of the same TV, then the
-  global `ConnectionBanner` (Retry / Switch TV). A 45 s heartbeat probes while the app is visible.
+  global `ConnectionBanner` (Retry / Switch TV). A 45 s heartbeat probes while the app is visible,
+  and so does a change of the phone's default network (`network-changed`, from the plugin's
+  `ConnectivityManager` callback): 1 s after a new network or a lost address, 4 s after the network
+  is lost with no replacement, debounced in `lib/networkWatch.ts`. A session that is already lost
+  gets one more silent redial when a network comes back (`session.onNetworkChange`), since its
+  first redial usually ran with no route; a loss alone, a heartbeat or a resume never spends one.
   Launch shows a saved-TV picker and auto-dials only when exactly one TV is saved and the last
   session wasn't ended by an explicit Disconnect (`atv.autoConnect.v1`), always naming the target
   with Cancel. "Add a TV" is a separate `addtv` route that never dials. The Android back button
@@ -134,6 +158,16 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   including a reconnect to the same endpoint. Tweaks keys screensaver originals by verified
   hardware id (falling back to connection generation), and multi-setting writes stop before the
   next write when the connection changes. A write already dispatched cannot be recalled.
+- **Transport results claim only what the TV said** (vendored `adb_client`, see its
+  `SHIELD-OPTIMIZER-PATCH.md`). An exit status comes only from shell v2 (`ShellExit::Code`); a v2
+  stream that closes before its exit packet is `ShellExitUnknown`, never success, shown as "result
+  unknown" unless the liveness probe also fails. Only the legacy shell on a
+  TV without `shell_v2` is `Unreported`, which `wireless_adb.rs` maps to 0 so the output text is
+  judged. Push, pull and install succeed only on the device's `OKAY` or `Success`; a sync `FAIL`,
+  an install `Failure`, a stream the TV closes early, a phone-side file error or a v2 stream
+  without an exit keep the connection, while lost framing (`ProtocolError` on every use after a
+  mid-message failure) evicts it. Restores go through `raw_transfer` `install`/`install-multiple`
+  (streamed to the package manager; staged `pm` only on TVs without `cmd`), not shell commands.
 - **Never fake data.** Failed loads show an error with retry, never a fabricated healthy device or
   placeholder metrics. Safety tags come only from core `safety_info`; Unknown (uncatalogued) is
   distinct from unavailable (the lookup failed), and Unknown is never auto-selected.
@@ -183,7 +217,9 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
 - `v2/mobile/src-tauri/gen/android/` — the generated Android project, tracked **with hand edits**
   (icons, `AndroidManifest.xml`, `strings.xml`, `build.gradle.kts` signing config). Don't rerun
   `tauri android init`; it would overwrite them.
-- `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery plugin (Kotlin `NsdManager` + thin Rust).
+- `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery and network-watch plugin (Kotlin
+  `NsdManager`/`ConnectivityManager` + thin Rust). Its pure logic has JVM tests
+  (`android/src/test/`); CI does not run them.
 - `v2/mobile/tauri-plugin-atv-billing/` — the Google Play Billing adapter (Kotlin + thin Rust; no
   entitlement decisions).
 - `v2/vendor/adb_client/` — vendored MIT transport, outside the Cargo workspace.
@@ -201,9 +237,9 @@ From `v2/`:
 
 ```
 cargo fmt --check
-cargo clippy -p shield-optimizer-core -p shield-optimizer-v2 -p atv-optimizer-mobile \
+cargo clippy -p atv-optimizer-core -p atv-optimizer -p atv-optimizer-mobile \
   -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing -p atvopt-license --all-targets -- -D warnings
-cargo test -p shield-optimizer-core -p atv-optimizer-mobile -p atvopt-license
+cargo test -p atv-optimizer-core -p atv-optimizer-mobile -p atvopt-license
 cd vendor/adb_client && cargo test --lib      # the vendored crate is outside the workspace
 ```
 

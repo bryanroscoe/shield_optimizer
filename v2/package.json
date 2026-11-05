@@ -1,6 +1,6 @@
 {
   "name": "atv-optimizer-v2",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "",
   "type": "module",
   "scripts": {
@@ -49,7 +49,8 @@
     "test:restart-onboarding": "node tests/restart-onboarding.mjs",
     "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
     "test:support-tiers-ui": "node tests/support-tiers-ui.mjs",
-    "test:settings-screen": "node tests/settings-screen.mjs"
+    "test:settings-screen": "node tests/settings-screen.mjs",
+    "test:local-network-notice": "node tests/local-network-notice.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

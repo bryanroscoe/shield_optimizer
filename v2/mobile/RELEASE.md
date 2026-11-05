@@ -119,8 +119,8 @@ From `v2/`:
 
 ```
 cargo fmt --all --check
-cargo clippy -p shield-optimizer-core -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing --all-targets -- -D warnings
-cargo test -p shield-optimizer-core -p atv-optimizer-mobile
+cargo clippy -p atv-optimizer-core -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing --all-targets -- -D warnings
+cargo test -p atv-optimizer-core -p atv-optimizer-mobile
 ```
 
 From `v2/mobile/`:

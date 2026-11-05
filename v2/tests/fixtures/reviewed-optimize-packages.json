@@ -1,0 +1,10 @@
+[
+  { "package": "com.aspiro.tidal", "name": "TIDAL" },
+  { "package": "com.cloudmosa.puffinTV", "name": "Puffin TV Browser" },
+  { "package": "tv.wuaki.apptv", "name": "Rakuten TV" },
+  { "package": "deezer.android.tv", "name": "Deezer for Android TV" },
+  { "package": "tv.arte.plus7", "name": "ARTE" },
+  { "package": "com.viaplay.android", "name": "Viaplay" },
+  { "package": "com.antena3.atresplayer.tv", "name": "atresplayer" },
+  { "package": "com.google.android.apps.tv.dreamx", "name": "Google TV Ambient Mode" }
+]

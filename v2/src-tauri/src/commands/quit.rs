@@ -13,7 +13,7 @@ use serde::Serialize;
 use tauri::State;
 use tokio::time::Instant;
 
-use shield_optimizer_core::adb::{Leases, ServerStop};
+use atv_optimizer_core::adb::{Leases, ServerStop};
 
 use super::AppState;
 
@@ -84,6 +84,11 @@ impl AdbQuitControl {
     /// The exit about to happen is a restart (after an update), not a quit.
     pub fn note_restart(&self) {
         self.state().restarting = true;
+    }
+
+    /// This exit is an update restart, which relaunches from the same path.
+    pub fn is_restarting(&self) -> bool {
+        self.state().restarting
     }
 
     /// Decide once whether this exit may stop the server; every later call
@@ -179,8 +184,8 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
-    use shield_optimizer_core::engine::AppListBundle;
+    use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+    use atv_optimizer_core::engine::AppListBundle;
 
     use super::*;
 

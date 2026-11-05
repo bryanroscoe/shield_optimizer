@@ -93,6 +93,50 @@ pub enum RustADBError {
     /// Integrity of the received message cannot be validated
     #[error("Invalid integrity. Expected CRC32 {0}, got {1}")]
     InvalidIntegrity(u32, u32),
+    /// The peer broke ADB framing or the connection handshake: a bad header
+    /// magic, an unknown command, a payload longer than the negotiated limit,
+    /// or an impossible CNXN. Also returned by every use of a connection after
+    /// a read or write stopped part-way through a message. The connection
+    /// cannot be trusted afterwards.
+    #[error("ADB protocol error: {0}")]
+    ProtocolError(String),
+    /// The device's TLS server refused this client's certificate with an
+    /// explicit TLS alert, which is how adbd reports that the key has not
+    /// been paired with it.
+    #[error("the device rejected this ADB key over TLS; pair it first ({0})")]
+    TlsAuthRejected(String),
+    /// The connection closed or reset during the TLS handshake or before the
+    /// first message over TLS, without a TLS alert. A network drop does
+    /// this, and so might a device refusing the key silently; which one it
+    /// was is unknown.
+    #[error("the device closed the secure connection: {0}")]
+    TlsConnectionClosed(std::io::Error),
+    /// A shell protocol v2 command ended (its stream closed) before the
+    /// device reported an exit status. Whether the command ran, and how it
+    /// ended, is unknown. The connection itself may be intact.
+    #[error("the device closed the command before reporting a result; its outcome is unknown")]
+    ShellExitUnknown,
+    /// A file is larger than the caller allowed: its size, then the limit.
+    /// Nothing was transferred, and the connection is intact.
+    #[error("the file is {0} bytes, over the {1}-byte limit")]
+    FileTooLarge(u64, u64),
+    /// A message payload is larger than the connection's negotiated maximum.
+    /// It was refused before anything was written, so the connection is intact.
+    #[error("message payload of {0} bytes exceeds the negotiated maximum of {1}")]
+    PayloadTooLarge(usize, usize),
+    /// The device's file-sync service answered `FAIL`, for example for a
+    /// missing path or a destination it cannot write. The connection is intact.
+    #[error("the device refused the file operation: {0}")]
+    SyncFailed(String),
+    /// The device's package manager did not report `Success`. Carries what it
+    /// printed, such as `Failure [INSTALL_FAILED_VERSION_DOWNGRADE]`. The
+    /// connection is intact.
+    #[error("install failed: {0}")]
+    InstallFailed(String),
+    /// Reading or writing the local end of a transfer (a file on this host,
+    /// not on the device) failed. The connection is intact.
+    #[error(transparent)]
+    LocalIo(std::io::Error),
     /// Error while decoding base64 data
     #[error(transparent)]
     Base64DecodeError(#[from] base64::DecodeError),

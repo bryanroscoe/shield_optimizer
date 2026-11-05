@@ -268,6 +268,18 @@ class Session {
     await this.recoverOrMarkLost();
   }
 
+  /// A settled change of the phone's default network (lib/networkWatch.ts).
+  /// A live session is probed. A lost one gets one more silent redial once a
+  /// network is back, because its first redial usually ran while there was no
+  /// route to the TV; a loss alone never spends one.
+  async onNetworkChange(reason: unknown): Promise<void> {
+    if (!this.connectedDevice) return;
+    if (this.liveness !== "lost") return this.checkLiveness();
+    if (reason === "lost") return;
+    this.recoveryAttempted = false;
+    await this.recoverOrMarkLost();
+  }
+
   /// One automatic reconnect to the current host. Concurrent callers share the
   /// same attempt. Resolves true when the connection is live again.
   async recoverOrMarkLost(): Promise<boolean> {

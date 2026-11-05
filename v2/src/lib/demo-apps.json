@@ -1364,6 +1364,150 @@
     ]
   },
   {
+    "package": "com.aspiro.tidal",
+    "name": "TIDAL",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops TIDAL music playback on this TV. Keep it if anyone here listens with TIDAL.",
+    "restore_description": "Re-enables TIDAL if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.aspiro.tidal",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh2/debloat.txt#L81",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.cloudmosa.puffinTV",
+    "name": "Puffin TV Browser",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops the Puffin TV web browser and links opened with it. Keep it if used, or choose another browser first.",
+    "restore_description": "Re-enables Puffin TV Browser if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cloudmosa.puffinTV",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/philips-49pus6561/debloat.txt#L107",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "tv.wuaki.apptv",
+    "name": "Rakuten TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Rakuten TV movies, series and live channels on this TV. Keep it if anyone here watches them.",
+    "restore_description": "Re-enables Rakuten TV if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=tv.wuaki.apptv",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/philips-50pus8517/debloat.txt#L232",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "deezer.android.tv",
+    "name": "Deezer for Android TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Deezer music playback on this TV. Keep it if anyone here listens with Deezer.",
+    "restore_description": "Re-enables Deezer for Android TV if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=deezer.android.tv",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/vision-2024vision43stv/debloat.txt#L77",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "tv.arte.plus7",
+    "name": "ARTE",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops viewing ARTE programmes through this app. Keep it if anyone here watches ARTE.",
+    "restore_description": "Re-enables ARTE if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=tv.arte.plus7",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/ok-ai-pont-ikebukuro/debloat.txt#L59",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.viaplay.android",
+    "name": "Viaplay",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Viaplay viewing through this app. Keep it if anyone here uses Viaplay.",
+    "restore_description": "Re-enables Viaplay if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.viaplay.android",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/panasonic-kowloon/debloat.txt#L29",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.antena3.atresplayer.tv",
+    "name": "atresplayer",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops atresplayer live and on-demand viewing through this app. Keep it if anyone here watches it.",
+    "restore_description": "Re-enables atresplayer if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.antena3.atresplayer.tv",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-axfu0/debloat.txt#L74",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.google.android.apps.tv.dreamx",
+    "name": "Google TV Ambient Mode",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops the Google TV Ambient Mode photo screensaver. Keep it unless you have selected another screensaver in Settings.",
+    "restore_description": "Re-enables Google TV Ambient Mode if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.google.android.apps.tv.dreamx",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/acer-ar32hdigu2841at/debloat.txt#L55",
+      "Source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",

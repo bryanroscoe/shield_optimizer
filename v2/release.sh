@@ -208,7 +208,7 @@ for cargo_path in [os.environ["CARGO_TOML"], os.environ["CORE_CARGO_TOML"]]:
 # Cargo.lock and leaves the working tree dirty after a release.
 lock_path = pathlib.Path(os.environ["CARGO_LOCK"])
 lock = lock_path.read_text()
-for package_name in ["shield-optimizer-v2", "shield-optimizer-core"]:
+for package_name in ["atv-optimizer", "atv-optimizer-core"]:
     lock, n = re.subn(
         rf'(\[\[package\]\]\r?\nname = "{package_name}"\r?\nversion = )"[^"]+"',
         rf'\1"{new}"',

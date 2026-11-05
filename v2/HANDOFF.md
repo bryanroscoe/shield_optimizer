@@ -5,23 +5,36 @@ failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 `.github/workflows/v2-release.yml`; macOS is also distributed via the Homebrew tap
-(`bryanroscoe/homebrew-shield-optimizer`).
+(`bryanroscoe/homebrew-shield-optimizer`, cask `atv-optimizer`).
 
 ## Unreleased on `main`
 
-Desktop help improvements and ADB connection recovery are pending release. Add by IP,
-Scan LAN and restart now verify transport readiness; the confirmed restart can retry
-one unchanged failed address. The subprocess driver remains the default. Shared native
-ADB PR236 and its parity branches remain experimental, with hardware and Windows
-identity acceptance outstanding. These source fixes do not establish the full root
-cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
-their notes shipped in 2.4.1. Put
-the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
-heading to stay. Before tagging, run the
-physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
-`npm run e2e`.
+Nothing yet. `v2-2.5.0` (2026-11-04) shipped the rename (identifier `com.atvoptimizer.app`, data
+folder `ATVOptimizer`, binary `atv-optimizer`, crates `atv-optimizer` / `atv_optimizer_lib` /
+`atv-optimizer-core`, Homebrew cask `atv-optimizer`) and the desktop connection work below; its
+notes are in `v2/CHANGELOG.md`.
+
+**2.5.0 shipped without the physical device script, at Bryan's direction.** The `v2 Upgrade Tests`
+workflow passed on `1bd204a`, the commit under the version bump (all 16 jobs: NSIS, MSI and macOS
+bundle upgrades from 2.2.0 and 2.4.1, Homebrew-managed, retries), and `v2-tests.yml` passed there on
+all three OSes. Nothing has been run on real hardware: the R steps ("Upgrades across the 2.5.0
+rename") and D10–D12 (macOS Local Network) in `../docs/DEVICE-TEST-SCRIPT.md` are still open, so
+real in-app updates, Dock, Login Items, the Local Network prompt, `brew upgrade` through the rename
+(R7) and Linux (R9) are unverified. Treat reports in those areas as likely real.
+
+Desktop connection recovery: Add by IP, Scan LAN and restart verify transport readiness, and the
+confirmed restart can retry one unchanged failed address. On macOS, an adb server left running by
+the previous version is cut off from the network once the new version opens; the app restarts it
+when it can reach a TV that adb can't (`src-tauri/src/adb/server_repair.rs`). The subprocess driver
+remains the desktop default. Shared native ADB (PR236) and its parity branches remain
+experimental, with hardware and Windows identity acceptance outstanding. Reporter #235 has not
+confirmed a fix. Put the next change under `## Unreleased` in `v2/CHANGELOG.md`;
+`tests/notes-seen.mjs` expects that heading to stay. Before tagging, run the physical script in
+[`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and `npm run e2e`.
 
 ## Things the next reader needs that the code does not say
+
+- **Optimize catalog expansion**: eight source leads independently reviewed for identity and purpose now live in `crates/core/data/app-lists/common.json`. They appear as optional Disable-if-unused suggestions on both apps, with Caution verdicts, default Keep and no automatic Restore. See `../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md` for evidence and held-out system components. The imported source catalog remains unreviewed; it is not loaded into the action planner.
 
 - **Source catalog** (`shared/components/ProfileCatalog.svelte`, desktop `/catalog`, mobile More → Device & package catalog) exposes the MIT source snapshot under `catalogs/cleanyourtv/`. It is research information with original source/profile context and the full MIT notice. Package-detail links prefill an identity but require explicit source-profile selection. The view never reads or matches the connected device and has no action or safety-classification imports. Core app lists, safety and support tiers remain the action authorities. `test:profile-catalog` and mobile `profile-catalog.test.mjs` cover source isolation and navigation.
 
@@ -37,10 +50,39 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
   controls (`HelpTip.svelte`); keep routine explanatory copy collapsed. The diagnostics Worker
   and migration 0003 were deployed and verified with a synthetic upload and readback on 2026-11-03.
 
-- **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
-  channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
-  to the value the old name derived, so existing installs upgrade in place. The Homebrew tap and
-  cask token are still `shield-optimizer`; the cask's `url` names the renamed DMG.
+- **The rename to ATV Optimizer (2.5.0).** `src-tauri/src/rename.rs` runs first in `run()`,
+  before logging and before any webview. It copies the old `ShieldOptimizer` data folder
+  (everything except `platform-tools/`) and the old WebView profile (`~/Library/WebKit/<id>` on
+  macOS, `<local data>/<id>` on Windows and Linux, caches and lock files skipped) into
+  `<name>.migrating-<pid>`, checks that the source did not change meanwhile (else it retries
+  once), writes `.atvoptimizer-migrated` into the copy and renames it into place. A folder
+  without that marker is unfinished: an unmarked data folder is merged into (old entries it
+  lacks, plus the old `telemetry.json`, so the install id and opt-out survive); an unmarked
+  profile is renamed to `<id>.unmigrated-<time>` and copied again. If the data copy fails, the
+  session runs on the old folder, so nothing creates the new one and the next launch retries.
+  The profile is copied once: `.webview-profile-migrated` in the data folder stops it being
+  refilled after a user or an uninstaller deletes it. Unreadable non-essential files are
+  skipped and listed; snapshots, `telemetry.json`, `disabled-home-handlers.json` and the
+  localStorage store must copy. The old data is never moved or deleted, and failures are
+  logged without failing the launch. Old `shield-optimizer.*.log` files are renamed in the copy
+  so rotation covers them. The old downloaded adb is still found where it is
+  (`adb_path_in_legacy_install_root`). localStorage keys keep their `shieldopt.*` names: the
+  origin did not change, so the copied profile is read as is. Pinned on purpose, never to change:
+  the WiX `upgradeCode`, `bundle.publisher` (`shieldoptimizer`, the value the old identifier
+  derived, which NSIS and WiX use for `Software\shieldoptimizer\<product>` and the install-folder
+  lookup), the updater `pubkey` and endpoint, the repo name and the `v2-*` tags.
+  Windows: `src-tauri/windows/hooks.nsh` closes a running `shield-optimizer-v2.exe` before the
+  install (asking first unless silent or passive), then removes a leftover "Shield Optimizer"
+  install from 2.2.0 or earlier (files by name, shortcuts that still point at it, the Uninstall
+  and `Software\shieldoptimizer\Shield Optimizer` keys). It creates an "ATV Optimizer" shortcut
+  where it removed an old one and none exists, points taskbar pins at `atv-optimizer.exe`, and
+  gives this install's shortcuts the new AppUserModelID. It never touches app data or runs the
+  old uninstaller. The MSI has no hooks: MSI users were always major-upgraded in place.
+  macOS: a bundle still named `Shield Optimizer.app` is renamed to `ATV Optimizer.app` at
+  `RunEvent::Exit` (never on an update restart), unless it is translocated, the name is taken,
+  or a `shield-optimizer*`/`atv-optimizer*` cask is installed and the bundle is in
+  `/Applications` or `~/Applications`, where renaming it would break `brew upgrade`. The log is
+  flushed at exit so that line survives.
 - **Launchers are data**: `crates/core/data/app-lists/launchers.json`, parsed once in
   `loader.rs`. The Launcher list shows HOME handlers only. Don't add a `LEANBACK_LAUNCHER`
   query: every TV app's launch activity carries that category, so it lists every TV app as a

@@ -670,6 +670,132 @@ mod tests {
     }
 
     #[test]
+    fn reviewed_source_leads_expand_plans_without_safe_or_default_actions() {
+        use crate::engine::{
+            compute_plan, ActionMethod, DeviceType, OptimizeAction, OptimizeInputs, OptimizeMode,
+            RiskTier, SkipReason,
+        };
+        let reviewed: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let lists = load_embedded_app_lists().unwrap();
+        let packages: std::collections::HashSet<String> = reviewed
+            .iter()
+            .map(|p| p["package"].as_str().unwrap().to_owned())
+            .collect();
+        let empty = std::collections::HashSet::new();
+        let memory = HashMap::new();
+        for family in [
+            DeviceType::Shield,
+            DeviceType::GoogleTv,
+            DeviceType::Unknown,
+        ] {
+            let apps = lists.for_device(family);
+            for (mode, installed, disabled, expected) in [
+                (
+                    OptimizeMode::Optimize,
+                    &packages,
+                    &empty,
+                    OptimizeAction::Disable,
+                ),
+                (
+                    OptimizeMode::Optimize,
+                    &packages,
+                    &packages,
+                    OptimizeAction::Skip {
+                        reason: SkipReason::AlreadyDisabled,
+                    },
+                ),
+                (
+                    OptimizeMode::Optimize,
+                    &empty,
+                    &empty,
+                    OptimizeAction::Skip {
+                        reason: SkipReason::NotInstalled,
+                    },
+                ),
+                (
+                    OptimizeMode::Restore,
+                    &packages,
+                    &packages,
+                    OptimizeAction::Enable,
+                ),
+                (
+                    OptimizeMode::Restore,
+                    &packages,
+                    &empty,
+                    OptimizeAction::Skip {
+                        reason: SkipReason::AlreadyEnabled,
+                    },
+                ),
+                (
+                    OptimizeMode::Restore,
+                    &empty,
+                    &empty,
+                    OptimizeAction::Skip {
+                        reason: SkipReason::NotInstalled,
+                    },
+                ),
+            ] {
+                let plan = compute_plan(
+                    &apps,
+                    mode,
+                    &OptimizeInputs {
+                        installed_packages: installed,
+                        disabled_packages: disabled,
+                        memory_map: &memory,
+                    },
+                );
+                for record in &reviewed {
+                    let package = record["package"].as_str().unwrap();
+                    let item = plan
+                        .items
+                        .iter()
+                        .find(|i| i.entry.package == package)
+                        .unwrap();
+                    assert_eq!(item.action, expected, "{package} {family:?} {mode:?}");
+                    let entry = &item.entry;
+                    assert_eq!(entry.name, record["name"].as_str().unwrap());
+                    assert_eq!(entry.method, ActionMethod::Disable);
+                    assert_eq!(entry.risk, RiskTier::Medium);
+                    assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+                    assert!(entry.reviewed_at.is_some() && entry.sources.len() >= 3);
+                    assert!(matches!(
+                        classify_with_catalog(
+                            package,
+                            Some(CatalogVerdict {
+                                risk: entry.risk,
+                                description: &entry.optimize_description
+                            })
+                        ),
+                        Safety::Caution {
+                            source: SafetySource::ReviewedCatalog,
+                            ..
+                        }
+                    ));
+                }
+            }
+        }
+        let imported: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../catalogs/cleanyourtv/catalog.json"
+        ))
+        .unwrap();
+        let held: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../catalogs/cleanyourtv/research-ledger.json"
+        ))
+        .unwrap();
+        assert_eq!(imported["actionable"], false);
+        for record in held["packages"].as_array().unwrap() {
+            let package = record["package"].as_str().unwrap();
+            assert!(
+                lists.find(package).is_none(),
+                "unreviewed lead {package} entered the action catalog"
+            );
+        }
+    }
+
+    #[test]
     fn known_names_accept_a_bare_name_or_a_described_entry() {
         let parsed: HashMap<String, KnownName> = serde_json::from_str(
             r#"{
