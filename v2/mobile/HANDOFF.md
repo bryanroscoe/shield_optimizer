@@ -30,13 +30,22 @@ Play listing's six portrait screenshots, icon and feature graphic in `store-list
 copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
 Console setup and physical/purchase matrix separately; these changes do not clear those gates.
 
-The app is unreleased (`package.json` version `0.1.0`). A real arm64 debug APK compiled on
+Current source prepares mobile `0.1.2` / versionCode `1002`; it is not a released or physically
+accepted update. Play `0.1.1` / `1001` (binary source `33a215d`) was installed from Google Play on
+a Pixel 10 Pro running Android 17 on 2026-11-05. Native startup and discovery of four LAN
+endpoints passed. Phone-to-TV authorization, connected features and Play billing acceptance
+remain incomplete. A physical SHIELD received authorization requests without displaying its
+dialog. An owner-approved restart completed; a fresh connection is still unverified. Do not
+describe the connection as fixed.
+
+A real arm64 debug APK compiled on
 2026-11-03 with JDK 21, SDK 36 and NDK 28.2, including the Kotlin Play Billing plugin. That
 qualification predates the new privacy UI bundle and is not a signed Play candidate or device
 acceptance. The resolved Android runtime graph and upstream notices are now captured in
 `android-runtime-inventory.json` / `android-runtime-notices.md`; compare the final release.
 
-**Nothing in the current `v2/mobile` code has been verified on a phone or TV.** Earlier device
+**The full phone/TV acceptance matrix remains open.** The limited Play 1001 smoke checks above
+do not qualify the new 1002 source or connected behavior. Earlier device
 sessions (a Pixel 10 Pro against two Nvidia Shields) proved the transport, the fast-remote channel
 and legacy network-debugging connect, but they predate most of today's code. Everything else
 described here rests on host evidence: Rust unit tests, and a browser suite that drives the real
