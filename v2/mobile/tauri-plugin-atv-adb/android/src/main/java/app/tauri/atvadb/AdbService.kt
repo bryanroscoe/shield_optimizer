@@ -60,7 +60,13 @@ class AdbService(private val context: Context) {
   }
 }
 
-data class DiscoveredAdbDevice(val name: String, val host: String, val port: Int, val service: String)
+data class DiscoveredAdbDevice(
+  val name: String,
+  val host: String,
+  val port: Int,
+  val service: String,
+  val friendlyName: String? = null,
+)
 
 private interface Resolver {
   fun found(key: ServiceKey, info: NsdServiceInfo)
@@ -69,7 +75,7 @@ private interface Resolver {
   fun close()
 }
 
-/** One browse of every ADB service type, torn down completely on every exit path. */
+/** One browse of debugging services and optional Cast names, fully torn down on exit. */
 private class Scan(private val context: Context, private val timeoutMs: Long) {
   private val nsd = context.getSystemService(Context.NSD_SERVICE) as NsdManager
   private val localKeys = localAddressKeys()
@@ -91,7 +97,7 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
     val multicast = acquireMulticastLock()
     val listeners = mutableListOf<NsdManager.DiscoveryListener>()
     try {
-      for (type in ADB_SERVICE_TYPES) {
+      for (type in DISCOVERY_SERVICE_TYPES) {
         val listener = discoveryListener(type, resolver)
         try {
           nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
@@ -103,6 +109,7 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
       }
       awaitSettled(resolver)
     } finally {
+      results.close()
       // A listener whose start failed is already unregistered and throws here; that's fine.
       listeners.forEach { runCatching { nsd.stopServiceDiscovery(it) } }
       resolver.close()
@@ -122,7 +129,7 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
     while (true) {
       val now = SystemClock.elapsedRealtime()
       val elapsed = now - started
-      if (elapsed >= timeoutMs || startFailures.size == ADB_SERVICE_TYPES.size) return
+      if (elapsed >= timeoutMs || allAdbDiscoveryFailed(startFailures.keys)) return
       if (ScanSettle.shouldStop(elapsed, results.count(), resolver.pending(), now - lastActivity.get())) return
       delay(POLL_MS)
     }
@@ -153,56 +160,68 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
       val key = serviceKey(serviceInfo.serviceName, type) ?: return
       touch()
       resolver.lost(key)
-      results.remove(key)
     }
   }
 
-  private fun NsdServiceInfo.toDevice(key: ServiceKey): DiscoveredAdbDevice? =
-    discoveredDevice(serviceName ?: key.name, key.serviceType, port, addressList(), localKeys)
+  private fun recordResolved(key: ServiceKey, info: NsdServiceInfo) {
+    val addresses = info.addressList()
+    val device = discoveredDevice(info.serviceName ?: key.name, key.serviceType, info.port, addresses, localKeys)
+      ?.copy(friendlyName = if (key.serviceType == CAST_SERVICE_TYPE) castFriendlyName(info.attributes["fn"]) else null)
+    results.upsert(key, device, addresses.map(::formatHost).toSet())
+  }
 
   /** Below API 34: [SerialResolveQueue] feeds NsdManager one resolve at a time. */
   private inner class QueuedResolver(schedule: (Long, () -> Unit) -> Unit) : Resolver {
     private val infos = ConcurrentHashMap<ServiceKey, NsdServiceInfo>()
     private val resolvedKeys = ConcurrentHashMap.newKeySet<ServiceKey>()
     private val listeners = ConcurrentHashMap<Long, NsdManager.ResolveListener>()
+    private var closed = false
     private val queue = SerialResolveQueue<ServiceKey>(
       start = ::startResolve,
       schedule = schedule,
       abandon = { _, token -> abandonResolve(token) },
       resolveTimeoutMs = RESOLVE_TIMEOUT_MS,
+      priority = { key -> if (key.serviceType == CAST_SERVICE_TYPE) 1 else 0 },
     )
 
-    override fun found(key: ServiceKey, info: NsdServiceInfo) {
+    @Synchronized override fun found(key: ServiceKey, info: NsdServiceInfo) {
       // The same advert seen again (another interface or address family) is resolved once.
-      if (key in resolvedKeys) return
-      infos[key] = info
+      if (closed || key in resolvedKeys) return
+      infos.putIfAbsent(key, info)
       queue.enqueue(key)
     }
 
-    override fun lost(key: ServiceKey) {
+    @Synchronized override fun lost(key: ServiceKey) {
       queue.remove(key)
       resolvedKeys.remove(key)
       infos.remove(key)
+      results.remove(key)
     }
 
     override fun pending(): Int = queue.pending()
 
-    override fun close() = queue.close()
+    @Synchronized override fun close() {
+      closed = true
+      queue.close()
+    }
 
-    private fun startResolve(key: ServiceKey, token: Long) {
+    @Synchronized private fun startResolve(key: ServiceKey, token: Long) {
+      if (closed) return
       val info = infos[key] ?: return queue.failed(token, alreadyActive = false)
       val listener = object : NsdManager.ResolveListener {
         override fun onServiceResolved(resolved: NsdServiceInfo) {
-          listeners.remove(token)
-          touch()
-          if (infos.containsKey(key)) {
-            resolvedKeys += key
-            results.upsert(key, resolved.toDevice(key))
+          synchronized(this@QueuedResolver) {
+            if (listeners.remove(token) !== this) return
+            touch()
+            if (infos[key] === info) {
+              resolvedKeys += key
+              recordResolved(key, resolved)
+            }
           }
           queue.resolved(token)
         }
         override fun onResolveFailed(failed: NsdServiceInfo, errorCode: Int) {
-          listeners.remove(token)
+          if (listeners.remove(token) !== this) return
           Log.w(TAG, "resolve failed for ${key.name} (errorCode=$errorCode)")
           queue.failed(token, alreadyActive = errorCode == NsdManager.FAILURE_ALREADY_ACTIVE)
         }
@@ -234,7 +253,7 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
     private var closed = false
 
     override fun found(key: ServiceKey, info: NsdServiceInfo) {
-      synchronized(this) {
+      val callback = synchronized(this) {
         if (closed || key in callbacks) return
         val callback = serviceInfoCallback(key)
         // Registered under the lock so close() can never miss a callback and leak it.
@@ -246,11 +265,17 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
         }
         callbacks[key] = callback
         awaiting += key
+        callback
       }
-      schedule(RESOLVE_TIMEOUT_MS) { synchronized(this) { awaiting.remove(key) } }
+      schedule(RESOLVE_TIMEOUT_MS) {
+        synchronized(this) { if (callbacks[key] === callback) awaiting.remove(key) }
+      }
     }
 
-    override fun lost(key: ServiceKey) = unregister(key)
+    @Synchronized override fun lost(key: ServiceKey) {
+      unregister(key)
+      results.remove(key)
+    }
 
     @Synchronized override fun pending(): Int = awaiting.size
 
@@ -275,22 +300,26 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
       override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
         Log.w(TAG, "service info callback failed for ${key.name} (errorCode=$errorCode)")
         synchronized(this@CallbackResolver) {
+          if (callbacks[key] !== this) return
           awaiting.remove(key)
-          if (callbacks[key] === this) callbacks.remove(key)
+          callbacks.remove(key)
         }
       }
       override fun onServiceUpdated(serviceInfo: NsdServiceInfo) {
         synchronized(this@CallbackResolver) {
-          if (closed) return
+          if (closed || callbacks[key] !== this) return
           awaiting.remove(key)
+          touch()
+          recordResolved(key, serviceInfo)
         }
-        touch()
-        results.upsert(key, serviceInfo.toDevice(key))
       }
       override fun onServiceLost() {
-        touch()
-        results.remove(key)
-        unregister(key)
+        synchronized(this@CallbackResolver) {
+          if (callbacks[key] !== this) return
+          touch()
+          results.remove(key)
+          unregister(key)
+        }
       }
       override fun onServiceInfoCallbackUnregistered() {
         synchronized(this@CallbackResolver) {

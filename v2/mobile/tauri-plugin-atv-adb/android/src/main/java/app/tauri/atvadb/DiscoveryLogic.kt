@@ -7,6 +7,8 @@ package app.tauri.atvadb
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
 
 // Pure discovery decisions, kept free of android.* so they run as plain JVM unit tests.
 
@@ -16,6 +18,8 @@ import java.net.InetAddress
  * code, just an RSA-auth connect.
  */
 internal val ADB_SERVICE_TYPES = listOf("_adb-tls-pairing._tcp.", "_adb-tls-connect._tcp.", "_adb._tcp.")
+internal const val CAST_SERVICE_TYPE = "_googlecast._tcp."
+internal val DISCOVERY_SERVICE_TYPES = ADB_SERVICE_TYPES + CAST_SERVICE_TYPE
 
 /**
  * NsdManager reports one type as `_adb._tcp.`, `_adb._tcp`, `._adb._tcp` (a legacy resolve
@@ -25,10 +29,23 @@ internal val ADB_SERVICE_TYPES = listOf("_adb-tls-pairing._tcp.", "_adb-tls-conn
 internal fun normalizeServiceType(type: String?): String =
   type.orEmpty().trim().lowercase().trim('.').removeSuffix(".local").trim('.')
 
-/** The [ADB_SERVICE_TYPES] entry [type] names, or null for anything else. */
+/** The supported DNS-SD service [type] names, or null for anything else. */
 internal fun canonicalServiceType(type: String?): String? {
   val wanted = normalizeServiceType(type)
-  return ADB_SERVICE_TYPES.firstOrNull { normalizeServiceType(it) == wanted }
+  return DISCOVERY_SERVICE_TYPES.firstOrNull { normalizeServiceType(it) == wanted }
+}
+
+/** Cast's `fn` TXT field is a display label, never a hardware identity. */
+internal fun castFriendlyName(value: ByteArray?): String? {
+  if (value == null || value.isEmpty() || value.size > 255) return null
+  val decoded = runCatching {
+    Charsets.UTF_8.newDecoder()
+      .onMalformedInput(CodingErrorAction.REPORT)
+      .onUnmappableCharacter(CodingErrorAction.REPORT)
+      .decode(ByteBuffer.wrap(value)).toString()
+  }.getOrNull() ?: return null
+  if (decoded.any { it.isISOControl() }) return null
+  return decoded.trim().takeIf { it.isNotEmpty() }
 }
 
 /** One advertised service, however many interfaces or address families it arrives on. */
@@ -97,20 +114,40 @@ internal fun discoveredDevice(
 
 /** Resolved services keyed by [ServiceKey]; written from NSD callback threads. */
 internal class DiscoveredServices {
-  private val entries = linkedMapOf<ServiceKey, DiscoveredAdbDevice>()
+  private data class Resolved(val device: DiscoveredAdbDevice, val addresses: Set<String>)
+  private val entries = linkedMapOf<ServiceKey, Resolved>()
+  private var closed = false
 
   /** A null [device] (now unusable, or this phone's own) removes any earlier entry. */
-  @Synchronized fun upsert(key: ServiceKey, device: DiscoveredAdbDevice?) {
-    if (device == null) entries.remove(key) else entries[key] = device
+  @Synchronized fun upsert(
+    key: ServiceKey,
+    device: DiscoveredAdbDevice?,
+    addresses: Set<String> = setOfNotNull(device?.host),
+  ) {
+    if (closed) return
+    if (device == null) entries.remove(key) else entries[key] = Resolved(device, addresses)
   }
 
   @Synchronized fun remove(key: ServiceKey) {
+    if (closed) return
     entries.remove(key)
   }
 
-  @Synchronized fun count(): Int = entries.size
+  @Synchronized fun close() { closed = true }
 
-  @Synchronized fun snapshot(): List<DiscoveredAdbDevice> = entries.values.toList()
+  @Synchronized fun count(): Int = entries.values.count { it.device.service in ADB_SERVICE_TYPES }
+
+  @Synchronized fun snapshot(): List<DiscoveredAdbDevice> {
+    val names = entries.values.filter { it.device.service == CAST_SERVICE_TYPE }
+    return entries.values.filter { it.device.service in ADB_SERVICE_TYPES }.map { adb ->
+      // This association only labels the current endpoint. It never changes the
+      // ADB instance/serial used to recognize a previously verified saved TV.
+      val advertisedNames = names.filter { cast ->
+        cast.addresses.any { it in adb.addresses }
+      }.mapNotNull { it.device.friendlyName }.toSet()
+      adb.device.copy(friendlyName = advertisedNames.singleOrNull())
+    }
+  }
 }
 
 /**
@@ -133,11 +170,14 @@ internal object ScanSettle {
  * Returns the error to report, or null when the results can be returned as they are.
  */
 internal fun startFailureMessage(foundCount: Int, failures: Map<String, Int>): String? {
-  if (failures.isEmpty() || foundCount > 0) return null
-  val detail = failures.entries.joinToString(", ") { (type, code) -> "${normalizeServiceType(type)} error $code" }
+  val adbFailures = failures.filterKeys { it in ADB_SERVICE_TYPES }
+  if (adbFailures.isEmpty() || foundCount > 0) return null
+  val detail = adbFailures.entries.joinToString(", ") { (type, code) -> "${normalizeServiceType(type)} error $code" }
   return "This phone's network discovery could not start ($detail). Check that Wi-Fi is on and " +
     "try again, or enter the TV's IP address."
 }
+
+internal fun allAdbDiscoveryFailed(failures: Set<String>): Boolean = ADB_SERVICE_TYPES.all { it in failures }
 
 /**
  * One NSD resolve at a time. Below API 34 NsdManager rejects a second concurrent resolve
@@ -156,6 +196,7 @@ internal class SerialResolveQueue<K : Any>(
   private val resolveTimeoutMs: Long = 1_000,
   private val maxAttempts: Int = 4,
   private val retryDelayMs: Long = 200,
+  private val priority: (K) -> Int = { 0 },
 ) {
   private class Active<K>(val key: K, val attempt: Int, val token: Long)
 
@@ -172,9 +213,14 @@ internal class SerialResolveQueue<K : Any>(
     pump()
   }
 
-  /** Drops a queued key (its service was lost before its turn came). */
-  @Synchronized fun remove(key: K) {
-    queue.remove(key)
+  /** A lost service must not publish through a resolve that finishes later. */
+  fun remove(key: K) {
+    val inFlight = synchronized(this) {
+      queue.remove(key)
+      active?.takeIf { it.key == key }?.also { active = null }
+    }
+    inFlight?.let { abandon(it.key, it.token) }
+    pump()
   }
 
   /** Queued plus in-flight resolves; a retry waiting out its backoff counts as in flight. */
@@ -229,7 +275,8 @@ internal class SerialResolveQueue<K : Any>(
   private fun pump() {
     val next = synchronized(this) {
       if (closed || active != null) return
-      val key = queue.removeFirstOrNull() ?: return
+      val key = queue.minByOrNull(priority) ?: return
+      queue.remove(key)
       Active(key, 1, ++nextToken).also { active = it }
     }
     launch(next)

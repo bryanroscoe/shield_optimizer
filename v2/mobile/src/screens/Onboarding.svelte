@@ -180,6 +180,7 @@
     error = "";
     notice = "";
     host = row.host;
+    connectingName = row.name === "Name unavailable" ? "" : row.name;
     connectPort = advertisedPort;
     connectAfterPair = null;
     needsPairing = false;
@@ -191,6 +192,7 @@
     error = "";
     notice = "";
     host = row.host;
+    connectingName = row.name === "Name unavailable" ? "" : row.name;
     pairPort = advertisedPort;
     connectAfterPair = row.connectPorts.length === 1 ? row.connectPorts[0] : null;
     if (connectAfterPair !== null) connectPort = connectAfterPair;
@@ -227,6 +229,7 @@
     leaveScan();
     error = "";
     notice = "";
+    connectingName = "";
     code = "";
     connectAfterPair = Number(connectPort);
     needsPairing = true;
@@ -238,6 +241,7 @@
     leaveScan();
     error = "";
     notice = "";
+    connectingName = "";
     connectAfterPair = null;
     needsPairing = false;
     startConnect();
@@ -299,10 +303,14 @@
     notice = "";
     code = "";
     connectAfterPair = null;
+    connectingName = "";
     step = "scan";
   }
 
   const connName = $derived(session.deviceLabel);
+  const connectionTargetLabel = $derived(connectingName
+    ? `${connectingName} (${host || session.host})`
+    : host || session.host);
 </script>
 
 <div class="screen">
@@ -593,9 +601,9 @@
         <h1>{error ? "Couldn't connect" : "Connecting…"}</h1>
         <p class="lede">
           {#if error}
-            The connection didn't complete.
+            The connection to <span class="soft">{connectionTargetLabel}</span> didn't complete.
           {:else}
-            Reaching <span class="soft">{host || session.host}</span>
+            Reaching <span class="soft">{connectionTargetLabel}</span>
           {/if}
         </p>
         {#if !error}
