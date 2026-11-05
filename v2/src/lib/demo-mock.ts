@@ -12,7 +12,6 @@
 // real build.
 
 import demoApps from "./demo-apps.json";
-import reviewedPackages from "../../tests/fixtures/reviewed-optimize-packages.json";
 import pkg from "../../package.json";
 import type {
   AppEntry,
@@ -515,7 +514,7 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         || entry.package === "com.nvidia.tegrazone3"
         || entry.package === "com.philo.philo"
         || entry.package === "com.google.android.tvrecommendations"
-        || (demoFlag("reviewedCatalog") && reviewedPackages.some((p) => p.package === entry.package)),
+        || (demoFlag("reviewedCatalog") && entry.review),
     )
     .map((entry) => {
       const state = MISSING.has(entry.package)

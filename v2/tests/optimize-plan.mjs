@@ -39,7 +39,7 @@ function setHarnessEnvironment() {
 async function exercise({ browser, base }) {
   const evidence = process.env.OPTIMIZE_CATALOG_EVIDENCE;
   if (evidence) await mkdir(evidence, { recursive: true });
-  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 },
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 }, colorScheme: "dark",
     ...(evidence ? { recordVideo: { dir: join(evidence, "raw"), size: { width: 1400, height: 1000 } } } : {}) });
   await page.addInitScript(() => localStorage.setItem("shieldopt.demo.reviewedCatalog", "1"));
   await page.goto(base, { waitUntil: "networkidle" });
@@ -125,13 +125,32 @@ async function exercise({ browser, base }) {
     await first.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(evidence, "desktop-optimize-reviewed.png") });
     await page.setViewportSize({ width: 720, height: 1000 });
-    await first.scrollIntoViewIfNeeded();
+    await first.locator(".app-name").scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(evidence, "desktop-optimize-minimum.png") });
     await page.emulateMedia({ colorScheme: "light" });
     await page.addStyleTag({ content: "html{font-size:200%}" });
-    await first.scrollIntoViewIfNeeded();
+    await first.locator(".app-name").scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(evidence, "desktop-optimize-enlarged-light.png") });
   }
+
+  await page.setViewportSize({ width: 720, height: 1000 });
+  if (!evidence) await page.addStyleTag({ content: "html{font-size:200%}" });
+  const overflow = await page.evaluate(() => ({
+    viewport: innerWidth, width: document.documentElement.scrollWidth,
+    outside: [...document.querySelectorAll("body *")].filter((el) => !el.closest(".plan-table-scroll") && el.getBoundingClientRect().right > innerWidth + 1).slice(0, 12).map((el) => ({ tag: el.tagName, class: el.className, right: el.getBoundingClientRect().right })),
+  }));
+  assert.ok(overflow.width <= overflow.viewport, `the page fits; wide choices scroll inside the table region: ${JSON.stringify(overflow)}`);
+  for (const entry of reviewed) {
+    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const name = row.locator(".app-name");
+    assert.ok(await name.evaluate((el) => el.getBoundingClientRect().width <= el.parentElement.clientWidth), `readable enlarged name: ${entry.package}`);
+  }
+  const scroller = page.getByRole("region", { name: "Optimize app choices" });
+  await scroller.focus();
+  const before = await scroller.evaluate((el) => el.scrollLeft);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(200);
+  assert.ok(await scroller.evaluate((el) => el.scrollLeft) > before, "keyboard can reach the trailing action columns");
 
   assert.deepEqual(await page.evaluate(() => window.optimizeReviewCalls.filter((c) => /^(disable_package|uninstall_package|enable_package|apply_)/.test(c))), []);
   console.log(

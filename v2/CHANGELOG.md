@@ -23,6 +23,7 @@ this file and shows the newest few sections, dated, from its version button.
 ## Unreleased
 
 - Expand Optimize with independently reviewed optional apps from the imported catalog. New entries start at Keep and use reversible Disable, with package-specific consequences.
+- Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
 
 ## v2-2.5.0 — 2026-11-04
