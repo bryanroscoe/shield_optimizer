@@ -683,7 +683,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         current_notes: null,
       };
     case "list_devices":
-      return demoDevices();
+      // The built-in engine is network-only, so it never lists a USB device.
+      return adbEngineStatus().active === "builtin"
+        ? demoDevices().filter((d) => d.connection !== "usb")
+        : demoDevices();
     case "scan_network": {
       const connected = demoDevices().filter(d => d.connection === "network").map(d => d.serial);
       return { subnet: null, found: connected, connected, unauthorized: [], failed: [], needs_pairing: [],
