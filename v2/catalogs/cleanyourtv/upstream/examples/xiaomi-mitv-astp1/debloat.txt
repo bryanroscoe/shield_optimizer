@@ -1,0 +1,52 @@
+# Xiaomi MiTV-ASTP1 (codename maverick; China-market firmware), Android 9 (SDK 28),
+# firmware 2.40.641.0514.cn (HyperOS-era CN build), Amlogic/droidlogic, 1 GB RAM, 720p panel.
+# Stock launcher: com.mitv.tvhome (HOME activity .MainActivityUserMode). Install with:
+# STOCK_LAUNCHER=com.mitv.tvhome launcher/build-and-install.sh
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-astp1/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-astp1/debloat.txt com.mitv.tvhome
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - No Google apps at all. Content comes from CN streaming apps: com.ktcp.video (Tencent
+#   Video), com.cibn.tv (Youku's TV build "Kumiao"), com.hunantv.license (Mango TV - yes,
+#   the app itself is in the "license" package), com.newtv.cboxtv (CCTV NewTV),
+#   com.xiaodianshi.tv.yst (bilibili). The list below keeps them all except NewTV.
+# - Network ADB (port 5555) closes on every reboot; re-enable it in
+#   Settings -> Account & Security -> ADB debugging after each power cycle.
+# - mitv.service is the core MiTV service: do not touch it. It registers TvService, which Xiaomi's own
+#   Settings reads the hardware configuration through; with it disabled, Settings freezes for 20-30 s and
+#   then crashes the Sound page (#1310). Why:
+#   docs/TROUBLESHOOTING.md#xiaomi-cn-firmware-settings-freezes-or-crashes-after-the-debloat
+# - com.xiaomi.mitv.settings is the ONLY settings UI: nothing on this firmware answers
+#   android.settings.SETTINGS or WIFI_SETTINGS (the launcher's pills need a fallback for that).
+# - Casting (com.xiaomi.mitv.smartshare / com.xiaomi.miplay / com.xiaomi.wfdsinkhelperservice /
+#   com.duokan.airkan.tvbox) and the app store are deliberately kept.
+# Newer China firmware (MiTV-MFTR0 "freeguy", Android 14): input routes, Xiaomi settings intents and app
+# discovery notes in docs/devices/xiaomi-mitv-mftr0-freeguy.txt.
+
+# Xiaomi telemetry / push / cloud control
+com.miui.analytics
+com.miui.tv.analytics
+com.mitv.cloudcontrol
+com.xiaomi.mitv.tvpush.tvpushservice
+com.android.smspush
+
+# Ads / promoted content
+com.xm.webcontent
+com.mitv.shoplugin                      # TV shopping channel plugin
+com.gitvdemo.video                      # GITV promo demo reel
+com.duokan.videodaily                   # video daily promos
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager               # "TV Manager" cleaner
+com.xiaomi.mitv.upgrade                 # firmware updates: re-enable to check for one
+com.xiaomi.gamecenter.sdk.service.mibox
+
+# Preloaded apps not used
+com.xiaomi.mimusic2                     # Mi Music
+com.xiaomi.tv.gallery
+com.mitv.gallery                        # Media Explorer still opens USB photos
+com.xiaomi.screenrecorder
+com.xiaomi.mitv.smartpanel              # smart home panel
+com.newtv.cboxtv                        # CCTV NewTV (owner does not use)

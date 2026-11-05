@@ -1,0 +1,87 @@
+# Xiaomi TV S Pro 100 Mini LED 2025 (小米电视 S Pro 100, L100MB-SP, MiTV-MFFU0, codename finch;
+# China-market firmware), Android 14 (SDK 34), firmware OS3.0.115.0.UFFMATV (HyperOS 3),
+# MediaTek mt5877, 4 GB RAM.
+# Disabled on 2026-10-20 in batches; after each batch Home, Xiaomi settings, HDMI 1 and the
+# screensaver were checked. All but com.xiaomi.tv.gallery (added last) were also checked after a reboot.
+# Stock launcher: com.mitv.tvhome (HOME activity .MainActivityUserMode). This list leaves it enabled;
+# disable it only after the allowlisted launcher build in "Home" below is installed.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mffu0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mffu0/debloat.txt com.mitv.tvhome
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - Home: HyperOS keeps only system apps and package names on Xiaomi's third-party-home allowlist as
+#   HOME candidates (ResolveIntentHelper.chooseBestActivity; the list is
+#   /data/system/mitv_security_center.xml, pushed by cloud control, not readable from the shell). It is
+#   the mechanism documented for MiTV-AETP0 (docs/devices/xiaomi-mitv-aetp0-dofus.md). The standard
+#   com.gathin.tvhome build installs and opens, but `cmd package set-home-activity` prints Success and
+#   changes nothing, and with com.mitv.tvhome disabled Home lands on
+#   com.xiaomi.mitv.settings/.entry.FallbackHome, a black screen.
+#   What works: the launcher built under an allowlisted package name, with com.mitv.tvhome disabled.
+#   This set has used it as Home since 2026-10-20, and boots straight into it: after a full reboot on
+#   2026-10-22 the system started it as Home at systemReady, with no FallbackHome or chooser.
+#     tools/tv.py 'pm path com.thunderstone.idun.dev'       # must print nothing
+#     (cd launcher && ./gradlew assembleRelease -PlauncherApplicationId=com.thunderstone.idun.dev)
+#     install the APK as in the AETP0 note, then: pm disable-user --user 0 com.mitv.tvhome
+#     cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME
+#       -> com.thunderstone.idun.dev/com.gathin.tvhome.MainActivity
+#   Unlike AETP0, the stock launcher must be disabled: with both enabled, Home opens the system's
+#   launcher chooser, because a third-party preferred Home is refused. Re-enabling com.mitv.tvhome (as a
+#   firmware update might) brings the chooser back; disabling it again restores the launcher.
+#   The allowlist is printed at boot: `logcat -d | grep 'MitvConfigParser: \[White\]'` soon after a
+#   boot gives <package>=<flags> lines, and Home needs the flag value 4 set (flags & 4). 42 of the 125
+#   entries here have it, com.ts.launcher (511) among them, but only com.thunderstone.idun.dev (511) was
+#   tested. The check is on the package name only, not the signature. tools/theme.sh and
+#   launcher/build-and-install.sh still use com.gathin.tvhome; a theme overlay for this build goes in
+#   /sdcard/Android/data/com.thunderstone.idun.dev/files/config.json.
+#   Undo: pm enable com.mitv.tvhome, then remove com.thunderstone.idun.dev like any app you installed
+#   (with both present Home shows the chooser).
+# - Network ADB (port 5555) closes on every reboot; re-enable it in
+#   Settings -> 账号与安全 (Account & Security) -> ADB 调试 after each power cycle.
+# - Not touched: mitv.service, com.xiaomi.mitv.tvplayer (input switching, HDMI/AV/DTMB),
+#   com.mediatek.* (TV inputs), com.xiaomi.mitv.settings (the only full settings UI),
+#   com.xiaomi.mitv.smartpanel (the Menu-button panel), com.mitv.overseaservice and com.mi.bluetooth
+#   (Bluetooth remote), com.sohu.inputmethod.sogou.tv (the only keyboard), the app store,
+#   com.xiaomi.account, com.mitv.codec.update, com.xiaomi.mitv.mediaexplorer (USB/media browser).
+# - Kept by choice: XiaoAI voice (com.xiaomi.voicecontrol, com.xiaomi.wakeupservice), casting
+#   (com.xiaomi.miplay, com.xiaomi.mitv.smartshare, com.xiaomi.mi_connect_service,
+#   com.xiaomi.hyper_connect.tv), Mi Home (com.xiaomi.smarthome.tv), firmware updates
+#   (com.xiaomi.mitv.upgrade), the Hyper screensaver (com.xiaomi.mitv.hyper.screensaver, com.xiaomi.tweather).
+# - com.mitv.tvhome takes the short-press power key on this build, and the two screensaver packages
+#   (com.xiaomi.mitv.aod.screensaver, com.xiaomi.mitv.hyper.screensaver) draw the off screen: with the stock
+#   launcher disabled as the Home section below does, the power button stops turning the TV off. The chain,
+#   and the 2 s force-stop of every installed app that follows a screen-off with the settings key that
+#   stops it: docs/TROUBLESHOOTING.md#xiaomi-hyperos-3-the-power-key-does-nothing-and-music-stops-when-the-screen-goes-off
+# - A black screen right after a reboot with an HDMI-CEC set-top box plugged in is the box's CEC
+#   "active source" switching the TV to its port (HdmiCecLocalDeviceTv), not this list. Home brings
+#   the TV back; turning HDMI device control (CEC) off in the input settings stops it.
+# - Do not disable com.xiaomi.mitv.tvmanager ("TV Manager"): XiaoAI's "open <app>" runs through its
+#   com.xiaomi.aicr.action.provider. Without it XiaoAI answers "OK" and nothing opens (logcat:
+#   "Failed to find provider info for com.xiaomi.aicr.action.provider"). It was disabled here at first.
+# - MemAvailable went from about 1.57 GB to 1.77 GB with the stock launcher still running (measured
+#   while TV Manager was also disabled).
+# - A firmware update may re-enable some of these; apply the list again afterwards.
+# Input routes, Xiaomi settings intents and app discovery on this platform:
+# docs/devices/xiaomi-mitv-mftr0-freeguy.txt.
+
+# Xiaomi telemetry / diagnostics / cloud control
+com.miui.analytics                      # OneTrack analytics SDK host
+com.miui.tv.analytics                   # TV usage statistics, ~100 MB resident
+com.miui.misightservice                 # MiSight remote diagnostics and log upload
+com.xiaomi.tvqs                         # quality/performance reporting, ~86 MB resident
+com.mitv.cloudcontrol                   # cloud control: remote configuration pushes
+
+# Ads / shopping / promoted content
+com.duokan.videodaily                   # short-video promos; bundles the Xiaomi ad SDK and a P2P upload service
+com.mitv.shoplugin                      # TV Taobao shopping plugin
+com.xiaomi.mitv.shop                    # Xiaomi store
+com.xm.webcontent                       # webview container for promotions
+com.xiaomi.tv.gallery                   # "Pictorial" wallpaper app, ships ad classes; preinstalled to /data,
+                                        # the Hyper screensaver kept starting with it disabled
+
+# Features not used (off by choice)
+com.xiaomi.aitranslate                  # AI subtitle translation, ~117 MB resident
+com.mitv.alarmcenter                    # reminders/alarms: re-enable it if you set alarms with XiaoAI voice
+com.xiaomi.mitv.health                  # MiHealth
+com.xiaomi.gamecenter.sdk.service.mibox # game center SDK

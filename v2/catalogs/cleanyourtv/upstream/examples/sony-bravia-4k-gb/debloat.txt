@@ -1,0 +1,76 @@
+# Sony BRAVIA 4K GB (EU: device BRAVIA_ATV2_EU, product BRAVIA_ATV2). Android TV 9 (API 28).
+# Retail model reported on the same platform and firmware: KD-75XE8596.
+# Firmware BRAVIA_ATV2_EU-user 9 PTT1.190515.001.S54 672201 release-keys
+#
+# Also confirmed 2026-10-27 on a Sony XBR-49X705D, Latin America variant (product BRAVIA_ATV2_BR, model
+# BRAVIA 4K GB), same build: BRAVIA_ATV2_BR-user 9 PTT1.190515.001.S54 672201 release-keys. Wi-Fi.
+# Applied in four batches with screenshots between them; com.sony.dtv.promos is not installed there.
+# tools/disable.sh's TVINPUT_ALLOW check skipped android.autoinstalls.config.sony.bravia and
+# com.qterics.da.product (dumpsys shows no permission block for either), so both stayed enabled (#321).
+# All other entries stayed disabled across a reboot. launcher/ installed (live_tv_package
+# com.sony.dtv.tvx), Home confirmed with mResumedActivity; Home, Input, Settings and the remote's app
+# buttons work. power_on_home with HOME_KEY_SERVICE=1 brought Home up at power-on, but with
+# HomeKeyService bound holding Volume Up moved one step per press instead of ramping (the key-repeat
+# loss in docs/devices/tcl-55p71b-g09-key-repeat.md, seen on this Sony too), so the helper was
+# removed again. Tested one day.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-bravia-4k-gb/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-bravia-4k-gb/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Same platform and firmware build as examples/sony-xbr-x900e and the same package set, so this list
+# is that one with the feature entries at the bottom left enabled. 24 packages disabled, nothing
+# uninstalled. Stock launcher com.google.android.tvlauncher (the restore.sh default); Live TV and
+# every HDMI input come from com.sony.dtv.tvx, so keep it. Launcher installed and Home switched,
+# verified across a reboot. Not lived with for weeks yet: re-enable anything that breaks with
+# `pm enable <package>`, or tools/restore.sh with this file.
+#
+# Left enabled on purpose because they are features, not bloat: Chromecast built-in, screen mirroring,
+# DLNA renderer, Android TV phone remote, USB Media Player and music player. Uncomment the last group
+# to disable them too.
+
+# ACR viewing tracker
+tv.samba.ssm                                   # Samba TV fingerprints what's on screen
+
+# Sony and Google content, ads and promos
+com.sony.dtv.sonyselect                        # Sony Select app store/promo tile
+com.sony.dtv.promos                            # My BRAVIA promos
+com.sony.dtv.discovery                         # Sony Discover content bar
+com.sony.dtv.bivlinfo                          # BIVL content service list (feeds Discover)
+com.sony.dtv.tvlaunchercustomizer              # Sony tweaks to the stock home rows
+com.google.android.tvrecommendations           # recommendation rows for the stock launcher
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Retail demo
+com.sony.dtv.demomode
+com.sony.dtv.demosupport
+com.sony.dtv.multiscreendemo
+
+# Telemetry, remote support and feedback
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.sonybugreportsys
+com.google.android.tv.bugreportsender
+com.google.android.feedback
+com.sony.dtv.b2b.vendorprotocol                # runs Node.js 4.2.4 (2015) broadcasting model/MAC/IP over SDDP
+                                               # for Control4-style home automation; re-enable if you use one
+
+# Preloaded apps
+com.sony.dtv.customersupport                   # Help tile
+com.sony.dtv.smarthelp
+com.sony.dtv.imanual                           # i-Manual
+com.google.android.youtube.tvmusic
+com.google.android.videos
+com.google.android.play.games
+com.google.android.backdrop                    # ambient screensaver, replaced by the launcher's Clock
+
+# Left enabled on purpose: features, not bloat. Uncomment any line to disable it too.
+# com.google.android.apps.mediashell           # Chromecast built-in
+# com.sony.dtv.smartmediaapp                   # Media Player, plays files from USB
+# com.sony.dtv.osat.music                      # plays music from USB
+# screnmirroring.com                           # Screen mirroring (Miracast)
+# com.sony.dtv.networkapp.wifidirect
+# com.sony.huey.dlna.module                    # DLNA renderer
+# com.sony.huey.dlna.renderersettings
+# com.sonyericsson.dlna
+# com.google.android.tv.remote.service         # Android TV phone-app remote

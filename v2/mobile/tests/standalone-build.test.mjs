@@ -15,7 +15,7 @@ async function bundleText(path) {
   return (await Promise.all(files.filter(f => f.endsWith(".js")).map(f => readFile(join(path, "assets", f), "utf8")))).join("\n");
 }
 
-test("mobile production and demo builds need no desktop generated files or dependencies", { timeout: 120000 }, async (t) => {
+test("mobile type check, production and demo builds need no desktop generated files or dependencies", { timeout: 120000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "atvopt-mobile-build-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const isolatedDesktop = join(root, "v2");
@@ -25,17 +25,23 @@ test("mobile production and demo builds need no desktop generated files or depen
     await cp(join(mobile, name), join(isolatedMobile, name), { recursive: true });
   }
   await cp(join(desktop, "shared"), join(isolatedDesktop, "shared"), { recursive: true });
+  await cp(join(desktop, "catalogs/cleanyourtv"), join(isolatedDesktop, "catalogs/cleanyourtv"), { recursive: true });
   await mkdir(join(isolatedDesktop, "src"), { recursive: true });
   await cp(join(desktop, "src/lib"), join(isolatedDesktop, "src/lib"), { recursive: true });
-  for (const name of ["package.json", "tsconfig.json"]) await cp(join(desktop, name), join(isolatedDesktop, name));
+  for (const name of ["package.json", "tsconfig.json", "svelte.config.js"]) await cp(join(desktop, name), join(isolatedDesktop, name));
   await symlink(join(mobile, "node_modules"), join(isolatedMobile, "node_modules"), process.platform === "win32" ? "junction" : "dir");
   const env = { ...process.env };
   delete env.VITE_DEMO;
   const vite = join(mobile, "node_modules/vite/bin/vite.js");
+  const check = await execute(process.execPath, [join(mobile, "node_modules/svelte-check/bin/svelte-check"), "--tsconfig", "./tsconfig.json"], { cwd: isolatedMobile, env, maxBuffer: 4 * 1024 * 1024 });
+  assert.match(check.stdout, /0 errors and 0 warnings/);
   await execute(process.execPath, [vite, "build"], { cwd: isolatedMobile, env, maxBuffer: 4 * 1024 * 1024 });
   const production = await bundleText(join(isolatedMobile, "build"));
   assert.ok(!production.includes("Unlock every Pro tool."), "production must exclude the demo entitlement fixture");
   assert.ok(!production.includes("Fast control channel ready."), "production must exclude the simulated transport reply");
+  assert.ok(production.includes("com.realtek.leanbacklauncher.partnercustomizer"), "source package information ships offline");
+  assert.ok(production.includes("Copyright (c) 2026 Gathin"), "the source copyright ships in the app");
+  assert.ok(production.includes("Permission is hereby granted"), "the full MIT notice ships with the source information");
   await execute(process.execPath, [vite, "build", "--outDir", "demo-build"], { cwd: isolatedMobile, env: { ...env, VITE_DEMO: "1" }, maxBuffer: 4 * 1024 * 1024 });
   const demo = await bundleText(join(isolatedMobile, "demo-build"));
   assert.ok(demo.includes("Unlock every Pro tool."), "explicit demo builds must retain their fixture");

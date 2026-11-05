@@ -1,0 +1,59 @@
+# Hitachi 65QLEDSM20 (built by MTC, codename bangbae, MediaTek m7322), Android TV 11 (API 30),
+# firmware RTO8.250915.001 (built 2025-09-16), security patch 2025-07-01, 1.3 GB RAM, 1920x1080. Australian unit.
+# Fingerprint: Hitachi/MTCMSD6886EU_Hitachi/bangbae:11/RTO8.250915.001/14107831:user/release-keys
+# Content recognition and FAST channels come from Anoki (tv.anoki.acr.controller, com.cltv.fast), like the
+# CHiQ / RCA / BenQ "AI PONT" sets on the same platform.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hitachi-65qledsm20/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hitachi-65qledsm20/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (the scripts' default); the only other HOME claimant is
+# com.android.tv.settings, so the setup wizard does not take over. Live TV: com.mediatek.wwtv.tvcenter.
+# TV inputs (com.mediatek.tvinput): HDMI 1-4 = HW4-HW7, AV = HW1 (composite), tuners = HW0, HW8.
+#
+# KEEP, even though the names look like bloat:
+# - fusion.android.tv.demo ("MtcRetailDisplay"): handles the remote's Input button (TV_INPUT_BUTTON,
+#   CONNECT_INPUT) and Bluetooth remote pairing (mtc.bluetooth.AddAccessoryActivity).
+# - com.google.android.leanbacklauncher.partnercustomizer: provides the tvlauncher.widget provider that
+#   com.mediatek.tv.service needs after a reboot (see examples/chiq-ai-pont).
+# - com.mediatek.mtc.factory (GLOBAL_BUTTON and USB attach receivers), com.mediatek.testpq (applies
+#   picture settings at boot), com.mediatek.network, com.airoha.btd (Bluetooth chip), com.mediatek.*.
+# - There is no separate firmware-update package on this build.
+#
+# Notes from this TV (all verified with screenshots and a reboot):
+# - Stock adb on macOS fails with "No route to host" (Local Network privacy); tools/tv.py works.
+# - After a reboot com.mediatek.tv.service logs "Failed to find provider info for tv.anoki.acr.controller.support"
+#   once or twice and carries on: same PID minutes later, no crash loop. Home stays the new launcher.
+# - HDMI and Live TV screenshots fail (protected video layer). The Inputs menu switches through tvcenter's
+#   TurnkeyUiMainActivity; the Input key keeps opening tvcenter's InputsPanelActivity.
+# - Free RAM after boot: about 590 MB (about 320 MB on the stock home before debloating).
+
+# Batch 1: telemetry, ads and recommendation rows
+tv.anoki.acr.controller                 # Anoki automatic content recognition (persistent, starts at boot)
+com.cltv.fast                           # Anoki FAST channels: ad-supported TV input with promo provider
+com.google.android.tvrecommendations    # recommendation rows on the stock home
+android.autoinstalls.config.JVC         # Play Auto Install config: partner apps pushed after setup
+com.google.android.feedback
+
+# Batch 2: background services and preloaded apps
+com.google.android.apps.nbu.smartconnect.tv   # data-saver VPN service and data meter
+com.google.android.backdrop             # Ambient screensaver, replaced by the launcher's Clock
+com.google.android.play.games
+com.google.android.videos               # Google Play Movies / Google TV
+com.google.android.youtube.tvmusic
+com.google.android.syncadapters.calendar
+
+# Batch 3: personal choice, comment out what you use
+com.google.android.katniss              # Google Assistant (the mic button stops working)
+com.amazon.amazonvideo.livingroom       # Prime Video
+au.net.abc.iview
+com.sbs.ondemand.tv
+com.swm.live                            # 7plus
+com.cbs.ca                              # Paramount+
+com.spotify.tv.android
+org.videolan.vlc
+
+# Stock launcher, replaced by launcher/. Left to launcher/build-and-install.sh, which disables it only
+# after the new home is installed and set as default; restore.sh re-enables it.
+# com.google.android.tvlauncher

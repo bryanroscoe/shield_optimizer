@@ -1,0 +1,70 @@
+# Xiaomi MiTV-AXFR1 (codename rango, product dune; Amlogic/droidlogic, 1 GB RAM, India), Android TV 11 (SDK 30),
+# firmware RTT0.210630.002.485 (Xiaomi/dune/rango:11/RTT0.210630.002/485), security patch 1 November 2025.
+# Same firmware family as xiaomi-mitv-axso0 (ships android.autoinstalls.config.xioami.dangal).
+# Live TV app: com.android.tv (also owns the input picker, .input.SelectInputActivity).
+# Stock launcher: com.google.android.tvlauncher (the default, disabled by build-and-install.sh).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-axfr1/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-axfr1/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - USB debugging alone opens port 5555; no wireless-debugging pairing needed.
+# - Sideloading works (pm install over the shell), and a third-party HOME app is accepted without a
+#   Xiaomi signature. setupwraith is installed but does not claim HOME here, so it can stay enabled.
+# - PatchWall (com.mitv.tvhome.atv) also contains an InputSourcePopupActivity, but the Settings key opens
+#   stock TV Settings and the Inputs panel is com.android.tv's, so PatchWall is safe to disable.
+#   Settings, the Inputs panel (HDMI 1, HDMI 2, AV, TV) and HDMI switching were checked after each batch.
+# - An injected KEYCODE_TV_INPUT is unhandled on this firmware; inputs are reached from Settings or the launcher.
+# - Live TV with no channels tuned goes straight to a channel scan when opened (stock behaviour too).
+# - Disabled state, the Home default and Private DNS all survive a reboot. The TV can come back on a
+#   different IP after a reboot (DHCP), so re-check TV_HOST.
+# - Default IME is already Gboard; the Baidu-keyboard quirk from the Mi TV 4A doesn't apply.
+
+# Xiaomi + Google telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic                        # log upload receiver
+com.google.android.feedback
+
+# PatchWall, content rows, sponsored rows
+com.mitv.tvhome.atv                         # PatchWall
+com.xm.webcontent
+com.google.android.tvrecommendations        # sponsored rows in the stock launcher
+android.autoinstalls.config.xioami.dangal   # Play auto-install of partner apps (sic, "xioami")
+com.mitv.tvhome.mitvplus                    # Mi TV+ sponsored live channels
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager                   # "TV Manager" cleaner
+com.xiaomi.mitv.handbook
+com.xiaomo.tv.milegal                       # static legal / privacy text screens
+
+# Personal choice: screen mirroring (Chromecast built-in kept)
+com.xiaomi.mitv.smartshare                  # Miracast + MiPlay receiver
+com.xiaomi.wfdsinkhelperservice             # Miracast sink
+com.mitv.milinkservice                      # Mi Cast discovery
+
+# Personal choice: firmware updates (re-enable to check for one)
+com.xiaomi.mitv.updateservice
+
+# Preloaded apps
+com.xiaomi.mimusic2
+com.google.android.play.games
+com.google.android.videos                   # Play Movies & TV
+com.mitv.dream                              # Mi screensaver; Google Ambient mode (backdrop) kept
+
+# Personal choice: preloaded streaming apps not used
+com.jio.media.stb.ondemand                  # JioCinema / JioTV
+com.sonyliv
+com.graymatrix.did                          # ZEE5
+com.google.android.youtube.tvmusic
+com.mxtech.videoplayer.television           # MX Player
+com.formulaone.production                   # F1 TV
+
+# Kept on purpose (checked with dumpsys package):
+#   com.droidlogic.tvinput         HDMI 1-4, AV, ATV/DTV/ADTV TvInputServices
+#   com.droidlogic, com.droidlogic.droidlivetvsettings   platform services, Live TV settings
+#   mitv.service                   persistent Mi TV server (system uid)
+#   com.mi.bluetooth               remote control service (RcService)
+#   com.xiaomi.android.tvsetup.partnercustomizer   BLE remote pairing + GLOBAL_BUTTON receiver
+#   com.xiaomi.mitv.mediaexplorer, com.mitv.videoplayer, com.mitv.gallery   USB media playback
+#   com.mitv.bspfactoryservice     factory info screen, harmless

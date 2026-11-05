@@ -1,0 +1,48 @@
+# Super General 55" 4K smart TV (CVTE board TP.SK708D.PC821, Amlogic T972, product x30a4, panel HV550QUB),
+# Android 9 (API 28), firmware x30a4-userdebug 9 PPR1.180610.011 20210518 (CVTE MD_CVTE_OVERSEA_T972_9_0_1G_STARKOS,
+# build 20210518_103433), Saudi Arabia. 1 GB RAM (low_ram), armeabi-v7a only.
+# Not Google TV: CVTE's own launcher (com.cvte.tv.launcher.highend) and settings. The build fingerprint is spoofed
+# (google/shamu/...), so match the board name (ro.cvte.boardname) instead.
+# Tested on one set for a day, reboot-checked; launcher half done with a third-party launcher (see README.md).
+# Setup steps (ADB, remote access, Play Services) and troubleshooting: README.md in this folder.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/super-general-cvte-t972/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/super-general-cvte-t972/debloat.txt com.cvte.tv.launcher.highend
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# ADB: switch to a source (TV or HDMI) first, then MENU 1 1 4 7 -> DEBUG -> ADB ENABLE. Network ADB on 5555,
+# survives reboots. userdebug firmware.
+#
+# Google Play Services shipped disabled by the system (enabled=3): `pm enable com.google.android.gms` so Google Play
+# works; it stayed on across a reboot.
+#
+# KEEP: com.cvte.tv.globalui (.InputSourceActivity, the source menu), com.cvte.tv.setting (TV settings, quick menu),
+# com.cvte.tiflauncher, com.cvte.tv.api.impl (TIF player and the remote's hotkey service), com.cvte.tvservice,
+# com.cvte.tv.remotedebug, com.droidlogic.* (TV input, Bluetooth remote, Miracast). Factory: com.cvte.fac.menu,
+# com.cvte.factory.at, com.cvte.factory.service; never launch these.
+
+# Adware: the "com.sdk.hades" SDK (starts on boot and screen-on, background jobs, internet). Both were installed
+# silently; neither appears in the TV's app list.
+com.system.memory.tool
+com.android.media.tools                         # /system/app/clean/clean.apk
+
+# CVTE ad services, pushed silently by the firmware's cloud
+com.cvte.gaia.ad.service                        # AdService, calls the stark-cloud.cvte.com ad API
+com.cvte.wonder.cloud.service                   # UniAdService
+com.cvte.tv.pictorial                           # ad screensaver
+
+# CVTE extras
+com.cvte.tv.steward                             # "TV assistant" cleaner
+com.cvte.tv.weather
+com.stark.store                                 # Stark app store; Google Play replaces it
+com.cvte.tv.systemupgrade                       # firmware updates; off by choice, re-enable to update
+
+# Preloads off by choice
+org.mozilla.tv.firefox
+com.android.browser
+com.google.android.feedback
+com.ionitech.airscreen                          # AirScreen casting; Miracast (com.droidlogic.miracast) kept
+
+# Stock launcher, replaced (keep it if you don't install another launcher). A FallbackHome exists on this build.
+com.cvte.tv.launcher.highend
+com.cvte.tv.launcher.highend.skin

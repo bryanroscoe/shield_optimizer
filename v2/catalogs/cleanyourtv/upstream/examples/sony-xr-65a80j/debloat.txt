@@ -1,0 +1,91 @@
+# Sony XR-65A80J (65-inch OLED, 2021, device BRAVIA_VH2, model string "BRAVIA 4K VH2"), EU firmware
+# Android 12 (Google TV, API 31), build BRAVIA_VH2_EU-user 12 STT2.230505.001.S136 682241 release-keys
+#
+# Apply: TV_HOST=<tv ip> tools/disable.sh examples/sony-xr-65a80j/debloat.txt
+# Undo:  TV_HOST=<tv ip> tools/restore.sh examples/sony-xr-65a80j/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED with pm disable-user --user 0, never uninstalled.
+# Comment out any package whose feature you use; AirPlay, DLNA and HbbTV are optional choices below.
+#
+# Based on the same-platform sony-bravia-4k-vh2 and sony-kd-65x80j lists, checked against this TV.
+# Stock launcher: com.google.android.apps.tv.launcherx/.home.HomeActivity.
+# Live TV / tuner and Sony input app: com.sony.dtv.tvx. USB media: com.sony.dtv.smartmediaapp.
+# Tested with the separate Cosy Home-based launcher com.cosyhome.tv, not the reference launcher.
+# The stock launcher was disabled separately after the new launcher was installed and Home verified.
+# Do not disable launcherx before a working replacement is installed.
+#
+# Keep TV/input services (com.sony.dtv.tvinput.*, tvapi, sonysystemservice, settingsprovider),
+# all com.mediatek.* and mtktvapi.agent, the keyboard, Play Store and Play Services.
+# Keep Bravia Sync/HDMI-CEC and eARC services: com.sony.dtv.braviasync*, HomeTheatreControl,
+# audiooutput, audiosysteminfoprovider and com.dolby.android.audio.service.
+# Kept by choice: voice assistant (katniss, voicesearch, assistantadapter), Chromecast (mediashell),
+# Miracast, firmware updates (systemupdate/update), Ambient mode (dreamx), Living Decor (livingfit),
+# remote/Bluetooth services, Netflix partner service, and streaming apps except the old MTV app below.
+#
+# Already disabled in the baseline and deliberately omitted: my5/itv/ard/all4/iplayer/sounds launchers,
+# com.sony.dtv.homekit, de.hdplus.tvapp.androidtv, com.sony.dtv.promos, com.sony.dtv.seeds.iot,
+# com.vewd.core.integration.dia, com.apple.atve.sony.appletv, com.youview.poa,
+# com.google.android.youtube.tvmusic, com.sony.dtv.b2b.vendorprotocol and com.sony.dtv.b2b.softap.
+#
+# Validation: owner reports a few days of use on Ethernet; batches 1-7 were reboot-checked.
+# Saved snapshots confirm all 38 listed packages disabled, plus launcherx separately.
+# Ethernet was used. End-to-end casting and Wi-Fi reconnection are not confirmed by the snapshots.
+# Source setup and before/after snapshots: https://github.com/samipuro/tv-launcher
+
+# Batch 1: tracking and telemetry
+tv.samba.ssm                                   # Samba TV, fingerprints what's on screen (ACR)
+tv.samba.ssm.ui
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.sonyericsson.idd.agent                     # Sony usage-data agent
+com.sony.dtv.sonybugreportsys
+com.google.android.feedback
+
+# Batch 2: home-screen ads and promos
+com.sony.dtv.sonyselect                        # Sony Select promo tile
+com.sony.dtv.sonytab                           # Sony tab content on the Google TV home
+com.sony.dtv.launcherxcustomizer               # Sony config for the Google TV home
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Batch 3: retail demo and help
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+com.sony.dtv.customersupport                   # Help tile
+com.sony.dtv.smarthelp
+
+# Batch 4: setup leftovers and unused services
+com.android.printspooler
+com.google.android.syncadapters.calendar       # calendar sync; also carries Google's GrowthKit promo framework
+com.google.android.partnersetup                # RLZ install-attribution provider
+com.google.android.onetimeinitializer          # runs once after first setup
+com.sony.dtv.QuickSetupCustomizer              # partner customisation for first setup
+
+# Batch 5: hotel / pro mode (not a hotel TV)
+com.sony.dtv.b2b.hotelmode                     # always-running service
+com.sony.dtv.b2b.noderuntime.normal            # Node.js runtime for hotel apps
+com.sony.dtv.b2b.noderuntime.privilege
+com.sony.dtv.b2b.noderuntimeextension.bpk
+com.sony.dtv.b2b.noderuntimeextension.node_20_11_1
+
+# Batch 6: mirroring duplicates and HbbTV, off by owner's choice (Chromecast and Miracast stay)
+com.sony.dtv.airplayapp                        # AirPlay
+com.sony.huey.dlna.module                      # DLNA renderer
+com.sony.huey.dlna.renderersettings
+com.sonyericsson.dlna
+com.sony.dtv.hbbtvplayer                       # HbbTV red-button player for broadcast channels
+
+# Batch 7: BRAVIA CAM (not owned), notifications app, old MTV app
+com.sony.dtv.gestureapp
+com.sony.dtv.distancealert
+com.sony.dtv.sensingcamera.fwupdate
+com.sony.dtv.sensingcamera.settings
+com.sony.dtv.notificationcenter                # "BRAVIA notifications" inbox
+fi.mtv.svod                                    # old MTV app (v1.0.56, last updated 2024-01); MTV Katsomo is fi.mtvkatsomo
+
+# Batch 8: setup wizard; disable only after a replacement launcher is installed
+# Claims HOME once launcherx is disabled. Re-enable before a factory reset.
+# Ethernet was used; the saved Wi-Fi owner was android.uid.system:1000.
+# Wi-Fi reconnection after disabling setupwraith was not tested.
+# On the A80L (VH22) with it off, com.sony.dtv.sonysystemservice asks for its provider every 500 ms and logcat
+# repeats "Failed to find provider info for ...setupwraith": harmless, see docs/TROUBLESHOOTING.md (#2853).
+com.google.android.tungsten.setupwraith

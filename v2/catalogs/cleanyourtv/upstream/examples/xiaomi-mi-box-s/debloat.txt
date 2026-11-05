@@ -1,0 +1,99 @@
+# Xiaomi Mi Box S (model MIBOX4, MDZ-22-AB, codename oneday, Amlogic gxl), Android TV 9 (SDK 28),
+# firmware PI.3933 (built 2021-09-28), security patch 2021-07-05, 2 GB RAM, 1920x1080. Indian unit:
+# PatchWall arrived through Xiaomi's update service.
+# Fingerprint: Xiaomi/oneday/oneday:9/PI/3933:user/release-keys
+#
+# Apply:   TV_HOST=<box ip> tools/disable.sh examples/xiaomi-mi-box-s/debloat.txt
+# Undo:    TV_HOST=<box ip> tools/restore.sh examples/xiaomi-mi-box-s/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# A streaming box: no HDMI-in or tuner, so the Inputs menu has nothing to list; set live_tv_package empty in
+# config.xml. Stock launcher: com.google.android.tvlauncher (the scripts' default).
+#
+# Notes from this box:
+# - Leave alone: com.xiaomi.android.tvsetup.partnercustomizer (receives the remote's shortcut buttons as
+#   GLOBAL_BUTTON, and runs the remote-pairing steps of setup), mitv.service (Xiaomi TvServer, persistent),
+#   com.google.android.tungsten.setupwraith (remote pairing), com.droidlogic* (Amlogic system, Bluetooth).
+# - USB debugging alone opens network ADB on port 5555 (service.adb.tcp.port=5555).
+# - USB debugging CUTS POWER to the USB port: with sys.usb.config=adb, /vendor/etc/init/hw/init.amlogic.usb.rc
+#   writes 0xFDFFFFFF to register 0xc883443c and the port switches to ADB device mode, so a USB speaker or drive
+#   goes dead; sys.usb.config=mtp (debugging off) writes 0xFD7FFFFF and powers it again. Turn debugging off when done.
+# - cmd package set-home-activity needs the component on Android 9 (com.gathin.tvhome/.MainActivity).
+# - Location is off, so Android 9 hides the Wi-Fi name from apps and the launcher's pill just says "Wi-Fi".
+# - Remote (Vendor_2717_Product_32b9): the Netflix key still opens Netflix; BUTTON_2 opened Live Channels and
+#   does nothing once it is disabled; BUTTON_3/4 and ALL_APPS did nothing even on stock. No crashes either way.
+# - Survives a reboot: nothing is re-enabled at boot, the launcher stays Home. Free RAM after boot went from
+#   about 770 MB to 1.15 GB.
+# - A process of the disabled stock launcher can linger until the next reboot; `am force-stop` clears it.
+#
+# Second unit (same PI.3933 build), 2026-10-21. Details: docs/devices/xiaomi-mi-box-s.md
+#   - Every package below was present and disabled cleanly; nothing was re-enabled after a reboot.
+#   - Nothing was disabled beforehand: the "already disabled" apps at the bottom were all enabled there.
+#     Google Play Music (com.google.android.music, closed in 2020) was installed too.
+#   - The saved Wi-Fi belonged to android.uid.system, not setupwraith; setupwraith was not needed.
+#   - The Apps button (scancode 580, ALL_APPS) opens Home with the launcher's HomeKeyService
+#     (build-and-install -HomeKeyService). Home, Back, voice and Netflix work without it.
+#   - On remotes with a Live button (scancode 399), disabling com.google.android.tv triggers
+#     partnercustomizer to open Google Play unless remapped via app_keys ("scan:399:<package>",
+#     build-and-install -InputKeyService).
+#
+# Third unit (same PI.3933 build), Turkey, 2026-09-17 to 2026-10-24 (37 days):
+#   - Xiaomi's update service enables PatchWall again. Its component applife.LifeKeeper installs
+#     com.mitv.tvhome.atv again about 3 minutes after you disable it. The install changes the package
+#     state to enabled. Logcat shows "PatchWallUpdateService: ... LifeKeeper ... package:com.mitv.tvhome.atv
+#     event:INSTALL". On this unit, PatchWall was disabled in one batch and the updater in a later batch.
+#   - For this reason, this list disables the update service before PatchWall. After the updater was disabled,
+#     PatchWall stayed disabled for 37 days and after each reboot.
+#   - Five minutes after you apply the list, do a check: compare `pm list packages -d` with this file.
+#
+# Fifth unit (same PI.3933 build), 2026-10-25. Details: docs/devices/xiaomi-mi-box-s.md
+#   - The Apps button as Home costs the volume ramp: with HomeKeyService bound, a held Volume key moves one
+#     step instead of ramping, the same trade as docs/devices/tcl-55p71b-g09-key-repeat.md. Checked on the
+#     real remote, with the helper bound and with the list empty. The owner kept the ramp.
+
+# Xiaomi + Google telemetry and ad tracking
+com.miui.tv.analytics                  # Mi analytics: reads logs and app usage
+tv.alphonso.alphonso_eula              # Alphonso ad tracking, reads app usage stats
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# Xiaomi background services. Before PatchWall: the updater enables PatchWall again (see header)
+com.xiaomi.mitv.updateservice          # firmware and PatchWall updates, installs apps; re-enable to check for an update
+com.mitv.download.service              # its download helper
+
+# PatchWall, content rows, promos, auto-installs
+com.mitv.tvhome.atv                    # PatchWall
+com.mitv.tvhome.michannel              # Mi Channel rows on the home screen
+com.xm.webcontent                      # Xiaomi web promos
+com.google.android.tvrecommendations
+android.autoinstalls.config.xioami.mibox3   # Play auto-install of partner apps (sic, "xioami")
+
+# Personal choice: voice assistant (the mic button stops working)
+com.google.android.katniss
+com.google.android.speech.pumpkin
+
+# Personal choice: casting, mirroring and the phone remote
+com.google.android.apps.mediashell     # Chromecast built-in
+com.mitv.milinkservice                 # Mi cast (MiLink)
+com.mitv.videoplayer                   # Mi video player, used by MiLink; VLC opens video files instead
+com.google.android.tv.remote.service   # Google TV / Android TV Remote phone app
+
+# Preloaded apps
+com.google.android.tv                  # Live Channels
+com.google.android.marvin.talkback     # screen reader (was off)
+com.android.printspooler
+
+# Google Ambient photo screensaver, replaced by the launcher's Clock. Switch the screensaver first:
+#   tools/tv.py 'settings put secure screensaver_components com.gathin.tvhome/.ClockDream'
+com.google.android.backdrop
+
+# Already disabled on this unit before we started; uncomment the ones yours still has enabled
+# com.amazon.amazonvideo.livingroom    # Prime Video
+# com.google.android.youtube.tvmusic
+# com.google.android.videos            # Play Movies & TV
+# com.google.android.play.games
+# com.android.camera2
+# com.google.android.music             # Google Play Music, service closed in 2020 (second unit only)
+
+# Stock Google TV launcher, replaced by launcher/
+com.google.android.tvlauncher

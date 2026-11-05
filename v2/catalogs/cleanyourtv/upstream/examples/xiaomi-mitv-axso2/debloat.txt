@@ -1,0 +1,71 @@
+# Xiaomi MiTV-AXSO2 (codename dangalUHD, Amlogic/droidlogic, 2 GB RAM), Android TV 9 (SDK 28), firmware PI.6432.
+# Same "dangal" board family as examples/xiaomi-mitv-axso0. India unit.
+# Live TV app: com.android.tv (set it as live_tv_package and hide it in launcher config.xml).
+# Stock launcher: com.google.android.tvlauncher (the default, disabled by build-and-install.sh).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-axso2/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-axso2/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - USB debugging alone opens network ADB on port 5555; the stock adb binary worked from macOS here.
+# - Default IME is already Gboard, so the Mi TV 4A missing-keyboard quirk doesn't apply.
+# - Everything below stays disabled after `adb reboot`.
+# - The remote's PatchWall button does nothing once com.mitv.tvhome.atv is disabled.
+# - Google sign-in: tvlauncher's notification panel gets its list from com.google.android.tvrecommendations.
+#   With both disabled, Play Services' "Sign-in required" notice has nowhere to show, and Play Store only says
+#   "Authentication is required". To sign in again: `pm enable` both, open
+#   com.google.android.tvlauncher/.notifications.NotificationsSidePanelActivity, select the notice, enter the
+#   password, then disable both again. If the password page comes back after OK, press Back: the sign-in has
+#   usually worked already.
+# - Storage is tight: 4.4 GB /data with about 600 MB free. A Play Services update took about 300 MB right after
+#   sign-in and Play installs then failed with error 1008; `pm trim-caches 64G` freed about 400 MB.
+# - com.xiaomitv.sonyliv and com.zee5.xiaomiTV are old partner copies (2021-2023) with no launcher entry;
+#   the Play Store apps com.sonyliv and com.graymatrix.did stay.
+
+# Xiaomi + Google telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# PatchWall, content rows, sponsored rows, partner auto-installs
+com.mitv.tvhome.atv
+com.xm.webcontent
+com.xiaomi.floatingframe
+com.google.android.tvrecommendations                # also feeds the notification panel, see the sign-in note
+com.google.android.leanbacklauncher.recommendations
+android.autoinstalls.config.xiaomi.amelie           # Play auto-install of partner apps
+android.autoinstalls.config.xioami.dangal           # Play auto-install of partner apps (sic, "xioami")
+com.mitv.tvhome.mitvplus                            # Mi TV+ sponsored live channels
+co.sensara.tv.mitv                                  # Sensara partner TV guide (sponsored show recommendations)
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager                           # "TV Manager" cleaner
+com.xiaomi.mitv.handbook
+com.xiaomi.mitv.updateservice                       # firmware updates: re-enable to check for one
+com.xiaomo.tv.milegal                               # static legal / privacy text screens
+
+# Preloaded apps
+com.xiaomi.mimusic2
+com.mitv.gallery                                    # Mi Gallery; Media Player still opens USB photos
+com.google.android.music                            # Google Play Music, service shut down
+com.google.android.videos                           # Play Movies & TV
+com.google.android.play.games
+com.google.android.youtube.tvmusic
+com.tcl.browser
+
+# Personal choice: old partner copies of streaming apps (see notes)
+com.xiaomitv.sonyliv
+com.zee5.xiaomiTV
+
+# Android extras a TV without camera, printer or SIM doesn't use
+com.android.camera2
+com.android.gallery3d
+com.android.printspooler
+com.google.android.marvin.talkback                  # screen reader: keep it if anyone in the house uses it
+com.android.smspush
+com.android.dreams.basic                            # basic screensaver; Ambient mode (backdrop) stays
+
+# Kept on purpose on this TV: Google Assistant (katniss, pumpkin), Chromecast (mediashell), Mi Cast and
+# Mi Share (milinkservice, smartshare), Miracast (wfdsinkhelperservice) and every streaming app.

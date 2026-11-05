@@ -1,0 +1,43 @@
+# TCL 50C725K (reports as "Smart TV Pro", device BeyondTV4, product BeyondTV6, board RTD2851M, Realtek rtd288o), 2 GB RAM
+# Android TV 11 (SDK 30) with the older com.google.android.tvlauncher, build RP1A.200622.001, fingerprint
+# TCL/BeyondTV6/BeyondTV4:11/RP1A.200622.001/AR10:user/release-keys.
+# Same BeyondTV4 device as examples/tcl-65c725 and examples/tcl-55c725 (that one runs launcherx).
+# Applied on a real unit on 2026-10-20/21 with launcher/ as Home; the list below survived a reboot.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-50c725k/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-50c725k/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher; launcher/build-and-install.sh disables it, it is not listed.
+# Live TV app: com.tcl.tv (kept; set live_tv_package to it in launcher config.xml). Inputs: com.tcl.tvinput (kept).
+# Never disable (same platform as examples/tcl-43c645): com.tcl.providers.config com.tcl.initsetup
+# com.tcl.system.server com.tcl.tcl_bt_rcu_service com.tcl.autopair com.tcl.tvinput com.tcl.tv com.tcl.settings
+# com.tcl.inputmethod.international. Also kept: com.tcl.usercenter (TCL account), com.tcl.versionUpdateApp
+# (firmware updater), com.tcl.miracast and com.google.android.apps.mediashell (Chromecast), com.tcl.MultiScreenInteraction_TV,
+# com.google.android.backdrop (screensaver), com.google.android.tungsten.setupwraith.
+#
+# TCL and Google content, ads, promos and telemetry
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.overseasappshow                # promotes apps in the TCL menu
+com.tcl.esticker                       # store demo sticker
+com.tcl.messagebox                     # TCL notifications
+com.tcl.bi                             # TCL analytics
+com.tcl.notereminder
+android.autoinstalls.config.tcl.device # silent installs of preloaded apps
+com.google.android.partnersetup
+com.google.android.feedback
+# Background services not needed
+com.google.android.onetimeinitializer
+com.google.android.syncadapters.calendar
+com.tcl.dashboard                      # stock quick-settings panel
+# Preloaded apps and by-choice extras
+com.tcl.browser                        # TCL browser; also the biggest of these (~180 MB with data)
+com.tcl.gallery
+com.tcl.smartalexa
+com.google.android.katniss             # Google voice assistant (~175 MB of RAM in use); off by choice
+com.google.android.marvin.talkback     # accessibility screen reader; off by choice
+com.google.android.tts                 # speech engine, only used by TalkBack
+com.google.android.play.games
+com.netflix.ninja                      # streaming apps off by choice
+au.com.stan.and

@@ -1,0 +1,127 @@
+# TCL BeyondTV2, Android 11 variant (ro.product.model BeyondTV2, brand TCL, board rtd285o),
+# Android TV 11 (API 30), build PPR1.180610.011, fingerprint
+# TCL/BeyondTV2/BeyondTV:11/PPR1.180610.011/AR05:user/release-keys.
+#
+# Also sold re-badged: a Hitachi CDH-LE554KSMART22 (55", Argentina) reports this same fingerprint,
+# board and preloaded set, so this list applies to it unchanged. See README.md for what that second
+# unit confirmed and where its factory state differs.
+#
+# Not the same set as examples/tcl-beyondtv2-latin-america: same product name and build number, but
+# that unit runs Android 9 (API 28, `AP08`) and ships a different preloaded package set (no
+# com.tcl.overseasappshow, no com.tcl.usercenter, no MagiConnect, no com.tcl.notereminder).
+# This firmware is also NOT `ro.product.model BeyondTV` (examples/tcl-beyondtv, Android TV 9).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-beyondtv2-android-11/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-beyondtv2-android-11/debloat.txt
+# Install the launcher BEFORE disabling the stock launcher.
+# Stock launcher: com.google.android.tvlauncher (priority 2, disabled after the replacement was up).
+# Other HOME claimants are only fallbacks: com.tcl.keycustomfunctionservice and com.android.tv.settings.
+# Live TV app: com.tcl.tv, with com.tcl.tvinput for the tuner and HDMI 1-3 (this set exposes 3 HDMI
+# ports through the TV input framework). TvInputManager lists them normally, so the launcher's Inputs
+# menu needs no source_panel_service on this firmware.
+# setupwraith does not own the saved Wi-Fi network here (dumpsys wifi shows android.uid.system and
+# com.google.uid.shared), so it can be disabled without dropping the TV off Wi-Fi.
+#
+# Tested: applied in four batches with a screenshot after each and a full reboot between batches, on
+# 2026-10-20. Verified after the final reboot: every package still disabled, Wi-Fi up, Home on the
+# replacement launcher, Inputs menu, Live TV (com.tcl.tv/.TVActivity), Netflix and Prime Video launch,
+# Home returns from every app, no crash and no ANR in logcat. NOT yet lived with for weeks; this
+# list is deliberately conservative (telemetry, ads, promos, and the voice/mirroring choices).
+#
+# Second unit (Hitachi CDH-LE554KSMART22, Argentina), 2026-10-27: same four-batch run, a screenshot
+# after each batch and two full reboots. Same result - every package stayed disabled, Wi-Fi up, Home
+# on the replacement launcher, Inputs menu with HDMI 1-3 + AV + Live TV, HDMI 1 switching into
+# com.tcl.tv/.TVActivity, Netflix / YouTube / Play Store / Settings / Live TV all launching and
+# returning Home, no crash and no ANR. One session only, NOT days of use; see README.md.
+#
+# Third unit (TCL 65P615, ro.product.model BeyondTV, client type TCL-ME-RT2851-S1, software
+# V8-R851T02-LF1V715), 2026-10-28: fingerprint TCL/BeyondTV/BeyondTV:11/PPR1.180610.011/AR05 - product
+# BeyondTV instead of BeyondTV2, same AR05 build and the same preloaded set. Same four batches, then the
+# launcher, then one full reboot: every package still disabled, Home on the replacement launcher, Inputs
+# menu with HDMI 1-3 + AV + Live TV, YouTube and Chromecast (mediashell) running. One session only.
+#
+# Fourth unit (TCL 43A8, Indonesian market, ro.product.model BeyondTV, software V8-R851T02-LF1V674,
+# 2 GB), 2026-11-03: fingerprint TCL/BeyondTV/BeyondTV:11/PPR1.180610.011/AR04 - one build older than
+# the units above, with every package this list names present. Factory state differed: Netflix
+# (com.netflix.ninja), Prime Video, smartalexa and smartconnect.tv came disabled. The list went on in
+# three batches with overseasappshow first (com.tcl.esticker read enabled after the first run and took on
+# a rerun), then the launcher, then two full reboots: every package still disabled, Home on the
+# replacement launcher (boots through com.tcl.keycustomfunctionservice/.FallbackHome, no Live TV at
+# power-on), Inputs menu with HDMI 1-3 + AV + Live TV, Home, Input, Settings and app buttons working on
+# the real remote with no key helper. com.google.android.tv.remote.service was kept by choice there.
+# One session only.
+
+# --- The one non-obvious entry: TCL re-enables promo packages on every boot.
+# Without this line, com.tcl.MultiScreenInteraction_TV, com.tcl.notereminder and
+# com.tcl.tv.tclhome_master come back enabled after every reboot, and MagiConnect also comes back
+# right after any `pm install`. The enabler is this system-uid service: its BootReceiver runs at
+# priority 1000 on BOOT_COMPLETED, STR_RESUME_COMPLETED and com.tcl.countrychange, and it also
+# reacts to PACKAGE_CHANGED and connectivity changes. Disabling it keeps the list off after reboots.
+com.tcl.overseasappshow                 # factory promo/app-show service, re-enables partner packages
+
+# --- TCL analytics, ads, promos
+com.tcl.bi                              # TCL analytics / telemetry service
+com.tcl.tv.tclhome_passive              # pushes TCL content onto the home screen at boot
+com.tcl.waterfall.overseas              # TCL web content feed / recommendation waterfall
+com.tcl.guard                           # TGuard: device-use tracking, "health info", memory cleaner
+com.tcl.messagebox                      # pushed messages and promos
+com.tcl.esticker                        # retail demo energy-label sticker (does stay off here,
+# unlike the Android 9 BeyondTV2 unit)
+
+# --- TCL's own promo home and its notes widget (both have launcher activities)
+com.tcl.tv.tclhome_master               # TCL's alternate home, StartUpActivity
+com.tcl.notereminder                    # notes & reminder widget
+
+# --- Google attribution
+com.google.android.feedback             # "send feedback"
+com.google.android.partnersetup         # partner-app attribution / installs
+
+# --- Voice: off by choice, the remote's mic button goes dead. Comment out to keep the assistant.
+com.google.android.katniss              # Google Assistant / voice search
+com.google.android.tv.assistant         # Assistant LED service
+com.tcl.assistant                       # TCL voice service
+com.tcl.micmanager                      # TCL microphone manager for voice
+com.tcl.smartalexa                      # TCL's Alexa bridge: already off at the factory on the first
+# unit, but ENABLED and running as a PERSISTENT process on the Hitachi one, so it needs the line.
+# It is the one voice package worth disabling even if you keep the assistant: the four above are the
+# Google/TCL assistant path, this one is a separate always-resident bridge.
+
+# --- Casting, remote, updates, screensaver: off by choice. Chromecast itself is kept
+# (com.google.android.apps.mediashell stays), only Miracast screen mirroring goes.
+com.tcl.miracast                        # Miracast screen mirroring
+com.tcl.MultiScreenInteraction_TV       # MagiConnect mirroring/casting companion
+com.google.android.tv.remote.service    # phone-app remote (the physical remote is unaffected)
+# com.tcl.versionUpdateApp              # TCL OTA firmware updater: kept on, so security fixes still arrive
+com.google.android.backdrop             # stock ambient photo screensaver
+com.google.android.apps.nbu.smartconnect.tv # Smart Connect "data saver" VPN: off at the factory on
+# the first unit, enabled on the Hitachi one. Disabled there with no effect on Wi-Fi or any app.
+
+# --- Already disabled at the factory (left alone): au.com.stan.and, com.tcl.gallery, tv.wuaki.apptv
+# and the 15 uk.co.freeview.* catch-up apps. Which packages ship disabled varies by unit, so check
+# `pm list packages -d` before you start rather than trusting this line: the Hitachi re-badge also
+# had com.tcl.MultiScreenInteraction_TV, com.tcl.notereminder, com.tcl.tv.tclhome_master and
+# com.tcl.usercenter already off, while com.tcl.smartalexa and smartconnect.tv (both entries above)
+# came enabled there. A line for a package that is already disabled is a no-op either way.
+
+# --- Not needed on this firmware, safe either way: com.google.android.tungsten.setupwraith (it does
+# not own the Wi-Fi network here, see the header; disable it only if you want the first-run wizard gone).
+
+# --- DO NOT DISABLE (load-bearing, checked on this unit)
+# com.tcl.tv com.tcl.tvinput (Live TV, HDMI, tuner), com.tcl.autopair
+# com.tcl.keycustomfunctionservice (remote, BT pairing, FallbackHome),
+# com.tcl.partnercustomizer (remote key handling: .tkey.WithIcon is a LEANBACK_LAUNCHER activity
+#   here, even though most other TCL lists disable it), com.tcl.inputmethod.international
+# com.tcl.settings com.tcl.initsetup com.tcl.factory.view com.tcl.xian.StartandroidService
+# com.tcl.copydatatotv com.tcl.systemserver com.tcl.providers.config,
+# com.tcl.usercenter com.tcl.useragreement (setup/account screens),
+# com.google.android.marvin.talkback com.google.android.tts (accessibility),
+# com.realtek.netflix.setting if present (Netflix ESN).
+
+# --- Deliberately NOT in this list
+# com.google.android.tvrecommendations - the stock launcher was replaced, so there is no
+#   recommendation row left to remove. Disabled on the Hitachi re-badge for one session and two
+#   reboots with nothing broken (the replacement launcher does not read it), but one session is not
+#   enough to put it in the list: it stays out until someone has run without it for days.
+# com.tcl.ui_mediaCenter com.tcl.gallery - USB media players, kept for USB drives.
+# All streaming apps (Netflix, YouTube, YouTube Music, Disney+, Prime Video, Spotify, HBO Max,
+#   Flow, DirecTV Go) are kept; comment out the irrelevant ones if you want them gone.

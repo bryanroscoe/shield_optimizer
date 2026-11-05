@@ -1,0 +1,106 @@
+# TCL Smart TV Pro, US (device G05, product G05_4K_US, board C05, MediaTek MT5889 / MT9615)
+# Android 11 (Google TV), firmware AR2101, software AR68 (built March 2024) and AR71, 2.7 GB RAM
+# Also sold as the TCL 55Q750G (AR71, on Wi-Fi), where both halves work: debloat and the launcher as Home.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-g05-google-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-g05-google-tv/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it to restore.sh, the default is wrong here).
+# Live TV app: com.tcl.tv (.TVActivity; keep it, it also owns HDMI/antenna playback, HDMI through
+# com.tcl.tvinput's passthrough input). Keep com.tcl.tvinput, com.tcl.settings, com.tcl.system.server,
+# com.tcl.keyhelp, com.tcl.autopair, com.tcl.tcl_bt_rcu_service (remote) and com.tcl.providers.config.
+# Unlike the G10, com.tcl.ttvs ships enabled here. It carries TCL's BI analytics and Samba TV ACR, and on AR71
+# also the TCL firmware updater (versionUpdateApp ... SystemUpdateActivity): comment it out to keep updates.
+# The firmware re-enables com.tcl.usercenter and com.tcl.smartalexa at every boot (55Q750G, two reboots);
+# everything else in the list stayed disabled.
+#
+# Known quirk, read before replacing the launcher. Whether disabling setupwraith sticks goes by the
+# incremental build (ro.build.version.incremental), not by the model; all reports share the AR2101 build ID:
+# - AR68 (US, the unit this list came from): this US build is the exception. With launcherx disabled,
+#   com.google.android.tungsten.setupwraith/.RecoveryActivity claims HOME at priority 1 and Home lands on a
+#   black, looping recovery screen. Shell cannot disable that component. Disabling the whole setupwraith
+#   package worked until a reboot, after which this TV had it back in charge, unlike the MOOR2, QM6K and
+#   Chromecast reports where the disable survives. launcher/build-and-install.sh refuses and rolls back
+#   while Home resolves to setupwraith (docs/TROUBLESHOOTING.md, "The new launcher still doesn't own Home").
+#   Recover with: pm enable com.google.android.apps.tv.launcherx; pm enable com.google.android.tungsten.setupwraith
+# - AR71 (US, a TCL 55Q750G, 21 October 2026): the first run of build-and-install.sh on G05 firmware.
+#   setupwraith stayed disabled across a reboot and Home stayed with the new launcher (mFocusedApp =
+#   com.gathin.tvhome). Order: setupwraith first, while launcherx still owns Home, then build-and-install.sh,
+#   which starts the new launcher and only then disables launcherx. On Wi-Fi, run
+#   `tools/tv.py "dumpsys wifi | grep -o 'cname=[^ ]*'"` first: the network saved during first setup belonged
+#   to setupwraith, so disable.sh skips it. Forget the network and join it again in Settings, typing the
+#   password, until `cmd wifi list-networks` shows a new network ID (the first forget there did not take); it
+#   then belongs to com.android.tv.settings and Wi-Fi survives the disable. Input, Settings, Netflix, YouTube,
+#   Prime Video and the mic all worked with launcherx off and com.tcl.suspension kept, without
+#   INPUT_KEY_SERVICE or HOME_KEY_SERVICE.
+# - The G05_4K_GB units (tcl-65c735, and docs/devices/tcl-55c728-g05-4k-gb.md on AR28) kept setupwraith off
+#   across a reboot too. The 55C728 report installed its own launcher, not with build-and-install.sh.
+#   Compare ro.build.version.incremental before promising either outcome.
+#   Contributed by damonearl (PR #73); AR71 findings from a 55Q750G.
+
+# TCL content, ads and promos
+com.tcl.tv.plus                        # TCL TV+ content app
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.tv.tclchannel                  # TCL Channel, bundles Google Mobile Ads
+com.tcl.waterfall.overseas             # TCL content "waterfall" recommendations
+com.tcl.partnercustomizer              # TCL tweaks to Google TV home rows
+com.tcl.messagebox                     # TCL pushed messages and promos
+com.tcl.usercenter                     # TCL account sign-in
+com.tcl.dashboard                      # "TCL Home" panel, gift box and promos; no remote key uses it
+com.tcl.suspension                     # Quick Panel; the remote's Input key stops working, use the
+                                       # launcher's Inputs menu. HDMI and antenna still play.
+                                       # Comment out to keep the Input key (kept on the 55Q750G).
+
+# Telemetry and background services
+com.tcl.ttvs                           # TCL BI/awareness/identifier services and Samba TV ACR; on AR71
+                                       # also the firmware updater (kept on the 55Q750G for updates)
+com.tcl.guard                          # TGuard: "health info", device-use tracking, memory cleaner
+
+# Retail demo / store mode
+com.tcl.esticker
+
+# Preloaded apps and services
+com.tcl.ocean.instructions             # e-manual
+com.tcl.gamebar                        # re-enable for the console game-mode overlay
+com.tcl.ui_mediaCenter                 # re-enable to play media from USB drives
+com.tcl.gallery
+android.autoinstalls.config.google.gtvpai
+com.google.android.feedback
+com.google.android.marvin.talkback
+com.google.android.apps.tv.dreamx      # ambient mode screensaver, see the clock screensaver instead
+
+# Unused Google apps (owner's choice)
+com.google.android.youtube.tvmusic
+com.google.android.play.games
+com.google.android.videos              # Google TV / Play Movies storefront
+
+# Streaming apps one owner did not use (55Q750G); uncomment the ones you don't use either
+# com.google.android.youtube.tvunplugged   # YouTube TV
+# com.tubitv
+# com.plexapp.android
+
+# For the Clean Your TV launcher (see "Replacing the launcher" above). disable.sh skips it while it owns
+# the saved Wi-Fi network; launcherx goes later, in launcher/build-and-install.sh.
+com.google.android.tungsten.setupwraith
+
+# Voice, casting and assistants (owner's choice; comment out what you use)
+com.google.android.katniss             # Google Assistant / voice search
+com.tcl.assistant                      # TCL voice service
+com.google.android.tv.assistant        # assistant LED service
+com.tcl.smartalexa                     # Alexa
+com.google.android.apps.mediashell     # Chromecast built-in
+# com.tcl.airplay2                     # AirPlay, together with the next line
+# com.mediatek.AirplayAPK
+
+# Microphone (owner's choice): no far-field mic on this set (odm.tcl.micmanager.enable=false), so
+# the voice remote is the only mic. With the assistants above disabled, also block RECORD_AUDIO:
+#   for p in com.google.android.apps.tv.launcherx com.google.android.gms com.google.android.gsf \
+#            com.google.android.sss.authbridge com.google.android.youtube.tv; do
+#     pm revoke $p android.permission.RECORD_AUDIO; appops set $p RECORD_AUDIO ignore; done
+#   appops set --uid com.android.systemui RECORD_AUDIO ignore   # system-fixed, revoke is refused
+#   cmd appops write-settings
+# Undo: pm grant <pkg> android.permission.RECORD_AUDIO; appops reset <pkg>
+
+# Unclear, left enabled: com.tcl.eva (EvaService, RemoterService), com.mediatek.backgrounddetection,
+# com.tcl.micmanager, com.tcl.externaldevice.update (peripheral updater), smartconnect.tv

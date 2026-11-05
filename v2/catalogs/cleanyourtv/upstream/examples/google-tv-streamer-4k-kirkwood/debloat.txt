@@ -1,0 +1,137 @@
+# Google TV Streamer (2024, device kirkwood, model "Google TV Streamer" / GZRNL), 4 GB RAM
+# Google TV 14 (SDK 34), build UTTK.260317.003
+#
+# Cast-preserving five-package alternative, tested on a second unit: see README.md and debloat-keep-cast.txt.
+#
+# Apply:   TV_HOST=<ip> tools/disable.sh examples/google-tv-streamer-4k-kirkwood/debloat.txt
+# Undo:    TV_HOST=<ip> tools/restore.sh examples/google-tv-streamer-4k-kirkwood/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# This is a dongle: no Live TV app and no HDMI inputs, so leave live_tv_package empty in config.xml.
+#
+# Known quirks on this firmware:
+# - ADB on port 5555 is closed (connection refused) until you pair once through Wireless debugging with
+#   the stock adb: Developer options > Wireless debugging > Pair device with pairing code, `adb pair
+#   <ip:pairport> <code>`, `adb connect <ip:connectport>` (`adb mdns services` lists both ports), then
+#   `adb tcpip 5555`. After that tools/tv.py works on 5555
+#   (docs/TROUBLESHOOTING.md, "USB debugging never opens port 5555").
+# - The Cast receiver (com.google.android.apps.mediashell) reads its factory device credentials from a
+#   provider hosted INSIDE the setup wizard package:
+#     Provider{com.google.android.tungsten.setupwraith/com.google.android.libraries.tv.setupwraith.libs.castinfo.CastInfoProvider}
+#   There is no separate com.google.android.tvsetup package; the com.google.android.tvsetup.* classes
+#   ship inside the setupwraith APK. Disabling setupwraith therefore takes the credentials out of
+#   scope and casting dies with "No private key, hence empty signature" (docs/TROUBLESHOOTING.md,
+#   "Casting fails with Untrusted device"). This is NOT limited to Google's own Chromecast hardware:
+#   it reproduces on the Google TV Streamer too (#361).
+# - The credentials only live in the receiver PROCESS. Re-enabling setupwraith and waiting for
+#   "Created singleton instance of ClientAuthSigner" in logcat (about 7 s here) brings them back, but
+#   `am force-stop com.google.android.apps.mediashell` loses them again ("Retry loading factory
+#   credentials"), so the ritual has to be redone whenever the receiver is restarted.
+# - The manifest android:priority does NOT work on this build. Giving the replacement launcher
+#   android:priority="3" on its HOME intent-filter was tried, the attribute IS in the installed APK
+#   (aapt2 shows android:priority=3) and the PackageManager still reports priority 0, even after a
+#   reboot. `cmd package set-home-activity` returns Success and does not change the dispatch either,
+#   and the HOME role holder is ignored. The HOME can only be taken by DISABLING setupwraith
+#   (package level).
+# - pm hide is not an alternative: `pm hide com.google.android.tungsten.setupwraith` fails with
+#   "SecurityException: Neither user 2000 nor current process has android.permission.MANAGE_USERS".
+# - Consequence for the Cast: with setupwraith disabled the receiver keeps the credentials in MEMORY
+#   only, so after every reboot (or every receiver restart) the Cast has to be restored by briefly
+#   re-enabling setupwraith and waiting for the signer:
+#     logcat -c
+#     pm enable --user 0 com.google.android.tungsten.setupwraith
+#     # wait ~30 s, then check logcat -d -s cast_shell for "Created singleton instance of ClientAuthSigner"
+#     pm disable-user --user 0 com.google.android.tungsten.setupwraith
+#   Do not press HOME while setupwraith is enabled: RecoveryActivity may claim it (see below).
+# - If setupwraith is enabled and it wins HOME, RecoveryActivity runs as a DETACHED root task and
+#   the first home transition kills the system, roughly every 47 s:
+#     FATAL EXCEPTION IN SYSTEM PROCESS: android.display
+#     java.lang.IllegalArgumentException: positionChildAt:
+#       container=Task=20383 is not a child of container=Task=1 current parent=null
+#         at com.android.server.wm.WindowContainer.positionChildAt(WindowContainer.java:903)
+#         at com.android.server.wm.Task.moveToBack(Task.java:4768)
+#         at com.android.server.wm.TransitionController.tryStartCollectFromQueue
+#   followed by DeadSystemException in setupwraith and com.android.systemui. The way out is to
+#   disable the whole package, not the component:
+#     pm disable-user --user 0 com.google.android.tungsten.setupwraith
+#   (`pm disable-user com.google.android.tungsten.setupwraith/.RecoveryActivity` is refused with a
+#   SecurityException, same as the stock launcher.)
+# - The saved Wi-Fi network belongs to the setup wizard on this device, so disabling setupwraith can
+#   drop the device off Wi-Fi: `dumpsys wifi | grep -o 'cname=[^ ]*'`. tools/disable.sh skips
+#   setupwraith when it sees that. Re-join the network from Settings > Network afterwards, and check
+#   again: the network then belongs to android.uid.system:1000 instead.
+#   If the guard skips setupwraith, re-join the Wi-Fi FIRST (so the network belongs to
+#   android.uid.system:1000) and re-run, or force it with FORCE_SETUPWRAITH=1. On Ethernet the risk of
+#   losing connectivity is nil, but the guard is about the saved network, not about the live link.
+# - With launcherx disabled the YouTube button on the remote does nothing. It sends BUTTON_3
+#   (keycode 190). The launcher maps it itself: set app_keys to "190:com.google.android.youtube.tv"
+#   in config.xml (or a theme's config.json) and enable InputKeyService:
+#     settings put secure enabled_accessibility_services com.gathin.tvhome/.InputKeyService
+#     settings put secure accessibility_enabled 1
+#   Record the trigger with the physical remote: keys injected with `input keyevent 190` don't reach
+#   the accessibility service. Key Mapper (keymapperorg/KeyMapper) does the same job if you prefer it;
+#   the Play Store lists it as incompatible with this device, so install the -foss APK from its
+#   GitHub releases, then over ADB:
+#     pm grant io.github.sds100.keymapper android.permission.WRITE_SECURE_SETTINGS
+#     settings put secure enabled_accessibility_services io.github.sds100.keymapper/io.github.sds100.keymapper.system.accessibility.MyAccessibilityService
+#   Map trigger "Button 3" (short press) to action "Launch app > YouTube".
+# - The other two app buttons go silent with launcherx too. The remote's layout file
+#   (/system/usr/keylayout/Vendor_18d1_Product_9451.kl, named by `dumpsys input`) maps them by HID usage:
+#     usage 0x000c0077 -> BUTTON_3 (190)  YouTube
+#     usage 0x000c0078 -> BUTTON_4 (191)  Netflix
+#     usage 0x000c0186 -> MACRO_1  (313)  Star (launcherx opens the Google Home panel with it)
+#   so app_keys "191:com.netflix.ninja" and "313:<package>" bring them back, with InputKeyService on.
+#   `getevent -lt` prints the Star button as KEY_SPREADSHEET and the other two as KEY_UNKNOWN, which is
+#   why the layout file is the place to read them. All three checked with the real remote on
+#   UTTK.260317.003.
+# - Both helpers cost the remote's key auto-repeat on this build: with HomeKeyService or InputKeyService
+#   bound, holding Volume Up/Down stops after about six steps. The YouTube button can also be taken
+#   without an accessibility service, which keeps the ramp: a shell-owned process watches the remote's
+#   input device ("Google TV Remote Keyboard", found by name with `getevent -pl`, never by a fixed
+#   number) and starts the app itself. It cannot consume the press, so the button's own action still runs
+#   as well - see docs/TROUBLESHOOTING.md, "Remapping the remote's app buttons without a key helper"
+#   (#796).
+#   A second unit (same build, 2026-10-28) kept the YouTube button and the ramp together without a script, the
+#   Sony VU3 way from that same TROUBLESHOOTING section: launcherx re-enabled after the install
+#   (`pm enable com.google.android.apps.tv.launcherx`), the theme's config.json setting
+#   "stock_home_redirect": "com.google.android.apps.tv.launcherx" and "key_filter": false, and HomeKeyService
+#   enabled. YouTube then goes to launcherx's GlobalKeyListener_Receiver as stock, Home flashes launcherx and
+#   lands on this launcher, and held volume ramps. It survived a reboot; the price is launcherx running again.
+#   setupwraith stays disabled, so this does not bring casting back.
+# - com.google.android.tvrecommendations and com.google.android.apps.education.cast2class ship
+#   disabled at the factory; `pm disable-user` on them fails with "Shell cannot change component
+#   state". Don't add them to a restore list either.
+# - Disabling dreamx leaves screensaver_components pointing at it. Point it at the launcher's clock:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+# - Animation scales already ship at 0.5x on this build.
+#
+# Kept on purpose: Google Assistant (com.google.android.katniss), Cast receiver
+# (com.google.android.apps.mediashell), phone remote (com.google.android.tv.remote.service), Play Store /
+# Play Services, Gboard, Bluetooth, com.google.android.tv.dfuservice and
+# com.google.android.tv.overlay.dfuservice (remote firmware updates). The setup wizard
+# (com.google.android.tungsten.setupwraith) is disabled, but the Cast credentials it hosts are restored
+# with the enable/wait/disable ritual described above.
+
+# Telemetry, feedback and ads
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.tv.remotecontrol.logging     # remote usage logging
+# The next four are Privacy Sandbox / federated-learning Mainline modules: worked here, re-enable if
+# the Play Store or Assistant misbehave.
+com.google.android.federatedcompute
+com.google.android.ondevicepersonalization.services
+com.google.android.adservices.api               # Privacy Sandbox ad services
+com.google.android.ext.adservices.api
+
+# Preloaded apps
+com.google.android.play.games
+com.google.android.videos                       # Google TV / Play Movies
+com.google.android.marvin.talkback              # re-enable if you need the screen reader
+
+# Stock home. launcher/build-and-install.sh disables launcherx itself once the new launcher is
+# installed and verified, and restore.sh re-enables it.
+# com.google.android.apps.tv.launcherx
+# The setup wizard must be DISABLED on this device (see the quirks above): it holds the cast
+# credentials, but its RecoveryActivity otherwise claims HOME and crash-loops system_server. After
+# disabling it, restore casting with the enable/wait/disable ritual.
+com.google.android.tungsten.setupwraith

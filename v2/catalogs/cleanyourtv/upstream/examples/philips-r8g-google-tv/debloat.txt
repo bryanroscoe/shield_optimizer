@@ -1,0 +1,73 @@
+# Philips R8G Google TV (built by MOKA/TPV, device whitefield, Realtek RTD2851F), US
+# Google TV 14 (API 34), build UKRE.260524.058, security patch 2026-09-01. About 1.8 GB RAM, armeabi-v7a.
+# ro.product.manufacturer=MOKA, ro.product.brand=PHILIPS, ro.product.model=R8G.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/philips-r8g-google-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/philips-r8g-google-tv/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Standby light off (optional): see docs/devices/philips-r8g.md
+#
+# Applied in small batches on 2026-10-19 with a screenshot after each, then a custom launcher
+# installed and Home, Inputs (HDMI and Live TV) and YouTube playback checked the same day. Not yet
+# lived with for days; if something breaks, re-enable it with `pm enable <package>` and please report it.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it to restore.sh / as STOCK_LAUNCHER).
+# Home claimants: launcherx (priority 2), setupwraith RecoveryActivity (1), com.realtek.systemservice
+# FallbackHome (-999), com.android.tv.settings FallbackHome (-1000).
+# Live TV app: com.realtek.tv (TvActivity; set it as live_tv_package). HDMI and AV inputs are
+# com.realtek.tv.passthrough, played by com.google.android.tv.inputplayer; ATSC tuner com.realtek.tv.atsc.
+# Disabled from the factory, so not listed (restore.sh would turn them ON): com.android.tv,
+# com.google.android.play.games.
+#
+# Quirks on this firmware, all checked on the TV:
+# - Port 5555 was open after turning on USB debugging and Wireless debugging (service.adb.tcp.port=5555);
+#   no pairing code needed. tools/tv.py works directly.
+# - Screenshots of HDMI and Live TV fail (protected layer, screencap exits 1); check
+#   `dumpsys activity activities | grep topResumedActivity` instead.
+# - tv.anoki.acr.anokiacroptin is Anoki ACR (automatic content recognition of what is on screen).
+# - com.seraphic.hbbtv.app is European HbbTV; US broadcasts are ATSC. Live TV and HDMI 1 still opened
+#   after disabling it.
+# - The Wi-Fi network had been saved during first setup, so disabling setupwraith deleted it (see the
+#   warning at the bottom). The TV dropped off Wi-Fi, which also kills the Google Home phone remote;
+#   it took a USB keyboard to rejoin from Settings.
+#
+# Kept on purpose: com.realtek.tv, com.realtek.tv.passthrough, com.realtek.tv.atsc, com.realtek.tv.atv
+# (Live TV and inputs), com.realtek.dtmb and com.realtek.tv.isdb (unused tuner inputs, left alone),
+# com.realtek.systemservice, com.realtek.menu (input/source menu), com.google.android.tv.remote.service
+# and com.google.android.tv.dfuservice (phone remote, remote firmware and find-my-remote),
+# com.realtek.rtkvirtualkeyboard and com.google.android.inputmethod.latin (keyboards), Play Store, Play Services.
+# Left alone because their purpose is unclear from their components: com.apps.factory.ui (factory/hotel
+# menu with boot-time services), com.realtek.display.monitor, com.realtek.slices.
+# Kept by owner's choice: com.google.android.apps.mediashell (Chromecast), com.realsil.ota (firmware
+# updates), com.rtk.mediabrowser (USB media player), all streaming apps.
+
+# Telemetry
+tv.anoki.acr.anokiacroptin                     # Anoki ACR: fingerprints what is on screen
+com.apps.esticker3                             # store-demo sticker overlay (ShopModeReceiver, boot receiver)
+com.android.tv.feedbackconsent
+com.google.android.feedback
+
+# Android ad and personalisation services
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Manufacturer content
+com.realtek.leanbacklauncher.partnercustomizer # partner config that injects apps and rows into the home screen
+com.seraphic.hbbtv.app                         # HbbTV red-button overlays, unused with US ATSC
+
+# Not needed on a TV
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore
+
+# Off by owner's choice
+com.google.android.katniss                     # Assistant / Gemini; the mic button does nothing without it
+com.google.android.apps.tv.dreamx              # ambient screensaver; point screensaver_components elsewhere or turn it off
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+# WARNING: if Wi-Fi was set up during the first-run wizard, the saved network belongs to setupwraith and
+# Android DELETES it the moment setupwraith is disabled; the TV drops off the network and ADB with it.
+# It happened on this TV. Check first: `dumpsys wifi | grep -o 'cname=[^ ]*'`. If it is not
+# android.uid.system, forget the network and re-join it in Settings > Network BEFORE disabling this.
+com.google.android.tungsten.setupwraith        # its RecoveryActivity otherwise takes over Home
+com.google.android.apps.tv.launcherx

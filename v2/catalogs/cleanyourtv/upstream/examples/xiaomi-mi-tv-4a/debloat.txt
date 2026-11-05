@@ -1,0 +1,42 @@
+# Xiaomi Mi TV 4A (MiTV-MOOQ1, codename tarzan), Android TV 10, firmware QTG3.200305.006.2591
+# Also a good starting point for other Xiaomi/Redmi Android TVs with PatchWall.
+# Android TV 11 (firmware RTM4.220307.164.9021 and .8277): not this whole list, see README.md in this folder.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mi-tv-4a/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mi-tv-4a/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Known quirk on this firmware: default_input_method points at com.baidu.input, which is not
+# installed, so no keyboard appears in search fields. Set Gboard as the IME
+# (docs/TROUBLESHOOTING.md, "No on-screen keyboard").
+
+# Xiaomi telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+
+# PatchWall and Mi content rows / promos
+com.mitv.tvhome.atv
+com.mitv.tvhome.michannel
+com.mitv.tvhome.mitvplus
+com.xm.webcontent
+com.xiaomi.floatingframe
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager              # "TV Manager" cleaner app
+com.xiaomi.mitv.smartshare
+com.mitv.milinkservice                 # Mi cast, Chromecast still works
+com.xiaomi.mitv.updateservice          # re-enable to check for firmware updates
+com.xiaomi.amazon.alexa                # Alexa bridge
+android.autoinstalls.config.xiaomi.amelie
+
+# Preloaded apps nobody asked for
+com.xiaomi.mimusic2
+com.google.android.play.games
+com.google.android.feedback
+com.google.android.apps.tachyon        # Google Duo
+fusion.android.tv.demo
+
+# Stock Google TV launcher and its recommendation services, replaced by launcher/
+com.google.android.tvlauncher
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations

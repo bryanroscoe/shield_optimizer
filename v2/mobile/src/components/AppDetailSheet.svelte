@@ -35,6 +35,7 @@
     onReinstall,
     onReport,
     onVerdict,
+    onResearch,
   }: {
     app: AppItem | null;
     memoryMb: number | null;
@@ -55,6 +56,7 @@
     onPlayStore: (app: AppItem) => void;
     onReinstall?: (app: AppItem) => void;
     onReport?: (app: AppItem, apk?: ApkReportMeasurement) => void;
+    onResearch?: (packageId: string) => void;
     /// The verdict this sheet resolved, so a report opened from here carries
     /// the same one the user is looking at.
     onVerdict?: (pkg: string, verdict: Safety | null) => void;
@@ -421,6 +423,9 @@
         </p>
       {:else if app.entry && !offerUninstall && !missing && !uninstalled}
         <p class="fine-note">Not offered for uninstall: the Play Store can't give this one back. Disable is reversible.</p>
+      {/if}
+      {#if onResearch}
+        <button class="tier-toggle" disabled={busy} onclick={() => app && onResearch?.(app.package)}>Research sources</button>
       {/if}
       {#if safety || app.entry?.reviewed_at || sources.length > 0}
         <div class="provenance">

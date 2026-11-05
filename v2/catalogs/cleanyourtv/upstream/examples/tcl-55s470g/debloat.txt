@@ -1,0 +1,64 @@
+# TCL 55S470G (S4 class Google TV, US; device G10, product G10_4K_US_NF, Realtek), 1.8 GB RAM
+# Android 12 (Google TV), firmware STT2.230203.001, incremental AS50 -- same build as tcl-g10-google-tv
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55s470g/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55s470g/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV / HDMI app: com.tcl.tv.
+# Keep: com.tcl.tv, com.tcl.tvinput, com.tcl.dashboard, com.tcl.suspension, com.tcl.autopair,
+# com.tcl.systemserver, com.tcl.providers.config, com.tcl.initsetup, com.tcl.useragreement,
+# com.tcl.factory.view, com.tcl.globalkeyoverlay and all com.realtek.*.
+#
+# Unlike the G10 units in tcl-g10-google-tv, nothing shipped disabled on this one: Samba TV,
+# logkit and ttvs were all enabled. com.tcl.ttvs is KEPT here on purpose: besides Samba ACR and TCL
+# BI analytics it hosts the firmware updater (versionUpdateApp SystemUpdateService) and T-Cast.
+# Disable it only if you don't want TV firmware updates. Opt out in Settings > Privacy > Samba
+# Interactive TV, and untick every entry under Manage providers there too (unticking the main switch
+# leaves those ticked).
+#
+# Kept by choice: Netflix, YouTube, Prime Video, Disney+, Apple TV, Paramount+, Tubi, TCLtv+,
+# TCL Live (com.tcl.channelplus), AirPlay, firmware updates.
+# No separate Miracast package on this firmware.
+
+# Batch 1: tracking and analytics
+tv.samba.ssm.ui                        # Samba TV ACR front end (the frame service lives in ttvs, see above); re-enabled at every boot while ttvs is enabled, so also opt out in Settings
+com.tcl.logkit                         # log capture and upload
+com.google.android.feedback
+com.tcl.usercenter                     # TCL account sign-in nags
+
+# Batch 2: TCL content, ads and promos
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.partnercustomizer              # TCL tweaks to Google TV home rows
+com.tcl.interactive                    # TCL TIAS background service
+com.tcl.smartlink.core                 # bundles a silent app installer
+com.tcl.messagebox                     # TCL push messages and promos
+android.autoinstalls.config.google.gtvpai   # silently installs partner apps
+
+# Batch 3: retail demo, hotel mode, preloads
+com.tcl.exhibit
+com.tcl.esticker
+com.tcl.hotelmenu
+com.tcl.ocean.instructions             # e-manual
+com.tcl.repairguide
+com.tcl.gamebar                        # re-enable for the console game-mode overlay
+com.tcl.ui_mediaCenter                 # re-enable to play media from USB drives
+com.tcl.UpdatePeripheral               # re-enable to update a TCL soundbar
+com.google.android.marvin.talkback
+com.google.android.play.games
+
+# Batch 4: background services (off by choice: voice, Chromecast)
+com.tcl.guard                          # TGuard cleaner / app manager
+com.google.android.apps.tv.dreamx      # ambient mode screensaver (shows promos); screensaver moved to com.android.dreams.basic
+com.google.android.katniss             # Google Assistant voice search
+com.google.android.apps.mediashell     # Chromecast built-in
+
+# Batch 5: preloaded apps (off by choice)
+com.google.android.youtube.tvmusic
+com.google.android.videos              # Google TV app (purchases/rentals)
+com.tcl.smartalexa                     # Alexa
+com.google.android.tv.remote.service   # Google TV phone-app remote, and the remote mic's bridge on this build (#1441): comment out with katniss to keep voice
+
+# Needed for the custom launcher. Disable only AFTER launcher/ is installed
+# (see docs/TROUBLESHOOTING.md, "The new launcher still doesn't own Home").
+com.google.android.tungsten.setupwraith

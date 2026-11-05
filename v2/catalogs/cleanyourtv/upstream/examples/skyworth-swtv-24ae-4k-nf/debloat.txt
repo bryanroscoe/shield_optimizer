@@ -1,0 +1,92 @@
+# Skyworth SWTV-24AE-4K NF (device eleonas, product SW10_NA_NF, MediaTek mt5896), South Africa/Global
+# Google TV 14 (API 34), build UKN6.260116.056, security patch 2026-04-01. ~1 GB RAM, armeabi-v7a.
+# ro.product.model="SWTV-24AE-4K NF". Same eleonas platform as examples/skyworth-swtv-24na-4k-nf;
+# the NA variant reports ro.product.vendor.model=SWTV-24AE-4K, confirming the shared board.
+#
+# Apply:   $env:TV_HOST="<tv ip>"; tools\disable.ps1 examples\skyworth-swtv-24ae-4k-nf\debloat.txt
+# Undo:    $env:TV_HOST="<tv ip>"; tools\restore.ps1 examples\skyworth-swtv-24ae-4k-nf\debloat.txt -Stock com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Re-enable any line with `pm enable --user 0 <package>`.
+#
+# Applied 2026-10-21 in batches with a screenshot after each, then custom launcher installed.
+# Home, Inputs (HDMI 1/2/3/Composite), Settings and the app grid all verified on the day.
+#
+# Disabled from the factory on this unit, so NOT listed here (restore.sh would turn them ON):
+#   com.cltv.hybrid, com.cltv.mal (iWedia CanaliTV Live TV - no tuner in use on this unit)
+#   com.app.mlounge, com.mediatek.tv.retaildemo, com.mediatek.opapp
+#   com.mediatek.dtv.tvinput.atsctuner, com.mediatek.dtv.tvinput.isdbtuner
+#
+# Quirks on this firmware, all verified on the TV:
+# - Only Wireless debugging: port 5555 stays closed. Pair once with the stock adb:
+#     adb pair <tv ip>:<pairing port> <code>
+#     adb connect <tv ip>:<connect port>
+#     adb -s <tv ip>:<connect port> tcpip 5555
+#   Port 5555 closes on every reboot; repeat `adb connect` + `adb tcpip 5555` each session.
+# - Android switches Wireless debugging off on every reboot; turn it back on in Developer options.
+# - All Wi-Fi networks owned by android.uid.system (not setupwraith) on this unit - safe to disable.
+# - Chromecast (mediashell) verified NOT using setupwraith's CastInfoProvider on this build;
+#   disabling setupwraith does not break casting.
+# - All disables survived a full reboot (firmware does not auto-re-enable on this build).
+# - A second Google TV profile is a second Android user, and this board's key service
+#   (com.smartdevice.global.service, kept) then takes a provider client for launcherx's LiveTvContentProvider
+#   on every gear/Input hotkey: with launcherx disabled it throws, and RescueParty climbs to the level that
+#   switches the launcher's accessibility helpers off. Seen on a Coocaa Y74 Pro 65" (SW10_TG, Google TV 14,
+#   UKN4.250714.140). Run `pm list users` first, and see
+#   docs/TROUBLESHOOTING.md#app-buttons-crash-the-tvs-own-key-service-on-a-set-with-a-second-user-skyworthcoocaa
+# - Display: 3840x2160 physical, 1920x1080 override (normal for this SoC), density 320, no forced override.
+#
+# Stock launcher:   com.google.android.apps.tv.launcherx
+# Setup wizard:     com.google.android.tungsten.setupwraith (RecoveryActivity claims HOME at priority 1)
+# HDMI/AV inputs:   com.mediatek.tis
+# Live TV / tuner:  com.cltv.hybrid (iWedia CanaliTV) — already disabled from factory on this unit
+# Remote service:   com.smartdevice.global.service (BLE, battery, find-my-remote, hot keys)
+#
+# Kept on purpose: com.mediatek.tis (HDMI/AV input driver), com.mediatek.tv.agent (hot keys, Netflix key),
+#   com.mediatek.autopair (remote pairing), com.smartdevice.global.service (BLE remote),
+#   com.smartdevice.dailyshortcut (quick menu), com.smartdevice.duplebluetooth, com.smartdevice.factory,
+#   org.liskovsoft.androidtv.rukeyboard + com.google.android.inputmethod.latin (keyboards),
+#   com.google.android.apps.mediashell (Chromecast), com.google.android.katniss (Assistant),
+#   com.google.android.apps.tv.dreamx (screensaver), Play Store, Play Services.
+# Kept by owner's choice: com.netflix.ninja, com.google.android.youtube.tv, com.crunchyroll.crunchyroid,
+#   com.spotify.tv.android, com.streamflixreborn.streamflix, com.sportzx.live, com.internet.tvbrowser.
+
+# Skyworth telemetry and activation
+com.smartdevice.recordactivation             # records first activation; boot + network receivers
+com.smartdevice.aftersale                    # "after-sale" service: can silently install APKs
+com.google.android.feedback
+com.android.tv.feedbackconsent
+
+# Android ad and personalisation services
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Skyworth content rows and analytics
+com.smartdevice.recommendation               # Coocaa recommendation rows; bundles Sensors Data analytics
+com.smartdevice.leanbacklauncher.customizer  # partner config that injects rows into the home screen
+
+# Regional broadcast extras (neither used in ZA/Global market)
+tv.mopa.ginga                                # Brazilian Ginga interactive TV
+org.obs.mhegservice                          # UK MHEG interactive TV
+
+# Not needed on a TV
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore
+com.Smartdevice.emanual                      # on-screen manual
+com.smartdevice.dailymanage                  # TV Guard / cleaner
+com.smartdevice.myapp                        # Daily Key / app manager
+com.google.android.play.games               # Play Games
+
+# Streaming apps disabled by owner's choice (not used)
+com.amazon.amazonvideo.livingroom
+com.google.android.youtube.tvmusic
+com.dstvmobile.android
+tv.sabcplus.vod
+com.stremio.one
+com.smartdevice.dtv.icast                    # Miracast / DLNA screen mirroring
+com.mediatek.tv.systemupdater               # automatic OTA firmware updates
+
+# Stock home — disabled LAST, after the new launcher is installed and verified as Home.
+# WARNING: check `dumpsys wifi | grep -o 'cname=[^ ]*'` first — if it names setupwraith, forget the
+# network and re-join it in Settings before disabling setupwraith (on THIS unit it was android.uid.system).
+com.google.android.tungsten.setupwraith      # RecoveryActivity claims HOME at priority 1
+com.google.android.apps.tv.launcherx

@@ -1,0 +1,113 @@
+# Xiaomi MiTV-ASTP0 (codename mulan; China-market firmware, sold as L55M7-EA), Android 9 (SDK 28),
+# firmware 22.12.2.1630, Amlogic/droidlogic, 1.5 GB RAM, 1080p panel. Used in Vietnam.
+# Stock launcher: com.mitv.tvhome (HOME activity .MainActivityUserMode). Keep it enabled (see "Home"
+# below): install with STOCK_LAUNCHER=none launcher/build-and-install.sh. Home stays com.mitv.tvhome,
+# so the script stops at its Home check after installing the launcher; then turn HomeKeyService on
+# with the settings command build-and-install.sh runs for HOME_KEY_SERVICE=1.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-astp0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-astp0/debloat.txt com.mitv.tvhome
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Input-only config and a second unit on firmware 24.7.4.3982: see README.md in this folder.
+# That record does not revalidate this firmware's debloat list or Home setup.
+#
+# Notes from this firmware:
+# - Same family as xiaomi-mitv-astp1; this list starts from that one, minus what this build lacks
+#   (com.gitvdemo.video, com.duokan.videodaily, com.xiaomi.tv.gallery, com.newtv.cboxtv).
+# - No CN streaming apps preinstalled; no Google apps besides the YouTube and katniss the owner sideloaded.
+# - Network ADB (port 5555) closes on every reboot; re-enable it in
+#   Settings -> Account & Security -> ADB debugging after each power cycle. Wi-Fi also sleeps in
+#   standby, so the TV drops off the network until it is woken.
+# - mitv.service is the core MiTV service: do not touch it. The owner chose to drop payment, Mi Home,
+#   Mi Video, the voice assistant and every casting receiver but AirPlay (in com.xiaomi.mitv.smartshare).
+#   The app store and com.mitv.videoplayer (USB files) stay. It registers TvService, which Xiaomi's own
+#   Settings reads the hardware configuration through; with it disabled, Settings freezes for 20-30 s and
+#   then crashes the Sound page (#1310). Why:
+#   docs/TROUBLESHOOTING.md#xiaomi-cn-firmware-settings-freezes-or-crashes-after-the-debloat
+# - com.xiaomi.mitv.remotecontroller.service looped at 100-190% CPU and flooded logd (~490 MB in
+#   30 min): its relay host is gone, so it is disabled below. ES File Explorer ran DLNA and a WebView
+#   in the background; it is replaced by Material Files (F-Droid, me.zhanghai.android.files).
+# - Home stays com.mitv.tvhome: set-home-activity succeeds but resolution ignores it, and with
+#   com.mitv.tvhome disabled Home falls to com.android.tv.settings/.system.FallbackHome. Keep it
+#   enabled; an accessibility service that answers the Home key (HOME_KEY_SERVICE=1) brings the new
+#   launcher up instead.
+# - The firmware has no night mode setting: cmd uimode night yes|no|auto. Auto needs a location for
+#   sunset and the TV has none, so it stays in day mode.
+# - The remote has no Input button; its Menu key (three lines) is KEYCODE_MENU, scancode 127. Inputs
+#   switch only through Xiaomi's player: am start -a com.xiaomi.mitv.tvplayer.EXTSRC_PLAY
+#   -n com.xiaomi.mitv.tvplayer/.ExternalSourceActivity --ei input N (HDMI1-3 = 23-25, AV = 2).
+#   Starting the HDMI channel URI with a plain VIEW lets any app that claims every VIEW catch it.
+# - The time zone ships as Asia/Shanghai, an hour ahead in Vietnam. Set the one the IP locates
+#   (get.geojs.io/v1/ip/geo.json "timezone"): service call alarm 3 s16 Asia/Ho_Chi_Minh
+# - Picture: Settings -> Image settings -> Display model is kept per source; "Picture" is the vivid
+#   one (contrast 55, saturation 60, cold), "Standard" is flat.
+#
+# 2026-firmware unit: Redmi A75 2025 energy edition (L75MA-RAE), 26.3.17.OS3.0.101.0.PSTAATV, 32-bit only
+# (abilist armeabi-v7a, so arm64-only apps such as Tubi cannot install). Applied 23 Oct 2026 and lived with
+# for days: streaming, casting and the voice remote fine. Its list is a subset of this one plus
+# com.xiaomi.tvqs (commented below). Startup ad: `settings put system boot_ad_switch 0`, undo with
+# `settings delete system boot_ad_switch`. Keep PatchWall enabled; the com.ts.launcher build does not take
+# Home on this firmware; do not run build-and-install.sh with defaults; see docs/devices/redmi-l75ma-rae.md.
+
+# Xiaomi telemetry / push / cloud control
+# com.xiaomi.tvqs                         # quality/crash uploads; off on the 2026-firmware unit
+com.miui.analytics
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.mitv.cloudcontrol
+com.xiaomi.mitv.tvpush.tvpushservice
+com.android.smspush
+
+# Ads / promoted content / shopping
+com.xm.webcontent
+com.mitv.shoplugin                      # TV shopping channel plugin
+com.xiaomi.mitv.shop                    # Xiaomi shop
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager               # "TV Manager" cleaner
+com.xiaomi.mitv.upgrade                 # firmware updates: re-enable to check for one
+com.xiaomi.gamecenter.sdk.service.mibox
+com.xiaomi.mitv.karaoke.service
+com.xiaomi.wakeupservice                # Chinese wake word for the voice assistant, ~30% CPU all the time
+
+# Preloaded apps not used
+com.xiaomi.mimusic2                     # Mi Music
+com.mitv.gallery                        # Media Explorer still opens USB photos
+com.xiaomi.screenrecorder
+com.xiaomi.mitv.smartpanel              # smart home panel
+com.xiaomi.mitv.calendar
+com.xiaomi.tweather                     # CN weather
+com.mitv.screensaver                    # Xiaomi screensaver; the launcher's clock screensaver takes over
+com.xiaomi.mitv.healthdiagnosis        # TV self-diagnosis
+com.xiaomi.mitv.legal.webview           # terms and privacy viewer
+com.android.printspooler                # printing
+com.xiaomi.mibox.lockscreen             # child lock screen
+
+# Casting except AirPlay (com.xiaomi.mitv.smartshare keeps .mairplay.AirPlayService on port 47000)
+com.xiaomi.miplay                       # MiPlay, Xiaomi phone casting
+com.duokan.airkan.tvbox                 # AirKan DLNA
+com.xiaomi.wfdsinkhelperservice         # Miracast sink helper
+com.xiaomi.mi_connect_service           # Mi Connect phone link
+
+# Phone remote, air mouse and the TV assistant relay. It reconnects to relay01.c.assistant.tv.mi.com,
+# which no longer resolves, about 19 times a second with no backoff: ~190% CPU in GC after every boot.
+# The Bluetooth remote runs in com.android.bluetooth (BleRemoteService) and is not affected.
+com.xiaomi.mitv.remotecontroller.service
+
+# Chinese voice assistant (owner's choice)
+com.xiaomi.voicecontrol
+com.xiaomi.mico.mqtt.service.application.tv   # Xiao AI speaker link
+
+# Chinese payment (owner's choice)
+com.mipay.wallet.tv
+com.xiaomi.mitv.pay
+com.xiaomi.mitv.payment
+
+# Content (owner's choice)
+com.mitv.mivideoplayer                  # Mi Video, CN streaming; com.mitv.videoplayer still plays USB files
+com.xiaomi.smarthome.tv                 # Mi Home on the TV
+
+# Keyboard: Gboard for Android TV 16.1.02 (com.google.android.inputmethod.latin, tv_release armeabi-v7a,
+# minSdk 26; 17.x needs Android 10) is the only IME: ime enable/set .../com.android.inputmethod.latin.LatinIME.
+# It logs missing Play Services but types fine. Re-enable Sogou before removing it, or the TV has no keyboard.
+com.sohu.inputmethod.sogou.tv

@@ -1,0 +1,43 @@
+# Xiaomi MiTV-MSSP0 / Xiaomi Mi TV 4A 32 (32-inch, codename amelie).
+# Android TV 9 (SDK 28), firmware PI.5926 release-keys (incremental 5926), platform m5621.
+# Applied on 2026-10-19; these packages were still disabled on the same set on 2026-10-21.
+#
+# Apply: TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mssp0/debloat.txt
+# Undo:  TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mssp0/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher. It is deliberately NOT listed here;
+# launcher/build-and-install.sh handles its cutover after the replacement Home is installed.
+# Live TV: com.mediatek.wwtv.tvcenter, kept enabled along with the TV input services.
+# Gboard, Bluetooth, the phone remote service and firmware update settings were left alone.
+#
+# Owner choices and checks:
+# - Assistant, Gallery and the Xiaomi media browser are disabled by owner choice.
+#   Keep their packages enabled if you use those features.
+# - Before disabling Backdrop, install the launcher and select its Clock screensaver:
+#     TV_HOST=<tv ip> tools/tv.py 'settings put secure screensaver_components com.gathin.tvhome/.ClockDream'
+# - Home, clock and navigation were checked on the TV. The initial setup passed a reboot and
+#   rollback/reapply check on 2026-10-19; Gallery and the media browser were disabled later that day.
+# - The input picker opened an HDMI session, but no connected source was available to test A/V.
+# - This is not the MiTV-MOOQ1 / tarzan or MiTV-MSSP3 / machuca firmware; do not merge their lists.
+
+# Xiaomi telemetry and Google TV bug-report uploader
+com.xiaomi.statistic
+com.google.android.tv.bugreportsender
+
+# Promotional content and stock-home recommendation feeds
+com.xm.webcontent
+com.xiaomi.floatingframe
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+
+# Assistant - off by owner choice
+com.google.android.katniss                       # Google Assistant; voice search is lost
+com.google.android.speech.pumpkin                # Assistant speech models
+
+# Unused preloaded apps - off by owner choice
+com.xiaomi.mitv.mediaexplorer                     # Xiaomi USB/media file browser; keep if used
+com.mitv.gallery                                 # Xiaomi photo gallery
+
+# Original photo screensaver, replaced by the launcher's Clock (see above)
+com.google.android.backdrop

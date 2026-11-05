@@ -1,0 +1,46 @@
+# Kogan Google TV (Changhong-built CHiQ AI PONT, product GTVU65KG, device dangni), Google TV 14 (API 34),
+# firmware UKN3.250415.047.A1, security patch 2025-05-01, MediaTek mt5867, Australia.
+# 1 GB RAM (MemTotal about 930 MB). ro.product.brand Kogan, vendor brand CHiQ, manufacturer Changhong.
+# Same board as examples/chiq-gtvu65 on a newer UKN3 firmware; the Kogan boot logo is in firmware and
+# /product/media/bootanimation.zip, read-only without root.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/kogan-gtvu65kg/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/kogan-gtvu65kg/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Debloat only: the stock Google TV home (com.google.android.apps.tv.launcherx) stays, so setupwraith and
+# the MediaTek partnercustomizer stay too. For the launcher half, follow examples/chiq-gtvu65.
+# Already disabled from the factory: com.mediatek.wwtv.tvcenter.plus.
+#
+# Tested on one set the same day, not a multi-day soak: after each batch Home opens, the Input key opens
+# the switcher with Live TV, AV, HDMI 1 (ARC) and HDMI 2, and Netflix launches. After a reboot the list
+# stays disabled, Home is launcherx and the crash buffer is empty.
+# AdGuard Private DNS (dns.adguard-dns.com) validates on this firmware.
+#
+# KEEP, even though the names look like bloat:
+# - com.homwee.mmp.screenshare (/product/app/CH_AirPlay) and com.homwee.multiscreenshare: the AirPlay
+#   receiver, so iPhones can cast. Disable only if nobody uses AirPlay.
+# - com.google.android.apps.mediashell: Chromecast.
+# - com.homwee.upgrade and com.homwee.dmt.upgrade: firmware updates.
+# - com.mediatek.autopair, com.homwee.factory, com.homwee.dynamicbacklight and the TV services, as in
+#   examples/chiq-gtvu65.
+
+# Telemetry and ad services
+android.autoinstalls.config.google.gtvpai   # Play partner auto-installs
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.android.adservices.api
+
+# Changhong / Homwee store and help
+com.homwee.store
+com.homwee.help
+
+# Preloaded apps
+com.android.printspooler
+com.google.android.play.games
+com.google.android.marvin.talkback          # re-enable if you use the screen reader
+
+# Streaming apps not used in this home (by choice; keep the ones you use)
+com.google.android.youtube.tvmusic
+au.net.abc.iview                            # user-installed on this set
+com.sbs.ondemand.tv                         # user-installed on this set

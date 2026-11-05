@@ -1,0 +1,82 @@
+# TCL 55EP640, Greece (ro.product.model BeyondTV, board RTD2851 / platform rtd285o), Android TV 11 (API 30),
+# build PPR1.180610.011 AR04, fingerprint TCL/BeyondTV/BeyondTV:11/PPR1.180610.011/AR04, 32-bit (armeabi-v7a).
+# Also verified on TCL 65EP640 (Android 11, AR05 build) by @Vinceblah.
+# Same hardware as examples/tcl-50p615 (AR05) and the same package set, plus com.tcl.dashboard (TCL IoT
+# dashboard / giftbox promos, disabled as on examples/tcl-43p615).
+#
+# Note for 65EP640: The disabled subset used was exactly as below, EXCEPT com.android.dreams.basic, 
+# com.hitv.explore, com.spotify.tv.android, and tunein.player were kept enabled.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55ep640/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55ep640/debloat.txt
+# Install the launcher BEFORE disabling the stock launcher (launcher/build-and-install.sh).
+# Stock launcher: com.google.android.tvlauncher. Other HOME claimants are only fallbacks:
+# com.tcl.keycustomfunctionservice/.FallbackHome and com.android.tv.settings FallbackHome.
+# One saved Wi-Fi network belongs to com.google.android.tungsten.setupwraith: leave it enabled (it is not
+# in this list), or forget and re-join that network in Settings first.
+# Live TV app: com.tcl.tv. Tuner and HDMI: com.tcl.tvinput (never disable either).
+#
+# Already disabled when we started, left alone: the 14 uk.co.freeview.* apps, au.com.stan.and,
+# com.tcl.gallery, com.tcl.notereminder, com.tcl.smartalexa, tv.wuaki.apptv,
+# com.google.android.apps.nbu.smartconnect.tv, com.google.android.videos, com.google.android.play.games.
+#
+# Tested 2026-10-21 on a real unit: applied in five batches with a screenshot after each (29/29 disabled at first,
+# plus the stock launcher via launcher/build-and-install.sh), then rebooted once: nothing came back
+# enabled. After the changes the launcher's Inputs menu (HDMI 1-3, AV, Live TV via TvInputManager; Live TV
+# opens com.tcl.tv/.TVActivity), Wi-Fi, and every button on the real remote (Home, Input, Settings, app
+# buttons, Back) worked. Not yet lived with for days.
+#
+# DO NOT DISABLE (load-bearing on this firmware):
+# com.tcl.tv com.tcl.tvinput                          # Live TV, tuner, HDMI
+# com.tcl.keycustomfunctionservice                    # remote key handling, fallback home
+# com.tcl.inputmethod.international                   # default keyboard
+# com.tcl.settings com.tcl.initsetup com.tcl.factory.view com.tcl.providers.config
+# com.tcl.xian.StartandroidService                    # device authentication
+# com.tcl.partnercustomizer                           # carries the remote's TKey activity
+# com.tcl.systemserver com.tcl.autopair               # system service, BT remote pairing
+# com.tvos                                            # tvos framework resources
+# com.google.android.tungsten.setupwraith             # owns a saved Wi-Fi network on this unit
+# com.google.android.apps.mediashell                  # Chromecast (kept by choice)
+# com.tcl.miracast com.tcl.MultiScreenInteraction_TV  # Miracast / MagiConnect (kept by choice)
+# com.tcl.versionUpdateApp                            # TCL OTA updater (kept by choice)
+# com.google.android.tv.remote.service                # Google TV phone-app remote (kept by choice;
+#                                                     # disabled at first, re-enabled the same day)
+
+# 1. Telemetry, analytics and attribution
+com.tcl.bi                                  # TCL BI analytics
+com.google.android.feedback                 # "send feedback"
+com.google.android.tvrecommendations        # home-screen recommendation rows
+com.google.android.partnersetup             # partner-app attribution
+com.google.android.onetimeinitializer       # one-time setup leftovers
+android.autoinstalls.config.tcl.device      # partner-app auto installer
+
+# 2. TCL content, promos and background extras
+com.tcl.overseasappshow                     # promo/app-show service; re-enables partner packages at boot
+com.tcl.tv.tclhome_master                   # TCL's alternate home (StartUpActivity, message receivers)
+com.tcl.tv.tclhome_passive                  # pushes TCL content onto the home screen at boot
+com.tcl.waterfall.overseas                  # "TCL Channel" web content feed
+com.tcl.messagebox                          # pushed messages and promos
+com.tcl.esticker                            # retail demo energy-label sticker
+com.tcl.guard                               # TGuard cleaner / device-use tracking
+com.tcl.usercenter                          # TCL account
+com.tcl.dashboard                           # TCL IoT dashboard, giftbox and MessageBox promos
+com.tcl.copydatatotv                        # phone-to-TV data migration
+com.tcl.useragreement                       # end-user agreement screens
+com.tcl.ui_mediaCenter                      # USB media centre (only an LED strip on USB)
+
+# 3. Voice, off by choice. The mic button goes dead. Comment out to keep the assistant.
+com.google.android.katniss                  # Google Assistant / voice search
+com.google.android.tv.assistant             # Assistant LED service
+com.tcl.assistant                           # TCL voice service
+com.tcl.micmanager                          # TCL microphone manager
+
+# 4. Apps, off by choice. Reinstall or re-enable as wanted.
+com.google.android.youtube.tvmusic          # YouTube Music
+com.spotify.tv.android                      # Spotify
+tunein.player                               # TuneIn
+com.hitv.explore                            # "File Manager" (HiTV, Play-installed 2020)
+com.android.printspooler                    # printing service
+com.android.dreams.basic                    # stock "colors" screensaver
+
+# 5. After the launcher is installed
+com.google.android.tvlauncher               # stock launcher, replaced by launcher/

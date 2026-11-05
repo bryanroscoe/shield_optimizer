@@ -1,0 +1,73 @@
+# Sony BRAVIA 4K VH21 (XR-55A80K, 2022 OLED, device BRAVIA_VH21, MediaTek mt5895), EU firmware
+# Android 12 (Google TV, API 31), build BRAVIA_VH21_EU-user 12 STT2.230505.001.S136 682241, 3 GB RAM
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-bravia-4k-vh21-eu/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-bravia-4k-vh21-eu/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Same device and build as sony-bravia-4k-vh21 (Australia); the EU firmware differs in its preloads
+# (ARD, All 4, ITV, My5, iPlayer launchers, YouView, HD+, YouTube Music: all already disabled at the factory
+# on this set, so not in this list) and has no AU broadcaster apps.
+# Stock launcher: com.google.android.apps.tv.launcherx (Google TV). build-and-install disables it.
+# Live TV / tuner app: com.sony.dtv.tvx. Keep the com.sony.dtv.tvinput.* services, tvapi, sonysystemservice,
+# sonyvendorservice, imeproxy, settingsprovider, systemupdate/update, braviasync* and all com.mediatek.*:
+# they drive HDMI, the tuner, the Input overlay, Bravia Sync, updates and the remote's app buttons.
+# Kept by owner's choice: Netflix, YouTube, Apple TV, Chromecast built-in (mediashell), AirPlay/HomeKit,
+# firmware updates, and Sony IP control (com.sony.dtv.webapi.core): Home Assistant's Sony Bravia integration
+# and other IP remotes need it; with it disabled HA reports the TV as off and every command fails.
+# interactivetvutil kept: it holds a TokenProvider other Sony apps may read.
+#
+# Remote: the Netflix, YouTube, Prime Video and Disney+ buttons are routed by Sony's sonyvendorservice, not by
+# the Google TV launcher, so they keep working after launcherx is disabled. YouTube, Prime Video and Disney+
+# all arrive as keycode 196 (scancodes 485, 490, 491), so remapping one of them needs a scancode entry in
+# app_keys (scan:490:<package>) with HOME_KEY_SERVICE=1; a keycode remap (or a keycode-only remapper app)
+# takes all three. KEYCODE_SETTINGS does nothing once launcherx is off; HomeKeyService brings it back.
+# KEYCODE_TV_INPUT opens Sony's own input overlay, so INPUT_KEY_SERVICE is not needed here.
+#
+# setupwraith owned the Wi-Fi network saved during first setup: forget and re-join it in Settings before
+# disabling setupwraith, or the TV drops off Wi-Fi. Other networks it still owns are deleted when it is disabled.
+# Reboot-checked: everything below stayed disabled. Applied 21 Oct 2026. If something breaks,
+# `pm enable <package>` and please report it.
+
+# ACR viewing tracker
+tv.samba.ssm                      # Samba TV fingerprints what's on screen
+tv.samba.ssm.ui
+
+# telemetry and remote support
+com.sonyericsson.idd.agent        # Sony IDD usage-data agent
+com.sony.dtv.usercontext          # user context providers, boot receiver only
+com.qterics.da.product            # Qterics device agent
+com.sony.dtv.da.service           # remote-support session service
+com.google.android.feedback
+
+# Sony ads and recommendations
+com.sony.dtv.sonyselect           # Sony Select app recommendations
+
+# demo / shop mode
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+
+# voice assistant (off by choice; the remote's mic button stops working)
+com.google.android.katniss
+com.sony.dtv.voicesearch
+com.sony.dtv.assistantadapter
+
+# preloaded apps (off by choice)
+com.google.android.videos         # Google TV movies (loses access to purchases in it)
+com.google.android.play.games
+com.vewd.core.service             # Vewd (its integration package is already disabled at the factory)
+com.amazon.amazonvideo.livingroom # Prime Video
+
+# features not used (off by choice)
+com.sony.dtv.hbbtvplayer          # HbbTV / red button
+com.sonyericsson.dlna             # DLNA media server/renderer
+com.sony.huey.dlna.module
+com.sony.huey.dlna.renderersettings
+com.uei.quicksetsdk.sony          # UEI QuickSet: IR control of cable boxes/soundbars; HDMI-CEC unaffected
+com.sony.dtv.gestureapp           # BRAVIA CAM gestures (no camera attached)
+com.google.android.tts            # Google text-to-speech: TalkBack and read-aloud stop working
+
+# Google TV setup wizard: with launcherx disabled its RecoveryActivity takes Home. Re-enable before a
+# factory reset. See the Wi-Fi note above first.
+com.google.android.tungsten.setupwraith

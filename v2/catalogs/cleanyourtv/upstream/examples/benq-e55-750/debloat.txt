@@ -1,0 +1,41 @@
+# BenQ E55-750 (55" 4K, Taiwan), Google TV on Android 11 (SDK 30), firmware RTM8.240401.136
+# Built by Changhong (ro.product.model="AI PONT", product DVB96BQ, board m7632), MediaTek, about 1.8 GB
+# RAM. Same product name as the E55-735 example but an older, Android 11 based firmware.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/benq-e55-750/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/benq-e55-750/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Already disabled from the factory:
+# com.google.android.marvin.talkback. No ACR package (tv.anoki.*) on this firmware.
+#
+# Quirks on this firmware, checked on the TV:
+# - USB debugging alone opens port 5555; there is no Wireless debugging toggle.
+# - HOME candidates: launcherx (priority 2), setupwraith/.RecoveryActivity (priority 1), so disable
+#   setupwraith first, then run launcher/build-and-install.sh.
+# - The default screensaver is dreamx's Backdrop (ambient mode). Point it at the launcher's clock
+#   before disabling dreamx:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+#   settings put secure screensaver_default_component com.gathin.tvhome/.ClockDream
+#   restore.sh does not undo either; the stock value of both is com.google.android.apps.tv.dreamx/.service.Backdrop
+
+# Changhong / Homwee store and help
+com.homwee.store
+com.homwee.help
+
+# Google TV recommendations and screensaver (set another screensaver first)
+com.google.android.videos              # Google TV app, the home screen's recommendation source
+com.google.android.apps.tv.dreamx      # ambient mode; mixes recommendations into the screensaver
+
+# Streaming apps not used in this home (by choice; keep the ones you use)
+com.amazon.amazonvideo.livingroom
+com.google.android.youtube.tvmusic
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+com.google.android.tungsten.setupwraith  # its RecoveryActivity otherwise takes over Home
+com.google.android.apps.tv.launcherx
+
+# Kept on purpose: com.homwee.upgrade and com.homwee.dmt.upgrade (firmware updates),
+# com.google.android.katniss (voice), com.google.android.apps.mediashell (Chromecast),
+# com.homwee.mmp.screenshare / com.homwee.multiscreenshare (screen sharing), com.mediatek.autopair
+# (remote pairing), com.homwee.synckey (remote keys), com.google.android.play.games.

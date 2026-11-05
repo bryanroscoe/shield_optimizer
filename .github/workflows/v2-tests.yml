@@ -114,6 +114,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Informational profile catalog
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 v2/catalogs/cleanyourtv/catalog.py check
+          python3 -m unittest discover -s v2/catalogs/cleanyourtv -p 'test_*.py'
+
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
@@ -146,6 +153,13 @@ jobs:
       - name: Pairing flow
         working-directory: v2
         run: npm run test:pairing-flow
+
+      - name: Device and package source catalog
+        working-directory: v2
+        run: npm run test:profile-catalog
+
+      - name: Catalog review queue
+        run: python3 -m unittest discover -s v2/tools/catalog-review -p 'test_*.py'
 
       # The Sideload tab must not read the remembered APK folder until asked
       # (#89) — that folder is often a removable volume.

@@ -1,0 +1,64 @@
+# EKO 2K Google TV (built by MTC, codename tennoji, product MTK9216PA_EKO, MediaTek mt5867 / T56),
+# Google TV 14 (API 34), firmware UKNV.260415.001, about 1.4 GB RAM, UI at 1280x720.
+# Fingerprint: EKO/MTK9216PA_EKO/tennoji:14/UKNV.260415.001/15213046:user/release-keys
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/eko-2k-google-tv-tennoji/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/eko-2k-google-tv-tennoji/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it to restore.sh as above).
+# Live TV: com.mediatek.wwtv.tvcenter (TurnkeyUiMainActivity). It only takes regular channel URIs, not the
+# tuner's passthrough URI, so the launcher's Live TV row uses its launch entry (as on aiwa-ai-pont-sa);
+# HDMI rows open in com.google.android.tv.inputplayer's PassthroughPlayerActivity.
+# TV inputs (com.mediatek.tvinput): HDMI 1-3 = HW5-HW7, composite = HW2, tuners = HW0, analog = HW1.
+# Same maker (MTC) as examples/hitachi-65qledsm20 and examples/mtc-uk-2k-android-tv (both Android TV 11),
+# and the same chip as examples/chiq-gtvu65.
+#
+# KEEP, even though the names look like bloat:
+# - fusion.android.tv.demo ("retail mode"): handles the remote's Input button (TV_INPUT_BUTTON).
+# - com.mediatek.mtc.factory and mediatek.factorymenu.ui: GLOBAL_BUTTON, boot and USB attach receivers.
+# - com.mediatek.wwtv.setupwizard: Bluetooth remote pairing receivers and GLOBAL_BUTTON.
+# - com.mediatek.autopair, com.airoha.btd (Bluetooth), com.mediatek.tv.service, com.mediatek.tvinput,
+#   com.mediatek.android.leanbacklauncher.partnercustomizer (left alone here), the globalkeyoverlay packages.
+# - There is no separate firmware-update package on this build.
+#
+# Notes from this TV (verified with screenshots):
+# - Port 5555 was open next to Wireless debugging at first, but did not come back after a reboot. The new
+#   Wireless debugging port then took `adb connect` without pairing, since the adb key was already allowed.
+# - Reboot-checked: Home stays the new launcher, every package stays disabled, Wi-Fi stays connected.
+#   Tested on one set over one evening, not a multi-day soak: YouTube plays (with AdGuard Private DNS),
+#   Chromecast stays up, the Input key, HDMI 1 and Live TV open, the Clock screensaver starts.
+# - screencap prints a "Init wrapper sys mutex" line before the PNG: `exec-out screencap -p` gives a broken
+#   file, so save to /sdcard and pull it.
+# - The Input key opens Google's input switcher with the new launcher as Home, no InputKeyService needed.
+# - A second, never-started user (10, "new_user") exists; everything here is for user 0.
+# - Free RAM on the stock home: about 61 MB; after batches 1-3: about 103 MB.
+
+# Batch 1: telemetry, ads and partner plumbing
+tv.anoki.acr.anokiacroptin              # Anoki content-recognition opt-in; starts at boot, network/storage receivers
+com.android.adservices.api              # Android ad services (Topics, attribution)
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.partnersetup         # Google partner attribution pings
+com.mstar.android.tv.disclaimercustomization   # setup-only disclaimer screen
+
+# Batch 2: background services and preloads
+com.google.android.play.games
+com.google.android.syncadapters.calendar
+com.google.android.videos               # Google TV app (Play Movies store and watchlist)
+com.mediatek.androidbox                 # MediaTek Miracast sink (screen mirroring), off by choice
+com.google.android.katniss              # Google Assistant, off by choice (the remote's mic button stops working)
+
+# Batch 3: personal choice, comment out what you use
+com.netflix.ninja
+com.amazon.amazonvideo.livingroom       # Prime Video
+com.google.android.youtube.tvmusic
+
+# Batch 4: launcher handover. setupwraith's RecoveryActivity claims HOME at priority 1, behind launcherx, and
+# would take Home once launcherx is off. It owned the Wi-Fi saved at setup on this TV: forget the network and
+# join it again in Settings first (owner becomes android.uid.system), or disabling it deletes the network.
+com.google.android.tungsten.setupwraith
+
+# Batch 5: after the launcher is Home. Point the screensaver at the launcher's clock first:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+com.google.android.apps.tv.dreamx       # Ambient screensaver (mixes recommendations in)

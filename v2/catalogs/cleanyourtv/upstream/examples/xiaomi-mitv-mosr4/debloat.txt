@@ -1,0 +1,94 @@
+# Xiaomi MiTV-MOSR4 (codename irobot), Google TV / Android 11 (SDK 30), firmware RTM5.220609.003.1585
+# MediaTek chipset. Stock launcher: com.google.android.apps.tv.launcherx (NOT com.google.android.tvlauncher).
+# Live TV app: com.mitv.livetv, which also owns .input.SelectInputActivity (the HDMI/source switcher).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mosr4/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mosr4/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED for user 0, not uninstalled. Comment out any line you want to keep.
+#
+# Tested: all 27 packages below are disabled on this TV (`pm list packages -d` shows them) with the
+# launcher from launcher/ in place and owning Home. They went off in batches of 3-6, a screenshot was
+# taken after every batch and nothing crashed. Inputs (HDMI 1/2, AV, Live TV) reads correctly, the
+# Netflix and SmartTube dock tiles both launch, and mitv.service / overseaservice / livetv stayed up.
+# That is a first-day report, not the few days of living with it that CONTRIBUTING.md asks for, so
+# treat the list as provisional.
+#
+# HOME on this build: com.gathin.tvhome owns Home only once com.google.android.tungsten.setupwraith is
+# disabled too - on the first run setupwraith/.RecoveryActivity took Home back and the install script's
+# rollback re-enabled launcherx. Same story as examples/xiaomi-mitv-moor2.
+#
+# Second unit (EU firmware, same build). Details: docs/devices/xiaomi-mitv-mosr4.md
+#   - Disable setupwraith BEFORE launcherx. The other order left Home on RecoveryActivity, and a
+#     reboot there re-ran setup and factory-reset the TV.
+#   - The setup Wi-Fi belongs to setupwraith: forget it and re-join (reconnecting is not enough).
+#     This switched USB debugging off.
+#   - mitvplus is re-enabled at every boot.
+#   - Input/Settings/YouTube/Netflix/Prime die (Xiaomi GlobalKeyReceiver crashes, "process is bad").
+#     Fix: INPUT_KEY_SERVICE=1 HOME_KEY_SERVICE=1 build-and-install.sh, then theme.sh with config.json.
+#
+# DO NOT DISABLE on this model, verified with dumpsys on the unit this list was written against:
+#   com.mitv.livetv              owns .input.SelectInputActivity - the HDMI/source switcher lives
+#                                inside the Live TV app, so disabling it costs you input switching
+#   mitv.service                 PERSISTENT; hosts .TvServer, .TvSettingService, remote key handling
+#   com.mitv.overseaservice      PERSISTENT; hosts .netflixService (Netflix key on the remote) AND
+#                                .overseaService - nothing here is telemetry, do not disable it
+#   com.mediatek.network         network monitor
+#   com.mediatek.tvinput         HDMI / tuner input framework
+#   com.mediatek.tv.service      core TV service
+#   com.mi.bluetooth             remote + Bluetooth pairing
+#   com.google.android.tv.remote.service   phone-as-remote pairing
+#   com.google.android.apps.mediashell     Chromecast built-in (kept by request)
+#   com.google.android.katniss             Google Assistant / voice (kept by request)
+#   com.netflix.ninja, org.smarttube.beta, com.live_streaming_tv.online_tv (BitTV)   in use
+
+# Xiaomi telemetry / attribution
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.xiaomi.tvqs.overseas               # Firebase analytics + DOWNLOAD_WITHOUT_NOTIFICATION
+com.google.android.partnersetup        # Google RLZ attribution pings
+com.google.android.feedback            # feedback reporter (second unit)
+
+# Ad rows, promos and content providers on the home screen ("Teruskan menonton", "Film terlaris")
+com.mitv.tvhome.oemtab                 # holds ACCESS_ADSERVICES_AD_ID/_ATTRIBUTION - the ad row
+com.mitv.tvhome.michannel              # Mi content rows
+com.mitv.tvhome.mitvplus               # Mi TV+ ad-funded channels (Xiaomi TV+ tile)
+com.mitv.tvhome.atv                    # PatchWall home; not a HOME candidate on this build
+com.xm.webcontent                      # Xiaomi web promo WebView
+com.mitv.toolhouse
+
+# Retail demo mode and nagware
+fusion.android.tv.demo                 # in-store demo loop
+com.xiaomi.mitv.tvmanager              # "TV Manager" cleaner
+com.xiaomo.tv.milegal                  # legal notices app
+android.autoinstalls.config.xiaomi.amelie   # silent preload installer config
+com.xiaomi.mitv.manualhelp             # on-screen manual (second unit only)
+com.android.printspooler               # print spooler (second unit)
+
+# Mi Cast / Miracast - Chromecast built-in (mediashell) still works without them
+# com.mitv.milinkservice              # not on this model
+com.xiaomi.mitv.smartshare
+com.xiaomi.wfdsinkhelperservice
+
+# Preloaded apps, off by choice - re-enable any you use
+com.xiaomi.mimusic2                    # Mi Music
+com.google.android.play.games          # Play Games
+com.mitv.videoplayer                   # Pemutar media
+com.mitv.gallery                       # Galeri
+# com.google.android.apps.tv.dreamx    # ambient screensaver; set screensaver_components first
+
+# Firmware updates off by request - re-enable com.xiaomi.mitv.updateservice to get OTA again
+com.xiaomi.mitv.updateservice
+com.mitv.upgrader
+com.mitv.ABUpdateStatus
+
+# ---------------------------------------------------------------------------------------------
+# ONLY AFTER com.gathin.tvhome IS INSTALLED. Do not apply this section on a fresh run, or the
+# Home button has nowhere to go.
+#
+# Disabling the stock launcher is not enough on Google TV: com.google.android.tungsten.setupwraith
+# also answers HOME and an ordinary app cannot outrank it. Disabling the setupwraith PACKAGE is what
+# frees the slot; `pm disable-user` on its individual components is refused with a SecurityException.
+#
+# Trade-off: setupwraith is the first-run setup wizard. Everyday use is unaffected, but re-enable it
+# before a factory reset - tools/restore.sh does that for you while this line is in the list.
+com.google.android.tungsten.setupwraith   # setup wizard; blocks a third-party launcher from Home

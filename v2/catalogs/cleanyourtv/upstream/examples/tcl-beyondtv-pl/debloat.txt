@@ -1,0 +1,60 @@
+# TCL BeyondTV, Poland unit (ro.product.model BeyondTV, board RTD2851 / rtd285o, build PPR1.180610.011 AP03,
+# security patch 2020-02-05), Android TV 9 (API 28), 2 GB RAM, Polish UI. Same platform as
+# examples/tcl-beyondtv-rt2851/ (build AP06), which was used as the starting point.
+# Tested 2026-10-21: applied in groups with a screenshot after each, then one reboot; Home, the Inputs menu,
+# the remote's Source/Settings buttons and Netflix checked. Not yet lived with for days.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-beyondtv-pl/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-beyondtv-pl/debloat.txt
+# Stock launcher: com.google.android.tvlauncher. Live TV app: com.tcl.tv. Tuner: com.tcl.tvinput. HDMI: com.tcl.tvpassthrough.
+#
+# DO NOT DISABLE (load-bearing on this firmware): com.tcl.tv com.tcl.tvinput com.tcl.tvpassthrough
+# com.tcl.sourcemananger com.tcl.keycustomfunctionservice com.tcl.framework.custom com.tcl.tcl_bt_rcu_service
+# com.tcl.autopair com.tcl.inputmethod.international com.tcl.settings com.tcl.initsetup com.tcl.factory.view
+# com.tcl.showmode com.tcl.xian.StartandroidService com.tcl.appstatecontroller com.realtek.netflix.setting
+# com.android.WifiCountryService com.tcl.versionUpdateApp (firmware updater, kept by choice) com.tcl.rc.ota
+#
+# Re-enabled by the firmware at every boot (checked after a reboot): com.tcl.notereminder. Left alone.
+#
+# Already disabled at the factory, left alone: the uk.co.freeview.* apps, com.tcl.bootadservice,
+# com.tcl.common.terminalmanagerplus, com.tcl.gallery, com.tcl.smartalexa, Stan, ZEE5, LINE TV, Rakuten TV,
+# Play Music/Games/Movies, Eros Now, com.google.android.tv.remote.service.
+
+# 1. Telemetry and analytics
+com.tcl.bi                                  # TCL BI analytics
+com.google.android.feedback                 # "send feedback"
+com.google.android.tv.bugreportsender       # bug report uploader
+com.google.android.partnersetup             # partner-app attribution
+com.google.android.onetimeinitializer       # one-time setup leftovers
+android.autoinstalls.config.tcl.device      # partner-app auto installer
+
+# 2. Content, recommendation rows and promos
+com.google.android.tvrecommendations        # home-screen recommendation rows
+com.google.android.leanbacklauncher.recommendations
+com.tcl.partnercustomizer                   # TCL promo rows, T-Channel
+com.tcl.messagebox                          # TCL message/promo box
+com.tcl.esticker                            # retail demo stickers
+com.tcl.cyberui                             # TCL's own content service, unused
+
+# 3. Preloads and background extras
+com.tcl.ui_mediaCenter                      # USB media centre; nothing on USB here
+com.tcl.keyhelp                             # remote-key help overlays
+# com.tcl.notereminder                      # note/reminder app: firmware re-enables it at every boot, so not listed
+
+# 4. Off by choice: voice and screen mirroring (Chromecast and the firmware updater are kept)
+com.google.android.katniss                  # Google voice search and the mic button
+com.google.android.speech.pumpkin           # offline speech recognition
+com.tcl.assistant                           # TCL's Google Assistant bridge
+com.google.android.tv.assistant             # Assistant LED service
+com.tcl.miracast                            # Miracast screen mirroring
+com.tcl.MultiScreenInteraction_TV           # TCL T-Cast phone app link
+
+# 5. Streaming apps not used (re-enable any of them with tools/restore.sh or `pm enable <package>`)
+com.google.android.youtube.tv               # YouTube
+pl.tvn.player.tv                            # player.pl
+com.spotify.tv.android                      # Spotify
+com.valvesoftware.steamlink                 # Steam Link
+
+# 6. After the launcher is installed (both carry a PackageInstallerService; the Play Store stays)
+com.tcl.tvweishi                            # TCL "TV Guard" cleaner
+com.tcl.appmarket2                          # TCL app store

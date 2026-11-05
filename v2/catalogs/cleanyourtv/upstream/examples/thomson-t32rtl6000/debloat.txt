@@ -1,0 +1,74 @@
+# Thomson T32RTL6000 (manufacturer SCBC, Realtek platform), Android TV 9 (API 28), 1.5 GB
+# RAM, 1280x720 output. Firmware PTT1.210114.001 build 337 (2021-04-25), security patch 2021-03-05.
+# The OS itself reports model/device strings "ATV R1"/"R1" on this TV — same hardware:
+# fingerprint THOMSON/THOMSON/R1:9/PTT1.210114.001/337:user/release-keys
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/thomson-t32rtl6000/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/thomson-t32rtl6000/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Same platform family as examples/sanyo-atv-r2/ (SCBC, PTT1.x firmware branch): the SANYO
+# list cross-checks several decisions here (the GDPR consent agent, and FastScreen being a
+# FastCast Miracast receiver rather than a launcher on this family).
+#
+# Stock launcher: com.google.android.tvlauncher (restore.sh / build-and-install.sh defaults work).
+# Live TV app: com.android.tv with the Realtek tuner stack (com.realtek.dtv and friends) —
+#   the tuner must stay enabled or live channels disappear.
+# TvProvider quirk: on this firmware the system TvProvider stays empty — the vendor tuner
+#   keeps channels and EPG in its own store, so launcher channel rows are dormant until the
+#   provider fills (e.g. after a firmware update).
+# Kept on purpose: GMS / Play / WebView / keyboard, the tuner stack above, remote/Bluetooth
+#   (com.apps.smartkey, bluetoothremote, fivekey, virtualkey, autopair),
+#   com.creative.fastscreen.tv (FastCast Miracast receiver on this family — NOT a FastScreen
+#   ad app, do not disable it as one), and streaming apps left to taste.
+
+# --- Telemetry, analytics, recommendation rows ---
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+com.google.android.apps.nbu.smartconnect.tv
+# SCBC consent agent for data collection (safe to disable; confirmed on SANYO ATV R2 too)
+com.apps.function.gdpr
+com.realtek.leanbacklauncher.partnercustomizer
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# --- Content/promo rows and partner auto-installs ---
+com.apps.channels                          # the SCBC "S-Channels" content app
+android.autoinstalls.config.scbc.device    # partner auto-install config for SCBC devices
+com.android.printspooler
+
+# --- Google Assistant (the mic button on the remote goes dead) ---
+com.google.android.katniss
+
+# --- Preinstalled service and stores ---
+com.vewd.core.service
+
+# --- Streaming apps off by choice (adjust to taste) ---
+com.netflix.ninja
+com.amazon.amazonvideo.livingroom
+tv.okko.androidtv
+com.google.android.videos
+mobi.zona
+de.benzac.msx
+limehd.ru.lise
+limehd.ru.lite
+limehd.ru.ctv
+limehd.ru.ctvshka
+
+# --- Google add-ons ---
+com.google.android.play.games
+com.google.android.youtube.tvmusic
+
+# --- OEM leftovers (factory/demo/test utilities, com.apps.*) ---
+com.apps.esticker
+com.apps.factory.ui
+com.rtk.engmenu
+com.realtek.factorytools
+com.apps.clear
+com.apps.networkspeed
+com.apps.usbmediaplayer
+com.apps.wifihotspot
+
+# --- Firmware OTA (keeps an update from reinstalling the junk) ---
+com.apps.ota
+com.apps.authota

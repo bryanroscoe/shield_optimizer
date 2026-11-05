@@ -1,0 +1,92 @@
+# Sony BRAVIA KD-65X80J (2021, platform BRAVIA_VH2, MediaTek MT5895), Google TV / Android 10 (SDK 29),
+# firmware BRAVIA_VH2_PA-user 10 QTG3.200305.006.S118 656601, India. 3 GB RAM, but only 4 GB for /data.
+# Live TV / input app: com.sony.dtv.tvx (set it as live_tv_package and hide it in the launcher config;
+#   it also plays every HDMI input: HDMI 1-4 and AV show up in the Inputs menu).
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it to restore.sh; build-and-install.sh finds it).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-kd-65x80j/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-kd-65x80j/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Keep (TV needs them): com.sony.dtv.tvx, tvinput.*, braviasync* (HDMI-CEC), tvapi, sonysystemservice,
+# settingsprovider, all com.mediatek.* and mtktvapi.agent, recapp (recordings), reminderservice, timers,
+# remotecontrolsettings, irblaster/irbservice, com.uei.quicksetsdk.sony, imeproxy, webapi.core (Sony IP control),
+# homenetwork (also holds network standby / power settings), the uid-1000 packages (ondservice,
+# preinappfiltering, rs232csupport, browser.webappservice, android.tv.profile).
+# Kept by choice here, safe to add if you don't use them: Google Assistant (katniss, tv.assistant,
+# assistantadapter, voicesearch), Chromecast (apps.mediashell), phone remote (tv.remote.service*), Sony updates,
+# Prime Video, Sony Media Player (smartmediaapp, osat.music), Alexa/Google Home control (seeds.iot*,
+# seeds.auth), Ambient mode (apps.tv.dreamx), Living Decor (livingfit), Miracast service (mediatek.wfd).
+# Already disabled at the factory or by the owner before this list: homekit, promos,
+# vewd.core.integration.dia, Apple TV, kenhchonloc, youtube.tvmusic, b2b.softap, screnmirroring.com.
+#
+# Notes from this firmware:
+# - Home: launcherx has priority 2 and the setup wizard's RecoveryActivity priority 1, so setupwraith is in
+#   this list (batch 6); with it disabled, build-and-install.sh set Home on the first try and it survives
+#   reboots. Re-enable it before a factory reset (restore.sh does).
+# - /data is 4 GB and was 99% full with a handful of streaming apps: the first launcher install failed with
+#   "Requested internal only, but not enough space". `tools/tv.py 'pm trim-caches 1G'` freed ~450 MB.
+# - `svc power reboot` is killed on this firmware; use `adb reboot` (and check `uptime`).
+# - A key remapper (Button Mapper) was sending Home to another launcher; turn its accessibility service off.
+# - The Sony tab on the Google TV home stays as a label after sonytab is disabled; it only goes with launcherx.
+# - Applied in batches on one evening with reboots and checks after each (Home, Settings, inputs, Media Player,
+#   no crashes). Not yet lived with for weeks; if something breaks, `pm enable <package>` and please report it.
+
+# Batch 1: tracking and telemetry
+tv.samba.ssm                                   # Samba TV, fingerprints what's on screen (ACR)
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.qterics.da.product                         # Qterics device agent
+com.sonyericsson.idd.agent                     # Sony usage-data agent
+com.sony.dtv.sonybugreportsys
+com.google.android.tv.bugreportsender
+com.google.android.feedback
+com.sony.dtv.b2b.vendorprotocol                # SDDP broadcast for Control4-style automation; re-enable if you use one
+
+# Batch 2: home-screen ads and promos
+com.sony.dtv.sonyselect                        # Sony Select promo tile
+com.sony.dtv.sonytab                           # Sony tab content on the Google TV home
+com.sony.dtv.launcherxcustomizer               # Sony config for the Google TV home
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Batch 3: retail demo and help
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+com.sony.dtv.customersupport                   # Help tile
+com.sony.dtv.smarthelp
+
+# Batch 4: preloaded apps, off by owner's choice
+com.sonypicturescore                           # BRAVIA CORE (Conviva + Firebase analytics inside)
+com.google.android.videos                      # Google TV movies / purchases
+com.google.android.play.games
+
+# Batch 5: mirroring, off by owner's choice (Chromecast stays)
+com.sony.dtv.airplayapp                        # AirPlay
+com.sony.dtv.networkapp.wifidirect
+com.sony.huey.dlna.module                      # DLNA renderer; Media Player keeps playing USB files
+com.sony.huey.dlna.renderersettings
+com.sonyericsson.dlna
+
+# Batch 6: needed for a third-party launcher on Google TV (see notes above)
+com.google.android.tungsten.setupwraith        # first-run setup wizard; re-enable before a factory reset
+
+# Batch 7: setup leftovers and unused services
+com.android.printspooler
+com.google.android.syncadapters.calendar       # calendar sync; also carries Google's GrowthKit promo framework
+com.google.android.partnersetup                # RLZ install-attribution provider
+com.google.android.onetimeinitializer          # runs once after first setup
+com.sony.dtv.QuickSetupCustomizer              # partner customisation for first setup
+
+# Batch 8: hotel / pro mode (not a hotel TV)
+com.sony.dtv.b2b.hotelmode                     # always-running service, boot + periodic restart receivers
+com.sony.dtv.b2b.noderuntime.normal            # Node.js runtime for hotel apps (also watches USB)
+com.sony.dtv.b2b.noderuntime.privilege
+com.sony.dtv.b2b.noderuntimeextension.bpk
+com.sony.dtv.b2b.noderuntimeextension.node_12_13_1
+
+# Batch 9: BRAVIA CAM features (the X80J has no camera support) and the notifications app
+com.sony.dtv.gestureapp
+com.sony.dtv.distancealert
+com.sony.dtv.sensingcamera.fwupdate
+com.sony.dtv.sensingcamera.settings
+com.sony.dtv.notificationcenter                # "BRAVIA notifications" inbox

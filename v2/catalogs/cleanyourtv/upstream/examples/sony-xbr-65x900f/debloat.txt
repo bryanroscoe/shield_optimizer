@@ -1,0 +1,84 @@
+# Sony BRAVIA XBR-65X900F (2018, BRAVIA_ATV3_4K, MediaTek MT5891), US/Canada firmware
+# Product BRAVIA_ATV3_4K_UC, model string "BRAVIA 4K GB ATV3". Android TV 9 (API 28), 2 GB RAM.
+# Firmware BRAVIA_ATV3_4K_UC-user 9 PTT1.190515.001.S54 672201 release-keys, security patch 2022-01-05
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-xbr-65x900f/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-xbr-65x900f/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Applied 2026-10-19 and checked across a reboot (list still disabled, launcher still Home, HDMI and
+# Live TV fine). Not lived with for weeks yet: re-enable anything that breaks with `pm enable <package>`.
+#
+# Same Android 9 firmware build as examples/sony-xbr-x900e and sony-bravia-4k-gb (ATV2), one platform
+# generation newer (ATV3, MT5891). Package set is the same apart from the ATV3 panel/HDMI services.
+# Stock launcher: com.google.android.tvlauncher (restore.sh's default).
+# Live TV / input app: com.sony.dtv.tvx. Keep it: it also plays every HDMI input and the ATSC tuner.
+# Keep: com.sony.dtv.tvinput.*, braviasync* (HDMI-CEC), remotepairing, rcpowerkey, uinputservice,
+# imeproxy, sonysystemservice, settingsprovider, all com.mediatek.* and mtktvapi.agent, timers.
+# Already off on this TV before the list (owner or factory): tv.samba.ssm and com.sony.dtv.promos (both
+# listed below anyway), com.sony.rvu, actionmenu.plugin.harmony, Vudu, Play Movies, Play Games.
+#
+# Notes from this firmware:
+# - ADB: Developer options > USB debugging opens port 5555 (Android 9: no Wireless debugging pairing);
+#   the TV then shows the usual "Allow USB debugging?" prompt. Tick "Always allow".
+# - The sponsored banner at the top of the stock home (Hulu, Apple TV+ promos) comes from
+#   com.google.android.tvlauncher itself and survives disabling tvrecommendations; only replacing the
+#   launcher removes it.
+# - Sony Settings pages (About, Status) return an empty screencap; read them with `uiautomator dump`.
+# - The retail model number is not in getprop or UPnP (both say "BRAVIA 4K GB ATV3"); read it off the
+#   sticker or the Help app.
+# - Launcher works. Same as the X900E: the stock launcher's HOME filter wins until
+#   com.google.android.tvlauncher is disabled; disable it, then `cmd package set-home-activity
+#   com.gathin.tvhome/.MainActivity`. Home key from inside apps returns to the new launcher.
+# - Inputs works: HDMI 1-4 (HDMI 3/ARC), Video and Live TV listed via com.sony.dtv.tvx. This firmware
+#   reports real per-port status ("No device" / "Connected"), not every port as connected.
+#   config.xml: hidden_apps com.sony.dtv.tvx and com.sony.dtv.tvxlauncher.programguide,
+#   live_tv_package com.sony.dtv.tvx.
+
+# ACR viewing tracker
+tv.samba.ssm                                   # Samba TV fingerprints what's on screen
+
+# Sony and Google content, ads and promos
+com.sony.dtv.promos                            # My BRAVIA promos
+com.sony.dtv.sonyselect                        # Sony Select app store/promo tile
+com.sony.dtv.discovery                         # Sony Discover content bar
+com.sony.dtv.bivlinfo                          # BIVL content service list (feeds Discover)
+com.google.android.tvrecommendations           # recommendation rows for the stock launcher
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Retail demo
+com.sony.dtv.demomode
+com.sony.dtv.demosupport
+com.sony.dtv.multiscreendemo
+
+# Telemetry, remote support and feedback
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.sonybugreportsys
+com.google.android.tv.bugreportsender
+com.google.android.feedback
+com.sony.dtv.b2b.vendorprotocol                # Node.js SDDP broadcaster for Control4-style automation;
+                                               # re-enable if you use one
+
+# Preloaded help apps
+com.sony.dtv.customersupport                   # Help tile
+com.sony.dtv.smarthelp
+com.sony.dtv.imanual                           # i-Manual
+
+# Off by choice on this TV: features the owner doesn't use. Comment out any you want.
+com.google.android.katniss                     # Google Assistant / voice search (mic button)
+screnmirroring.com                             # Screen mirroring (Miracast)
+com.sony.dtv.networkapp.wifidirect
+com.sony.huey.dlna.module                      # DLNA renderer
+com.sony.huey.dlna.renderersettings
+com.sonyericsson.dlna
+com.google.android.tv.remote.service           # Android TV phone-app remote
+com.google.android.inputmethod.japanese        # Japanese keyboard (Gboard stays the default)
+com.sony.dtv.smarthomesettings                 # "Works with Alexa" setup: Amazon login, Firebase push, runs at boot
+com.sony.dtv.smartmediaapp                     # Media Player, plays files from USB
+com.sony.dtv.osat.music                        # Music, plays music from USB
+
+# Left enabled on purpose: features, not bloat. Uncomment any line to disable it too.
+# com.google.android.apps.mediashell           # Chromecast built-in
+# com.google.android.youtube.tvmusic           # YouTube Music
+# com.google.android.backdrop                  # ambient screensaver

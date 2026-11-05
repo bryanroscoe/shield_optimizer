@@ -1,0 +1,59 @@
+# Dialog ViU (SEI Robotics SEI103DL, device SEI103, Amlogic, NES operator middleware), Sri Lanka
+# Android TV 9 (SDK 28), build PI.4348, security patch 2023-09-05. 1 GB RAM, 720p. HDMI out only, no inputs.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/dialog-viu-sei103dl/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/dialog-viu-sei103dl/debloat.txt com.dialog.tv
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Tested on one box the same day, including a reboot; not a multi-day soak.
+#
+# Stock launcher: com.dialog.tv, which is also Dialog's IPTV and Catch-up app; disabling it removes Dialog's channels.
+# The installer does not know it, so install the launcher first with STOCK_LAUNCHER=none HOME_KEY_SERVICE=1, then apply
+# the last line. Dialog Play from Play Store (com.dialog.app.atv) is marked incompatible with this box and cannot replace it.
+# Home claimants: com.dialog.tv and FallbackHome only; setupwraith and leanbacklauncher do not claim Home here, and the saved
+# Wi-Fi network belongs to the system uid, so both are left alone.
+# YouTube, Prime Video or the preloads below may already be disabled on a box; `pm enable <package>` brings one back.
+#
+# Notes from this firmware:
+# - USB debugging alone opens port 5555; ro.adb.secure=1, so each computer is accepted on screen. Sideloading works.
+# - The Bluetooth remote's shortcut buttons are NES global keys from com.nes.tvglobalkeyhandler: Apps 5116, Prime Video 5119,
+#   Catch-up 5122 (it opens com.dialog.tv, so it does nothing once that is disabled). They reach the launcher's
+#   HomeKeyService, so `app_keys` can remap them, e.g. "app_keys": ["5122:<package>"]. Home is a normal HOME key.
+# - Disabling the boot advertisement group restarts com.dialog.tv once; it comes back on its own.
+# - AdGuard Private DNS (dns.adguard-dns.com) works.
+#
+# Kept on purpose: com.nes.blerc (Bluetooth remote and pairing), com.nes.tvglobalkeyhandler (remote shortcut keys),
+# com.nes.daemonservice, com.nes.leanbacklauncher.partnercustomizer, com.droidlogic.* (Amlogic settings and overlays),
+# com.google.android.tungsten.setupwraith, com.google.android.inputmethod.latin (keyboard), Play Store, Play Services, Bluetooth.
+
+# Telemetry and operator remote management
+com.nes.tvbugtracker                        # NES bug tracker, starts at boot
+com.nes.tr069                               # Dialog TR-069 remote management and statistics
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# Boot advertisements, silent installs, recommendation services
+com.nes.skywayclient                        # NES Skyway: boot ads, silent installs; likely OTA too, re-enable for updates
+android.autoinstalls.config.sei             # Play auto-install of partner apps
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+
+# Factory and phone leftovers
+com.utsmta.app                              # NES factory test app (USB receiver)
+com.android.smspush                         # WAP push manager, no SMS on a TV box
+
+# Preloaded apps
+com.google.android.youtube.tvmusic          # YouTube Music
+com.google.android.videos                   # Play Movies & TV
+com.google.android.play.games               # Play Games
+com.android.camera2                         # Camera, no camera on this box
+com.android.gallery3d                       # Gallery
+
+# Optional, tested without side effects. Uncomment the ones you do not use.
+# com.google.android.apps.mediashell        # Chromecast built-in
+# com.google.android.katniss                # Google voice search; the Voice button does nothing without it
+# com.google.android.speech.pumpkin         # offline speech engine for voice search
+# com.nes.remoteota.six                     # Bluetooth remote firmware updater (Nanosic); pairing stays in com.nes.blerc
+# com.google.android.backdrop               # ambient screensaver; pick another one in Settings first, or the box has none
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+com.dialog.tv                               # Dialog home, IPTV and Catch-up; keep it if you watch Dialog's channels

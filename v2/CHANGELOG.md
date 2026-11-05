@@ -22,6 +22,10 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
+- Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
+- **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
+
 ## v2-2.5.0 — 2026-11-04
 
 ATV Optimizer now uses its own name everywhere and moves your settings and snapshots over on first launch. On a Mac, click **Allow** when macOS asks to find devices on your local network. TVs that disappeared after updating on a Mac are found again. Also new: a Settings screen, a support ID and Send logs to developer, each TV's support status, clearer connection errors, and Shell bookmark, App List and snapshot improvements.

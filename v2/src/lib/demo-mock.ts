@@ -513,7 +513,8 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         || entry.package === "com.android.providers.tv"
         || entry.package === "com.nvidia.tegrazone3"
         || entry.package === "com.philo.philo"
-        || entry.package === "com.google.android.tvrecommendations",
+        || entry.package === "com.google.android.tvrecommendations"
+        || (demoFlag("reviewedCatalog") && entry.review),
     )
     .map((entry) => {
       const state = MISSING.has(entry.package)
