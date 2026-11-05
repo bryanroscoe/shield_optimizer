@@ -117,7 +117,9 @@ async function exercise({ browser, base }) {
     const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
     assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", `Select all safe: ${entry.package}`);
   }
-  const first = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: reviewed[0].package }) });
+  const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
+  assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
+  const first = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: focusPackage }) });
   await first.getByRole("button", { name: "Disable", exact: true }).click();
   assert.equal((await first.locator(".radio-pill.active .radio-label").innerText()).trim(), "Disable");
   await first.getByRole("button", { name: "Keep", exact: true }).click();

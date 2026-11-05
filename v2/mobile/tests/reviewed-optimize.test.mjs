@@ -51,7 +51,9 @@ test("reviewed source leads appear in mobile Optimize as unchecked Caution choic
       assert.equal(await row.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-pressed"), "false", entry.package);
       assert.match(await row.innerText(), /Review: disable if unused/);
     }
-    const first = page.locator(".optimize-item").filter({ hasText: reviewed[0].package });
+    const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
+    assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
+    const first = page.locator(".optimize-item").filter({ hasText: focusPackage });
     await first.getByRole("button", { name: "Disable", exact: true }).click();
     assert.equal(await first.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-pressed"), "true");
     await first.getByRole("button", { name: "Keep", exact: true }).click();

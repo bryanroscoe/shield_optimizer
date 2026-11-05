@@ -158,6 +158,9 @@ jobs:
         working-directory: v2
         run: npm run test:profile-catalog
 
+      - name: Catalog review queue
+        run: python3 -m unittest discover -s v2/tools/catalog-review -p 'test_*.py'
+
       # The Sideload tab must not read the remembered APK folder until asked
       # (#89) — that folder is often a removable volume.
       - name: Sideload scan

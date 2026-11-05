@@ -1508,6 +1508,150 @@
     ]
   },
   {
+    "package": "com.zdf.android.mediathek",
+    "name": "ZDF",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops ZDF live and on-demand viewing through this app. Keep it if anyone here watches ZDF.",
+    "restore_description": "Re-enables ZDF if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.zdf.android.mediathek",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/dyon-2k-android-tv/debloat.txt#L43",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "fr.francetv.pluzz",
+    "name": "france.tv",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops france.tv live and replay viewing through this app. Keep it if anyone here watches it.",
+    "restore_description": "Re-enables france.tv if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=fr.francetv.pluzz",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/freebox-player-pop/debloat.txt#L71",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.mubi",
+    "name": "MUBI",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops MUBI viewing and access to downloads through this app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables MUBI if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.mubi",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/noblex-shinjuku/debloat.txt#L53",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.yupptv.androidtv",
+    "name": "YuppTV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops YuppTV channels and programmes through this app. Keep it if anyone here uses YuppTV.",
+    "restore_description": "Re-enables YuppTV if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.yupptv.androidtv",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sanyo-atv-r2/debloat.txt#L55",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.cbsnews.ott",
+    "name": "CBS News",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops CBS News live streams and on-demand programmes through this app. Keep it if anyone here watches it.",
+    "restore_description": "Re-enables CBS News if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cbsnews.ott",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/formovie-mprojm05/debloat.txt#L48",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.bloomberg.btva",
+    "name": "Bloomberg",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Bloomberg TV and Bloomberg Originals viewing through this app. Keep it if anyone here watches them.",
+    "restore_description": "Re-enables Bloomberg if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.bloomberg.btva",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50ep680/debloat.txt#L86",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "com.ted.android.tv",
+    "name": "TED TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops TED talks through this app. Keep it if anyone here watches TED TV.",
+    "restore_description": "Re-enables TED TV if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.ted.android.tv",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/formovie-mprojm05/debloat.txt#L49",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
+    "package": "in.startv.hotstar",
+    "name": "JioHotstar",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops JioHotstar viewing through this app. Keep it if anyone here uses it. Other regional Hotstar packages are separate apps.",
+    "restore_description": "Re-enables JioHotstar if still installed. Does not restore account access or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=in.startv.hotstar",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/nokia-r4/debloat.txt#L57",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",
