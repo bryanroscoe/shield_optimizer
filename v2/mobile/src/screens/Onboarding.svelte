@@ -10,7 +10,7 @@
     savedHostHasMultipleIdentities,
     shouldAutoDialSavedDevices,
   } from "../lib/savedDevices";
-  import { approvalPromptMayExplain } from "../lib/connectFailure";
+  import { approvalPromptMayExplain, connectFailureGuidance } from "../lib/connectFailure";
   import { buildDiscoveryRows } from "../lib/discoveryRows";
   import type { DiscoveryRow } from "../lib/discoveryRows";
   import { deviceTypeLabel } from "../lib/types";
@@ -384,7 +384,7 @@
           </span>
         </div>
       {/if}
-      <ErrorNotice error={reconnectError} action="Reconnect to a saved TV" support={null} />
+      <ErrorNotice error={reconnectError} guidance={connectFailureGuidance(reconnectError)} action="Reconnect to a saved TV" support={null} />
     {/if}
 
     <div class="spacer"></div>
@@ -624,7 +624,7 @@
             </span>
           </div>
         {/if}
-        <ErrorNotice {error} action="Connect to TV" support={null} />
+        <ErrorNotice {error} guidance={connectFailureGuidance(error)} action="Connect to TV" support={null} />
       {:else}
         <div class="callout accent">
           <span class="msr">tv_gen</span>

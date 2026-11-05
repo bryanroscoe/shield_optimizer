@@ -695,6 +695,17 @@ test("a connect that never reached the TV doesn't send the user to look for an a
   });
   await page.getByRole("button", { name: "Try again" }).click();
   await page.getByText(/look at the TV for/).waitFor();
+
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "The TV connection timed out during setup. If the TV shows an Allow debugging prompt, approve it, then retry. If no prompt appears, restart the TV before trying again.",
+    });
+  });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.locator(".en-msg", { hasText: "If no prompt appears" }).waitFor();
+  assert.equal(await page.locator(".error-notice").getAttribute("data-code"), "timeout");
+  assert.equal(await page.locator(".callout").count(), 0);
 });
 
 test("explicit disconnect suppresses automatic saved-TV redial", async (t) => {
