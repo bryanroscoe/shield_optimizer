@@ -1,5 +1,5 @@
 [package]
-name = "shield-direct-adb"
+name = "atv-direct-adb"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.88"
@@ -7,7 +7,7 @@ license = "LicenseRef-Proprietary"
 publish = false
 
 [dependencies]
-shield-optimizer-core = { path = "../core" }
+atv-optimizer-core = { path = "../core" }
 adb_client = { version = "3.2.2", default-features = false, features = ["framebuffer"] }
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }

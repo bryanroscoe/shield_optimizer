@@ -1,10 +1,16 @@
+//! A device service opened on its own connection only after that connection
+//! proved to be the selected TV, with a finite lifetime and its own cancel.
+
 use super::{
     BoundedShellControl, bounded_shell::Finish, streamed_install::verify_hardware_binding,
     tcp_transport::TcpTransport,
 };
 use crate::{
     RustADBError,
-    message_devices::{adb_message_device::ADBMessageDevice, adb_service::ADBService},
+    message_devices::{
+        adb_message_device::ADBMessageDevice,
+        adb_service::{ADBService, OpenFailure},
+    },
 };
 use std::{
     io::{Read, Write},
@@ -13,6 +19,12 @@ use std::{
     time::Duration,
 };
 use thiserror::Error;
+
+/// Longest service name accepted, as for the legacy `shell:` service.
+const MAX_SERVICE_NAME: usize = 4096;
+/// Unread output held while one of our writes waits for its OKAY.
+const PENDING_LIMIT: usize = 64 * 1024;
+const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Whether setup failed before the requested service OPEN or after it may have arrived.
 #[derive(Debug, Error)]
@@ -102,7 +114,7 @@ where
     F: FnOnce(&BoundedShellControl) -> crate::Result<ADBMessageDevice<TcpTransport>>,
 {
     let finish = Finish(control);
-    if service.is_empty() || service.len() > 4096 || service.as_bytes().contains(&0) {
+    if service.is_empty() || service.len() > MAX_SERVICE_NAME || service.as_bytes().contains(&0) {
         return Err(BoundServiceError::BeforeOpen(
             RustADBError::ADBRequestFailed("invalid bounded service name".into()),
         ));
@@ -115,19 +127,18 @@ where
         .remaining()
         .map_err(RustADBError::from)
         .map_err(BoundServiceError::BeforeOpen)?;
-    let session = device
-        .open_bounded_shell_service(service, remaining)
-        .map_err(|error| match error {
-            RustADBError::ServiceRejected(_) => BoundServiceError::Rejected(error),
-            _ => BoundServiceError::OpenUncertain(error),
-        })?;
+    let stream = device
+        .open_stream_service_classified(service.as_bytes(), remaining, WRITE_TIMEOUT)
+        .map_err(|failure| match failure {
+            OpenFailure::Refused(error) => BoundServiceError::Rejected(error),
+            OpenFailure::Failed(error) => BoundServiceError::OpenUncertain(error),
+        })?
+        .with_pending_limit(PENDING_LIMIT);
     finish
         .0
         .remaining()
         .map_err(RustADBError::from)
         .map_err(BoundServiceError::OpenUncertain)?;
-    let stream =
-        ADBService::new(session, remaining, Duration::from_secs(2)).with_pending_limit(64 * 1024);
     Ok(BoundDeviceService {
         stream,
         _device: device,

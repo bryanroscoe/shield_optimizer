@@ -1,0 +1,112 @@
+# Xiaomi TV EA Pro 55" (MiTV-MTEQ0, codename baymax; sold as L55MA-EP), China-market firmware 23.6.26.4028,
+# Android 10 (SDK 29, QQ2A.200305.004.A1), MediaTek/MStar, 3840x2160 panel (Android reports a 1080p UI mode).
+# Stock launcher: com.mitv.tvhome (HOME activity .MainActivityUserMode). Live TV / sources: com.xiaomi.mitv.tvplayer.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mteq0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mteq0/debloat.txt com.mitv.tvhome
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Used for a day with two reboots and several standby cycles; nothing broke that is not noted here.
+#
+# Notes from this firmware (details in docs/devices/xiaomi-mitv-mteq0-baymax.md):
+# - Home: the framework only accepts system apps or allowlisted package names as HOME, like the
+#   MiTV-AETP0. The opt-in build -PlauncherApplicationId=com.ts.launcher (docs/devices/xiaomi-mitv-aetp0-dofus.md)
+#   was accepted here: HOME resolved to it, also after a reboot and after a force-stop like the one
+#   standby does. With the standard com.gathin.tvhome ID, disabling com.mitv.tvhome leaves
+#   FallbackHome (a black screen).
+# - Network ADB closes at every boot: com.xiaomi.mitv.settings writes adb_enabled=0 a few seconds after
+#   boot. Re-enable it under Settings > Account & Security > ADB debugging.
+# - Standby (power key) force-stops every non-system app after 2 s (MitvPowerManagerService ->
+#   killAllThirdApp) unless a cloud allowlist exempts it. Android then drops any accessibility service
+#   of those apps, so do not rely on an accessibility helper on this set.
+# - com.xiaomi.mitv.upgrade and com.mediatek.TimeMeasurementAgent are persistent: the firmware starts them
+#   at boot even when disabled. Disabling still blocks their components; the processes stay.
+# - Shell cannot disable single components, `pm hide` (no MANAGE_USERS) or `pm uninstall --user 0`
+#   (DELETE_FAILED_INTERNAL_ERROR) on this firmware, so whole-package disables are the only tool.
+# - Wi-Fi 5 GHz: the Wi-Fi country code comes from Settings.Global service_region and falls back to CN,
+#   which hides 5 GHz networks on channels 100-144. `settings put global service_region <CC>` and a Wi-Fi
+#   off/on fixes it.
+# - Xiaomi's package installer has no CONFIRM_INSTALL screen: stores that install split APKs through a
+#   PackageInstaller session (Aptoide) hang at 80%. Stores using ACTION_VIEW (single APKs) work.
+# - No Google services: the official YouTube TV app refuses to run; SmartTube works.
+# - Privacy toggles worth flipping as well: settings put secure allow_oaid_used 0 (OAID ad ID),
+#   settings put global individual_privacy_enabled 0 (personalised recommendations).
+
+# Xiaomi telemetry, diagnostics and log upload
+com.miui.analytics                      # installed into /data/app by com.mitv.tvhome
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.xiaomi.tvqs
+com.xiaomi.mitv.healthdiagnosis
+com.xiaomi.mitv.debug                   # DebugService: log collection
+com.xiaomi.mitv.csi                     # satisfaction survey and privacy prompt
+com.xiaomi.screenrecorder               # screen capture for feedback uploads
+com.xiaomi.android.TV.audio             # audio debug tool
+com.mediatek.TimeMeasurementAgent       # persistent: keeps running after boot even when disabled
+com.mstar.android.media.tests           # media test cases
+
+# Push, cloud control, ads and promoted content
+com.xiaomi.mitv.tvpush.tvpushservice
+com.mitv.cloudcontrol                   # cloud config; the HOME allowlist it downloaded stays on disk
+com.xm.webcontent                       # web promos, Sentry
+com.duokan.videodaily                   # video promos
+com.mitv.screensaver                    # Xiaomi screensaver with pushed content
+fusion.android.tv.demo                  # retail demo
+com.xiaomi.gamecenter.sdk.service.mibox
+
+# Shopping, payment and Mi account
+com.xiaomi.mitv.shop
+com.xiaomi.mitv.pay
+com.xiaomi.mitv.payment
+com.mipay.wallet.tv
+com.xiaomi.account                      # Mi account; needed only for Xiaomi's paid content
+com.xiaomi.account.auth
+
+# Updates and app store
+com.xiaomi.mitv.upgrade                 # OTA, persistent like TimeMeasurementAgent; re-enable to update
+com.xiaomi.mitv.appstore
+
+# Cleaners, panels and first-run setup
+com.xiaomi.mitv.tvmanager               # "TV Manager" cleaner, log reporter
+com.xiaomi.mitv.smartpanel              # long-press Menu panel
+com.xiaomi.setupwizard                  # first-run setup only; does not claim HOME here
+
+# Casting (off by choice)
+com.xiaomi.miplay
+com.xiaomi.mitv.smartshare
+com.duokan.airkan.tvbox
+com.xiaomi.wfdsinkhelperservice         # Miracast sink
+
+# Smart home / IoT
+com.xiaomi.smarthome.tv                 # long-press Home opens it; nothing happens once disabled
+com.xiaomi.mico.mqtt.service.application.tv
+com.xiaomi.mi_connect_service
+
+# XiaoAI voice assistant. The remote's mic key only reaches com.xiaomi.voicecontrol (no key event),
+# so it does nothing once disabled; Google voice search cannot replace it without Google services.
+com.xiaomi.voicecontrol
+com.xiaomi.wakeupservice
+
+# Preloaded apps (off by choice)
+com.xiaomi.mimusic2
+com.xiaomi.tweather
+com.xiaomi.mitv.calendar
+com.mitv.mivideoplayer
+com.mitv.videoplayer
+com.xiaomi.mitv.karaoke.service
+com.xiaomi.mibox.lockscreen             # child mode and privacy lock
+com.xiaomi.mitv.handbook
+com.xiaomi.mitv.legal.webview
+com.mitv.alarmcenter
+com.mitv.gallery
+com.xiaomi.tv.gallery
+com.xiaomi.mitv.mediaexplorer           # USB media player
+com.mitv.toolhouse
+
+# The only keyboard on the set; it switches to Chinese input. Disable only after installing and
+# selecting another IME (LeanKey Keyboard worked: ime enable / ime set), or text input is gone.
+# com.sohu.inputmethod.sogou.tv
+
+# Keep: com.xiaomi.mitv.tvplayer (HDMI/AV), com.xiaomi.mitv.settings (the only full settings UI, picture,
+# sound, ADB), com.xiaomi.mitv.systemui (volume, recents on double-tap Home), com.xiaomi.mitv.providers.settings,
+# mitv.service, every com.mediatek.* package (com.mediatek.backgrounddetection runs the USB debugging
+# boot receiver).

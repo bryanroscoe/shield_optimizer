@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::adb::driver::SubprocessAdb;
-use shield_optimizer_core::adb::{BoundedShellOutput, ShellTermination};
+use atv_optimizer_core::adb::{BoundedShellOutput, ShellTermination};
 use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 

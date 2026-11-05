@@ -68,6 +68,16 @@ export function isReviewRow(item: OptimizePlanItem, safety: SafetyStatus | undef
   );
 }
 
+/// The row's own description, or nothing when the safety reason shown above
+/// it already carries that sentence. Core builds a reviewed app's reason from
+/// the same catalog text (all of it for Safe, its tail for Caution), so
+/// printing both would show the sentence twice.
+export function rowPurpose(description: string | null | undefined, shownReason: string): string {
+  const purpose = (description ?? "").trim();
+  if (!purpose) return "";
+  return shownReason.includes(purpose) ? "" : purpose;
+}
+
 /// Case-insensitive match on the app's name or package id. An empty query
 /// matches everything.
 export function matchesPlanQuery(item: OptimizePlanItem, query: string): boolean {

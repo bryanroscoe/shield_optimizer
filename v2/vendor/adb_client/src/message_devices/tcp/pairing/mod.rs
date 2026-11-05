@@ -37,11 +37,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rcgen::{CertificateParams, KeyPair, PKCS_RSA_SHA256};
 use rustls::{
     ClientConfig, ClientConnection, SignatureScheme, StreamOwned,
     client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
-    pki_types::{CertificateDer, PrivatePkcs8KeyDer, pem::PemObject},
+    pki_types::{CertificateDer, PrivatePkcs8KeyDer},
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -208,21 +207,14 @@ fn pair_with_identity(
     Ok(PairingOutcome { peer_info })
 }
 
-/// The TLS client certificate and key, derived exactly the way
-/// [`crate::tcp::ADBTcpDevice`]'s transport derives them, so the certificate
-/// this pairing presents carries the same public key as the later connection.
+/// The TLS client certificate and key, from the same derivation
+/// [`crate::tcp::ADBTcpDevice`]'s transport uses, so the certificate this
+/// pairing presents carries the same public key as the later connection.
 fn client_identity(
     private_key_path: &Path,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivatePkcs8KeyDer<'static>), PairingError> {
-    let pem = read_to_string(private_key_path).map_err(|e| PairingError::Key(e.to_string()))?;
-    let key_pair = KeyPair::from_pkcs8_pem_and_sign_algo(&pem, &PKCS_RSA_SHA256)
-        .map_err(|e| PairingError::Key(e.to_string()))?;
-    let certificate = CertificateParams::default()
-        .self_signed(&key_pair)
-        .map_err(|e| PairingError::Key(e.to_string()))?;
-    let private_key = PrivatePkcs8KeyDer::from_pem_file(private_key_path)
-        .map_err(|e| PairingError::Key(e.to_string()))?;
-    Ok((vec![certificate.der().to_owned()], private_key))
+    super::tls_identity::client_identity(private_key_path)
+        .map_err(|e| PairingError::Key(e.to_string()))
 }
 
 /// The `<base64> <name>` ADB public key, byte-for-byte what this crate sends

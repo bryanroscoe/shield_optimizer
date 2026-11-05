@@ -1,4 +1,4 @@
-//! Shared Shield Optimizer / ATV Optimizer core.
+//! Shared ATV Optimizer core (desktop and Android).
 //!
 //! This crate owns the pure safety engine, driver-generic ADB abstractions, and
 //! shared Tauri command handlers used by the desktop and Android apps.

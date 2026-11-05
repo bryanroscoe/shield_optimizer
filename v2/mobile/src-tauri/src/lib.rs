@@ -19,21 +19,19 @@ mod wireless_commands;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
-use shield_optimizer_core::commands::{
+use atv_optimizer_core::commands::{
     apps, devices, health, input, launcher, license, loader, optimize, reboot, recovery,
     screenshot, snapshot, telemetry, tuning, AppState,
 };
-use shield_optimizer_core::engine;
-use shield_optimizer_core::engine::telemetry::AppKind;
-use shield_optimizer_core::engine::telemetry_diag::{adb_diag, AdbSource};
-use shield_optimizer_core::license::{
-    parse_license, validate_license_key, Entitlement, LicenseInfo,
-};
-use shield_optimizer_core::telemetry::{
+use atv_optimizer_core::engine;
+use atv_optimizer_core::engine::telemetry::AppKind;
+use atv_optimizer_core::engine::telemetry_diag::{adb_diag, AdbSource};
+use atv_optimizer_core::license::{parse_license, validate_license_key, Entitlement, LicenseInfo};
+use atv_optimizer_core::telemetry::{
     install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
     TelemetryConfig,
 };
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
 use wireless_adb::WirelessAdb;
 use wireless_commands::MobileState;
@@ -353,7 +351,7 @@ pub fn run() {
 #[cfg(test)]
 mod license_tests {
     use super::{persist_license, read_persisted_entitlement, LicenseFile};
-    use shield_optimizer_core::license::{Entitlement, TEST_LICENSE_KEY};
+    use atv_optimizer_core::license::{Entitlement, TEST_LICENSE_KEY};
 
     #[test]
     fn persisted_valid_license_round_trips() {

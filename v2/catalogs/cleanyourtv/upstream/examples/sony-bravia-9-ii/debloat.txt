@@ -1,0 +1,68 @@
+# Sony BRAVIA 9 II, K-65XR90M2 (2026, device BRAVIA_AE3, product BRAVIA_AE3_PA, MediaTek MT5838 / mt5897)
+# Google TV 14 (API 34), build UKN4.250422.001 603100, security patch 2026-07-05. 4.5 GB RAM.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-bravia-9-ii/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-bravia-9-ii/debloat.txt com.google.android.apps.tv.launcherx
+#          (restore.sh defaults to tvlauncher, which this TV does not have: pass launcherx)
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Applied in small batches on 2026-10-19 with a screenshot and crash-log check after each, then the
+# launcher installed and Home, Inputs, the Input key and voice checked the same evening. Not yet lived
+# with for days; if something breaks, re-enable it with `pm enable <package>` and please report it.
+#
+# Connecting: USB debugging alone leaves port 5555 closed. Pair once with the stock adb through
+# Developer options > Wireless debugging > Pair device with pairing code (`adb mdns services` shows the
+# pairing port), `adb connect <ip>:<connect port>`, then `adb tcpip 5555`. tools/tv.py works from then on.
+# Developer options: Settings > System > About > "Android TV OS build" (not "Android TV OS version",
+# which only shows the Android logo).
+#
+# Stock launcher: com.google.android.apps.tv.launcherx; com.google.android.tungsten.setupwraith also
+# claims HOME (priority 1), so it is in this list.
+# Keep: com.mediatek.external (HDMI inputs), com.mediatek.tis (analog), com.sony.dtv.tvinput.dvbtuner,
+# com.sony.dtv.tvlin (Live TV / input player), braviasync*, sonysystemservice, settingsprovider, imeproxy,
+# irblaster/irbservice and com.uei.quicksetsdk (IR blaster), sensingcamera.* (BRAVIA CAM), all com.mediatek.*.
+# Left alone on purpose: com.sony.dtv.b2b.* (pro mode), webapi (IP control), interactivetvutil (voice
+# logging, but also voice plumbing), fingerprinterserver/usercontext/lastaccess/crashlogcollector
+# (purpose unclear from their components).
+# Kept by owner's choice: Sony firmware updates, AirPlay (com.sony.dtv.airplayapp), voice / Gemini
+# (katniss, assistantadapter, voicesearch), all streaming apps.
+#
+# Launcher notes from this firmware (verified on the TV, 2026-10-19):
+# - config.xml: live_tv_package and hidden_apps = com.sony.dtv.tvlin. Its VIEW filter matches by MIME type
+#   only, so `resolve-activity` on a passthrough URI says "No activity found" unless you add
+#   -t vnd.android.cursor.item/channel; the launcher sends the type and HDMI 1-4 + Live TV work.
+# - The remote's Input key opens Sony's own bottom panel (a system overlay, independent of launcherx):
+#   INPUT_KEY_SERVICE is not needed.
+# - Voice / Gemini keep working without launcherx: ASSISTANT role, ASSIST and SEARCH all resolve to
+#   com.google.android.katniss. (The Gemini *tab* is part of launcherx and goes away with it.)
+# - The TV has a hardware mic privacy switch; "Microphone is blocked" means that switch, not the debloat.
+
+# ACR viewing tracker and telemetry
+tv.samba.ssm                                   # Samba TV, fingerprints what's on screen (Firebase inside)
+tv.samba.ssm.ui                                # Samba TV opt-in / privacy screens
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.da.service                        # Sony device agent
+com.sonyericsson.idd.agent                     # Sony IDD usage-data agent
+com.google.android.feedback
+
+# Sony promos and content feeds
+com.sony.dtv.promos                            # My BRAVIA promos
+com.sony.dtv.sonyselect                        # Sony Select app promos
+com.sony.dtv.sonytab                           # Sony tab / partner content on the stock home
+
+# Retail demo
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+
+# Optional features, off by owner's choice
+com.google.android.apps.mediashell             # Chromecast built-in
+
+# Needed for a custom launcher on Google TV: the setup wizard grabs Home once launcherx is disabled.
+# Re-enable it (restore.sh does) before a factory reset.
+# WARNING: if Wi-Fi was set up during the first-run wizard, the saved network belongs to setupwraith and
+# Android DELETES it the moment setupwraith is disabled (wifi log: FRAMEWORK_DISCONNECT
+# reason=DISCONNECT_NETWORK_REMOVED, then "No configured networks"); the TV drops off the network and
+# ADB with it. Check first: `dumpsys wifi | grep -o 'cname=[^ ]*'`. If it is not android.uid.system,
+# forget the network and re-join it in Settings > Network (or use Ethernet) BEFORE disabling this.
+com.google.android.tungsten.setupwraith

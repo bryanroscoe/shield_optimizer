@@ -1,16 +1,38 @@
-use super::{BoundedShellControl, bounded_shell::Finish, tcp_transport::TcpTransport};
+//! One APK streamed to the package manager over a dedicated connection that
+//! is first checked to be the selected TV, with a three-way outcome that
+//! never reports an uncertain install as success or failure.
+
+use super::{
+    BoundedShellControl,
+    bounded_shell::{
+        BoundedShellOutput, BoundedShellTermination, CLOSE_STDIN_PACKET, Finish, collect_v2,
+        open_shell_v2,
+    },
+    tcp_transport::TcpTransport,
+};
 use crate::{
     Result, RustADBError,
-    message_devices::{adb_message_device::ADBMessageDevice, adb_service::ADBService},
+    message_devices::{
+        adb_message_device::ADBMessageDevice,
+        adb_service::{OpenFailure, adb_error},
+    },
 };
 use std::{
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     net::SocketAddr,
     path::Path,
+    time::Duration,
 };
 
 /// Maximum retained package-manager response, including output received during upload.
 pub const INSTALL_RESPONSE_LIMIT: usize = 64 * 1024;
+
+/// A hardware id property of this many bytes or more is refused.
+const HARDWARE_ID_OUTPUT_LIMIT: usize = 1023;
+/// Unread identity-query output held while its stdin-close is in flight.
+const HARDWARE_ID_PENDING_LIMIT: usize = 2048;
+/// Largest APK chunk per WRTE; the negotiated payload limit may be smaller.
+const MAX_CHUNK: usize = 1024 * 1024;
 
 /// What the package manager authoritatively reported.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +62,12 @@ pub struct InstallOutcome {
 /// No subprocess, staging path, key creation or automatic retry is used.
 /// The expected ID must come from the selected owned control connection.
 /// Errors before the install-service OPEN return Err; later errors are indeterminate.
+///
+/// Unlike [`super::ADBTcpDevice::install_apks`], which reports any reply
+/// starting with `Success` as installed and anything else as
+/// [`RustADBError::InstallFailed`], this keeps a lost, early or unexpected
+/// result [`InstallStatus::Indeterminate`]. Both stream through the same
+/// [`crate::message_devices::adb_service`] layer.
 pub fn run_streamed_install(
     address: SocketAddr,
     key: &Path,
@@ -60,7 +88,7 @@ pub fn run_streamed_install(
             ADBMessageDevice::new_with_required_key(
                 transport,
                 key,
-                control.remaining()?.min(std::time::Duration::from_secs(30)),
+                control.remaining()?.min(Duration::from_secs(30)),
             )
         },
     )
@@ -97,29 +125,33 @@ where
         bytes_submitted: 0,
         detail: String::new(),
     };
-    // The install-service OPEN may reach the peer even when its ACK is lost.
+    // The install-service OPEN may reach the peer even when its ACK is lost,
+    // and even an explicit refusal is reported as unknown rather than replayed.
     let result: Result<()> = (|| {
-        let session = device.open_raw_service(&service, remaining)?;
-        let mut stream = ADBService::new(session, remaining, remaining)
+        let mut stream = device
+            .open_stream_service_classified(service.as_bytes(), remaining, remaining)
+            .map_err(OpenFailure::into_error)?
             .with_pending_limit(INSTALL_RESPONSE_LIMIT);
+        let chunk_len = stream.max_write().min(MAX_CHUNK);
+        let mut buffer = vec![0_u8; chunk_len];
         let transfer: Result<()> = (|| {
             let mut remaining_bytes = size;
             let mut early_response = false;
-            let mut buffer = [0; 4096];
             while remaining_bytes != 0 {
                 control.remaining()?;
-                let amount = usize::try_from(remaining_bytes.min(buffer.len() as u64))?;
-                input.read_exact(&mut buffer[..amount])?;
+                let amount = usize::try_from(remaining_bytes.min(chunk_len as u64))?;
+                input
+                    .read_exact(&mut buffer[..amount])
+                    .map_err(RustADBError::LocalIo)?;
                 if remaining_bytes == amount as u64 {
-                    let mut extra = [0];
-                    if input.read(&mut extra)? != 0 {
+                    if !at_end(input)? {
                         return Err(RustADBError::ADBRequestFailed(
                             "APK size changed during upload".into(),
                         ));
                     }
-                    stream.write_final(&buffer[..amount])?;
+                    stream.write_final(&buffer[..amount]).map_err(adb_error)?;
                 } else {
-                    stream.write_all(&buffer[..amount])?;
+                    stream.write_all(&buffer[..amount]).map_err(adb_error)?;
                     early_response |= stream.has_pending();
                 }
                 outcome.bytes_submitted += amount as u64;
@@ -127,7 +159,7 @@ where
             }
             loop {
                 control.remaining()?;
-                let count = stream.read(&mut buffer)?;
+                let count = stream.read(&mut buffer).map_err(adb_error)?;
                 if count == 0 {
                     break;
                 }
@@ -157,8 +189,7 @@ where
                 outcome.status = InstallStatus::Rejected;
             }
         }
-        transfer?;
-        Ok(())
+        transfer
     })();
     if let Err(error) = result {
         outcome.detail = error.to_string().chars().take(1024).collect();
@@ -169,13 +200,26 @@ where
     Ok(outcome)
 }
 
+/// Whether `input` has nothing past the declared size.
+fn at_end(input: &mut dyn Read) -> Result<bool> {
+    let mut extra = [0_u8; 1];
+    loop {
+        match input.read(&mut extra) {
+            Ok(read) => return Ok(read == 0),
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(error) => return Err(RustADBError::LocalIo(error)),
+        }
+    }
+}
+
+/// Refuse to go on unless this connection reports exactly `expected` as its
+/// hardware id over a bounded, successful shell-v2 query.
 pub(crate) fn verify_hardware_binding(
     device: &mut ADBMessageDevice<TcpTransport>,
     expected: &str,
     control: &BoundedShellControl,
 ) -> Result<()> {
-    let probe =
-        BoundedShellControl::new(control.remaining()?.min(std::time::Duration::from_secs(5)))?;
+    let probe = BoundedShellControl::new(control.remaining()?.min(Duration::from_secs(5)))?;
     let actual = read_hardware_serial_on_current(device, probe)?;
     if actual.trim() != expected || expected.is_empty() || expected.eq_ignore_ascii_case("unknown")
     {
@@ -187,6 +231,10 @@ pub(crate) fn verify_hardware_binding(
     Ok(())
 }
 
+/// Read the hardware id on the device's current socket under `control`,
+/// borrowing the socket: a normal result leaves it open, while a cancel or
+/// the deadline shuts it down. A control that is already spent is refused
+/// without touching the socket.
 pub(crate) fn read_hardware_serial_on_current(
     device: &mut ADBMessageDevice<TcpTransport>,
     control: BoundedShellControl,
@@ -210,25 +258,20 @@ pub(crate) fn read_hardware_serial_on_current(
     read_hardware_serial(restore.device, &finish.0)
 }
 
-pub(crate) fn read_hardware_serial(
+fn read_hardware_serial(
     device: &mut ADBMessageDevice<TcpTransport>,
     control: &BoundedShellControl,
 ) -> Result<String> {
-    use super::bounded_shell::{
-        BoundedShellOutput, BoundedShellTermination, collect_v2_with_limit,
-    };
-    let remaining = control.remaining()?;
-    let session =
-        device.open_bounded_shell_service("shell,v2,raw:getprop ro.serialno", remaining)?;
-    let mut stream = ADBService::new(session, remaining, remaining).with_pending_limit(2048);
-    stream.write_final(&[4, 0, 0, 0, 0])?;
+    let mut stream = open_shell_v2(device, "getprop ro.serialno", control)?
+        .with_pending_limit(HARDWARE_ID_PENDING_LIMIT);
+    stream.write_final(&CLOSE_STDIN_PACKET).map_err(adb_error)?;
     let mut output = BoundedShellOutput {
         stdout: Vec::new(),
         stderr: Vec::new(),
         exit_code: None,
         termination: BoundedShellTermination::Completed,
     };
-    collect_v2_with_limit(&mut stream, control, &mut output, 1024)?;
+    collect_v2(&mut stream, control, &mut output, HARDWARE_ID_OUTPUT_LIMIT)?;
     if output.exit_code != Some(0)
         || !output.stderr.is_empty()
         || output.termination != BoundedShellTermination::Completed
@@ -341,10 +384,11 @@ pub(crate) mod tests {
                 receive(&mut socket).unwrap().header().command(),
                 MessageCommand::Cnxn
             );
+            // A small negotiated payload makes every upload span several WRTEs.
             let hello = ADBTransportMessage::try_new(
                 MessageCommand::Cnxn,
                 0x0100_0000,
-                1_048_576,
+                4096,
                 b"device::\0",
             )
             .unwrap();
@@ -791,6 +835,11 @@ pub(crate) mod tests {
         assert_eq!(result.status, InstallStatus::Indeterminate);
     }
     pub(crate) fn hello(socket: &mut TcpStream) {
+        hello_with_features(socket, "");
+    }
+
+    /// Answer the host's CNXN as a device advertising `features`.
+    pub(crate) fn hello_with_features(socket: &mut TcpStream, features: &str) {
         socket.set_nodelay(true).unwrap();
         socket
             .set_read_timeout(Some(Duration::from_secs(2)))
@@ -802,11 +851,12 @@ pub(crate) mod tests {
             receive(socket).unwrap().header().command(),
             MessageCommand::Cnxn
         );
+        let banner = format!("device::features={features}\0");
         let response = ADBTransportMessage::try_new(
             MessageCommand::Cnxn,
             0x0100_0000,
             1_048_576,
-            b"device::\0",
+            banner.as_bytes(),
         )
         .unwrap();
         socket.write_all(&response.header().as_bytes()).unwrap();

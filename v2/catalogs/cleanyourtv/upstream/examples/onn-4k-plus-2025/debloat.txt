@@ -1,0 +1,71 @@
+# onn. 4K Plus Streaming (2025, Walmart; device coffey, model "onn. 4K Plus Streaming", Amlogic S905X5M), 2 GB RAM, US
+# Google TV 14 (SDK 34), build URO4.260304.011.B1.15051976 (same build as onn-4k-streaming-box-2023)
+#
+# Apply:   TV_HOST=<ip> tools/disable.sh examples/onn-4k-plus-2025/debloat.txt
+# Undo:    TV_HOST=<ip> tools/restore.sh examples/onn-4k-plus-2025/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. No HDMI inputs or Live TV (it's a box):
+# leave live_tv_package empty in config.xml.
+#
+# Known quirks on this firmware:
+# - USB debugging opens port 5555 straight away; no Wireless debugging pairing needed.
+# - KEEP com.google.android.tv.remote.service. Besides the phone remote it carries the Bluetooth remote's
+#   mic: with it disabled the mic button does nothing at all (no key event, no voice UI). Re-enabling it
+#   brings the mic back. It holds the android.app.role.SYSTEM_TELEVISION_REMOTE_SERVICE role.
+# - The Wi-Fi network saved during first setup belongs to setupwraith (dumpsys wifi: OwnerUid = setupwraith's
+#   uid). Forget and re-join it in Settings > Network & Internet before disabling setupwraith; afterwards it
+#   shows cname=android.uid.system:1000. tools/disable.sh skips setupwraith until then.
+# - setupwraith's RecoveryActivity claims Home (priority 1) and goes before launcherx, as on the Chromecast.
+# - Voice search (Gemini / com.google.android.katniss) keeps working with launcherx disabled.
+# - Remote buttons (/vendor/usr/keylayout/Vendor_0957_Product_0031.kl):
+#     YouTube = KEYCODE_BUTTON_3 and Free TV = KEYCODE_FEATURED_APP_1, both routed to launcherx, so they do
+#     nothing once it is disabled. Netflix = KEYCODE_BUTTON_4; the Disney+ and Paramount+ buttons send
+#     BUTTON_9 / BUTTON_10. Those three go to com.droidlogic's GlobalKeyReceiver ("oneTouchPlay"), which opens
+#     the app, and for a disabled or missing app logs "Cannot find intent" or opens its Play Store page.
+#   InputKeyService (INPUT_KEY_SERVICE=1 launcher/build-and-install.sh) with app_keys remaps them, checked
+#   with the physical remote, e.g. in a theme's config.json:
+#     "app_keys": ["KEYCODE_BUTTON_3:org.smarttube.stable", "KEYCODE_BUTTON_4:com.stremio.one",
+#                  "KEYCODE_FEATURED_APP_1:com.amarullz.androidtv.animetvjmto"]
+# - Free TV / "Freeplay" lives inside launcherx and goes with it.
+# - Google TV / Play Movies (com.google.android.videos) is not preinstalled on this box.
+# - Disabling dreamx leaves no screensaver set (screensaver_components was null; the default was dreamx).
+#   Point it at the launcher's clock: settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+# - Animation scales already ship at 0.5x on this build.
+#
+# Kept on purpose: voice (com.google.android.katniss) and com.google.android.tv.remote.service (see above),
+# onn update prompts (com.onn.updatenotification), remote firmware updates (com.google.android.tv.dfuservice),
+# com.gretzky.GlobalKey (onn remote app buttons), com.droidlogic.* (Amlogic vendor: HDMI, picture, remote
+# buttons), com.onn.bluetoothconnect (BT remote setup), com.google.android.tv.axel (remote audio routing),
+# Play Store / Play Services, Gboard.
+
+# Telemetry and feedback
+com.google.android.feedback
+com.android.tv.feedbackconsent
+
+# Privacy Sandbox / federated learning. APEX modules here, under com.android.* names (com.google.android.*
+# on the Chromecast). Play Store and voice search still work with them off; re-enable if either misbehaves.
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Preloaded apps
+com.google.android.play.games
+com.android.printspooler
+com.google.android.marvin.talkback              # re-enable if you need the screen reader
+
+# Google ambient mode screensaver (replaced by the launcher's Clock screensaver)
+com.google.android.apps.tv.dreamx
+
+# Off by choice on the tested box: comment out the ones you use
+com.google.android.youtube.tv                   # official YouTube (SmartTube used instead)
+com.google.android.youtube.tvmusic
+com.netflix.ninja
+com.netflix.tokenmanager                        # Netflix partner token service, only serves Netflix
+com.google.android.apps.mediashell              # Chromecast built-in
+
+# Stock home. launcher/build-and-install.sh disables launcherx itself once the new launcher is installed
+# and verified, and restore.sh re-enables it; setupwraith has to go too (its RecoveryActivity takes Home),
+# so it stays in the list for restore.sh to bring back.
+# com.google.android.apps.tv.launcherx
+com.google.android.tungsten.setupwraith  # setup wizard; forget and re-join Wi-Fi first (see quirks)

@@ -39,13 +39,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use adb_client::tcp::{ADBTcpDevice, PairingError};
-use adb_client::{ADBDeviceExt, RebootType, RustADBError};
+use adb_client::{RebootType, RustADBError, ShellExit};
 use async_trait::async_trait;
-use serde::Serialize;
-use shield_optimizer_core::adb::{
+use atv_optimizer_core::adb::{
     AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Lease, Leases,
 };
-use shield_optimizer_core::commands::devices::normalize_connect_address;
+use atv_optimizer_core::commands::devices::normalize_connect_address;
+use serde::Serialize;
 
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(30);
 /// Inactivity bound for one shell response, matching the desktop driver's
@@ -178,7 +178,8 @@ fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String
 /// call; the trait surface synthesizes `raw(["devices"])`, routes
 /// `shell`/screencap through the owned device, maps `reboot`, and streams
 /// `push`/`pull` through the sync service via `raw_transfer` and
-/// `pull_limited`. `pair` runs the
+/// `pull_limited`, and streams `install`/`install-multiple` to the package
+/// manager through `raw_transfer`. `pair` runs the
 /// Android-11 SPAKE2 code-pairing exchange in-crate; `forward` is structurally
 /// impossible on a phone and reports `Unsupported`.
 pub struct WirelessAdb {
@@ -282,7 +283,7 @@ impl WirelessAdb {
                 tracing::warn!(error = %error, "wireless transport error — cleared connection");
                 Err(format!("{CONNECTION_LOST_PREFIX}: {error}"))
             } else {
-                Err(error.to_string())
+                Err(request_error_message(&error))
             }
         })
         .await
@@ -320,16 +321,29 @@ impl WirelessAdb {
                 .as_mut()
                 .ok_or_else(|| AdbError::Transport("Not connected to a device.".into()))?;
             validate_requested_serial(&active.serial, &serial).map_err(AdbError::Transport)?;
-            let result = run(&mut active.device, control.clone());
-            if result.is_err() && control.was_registered() {
+            let error = match run(&mut active.device, control.clone()) {
+                Ok(value) => return Ok(value),
+                Err(error) => error,
+            };
+            // Nothing reached the socket under this deadline, so the
+            // connection is as healthy as before the request.
+            if !control.was_registered() {
+                return Err(AdbError::Transport(request_error_message(&error)));
+            }
+            // As in `on_device`: an answer from the TV (a sync FAIL, a shell
+            // stream without an exit status) keeps it connected. Lost framing,
+            // a dead socket, or one the deadline or a cancel shut down (which
+            // the probe sees) is evicted so the next request reconnects.
+            if is_fatal_transport_error(&error) || !probe_alive(&mut active.device) {
                 *guard = None;
                 *lock_recovering(&identity) = None;
+                tracing::warn!(error = %error, "wireless transport error — cleared connection");
+                Err(AdbError::Transport(format!(
+                    "{CONNECTION_LOST_PREFIX}: {error}. The command's outcome is unknown; check the TV before retrying."
+                )))
+            } else {
+                Err(AdbError::Transport(request_error_message(&error)))
             }
-            result.map_err(|error| {
-                AdbError::Transport(format!(
-                    "Native operation failed; outcome may be unknown: {error}"
-                ))
-            })
         });
         match tokio::time::timeout_at(deadline, worker).await {
             Ok(result) => result.map_err(|error| AdbError::Uncertain {
@@ -340,7 +354,11 @@ impl WirelessAdb {
                 // Cancellation and socket registration serialize before the certainty decision.
                 observed.cancel();
                 if observed.was_registered() {
-                    Err(AdbError::Uncertain { operation: "native command", detail: "Total deadline reached after socket admission; verify outcome before retrying.".into() })
+                    // The cancel shuts the socket down; the worker evicts it.
+                    Err(AdbError::Uncertain {
+                        operation: "native command",
+                        detail: format!("{CONNECTION_LOST_PREFIX} at the total deadline after the command started; verify the outcome before retrying"),
+                    })
                 } else {
                     Err(AdbError::Transport(
                         "Native command deadline reached while queued; no command was started."
@@ -441,6 +459,19 @@ impl WirelessAdb {
     }
 
     pub async fn connect(&self, host: &str, port: u16, request_id: u64) -> Result<String, String> {
+        self.connect_within(host, port, request_id, AUTHORIZATION_TIMEOUT)
+            .await
+    }
+
+    /// `connect` under an explicit handshake budget, so loopback tests can
+    /// exercise the approval-timeout path without waiting 30 seconds.
+    async fn connect_within(
+        &self,
+        host: &str,
+        port: u16,
+        request_id: u64,
+        budget: Duration,
+    ) -> Result<String, String> {
         let _lifecycle = self.lifecycle.lock().await;
         lock_recovering(&self.requests).check(request_id)?;
         normalize_connect_address(&format!("{host}:{port}"))?;
@@ -456,7 +487,7 @@ impl WirelessAdb {
         let serial = format!("{host}:{port}");
 
         let operation = self.work()?;
-        let control = adb_client::tcp::BoundedShellControl::new(AUTHORIZATION_TIMEOUT)
+        let control = adb_client::tcp::BoundedShellControl::new(budget)
             .map_err(|error| format!("Connection deadline: {error}"))?;
         let mut attempt = ConnectionAttempt {
             requests: requests.clone(),
@@ -488,7 +519,7 @@ impl WirelessAdb {
             );
             drop(observation);
             let mut device = device.map_err(|e| {
-                tracing::warn!(serial = %serial, error = %e, "wireless authorization failed");
+                tracing::warn!(serial = %serial, error = %e, "wireless connect failed");
                 connect_error_message(&e)
             })?;
             // A previous command may still own the connection mutex. Keep this
@@ -675,23 +706,17 @@ impl AdbDriver for WirelessAdb {
                         "Download identity check failed before creating a file: {error}"
                     ))
                 })?;
-            let stat = device
-                .stat(&remote)
-                .map_err(|error| AdbError::Transport(error.to_string()))?;
-            if u64::from(stat.file_size) > max_bytes {
-                return Err(AdbError::Transport(
-                    "Download exceeds the file size limit.".into(),
-                ));
-            }
             control.remaining()?;
             // Publish only a complete download; rejection or cancellation must
             // neither leave a partial file nor truncate an existing destination.
             let parent = local.parent().filter(|path| !path.as_os_str().is_empty());
             let mut staged = tempfile::NamedTempFile::new_in(parent.unwrap_or(Path::new(".")))?;
+            // The size check and the transfer share one sync session; the
+            // writer still stops a file that grows past the limit meanwhile.
             let mut writer = crate::limited_writer::LimitedWriter::new(&mut staged, max_bytes);
             device
-                .pull(&remote, &mut writer)
-                .map_err(|error| AdbError::Transport(error.to_string()))?;
+                .pull_with_limit(&remote, &mut writer, max_bytes)
+                .map_err(|error| AdbError::Transport(download_error_message(&error)))?;
             control.remaining()?;
             std::io::Write::flush(&mut writer)?;
             control.remaining()?;
@@ -757,18 +782,9 @@ impl AdbDriver for WirelessAdb {
     /// transfer cannot evict the selected TV's session.
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
-            ["-s", serial, "install", local] => {
-                self.streamed_install_impl(serial, local, false).await
+            ["-s", serial, verb @ ("install" | "install-multiple"), rest @ ..] => {
+                self.install_impl(serial, verb, rest).await
             }
-            ["-s", serial, "install", "-r", local] => {
-                self.streamed_install_impl(serial, local, true).await
-            }
-            ["-s", _, "install", ..] => Err(AdbError::Unsupported {
-                operation: "install_flags",
-            }),
-            ["-s", _, "install-multiple", ..] => Err(AdbError::Unsupported {
-                operation: "install_multiple",
-            }),
             ["-s", serial, "pull", remote, local] => {
                 self.pull_limited(serial, remote, Path::new(local), u64::MAX)
                     .await?;
@@ -780,15 +796,14 @@ impl AdbDriver for WirelessAdb {
             }
             ["-s", serial, "push", local, remote] => {
                 let remote = remote.to_string();
-                let local = PathBuf::from(local);
+                // A local storage error must not reach (or evict) a healthy
+                // TV connection, so the file is opened before any TV work.
+                let mut file = std::fs::File::open(local)
+                    .map_err(|e| AdbError::Transport(format!("open {local}: {e}")))?;
                 self.on_device_controlled(
                     serial,
                     Duration::from_secs(15 * 60),
-                    move |dev, control| {
-                        control.remaining()?;
-                        let mut file = std::fs::File::open(&local)?;
-                        dev.push_with_control(&mut file, &remote, control)
-                    },
+                    move |dev, control| dev.push_with_control(&mut file, &remote, control),
                 )
                 .await?;
                 Ok(AdbOutput {
@@ -807,7 +822,7 @@ impl AdbDriver for WirelessAdb {
         &self,
         serial: &str,
         command: &str,
-    ) -> AdbResult<shield_optimizer_core::adb::driver::BoundedShellOutput> {
+    ) -> AdbResult<atv_optimizer_core::adb::driver::BoundedShellOutput> {
         self.bounded_shell_impl(serial, command).await
     }
 
@@ -822,27 +837,29 @@ impl AdbDriver for WirelessAdb {
                     crate::limited_writer::LimitedWriter::new(&mut out, 512 * 1024);
                 let mut bounded_err =
                     crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
-                let code = dev.shell_command_with_control(
-                    &command,
-                    Some(&mut bounded_out),
-                    Some(&mut bounded_err),
-                    control,
-                )?;
-                Ok((
-                    crate::limited_writer::bounded_text(&out, 512 * 1024)?,
-                    crate::limited_writer::bounded_text(&err, 512 * 1024)?,
-                    code,
-                ))
+                // A v2 stream that ends without its exit status is an error
+                // here (`ShellExitUnknown`), never a success; `None` is only
+                // the legacy shell, which has no status to report.
+                let exit = dev
+                    .shell_command_with_control(
+                        &command,
+                        Some(&mut bounded_out),
+                        Some(&mut bounded_err),
+                        control,
+                    )?
+                    .map_or(ShellExit::Unreported, ShellExit::Code);
+                // Over-limit text is a local refusal; the socket is fine.
+                let text = |bytes: &[u8]| {
+                    crate::limited_writer::bounded_text(bytes, 512 * 1024)
+                        .map_err(RustADBError::LocalIo)
+                };
+                Ok((text(&out)?, text(&err)?, exit))
             })
             .await?;
         Ok(AdbOutput {
             stdout,
             stderr,
-            // shell-v2 reports the real exit status. The shell-v1 fallback on
-            // very old devices has none; report 0 there so `success()` is not
-            // permanently false, and let `shell_reported_failure()` judge the
-            // text as it does for every other path.
-            exit_code: Some(code.map(|c| c as i32).unwrap_or(0)),
+            exit_code: Some(exit_code_for(code)),
         })
     }
 
@@ -857,22 +874,30 @@ impl AdbDriver for WirelessAdb {
         };
         self.on_device_controlled(serial, SHELL_INACTIVITY_TIMEOUT, |dev, control| {
             // Keep stderr separate from PNG bytes; refuse the unbounded framebuffer path.
+            // Only shell v2 is binary-safe here: the legacy shell runs under
+            // a pty that rewrites the PNG's line endings, so it is refused
+            // rather than returning a corrupted image.
+            if !dev.has_feature("shell_v2") {
+                return Err(RustADBError::ADBRequestFailed(
+                    "This TV's ADB has no shell v2, so screenshots are unavailable over this connection."
+                        .into(),
+                ));
+            }
             let mut out: Vec<u8> = Vec::new();
             let mut err: Vec<u8> = Vec::new();
             let mut bounded_out =
                 crate::limited_writer::LimitedWriter::new(&mut out, 64 * 1024 * 1024);
             let mut bounded_err = crate::limited_writer::LimitedWriter::new(&mut err, 512 * 1024);
-            let shot = dev.shell_command_with_control(
+            let exit = dev.shell_command_with_control(
                 &"screencap -p",
                 Some(&mut bounded_out),
                 Some(&mut bounded_err),
                 control,
-            );
-            shot?;
-            if out.starts_with(b"\x89PNG") {
+            )?;
+            if exit == Some(0) && out.starts_with(b"\x89PNG") {
                 Ok(out)
             } else {
-                Err(adb_client::RustADBError::ADBRequestFailed(
+                Err(RustADBError::ADBRequestFailed(
                     "Screenshot did not return PNG; unbounded framebuffer fallback is unavailable."
                         .into(),
                 ))
@@ -884,16 +909,16 @@ impl AdbDriver for WirelessAdb {
     async fn device_binding(
         &self,
         serial: &str,
-    ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
+    ) -> AdbResult<atv_optimizer_core::adb::AdbDeviceBinding> {
         self.device_binding_impl(serial).await
     }
 
     async fn open_bound_device_service(
         &self,
-        binding: &shield_optimizer_core::adb::AdbDeviceBinding,
+        binding: &atv_optimizer_core::adb::AdbDeviceBinding,
         service: &str,
         lifetime: Duration,
-    ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
+    ) -> AdbResult<atv_optimizer_core::adb::AdbOwnedService> {
         self.open_bound_device_service_impl(binding, service, lifetime)
             .await
     }
@@ -943,15 +968,26 @@ impl std::io::Write for CountedStream {
 pub type SharedWirelessAdb = Arc<WirelessAdb>;
 
 /// Errors that mean the socket or its framing is unusable, as opposed to a
-/// request adbd answered with a failure.
+/// request adbd answered with a failure. `PayloadTooLarge` is refused before
+/// anything reaches the socket, so it leaves the connection intact, as do a
+/// sync `FAIL` (`SyncFailed`), a package-manager refusal (`InstallFailed`), a
+/// local file error (`LocalIo`), a file over the caller's limit
+/// (`FileTooLarge`) and a shell v2 stream that closed without its exit status
+/// (`ShellExitUnknown`, still double-checked by the liveness probe). A
+/// connection that lost framing mid-message reports `ProtocolError` on every
+/// later use, so it is dropped and the next request reconnects.
 fn is_fatal_transport_error(error: &RustADBError) -> bool {
     matches!(
         error,
         RustADBError::IOError(_)
             | RustADBError::PoisonError
             | RustADBError::TLSError(_)
+            | RustADBError::TlsAuthRejected(_)
+            | RustADBError::TlsConnectionClosed(_)
             | RustADBError::UpgradeError(_)
             | RustADBError::WrongResponseReceived(..)
+            | RustADBError::ProtocolError(_)
+            | RustADBError::InvalidIntegrity(..)
             | RustADBError::ADBShellNotSupported
     )
 }
@@ -966,6 +1002,36 @@ fn probe_alive(dev: &mut ADBTcpDevice) -> bool {
     )
     .is_ok()
         && String::from_utf8_lossy(&stdout).contains("ok")
+}
+
+/// What a request that failed on a still-live connection tells the user.
+fn request_error_message(error: &RustADBError) -> String {
+    match error {
+        RustADBError::ShellExitUnknown => {
+            "The TV ended the command before reporting a result, so whether it worked is unknown."
+                .to_string()
+        }
+        other => other.to_string(),
+    }
+}
+
+fn download_error_message(error: &RustADBError) -> String {
+    match error {
+        RustADBError::FileTooLarge(..) => "Download exceeds the file size limit.".to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Shell v2 reports the command's own exit status. The legacy shell, used
+/// only by devices without shell v2, reports none: it maps to 0 so
+/// `success()` is not permanently false there, and `shell_reported_failure()`
+/// judges its text as on every path. A v2 stream that ended without a status
+/// never reaches this; the transport returns it as `ShellExitUnknown`.
+fn exit_code_for(exit: ShellExit) -> i32 {
+    match exit {
+        ShellExit::Code(code) => i32::from(code),
+        ShellExit::Unreported => 0,
+    }
 }
 
 fn shell_timeout_for(command: &str) -> Duration {
@@ -984,18 +1050,35 @@ fn shell_timeout_for(command: &str) -> Duration {
     }
 }
 
+/// Connect guidance shared by the desktop and phone apps. Each arm names only
+/// what the error shows: the approval prompt is mentioned only when the TV
+/// was reached, and a hang-up without a TLS alert never claims "unpaired".
 fn connect_error_message(error: &RustADBError) -> String {
-    if error.is_client_identity_rejected() {
-        return "The TV rejected this app's wireless debugging identity. Open Wireless debugging > Pair device with pairing code on the TV, then use Pair PIN with that code and pairing port. After pairing, connect using the separate port on the main Wireless debugging screen.".into();
+    if matches!(error, RustADBError::TlsAuthRejected(_)) || error.is_client_identity_rejected() {
+        return "This TV hasn't paired with this app's wireless debugging identity. On the TV, open Wireless debugging › Pair device with pairing code, pair using that code and its pairing port, then connect using the separate port on the main Wireless debugging screen.".into();
     }
     match error {
+        // No TLS alert: a network drop looks the same as a silent refusal,
+        // so this must not claim the key is unpaired.
+        RustADBError::TlsConnectionClosed(_) => {
+            "The TV closed the secure connection. Check that this device and the TV are on the same network and try again. If this keeps happening, pair again from Wireless debugging › Pair device with pairing code.".to_string()
+        }
+        RustADBError::IOError(io) if is_timeout(io) && is_handshake_timeout(io) => {
+            "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).".to_string()
+        }
+        // A bare timeout is the TCP connect itself: nothing answered, so no
+        // approval prompt can be showing. The wording keeps "timed out" so the
+        // shared error codes read it as a timeout.
+        RustADBError::IOError(io) if is_timeout(io) => {
+            "Connection timed out: nothing answered at that address. Check the TV's current IP address, that it's awake, and that it's on the same network as this device.".to_string()
+        }
         RustADBError::IOError(io)
             if matches!(
                 io.kind(),
-                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                std::io::ErrorKind::NetworkUnreachable | std::io::ErrorKind::HostUnreachable
             ) =>
         {
-            "The ADB connection timed out. Check the TV's current IP and Network debugging, then try again. If an Allow debugging prompt appears on the TV, approve it within 30 seconds (and select Always allow when offered).".to_string()
+            "Network is unreachable: this device has no route to that address. Check that it's on the TV's network, then try again.".to_string()
         }
         RustADBError::IOError(io)
             if matches!(
@@ -1005,15 +1088,32 @@ fn connect_error_message(error: &RustADBError) -> String {
                     | std::io::ErrorKind::UnexpectedEof
             ) =>
         {
-            "The ADB connection closed before setup finished. Check the TV's current IP and debugging settings, then try again. Approve an Allow debugging prompt on the TV if one appears.".to_string()
+            "The TV closed the connection before setup finished. Check the TV's current IP and debugging settings, then try again. Approve an Allow debugging prompt on the TV if one appears.".to_string()
         }
         RustADBError::IOError(io)
             if matches!(io.kind(), std::io::ErrorKind::ConnectionRefused) =>
         {
-            "Couldn't reach the TV. Confirm Network debugging is enabled and both devices are on the same local network, then try again.".to_string()
+            "Connection refused: nothing at that address accepts ADB connections on this port. Check the port, and that Network debugging is enabled on the TV.".to_string()
         }
         _ => "Couldn't finish the ADB connection. Check the TV's current IP and debugging settings. Approve an Allow debugging prompt on the TV if one appears, then try again.".to_string(),
     }
+}
+
+fn is_timeout(io: &std::io::Error) -> bool {
+    matches!(
+        io.kind(),
+        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+    )
+}
+
+/// The vendored transport reports a CNXN/TLS/AUTH exchange that ran out its
+/// deadline with its own "… handshake timed out" error. The TCP connect's
+/// timeout is the operating system's, so only this one means the TV was
+/// reached and is waiting on (or ignoring) the approval prompt.
+/// `a_silent_tv_times_out_as_an_approval_wait` pins the vendored wording.
+fn is_handshake_timeout(io: &std::io::Error) -> bool {
+    io.get_ref()
+        .is_some_and(|inner| inner.to_string().contains("handshake timed out"))
 }
 
 /// Strip separators the TV's on-screen code is sometimes read back with and
@@ -1144,13 +1244,155 @@ mod tests {
     }
 
     use super::{
-        connect_error_message, is_fatal_transport_error, normalize_pairing_code,
-        pair_error_message, shell_timeout_for, validate_requested_serial, SHELL_INACTIVITY_TIMEOUT,
+        connect_error_message, download_error_message, exit_code_for, is_fatal_transport_error,
+        normalize_pairing_code, pair_error_message, request_error_message, shell_timeout_for,
+        validate_requested_serial, CONNECTION_LOST_PREFIX, SHELL_INACTIVITY_TIMEOUT,
         SLOW_SHELL_INACTIVITY_TIMEOUT,
     };
     use adb_client::tcp::PairingError;
-    use adb_client::RustADBError;
+    use adb_client::{RustADBError, ShellExit};
     use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn answers_from_the_device_keep_the_connection_but_lost_framing_does_not() {
+        for answered in [
+            RustADBError::SyncFailed("push: No space left on device".to_string()),
+            RustADBError::InstallFailed("Failure [INSTALL_FAILED_OLDER_SDK]".to_string()),
+            RustADBError::LocalIo(Error::new(ErrorKind::StorageFull, "phone full")),
+            RustADBError::ShellExitUnknown,
+            RustADBError::FileTooLarge(10, 5),
+        ] {
+            assert!(!is_fatal_transport_error(&answered), "{answered:?}");
+        }
+        assert!(is_fatal_transport_error(&RustADBError::ProtocolError(
+            "the connection lost ADB message framing after an interrupted read or write; reconnect"
+                .to_string(),
+        )));
+    }
+
+    #[test]
+    fn only_shell_v2_reports_a_real_exit_status() {
+        assert_eq!(exit_code_for(ShellExit::Code(0)), 0);
+        assert_eq!(exit_code_for(ShellExit::Code(255)), 255);
+        // The legacy shell has no status; its text is judged instead.
+        assert_eq!(exit_code_for(ShellExit::Unreported), 0);
+    }
+
+    #[test]
+    fn a_handshake_timeout_explains_the_tv_approval_prompt() {
+        let message = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::TimedOut,
+            "ADB connection handshake timed out",
+        )));
+        assert!(message.contains("Allow"));
+        assert!(message.contains("30 seconds"));
+        assert!(!message.contains("handshake"));
+    }
+
+    #[test]
+    fn a_tcp_connect_timeout_never_mentions_an_approval_prompt() {
+        // `TcpStream::connect_timeout` fails with a bare OS timeout.
+        for kind in [ErrorKind::TimedOut, ErrorKind::WouldBlock] {
+            let message = connect_error_message(&RustADBError::IOError(Error::from(kind)));
+            assert!(message.starts_with("Connection timed out"), "{message}");
+            assert!(message.contains("IP address"), "{message}");
+            assert!(!message.contains("Allow"), "{message}");
+            assert!(!message.contains("30 seconds"), "{message}");
+        }
+    }
+
+    #[test]
+    fn an_unreachable_network_says_so() {
+        for kind in [ErrorKind::NetworkUnreachable, ErrorKind::HostUnreachable] {
+            let message = connect_error_message(&RustADBError::IOError(Error::from(kind)));
+            assert!(message.starts_with("Network is unreachable"), "{message}");
+            assert!(!message.contains("Allow"), "{message}");
+        }
+    }
+
+    #[test]
+    fn an_unpaired_key_explains_how_to_pair() {
+        let message = connect_error_message(&RustADBError::TlsAuthRejected(
+            "TLS alert CertificateUnknown".to_string(),
+        ));
+        assert!(message.contains("hasn't paired"));
+        assert!(message.contains("Pair device with pairing code"));
+        assert!(message.contains("pairing port"));
+        assert!(!message.contains("CertificateUnknown"));
+        assert!(!message.contains("Allow debugging"));
+    }
+
+    #[test]
+    fn a_closed_secure_connection_hedges_instead_of_claiming_unpaired() {
+        let message = connect_error_message(&RustADBError::TlsConnectionClosed(Error::new(
+            ErrorKind::ConnectionReset,
+            "raw reset",
+        )));
+        assert!(message.contains("closed the secure connection"));
+        assert!(message.contains("If this keeps happening, pair again"));
+        assert!(!message.contains("hasn't paired"));
+        assert!(!message.contains("raw reset"));
+        assert!(is_fatal_transport_error(
+            &RustADBError::TlsConnectionClosed(Error::new(ErrorKind::UnexpectedEof, "eof"),)
+        ));
+    }
+
+    #[test]
+    fn a_command_without_a_result_reads_as_unknown_not_as_a_parse_or_lost_connection() {
+        assert!(!is_fatal_transport_error(&RustADBError::ShellExitUnknown));
+        let message = request_error_message(&RustADBError::ShellExitUnknown);
+        assert!(message.contains("unknown"), "{message}");
+        assert!(!message.contains("pars"), "{message}");
+        assert!(!message.contains(CONNECTION_LOST_PREFIX), "{message}");
+        assert_eq!(
+            request_error_message(&RustADBError::ADBRequestFailed("x".to_string())),
+            RustADBError::ADBRequestFailed("x".to_string()).to_string()
+        );
+    }
+
+    #[test]
+    fn an_oversized_download_keeps_the_connection_and_says_why() {
+        let error = RustADBError::FileTooLarge(3 << 30, 2 << 30);
+        assert!(!is_fatal_transport_error(&error));
+        assert_eq!(
+            download_error_message(&error),
+            "Download exceeds the file size limit."
+        );
+    }
+
+    #[test]
+    fn existing_connect_guidance_is_unchanged_by_new_errors() {
+        let timeout = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::WouldBlock,
+            "TLS handshake timed out",
+        )));
+        assert!(timeout.contains("30 seconds"));
+        let closed = connect_error_message(&RustADBError::IOError(Error::new(
+            ErrorKind::UnexpectedEof,
+            "raw",
+        )));
+        assert!(closed.contains("closed the connection"));
+        let protocol =
+            connect_error_message(&RustADBError::ProtocolError("bad header magic".to_string()));
+        assert!(protocol.contains("Allow debugging"));
+        assert!(!protocol.contains("magic"));
+    }
+
+    #[test]
+    fn framing_and_trust_failures_evict_but_a_refused_oversized_write_does_not() {
+        assert!(is_fatal_transport_error(&RustADBError::ProtocolError(
+            "bad header magic".to_string(),
+        )));
+        assert!(is_fatal_transport_error(&RustADBError::InvalidIntegrity(
+            1, 2
+        )));
+        assert!(is_fatal_transport_error(&RustADBError::TlsAuthRejected(
+            "TLS alert UnknownCA".to_string(),
+        )));
+        assert!(!is_fatal_transport_error(&RustADBError::PayloadTooLarge(
+            70_000, 4_096,
+        )));
+    }
 
     #[test]
     fn only_socket_level_errors_are_fatal() {
@@ -1196,8 +1438,6 @@ mod tests {
             ErrorKind::TimedOut,
             "raw OS timeout",
         )));
-        assert!(message.contains("Allow"));
-        assert!(message.contains("30 seconds"));
         assert!(message.contains("current IP"));
         assert!(!message.contains("didn't approve"));
         assert!(!message.contains("raw OS timeout"));

@@ -1,6 +1,6 @@
 use super::{validate_requested_serial, CountedStream, WirelessAdb};
 use adb_client::tcp::{open_bound_service, BoundServiceError, BoundedShellControl};
-use shield_optimizer_core::adb::{
+use atv_optimizer_core::adb::{
     AdbDeviceBinding, AdbError, AdbOwnedService, AdbResult, AdbServiceCancellation,
 };
 use std::{sync::Arc, time::Duration};
@@ -67,7 +67,7 @@ impl WirelessAdb {
             ));
         }
         let expected =
-            shield_optimizer_core::commands::devices::verified_hardware_id(&binding.hardware_id)
+            atv_optimizer_core::commands::devices::verified_hardware_id(&binding.hardware_id)
                 .ok_or_else(|| {
                     AdbError::Transport("A verified hardware binding is required.".into())
                 })?
@@ -115,19 +115,19 @@ impl WirelessAdb {
                 Some(timeout) => stream.with_read_timeout(timeout)?,
                 None => stream,
             };
-            Ok(Box::new(stream) as Box<dyn shield_optimizer_core::adb::AdbByteStream>)
+            Ok(Box::new(stream) as Box<dyn atv_optimizer_core::adb::AdbByteStream>)
         })
         .await
     }
 }
 
 async fn open_worker<F>(
-    operation: Arc<shield_optimizer_core::adb::Lease>,
+    operation: Arc<atv_optimizer_core::adb::Lease>,
     control: BoundedShellControl,
     open: F,
 ) -> AdbResult<AdbOwnedService>
 where
-    F: FnOnce(BoundedShellControl) -> AdbResult<Box<dyn shield_optimizer_core::adb::AdbByteStream>>
+    F: FnOnce(BoundedShellControl) -> AdbResult<Box<dyn atv_optimizer_core::adb::AdbByteStream>>
         + Send
         + 'static,
 {
@@ -160,7 +160,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shield_optimizer_core::adb::{AdbDriver, Leases};
+    use atv_optimizer_core::adb::{AdbDriver, Leases};
     #[tokio::test]
     async fn invalid_bound_service_requests_fail_before_any_identity_or_network_work() {
         let operations = Leases::new();

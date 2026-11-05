@@ -1,0 +1,84 @@
+# Nokia Streaming Box 8010 (Sagemcom/NES, product SEI804NK, device YYJ, Amlogic), ~3.5 GB RAM
+# Android TV 14 (SDK 34), build UKG3.250803.001, 32-bit (armeabi-v7a)
+# Fingerprint: Nokia/SEI804NK/YYJ:14/UKG3.250803.001/7475:user/release-keys
+#
+# Apply:   launcher/build-and-install.sh first (this list disables the stock launcher), then
+#          TV_HOST=<box ip> tools/disable.sh examples/nokia-streaming-box-8010/debloat.txt
+# Undo:    TV_HOST=<box ip> tools/restore.sh examples/nokia-streaming-box-8010/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Reboot-checked twice: every package stays disabled, Home and the remote's Home key land on the new
+# launcher, all apps play.
+#
+# Not the 8000: the Nokia Streaming Box 8000 (SEI600NK4, PR #326) refuses every `pm disable*`. This
+# 8010 build accepts `pm disable-user --user 0` for everything below, so the normal tools/disable.sh
+# and launcher/build-and-install.sh work and no suspend or Home redirect is needed. Check
+# `getprop ro.product.model` before picking a list.
+#
+# Connecting: Developer options > USB debugging and Network debugging. Port 5555 opens without pairing,
+# but ro.adb.secure=1, so the computer has to be accepted on screen once. The box advertises _adb._tcp
+# over mDNS. Unlike the 8000, network debugging survives a reboot here: switch it off when done.
+#
+# Launcher: the stock home is com.google.android.tvlauncher (classic Android TV, HOME priority 2, with
+# Shop and Discover tabs); the only other HOME candidate is Settings' FallbackHome. setupwraith does not
+# claim HOME, and the saved Wi-Fi belongs to Play services (com.google.android.gms), not setupwraith.
+# Location is off (location_mode=0), so the network pill reads "Wi-Fi", not the network name.
+# Screensaver: backdrop is the default dream. Point it at the launcher's clock before disabling it:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+#
+# Hoppr: com.hoppr.androidtv.thumper.prodtv (4.6.0.30, /system/priv-app/Hoppr_Newest) is preinstalled
+# and runs from boot as a foreground service. It holds RECORD_AUDIO, READ_CONTACTS,
+# ACCESS_BACKGROUND_LOCATION, BLUETOOTH_SCAN and READ_TV_LISTINGS, requests AD_ID, ad attribution,
+# PACKAGE_USAGE_STATS and QUERY_ALL_PACKAGES, and its code has ShowAdvertActionImpl, AnalyticsManager,
+# RemoteKeyEventActionImpl, LogcatEventProducer and an AccessibilityController. AdGuard DNS does not
+# block it (hopprtv.com, hoppr.com.au resolve), so disabling it is the only way to stop it.
+#
+# Private DNS with dns.adguard-dns.com works (Android 14), see PROMPT.md.
+#
+# Kept on purpose (load-bearing or wanted, checked with dumpsys package):
+#   com.nes.blerc                  Bluetooth remote service
+#   com.standard.irtvcontrol       IR control of the TV from the box remote
+#   com.nes.tvglobalkeyhandler     remote app buttons
+#   com.nes.recents                recent-apps screen
+#   com.nes.remoteota.*            remote firmware updates
+#   com.nes.coreservice            front LED, OTA messages and an analytics receiver mixed together
+#   com.nes.skywayclient           NES device manager: firmware check, privacy agreement
+#   com.nes.sound.daemon           persistent audio/HDMI daemon
+#   com.sei.hdmi.services          persistent HDMI-CEC service
+#   com.nes.seiserialportrouter    serial port service, not running, left alone
+#   com.droidlogic.*               Amlogic vendor (Settings, TV inputs, CEC, picture)
+#   org.dtvkit.inputsource, com.android.providers.tv, Play Store/Services, Gboard,
+#   com.google.android.tv.remote.service (phone remote), com.google.android.apps.mediashell (Chromecast),
+#   com.google.android.tvsetup.partnercustomizer, Netflix
+# Shipped disabled: com.android.tv.frameworkpackagestubs, com.nes.seilivetv, com.google.android.tv.axel.
+
+# Ad tech, telemetry and feedback
+com.hoppr.androidtv.thumper.prodtv              # Hoppr ad and analytics engine, see header
+com.google.android.feedback
+com.google.android.partnersetup                 # Google RLZ partner attribution pings
+com.android.adservices.api                      # Privacy Sandbox ad services
+com.android.ondevicepersonalization.services    # ad personalisation
+com.android.federatedcompute.services           # federated ad/usage learning
+com.nes.bugreportsender                         # NES bug report mailer (INTERNET, GET_ACCOUNTS)
+
+# Content rows and partner auto-installs
+com.google.android.tvrecommendations            # recommendation rows for the stock launcher
+com.nes.leanbacklauncher.partnercustomizer      # Nokia's Shop/Discover row config for the stock launcher
+android.autoinstalls.config.sei                 # Play auto-install of partner apps
+com.google.android.backdrop                     # ambient screensaver, set ClockDream first (header)
+
+# Stock launcher, replaced by launcher/
+com.google.android.tvlauncher
+
+# Factory/test leftovers and preloads nobody uses on a TV
+com.nes.dvb.playtest                            # DVB factory play test
+com.utsmta.app                                  # factory test, listens for USB sticks
+com.android.printspooler
+com.google.android.syncadapters.calendar
+com.google.android.play.games
+com.google.android.marvin.talkback              # re-enable if you need the screen reader
+
+# Off by choice
+com.google.android.youtube.tvmusic
+com.google.android.katniss                      # Google Assistant: the remote's mic button stops working
+com.google.android.youtube.tv                   # replaced by SmartTube
+com.amazon.amazonvideo.livingroom               # Prime Video

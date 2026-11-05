@@ -1,0 +1,91 @@
+# Philips 65PUS8102/12 (TP Vision TPM171E, device PH7M_EU_5596), Europe, 2017 model
+# Android TV 8.0.0 (API 26; shipped with 6.0), firmware TPM171E_R.107.001.143.000 (the final
+# release for this platform, 2021-12-07), security patch 2021-01-05.
+# MediaTek MT5891, armeabi-v7a, 1.9 GB RAM, 3840x2160 panel (1080p UI).
+# Fingerprint: Philips/PH7M_EU_5596/PH7M_EU_5596:8.0.0/OC/4718:user/release-keys
+#
+# Same platform, device and firmware build as examples/philips-55pus7503. This list contains that
+# one and adds the TP Vision DAC analytics pair, the Inscape ACR client, the NetTV app store and its
+# preinstalled web apps, and the voice assistants. App labels below were read from each APK with
+# `aapt dump badging`, not guessed from the package name.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/philips-65pus8102/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/philips-65pus8102/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (not in this list; build-and-install.sh disables it
+#                 after the new Home is running)
+# Live TV app:    org.droidtv.playtv
+# Launcher config: set live_tv_package to org.droidtv.playtv and add it to hidden_apps.
+#
+# ADB: USB debugging alone opens TCP 5555. The RSA prompt did not appear at first; it came after
+# revoking USB debugging authorisations, toggling debugging off and on, and a power cycle at the
+# mains (not standby). The stock adb binary raised the prompt; tools/tv.py timed out before it was
+# accepted, and works normally once the key is authorised.
+#
+# Kept on purpose, do NOT disable:
+#   org.droidtv.nettvbrowser   It is the HbbTV handler (registered for application/vnd.hbbtv.xhtml+xml)
+#                              and hosts the Opera "browser" engine process. Disabling it breaks the red
+#                              button on broadcast channels. It also runs NetTV web apps, which are below.
+#   org.droidtv.eum            User manual. Hidden from the launcher grid instead of disabled: on the
+#                              Android 11 Philips (examples/philips-50pus8517, quirk 5) disabling it hangs
+#                              the TV engine. Not tested here.
+#   org.droidtv.playtv, org.droidtv.xtv, org.droidtv.GlobalKey, org.droidtv.settings,
+#   org.droidtv.tvsystemui, com.mediatek.tvinput, com.mediatek.tunerservice: tuner, sources, remote.
+#   Chromecast (com.google.android.apps.mediashell), firmware updates, Ambilight/Hue, Play Store.
+#
+# Not removable: /vendor/bin/inscape_fp, the Inscape fingerprinting daemon, is an init service
+# (init.svc.inscape_fp) and keeps running without root. With the client below disabled and
+# persist.sys.droidtv.ACR_Enable=0 (ACR terms not accepted) it collects nothing.
+#
+# Verified on the real TV: replacement Home, launch and return for Netflix, Disney+, HBO Max,
+# Apple TV, MTV Katsomo, Spotify and YouTube; Live TV and HDMI from the Inputs menu; no crash loops
+# after disabling candeebug + gel (their services stop and are not restarted). Soak test over
+# standby and reboots still running.
+
+# Google feedback, tutorials and recommendation rows (same as philips-55pus7503)
+com.google.android.feedback                       # Market Feedback Agent
+com.google.android.tvtutorials                    # Android TV first-run tutorials
+com.google.android.tvrecommendations              # Android TV recommendations/content rows
+com.google.android.leanbacklauncher.recommendations
+
+# Philips promotion and telemetry
+org.droidtv.demome                                # Retail/store demonstration app
+org.droidtv.nettvrecommender                      # Philips NetTV / Top Picks recommendation row
+org.droidtv.usagelogger                           # Boot stats, remote keypress counts, panel telemetry
+org.droidtv.candeebug                             # "DAC" analytics uploader (see philips-50pus8517)
+org.droidtv.gel                                   # "GEL" metrics collector, runs inside the candeebug process; disable both
+org.droidtv.tv.frameworklogger                    # Reads the reboot reasons and firmware-install records at boot and hands them to the Philips logger (uploadRebootDetails)
+tv.inscape.tvclient.inscapeacr                    # "Inscape" ACR client: identifies what is on screen, HDMI included
+
+# Philips NetTV app store (pre-Android web app platform; Play Store replaces it)
+org.droidtv.nettv.market                          # NetTV app gallery
+org.droidtv.nettvapps                             # "NetTvApps" manager
+org.droidtv.nettv_launcherapp                     # NetTV app launcher entry
+org.droidtv.nettvregistration                     # Philips account registration for NetTV
+
+# Preinstalled NetTV web apps (labels from the APKs; comment out any you use)
+org.droidtv.nettvapp1814                          # ARTE
+org.droidtv.nettvapp1984                          # Dailymotion
+org.droidtv.nettvapp20004410                      # Couchplay Games
+org.droidtv.nettvapp20004412                      # Blockbuster Nordic
+org.droidtv.nettvapp3073                          # Cinetrailer
+org.droidtv.nettvapp4546                          # Megogo HD
+org.droidtv.nettvapp4649                          # SF Anytime
+org.droidtv.nettvapp4655                          # Deezer
+org.droidtv.nettvapp4771                          # Divan.TV
+org.droidtv.nettvapp5225                          # Filmbox Live
+org.droidtv.nettvapp5251                          # Min Bio
+org.droidtv.nettvapp5326                          # Toon Goggles
+org.droidtv.nettvapp5512                          # Fishing TV
+
+# Preinstalled apps, off by choice
+com.gameloft.android.HEP.GloftANHP                # Gameloft game preload
+com.ted.android.tv                                # TED
+com.opera.sdk.example                             # Opera TV SDK sample app (leanback entry, no use)
+com.google.android.music                          # Google Play Music (service discontinued)
+com.google.android.videos                         # Google Play Movies & TV
+
+# Voice assistants, off by choice: the remote's microphone button does nothing afterwards
+com.google.android.katniss                        # Google Assistant / voice search
+org.droidtv.amazonalexa                           # Alexa

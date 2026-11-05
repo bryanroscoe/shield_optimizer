@@ -2016,7 +2016,7 @@ async fn discover_home_activity(
 /// avoids matching anything that happens to contain the string.
 ///
 /// Public so desktop's diagnostics bundle (`commands::diagnostics` in the
-/// `shield-optimizer-v2` crate) reuses this parser instead of assuming
+/// `atv-optimizer` crate) reuses this parser instead of assuming
 /// `HOME_HANDLER_QUERY`'s `name=` field is a flattened `pkg/activity`
 /// component — it isn't; `name=` is the bare class and `packageName=` is the
 /// separate field this parses.

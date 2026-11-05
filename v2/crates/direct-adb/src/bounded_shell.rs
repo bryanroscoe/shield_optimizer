@@ -3,8 +3,8 @@ use std::time::Duration;
 use adb_client::tcp::{
     run_identity_bound_shell, BoundedShellControl, BoundedShellTermination, SHELL_OUTPUT_LIMIT,
 };
-use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
-use shield_optimizer_core::adb::{AdbError, AdbResult, Lease};
+use atv_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
+use atv_optimizer_core::adb::{AdbError, AdbResult, Lease};
 use std::sync::Arc;
 
 use super::{validate_requested_serial, WirelessAdb};
@@ -99,7 +99,7 @@ mod tests {
 
     #[tokio::test]
     async fn canceled_worker_keeps_lease_until_cleanup_finishes() {
-        let operations = shield_optimizer_core::adb::Leases::new();
+        let operations = atv_optimizer_core::adb::Leases::new();
         let operation = Arc::new(operations.try_acquire().unwrap());
         let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
         let (started, started_rx) = tokio::sync::oneshot::channel();
@@ -134,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn bounded_shell_rejects_wrong_target_and_closed_admission_before_work() {
-        let operations = shield_optimizer_core::adb::Leases::new();
+        let operations = atv_optimizer_core::adb::Leases::new();
         let temp = tempfile::tempdir().unwrap();
         let missing = temp.path().join("never-created");
         let driver = WirelessAdb::with_existing_key(missing.clone(), operations.clone());

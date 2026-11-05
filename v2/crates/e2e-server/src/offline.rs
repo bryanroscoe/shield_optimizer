@@ -110,7 +110,7 @@ mod tests {
     use super::*;
     #[test]
     fn offline_hub_cannot_send_even_if_enabled() {
-        let hub = shield_optimizer_core::telemetry::Telemetry::disabled();
+        let hub = atv_optimizer_core::telemetry::Telemetry::disabled();
         assert!(!hub.settings().available);
         assert!(!hub.is_active());
         hub.set_enabled(true).unwrap();

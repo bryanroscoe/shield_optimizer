@@ -50,6 +50,10 @@ usb = ["dep:rusb"]
 name = "adb_client"
 path = "src/lib.rs"
 
+[[example]]
+name = "device_smoke"
+path = "examples/device_smoke.rs"
+
 [dependencies.base64]
 version = "0.22.1"
 
@@ -151,6 +155,10 @@ features = ["oid"]
 
 [dependencies.sha2]
 version = "0.10.9"
+
+[dependencies.socket2]
+version = "0.6.3"
+features = ["all"]
 
 [dependencies.subtle]
 version = "2.6.1"

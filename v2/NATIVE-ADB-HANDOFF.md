@@ -140,7 +140,7 @@ does not include these later documentation changes.
   Artifact `13279548229`; provenance and both archive/binary hashes verified before
   replacement. All seven jobs, including native packaging, succeeded.
 
-Use the exact delivery path, not the bundle ID (`com.shieldoptimizer.native-test`).
+Use the exact delivery path, not the bundle ID (`com.atvoptimizer.native-test`).
 The previous app was quit through its UI and its process exit verified before
 replacement. The replacement was verified again at the delivery path and launched. No security or
 permission settings were changed. Superseded bundles and the downloaded archive

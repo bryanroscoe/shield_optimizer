@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+  "updated_at": "2026-11-05",
+  "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
+  "packages": {
+    "com.google.android.partnersetup": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "TV-specific dependencies, removal and restore behavior remain unresolved; see imported research ledger.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof"
+    },
+    "com.realtek.leanbacklauncher.partnercustomizer": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "Upstream model/firmware conflicts include an Inputs dependency; scope is not enforceable by the current common/family loader.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof"
+    },
+    "android.autoinstalls.config.nvidia": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "Generic AOSP auto-install mechanism does not verify the exact NVIDIA implementation; see imported research ledger.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof"
+    },
+    "com.google.android.marvin.talkback": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "Accessibility service used for spoken navigation; do not promote frequent upstream disable choices into removal suggestions.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof"
+    },
+    "com.android.tv.feedbackconsent": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "AOSP core/system-UID consent service; dependency and consent-flow consequences need assessment before any action coverage.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof",
+      "independent_evidence": "https://android.googlesource.com/platform/packages/apps/TvFeedbackConsent/+/8343380fe0b1bfff0426c31832c83c17b0c70d66/AndroidManifest.xml",
+      "independent_review": "Hold confirmed by independent source reviewer; identity is insufficient removal evidence."
+    },
+    "com.android.adservices.api": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "AOSP/mainline system component; exact target dependency, disable/restore and firmware scope not assessed.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof",
+      "independent_evidence": "https://android.googlesource.com/platform/packages/modules/AdServices/+/593832a5beabbc740974dc6c07f3294cd8a3bc6d/adservices/apk/AndroidManifest.xml",
+      "independent_review": "Hold confirmed by independent source reviewer; identity is insufficient removal evidence."
+    },
+    "com.android.ondevicepersonalization.services": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "System personalization component; exact target dependency and firmware scope not assessed.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof",
+      "independent_evidence": "https://source.android.com/docs/core/ota/modular-system/ondevicepersonalization",
+      "independent_review": "Hold confirmed by independent source reviewer; identity is insufficient removal evidence."
+    },
+    "com.android.federatedcompute.services": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reconsider_after": "2026-12-05",
+      "reason": "System compute component; exact target dependency and firmware scope not assessed.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md; pinned original per-profile comments remain authoritative observations, not removal proof",
+      "independent_evidence": "https://android.googlesource.com/platform/prebuilts/fullsdk/sources/+/refs/heads/main/android-35/android/federatedcompute/FederatedComputeManager.java",
+      "independent_review": "Hold confirmed by independent source reviewer; identity is insufficient removal evidence."
+    },
+    "com.aspiro.tidal": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "com.cloudmosa.puffinTV": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "tv.wuaki.apptv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "deezer.android.tv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "tv.arte.plus7": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "com.viaplay.android": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "com.antena3.atresplayer.tv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "com.google.android.apps.tv.dreamx": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05.md",
+      "decision": "Optional Caution; Disable; Keep by default; no automatic Restore.",
+      "independent_review": "No actionable findings on f43065a; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md"
+    },
+    "com.zdf.android.mediathek": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "fr.francetv.pluzz": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.mubi": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.yupptv.androidtv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.cbsnews.ott": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.bloomberg.btva": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.ted.android.tv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "in.startv.hotstar": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-05",
+      "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
+      "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    }
+  }
+}

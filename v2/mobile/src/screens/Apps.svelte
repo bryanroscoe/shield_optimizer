@@ -23,7 +23,7 @@
     type StatusFilter,
   } from "../lib/appsList";
   import packageMetadata from "../../package.json";
-  import type { Screen } from "../lib/router.svelte";
+  import { router, type Screen } from "../lib/router.svelte";
   import type { AppEntry, AppStorage, AppUsage, DeviceType, OtherPackage, Safety } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
@@ -1072,6 +1072,7 @@
     uninstalled={sheetUninstalled}
     canReport={canReport(sheetApp)}
     onClose={closeDetail}
+    onResearch={(packageId) => { closeDetail(); router.navigate("catalog", packageId); }}
     onToggle={handleToggle}
     onForceStop={handleForceStop}
     onUninstall={requestUninstall}

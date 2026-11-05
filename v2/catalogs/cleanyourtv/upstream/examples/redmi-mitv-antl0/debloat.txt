@@ -1,0 +1,56 @@
+# Redmi TV (MiTV-ANTL0, codename starwars), Android 5.1.1 (SDK 22), firmware 22.8.17.1977, Amlogic.
+# Discovered on-device 2026-10-19; every package verified with dumpsys before being listed.
+# Chinese-market firmware: no Google services at all, Sogou TV is the ONLY input method.
+#
+# FIRMWARE QUIRK: `pm disable-user` / `pm disable` are refused for the shell user with a
+# SecurityException on this build. The equivalent here is `pm hide` / `pm unhide` - just as
+# reversible, and `tools/restore.sh`'s `pm enable` must be swapped for `pm unhide`.
+# Apply (one pm command per shell call):
+#   grep -vE '^\s*(#|$)' examples/redmi-mitv-antl0/debloat.txt | sed -E 's/\s+#.*$//' \
+#     | awk '{print "pm hide " $1}' | TV_HOST=<tv ip> tools/venv/bin/python -I tools/tv.py --batch
+# Undo: same, but `pm unhide`.
+#
+# Boot-video property method reported on firmware 22.8.17.1977 (reversible):
+#   tools/tv.py 'setprop persist.bootvideo.bootanim false'      # true restores it
+# Firmware 23.2.4.2225 with stock launcher 3.38.1017 (L43M7-EA): the property above does not remove
+# the startup ad, but one setting does (docs/devices/xiaomi-l43m7-ea-antl0.md):
+#   tools/tv.py 'settings put system boot_ad_switch 0'      # undo: 'settings delete system boot_ad_switch'
+# The package-disable list below was not re-tested on that newer configuration.
+
+# Xiaomi telemetry / analytics / quality uploads
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.xiaomi.tvqs                     # quality system: uploads crash/perf/dropbox entries
+
+# Ad delivery: push service, promo web-content renderer, cloud app-push
+com.xiaomi.mitv.tvpush.tvpushservice
+com.xm.webcontent                   # webview/RN container for promos; fetches screensaver ads too
+com.mitv.cloudcontrol               # cloud control: starts on connectivity, remotely pushes apps
+
+# Shopping plugin (Alibaba Baichuan / TV Taobao SDK)
+com.mitv.shoplugin
+
+# Stock screensaver, replaced by the launcher's ClockDream:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+com.mitv.screensaver
+
+# OTA updater: stops firmware updates re-enabling everything above. Trade-off: no security updates
+# either; re-enable it for a while when you want an OTA.
+com.xiaomi.mitv.upgrade
+
+# Cleaner app and game SDK; both have a /system base, hiding the package is enough
+com.xiaomi.mitv.tvmanager
+com.xiaomi.gamecenter.sdk.service.mibox
+
+# Stock launcher (duokan content wall, incl. a PREDETAIL_AD_ACTIVITY); replaced by launcher/.
+# Unhide it first if you ever factory-reset the TV. Left commented out: the launcher needs the
+# minSdk-22 build proposed in PR #146, which is not merged, so for now take the debloat half only.
+# com.mitv.tvhome
+
+# Owner's-choice removals NOT listed above (uninstalled with APKs backed up first, restore by
+# installing the APK again): gala demo video, KKTv, Bilibili TV (xiaodianshi), Tencent TV
+# (ktcp), Mi app store (27 MB background updater), phone-remote service, voice control.
+#
+# Launcher notes for this model: needs the minSdk-22 build (PR #146, not merged yet); the Settings
+# and Wi-Fi pills require the com.xiaomi.mitv.settings fallback keys in config.xml - the
+# firmware never registers the standard android.settings.* actions.

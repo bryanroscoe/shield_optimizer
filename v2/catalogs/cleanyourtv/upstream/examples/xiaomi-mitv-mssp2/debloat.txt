@@ -1,0 +1,52 @@
+# Xiaomi MiTV-MSSP2 (codename volver), Android TV 9 (SDK 28), firmware PI.4621, MediaTek, low-RAM build.
+# ro.build.fingerprint Xiaomi/volver/volver:9/PI/4621:user/release-keys, security patch 2020-07-05, EU region.
+# Live TV app: com.mediatek.wwtv.tvcenter (already the live_tv_package in launcher config.xml).
+# Stock launcher: com.google.android.tvlauncher (the default, disabled by build-and-install.sh).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mssp2/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mssp2/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - No packages were disabled before this list. Default IME is already Gboard and every package
+#   below exists on this build.
+# - The older Android TV home (com.google.android.leanbacklauncher) is still installed next to
+#   tvlauncher, like on MSSP3 PI.4663. Both disabled here and Home kept resolving to the new launcher.
+# - Screenshots of Live TV and HDMI come back empty (0 bytes); check the screen with
+#     dumpsys activity activities | grep mResumedActivity
+#   and the playing input with dumpsys tv_input (inputId under sessionStateMap).
+# - Live TV closes itself after about 25 s on an HDMI port with nothing connected and drops back to Home.
+# - ADB over the 5 GHz Wi-Fi stalls for 20-120 s now and then, mostly while the screensaver runs.
+#   Wake the TV (KEYCODE_WAKEUP) and retry.
+# - Private DNS dns.adguard-dns.com works for ad and tracker domains; it does not block YouTube ads.
+# - Left alone on purpose: com.mediatek.wwtv.tvcenter / com.mediatek.tvinput (HDMI + tuner), mitv.service,
+#   com.mediatek.hotkey.dispatcher and com.xiaomi.android.tvsetup.partnercustomizer (remote hotkeys,
+#   Netflix button), com.google.android.tv.remote.service (phone remote), com.xiaomi.mitv.mediaexplorer
+#   (USB Media Player), com.xiaomi.mitv.updateservice (firmware updates), Play Store, Play Services,
+#   Google Assistant, Chromecast and the keyboard.
+
+# Xiaomi + Google telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# PatchWall, content rows, sponsored rows
+com.mitv.tvhome.atv                                 # PatchWall
+com.xm.webcontent
+android.autoinstalls.config.xiaomi.amelie           # Play auto-install of partner apps
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+
+# Xiaomi + Android background services
+com.xiaomi.mitv.tvmanager                           # "TV Manager" cleaner
+com.android.printspooler                            # no printing on a TV
+
+# Preloaded apps
+com.google.android.play.games
+com.google.android.music                            # Play Music, discontinued
+com.google.android.videos                           # Play Movies & TV
+
+# Stock Android TV launchers, replaced by launcher/
+com.google.android.tvlauncher
+com.google.android.leanbacklauncher                 # older Android TV home, still installed, see header

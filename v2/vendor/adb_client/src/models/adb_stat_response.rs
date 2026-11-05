@@ -11,25 +11,24 @@ use byteorder::LittleEndian;
 /// Represents a `stat` response
 #[derive(Debug)]
 pub struct AdbStatResponse {
-    /// File permissions
+    /// File mode: type and permission bits
     pub file_perm: u32,
-    /// File size, in bytes
-    pub file_size: u32,
-    /// File modification time
-    pub mod_time: u32,
+    /// File size, in bytes. The legacy `STAT` request carries only 32 bits;
+    /// devices with `stat_v2` report the full size.
+    pub file_size: u64,
+    /// File modification time, in seconds since the Unix epoch
+    pub mod_time: u64,
 }
+
+/// Size of the legacy `STAT` reply after its id: mode, size and mtime.
+const STAT_V1_LEN: usize = 12;
 
 impl BinaryDecodable for AdbStatResponse {
     fn decode(bytes: &[u8]) -> crate::Result<Self> {
-        if bytes.len() != std::mem::size_of::<Self>() {
-            return Err(RustADBError::ConversionError);
-        }
-
-        Ok(Self {
-            file_perm: LittleEndian::read_u32(&bytes[0..4]),
-            file_size: LittleEndian::read_u32(&bytes[4..8]),
-            mod_time: LittleEndian::read_u32(&bytes[8..]),
-        })
+        let bytes: [u8; STAT_V1_LEN] = bytes
+            .try_into()
+            .map_err(|_| RustADBError::ConversionError)?;
+        Ok(bytes.into())
     }
 }
 
@@ -37,15 +36,15 @@ impl From<[u8; 12]> for AdbStatResponse {
     fn from(value: [u8; 12]) -> Self {
         Self {
             file_perm: LittleEndian::read_u32(&value[0..4]),
-            file_size: LittleEndian::read_u32(&value[4..8]),
-            mod_time: LittleEndian::read_u32(&value[8..]),
+            file_size: u64::from(LittleEndian::read_u32(&value[4..8])),
+            mod_time: u64::from(LittleEndian::read_u32(&value[8..])),
         }
     }
 }
 
 impl Display for AdbStatResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let d = UNIX_EPOCH + Duration::from_secs(self.mod_time.into());
+        let d = UNIX_EPOCH + Duration::from_secs(self.mod_time);
         // Create DateTime from SystemTime
         let datetime = DateTime::<Utc>::from(d);
 

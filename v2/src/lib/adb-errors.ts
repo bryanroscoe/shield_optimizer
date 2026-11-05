@@ -8,12 +8,70 @@
 
 export type AdbOperation = "pair" | "connect";
 
+/// What the macOS Local Network probe (`local_network_access`) last saw.
+export type LocalNetworkStatus = "allowed" | "blocked" | "unknown" | "no_network" | "not_applicable";
+
+/// What a "No route to host" on macOS should point at, given the probe:
+/// - "blocked": the probe saw macOS block this app. Say so; the Devices notice
+///   carries the settings button.
+/// - "restart": the probe reached the network from the app itself, so the
+///   likely culprit is an adb server an earlier version left running, which
+///   macOS can cut off after an update. Restart ADB, not settings.
+/// - "restart_or_settings": the probe could not tell. Restart ADB first, then
+///   Local Network settings.
+/// - "settings": native Rust ADB, which connects from the app itself and has
+///   no server to restart, and the probe could not tell. Local Network
+///   settings only.
+/// - null: not macOS, no network, no answer yet, or not a no-route failure.
+///   Also native ADB when the probe reached the network: the app itself got
+///   through, so Local Network is not the cause.
+export type LocalNetworkHint = "blocked" | "restart" | "restart_or_settings" | "settings" | null;
+
 export interface ExplainedFailure {
   /// What to do about it, or null when the failure is not one we recognise.
   summary: string | null;
   /// adb's own words, trimmed.
   raw: string;
+  /// Which macOS remedy to offer beside it (Restart ADB, Privacy & Security).
+  localNetwork: LocalNetworkHint;
 }
+
+export const LOCAL_NETWORK_BLOCKED = "macOS is blocking ATV Optimizer from your local network.";
+
+const NO_ROUTE = /no route to host|host is unreachable|ehostunreach/i;
+
+export function isNoRoute(raw: string): boolean {
+  return NO_ROUTE.test(String(raw ?? ""));
+}
+
+export function localNetworkHint(
+  raw: string,
+  status: LocalNetworkStatus | null,
+  hostServer = true,
+): LocalNetworkHint {
+  if (!isNoRoute(raw)) return null;
+  if (status === "blocked") return "blocked";
+  if (status === "allowed") return hostServer ? "restart" : null;
+  if (status === "unknown") return hostServer ? "restart_or_settings" : "settings";
+  return null;
+}
+
+const STALE_SERVER =
+  "Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running.";
+
+/// macOS may be blocking local network access, or something else is.
+export const LOCAL_NETWORK_POSSIBLE =
+  "macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.";
+
+const LOCAL_NETWORK_SETTINGS =
+  "Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is)";
+
+const LOCAL_NETWORK_SENTENCE: Record<Exclude<LocalNetworkHint, null>, string> = {
+  blocked: `${LOCAL_NETWORK_BLOCKED} ${LOCAL_NETWORK_SETTINGS}, then Restart ADB.`,
+  settings: LOCAL_NETWORK_POSSIBLE,
+  restart: `${STALE_SERVER} If that doesn't help, check the TV's current IP and that both devices are on the same local network.`,
+  restart_or_settings: `${STALE_SERVER} If that doesn't help, ${LOCAL_NETWORK_POSSIBLE.charAt(0).toLowerCase()}${LOCAL_NETWORK_POSSIBLE.slice(1)}`,
+};
 
 const WRONG_PIN = /wrong password|incorrect (pin|code|password)|bad (pin|code)/i;
 const DIALOG_GONE =
@@ -30,8 +88,15 @@ function clean(raw: string): string {
     .trim();
 }
 
-export function explainAdbFailure(op: AdbOperation, target: string, raw: string): ExplainedFailure {
+export function explainAdbFailure(
+  op: AdbOperation,
+  target: string,
+  raw: string,
+  localNetwork: LocalNetworkStatus | null = null,
+  hostServer = true,
+): ExplainedFailure {
   const text = clean(String(raw ?? ""));
+  const hint = localNetworkHint(text, localNetwork, hostServer);
   const where = target.trim() || "that address";
   let summary: string | null = null;
 
@@ -53,7 +118,13 @@ export function explainAdbFailure(op: AdbOperation, target: string, raw: string)
           "main Wireless debugging screen (not the pairing dialog).";
   }
 
-  return { summary, raw: text };
+  if (hint === "blocked" && !hostServer) {
+    summary = `Couldn't reach ${where}. ${LOCAL_NETWORK_BLOCKED} ${LOCAL_NETWORK_SETTINGS}, then try again.`;
+  } else if (hint) {
+    summary = `Couldn't reach ${where}. ${LOCAL_NETWORK_SENTENCE[hint]}`;
+  }
+
+  return { summary, raw: text, localNetwork: hint };
 }
 
 function ipv4Octets(host: string): number[] | null {

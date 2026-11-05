@@ -64,9 +64,9 @@ impl ADBServerDevice {
 
                     let entry = ADBListItem {
                         name,
-                        time,
+                        time: u64::from(time),
                         permissions,
-                        size,
+                        size: u64::from(size),
                     };
 
                     list_items.push(ADBListItemType::from_mode_and_entry(mode, entry));

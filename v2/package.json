@@ -1,6 +1,6 @@
 {
   "name": "atv-optimizer-v2",
-  "version": "2.4.1",
+  "version": "2.5.0",
   "description": "",
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test:app-files-catalog": "node tests/app-files-catalog.mjs",
+    "test:profile-catalog": "node tests/profile-catalog.mjs",
     "test:pairing-flow": "node tests/pairing-flow.mjs",
     "test:adb-errors": "node tests/adb-errors.mjs",
     "test:sideload-scan": "node tests/sideload-scan.mjs",
@@ -54,7 +55,8 @@
     "test:native-scan-progress": "node tests/native-scan-progress.mjs && node tests/native-connection-choices.mjs",
     "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
     "test:support-tiers-ui": "node tests/support-tiers-ui.mjs",
-    "test:settings-screen": "node tests/settings-screen.mjs"
+    "test:settings-screen": "node tests/settings-screen.mjs",
+    "test:local-network-notice": "node tests/local-network-notice.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

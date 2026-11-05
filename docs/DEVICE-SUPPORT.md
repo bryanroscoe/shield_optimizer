@@ -168,7 +168,7 @@ A tier changes by a pull request that edits `device-support.json`. Nothing else.
 
    ```sh
    node v2/telemetry-worker/scripts/support-tiers.ts check v2/crates/core/data/device-support.json
-   cd v2 && cargo test -p shield-optimizer-core support
+   cd v2 && cargo test -p atv-optimizer-core support
    ```
 
 5. **Open the PR.** CI runs the file check (with the date rule against `main`), the Rust tier tests

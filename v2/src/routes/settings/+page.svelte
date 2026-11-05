@@ -403,7 +403,7 @@
             Native Rust ADB is built into this app. Connection recovery is on Devices.
           {:else}
             <p>The app can download Google's official platform-tools into its own folder.</p>
-            <p>To use a different adb, set <code>SHIELD_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
+            <p>To use a different adb, set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
           {/if}
         </HelpTip>
         <p class="row-help">

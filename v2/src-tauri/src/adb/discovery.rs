@@ -1,6 +1,6 @@
 //! Observation-only mDNS snapshots. No endpoint is dialed by this module.
 use mdns_sd::{DaemonEvent, DaemonStatus, ScopedIp, ServiceDaemon, ServiceEvent};
-use shield_optimizer_core::adb::{
+use atv_optimizer_core::adb::{
     AdbError, AdbResult, Lease, NativeAdvertisement, NativeDiscoveryReport, NativeServiceKind,
 };
 use std::{
@@ -710,7 +710,7 @@ mod tests {
     }
 
     use super::*;
-    use shield_optimizer_core::adb::Leases;
+    use atv_optimizer_core::adb::Leases;
     use std::collections::VecDeque;
 
     fn advertisement(
@@ -912,7 +912,7 @@ mod tests {
             Some("[fe80::1%17]:39001")
         );
         assert_eq!(scoped.scope_id, Some(17));
-        let normalized = shield_optimizer_core::commands::devices::normalize_connect_address(
+        let normalized = atv_optimizer_core::commands::devices::normalize_connect_address(
             scoped.connect_address.as_ref().unwrap(),
         )
         .unwrap();

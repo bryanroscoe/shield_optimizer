@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 pub fn ensure_app_identity(app_data: &Path) -> Result<PathBuf, String> {
     ensure_with(
         app_data,
-        shield_direct_adb::validate_identity_pem,
-        shield_direct_adb::generate_identity_pem,
+        atv_direct_adb::validate_identity_pem,
+        atv_direct_adb::generate_identity_pem,
         std::io::Write::write_all,
     )
 }
@@ -13,11 +13,11 @@ pub fn ensure_app_identity(app_data: &Path) -> Result<PathBuf, String> {
 pub fn validate_existing_identity(path: &Path) -> Result<(), String> {
     #[cfg(unix)]
     {
-        unix::validate_path(path, shield_direct_adb::validate_identity_pem)
+        unix::validate_path(path, atv_direct_adb::validate_identity_pem)
     }
     #[cfg(windows)]
     {
-        windows::validate_path(path, shield_direct_adb::validate_identity_pem)
+        windows::validate_path(path, atv_direct_adb::validate_identity_pem)
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -410,7 +410,7 @@ mod tests {
     fn create(root: &Path) -> Result<PathBuf, String> {
         ensure_with(
             root,
-            shield_direct_adb::validate_identity_pem,
+            atv_direct_adb::validate_identity_pem,
             || Ok(fixture()),
             |file, bytes| file.write_all(bytes),
         )
@@ -429,7 +429,7 @@ mod tests {
         let inode = fs::metadata(&path).unwrap().ino();
         let reused = ensure_with(
             &root,
-            shield_direct_adb::validate_identity_pem,
+            atv_direct_adb::validate_identity_pem,
             || panic!("must never rotate existing identity"),
             |_, _| panic!("must never rewrite existing identity"),
         )
@@ -449,7 +449,7 @@ mod tests {
                 std::thread::spawn(move || {
                     ensure_with(
                         &root,
-                        shield_direct_adb::validate_identity_pem,
+                        atv_direct_adb::validate_identity_pem,
                         || {
                             barrier.wait();
                             Ok(fixture())
@@ -481,7 +481,7 @@ mod tests {
             fs::write(&path, bytes).unwrap();
             assert!(ensure_with(
                 &root,
-                shield_direct_adb::validate_identity_pem,
+                atv_direct_adb::validate_identity_pem,
                 || panic!("corrupt identity must not rotate"),
                 |_, _| panic!("existing identity must not rewrite")
             )
@@ -519,7 +519,7 @@ mod tests {
             let root = temp.path().join("app");
             assert!(ensure_with(
                 &root,
-                shield_direct_adb::validate_identity_pem,
+                atv_direct_adb::validate_identity_pem,
                 || Ok(fixture()),
                 |file, bytes| {
                     file.write_all(&bytes[..20])?;
@@ -560,7 +560,7 @@ mod tests {
         assert!(ensure_with(
             &root,
             |bytes| {
-                shield_direct_adb::validate_identity_pem(bytes)?;
+                atv_direct_adb::validate_identity_pem(bytes)?;
                 if !removed.swap(true, Ordering::Relaxed) {
                     fs::remove_file(&path).unwrap();
                 }
@@ -592,7 +592,7 @@ mod tests {
         let root = temp.path().join("app");
         assert!(ensure_with(
             &root,
-            shield_direct_adb::validate_identity_pem,
+            atv_direct_adb::validate_identity_pem,
             || Ok(b"not a key".to_vec()),
             |_, _| panic!("invalid bytes must not write")
         )

@@ -1,0 +1,73 @@
+# TCL 43S5400A (43" FHD, S5400A series), Indonesia unit: device C06, product C06_2K_GB, model "Smart TV".
+# Android TV 11 (SDK 30), build AR2101 / AR21, TCL software V8-T221T05-LF1V320, security patch 2025-03-05.
+# MediaTek MT9221 (ro.board.platform mt5867), 4x Cortex-A55, about 1 GB RAM (low_ram=true).
+# 43" variant of the C06_2K_GB platform (see also tcl-40s5400a and tcl-32s5400a).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-43s5400a/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-43s5400a/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (the restore.sh / build-and-install.sh default).
+# Live TV app: com.tcl.tv (also handles HDMI inputs via VIEW intent).
+# Inputs: com.tcl.tvinput (2x HDMI, AV, tuner).
+#
+# Applied on 2026-10-21 with verification screenshots after each batch:
+# - CleanYourTV launcher boots as default Home screen.
+# - YouTube, Vidio, Jellyfin, and Netflix open and play cleanly.
+# - HDMI 1, HDMI 2, AV, and Live TV switch properly via launcher's Inputs menu.
+# - Free RAM increased from ~100 MB to ~328 MB.
+#
+# Known quirks on this firmware:
+# - Stock tvlauncher declares HOME priority 2, so cmd package set-home-activity alone does not
+#   take Home while it is enabled. Disabling it (as build-and-install.sh does) is required.
+# - com.tcl.ttvs is the firmware updater, not text-to-speech. Kept for OTA updates.
+# - com.tcl.usercenter is re-enabled by the system at boot (remains idle).
+# - Photo screensaver (com.google.android.backdrop) uses ~105 MB RAM. Switch to ClockDream before disabling:
+#   tools/tv.py 'settings put secure screensaver_components com.gathin.tvhome/.ClockDream'
+#
+# DO NOT DISABLE on this TV (vital system services):
+# com.tcl.tv                           # Live TV app, plays HDMI, source picker on Input key
+# com.tcl.tvinput                      # TV input services for HDMI, AV and tuner
+# com.tcl.ttvs                         # TCL firmware update service (kept for OTA updates)
+# com.tcl.system.server                # remote-key plumbing
+# com.tcl.tcl_bt_rcu_service           # Bluetooth remote service
+# com.tcl.autopair                     # Bluetooth remote auto-pairing
+# com.tcl.settings                     # picture & sound settings
+# com.tcl.suspension                   # source panel / Quick Panel
+# com.android.location.fused           # boot loop into recovery when disabled on V325 (#2803)
+# com.tcl.keyhelp                      # virtual keys
+# com.android.vending                  # Google Play Store
+# com.google.android.gms               # Google Play Services
+# com.google.android.gsf               # Google Services Framework
+# com.google.android.apps.mediashell   # Chromecast built-in
+
+# TCL account, promos and content
+com.tcl.usercenter                     # TCL account, re-enabled by system at boot (idle)
+com.tcl.guard                          # TGuard background cleaner
+com.tcl.partnercustomizer              # promo rows on stock home
+com.tcl.waterfall.overseas             # TCL video portal
+com.tcl.esticker                       # store demo sticker
+android.autoinstalls.config.tcl.device # partner auto-installer
+com.tcl.audioplayer                    # stock audio player
+com.tcl.imageplayer                    # stock image player
+com.tcl.copydatatotv                   # data migration utility
+com.tcl.t_solo                         # TCL promo app
+com.tcl.messagebox                     # TCL push messages & promos
+
+# Google extras & Assistant
+com.google.android.feedback
+com.google.android.play.games
+com.google.android.videos              # Google Play Movies & TV
+com.google.android.youtube.tvmusic     # YouTube Music stub
+com.google.android.syncadapters.calendar
+com.google.android.partnersetup
+com.google.android.tvrecommendations   # sponsored/recommended rows (~20 MB RAM)
+com.google.android.katniss             # Google Assistant (~52 MB RAM, mic button)
+com.google.android.tv.assistant
+com.google.android.apps.nbu.smartconnect.tv
+
+# Setup wizard (safe to disable after initial TV setup)
+com.google.android.tungsten.setupwraith
+
+# Stock screensaver (backdrop eats ~105 MB RAM; replace with ClockDream)
+com.google.android.backdrop

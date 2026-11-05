@@ -4,36 +4,18 @@ use crate::{
     Result,
     message_devices::{
         adb_message_device::ADBMessageDevice,
-        adb_message_transport::ADBMessageTransport,
-        adb_transport_message::ADBTransportMessage,
-        message_commands::{MessageCommand, MessageSubcommand},
-        utils::BinaryEncodable,
+        adb_message_transport::{ADBMessageTransport, DEFAULT_READ_TIMEOUT},
+        adb_sync::{PUSH_FILE_MODE, now_mtime},
     },
 };
 
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
-    pub(crate) fn push<R: Read, A: AsRef<str>>(&mut self, stream: R, path: A) -> Result<()> {
-        let mut session = self.open_synchronization_session()?;
-
-        let path_header = format!("{},0777", path.as_ref());
-
-        let send_buffer = MessageSubcommand::Send.with_arg(u32::try_from(path_header.len())?);
-        let mut send_buffer = send_buffer.encode();
-        send_buffer.append(&mut path_header.as_bytes().to_vec());
-
-        session.send_sync_upload(
-            ADBTransportMessage::try_new(
-                MessageCommand::Write,
-                session.local_id(),
-                session.remote_id(),
-                &send_buffer,
-            )?,
-            false,
-        )?;
-
-        session.push_file(stream)?;
-        self.end_transaction(&mut session)?;
-
+    /// Push `stream` to `path` as a `rw-r--r--` file stamped with the current
+    /// time. Fails with the device's reason if it answers `FAIL`.
+    pub(crate) fn push<R: Read, A: AsRef<str>>(&mut self, mut stream: R, path: A) -> Result<()> {
+        let mut sync = self.open_sync(DEFAULT_READ_TIMEOUT)?;
+        sync.send(&mut stream, path.as_ref(), PUSH_FILE_MODE, now_mtime())?;
+        sync.finish();
         Ok(())
     }
 }

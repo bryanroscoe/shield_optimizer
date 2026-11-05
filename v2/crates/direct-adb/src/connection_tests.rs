@@ -44,6 +44,58 @@ fn send(socket: &mut TcpStream, command: &[u8; 4], arg0: u32, arg1: u32, payload
     socket.write_all(payload).unwrap();
 }
 
+/// A device banner that negotiates shell v2, as every TV since Android 7 does.
+const SHELL_V2_DEVICE: &[u8] = b"device::features=shell_v2\0";
+
+/// Serve one shell v2 command: each `(channel, payload)` is one shell packet
+/// in its own WRTE, then the device closes the stream.
+fn serve_shell(socket: &mut TcpStream, command: &str, packets: &[(u8, &[u8])]) {
+    let (kind, local, payload) = receive(socket);
+    assert_eq!(kind, b"OPEN");
+    assert_eq!(payload, format!("shell,v2,raw:{command}\0").as_bytes());
+    send(socket, b"OKAY", 1, local, &[]);
+    for (channel, payload) in packets {
+        let mut frame = vec![*channel];
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(payload);
+        send(socket, b"WRTE", 1, local, &frame);
+        assert_eq!(receive(socket).0, b"OKAY");
+    }
+    send(socket, b"CLSE", 1, local, &[]);
+}
+
+struct Connected {
+    driver: WirelessAdb,
+    serial: String,
+    peer: std::thread::JoinHandle<()>,
+    _key: tempfile::NamedTempFile,
+}
+
+/// A driver connected to a fresh loopback peer that runs `serve` after CNXN.
+async fn connected_driver<F>(serve: F) -> Connected
+where
+    F: FnOnce(TcpStream, TcpListener) + Send + 'static,
+{
+    let key = fixture_key();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        send(&mut socket, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        serve(socket, listener);
+    });
+    driver.begin_request(1).unwrap();
+    driver.connect("127.0.0.1", port, 1).await.unwrap();
+    Connected {
+        driver,
+        serial: format!("127.0.0.1:{port}"),
+        peer,
+        _key: key,
+    }
+}
+
 fn accept(listener: &TcpListener) -> TcpStream {
     listener.set_nonblocking(true).unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -204,19 +256,8 @@ async fn completed_handshake_keeps_socket_for_liveness_after_attempt_guard_drops
     let peer = std::thread::spawn(move || {
         let mut socket = accept(&listener);
         assert_eq!(receive(&mut socket).0, b"CNXN");
-        send(&mut socket, b"CNXN", 0x01000000, 1048576, b"device::\0");
-        let (command, local, payload) = receive(&mut socket);
-        assert_eq!(command, b"OPEN");
-        assert_eq!(payload, b"shell,v2,raw:echo ok\0");
-        send(&mut socket, b"OKAY", 1, local, &[]);
-        for (channel, payload) in [(1u8, b"ok\n".as_slice()), (3u8, &[0][..])] {
-            let mut frame = vec![channel];
-            frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
-            frame.extend_from_slice(payload);
-            send(&mut socket, b"WRTE", 1, local, &frame);
-            assert_eq!(receive(&mut socket).0, b"OKAY");
-        }
-        send(&mut socket, b"CLSE", 1, local, &[]);
+        send(&mut socket, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        serve_shell(&mut socket, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
     });
     driver.begin_request(1).unwrap();
     driver.connect("127.0.0.1", port, 1).await.unwrap();
@@ -313,7 +354,8 @@ async fn tls_identity_rejection_explains_pairing_without_claiming_a_legacy_promp
     });
     driver.begin_request(1).unwrap();
     let error = driver.connect("127.0.0.1", port, 1).await.unwrap_err();
-    assert!(error.contains("Pair PIN"), "{error}");
+    assert!(error.contains("hasn't paired"), "{error}");
+    assert!(error.contains("Pair device with pairing code"));
     assert!(error.contains("pairing port"));
     assert!(error.contains("separate port"));
     assert!(!error.contains("Allow debugging"));
@@ -339,28 +381,66 @@ fn serve_download_identity(socket: &mut TcpStream) {
     send(socket, b"CLSE", 1, local, &[]);
 }
 
-fn download_stat(socket: &mut TcpStream) -> u32 {
+/// A legacy sync service (no `stat_v2`/`sendrecv_v2` negotiated) serving
+/// one three-byte file. Requests are parsed from the byte stream, so it does
+/// not depend on how the client batches them into WRTEs.
+fn serve_sync(socket: &mut TcpStream, rejected: bool) {
     let (command, local, payload) = receive(socket);
     assert_eq!(command, b"OPEN");
-    assert_eq!(payload, b"sync:");
+    assert_eq!(payload, b"sync:\0");
     send(socket, b"OKAY", 1, local, &[]);
-    for _ in 0..2 {
-        assert_eq!(receive(socket).0, b"WRTE");
-        send(socket, b"OKAY", 1, local, &[]);
+    let mut pending = Vec::new();
+    loop {
+        let (command, _, payload) = receive(socket);
+        match command.as_slice() {
+            b"WRTE" => {
+                send(socket, b"OKAY", 1, local, &[]);
+                pending.extend_from_slice(&payload);
+            }
+            b"OKAY" => continue,
+            b"CLSE" => return,
+            other => panic!("unexpected {other:?} on the sync stream"),
+        }
+        while pending.len() >= 8 {
+            let size = u32::from_le_bytes(pending[4..8].try_into().unwrap()) as usize;
+            if pending.len() < 8 + size {
+                break;
+            }
+            let request: Vec<u8> = pending.drain(..8 + size).collect();
+            let mut reply = Vec::new();
+            match &request[..4] {
+                b"STAT" => {
+                    assert_eq!(&request[8..], b"/fixture");
+                    reply.extend_from_slice(b"STAT");
+                    for value in [0o100_644_u32, 3, 0] {
+                        reply.extend_from_slice(&value.to_le_bytes());
+                    }
+                }
+                b"RECV" => {
+                    assert_eq!(&request[8..], b"/fixture");
+                    reply.extend_from_slice(b"DATA");
+                    reply.extend_from_slice(&3u32.to_le_bytes());
+                    reply.extend_from_slice(b"abc");
+                    if rejected {
+                        reply.extend_from_slice(b"FAIL");
+                        reply.extend_from_slice(&17u32.to_le_bytes());
+                        reply.extend_from_slice(b"Permission denied");
+                    } else {
+                        reply.extend_from_slice(b"DONE");
+                        reply.extend_from_slice(&0u32.to_le_bytes());
+                    }
+                }
+                b"QUIT" => {
+                    send(socket, b"CLSE", 1, local, &[]);
+                    return;
+                }
+                other => panic!("unexpected sync request {other:?}"),
+            }
+            for bytes in reply.chunks(5) {
+                send(socket, b"WRTE", 1, local, bytes);
+            }
+        }
     }
-    let mut stat = b"STAT".to_vec();
-    for value in [0o100_644_u32, 3, 0] {
-        stat.extend_from_slice(&value.to_le_bytes());
-    }
-    send(socket, b"WRTE", 1, local, &stat);
-    assert_eq!(receive(socket).0, b"OKAY");
-    local
-}
-
-fn finish_download_sync(socket: &mut TcpStream, local: u32) {
-    assert!(receive(socket).2.starts_with(b"QUIT"));
-    send(socket, b"OKAY", 1, local, &[]);
-    send(socket, b"CLSE", 1, local, &[]);
 }
 
 #[tokio::test]
@@ -374,37 +454,13 @@ async fn native_download_publishes_only_success_and_keeps_selected_tv_connected(
             let peer = std::thread::spawn(move || {
                 let mut selected = accept(&listener);
                 assert_eq!(receive(&mut selected).0, b"CNXN");
-                send(&mut selected, b"CNXN", 0x01000000, 1048576, b"device::\0");
+                send(&mut selected, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
                 serve_download_identity(&mut selected);
                 let mut transfer = accept(&listener);
                 assert_eq!(receive(&mut transfer).0, b"CNXN");
-                send(&mut transfer, b"CNXN", 0x01000000, 1048576, b"device::\0");
+                send(&mut transfer, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
                 serve_download_identity(&mut transfer);
-                let local = download_stat(&mut transfer);
-                finish_download_sync(&mut transfer, local);
-                let local = download_stat(&mut transfer);
-                for _ in 0..2 {
-                    assert_eq!(receive(&mut transfer).0, b"WRTE");
-                    send(&mut transfer, b"OKAY", 1, local, &[]);
-                }
-                let mut response = b"DATA".to_vec();
-                response.extend_from_slice(&3u32.to_le_bytes());
-                response.extend_from_slice(b"abc");
-                if rejected {
-                    response.extend_from_slice(b"FAIL");
-                    response.extend_from_slice(&17u32.to_le_bytes());
-                    response.extend_from_slice(b"Permission denied");
-                } else {
-                    response.extend_from_slice(b"DONE");
-                    response.extend_from_slice(&0u32.to_le_bytes());
-                }
-                for bytes in response.chunks(5) {
-                    send(&mut transfer, b"WRTE", 1, local, bytes);
-                    assert_eq!(receive(&mut transfer).0, b"OKAY");
-                }
-                if !rejected {
-                    finish_download_sync(&mut transfer, local);
-                }
+                serve_sync(&mut transfer, rejected);
                 // The original session must still accept a fresh read after a
                 // dedicated transfer fails, without reconnecting or replaying it.
                 serve_download_identity(&mut selected);
@@ -448,4 +504,144 @@ async fn native_download_publishes_only_success_and_keeps_selected_tv_connected(
             peer.join().unwrap();
         }
     }
+}
+
+#[tokio::test]
+async fn a_silent_tv_times_out_as_an_approval_wait() {
+    // Accepts the socket and never answers CNXN, like a TV showing the
+    // "Allow debugging?" prompt. This pins the vendored transport's
+    // handshake-timeout wording that `is_handshake_timeout` relies on.
+    let key = fixture_key();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        assert_closed(&mut socket);
+    });
+    driver.begin_request(1).unwrap();
+    let error = driver
+        .connect_within("127.0.0.1", port, 1, Duration::from_millis(300))
+        .await
+        .unwrap_err();
+    assert!(error.contains("didn't approve debugging"), "{error}");
+    assert!(driver.info().is_none());
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_closed_port_is_a_refusal_not_an_approval_wait() {
+    let port = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let key = fixture_key();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+    driver.begin_request(1).unwrap();
+    let error = driver.connect("127.0.0.1", port, 1).await.unwrap_err();
+    assert!(error.starts_with("Connection refused"), "{error}");
+    assert!(!error.contains("Allow"), "{error}");
+}
+
+#[tokio::test]
+async fn a_shell_without_an_exit_status_is_unknown_and_keeps_the_tv_connected() {
+    let Connected {
+        driver,
+        serial,
+        peer,
+        _key,
+    } = connected_driver(|mut socket, _| {
+        // Output, then the stream closes before the exit packet.
+        serve_shell(
+            &mut socket,
+            "pm disable-user com.example",
+            &[(1, b"partial")],
+        );
+        // The post-error liveness probe still succeeds.
+        serve_shell(&mut socket, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
+    })
+    .await;
+    let error = driver
+        .shell(&serial, "pm disable-user com.example")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown"), "{error}");
+    assert!(!error.contains(CONNECTION_LOST_PREFIX), "{error}");
+    assert_eq!(driver.info().unwrap().0, serial);
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_reported_exit_status_is_the_shell_result() {
+    let Connected {
+        driver,
+        serial,
+        peer,
+        _key,
+    } = connected_driver(|mut socket, _| {
+        serve_shell(
+            &mut socket,
+            "pm path com.example",
+            &[(1, b"out"), (2, b"err"), (3, &[7])],
+        );
+    })
+    .await;
+    let output = driver.shell(&serial, "pm path com.example").await.unwrap();
+    assert_eq!(
+        (
+            output.stdout.as_str(),
+            output.stderr.as_str(),
+            output.exit_code
+        ),
+        ("out", "err", Some(7))
+    );
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn lost_framing_drops_the_connection_and_the_next_connect_redials() {
+    let Connected {
+        driver,
+        serial,
+        peer,
+        _key,
+    } = connected_driver(|mut socket, listener| {
+        let (kind, local, _) = receive(&mut socket);
+        assert_eq!(kind, b"OPEN");
+        send(&mut socket, b"OKAY", 1, local, &[]);
+        // A WRTE header whose magic does not match its command: the client
+        // can no longer trust where the next message starts.
+        let command = u32::from_le_bytes(*b"WRTE");
+        for field in [command, 1, local, 0, 0, command] {
+            socket.write_all(&field.to_le_bytes()).unwrap();
+        }
+        assert_closed(&mut socket);
+        let mut again = accept(&listener);
+        assert_eq!(receive(&mut again).0, b"CNXN");
+        send(&mut again, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+    })
+    .await;
+    let error = driver
+        .shell(&serial, "echo hi")
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(CONNECTION_LOST_PREFIX), "{error}");
+    assert!(driver.info().is_none());
+    assert!(driver
+        .shell(&serial, "echo hi")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("Not connected"));
+    let (host, port) = serial.rsplit_once(':').unwrap();
+    driver.begin_request(2).unwrap();
+    driver
+        .connect(host, port.parse().unwrap(), 2)
+        .await
+        .unwrap();
+    assert_eq!(driver.info().unwrap().0, serial);
+    peer.join().unwrap();
 }

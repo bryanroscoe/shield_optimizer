@@ -1,31 +1,31 @@
 [package]
-name = "shield-optimizer-v2"
-version = "2.4.1"
-description = "Shield Optimizer v2 — Tauri/Rust rewrite of the Android TV debloater"
+name = "atv-optimizer"
+version = "2.5.0"
+description = "ATV Optimizer — desktop app for debloating and tuning Android TV devices"
 authors = ["Bryan Roscoe"]
 edition = "2021"
 rust-version = "1.81"
-default-run = "shield-optimizer-v2"
+default-run = "atv-optimizer"
 
 [lib]
 # The `_lib` suffix is necessary to keep the lib name unique vs. the bin name
 # on Windows (see https://github.com/rust-lang/cargo/issues/8519).
-name = "shield_optimizer_v2_lib"
+name = "atv_optimizer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 native-adb-default = ["direct-adb"]
-direct-adb = ["dep:shield-direct-adb", "dep:mdns-sd"]
+direct-adb = ["dep:atv-direct-adb", "dep:mdns-sd"]
 # Dev-only: the E2E server (crates/e2e-server) runs the real command layer
 # against the simulated adb. Never enabled in a release build.
-e2e = ["shield-optimizer-core/test-support", "tauri/test"]
+e2e = ["atv-optimizer-core/test-support", "tauri/test"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-shield-optimizer-core = { path = "../crates/core" }
-shield-direct-adb = { path = "../crates/direct-adb", optional = true }
+atv-optimizer-core = { path = "../crates/core" }
+atv-direct-adb = { path = "../crates/direct-adb", optional = true }
 mdns-sd = { version = "=0.19.2", default-features = false, optional = true }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
@@ -78,8 +78,13 @@ axmldecoder = "0.5"
 # "scan found nothing" report. Addresses and names never leave the process.
 if-addrs = "0.15"
 
+# Sends the Local Network probe out of a chosen interface (IP_MULTICAST_IF).
+# Already in the tree through tokio.
+[target.'cfg(target_os = "macos")'.dependencies]
+socket2 = "0.6"
+
 [dev-dependencies]
-shield-optimizer-core = { path = "../crates/core", features = ["test-support"] }
+atv-optimizer-core = { path = "../crates/core", features = ["test-support"] }
 pretty_assertions = "1"
 tempfile = "3"
 # `start_paused` — lets the reconnect-backoff tests advance time instantly

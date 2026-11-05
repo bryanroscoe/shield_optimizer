@@ -11,6 +11,7 @@
     matchesPlanQuery,
     naturalAction,
     planItemApp,
+    rowPurpose,
     rowSafety,
   } from "../lib/optimizeRows";
   import type {
@@ -858,6 +859,12 @@
         {#each visibleItems as item (item.entry.package)}
           {@const tier = tierOf(safetyMap[item.entry.package])}
           {@const hardBlocked = isHardBlocked(item)}
+          {@const showReason = item.action.kind !== "enable" && !!tier && !(tier.kind === "unknown" && sharedUnknownReason)}
+          {@const shownReason = showReason ? reasonOf(safetyMap[item.entry.package]) : ""}
+          {@const purpose = rowPurpose(
+            mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description,
+            shownReason,
+          )}
           <div class="optimize-item" class:blocked-row={hardBlocked}>
             <button
               class="item-details"
@@ -888,14 +895,14 @@
                     : ""}
                 </span>
               </div>
-              {#if item.action.kind !== "enable" && tier && !(tier.kind === "unknown" && sharedUnknownReason)}
-                <span class="row-reason {tier.cls}">{reasonOf(safetyMap[item.entry.package])}</span>
+              {#if showReason && tier}
+                <span class="row-reason {tier.cls}">{shownReason}</span>
               {:else if item.action.kind !== "enable" && safetyFailed}
                 <span class="row-reason">Safety guidance could not be loaded. Retry before selecting this action.</span>
               {/if}
-              <span class="row-purpose">
-                {mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description}
-              </span>
+              {#if purpose}
+                <span class="row-purpose">{purpose}</span>
+              {/if}
             </button>
             {#if mode === "optimize" && activeTab === "optional"}
               <div class="choice-group" role="group" aria-label="Choice for {item.entry.name}">

@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-03",
+  "upstream_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+  "methodology": "../../tools/registry-triage/README.md",
+  "packages": [
+    {
+      "package": "com.google.android.partnersetup",
+      "research_owner": "MIT catalog implementation task",
+      "review_status": "unreviewed",
+      "actionable": false,
+      "conservative_research_disposition": "keep_pending_research",
+      "proposed_catalog_verdict": null,
+      "upstream_observations": "Run the exact-profile lookup for the original active/commented/prose occurrences. Those observations retain upstream attribution separately.",
+      "independent_primary_sources": [
+        {
+          "url": "https://docs.samsungknox.com/CCMode/N975U_LTE_R.pdf",
+          "locator": "page 7, Google Partner Setup row",
+          "finding": "Samsung lists this exact package and version 100.327071041 in the Galaxy Note10+ LTE N975U application inventory.",
+          "applicability": {
+            "model": "Galaxy Note10+ LTE N975U",
+            "os": "Android 11",
+            "firmware": null
+          },
+          "limits": "This phone inventory establishes package identity on that model. TV behavior and removal safety remain unverified."
+        }
+      ],
+      "purpose": "Setup-related display name confirmed in the Samsung inventory; exact implementation and TV purpose unresolved.",
+      "dependencies": null,
+      "removal_risks": "Unknown on each target TV and firmware.",
+      "restore_risks": "Unknown; no target-specific restore or boot verification.",
+      "conflicting_evidence": "Upstream active entries express disable choices, while the existing app treats the friendly name as display-only. Their applicability requires separate assessment.",
+      "evidence_gaps": [
+        "TV-specific vendor manifest and package version",
+        "Dependencies and permissions on exact firmware",
+        "Isolated removal/restore evidence and observed boot/network behavior"
+      ]
+    },
+    {
+      "package": "com.realtek.leanbacklauncher.partnercustomizer",
+      "research_owner": "MIT catalog implementation task",
+      "review_status": "unreviewed",
+      "actionable": false,
+      "conservative_research_disposition": "keep_pending_research",
+      "proposed_catalog_verdict": null,
+      "upstream_observations": "acer-ar3-r3 comments keep this package for the Inputs button; acer-ar32ap2841hdfl lists it as active. Consult each original source and context separately.",
+      "independent_primary_sources": [],
+      "search_scope": "Bounded exact-identity search of realtek.com, android.googlesource.com and source.android.com found no exact primary package documentation on 2026-11-03.",
+      "applicability": {
+        "model": null,
+        "os": null,
+        "firmware": null
+      },
+      "purpose": "Unverified. The package name alone cannot establish behavior.",
+      "dependencies": null,
+      "removal_risks": "Potential input/Home dependency raised by upstream comments requires vendor or target-specific corroboration.",
+      "restore_risks": "Unknown; no target-specific restoration evidence.",
+      "conflicting_evidence": "Upstream lists differ between Acer R3 Android TV 14 and Acer P Series Android TV 11. Neither observation transfers to another model or firmware.",
+      "evidence_gaps": [
+        "Exact vendor manifest or primary technical documentation",
+        "Model/OS/firmware-bound inventory and resources",
+        "Dependencies, input/Home behavior, removal and restore evidence"
+      ]
+    },
+    {
+      "package": "android.autoinstalls.config.nvidia",
+      "research_owner": "coordinator independent research",
+      "review_status": "unreviewed",
+      "actionable": false,
+      "conservative_research_disposition": "keep_pending_research",
+      "proposed_catalog_verdict": null,
+      "upstream_observations": "Original upstream entries are retained separately in the source catalog.",
+      "independent_primary_sources": [
+        {
+          "url": "https://android.googlesource.com/platform/packages/apps/Launcher3/+/refs/heads/main/src/com/android/launcher3/AutoInstallsLayout.java",
+          "finding": "Coordinator reports that AOSP documents a generic partner auto-install configuration mechanism.",
+          "limits": "Generic mechanism evidence leaves this exact NVIDIA package, manifest and TV firmware behavior unverified."
+        }
+      ],
+      "applicability": {
+        "model": null,
+        "os": null,
+        "firmware": null
+      },
+      "purpose": "Exact NVIDIA implementation unverified.",
+      "dependencies": null,
+      "removal_risks": "Unknown on each NVIDIA firmware.",
+      "restore_risks": "Unknown; no isolated restore evidence.",
+      "conflicting_evidence": "An upstream disable observation and generic AOSP mechanism do not establish a reviewed NVIDIA removal verdict.",
+      "evidence_gaps": [
+        "NVIDIA primary manifest",
+        "Firmware-bound inventory or APK inspection",
+        "Isolated disable/restore evidence",
+        "Evidence for any performance benefit"
+      ]
+    }
+  ]
+}

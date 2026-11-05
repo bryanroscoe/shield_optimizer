@@ -9,7 +9,7 @@ pub fn parse_selection(value: Option<&str>) -> Result<TransportSelection, String
         None if cfg!(feature = "native-adb-default") => Ok(TransportSelection::Direct),
         None | Some("subprocess") => Ok(TransportSelection::Subprocess),
         Some("direct") => Ok(TransportSelection::Direct),
-        Some(_) => Err("SHIELD_OPTIMIZER_TRANSPORT must be subprocess or direct.".into()),
+        Some(_) => Err("ATV_OPTIMIZER_TRANSPORT must be subprocess or direct.".into()),
     }
 }
 

@@ -8,7 +8,7 @@ use crate::models::RemountInfo;
 use crate::tcp::tcp_transport::TcpTransport;
 use crate::utils::get_default_adb_key_path;
 use crate::{
-    ADBDeviceExt, ADBListItemType, Result,
+    ADBDeviceExt, ADBListItemType, ConnectionInfo, Result, RustADBError, ShellExit,
     message_devices::adb_message_transport::DEFAULT_READ_TIMEOUT,
 };
 
@@ -37,8 +37,9 @@ impl ADBTcpDevice {
         })
     }
 
-    /// Instantiate an [`ADBTcpDevice`] using a custom private key path and a
-    /// finite timeout for each connection and RSA-authorization response.
+    /// Instantiate an [`ADBTcpDevice`] using a custom private key path. The
+    /// whole connection handshake (TLS upgrade, RSA authorization and the
+    /// user's approval on the device) must finish within `auth_timeout`.
     pub fn new_with_custom_private_key_and_auth_timeout<P: AsRef<Path>, A: Into<SocketAddr>>(
         address: A,
         private_key_path: P,
@@ -53,8 +54,96 @@ impl ADBTcpDevice {
         })
     }
 
-    /// Connect using an existing identity, failing rather than generating an
-    /// ephemeral key when the identity disappears before the handshake.
+    /// What the CNXN exchange negotiated: protocol version, maximum payload,
+    /// and the features both this client and the device support.
+    #[must_use]
+    pub const fn connection_info(&self) -> &ConnectionInfo {
+        self.inner.connection_info()
+    }
+
+    /// Whether both this client and the device support `feature`, for example
+    /// `sendrecv_v2` or `abb_exec`.
+    #[must_use]
+    pub fn has_feature(&self, feature: &str) -> bool {
+        self.inner.connection_info().has_feature(feature)
+    }
+
+    /// Largest payload one ADB message may carry on this connection.
+    #[must_use]
+    pub const fn max_payload(&self) -> usize {
+        self.inner.connection_info().max_payload()
+    }
+
+    /// Run a shell command with a finite timeout for each transport response.
+    /// This is useful for liveness probes, where an unbounded read would keep
+    /// the owning connection mutex locked forever after a network loss.
+    ///
+    /// Shell protocol v2 is used whenever the device negotiated `shell_v2`
+    /// and returns [`ShellExit::Code`]. Only a device without it (or one
+    /// that refuses the v2 service) gets the legacy shell, which merges
+    /// stderr into stdout and returns [`ShellExit::Unreported`]. A v2 stream
+    /// that closes before its exit status is an error, never a success.
+    pub fn shell_command_with_timeout(
+        &mut self,
+        command: &dyn AsRef<str>,
+        stdout: Option<&mut dyn Write>,
+        stderr: Option<&mut dyn Write>,
+        timeout: Duration,
+    ) -> Result<ShellExit> {
+        self.inner
+            .shell_command_with_timeout(command, stdout, stderr, timeout)
+    }
+
+    /// Run a command whose output is binary, like `adb exec-out`: shell v2
+    /// when negotiated, otherwise `exec:`, which (unlike the legacy shell)
+    /// never passes output through a pty. Without v2, stderr is merged into
+    /// `stdout` and there is no exit status.
+    pub fn exec_out_with_timeout(
+        &mut self,
+        command: &str,
+        stdout: &mut dyn Write,
+        stderr: Option<&mut dyn Write>,
+        timeout: Duration,
+    ) -> Result<ShellExit> {
+        self.inner
+            .exec_out_with_timeout(command, stdout, stderr, timeout)
+    }
+
+    /// Pull `source` into `output` unless the device reports it larger than
+    /// `max_bytes`, which is [`crate::RustADBError::FileTooLarge`] with
+    /// nothing written. One sync session does the size check and the
+    /// transfer. `output` must still bound a file that grows meanwhile.
+    pub fn pull_with_limit(
+        &mut self,
+        source: &str,
+        output: &mut dyn Write,
+        max_bytes: u64,
+    ) -> Result<()> {
+        self.inner.pull_at_most(source, output, Some(max_bytes))
+    }
+
+    /// Install one APK, or the base and splits of one app together, choosing
+    /// the transport as AOSP's `adb install` does: streamed through
+    /// `abb_exec` or `exec:cmd` when negotiated, otherwise pushed to
+    /// `/data/local/tmp` (and removed again) for `pm`. `options` are passed
+    /// to the package manager, e.g. `["-r"]`. Returns its `Success` reply.
+    /// Anything else is [`crate::RustADBError::InstallFailed`] with the
+    /// package manager's text, and an unfinished session is abandoned.
+    /// `timeout` bounds each wait for the device, including verification
+    /// after the last byte.
+    pub fn install_apks<P: AsRef<Path>>(
+        &mut self,
+        apks: &[P],
+        options: &[&str],
+        timeout: Duration,
+    ) -> Result<String> {
+        let paths: Vec<&Path> = apks.iter().map(AsRef::as_ref).collect();
+        self.inner.install_packages(&paths, options, timeout)
+    }
+
+    /// Connect using an existing identity, failing with `IOError(NotFound)`
+    /// before connecting rather than generating an ephemeral key when the
+    /// identity has disappeared. `auth_timeout` bounds the whole handshake.
     pub fn new_with_required_private_key_and_auth_timeout<P: AsRef<Path>, A: Into<SocketAddr>>(
         address: A,
         private_key_path: P,
@@ -69,8 +158,10 @@ impl ADBTcpDevice {
         })
     }
 
-    /// Connect and report only a successfully sent RSA public-key AUTH packet.
-    /// The observer does not run for an already trusted key or a failed write.
+    /// Connect, calling `public_key_sent` once our RSA public key was written
+    /// in answer to an AUTH token, when the device may be showing its
+    /// "Allow debugging?" prompt. It does not run for an already trusted key,
+    /// over TLS, or when that write fails.
     pub fn new_with_key_and_auth_observer<P: AsRef<Path>, A: Into<SocketAddr>>(
         address: A,
         private_key_path: P,
@@ -89,8 +180,12 @@ impl ADBTcpDevice {
         })
     }
 
-    /// Authenticate under a cancellable deadline. Call `finish_connection` only
-    /// when the owner is ready to publish the socket as its active connection.
+    /// Authenticate under `control`: its deadline caps the one handshake
+    /// deadline (TCP connect, TLS, AUTH rounds and the user's approval), and
+    /// cancelling it shuts down only this socket. `public_key_sent` reports
+    /// an AUTH public-key round as for [`Self::new_with_key_and_auth_observer`].
+    /// The control keeps applying to the socket until [`Self::finish_connection`]
+    /// hands it to its owner; a failed attempt closes its socket.
     pub fn new_with_control_and_auth_observer(
         address: SocketAddr,
         key: &Path,
@@ -99,25 +194,33 @@ impl ADBTcpDevice {
         public_key_sent: &dyn Fn(),
     ) -> Result<Self> {
         let transport = TcpTransport::with_shell_control(address, key, control.clone());
-        let result = ADBMessageDevice::new_with_auth_observer(
-            transport,
-            key,
-            control.remaining()?,
-            require_existing_key,
-            public_key_sent,
-        );
+        let result = control
+            .remaining()
+            .map_err(RustADBError::from)
+            .and_then(|budget| {
+                ADBMessageDevice::new_with_auth_observer(
+                    transport,
+                    key,
+                    budget,
+                    require_existing_key,
+                    public_key_sent,
+                )
+            });
         if result.is_err() {
             let _finish = super::bounded_shell::Finish(control);
         }
         result.map(|inner| Self { inner })
     }
 
-    /// Detach the handshake deadline while transferring the live socket to its owner.
+    /// Detach the handshake deadline while transferring the live socket to
+    /// its owner. Fails, and the connection must be dropped, once the
+    /// control was cancelled or expired.
     pub fn finish_connection(&mut self) -> Result<()> {
         self.inner.get_transport_mut().finish_connect_control()
     }
 
-    /// Connect with an existing key and one total deadline across handshake and later services.
+    /// Connect with an existing key and one total deadline across the
+    /// handshake (at most 30 seconds of it) and every later service.
     pub fn new_with_required_key_and_control(
         address: SocketAddr,
         key: &Path,
@@ -133,7 +236,10 @@ impl ADBTcpDevice {
         })
     }
 
-    /// Runs once on this owned connection under a total deadline; normal completion preserves it.
+    /// Run `command` once on this connection under a total deadline, with
+    /// the shell chosen as for [`Self::shell_command_with_timeout`]. `None` is
+    /// the legacy shell's missing exit status. Normal completion leaves the
+    /// connection open; the deadline or a cancel can close it.
     pub fn shell_command_with_control(
         &mut self,
         command: &dyn AsRef<str>,
@@ -142,7 +248,26 @@ impl ADBTcpDevice {
         control: super::BoundedShellControl,
     ) -> Result<Option<u8>> {
         self.with_control(control, |device, timeout| {
-            device.shell_command_prefer_v2_with_timeout(command, stdout, stderr, timeout)
+            device
+                .shell_command_with_timeout(command, stdout, stderr, timeout)
+                .map(ShellExit::code)
+        })
+    }
+
+    /// Run `command` for binary output once on this connection under a
+    /// total deadline, as [`Self::exec_out_with_timeout`] does: shell v2
+    /// when negotiated, otherwise `exec:` (stderr merged, no exit status).
+    /// Normal completion leaves the connection open; the deadline or a
+    /// cancel can close it.
+    pub fn exec_out_with_control(
+        &mut self,
+        command: &str,
+        stdout: &mut dyn Write,
+        stderr: Option<&mut dyn Write>,
+        control: super::BoundedShellControl,
+    ) -> Result<ShellExit> {
+        self.with_control(control, |device, timeout| {
+            device.exec_out_with_timeout(command, stdout, stderr, timeout)
         })
     }
 
@@ -155,6 +280,7 @@ impl ADBTcpDevice {
     ) -> Result<()> {
         self.with_control(control, |device, _| device.push(input, path))
     }
+
     /// Downloads once under a total deadline while retaining the caller's output policy.
     pub fn pull_with_control(
         &mut self,
@@ -164,10 +290,11 @@ impl ADBTcpDevice {
     ) -> Result<()> {
         self.with_control(control, |device, _| {
             device.pull(source, &mut *output)?;
-            output.flush()?;
+            output.flush().map_err(RustADBError::LocalIo)?;
             Ok(())
         })
     }
+
     /// Sends the reboot request once; acceptance still requires the service OPEN acknowledgement.
     pub fn reboot_with_control(
         &mut self,
@@ -176,6 +303,7 @@ impl ADBTcpDevice {
     ) -> Result<()> {
         self.with_control(control, |device, _| device.reboot(reboot_type))
     }
+
     fn with_control<T, F>(&mut self, control: super::BoundedShellControl, run: F) -> Result<T>
     where
         F: FnOnce(&mut ADBMessageDevice<TcpTransport>, Duration) -> Result<T>,
@@ -227,22 +355,8 @@ impl ADBTcpDevice {
     }
 
     #[cfg(test)]
-    pub(crate) fn from_fixture_device(inner: ADBMessageDevice<TcpTransport>) -> Self {
+    pub(crate) const fn from_fixture_device(inner: ADBMessageDevice<TcpTransport>) -> Self {
         Self { inner }
-    }
-
-    /// Run a shell command with a finite timeout for each transport response.
-    /// This is useful for liveness probes, where an unbounded read would keep
-    /// the owning connection mutex locked forever after a network loss.
-    pub fn shell_command_with_timeout(
-        &mut self,
-        command: &dyn AsRef<str>,
-        stdout: Option<&mut dyn Write>,
-        stderr: Option<&mut dyn Write>,
-        timeout: Duration,
-    ) -> Result<Option<u8>> {
-        self.inner
-            .shell_command_prefer_v2_with_timeout(command, stdout, stderr, timeout)
     }
 }
 
@@ -255,6 +369,7 @@ impl ADBDeviceExt for ADBTcpDevice {
         stderr: Option<&mut dyn Write>,
     ) -> Result<Option<u8>> {
         self.shell_command_with_timeout(command, stdout, stderr, DEFAULT_READ_TIMEOUT)
+            .map(ShellExit::code)
     }
 
     #[inline]
@@ -337,9 +452,344 @@ impl ADBDeviceExt for ADBTcpDevice {
 #[cfg(test)]
 mod tests {
     use super::ADBTcpDevice;
-    use crate::ADBDeviceExt;
+    use crate::message_devices::{
+        adb_connection_info::{A_VERSION_MIN, A_VERSION_SKIP_CHECKSUM, MAX_PAYLOAD, host_banner},
+        adb_transport_message::{AUTH_RSAPUBLICKEY, AUTH_SIGNATURE, AUTH_TOKEN},
+        message_commands::MessageCommand,
+        tcp::test_support::{
+            complete_server_handshake, drain, fake_adbd, read_message, shared_test_key, tls_server,
+            write_message,
+        },
+    };
+    use crate::{ADBDeviceExt, Result, RustADBError, ShellExit};
+    use std::{
+        io::ErrorKind,
+        net::{SocketAddr, TcpStream},
+        sync::{Arc, Mutex, mpsc},
+        time::{Duration, Instant},
+    };
 
-    fn controlled_fixture(address: std::net::SocketAddr) -> ADBTcpDevice {
+    const DEVICE_BANNER: &[u8] = b"device::ro.product.name=sabrina;ro.product.model=Chromecast;\
+features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,abb_exec,sendrecv_v2,delayed_ack";
+    const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+    const TOKEN: [u8; 20] = [0x5a; 20];
+
+    fn connect_with(address: SocketAddr, auth_timeout: Duration) -> Result<ADBTcpDevice> {
+        ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+            address,
+            shared_test_key(),
+            auth_timeout,
+        )
+    }
+
+    fn connect(address: SocketAddr) -> Result<ADBTcpDevice> {
+        connect_with(address, AUTH_TIMEOUT)
+    }
+
+    fn expect_host_cnxn(stream: &mut TcpStream) {
+        let cnxn = read_message(stream).unwrap();
+        assert_eq!(cnxn.header().command(), MessageCommand::Cnxn);
+        assert_eq!(cnxn.header().arg0(), A_VERSION_MIN);
+        assert_eq!(cnxn.header().arg1(), MAX_PAYLOAD);
+        assert_eq!(cnxn.payload(), &host_banner());
+    }
+
+    fn send_device_cnxn(stream: &mut impl std::io::Write, max_payload: u32) {
+        write_message(
+            stream,
+            MessageCommand::Cnxn,
+            A_VERSION_SKIP_CHECKSUM,
+            max_payload,
+            DEVICE_BANNER,
+        )
+        .unwrap();
+    }
+
+    fn assert_timed_out(result: Result<ADBTcpDevice>) {
+        match result {
+            Err(RustADBError::IOError(error)) => assert_eq!(error.kind(), ErrorKind::TimedOut),
+            Err(other) => panic!("expected a timeout, got {other:?}"),
+            Ok(_) => panic!("expected a timeout, got a connection"),
+        }
+    }
+
+    /// `held` is measured by the fake from a point where the client's
+    /// handshake deadline is already running, so slow debug-build key loading
+    /// beforehand does not count. Before this bound the wait was 120 s.
+    fn assert_gave_up_within(held: Duration, auth_timeout: Duration) {
+        assert!(
+            held < auth_timeout + Duration::from_secs(3),
+            "held for {held:?}"
+        );
+    }
+
+    #[test]
+    fn plain_cnxn_negotiates_features_and_payload() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            send_device_cnxn(&mut stream, 256 * 1024);
+            drain(&mut stream);
+        });
+        let device = connect(address).unwrap();
+        let info = device.connection_info();
+        assert_eq!(info.protocol_version(), A_VERSION_MIN);
+        assert_eq!(device.max_payload(), 256 * 1024);
+        assert!(device.has_feature("abb_exec"));
+        assert!(device.has_feature("sendrecv_v2"));
+        assert!(!device.has_feature("delayed_ack"));
+        assert!(!device.has_feature("abb"));
+        assert!(info.device_features().contains("fixed_push_mkdir"));
+        assert_eq!(info.property("ro.product.model"), Some("Chromecast"));
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn negotiated_payload_limit_bounds_incoming_messages() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            send_device_cnxn(&mut stream, 4096);
+            let open = read_message(&mut stream).unwrap();
+            assert_eq!(open.header().command(), MessageCommand::Open);
+            let local_id = open.header().arg0();
+            let _ = write_message(&mut stream, MessageCommand::Write, 1, local_id, &[0; 4097]);
+            drain(&mut stream);
+        });
+        let mut device = connect(address).unwrap();
+        let error = device
+            .shell_command_with_timeout(&"true", None, None, Duration::from_secs(2))
+            .unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn auth_signs_the_token_then_offers_the_public_key() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+            let signature = read_message(&mut stream).unwrap();
+            assert_eq!(signature.header().command(), MessageCommand::Auth);
+            assert_eq!(signature.header().arg0(), AUTH_SIGNATURE);
+            assert_eq!(signature.payload().len(), 256);
+
+            write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+            let public_key = read_message(&mut stream).unwrap();
+            assert_eq!(public_key.header().arg0(), AUTH_RSAPUBLICKEY);
+            assert!(public_key.payload().starts_with(b"QAAAA"));
+            assert_eq!(public_key.payload().last(), Some(&0));
+
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let device = connect(address).unwrap();
+        assert!(device.has_feature("shell_v2"));
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn auth_that_is_not_a_token_is_rejected() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Auth, AUTH_SIGNATURE, 0, &TOKEN).unwrap();
+            drain(&mut stream);
+        });
+        let error = connect(address).unwrap_err();
+        assert!(
+            matches!(error, RustADBError::ADBRequestFailed(_)),
+            "{error:?}"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn endless_auth_tokens_are_bounded() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            loop {
+                if write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).is_err()
+                    || read_message(&mut stream).is_err()
+                {
+                    break;
+                }
+            }
+        });
+        let error = connect(address).unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_stream_packet_during_the_handshake_fails_it() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Okay, 1, 2, &[]).unwrap();
+            drain(&mut stream);
+        });
+        let error = connect(address).unwrap_err();
+        assert!(
+            matches!(error, RustADBError::WrongResponseReceived(..)),
+            "{error:?}"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_cnxn_with_zero_max_payload_is_rejected() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            send_device_cnxn(&mut stream, 0);
+            drain(&mut stream);
+        });
+        let error = connect(address).unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_silent_device_times_out_within_the_auth_timeout() {
+        let (held_tx, held_rx) = mpsc::channel();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            let since_cnxn = Instant::now();
+            drain(&mut stream);
+            held_tx.send(since_cnxn.elapsed()).unwrap();
+        });
+        let auth_timeout = Duration::from_millis(300);
+        assert_timed_out(connect_with(address, auth_timeout));
+        server.join().unwrap();
+        assert_gave_up_within(held_rx.recv().unwrap(), auth_timeout);
+    }
+
+    #[test]
+    fn a_trickling_device_cannot_stretch_the_handshake_deadline() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            // Each reply arrives well inside a per-read timeout, but together
+            // they outlast the handshake deadline, so this must not connect.
+            for _ in 0..3 {
+                std::thread::sleep(Duration::from_millis(200));
+                if write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).is_err()
+                    || read_message(&mut stream).is_err()
+                {
+                    return;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(200));
+            let _ = write_message(
+                &mut stream,
+                MessageCommand::Cnxn,
+                A_VERSION_MIN,
+                MAX_PAYLOAD,
+                DEVICE_BANNER,
+            );
+            drain(&mut stream);
+        });
+        assert_timed_out(connect_with(address, Duration::from_millis(500)));
+        server.join().unwrap();
+    }
+
+    type ServerTls = rustls::StreamOwned<rustls::ServerConnection, TcpStream>;
+    type SeenCertificate = Arc<Mutex<Option<Vec<u8>>>>;
+
+    fn stls_then<F>(
+        trust_client: bool,
+        after_handshake: F,
+    ) -> (SocketAddr, std::thread::JoinHandle<()>, SeenCertificate)
+    where
+        F: FnOnce(ServerTls, std::io::Result<()>) + Send + 'static,
+    {
+        let seen = Arc::new(Mutex::new(None));
+        let seen_by_server = Arc::clone(&seen);
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Stls, 0x0100_0000, 0, &[]).unwrap();
+            let stls = read_message(&mut stream).unwrap();
+            assert_eq!(stls.header().command(), MessageCommand::Stls);
+            assert_eq!(stls.header().arg0(), 0x0100_0000);
+            let mut tls = tls_server(stream, trust_client, seen_by_server);
+            let handshake = complete_server_handshake(&mut tls);
+            after_handshake(tls, handshake);
+        });
+        (address, server, seen)
+    }
+
+    #[test]
+    fn tls_upgrade_presents_our_key_and_negotiates_over_tls() {
+        let (address, server, seen) = stls_then(true, |mut tls, handshake| {
+            handshake.unwrap();
+            send_device_cnxn(&mut tls, MAX_PAYLOAD);
+            drain(&mut tls);
+        });
+        let device = connect(address).unwrap();
+        assert!(device.has_feature("sendrecv_v2"));
+        drop(device);
+        server.join().unwrap();
+
+        let pem = std::fs::read_to_string(shared_test_key()).unwrap();
+        let key =
+            rcgen::KeyPair::from_pkcs8_pem_and_sign_algo(&pem, &rcgen::PKCS_RSA_SHA256).unwrap();
+        let spki = rcgen::PublicKeyData::subject_public_key_info(&key);
+        let presented = seen.lock().unwrap().clone().expect("client certificate");
+        assert!(presented.windows(spki.len()).any(|window| window == spki));
+    }
+
+    #[test]
+    fn a_refused_certificate_is_reported_as_not_paired() {
+        let (address, server, _seen) = stls_then(false, |mut tls, handshake| {
+            assert!(handshake.is_err());
+            drain(&mut tls.sock);
+        });
+        let error = connect(address).unwrap_err();
+        assert!(
+            matches!(error, RustADBError::TlsAuthRejected(_)),
+            "{error:?}"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_hang_up_after_our_certificate_is_a_closed_connection_not_a_pairing_verdict() {
+        let (address, server, _seen) = stls_then(true, |tls, handshake| {
+            handshake.unwrap();
+            drop(tls);
+        });
+        let error = connect(address).unwrap_err();
+        assert!(
+            matches!(error, RustADBError::TlsConnectionClosed(_)),
+            "{error:?}"
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_silent_tls_peer_times_out_within_the_auth_timeout() {
+        let (held_tx, held_rx) = mpsc::channel();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Stls, 0x0100_0000, 0, &[]).unwrap();
+            let _stls = read_message(&mut stream).unwrap();
+            let since_stls = Instant::now();
+            // Swallow the ClientHello and never answer it.
+            drain(&mut stream);
+            held_tx.send(since_stls.elapsed()).unwrap();
+        });
+        let auth_timeout = Duration::from_millis(400);
+        assert_timed_out(connect_with(address, auth_timeout));
+        server.join().unwrap();
+        assert_gave_up_within(held_rx.recv().unwrap(), auth_timeout);
+    }
+
+    // ---- controlled connections (Shield Optimizer) ----
+
+    use super::super::BoundedShellControl;
+    use super::super::streamed_install::tests::{
+        fixture_key, hello_with_features, receive, reply, send,
+    };
+
+    fn controlled_fixture(address: SocketAddr) -> ADBTcpDevice {
         let transport = super::TcpTransport::new(
             address,
             std::path::Path::new("fixture-in-memory-never-written"),
@@ -347,30 +797,37 @@ mod tests {
         ADBTcpDevice::from_fixture_device(
             super::ADBMessageDevice::new_with_fixture_key(
                 transport,
-                &super::super::streamed_install::tests::fixture_key(),
-                std::time::Duration::from_secs(2),
+                &fixture_key(),
+                Duration::from_secs(2),
             )
             .unwrap(),
         )
     }
+
+    fn v2_hello(socket: &mut TcpStream) {
+        hello_with_features(socket, "shell_v2");
+    }
+
     fn shell_packet(channel: u8, bytes: &[u8]) -> Vec<u8> {
         let mut packet = vec![channel];
         packet.extend_from_slice(&u32::try_from(bytes.len()).unwrap().to_le_bytes());
         packet.extend_from_slice(bytes);
         packet
     }
+
+    fn fixture_listener() -> (std::net::TcpListener, SocketAddr) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        (listener, address)
+    }
+
     #[test]
     fn controlled_owned_shell_normal_completion_preserves_socket_and_queued_cancel_cannot_close_it()
     {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, reply, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
+        let (listener, address) = fixture_listener();
         let peer = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            hello(&mut socket);
+            v2_hello(&mut socket);
             for command in [b"shell,v2,raw:one\0".as_slice(), b"shell,v2,raw:two\0"] {
                 let open = receive(&mut socket).unwrap();
                 assert_eq!(open.payload(), command);
@@ -412,17 +869,13 @@ mod tests {
         );
         peer.join().unwrap();
     }
+
     #[test]
     fn controlled_owned_shell_total_deadline_survives_continuous_output_without_replay() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::{Duration, Instant};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
+        let (listener, address) = fixture_listener();
         let peer = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            hello(&mut socket);
+            v2_hello(&mut socket);
             let open = receive(&mut socket).unwrap();
             let local = open.header().arg0();
             send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
@@ -461,16 +914,11 @@ mod tests {
 
     #[test]
     fn controlled_owned_shell_cancellation_interrupts_only_admitted_socket() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let (started, ready) = std::sync::mpsc::channel();
+        let (listener, address) = fixture_listener();
+        let (started, ready) = mpsc::channel();
         let peer = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            hello(&mut socket);
+            v2_hello(&mut socket);
             let open = receive(&mut socket).unwrap();
             send(&mut socket, MessageCommand::Okay, open.header().arg0(), b"").unwrap();
             started.send(()).unwrap();
@@ -492,17 +940,13 @@ mod tests {
         canceler.join().unwrap();
         peer.join().unwrap();
     }
+
     #[test]
     fn controlled_owned_shell_keeps_explicit_v1_rejection_fallback() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, reply, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
+        let (listener, address) = fixture_listener();
         let peer = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            hello(&mut socket);
+            v2_hello(&mut socket);
             let rejected = receive(&mut socket).unwrap();
             assert_eq!(rejected.payload(), b"shell,v2,raw:legacy\0");
             send(
@@ -513,7 +957,7 @@ mod tests {
             )
             .unwrap();
             let open = receive(&mut socket).unwrap();
-            assert_eq!(open.payload(), b"shell:legacy");
+            assert_eq!(open.payload(), b"shell:legacy\0");
             let local = open.header().arg0();
             send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
             reply(&mut socket, local, b"legacy", true);
@@ -537,16 +981,11 @@ mod tests {
 
     #[test]
     fn controlled_owned_shell_ambiguous_open_never_replays_as_v1() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
         for malformed in [false, true] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
+            let (listener, address) = fixture_listener();
             let peer = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
-                hello(&mut socket);
+                v2_hello(&mut socket);
                 let open = receive(&mut socket).unwrap();
                 assert_eq!(open.payload(), b"shell,v2,raw:once\0");
                 if malformed {
@@ -580,403 +1019,11 @@ mod tests {
     }
 
     #[test]
-    fn controlled_dedicated_sync_deadline_interrupts_stat_and_continuous_download() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{fixture_key, hello, receive, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::{Duration, Instant};
-        for (download, borrowed) in [(false, false), (true, false), (true, true)] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
-            let peer = std::thread::spawn(move || {
-                let (mut socket, _) = listener.accept().unwrap();
-                hello(&mut socket);
-                let open = receive(&mut socket).unwrap();
-                assert_eq!(open.payload(), b"sync:");
-                let local = open.header().arg0();
-                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                for _ in 0..2 {
-                    assert_eq!(
-                        receive(&mut socket).unwrap().header().command(),
-                        MessageCommand::Write
-                    );
-                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                }
-                if !download {
-                    assert!(receive(&mut socket).is_err());
-                    return;
-                }
-                let mut stat = b"STAT".to_vec();
-                for value in [0o100_644_u32, 1000, 0] {
-                    stat.extend_from_slice(&value.to_le_bytes());
-                }
-                send(&mut socket, MessageCommand::Write, local, &stat).unwrap();
-                assert_eq!(
-                    receive(&mut socket).unwrap().header().command(),
-                    MessageCommand::Okay
-                );
-                for _ in 0..2 {
-                    assert_eq!(
-                        receive(&mut socket).unwrap().header().command(),
-                        MessageCommand::Write
-                    );
-                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                }
-                for _ in 0..100 {
-                    let mut data = b"DATA".to_vec();
-                    data.extend_from_slice(&1u32.to_le_bytes());
-                    data.push(b'x');
-                    if send(&mut socket, MessageCommand::Write, local, &data).is_err() {
-                        return;
-                    }
-                    match receive(&mut socket) {
-                        Ok(message) if message.header().command() == MessageCommand::Okay => {}
-                        _ => return,
-                    }
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                panic!("continuous download outlived total deadline");
-            });
-            let control = BoundedShellControl::new(Duration::from_millis(100)).unwrap();
-            let _finish = super::super::bounded_shell::Finish(control.clone());
-            let transport = super::TcpTransport::with_shell_control(
-                address,
-                std::path::Path::new("fixture-in-memory-never-written"),
-                control.clone(),
-            );
-            let mut device = if borrowed {
-                controlled_fixture(address)
-            } else {
-                ADBTcpDevice::from_fixture_device(
-                    super::ADBMessageDevice::new_with_fixture_key(
-                        transport,
-                        &fixture_key(),
-                        Duration::from_secs(2),
-                    )
-                    .unwrap(),
-                )
-            };
-            let started = Instant::now();
-            let mut out = Vec::new();
-            let result = if download && borrowed {
-                device.pull_with_control(&"/fixture", &mut out, control.clone())
-            } else if download {
-                device.pull(&"/fixture", &mut out)
-            } else {
-                device.stat(&"/fixture").map(|_| ())
-            };
-            assert!(result.is_err());
-            assert!(started.elapsed() < Duration::from_secs(2));
-            if download {
-                assert!(!out.is_empty());
-            }
-            peer.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn controlled_owned_pull_preserves_bytes_and_flushes_before_success() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, reply, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
-        struct Output {
-            bytes: Vec<u8>,
-            flushed: bool,
-        }
-        impl std::io::Write for Output {
-            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-                self.bytes.extend_from_slice(bytes);
-                Ok(bytes.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                self.flushed = true;
-                Ok(())
-            }
-        }
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let peer = std::thread::spawn(move || {
-            let (mut socket, _) = listener.accept().unwrap();
-            hello(&mut socket);
-            let open = receive(&mut socket).unwrap();
-            assert_eq!(open.payload(), b"sync:");
-            let local = open.header().arg0();
-            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-            for _ in 0..2 {
-                assert_eq!(
-                    receive(&mut socket).unwrap().header().command(),
-                    MessageCommand::Write
-                );
-                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-            }
-            let mut stat = b"STAT".to_vec();
-            for value in [0o100_644_u32, 3, 0] {
-                stat.extend_from_slice(&value.to_le_bytes());
-            }
-            for bytes in stat.chunks(3) {
-                reply(&mut socket, local, bytes, false);
-            }
-            for _ in 0..2 {
-                assert_eq!(
-                    receive(&mut socket).unwrap().header().command(),
-                    MessageCommand::Write
-                );
-                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-            }
-            let mut data = b"DATA".to_vec();
-            data.extend_from_slice(&3u32.to_le_bytes());
-            data.extend_from_slice(b"abcDONE");
-            data.extend_from_slice(&0u32.to_le_bytes());
-            for bytes in data.chunks(5) {
-                reply(&mut socket, local, bytes, false);
-            }
-            let quit = receive(&mut socket).unwrap();
-            assert!(quit.payload().starts_with(b"QUIT"));
-            send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-            send(&mut socket, MessageCommand::Clse, local, b"").unwrap();
-        });
-        let mut device = controlled_fixture(address);
-        let mut output = Output {
-            bytes: Vec::new(),
-            flushed: false,
-        };
-        device
-            .pull_with_control(
-                &"/fixture",
-                &mut output,
-                BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
-            )
-            .unwrap();
-        assert_eq!(output.bytes, b"abc");
-        assert!(output.flushed);
-        peer.join().unwrap();
-    }
-
-    #[test]
-    fn owned_upload_requires_fragmented_sync_status_and_acknowledges_it() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, reply, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::{Duration, Instant};
-        for rejected in [false, true] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            listener.set_nonblocking(true).unwrap();
-            let address = listener.local_addr().unwrap();
-            let peer = std::thread::spawn(move || {
-                let deadline = Instant::now() + Duration::from_secs(3);
-                let mut socket = loop {
-                    match listener.accept() {
-                        Ok((socket, _)) => break socket,
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                            assert!(Instant::now() < deadline, "fixture accept deadline");
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                        Err(error) => panic!("fixture accept failed: {error}"),
-                    }
-                };
-                socket.set_nonblocking(false).unwrap();
-                hello(&mut socket);
-                let open = receive(&mut socket).unwrap();
-                assert_eq!(open.payload(), b"sync:");
-                let local = open.header().arg0();
-                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                for expected in [b"SEND", b"DATA", b"DONE"] {
-                    let message = receive(&mut socket).unwrap();
-                    assert_eq!(message.header().command(), MessageCommand::Write);
-                    assert!(message.payload().starts_with(expected));
-                    if expected == b"DATA" {
-                        assert_eq!(&message.payload()[8..], b"fixture bytes");
-                    }
-                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                }
-                let status = if rejected {
-                    let body = b"Permission denied";
-                    let mut bytes = b"FAIL".to_vec();
-                    bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
-                    bytes.extend_from_slice(body);
-                    bytes
-                } else {
-                    b"OKAY\0\0\0\0".to_vec()
-                };
-                for part in status.chunks(3) {
-                    reply(&mut socket, local, part, false);
-                }
-                if rejected {
-                    assert!(
-                        receive(&mut socket).is_err(),
-                        "rejected upload must not replay"
-                    );
-                } else {
-                    let quit = receive(&mut socket).unwrap();
-                    assert!(quit.payload().starts_with(b"QUIT"));
-                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                    send(&mut socket, MessageCommand::Clse, local, b"").unwrap();
-                }
-            });
-            let mut device = controlled_fixture(address);
-            let result = device.push_with_control(
-                &mut std::io::Cursor::new(b"fixture bytes"),
-                &"/fixture",
-                BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
-            );
-            if rejected {
-                assert!(
-                    result
-                        .unwrap_err()
-                        .to_string()
-                        .contains("Permission denied")
-                );
-            } else {
-                result.unwrap();
-            }
-            drop(device);
-            peer.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn upload_stops_on_early_or_midstream_rejection_without_replay() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, reply, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::{Duration, Instant};
-        for reject_at in 0..=2 {
-            for response in ["rejection", "premature success", "stalled rejection"] {
-                for interleave_ack in [false, true] {
-                    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-                    listener.set_nonblocking(true).unwrap();
-                    let address = listener.local_addr().unwrap();
-                    let peer = std::thread::spawn(move || {
-                        let deadline = Instant::now() + Duration::from_secs(3);
-                        let mut socket = loop {
-                            match listener.accept() {
-                                Ok((socket, _)) => break socket,
-                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                                    assert!(Instant::now() < deadline, "fixture accept deadline");
-                                    std::thread::sleep(Duration::from_millis(5));
-                                }
-                                Err(error) => panic!("fixture accept failed: {error}"),
-                            }
-                        };
-                        socket.set_nonblocking(false).unwrap();
-                        hello(&mut socket);
-                        let open = receive(&mut socket).unwrap();
-                        assert_eq!(open.payload(), b"sync:");
-                        let local = open.header().arg0();
-                        send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                        for step in 0..=reject_at {
-                            let packet = receive(&mut socket).unwrap();
-                            assert_eq!(packet.header().command(), MessageCommand::Write);
-                            assert!(packet.payload().starts_with(if step == 0 {
-                                b"SEND"
-                            } else {
-                                b"DATA"
-                            }));
-                            if step < reject_at {
-                                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                            }
-                        }
-                        let status = if response == "premature success" {
-                            b"OKAY\0\0\0\0".to_vec()
-                        } else {
-                            let body = b"Permission denied";
-                            let mut bytes = b"FAIL".to_vec();
-                            bytes.extend_from_slice(&(body.len() as u32).to_le_bytes());
-                            bytes.extend_from_slice(body);
-                            bytes
-                        };
-                        for (index, part) in status.chunks(3).enumerate() {
-                            reply(&mut socket, local, part, false);
-                            if index == 0 && interleave_ack {
-                                send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                            }
-                            if response == "stalled rejection" {
-                                break;
-                            }
-                        }
-                        assert!(
-                            receive(&mut socket).is_err(),
-                            "upload continued or replayed after response"
-                        );
-                    });
-                    let mut device = controlled_fixture(address);
-                    let limit = if response == "stalled rejection" {
-                        Duration::from_millis(150)
-                    } else {
-                        Duration::from_secs(2)
-                    };
-                    let result = device.push_with_control(
-                        &mut std::io::Cursor::new(vec![42; 2 * 65535 + 1]),
-                        &"/fixture",
-                        BoundedShellControl::new(limit).unwrap(),
-                    );
-                    let error = result.unwrap_err().to_string();
-                    if response == "rejection" {
-                        assert!(error.contains("Permission denied"), "{error}");
-                    } else if response == "premature success" {
-                        assert!(error.contains("Premature"), "{error}");
-                    }
-                    drop(device);
-                    peer.join().unwrap();
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn controlled_owned_push_interrupts_stalled_open_or_data_ack_without_replay() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
-        for accept_open in [false, true] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
-            let peer = std::thread::spawn(move || {
-                let (mut socket, _) = listener.accept().unwrap();
-                hello(&mut socket);
-                let open = receive(&mut socket).unwrap();
-                assert_eq!(open.payload(), b"sync:");
-                let local = open.header().arg0();
-                if accept_open {
-                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                    let send_request = receive(&mut socket).unwrap();
-                    assert!(send_request.payload().starts_with(b"SEND"));
-                    send(&mut socket, MessageCommand::Okay, local, b"").unwrap();
-                    let data = receive(&mut socket).unwrap();
-                    assert!(data.payload().starts_with(b"DATA"));
-                }
-                assert!(
-                    receive(&mut socket).is_err(),
-                    "stalled upload must not replay sync OPEN or DATA"
-                );
-            });
-            let mut device = controlled_fixture(address);
-            let mut input = std::io::Cursor::new(vec![42u8; 65536]);
-            assert!(
-                device
-                    .push_with_control(
-                        &mut input,
-                        &"/fixture",
-                        BoundedShellControl::new(Duration::from_millis(100)).unwrap()
-                    )
-                    .is_err()
-            );
-            peer.join().unwrap();
-        }
-    }
-    #[test]
     fn controlled_owned_transfer_pre_cancel_preserves_socket_for_following_command() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, reply, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
+        let (listener, address) = fixture_listener();
         let peer = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
-            hello(&mut socket);
+            v2_hello(&mut socket);
             let open = receive(&mut socket).unwrap();
             assert_eq!(open.payload(), b"shell,v2,raw:after\0");
             let local = open.header().arg0();
@@ -1000,6 +1047,11 @@ mod tests {
                 .pull_with_control(&"/fixture", &mut Vec::new(), canceled.clone())
                 .is_err()
         );
+        assert!(
+            device
+                .reboot_with_control(crate::RebootType::System, canceled.clone())
+                .is_err()
+        );
         assert!(!canceled.was_registered());
         assert_eq!(
             device
@@ -1014,20 +1066,16 @@ mod tests {
         );
         peer.join().unwrap();
     }
+
     #[test]
     fn controlled_owned_reboot_requires_ack_and_does_not_replay_lost_ack() {
-        use super::super::BoundedShellControl;
-        use super::super::streamed_install::tests::{hello, receive, send};
-        use crate::message_devices::message_commands::MessageCommand;
-        use std::time::Duration;
         for acknowledge in [false, true] {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
+            let (listener, address) = fixture_listener();
             let peer = std::thread::spawn(move || {
                 let (mut socket, _) = listener.accept().unwrap();
-                hello(&mut socket);
+                v2_hello(&mut socket);
                 let open = receive(&mut socket).unwrap();
-                assert_eq!(open.payload(), b"reboot:");
+                assert_eq!(open.payload(), b"reboot:\0");
                 if acknowledge {
                     send(&mut socket, MessageCommand::Okay, open.header().arg0(), b"").unwrap();
                 }
@@ -1045,6 +1093,194 @@ mod tests {
             drop(device);
             peer.join().unwrap();
         }
+    }
+
+    /// The fake's side of a key the device does not know yet: a token, our
+    /// signature, a second token, our public key.
+    fn expect_public_key_round(stream: &mut TcpStream) {
+        write_message(stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+        assert_eq!(
+            read_message(stream).unwrap().header().arg0(),
+            AUTH_SIGNATURE
+        );
+        write_message(stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+        assert_eq!(
+            read_message(stream).unwrap().header().arg0(),
+            AUTH_RSAPUBLICKEY
+        );
+    }
+
+    #[test]
+    fn a_controlled_handshake_reports_the_approval_prompt_and_outlives_its_deadline_once_handed_over()
+     {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            expect_public_key_round(&mut stream);
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            // Past the handshake control's deadline the socket still works.
+            let open = read_message(&mut stream).unwrap();
+            assert_eq!(open.payload(), b"shell,v2,raw:echo ok\0");
+            let local = open.header().arg0();
+            write_message(&mut stream, MessageCommand::Okay, 1, local, &[]).unwrap();
+            for packet in [shell_packet(1, b"ok\n"), shell_packet(3, &[0])] {
+                write_message(&mut stream, MessageCommand::Write, 1, local, &packet).unwrap();
+                assert_eq!(
+                    read_message(&mut stream).unwrap().header().command(),
+                    MessageCommand::Okay
+                );
+            }
+            write_message(&mut stream, MessageCommand::Clse, 1, local, &[]).unwrap();
+            drain(&mut stream);
+        });
+        let key = shared_test_key();
+        let control = BoundedShellControl::new(Duration::from_millis(1500)).unwrap();
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let mut device = ADBTcpDevice::new_with_control_and_auth_observer(
+            address,
+            key,
+            true,
+            control.clone(),
+            &|| {
+                prompts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            },
+        )
+        .unwrap();
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert!(control.was_registered());
+        device.finish_connection().unwrap();
+        // A second hand-over has no control left to release.
+        assert!(device.finish_connection().is_err());
+        std::thread::sleep(Duration::from_millis(1600));
+        let mut out = Vec::new();
+        assert_eq!(
+            device
+                .shell_command_with_timeout(&"echo ok", Some(&mut out), None, AUTH_TIMEOUT)
+                .unwrap(),
+            ShellExit::Code(0)
+        );
+        assert_eq!(out, b"ok\n");
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_trusted_key_never_reports_an_approval_prompt() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+            assert_eq!(
+                read_message(&mut stream).unwrap().header().arg0(),
+                AUTH_SIGNATURE
+            );
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let device = ADBTcpDevice::new_with_key_and_auth_observer(
+            address,
+            shared_test_key(),
+            AUTH_TIMEOUT,
+            true,
+            &|| panic!("a trusted key showed no prompt"),
+        )
+        .unwrap();
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn cancelling_a_controlled_handshake_during_approval_closes_its_socket() {
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            expect_public_key_round(&mut stream);
+            // The user never answers; only the cancel may end the wait.
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            assert!(
+                read_message(&mut stream).is_err(),
+                "the canceled socket stayed open"
+            );
+        });
+        let key = shared_test_key();
+        let control = BoundedShellControl::new(Duration::from_secs(10)).unwrap();
+        let signal = control.clone();
+        let started = Instant::now();
+        let error =
+            ADBTcpDevice::new_with_control_and_auth_observer(address, key, true, control, &|| {
+                signal.cancel();
+            })
+            .unwrap_err();
+        assert!(
+            matches!(&error, RustADBError::IOError(io) if io.kind() == ErrorKind::ConnectionAborted),
+            "{error:?}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_controlled_handshake_ends_at_the_control_deadline_and_cannot_be_handed_over_after_it() {
+        let (held_tx, held_rx) = mpsc::channel();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            let since_cnxn = Instant::now();
+            drain(&mut stream);
+            held_tx.send(since_cnxn.elapsed()).unwrap();
+        });
+        let key = shared_test_key();
+        let control = BoundedShellControl::new(Duration::from_millis(300)).unwrap();
+        let result =
+            ADBTcpDevice::new_with_control_and_auth_observer(address, key, true, control, &|| {
+                panic!("no AUTH challenge was sent")
+            });
+        assert_timed_out(result);
+        server.join().unwrap();
+        assert_gave_up_within(held_rx.recv().unwrap(), Duration::from_millis(300));
+
+        // Approved, but the control expired before publication.
+        let (address, server) = fake_adbd(|mut stream| {
+            expect_host_cnxn(&mut stream);
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let control = BoundedShellControl::new(Duration::from_millis(400)).unwrap();
+        let mut device =
+            ADBTcpDevice::new_with_control_and_auth_observer(address, key, true, control, &|| {})
+                .unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(device.finish_connection().is_err());
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn required_key_constructors_refuse_a_missing_key_before_connecting() {
+        let (listener, address) = fixture_listener();
+        listener.set_nonblocking(true).unwrap();
+        let missing = std::env::temp_dir().join("adb_client_device_missing_key.pem");
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        for result in [
+            ADBTcpDevice::new_with_required_private_key_and_auth_timeout(
+                address,
+                &missing,
+                AUTH_TIMEOUT,
+            ),
+            ADBTcpDevice::new_with_required_key_and_control(address, &missing, &control),
+            ADBTcpDevice::new_with_control_and_auth_observer(
+                address,
+                &missing,
+                true,
+                BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+                &|| {},
+            ),
+        ] {
+            assert!(
+                matches!(&result, Err(RustADBError::IOError(io)) if io.kind() == ErrorKind::NotFound),
+                "{result:?}"
+            );
+        }
+        assert!(listener.accept().is_err(), "a connection was made");
+        assert!(!missing.exists());
     }
 
     #[test]
@@ -1069,266 +1305,5 @@ mod tests {
         assert_eq!(stdout, b"out");
         assert_eq!(stderr, b"err");
         assert_eq!(status, Some(7));
-    }
-}
-
-#[cfg(test)]
-mod legacy_auth_tests {
-    use super::super::streamed_install::tests::{
-        fixture_key, receive, reply, send as send_service,
-    };
-    use super::{ADBMessageDevice, ADBTcpDevice, TcpTransport};
-    use crate::message_devices::{
-        adb_transport_message::{
-            ADBTransportMessage, AUTH_RSAPUBLICKEY, AUTH_SIGNATURE, AUTH_TOKEN,
-        },
-        message_commands::MessageCommand,
-    };
-    use base64::{Engine, engine::general_purpose::STANDARD};
-    use rsa::{Pkcs1v15Sign, RsaPrivateKey, RsaPublicKey, pkcs8::DecodePrivateKey};
-    use std::{
-        io::{Read, Write},
-        net::{SocketAddr, TcpListener, TcpStream},
-        path::Path,
-        time::Duration,
-    };
-
-    const TOKEN: [u8; 20] = [0x5a; 20];
-
-    fn send(socket: &mut TcpStream, command: MessageCommand, arg0: u32, arg1: u32, payload: &[u8]) {
-        socket.set_nodelay(true).unwrap();
-        let message = ADBTransportMessage::try_new(command, arg0, arg1, payload).unwrap();
-        socket.write_all(&message.header().as_bytes()).unwrap();
-        socket.write_all(message.payload()).unwrap();
-    }
-
-    fn accept(listener: &TcpListener) -> TcpStream {
-        let (socket, _) = listener.accept().unwrap();
-        socket
-            .set_read_timeout(Some(Duration::from_secs(2)))
-            .unwrap();
-        socket
-            .set_write_timeout(Some(Duration::from_secs(2)))
-            .unwrap();
-        socket
-    }
-
-    fn connect(address: SocketAddr, timeout: Duration) -> crate::Result<ADBTcpDevice> {
-        connect_observed(address, timeout, &|| {})
-    }
-
-    fn connect_observed(
-        address: SocketAddr,
-        timeout: Duration,
-        public_key_sent: &dyn Fn(),
-    ) -> crate::Result<ADBTcpDevice> {
-        let transport =
-            TcpTransport::new(address, Path::new("in-memory-auth-fixture-never-written"));
-        ADBMessageDevice::new_with_fixture_key_and_auth_observer(
-            transport,
-            &fixture_key(),
-            timeout,
-            public_key_sent,
-        )
-        .map(ADBTcpDevice::from_fixture_device)
-    }
-
-    fn challenge(socket: &mut TcpStream) {
-        assert_eq!(
-            receive(socket).unwrap().header().command(),
-            MessageCommand::Cnxn
-        );
-        send(socket, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN);
-        let signature = receive(socket).unwrap();
-        assert_eq!(signature.header().command(), MessageCommand::Auth);
-        assert_eq!(signature.header().arg0(), AUTH_SIGNATURE);
-        assert_eq!(signature.payload().len(), 256);
-        let source = include_str!("../models/adb_rsa_key.rs");
-        let start = source.find("-----BEGIN PRIVATE KEY-----").unwrap();
-        let end = start
-            + source[start..].find("-----END PRIVATE KEY-----").unwrap()
-            + "-----END PRIVATE KEY-----".len();
-        let private = RsaPrivateKey::from_pkcs8_pem(&source[start..end]).unwrap();
-        RsaPublicKey::from(&private)
-            .verify(
-                Pkcs1v15Sign::new::<sha1::Sha1>(),
-                &TOKEN,
-                signature.payload(),
-            )
-            .unwrap();
-    }
-
-    fn request_public_key(socket: &mut TcpStream) {
-        send(socket, MessageCommand::Auth, AUTH_TOKEN, 0, &[0xa5; 20]);
-        let key = receive(socket).unwrap();
-        assert_eq!(key.header().command(), MessageCommand::Auth);
-        assert_eq!(key.header().arg0(), AUTH_RSAPUBLICKEY);
-        let expected = format!("{}\0", fixture_key().android_pubkey_encode().unwrap());
-        assert_eq!(key.payload(), expected.as_bytes());
-        let encoded = expected.split_once(' ').unwrap().0;
-        let decoded = STANDARD.decode(encoded).unwrap();
-        assert_eq!(decoded.len(), 524);
-        assert_eq!(u32::from_le_bytes(decoded[..4].try_into().unwrap()), 64);
-    }
-
-    fn authorize(socket: &mut TcpStream) {
-        send(
-            socket,
-            MessageCommand::Cnxn,
-            0x0100_0000,
-            1_048_576,
-            b"device::\0",
-        );
-    }
-
-    fn serve_probe(socket: &mut TcpStream) {
-        let open = receive(socket).unwrap();
-        assert_eq!(open.payload(), b"shell,v2,raw:getprop ro.serialno\0");
-        let local = open.header().arg0();
-        send_service(socket, MessageCommand::Okay, local, &[]).unwrap();
-        // The ordinary liveness shell reads immediately; only the bounded
-        // service helper used by install closes stdin before reading.
-        for (channel, payload) in [(1, b"fixture-shield\n".as_slice()), (3, &[0][..])] {
-            let mut packet = vec![channel];
-            packet.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_le_bytes());
-            packet.extend_from_slice(payload);
-            reply(socket, local, &packet, false);
-        }
-        send_service(socket, MessageCommand::Clse, local, &[]).unwrap();
-    }
-
-    fn assert_closed(socket: &mut TcpStream) {
-        let mut byte = [0];
-        match socket.read(&mut byte) {
-            Ok(0) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
-            other => panic!("unexpected data or live socket after rejected handshake: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn legacy_auth_approved_and_first_run_keys_reach_a_real_shell_probe() {
-        for first_run in [false, true] {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
-            let (observed, observation) = std::sync::mpsc::channel();
-            let count = std::cell::Cell::new(0);
-            let peer = std::thread::spawn(move || {
-                let mut socket = accept(&listener);
-                challenge(&mut socket);
-                if first_run {
-                    request_public_key(&mut socket);
-                    observation.recv_timeout(Duration::from_secs(2)).unwrap();
-                    socket
-                        .set_read_timeout(Some(Duration::from_millis(40)))
-                        .unwrap();
-                    let mut byte = [0];
-                    let pending = socket.peek(&mut byte).unwrap_err();
-                    assert!(matches!(
-                        pending.kind(),
-                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
-                    ));
-                    socket
-                        .set_read_timeout(Some(Duration::from_secs(2)))
-                        .unwrap();
-                }
-                authorize(&mut socket);
-                serve_probe(&mut socket);
-            });
-            let mut device = connect_observed(address, Duration::from_secs(2), &|| {
-                count.set(count.get() + 1);
-                observed.send(()).unwrap();
-            })
-            .unwrap();
-            assert_eq!(count.get(), usize::from(first_run));
-            let mut stdout = Vec::new();
-            let code = device
-                .shell_command_with_timeout(
-                    &"getprop ro.serialno",
-                    Some(&mut stdout),
-                    None,
-                    Duration::from_secs(2),
-                )
-                .unwrap();
-            assert_eq!(code, Some(0));
-            assert_eq!(stdout, b"fixture-shield\n");
-            drop(device);
-            peer.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn legacy_auth_rejects_unexpected_signature_replies_without_publishing_a_key() {
-        for (command, kind, payload) in [
-            (MessageCommand::Clse, 0, vec![]),
-            (MessageCommand::Auth, AUTH_SIGNATURE, TOKEN.to_vec()),
-            (MessageCommand::Auth, AUTH_TOKEN, vec![0; 19]),
-        ] {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
-            let peer = std::thread::spawn(move || {
-                let mut socket = accept(&listener);
-                challenge(&mut socket);
-                send(&mut socket, command, kind, 0, &payload);
-                assert_closed(&mut socket);
-            });
-            let observed = std::cell::Cell::new(false);
-            assert!(
-                connect_observed(address, Duration::from_secs(2), &|| observed.set(true)).is_err()
-            );
-            assert!(!observed.get());
-            peer.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn legacy_auth_timeout_allows_an_explicit_retry_with_the_same_identity() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let peer = std::thread::spawn(move || {
-            let mut socket = accept(&listener);
-            challenge(&mut socket);
-            request_public_key(&mut socket);
-            socket
-                .set_read_timeout(Some(Duration::from_secs(6)))
-                .unwrap();
-            assert_closed(&mut socket);
-            let mut socket = accept(&listener);
-            challenge(&mut socket);
-            request_public_key(&mut socket);
-            authorize(&mut socket);
-        });
-        let first = connect(address, Duration::from_secs(2));
-        assert!(matches!(first, Err(crate::RustADBError::IOError(ref error))
-            if matches!(error.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock)));
-        let second = connect(address, Duration::from_secs(2)).unwrap();
-        drop(second);
-        peer.join().unwrap();
-    }
-
-    #[test]
-    fn legacy_auth_oversized_header_is_rejected_before_payload_read_or_allocation() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let peer = std::thread::spawn(move || {
-            let mut socket = accept(&listener);
-            assert_eq!(
-                receive(&mut socket).unwrap().header().command(),
-                MessageCommand::Cnxn
-            );
-            let message =
-                ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_TOKEN, 0, &[]).unwrap();
-            let mut header = message.header().as_bytes();
-            header[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
-            socket.write_all(&header).unwrap();
-            assert_closed(&mut socket);
-        });
-        let error = connect(address, Duration::from_secs(2)).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("payload exceeds negotiated maximum")
-        );
-        peer.join().unwrap();
     }
 }

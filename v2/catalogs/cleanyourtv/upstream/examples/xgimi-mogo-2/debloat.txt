@@ -1,0 +1,33 @@
+# XGIMI MoGo 2 projector (model MoGo, device xgimiapollo, product pokemon), Android TV 11 (SDK 30),
+# build RTT0.211222.001 / 2.13.192 release-keys, security patch 2024-06-05.
+#
+# Apply:   TV_HOST=<projector ip> tools/disable.sh examples/xgimi-mogo-2/debloat.txt
+# Undo:    TV_HOST=<projector ip> tools/restore.sh examples/xgimi-mogo-2/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (not in this list: the launcher script disables it
+# and restore.sh brings it back). Applied on a real unit on 2026-10-19/20 and rebooted twice; in daily
+# use for about a day when this was written, so treat it as a short-test list.
+#
+# Notes:
+# - ADB: Developer options -> USB debugging AND Network debugging (both, or port 5555 stays closed).
+# - Short list on purpose: only packages found on this firmware and actually disabled are here.
+# - The XGIMI hardware and input services were all left enabled (auto keystone, ToF autofocus, HDMI
+#   input player, Bluetooth remote, key handling), as on examples/xgimi-horizon-s-pro; see its header.
+# - Voice (com.google.android.katniss) is NOT disabled here: the remote's mic button works with it.
+# - The Play Store reports the Netflix TV app (com.netflix.ninja) as "not compatible" on this model.
+#   Netflix's regular Android app (com.netflix.mediaclient) installs and runs, browser-style.
+
+# Telemetry, bug reports and feedback
+com.xgimi.datareporter                 # XGIMI usage reporting
+com.xgimi.bugreportsender              # XGIMI bug report uploader
+com.google.android.feedback            # Google feedback
+
+# Preloads
+com.ted.android.tv                     # TED
+com.xgimi.doubanfm                     # XGIMI music app, speaker-mode screen
+
+# Off by choice
+com.google.android.apps.mediashell     # Chromecast built-in; re-enable to cast from phones
+com.google.android.apps.nbu.smartconnect.tv  # Google phone-to-TV connect service
+com.xgimi.upgrade                      # XGIMI firmware updater; re-enable to receive updates

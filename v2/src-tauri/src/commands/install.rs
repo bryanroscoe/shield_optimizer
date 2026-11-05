@@ -11,8 +11,8 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
-use shield_optimizer_core::adb::{AdbError, ScanConnectionProgress};
-use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
+use atv_optimizer_core::adb::{AdbError, ScanConnectionProgress};
+use atv_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,7 +122,7 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     let adb = state.adb_snapshot().await;
     if !adb.uses_host_server() {
-        return Ok(RestartResult { ok: false, server_ready: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess.".into() });
+        return Ok(RestartResult { ok: false, server_ready: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, relaunch with ATV_OPTIMIZER_TRANSPORT=subprocess.".into() });
     }
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
@@ -170,13 +170,14 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     // Reconnect the network devices we saw before the restart.
     //
-    // Not on the first try. `start-server` returns as soon as the daemon has
-    // forked, and the TV's adbd needs a moment to free the socket the
-    // kill-server just tore down — connecting into that window fails with
-    // "No route to host" even though the device is up and port 5555 is open.
-    // Restarting by hand a second later then works, which is what makes this
-    // read as "ADB is broken" rather than "too early". So give each device a
-    // few attempts before calling it unreachable.
+    // Not on the first try only. `start-server` returns as soon as the daemon
+    // has forked, and a connect made straight after it has been seen to fail
+    // with "No route to host" and then work a second later. One cause is
+    // reproduced on macOS 26.6.2: a new binary's very first LAN connect can
+    // get EHOSTUNREACH even when Local Network access is allowed. Others are
+    // not ruled out (a TV still freeing the old socket), and a real Local
+    // Network block does not go away with retries (see `local_network.rs`).
+    // So give each device a few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     let mut unauthorized = Vec::new();
@@ -189,7 +190,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
             }
             // ADB auto-attaches paired mDNS services; their transport keys are
             // not socket addresses and must never be passed to `adb connect`.
-            if shield_optimizer_core::adb::is_network_endpoint(serial) {
+            if atv_optimizer_core::adb::is_network_endpoint(serial) {
                 match adb.raw(&["connect", serial]).await {
                     Ok(out) => {
                         let response = out.combined();
@@ -282,11 +283,11 @@ pub(crate) async fn install_with<F, Fut>(
     installer: F,
 ) -> Result<InstallResult, String>
 where
-    F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
+    F: FnOnce(Arc<atv_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
     if !state.adb_snapshot().await.uses_host_server() {
-        return Err("Installing platform-tools would change the selected direct backend. Relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess first.".into());
+        return Err("Installing platform-tools would change the selected direct backend. Relaunch with ATV_OPTIMIZER_TRANSPORT=subprocess first.".into());
     }
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
     match installer(Arc::clone(&operation)).await {
@@ -317,7 +318,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_distinguishes_absent_binary_from_failed_probe() {
-        use shield_optimizer_core::adb::{AdbOutput, AdbResult};
+        use atv_optimizer_core::adb::{AdbOutput, AdbResult};
         struct Probe(std::sync::Mutex<Option<AdbResult<AdbOutput>>>);
         #[async_trait::async_trait]
         impl AdbDriver for Probe {
@@ -401,9 +402,9 @@ mod tests {
         async fn raw(
             &self,
             args: &[&str],
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             assert_eq!(args, &["version"]);
-            Err(shield_optimizer_core::adb::AdbError::Initialization(
+            Err(atv_optimizer_core::adb::AdbError::Initialization(
                 "direct configuration failed".into(),
             ))
         }
@@ -411,7 +412,7 @@ mod tests {
             &self,
             _: &str,
             _: &str,
-        ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput> {
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
             panic!("no shell call expected")
         }
     }
@@ -456,10 +457,10 @@ mod tests {
             async fn raw(
                 &self,
                 args: &[&str],
-            ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
             {
                 assert_eq!(args, &["version"]);
-                Ok(shield_optimizer_core::adb::AdbOutput {
+                Ok(atv_optimizer_core::adb::AdbOutput {
                     stdout: "native ADB".into(),
                     stderr: String::new(),
                     exit_code: Some(0),
@@ -476,7 +477,7 @@ mod tests {
                 &self,
                 _: &str,
                 _: &str,
-            ) -> shield_optimizer_core::adb::AdbResult<shield_optimizer_core::adb::AdbOutput>
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
             {
                 panic!("status must not query a TV")
             }

@@ -47,7 +47,7 @@ pub enum AdbError {
         common install locations. Install platform-tools (e.g. `brew install android-platform-tools` \
         on macOS, your distro's `adb` package on Linux, or download from \
         https://developer.android.com/studio/releases/platform-tools), then relaunch. \
-        You can also set SHIELD_OPTIMIZER_ADB to point at a specific binary."
+        You can also set ATV_OPTIMIZER_ADB to point at a specific binary."
     )]
     BinaryNotFound,
     #[error("adb binary at {path} is not a regular file")]

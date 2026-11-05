@@ -271,10 +271,10 @@ async function nativeSettings({ browser, base }) {
     assert.equal(await section.getByRole('button', { name: 'Download platform-tools' }).count(), 0);
     assert.equal(await section.getByRole('button', { name: 'Restart ADB', exact: true }).isDisabled(), true);
     assert.equal(await section.getByRole('checkbox', { name: 'Stop ADB when quitting' }).isDisabled(), true);
-    assert.doesNotMatch(await section.innerText(), /adb from PATH|SHIELD_OPTIMIZER_ADB/);
+    assert.doesNotMatch(await section.innerText(), /adb from PATH|ATV_OPTIMIZER_ADB/);
     await section.getByRole('button', { name: 'About ADB', exact: true }).click();
     await section.getByText('Native Rust ADB is built into this app. Connection recovery is on Devices.').waitFor();
-    assert.doesNotMatch(await section.innerText(), /SHIELD_OPTIMIZER_ADB/);
+    assert.doesNotMatch(await section.innerText(), /ATV_OPTIMIZER_ADB/);
     await section.getByRole('button', { name: 'About ADB', exact: true }).press('Escape');
     await section.getByRole('button', { name: 'About Restart ADB', exact: true }).click();
     await section.getByText('Native ADB has no shared server.', { exact: false }).waitFor();

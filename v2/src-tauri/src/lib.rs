@@ -1,6 +1,6 @@
-//! Shield Optimizer v2 — desktop Tauri entry point.
+//! ATV Optimizer — desktop Tauri entry point.
 //!
-//! Shared engine and driver-generic commands live in `shield_optimizer_core`.
+//! Shared engine and driver-generic commands live in `atv_optimizer_core`.
 //! This crate keeps the desktop-only subprocess ADB driver, installer/updater,
 //! host-network scan, and file-path based commands.
 
@@ -10,39 +10,31 @@
 #![allow(clippy::double_must_use)]
 pub mod adb;
 pub mod commands;
+pub mod rename;
 pub mod session;
-pub use shield_optimizer_core::engine;
+pub use atv_optimizer_core::engine;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use adb::SubprocessAdb;
-use commands::quit::{self, AdbQuitControl};
-use commands::{app_report, backup, diagnostics, files, install, scan, sideload, update, AppState};
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
-use shield_optimizer_core::commands::{
+use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use atv_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
     shell, snapshot, telemetry, tuning,
 };
-use shield_optimizer_core::engine::telemetry::AppKind;
-use shield_optimizer_core::license::Entitlement;
-use shield_optimizer_core::telemetry::{
+use atv_optimizer_core::engine::telemetry::AppKind;
+use atv_optimizer_core::license::Entitlement;
+use atv_optimizer_core::telemetry::{
     install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
     TelemetryConfig,
 };
+use commands::quit::{self, AdbQuitControl};
+use commands::{
+    app_report, backup, diagnostics, files, install, local_network, scan, sideload, update,
+    AppState,
+};
 use tauri::Manager;
-
-/// Resolve the OS-appropriate app data root (snapshots live in a `snapshots`
-/// subdirectory).
-///
-/// macOS: `~/Library/Application Support/ShieldOptimizer`
-/// Linux: `~/.local/share/ShieldOptimizer`
-/// Windows: `%LOCALAPPDATA%/ShieldOptimizer`
-fn default_data_dir() -> PathBuf {
-    dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("ShieldOptimizer")
-}
 
 /// Driver used when no adb binary could be discovered at startup. Every call
 /// returns the actionable `BinaryNotFound` error so the UI tells the user
@@ -87,7 +79,7 @@ impl AdbDriver for ConfigurationError {
     }
     async fn discover_network(
         &self,
-    ) -> AdbResult<shield_optimizer_core::adb::NativeDiscoveryReport> {
+    ) -> AdbResult<atv_optimizer_core::adb::NativeDiscoveryReport> {
         Err(AdbError::Initialization(self.0.clone()))
     }
     async fn pull_limited(&self, _: &str, _: &str, _: &std::path::Path, _: u64) -> AdbResult<()> {
@@ -97,7 +89,7 @@ impl AdbDriver for ConfigurationError {
         &self,
         _: &str,
         _: &str,
-    ) -> AdbResult<shield_optimizer_core::adb::BoundedShellOutput> {
+    ) -> AdbResult<atv_optimizer_core::adb::BoundedShellOutput> {
         Err(AdbError::Initialization(self.0.clone()))
     }
     async fn raw_bytes(&self, _: &[&str]) -> AdbResult<Vec<u8>> {
@@ -106,50 +98,56 @@ impl AdbDriver for ConfigurationError {
     async fn device_binding(
         &self,
         _: &str,
-    ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
+    ) -> AdbResult<atv_optimizer_core::adb::AdbDeviceBinding> {
         Err(AdbError::Initialization(self.0.clone()))
     }
     async fn open_bound_device_service(
         &self,
-        _: &shield_optimizer_core::adb::AdbDeviceBinding,
+        _: &atv_optimizer_core::adb::AdbDeviceBinding,
         _: &str,
         _: std::time::Duration,
-    ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
+    ) -> AdbResult<atv_optimizer_core::adb::AdbOwnedService> {
         Err(AdbError::Initialization(self.0.clone()))
     }
     async fn open_device_service(
         &self,
         _: &str,
         _: &str,
-    ) -> AdbResult<Box<dyn shield_optimizer_core::adb::AdbByteStream>> {
+    ) -> AdbResult<Box<dyn atv_optimizer_core::adb::AdbByteStream>> {
         Err(AdbError::Initialization(self.0.clone()))
     }
-    async fn spawn(&self, _: &[&str]) -> AdbResult<shield_optimizer_core::adb::TrackedChild> {
+    async fn spawn(&self, _: &[&str]) -> AdbResult<atv_optimizer_core::adb::TrackedChild> {
         Err(AdbError::Initialization(self.0.clone()))
     }
 }
 
+/// The native identity lives in the session's data folder, which
+/// `rename.rs` migrates with its `native-adb/` key. When the OS reports no
+/// local data folder, `migrate_host` falls back to the working directory;
+/// a key must never be created there.
 #[cfg(feature = "direct-adb")]
-fn identity_app_data(root: Option<PathBuf>) -> Result<PathBuf, String> {
-    root.map(|path| path.join("ShieldOptimizer")).ok_or_else(||
-        "Rust ADB could not find the app storage folder. Reopen the app after restoring access to your user profile. Existing identities were not replaced.".to_string())
+fn identity_app_data(local_data: Option<PathBuf>, data_dir: &std::path::Path) -> Result<PathBuf, String> {
+    match local_data {
+        Some(root) if data_dir.starts_with(&root) => Ok(data_dir.to_path_buf()),
+        _ => Err("Rust ADB could not find the app storage folder. Reopen the app after restoring access to your user profile. Existing identities were not replaced.".to_string()),
+    }
 }
 
 fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
     let selection = adb::selection::parse_selection(
-        std::env::var("SHIELD_OPTIMIZER_TRANSPORT").ok().as_deref(),
+        std::env::var("ATV_OPTIMIZER_TRANSPORT").ok().as_deref(),
     );
     let adb: Arc<dyn AdbDriver> = match selection {
         Ok(adb::selection::TransportSelection::Subprocess) => subprocess_driver(),
         Ok(adb::selection::TransportSelection::Direct) => {
             #[cfg(feature = "direct-adb")]
             {
-                let identity = match std::env::var_os("SHIELD_OPTIMIZER_DIRECT_KEY") {
+                let identity = match std::env::var_os("ATV_OPTIMIZER_DIRECT_KEY") {
                     Some(path) => {
                         let path = PathBuf::from(path);
                         adb::identity::validate_existing_identity(&path).map(|()| path)
                     }
-                    None => identity_app_data(dirs::data_local_dir())
+                    None => identity_app_data(dirs::data_local_dir(), &data_dir)
                         .and_then(|root| adb::identity::ensure_app_identity(&root)),
                 };
                 match identity {
@@ -193,6 +191,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         install::adb_status,
         install::install_adb,
         install::restart_adb,
+        local_network::local_network_access,
+        local_network::open_local_network_settings,
         quit::get_stop_adb_on_quit,
         quit::set_stop_adb_on_quit,
         scan::scan_network,
@@ -287,12 +287,22 @@ pub fn run() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
 
+    // Before logging, so the log opens in the new data folder with the old
+    // logs already beside it, and before any webview exists, so the copied
+    // profile is the one it opens. The data folder is `ATVOptimizer` under
+    // the local data dir (`~/Library/Application Support`, `%LOCALAPPDATA%`,
+    // `~/.local/share`), or the old `ShieldOptimizer` for a session whose
+    // copy failed, so the next launch tries again.
+    let migration = rename::migrate_host();
+    let data_dir = migration.data_dir.clone();
+    rename::set_session_data_dir(data_dir.clone());
+
     // stdout *and* a rolling daily file under the data dir. A packaged app has
     // nowhere for stdout to go, so the file is the only copy that survives on
     // the machines where a bug actually happens.
-    let data_dir = default_data_dir();
     let log_control = diagnostics::init_logging(&data_dir);
     session::install(log_control.dir(), log_control.debug_enabled());
+    migration.log();
 
     let app_lists = match loader::load_embedded_app_lists() {
         Ok(lists) => {
@@ -366,9 +376,30 @@ pub fn run() {
                     state.inner(),
                     control.inner(),
                 ));
+                #[cfg(target_os = "macos")]
+                if !control.is_restarting() {
+                    rename_bundle_on_exit();
+                }
+                // The file writer is non-blocking; without this the last
+                // lines (the quit stop, the bundle rename) can be lost.
+                app.state::<diagnostics::LogControl>().flush_and_close();
             }
             _ => {}
         });
+}
+
+/// Give a bundle the updater left at `Shield Optimizer.app` the new name.
+#[cfg(target_os = "macos")]
+fn rename_bundle_on_exit() {
+    let (Ok(exe), Some(home)) = (std::env::current_exe(), dirs::home_dir()) else {
+        return;
+    };
+    let caskrooms: Vec<&std::path::Path> =
+        rename::CASKROOMS.iter().map(std::path::Path::new).collect();
+    match rename::rename_legacy_bundle(&exe, &home, &caskrooms) {
+        rename::BundleRename::NotABundle | rename::BundleRename::NotLegacyName => {}
+        outcome => tracing::info!(outcome = ?outcome, "legacy bundle rename"),
+    }
 }
 
 #[cfg(test)]
@@ -378,18 +409,26 @@ mod initialization_tests {
     #[cfg(feature = "direct-adb")]
     #[test]
     fn missing_app_data_never_falls_back_to_the_working_directory() {
-        assert!(identity_app_data(None).is_err());
+        let session = std::path::Path::new("/fixture-profile/ATVOptimizer");
+        assert!(identity_app_data(None, session).is_err());
         assert_eq!(
-            identity_app_data(Some(std::path::PathBuf::from("/fixture-profile"))).unwrap(),
-            std::path::PathBuf::from("/fixture-profile/ShieldOptimizer")
+            identity_app_data(Some(std::path::PathBuf::from("/fixture-profile")), session)
+                .unwrap(),
+            session
         );
+        let working_directory = std::path::Path::new(".").join("ATVOptimizer");
+        assert!(identity_app_data(
+            Some(std::path::PathBuf::from("/fixture-profile")),
+            &working_directory
+        )
+        .is_err());
     }
 
     #[tokio::test]
     async fn initialization_failure_is_preserved_across_native_operations() {
         let driver = ConfigurationError("Rust ADB setup could not save its identity. Check app storage access and reopen the app. Existing identities were not replaced.".into());
         let expected = driver.0.clone();
-        let binding = shield_optimizer_core::adb::AdbDeviceBinding {
+        let binding = atv_optimizer_core::adb::AdbDeviceBinding {
             serial: "fixture".into(),
             hardware_id: "fixture-id".into(),
         };
@@ -457,7 +496,7 @@ mod initialization_tests {
         );
         assert!(matches!(
             driver.stop_server(std::time::Duration::from_secs(1)).await,
-            shield_optimizer_core::adb::ServerStop::Skipped(_)
+            atv_optimizer_core::adb::ServerStop::Skipped(_)
         ));
     }
 }

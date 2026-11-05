@@ -13,14 +13,14 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use anyhow::{bail, Context, Result};
+use atv_optimizer_core::commands::loader::{launchers, load_embedded_app_lists};
+use atv_optimizer_core::engine::{
+    classify_with_catalog, AppListBundle, CatalogVerdict, Safety, SafetySource,
+};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::Serialize;
 use serde_json::Value;
-use shield_optimizer_core::commands::loader::{launchers, load_embedded_app_lists};
-use shield_optimizer_core::engine::{
-    classify_with_catalog, AppListBundle, CatalogVerdict, Safety, SafetySource,
-};
 
 /// Larger than any real export: the mobile collector caps itself at 64 KiB and
 /// a desktop bundle is a page of Markdown plus a log tail.

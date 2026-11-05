@@ -611,7 +611,7 @@ mod tests {
     fn create(root: &Path) -> Result<PathBuf, String> {
         ensure(
             root,
-            shield_direct_adb::validate_identity_pem,
+            atv_direct_adb::validate_identity_pem,
             || Ok(fixture()),
             |file, bytes| file.write_all(bytes),
         )
@@ -711,7 +711,7 @@ mod tests {
         check_security(&directory, &user, true).unwrap();
         let path_again = ensure(
             &root,
-            shield_direct_adb::validate_identity_pem,
+            atv_direct_adb::validate_identity_pem,
             || panic!("must never rotate existing identity"),
             |_, _| panic!("must never rewrite existing identity"),
         )
@@ -722,7 +722,7 @@ mod tests {
             &original,
             &metadata(&open(&path, false, GENERIC_READ).unwrap(), false).unwrap()
         ));
-        validate_path(&path, shield_direct_adb::validate_identity_pem).unwrap();
+        validate_path(&path, atv_direct_adb::validate_identity_pem).unwrap();
     }
 
     #[test]
@@ -737,7 +737,7 @@ mod tests {
                 std::thread::spawn(move || {
                     ensure(
                         &root,
-                        shield_direct_adb::validate_identity_pem,
+                        atv_direct_adb::validate_identity_pem,
                         || {
                             let (count, condition) = &*gate;
                             let mut arrived = count.lock().unwrap();
@@ -773,7 +773,7 @@ mod tests {
             let original = std::cell::RefCell::new(None);
             let result = ensure(
                 &root,
-                shield_direct_adb::validate_identity_pem,
+                atv_direct_adb::validate_identity_pem,
                 || Ok(fixture()),
                 |file, bytes| {
                     let winner = create(&root).unwrap();
@@ -815,7 +815,7 @@ mod tests {
             fs::write(&path, &bytes).unwrap();
             assert!(ensure(
                 &root,
-                shield_direct_adb::validate_identity_pem,
+                atv_direct_adb::validate_identity_pem,
                 || panic!("invalid existing identity must not rotate"),
                 |_, _| panic!("existing identity must not rewrite"),
             )
@@ -838,7 +838,7 @@ mod tests {
             let root = temp.path().join("app");
             assert!(ensure(
                 &root,
-                shield_direct_adb::validate_identity_pem,
+                atv_direct_adb::validate_identity_pem,
                 || Ok(fixture()),
                 |file, bytes| {
                     file.write_all(&bytes[..20])?;
@@ -962,7 +962,7 @@ mod tests {
         assert!(create(&alias.join("app")).is_err());
         assert!(validate_path(
             &alias.join("app/native-adb/identity.pkcs8.pem"),
-            shield_direct_adb::validate_identity_pem
+            atv_direct_adb::validate_identity_pem
         )
         .is_err());
         fs::remove_dir(&alias).unwrap();
@@ -993,7 +993,7 @@ mod tests {
         let root = temp.path().join("app");
         assert!(ensure(
             &root,
-            shield_direct_adb::validate_identity_pem,
+            atv_direct_adb::validate_identity_pem,
             || Err("fixture RNG failure".into()),
             |_, _| panic!("failed generation must not write"),
         )

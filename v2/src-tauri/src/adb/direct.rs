@@ -6,12 +6,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use shield_direct_adb::WirelessAdb;
-use shield_optimizer_core::adb::{
+use atv_direct_adb::WirelessAdb;
+use atv_optimizer_core::adb::{
     AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Leases, ScanConnectOutcome,
     ScanConnectionFailure, ScanConnectionProgress, ServerStop,
 };
-use shield_optimizer_core::commands::devices::normalize_connect_address;
+use atv_optimizer_core::commands::devices::normalize_connect_address;
 use std::time::Duration;
 use tokio::sync::{watch, Mutex, Semaphore};
 
@@ -447,8 +447,18 @@ fn output(stdout: String) -> AdbOutput {
     }
 }
 
+/// `install-multiple [-r] <apk>...`: the only flag the shared driver accepts
+/// is `-r`, and at least one non-empty APK path must follow it.
+fn split_install_paths(rest: &[&str]) -> bool {
+    let paths = rest.strip_prefix(&["-r"]).unwrap_or(rest);
+    !paths.is_empty()
+        && paths
+            .iter()
+            .all(|path| !path.is_empty() && !path.starts_with('-'))
+}
+
 fn unsupported() -> AdbError {
-    AdbError::Transport("This operation is unavailable in experimental direct ADB mode. Relaunch with SHIELD_OPTIMIZER_TRANSPORT=subprocess to use platform-tools; no automatic fallback was performed.".into())
+    AdbError::Transport("This operation is unavailable in experimental direct ADB mode. Relaunch with ATV_OPTIMIZER_TRANSPORT=subprocess to use platform-tools; no automatic fallback was performed.".into())
 }
 
 impl Drop for DirectNetworkAdb {
@@ -474,7 +484,7 @@ impl AdbDriver for DirectNetworkAdb {
 
     async fn discover_network(
         &self,
-    ) -> AdbResult<shield_optimizer_core::adb::NativeDiscoveryReport> {
+    ) -> AdbResult<atv_optimizer_core::adb::NativeDiscoveryReport> {
         let lease = Arc::new(
             self.pool
                 .operations
@@ -611,7 +621,7 @@ impl AdbDriver for DirectNetworkAdb {
         &self,
         serial: &str,
         command: &str,
-    ) -> AdbResult<shield_optimizer_core::adb::driver::BoundedShellOutput> {
+    ) -> AdbResult<atv_optimizer_core::adb::driver::BoundedShellOutput> {
         self.pool
             .session(serial)
             .await?
@@ -650,6 +660,9 @@ impl AdbDriver for DirectNetworkAdb {
             {
                 self.pool.session(serial).await?.raw_transfer(args).await
             }
+            ["-s", serial, "install-multiple", rest @ ..] if split_install_paths(rest) => {
+                self.pool.session(serial).await?.raw_transfer(args).await
+            }
             ["-s", serial, "pull" | "push", ..] => {
                 self.pool.session(serial).await?.raw_transfer(args).await
             }
@@ -681,7 +694,7 @@ impl AdbDriver for DirectNetworkAdb {
     async fn device_binding(
         &self,
         serial: &str,
-    ) -> AdbResult<shield_optimizer_core::adb::AdbDeviceBinding> {
+    ) -> AdbResult<atv_optimizer_core::adb::AdbDeviceBinding> {
         self.pool
             .session(serial)
             .await?
@@ -691,10 +704,10 @@ impl AdbDriver for DirectNetworkAdb {
 
     async fn open_bound_device_service(
         &self,
-        binding: &shield_optimizer_core::adb::AdbDeviceBinding,
+        binding: &atv_optimizer_core::adb::AdbDeviceBinding,
         service: &str,
         lifetime: std::time::Duration,
-    ) -> AdbResult<shield_optimizer_core::adb::AdbOwnedService> {
+    ) -> AdbResult<atv_optimizer_core::adb::AdbOwnedService> {
         self.pool
             .session(&binding.serial)
             .await?
@@ -751,17 +764,17 @@ mod tests {
             &self,
             serial: &str,
             command: &str,
-        ) -> AdbResult<shield_optimizer_core::adb::BoundedShellOutput> {
+        ) -> AdbResult<atv_optimizer_core::adb::BoundedShellOutput> {
             assert_eq!(*self.serial.lock().unwrap(), serial);
             self.calls
                 .lock()
                 .unwrap()
                 .push(format!("bounded {serial} {command}"));
-            Ok(shield_optimizer_core::adb::BoundedShellOutput {
+            Ok(atv_optimizer_core::adb::BoundedShellOutput {
                 stdout: "bounded stdout".into(),
                 stderr: "bounded stderr".into(),
                 exit_code: Some(7),
-                termination: shield_optimizer_core::adb::ShellTermination::Completed,
+                termination: atv_optimizer_core::adb::ShellTermination::Completed,
             })
         }
         async fn shell(&self, serial: &str, command: &str) -> AdbResult<AdbOutput> {
@@ -1317,6 +1330,15 @@ mod tests {
                 "-r",
                 "simulated input.apk",
             ],
+            vec![
+                "-s",
+                "192.0.2.2:5555",
+                "install-multiple",
+                "-r",
+                "base.apk",
+                "split_config.xhdpi.apk",
+            ],
+            vec!["-s", "192.0.2.2:5555", "install-multiple", "base.apk"],
         ] {
             driver.raw_transfer(&args).await.unwrap();
         }
@@ -1326,6 +1348,8 @@ mod tests {
             vec![
                 "-s 192.0.2.2:5555 install simulated input.apk",
                 "-s 192.0.2.2:5555 install -r simulated input.apk",
+                "-s 192.0.2.2:5555 install-multiple -r base.apk split_config.xhdpi.apk",
+                "-s 192.0.2.2:5555 install-multiple base.apk",
             ]
         );
     }
@@ -1341,7 +1365,11 @@ mod tests {
             vec!["install", "-r"],
             vec!["install", "-r", "-g"],
             vec!["install", ""],
-            vec!["install-multiple", "fixture.apk"],
+            vec!["install-multiple"],
+            vec!["install-multiple", "-r"],
+            vec!["install-multiple", "-d", "fixture.apk"],
+            vec!["install-multiple", "-r", "base.apk", "-g"],
+            vec!["install-multiple", "base.apk", ""],
         ] {
             let mut args = vec!["-s", "192.0.2.1:5555"];
             args.extend(suffix);
@@ -1554,9 +1582,9 @@ mod tests {
     async fn offline_rows_keep_disconnect_available_to_release_capacity() {
         let (driver, sessions) = fake_driver();
         let driver = Arc::new(driver);
-        let state = shield_optimizer_core::commands::AppState::new(
+        let state = atv_optimizer_core::commands::AppState::new(
             driver.clone(),
-            shield_optimizer_core::engine::AppListBundle::default(),
+            atv_optimizer_core::engine::AppListBundle::default(),
             PathBuf::from("not-created"),
         );
         for port in 1..=(MAX_SESSIONS as u16) {
@@ -1581,7 +1609,7 @@ mod tests {
             .to_string()
             .contains("Use Forget on a TV row"));
         let forgotten =
-            shield_optimizer_core::commands::devices::forget_device_impl(&state, "192.0.2.1:2")
+            atv_optimizer_core::commands::devices::forget_device_impl(&state, "192.0.2.1:2")
                 .await
                 .unwrap();
         assert!(forgotten.ok);

@@ -1,4 +1,9 @@
-use std::io::{Error, ErrorKind, Read};
+//! Shell protocol v2 commands under one total deadline and an independent
+//! cancel handle, on a dedicated connection that is never given an ephemeral
+//! key and never falls back to the legacy shell.
+
+use std::cell::Cell;
+use std::io::{Error, ErrorKind, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
@@ -6,19 +11,25 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::message_devices::adb_message_device::ADBMessageDevice;
-use crate::message_devices::adb_service::ADBService;
+use crate::message_devices::adb_service::{ADBService, OpenFailure, adb_error};
+use crate::message_devices::commands::decode_shell_v2;
 use crate::{Result, RustADBError};
 
 use super::tcp_transport::TcpTransport;
 
 /// Maximum retained bytes in each output stream.
 pub const SHELL_OUTPUT_LIMIT: usize = 256 * 1024;
-const CLOSE_STDIN_PACKET: [u8; 5] = [4, 0, 0, 0, 0];
+/// Shell protocol v2 `kIdCloseStdin` with an empty payload: the command sees
+/// end of input at once, as with `adb shell cmd </dev/null`.
+pub(crate) const CLOSE_STDIN_PACKET: [u8; 5] = [4, 0, 0, 0, 0];
+/// How long to wait for adbd to close a shell stream after its exit packet.
+const CLOSE_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+const CLOSE_DRAIN_LIMIT: usize = 64 * 1024;
 
 /// Why a bounded shell command stopped collecting output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoundedShellTermination {
-    /// The peer reported an exit status and closed the stream.
+    /// The peer reported an exit status.
     Completed,
     /// One output stream reached its byte ceiling.
     OutputLimit,
@@ -249,6 +260,17 @@ impl Drop for Finish {
     }
 }
 
+impl BoundedShellOutput {
+    const fn empty() -> Self {
+        Self {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            exit_code: None,
+            termination: BoundedShellTermination::Completed,
+        }
+    }
+}
+
 /// Opens one dedicated authenticated command connection; never creates an identity.
 /// The connection is closed before returning, including partial and error results.
 pub fn run_bounded_shell(
@@ -258,9 +280,8 @@ pub fn run_bounded_shell(
     control: BoundedShellControl,
 ) -> Result<BoundedShellOutput> {
     run_with_device(command, control, |control| {
-        let remaining = control.remaining()?;
         let transport = TcpTransport::with_shell_control(address, key, control.clone());
-        ADBMessageDevice::new_with_required_key(transport, key, remaining)
+        ADBMessageDevice::new_with_required_key(transport, key, control.remaining()?)
     })
 }
 
@@ -281,6 +302,7 @@ pub fn run_identity_bound_shell(
         )
     })
 }
+
 fn run_bound_with_device<F>(
     command: &str,
     expected: &str,
@@ -307,100 +329,113 @@ where
 {
     let finish = Finish(control);
     let control = &finish.0;
-    let mut output = BoundedShellOutput {
-        stdout: Vec::new(),
-        stderr: Vec::new(),
-        exit_code: None,
-        termination: BoundedShellTermination::Completed,
-    };
+    let mut output = BoundedShellOutput::empty();
     let result: Result<()> = (|| {
         let mut device = connect(control)?;
-        let remaining = control.remaining()?;
-        let session =
-            device.open_bounded_shell_service(&format!("shell,v2,raw:{command}"), remaining)?;
-        let mut stream = ADBService::new(session, remaining, remaining.min(Duration::from_secs(2)));
+        let mut stream = open_shell_v2(&mut device, command, control)?;
         // Match null stdin without buffering output while waiting for its ACK.
-        stream.write_final(&CLOSE_STDIN_PACKET)?;
-        collect_v2(&mut stream, control, &mut output)?;
-        Ok(())
+        stream.write_final(&CLOSE_STDIN_PACKET).map_err(adb_error)?;
+        collect_v2(&mut stream, control, &mut output, SHELL_OUTPUT_LIMIT)
     })();
     if control.timed_out() {
         output.termination = BoundedShellTermination::Timeout;
         return Ok(output);
     }
-    result?;
-    Ok(output)
+    result.map(|()| output)
 }
 
-fn collect_v2(
-    input: &mut dyn Read,
+/// OPEN `shell,v2,raw:<command>` whatever features the device advertised: a
+/// device without shell v2 refuses it, and nothing is ever replayed as a
+/// legacy `shell:`. Errors name the service kind, never the command.
+pub(crate) fn open_shell_v2(
+    device: &mut ADBMessageDevice<TcpTransport>,
+    command: &str,
     control: &BoundedShellControl,
-    output: &mut BoundedShellOutput,
-) -> Result<()> {
-    collect_v2_with_limit(input, control, output, SHELL_OUTPUT_LIMIT)
+) -> Result<ADBService<TcpTransport>> {
+    if command.as_bytes().contains(&0) {
+        return Err(RustADBError::ADBRequestFailed(
+            "a bounded shell command must not contain NUL".into(),
+        ));
+    }
+    let remaining = control.remaining()?;
+    let destination = format!("shell,v2,raw:{command}");
+    device
+        .open_stream_service_classified(
+            destination.as_bytes(),
+            remaining,
+            remaining.min(Duration::from_secs(2)),
+        )
+        .map_err(OpenFailure::into_error)
 }
 
-pub(crate) fn collect_v2_with_limit(
-    input: &mut dyn Read,
+/// Keeps at most `limit` bytes and then refuses more, recording that the
+/// ceiling (not a local failure) stopped the command.
+struct Capped<'a> {
+    bytes: &'a mut Vec<u8>,
+    limit: usize,
+    full: &'a Cell<bool>,
+}
+
+impl Write for Capped<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let room = self.limit.saturating_sub(self.bytes.len());
+        if room == 0 && !buf.is_empty() {
+            self.full.set(true);
+            return Err(Error::other("bounded shell output limit reached"));
+        }
+        let accepted = buf.len().min(room);
+        self.bytes.extend_from_slice(&buf[..accepted]);
+        Ok(accepted)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Decode shell v2 output into `output`, keeping at most `limit` bytes per
+/// stream, with the shared decoder: output is forwarded as it arrives, so a
+/// deadline keeps what came before it, and a stream that ends before its exit
+/// packet is [`RustADBError::ShellExitUnknown`].
+pub(crate) fn collect_v2(
+    stream: &mut ADBService<TcpTransport>,
     control: &BoundedShellControl,
     output: &mut BoundedShellOutput,
     limit: usize,
 ) -> Result<()> {
-    loop {
-        control.remaining()?;
-        let mut header = [0_u8; 5];
-        let first = input.read(&mut header[..1])?;
-        if first == 0 {
-            return if output.exit_code.is_some() {
-                Ok(())
-            } else {
-                Err(Error::new(
-                    ErrorKind::UnexpectedEof,
-                    "shell-v2 closed without exit status",
-                )
-                .into())
-            };
-        }
-        input.read_exact(&mut header[1..])?;
-        let channel = header[0];
-        let mut remaining = u32::from_le_bytes(header[1..].try_into()?) as usize;
-        if !matches!(channel, 1..=3) || (channel == 3 && remaining != 1) {
-            return Err(RustADBError::ADBShellV2ParseError(
-                "invalid bounded shell packet".into(),
-            ));
-        }
-        if channel == 3 {
-            let mut code = [0];
-            input.read_exact(&mut code)?;
-            output.exit_code = Some(code[0]);
-            continue;
-        }
-        let target = if channel == 1 {
-            &mut output.stdout
-        } else {
-            &mut output.stderr
+    let full = Cell::new(false);
+    let decoded = {
+        let mut stdout = Capped {
+            bytes: &mut output.stdout,
+            limit,
+            full: &full,
         };
-        let mut chunk = [0_u8; 8192];
-        while remaining > 0 {
-            control.remaining()?;
-            let count = remaining.min(chunk.len()).min(limit - target.len());
-            if count == 0 {
-                output.termination = BoundedShellTermination::OutputLimit;
-                return Ok(());
-            }
-            let received = input.read(&mut chunk[..count])?;
-            if received == 0 {
-                return Err(
-                    Error::new(ErrorKind::UnexpectedEof, "shell payload ended early").into(),
+        let mut stderr = Capped {
+            bytes: &mut output.stderr,
+            limit,
+            full: &full,
+        };
+        decode_shell_v2(stream, Some(&mut stdout), Some(&mut stderr))
+    };
+    match decoded {
+        Ok(code) => {
+            output.exit_code = Some(code);
+            // adbd closes right after the exit packet. Wait for that only
+            // briefly, and well inside the deadline, whose expiry would shut
+            // a borrowed socket down.
+            if let Ok(remaining) = control.remaining() {
+                stream.drain_until_closed(
+                    (remaining / 2).min(CLOSE_DRAIN_TIMEOUT),
+                    CLOSE_DRAIN_LIMIT,
                 );
             }
-            target.extend_from_slice(&chunk[..received]);
-            remaining -= received;
-            if target.len() == limit {
-                output.termination = BoundedShellTermination::OutputLimit;
-                return Ok(());
-            }
+            Ok(())
         }
+        Err(RustADBError::LocalIo(_)) if full.get() => {
+            output.termination = BoundedShellTermination::OutputLimit;
+            Ok(())
+        }
+        Err(error) => Err(error),
     }
 }
 
@@ -411,16 +446,24 @@ mod tests {
         ADBTransportMessage, ADBTransportMessageHeader,
     };
     use crate::message_devices::message_commands::MessageCommand;
-    use std::io::Write;
+    use std::io::Read;
     use std::net::TcpListener;
 
     fn fixture_key() -> crate::message_devices::models::ADBRsaKey {
-        let source = include_str!("../models/adb_rsa_key.rs");
-        let start = source.find("-----BEGIN PRIVATE KEY-----").unwrap();
-        let end = source[start..].find("-----END PRIVATE KEY-----").unwrap()
-            + start
-            + "-----END PRIVATE KEY-----".len();
-        crate::message_devices::models::ADBRsaKey::new_from_pkcs8(&source[start..end]).unwrap()
+        super::super::streamed_install::tests::fixture_key()
+    }
+
+    fn fixture_connect(
+        address: SocketAddr,
+    ) -> impl FnOnce(&BoundedShellControl) -> Result<ADBMessageDevice<TcpTransport>> {
+        move |control| {
+            let transport = TcpTransport::with_shell_control(
+                address,
+                Path::new("fixture-in-memory-never-written"),
+                control.clone(),
+            );
+            ADBMessageDevice::new_with_fixture_key(transport, &fixture_key(), control.remaining()?)
+        }
     }
 
     fn run_fixture_shell(
@@ -428,14 +471,7 @@ mod tests {
         command: &str,
         control: BoundedShellControl,
     ) -> Result<BoundedShellOutput> {
-        run_with_device(command, control, |control| {
-            let transport = TcpTransport::with_shell_control(
-                address,
-                Path::new("fixture-in-memory-never-written"),
-                control.clone(),
-            );
-            ADBMessageDevice::new_with_fixture_key(transport, &fixture_key(), control.remaining()?)
-        })
+        run_with_device(command, control, fixture_connect(address))
     }
 
     fn read_message(socket: &mut TcpStream) -> std::io::Result<ADBTransportMessage> {
@@ -465,7 +501,7 @@ mod tests {
 
     fn packet(channel: u8, bytes: &[u8]) -> Vec<u8> {
         let mut packet = vec![channel];
-        packet.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        packet.extend_from_slice(&u32::try_from(bytes.len()).unwrap().to_le_bytes());
         packet.extend_from_slice(bytes);
         packet
     }
@@ -510,7 +546,7 @@ mod tests {
             send(
                 &mut socket,
                 MessageCommand::Cnxn,
-                0x01000000,
+                0x0100_0000,
                 1_048_576,
                 b"device::features=shell_v2\0",
             )
@@ -524,7 +560,7 @@ mod tests {
             assert_eq!(close_stdin.header().command(), MessageCommand::Write);
             assert_eq!(
                 close_stdin.payload(),
-                &[4, 0, 0, 0, 0],
+                &CLOSE_STDIN_PACKET,
                 "non-interactive bounded commands see stdin EOF before output"
             );
             if acknowledge {
@@ -560,23 +596,13 @@ mod tests {
                 "mutating-fixture-command",
                 "selected-TV",
                 control,
-                |control| {
-                    let transport = TcpTransport::with_shell_control(
-                        address,
-                        Path::new("fixture-in-memory-never-written"),
-                        control.clone(),
-                    );
-                    ADBMessageDevice::new_with_fixture_key(
-                        transport,
-                        &fixture_key(),
-                        control.remaining()?,
-                    )
-                },
+                fixture_connect(address),
             );
             assert!(result.is_err());
             peer.join().unwrap();
         }
     }
+
     #[test]
     fn dedicated_download_binding_refuses_wrong_or_unknown_identity_before_next_service() {
         use super::super::streamed_install::tests::{hello, receive, serve_identity};
@@ -593,17 +619,7 @@ mod tests {
                 );
             });
             let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
-            let transport = TcpTransport::with_shell_control(
-                address,
-                Path::new("fixture-in-memory-never-written"),
-                control.clone(),
-            );
-            let inner = ADBMessageDevice::new_with_fixture_key(
-                transport,
-                &fixture_key(),
-                control.remaining().unwrap(),
-            )
-            .unwrap();
+            let inner = fixture_connect(address)(&control).unwrap();
             let mut device = super::super::ADBTcpDevice::from_fixture_device(inner);
             assert!(
                 device
@@ -639,22 +655,12 @@ mod tests {
             "exact-command",
             "selected-TV",
             BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
-            |control| {
-                let transport = TcpTransport::with_shell_control(
-                    address,
-                    Path::new("fixture-in-memory-never-written"),
-                    control.clone(),
-                );
-                ADBMessageDevice::new_with_fixture_key(
-                    transport,
-                    &fixture_key(),
-                    control.remaining()?,
-                )
-            },
+            fixture_connect(address),
         )
         .unwrap();
         assert_eq!(output.stdout, b"ok");
         assert_eq!(output.exit_code, Some(0));
+        assert_eq!(output.termination, BoundedShellTermination::Completed);
         peer.join().unwrap();
     }
 
@@ -703,6 +709,27 @@ mod tests {
             assert_eq!(output.exit_code, None);
             server.join().unwrap();
         }
+    }
+
+    #[test]
+    fn output_exactly_at_the_limit_then_an_exit_status_is_complete() {
+        let (address, server) = server(|socket, local| {
+            for _ in 0..SHELL_OUTPUT_LIMIT / 8192 {
+                write_packet(socket, local, &packet(1, &[b'x'; 8192])).unwrap();
+            }
+            write_packet(socket, local, &packet(3, &[0])).unwrap();
+            send(socket, MessageCommand::Clse, 7, local, &[]).unwrap();
+        });
+        let output = run_fixture_shell(
+            address,
+            "fixture exact output",
+            BoundedShellControl::new(Duration::from_secs(3)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(output.stdout.len(), SHELL_OUTPUT_LIMIT);
+        assert_eq!(output.exit_code, Some(0));
+        assert_eq!(output.termination, BoundedShellTermination::Completed);
+        server.join().unwrap();
     }
 
     #[test]
@@ -755,14 +782,13 @@ mod tests {
             write_packet(socket, local, &packet(1, b"incomplete")).unwrap();
             send(socket, MessageCommand::Clse, 7, local, &[]).unwrap();
         });
-        assert!(
-            run_fixture_shell(
-                address,
-                "fixture interrupted",
-                BoundedShellControl::new(Duration::from_secs(2)).unwrap()
-            )
-            .is_err()
-        );
+        let error = run_fixture_shell(
+            address,
+            "fixture interrupted",
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+        )
+        .unwrap_err();
+        assert!(matches!(error, RustADBError::ShellExitUnknown), "{error:?}");
         server.join().unwrap();
     }
 
@@ -799,9 +825,10 @@ mod tests {
             "private command marker",
             BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
         )
-        .unwrap_err()
-        .to_string();
-        assert!(error.contains("exceeds negotiated maximum"));
+        .unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        let error = error.to_string();
+        assert!(error.contains("exceeds the 1048576-byte limit"), "{error}");
         assert!(!error.contains("private command marker"));
         server.join().unwrap();
     }
@@ -832,7 +859,7 @@ mod tests {
     }
 
     #[test]
-    fn bounded_shell_open_rejection_redacts_the_command() {
+    fn bounded_shell_open_rejection_redacts_the_command_and_never_replays_it() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
@@ -844,7 +871,7 @@ mod tests {
             send(
                 &mut socket,
                 MessageCommand::Cnxn,
-                0x01000000,
+                0x0100_0000,
                 1_048_576,
                 b"device::features=shell_v2\0",
             )
@@ -859,6 +886,10 @@ mod tests {
                 &[],
             )
             .unwrap();
+            assert!(
+                read_message(&mut socket).is_err(),
+                "a refused v2 command must not be replayed as a legacy shell"
+            );
         });
         let error = run_fixture_shell(
             address,
@@ -867,8 +898,25 @@ mod tests {
         )
         .unwrap_err()
         .to_string();
-        assert!(error.contains("bounded shell command redacted"));
-        assert!(!error.contains("private command marker"));
+        assert!(error.contains("shell,v2,raw"), "{error}");
+        assert!(!error.contains("private command marker"), "{error}");
         server.join().unwrap();
+    }
+
+    #[test]
+    fn a_missing_required_key_fails_before_any_connection() {
+        let missing = std::env::temp_dir().join("adb_client_bounded_shell_missing_key.pem");
+        let error = run_bounded_shell(
+            "127.0.0.1:1".parse().unwrap(),
+            &missing,
+            "fixture",
+            BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, RustADBError::IOError(io) if io.kind() == ErrorKind::NotFound),
+            "{error:?}"
+        );
+        assert!(!missing.exists());
     }
 }

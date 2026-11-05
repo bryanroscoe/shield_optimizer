@@ -156,7 +156,15 @@ async function captureScreens(page, shot) {
     await page.waitForTimeout(500);
     await shot("snapshots");
 
-    // 17. Settings, reached from the header gear.
+    // 17. Catalog.
+    await page.getByRole("link", { name: "Catalog", exact: true }).click();
+    await page.getByRole("searchbox", { name: "Search device profiles" }).fill("acer-ar3-r3");
+    await page.getByRole("searchbox", { name: "Search package IDs" }).fill("com.realtek.leanbacklauncher.partnercustomizer");
+    await page.locator('[data-profile="acer-ar3-r3"]').click();
+    await page.locator('[data-package-source="com.realtek.leanbacklauncher.partnercustomizer"]').waitFor();
+    await shot("catalog");
+
+    // 18. Settings, reached from the header gear.
     await page.getByRole("link", { name: "Settings" }).click();
     await page.locator("[data-support-id]").waitFor();
     await page.getByText("/opt/homebrew/bin/adb", { exact: false }).waitFor();

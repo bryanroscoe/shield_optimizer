@@ -1,0 +1,55 @@
+# Sony BRAVIA KD-49X8307C (2015, "BRAVIA 4K 2015", device SVP-DTV15, MediaTek), EU firmware
+# Android TV 7.0 (API 24), build SVP4KDTV15_EU-user 7.0 NRD91N.S44 5.457, 1.5 GB RAM
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-kd-49x8307c/debloat.txt
+#          tools\disable.ps1 -TvHost <tv ip> examples\sony-kd-49x8307c\debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-kd-49x8307c/debloat.txt com.google.android.leanbacklauncher
+#          tools\restore.ps1 -TvHost <tv ip> examples\sony-kd-49x8307c\debloat.txt -Stock com.google.android.leanbacklauncher
+#
+# Everything is DISABLED (pm disable-user --user 0), NOT uninstalled. 100% reversible.
+# Stock launcher is com.google.android.leanbacklauncher (not com.google.android.tvlauncher).
+# com.sony.dtv.tvx plays TV channels and HDMI inputs: keep it.
+
+# Telemetry, remote support, bug reports
+com.qterics.da.product                         # Qterics device agent telemetry
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.google.android.feedback                    # Feedback / crash reporter
+com.google.android.tv.bugreportsender          # Bug report sender
+com.sony.dtv.b2b.vendorprotocol                # Node.js broadcasting for Control4 home automation
+tv.samba.ssm                                   # Samba TV telemetry & ACR ad tracker
+
+# Sony content, ads, shelves and recommendation background services
+com.sony.dtv.discovery                         # Discover bar (~22 MB RAM)
+com.sony.dtv.bivlinfo                          # Feeds Discover
+com.sony.dtv.sonyselect                        # Sony Select app store/promo tile
+com.sony.dtv.sonyshelf                         # Sony Shelf recommendation row
+com.sony.dtv.recommendationservice             # Recommendation service
+com.sony.dtv.woprecommendation                 # What's on Play recommendations
+com.sony.dtv.irbrecommendation                 # IRB recommendations
+com.sony.dtv.networkrecommendation             # Network recommendations
+com.sony.dtv.watchtvrecommendation             # Watch TV recommendations
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Retail demo
+com.sony.dtv.demomode                          # Shop demo mode
+
+# Preloaded help and unused Sony apps
+com.sony.dtv.customersupport                   # Customer support
+com.sony.dtv.smarthelp                         # Smart help
+com.sony.dtv.imanual                           # i-Manual electronic guide
+com.sony.dtv.bravialifehack                    # Bravia Lifehack
+com.google.android.inputmethod.japanese        # Japanese IME (keyboard is leanback.ime)
+com.opera.sdk.example                          # Preinstalled Internet Browser (Opera TV SDK)
+
+# Discontinued / unused Google services
+com.google.android.music                       # Google Play Music (discontinued)
+com.google.android.play.games                  # Google Play Games
+com.google.android.videos                      # Google Play Movies & TV (discontinued)
+
+# Voice assistant (disabled if not using voice search / remote)
+com.google.android.katniss                     # Google Assistant / voice search
+com.google.android.speech.pumpkin              # Voice recognition backend
+
+# YouView (UK broadcast service, unused in other regions)
+com.sony.dtv.youview
+com.youview.tv.servicehost

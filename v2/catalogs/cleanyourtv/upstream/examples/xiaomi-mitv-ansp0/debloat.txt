@@ -1,0 +1,105 @@
+# Xiaomi MiTV-ANSP0 (codename jobs; 小米电视5 Pro 65", China-market firmware), Android 9 (SDK 28),
+# firmware 23.6.5.3226, Amlogic, 4 GB RAM, 1080p UI (320 dpi), 54 GB /data.
+# Stock launcher: com.mitv.tvhome (PatchWall, HOME activity .MainActivityUserMode) - KEEP IT ENABLED,
+# see "Home" below. Install with: STOCK_LAUNCHER=none launcher/build-and-install.sh
+# (build-and-install.sh knows com.mitv.tvhome and disables it otherwise; Home then falls to
+# FallbackHome and the script rolls back).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-ansp0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-ansp0/debloat.txt com.mitv.tvhome
+# More notes (settings intents, inputs, ADB, install blacklist): docs/devices/xiaomi-mitv-ansp0-jobs.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - Home: disabling com.mitv.tvhome drops HOME to com.android.tv.settings/.system.FallbackHome
+#   (priority -1000 in the manifest, but it still wins once nothing else is left), which shows a
+#   black screen. Keeping PatchWall enabled and setting the new launcher as the preferred home
+#   works, and survives a reboot; PatchWall is then never shown. Verified with
+#   `cmd package set-home-activity --user 0 com.gathin.tvhome/.MainActivity`.
+# - Standard settings intents DO resolve here: android.settings.SETTINGS ->
+#   com.android.tv.settings/.MainSettings, android.settings.WIFI_SETTINGS ->
+#   com.android.tv.settings/.connectivity.NetworkActivity. The launcher's pills need no fallback keys.
+# - Inputs: com.droidlogic.tvinput registers the ports (Hdmi1InputService/HW5,
+#   Hdmi2/HW6, Hdmi3/HW7, AV1InputService/HW1), but nothing answers ACTION_VIEW on the standard
+#   TvContract passthrough URI, so the launcher lists the ports without being able to switch them.
+#   The TV app switches with EXTSRC_PLAY and an integer extra instead; see
+#   docs/devices/xiaomi-mitv-ansp0-jobs.txt.
+# - Network ADB (port 5555) closes on every reboot; re-enable it in
+#   Settings -> 账号与安全 (Account & Security) -> ADB 调试 after each power cycle.
+# - `pm disable-user` is accepted for the shell user on this build (unlike MiTV-ANTL0, which needs
+#   `pm hide`).
+# - mitv.service is the core MiTV service: do not touch it. It registers TvService, which Xiaomi's own
+#   Settings reads the hardware configuration through; with it disabled, Settings freezes for 20-30 s and
+#   then crashes the Sound page (#1310). Why:
+#   docs/TROUBLESHOOTING.md#xiaomi-cn-firmware-settings-freezes-or-crashes-after-the-debloat
+# - Voice: disabling voicecontrol, wakeupservice, the Mico MQTT service and the two Mi Home
+#   packages also stops an external Xiao Ai speaker from controlling the TV (its "turn the TV
+#   off" command). Verified both ways on this set; see the Voice group below.
+# - com.xiaomi.mitv.settings is the vendor settings UI; the standard com.android.tv.settings app is
+#   also present and answers the plain settings actions.
+# - No Google apps at all. Content comes from CN streaming apps; casting (smartshare / miplay /
+#   wfdsinkhelperservice / duokan.airkan.tvbox / upnp) and the app store are deliberately kept.
+# - com.mitv.care is disabled by the factory already.
+#
+# Owner's-choice removals NOT listed below (disabled here, re-enable in Settings > Apps if needed):
+# com.douyu.xl.douyutv (Douyu), net.cibntv.ott.sk (CIBN 4K), com.lutongnet.nldmxXiaomiChildren
+# (children's training app) and one sideloaded tool.
+
+# Xiaomi telemetry / push / cloud control
+com.miui.analytics                       # Mi analytics
+com.miui.tv.analytics                    # TV analytics
+com.xiaomi.statistic                     # statistics upload
+com.xiaomi.tvqs                          # quality system: uploads crash/perf/dropbox entries
+com.xiaomi.mitv.csi                      # "after-sales assistant": satisfaction survey upload
+com.mitv.cloudcontrol                    # cloud control: starts on connectivity, pushes apps remotely
+com.android.smspush                      # SMS push, useless on a TV
+
+# Ads / promoted content
+com.xm.webcontent                        # MiWebView promo container; also fetches the screensaver ads
+com.mitv.shoplugin                       # TV shopping channel plugin (Taobao SDK)
+com.gitvdemo.video                       # GITV promo demo reel
+com.duokan.videodaily                    # video daily promos
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager                # "TV Manager" cleaner
+com.xiaomi.gamecenter.sdk.service.mibox  # game centre SDK
+# com.xiaomi.mitv.upgrade                # firmware updater: kept on so updates arrive (#322)
+
+# Preloaded apps not used
+com.xiaomi.mimusic2                      # Mi Music
+com.xiaomi.tv.gallery                    # Mi photo album
+com.mitv.gallery                         # Media Explorer as a tile; USB browsing still works
+com.xiaomi.screenrecorder                # screen recorder
+com.xiaomi.mitv.calendar                 # calendar
+com.mitv.alarmcenter                     # alarms
+com.xiaomi.mitv.handbook                 # user handbook
+com.xiaomi.tweather                      # weather
+
+# Off by choice: features this owner does not use (comment out what you do use)
+com.xiaomi.mitv.karaoke.service          # karaoke
+com.xiaomi.mitv.tvvideocall              # MiTime video calls
+com.xiaomi.eetv.litehome                 # a second home screen ("办公模式" office mode)
+com.xiaomi.mitv.light                    # light-effect app ("Symphony of Shadows")
+
+# Voice and Mi Home. KEEP THESE if an external Xiao Ai (小爱) speaker should be able to control the
+# TV: disabling all five cut a household's voice "turn the TV off" in testing, and enabling them again
+# restored it. The TV-side voice remote may only need voicecontrol/wakeupservice; the speaker path goes
+# through the Mico MQTT service and the Mi Home packages. Not narrowed down to one package.
+com.xiaomi.mitv.smartpanel               # smart-home panel
+com.xiaomi.smarthome.tv                  # Mi Home
+com.xiaomi.voicecontrol                  # Xiao Ai voice control
+com.xiaomi.wakeupservice                 # voice wake-up
+com.xiaomi.mico.mqtt.service.application.tv  # Mico voice MQTT service
+# Deliberately NOT disabled: com.xiaomi.mitv.pay and com.xiaomi.mitv.payment. Disabling them
+# leaves the TV unable to complete a membership purchase or renewal, and a viewer who pays for
+# the kids membership (儿童成长VIP) loses the only way to renew on the set.
+
+# Stock screensaver, replaced by the launcher's ClockDream. Apply only AFTER the launcher is Home and
+# its screensaver is selected, otherwise the TV has no screensaver:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+#   settings put secure screensaver_enabled 1
+com.mitv.screensaver
+
+# Stock launcher: KEEP ENABLED (see "Home" above). It is the only app left that can answer HOME if the
+# preferred-home setting is ever cleared, and disabling it lands on FallbackHome's black screen.
+# com.mitv.tvhome

@@ -5003,12 +5003,15 @@
      centred on each other. */
   .device-title-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
   }
   .device-header-actions {
     display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     gap: 0.5rem;
     align-items: center;
     flex-shrink: 0;

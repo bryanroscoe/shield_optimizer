@@ -127,7 +127,7 @@ fn read_apk_package_id(apk_path: &std::path::Path) -> Option<String> {
 }
 
 fn trusted_package_id(raw: Option<String>) -> Option<String> {
-    raw.filter(|pkg| shield_optimizer_core::engine::is_valid_package_name(pkg))
+    raw.filter(|pkg| atv_optimizer_core::engine::is_valid_package_name(pkg))
 }
 
 /// What an APK claims about itself, read locally before anything is installed.

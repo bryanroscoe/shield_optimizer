@@ -1,0 +1,83 @@
+# TCL 55P8LS QD-Mini LED, Vietnam (device G10, product G10_4K_GB_32BIT, model "Smart TV Pro", Realtek rtd6748, 1.8 GB)
+# Android 12 (Google TV), firmware STT2.230203.001 AS50, software V8-R75PT01-LF1V543
+# Same G10 platform and build as tcl-g10-google-tv/ and tcl-55p7k/, with nothing disabled at the factory:
+# Samba TV ACR, logkit and ttvs all ship ENABLED. No regional streaming preloads (FPT Play was a user install).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55p8ls/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55p8ls/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Applied 2026-10-21 in five batches with a screenshot between them, then rebooted: all 29 stayed
+# disabled. The launcher section went after the reference launcher was installed as Home; a second
+# reboot kept all 32 disabled, Home on the new launcher and its key services bound.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV / HDMI app: com.tcl.tv.
+# Keep: com.tcl.tv, com.tcl.tvinput, com.tcl.suspension (the Input picker), com.tcl.dashboard,
+# com.tcl.autopair, com.tcl.systemserver, com.tcl.providers.config, com.tcl.initsetup, com.tcl.factory.view,
+# com.tcl.useragreement, com.tcl.globalkeyoverlay, com.tcl.inputmethod.international (the keyboard),
+# com.tcl.hearaid (sound settings and accessibility), com.tcl.android.webview, all com.realtek.* and com.tvos.
+# Kept by choice on this TV: com.tcl.ui_mediaCenter (USB), com.tcl.airplay2 + com.realtek.airplay2,
+# com.google.android.apps.mediashell (Chromecast), com.google.android.tv.remote.service and
+# com.google.android.katniss (Assistant on the mic button), Netflix, YouTube.
+#
+# Known quirks on this firmware:
+# - The saved Wi-Fi network belonged to setupwraith (`dumpsys wifi | grep -o 'cname=[^ ]*'`). Forget the
+#   network and join it again in Settings first; afterwards it belongs to android.uid.system and
+#   setupwraith can be disabled without the TV dropping off Wi-Fi.
+# - The Vietnamese tab names on the stock Google TV home ("Màn hình chính", "Ứng dụng") and its TCL tab come
+#   from com.tcl.partnercustomizer, not from the system locale (en-US here): with it disabled the stock home
+#   shows "Home" and "Apps".
+# - Signing in to a Google account right after the list made Play Store install VTV Go, HBO Max and iQIYI
+#   (installer com.android.vending). They are ordinary apps: uninstall them, and turn off auto-update in
+#   Play Store settings.
+# - TclAppBoot leaves the launcher's key services unbound until `appops set com.gathin.tvhome
+#   APP_AUTO_START allow` followed by `appops write-settings` (docs/TROUBLESHOOTING.md).
+# - Disabling dreamx: set screensaver_components to com.gathin.tvhome/.ClockDream first.
+# - Remote buttons with launcherx disabled, checked on the real remote: same codes as the C69B in
+#   tcl-g10-google-tv/. With INPUT_KEY_SERVICE=1 and HOME_KEY_SERVICE=1, settings_key_keycodes 83 and
+#   app_keys 4065:com.google.android.youtube.tv, 4062:com.netflix.ninja, Home, Input, Settings, YouTube,
+#   Netflix and the mic (Assistant) all work.
+
+# TCL / third-party tracking and analytics
+tv.samba.ssm.ui                        # Samba TV ACR viewing tracking (enabled at the factory here)
+com.tcl.ttvs                           # TCL analytics; re-enable if firmware updates stop arriving
+com.tcl.logkit                         # log capture and upload
+com.tcl.usercenter                     # TCL account sign-in nags
+com.google.android.feedback
+
+# TCL content, ads and promos
+com.tcl.waterfall.overseas             # TCL Channel / content feed
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.partnercustomizer              # TCL tab and Vietnamese tab names on the Google TV home, see quirks
+com.tcl.interactive                    # TCL TIAS background service
+com.tcl.messagebox                     # TCL push messages and promos
+android.autoinstalls.config.google.gtvpai   # silently installs partner apps
+
+# Retail demo / hotel mode
+com.tcl.exhibit
+com.tcl.esticker
+com.tcl.hotelmenu
+
+# Preloaded apps and services
+com.tcl.guard                          # TGuard memory "cleaner"
+com.tcl.ocean.instructions             # e-manual
+com.tcl.repairguide
+com.tcl.gamebar                        # re-enable for the console game-mode overlay
+com.tcl.UpdatePeripheral               # re-enable to update a TCL soundbar
+com.tcl.smartalexa                     # Alexa
+com.tcl.t_solo                         # T-Solo "listen alone"
+com.tcl.magiconnectfree                # MagiConnect / T-Cast phone app companion
+com.tcl.miracast                       # screen mirroring from Android phones
+com.google.android.marvin.talkback
+
+# Needed for a custom launcher. Disable only AFTER the new launcher is installed, and setupwraith only
+# after the Wi-Fi network has been re-joined (see quirks).
+com.google.android.tungsten.setupwraith
+com.google.android.apps.tv.launcherx
+com.google.android.apps.tv.dreamx      # ambient mode screensaver, see quirks
+
+# Disabled by choice on this TV (unused streaming apps): comment out the ones you watch
+com.amazon.amazonvideo.livingroom      # Prime Video
+com.google.android.youtube.tvmusic
+com.google.android.videos              # Google TV / Play Movies
+com.google.android.play.games

@@ -22,50 +22,93 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
-- Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
+- Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
+- Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
+- **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
+- Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
 
-- Connection help opens automatically when discovery finishes with no devices. Platform-tools mode recommends Restart ADB with confirmation; native mode keeps network-debugging guidance without shared-server controls.
+### Native Rust ADB (desktop test builds only)
 
-- Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.
-- Log-upload errors no longer assume your internet connection caused a server failure.
+Normal desktop builds still use platform-tools. These apply to the labeled native test build:
 
-**Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
-restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
-still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use
-platform-tools; native Rust ADB remains experimental.
-
+- Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
+- Native ADB testing: connect to subnet responders as they arrive, preserve transfer permission errors without writing them as file contents, require explicit upload success, and add protected Windows identity storage. Shipping builds still use platform-tools pending native acceptance.
 - Keep native scan connection attempts in expandable Scan details instead of presenting failed addresses as extra TV cards. TVs awaiting approval stay visible; each attempt retains Retry, Forget and diagnostics. Supported Shield cards no longer repeat support badges and explanatory text.
 - Native discovery stops dialing alternative addresses for one advertised service once a route is ready or awaiting approval. Unreachable routes retain IPv4/IPv6 fallback. Approval rows show the address once with shared instructions rather than repeated device cards and guides.
 - Native Scan details retains grouped mDNS service addresses with an explicit IPv4/IPv6 connection selector. Stale observations require a new scan, and pairing ports remain separate from connection addresses.
 - Native approval rows say Approval requested and Retry approval, making the initial request explicit without promising a dialog. Unidentified offline network routes stay in Scan details with working endpoint-specific retry instead of appearing as extra Unknown devices.
+- macOS: with native ADB, a "No route to host" no longer suggests Restart ADB or a stale ADB server. A Local Network block says to turn ATV Optimizer on and try again; when the app itself reaches the network, Local Network is not blamed.
 
-- ADB status now distinguishes missing platform-tools from timeout/startup errors,
-  preserving the actual diagnostic and Restart recovery. Native test builds keep
-  main's Settings and scan diagnostics without host-server actions or extra native
-  session probes.
+## v2-2.5.0 — 2026-11-04
 
+ATV Optimizer now uses its own name everywhere and moves your settings and snapshots over on first launch. On a Mac, click **Allow** when macOS asks to find devices on your local network. TVs that disappeared after updating on a Mac are found again. Also new: a Settings screen, a support ID and Send logs to developer, each TV's support status, clearer connection errors, and Shell bookmark, App List and snapshot improvements.
 
-- Native ADB testing: connect to subnet responders as they arrive, preserve transfer permission errors without writing them as file contents, require explicit upload success, and add protected Windows identity storage. Shipping builds still use platform-tools pending native acceptance.
+### The rename
 
-- Desktop testing: integrate the shared native Rust ADB transport behind an opt-in build, preserving Add by IP, Pair PIN and Scan LAN. Show the active driver, explain TV approval while connecting, and retain platform-tools as an explicitly selected fallback. Native transport uses an app-owned identity; existing TVs may ask for approval again.
+- **ATV Optimizer now uses its own name everywhere, and moves your data over on first launch.**
+  The app identifier is now `com.atvoptimizer.app` and the data folder is `ATVOptimizer`
+  (`~/Library/Application Support`, `%LOCALAPPDATA%` or `~/.local/share`). The first launch copies
+  your settings, saved snapshots, screenshots, logs and anonymous report ID (with your choice to
+  send reports or not) from the old `ShieldOptimizer` folder and the old WebView profile. Nothing
+  is moved or deleted, so the old copies stay where they were. If the copy can't finish, the app
+  keeps using the old folder and tries again next launch. The adb the app downloaded is not
+  copied; the app keeps using it from the old folder until you install platform-tools again.
+- macOS: the first launch asks again whether ATV Optimizer may find devices on your local
+  network, because that permission belongs to the app identifier. Click **Allow**. System
+  Settings › Privacy & Security › Local Network may then list ATV Optimizer twice; the old entry
+  is the previous version and can be left alone. Until you allow it, the adb server the previous
+  version left running can't reach your TVs; after you allow it, the app restarts that server.
+- Windows: installing this version with the `-setup.exe` installer, or updating in the app from
+  a setup install, closes and removes a leftover **Shield Optimizer** install (from 2.2.0 or
+  earlier) that the 2.3.0 update left beside ATV Optimizer, with its shortcuts and its
+  Add/Remove Programs entry, and points your Start menu, desktop and taskbar shortcuts at the new
+  program. Your settings and data are not touched. The `.msi` installer doesn't do this; remove a
+  leftover Shield Optimizer from Add/Remove Programs yourself (without ticking "Delete the
+  application data").
+- Windows: if you installed with the `.msi`, a taskbar pin from 2.4.1 or earlier still points at
+  the old program, which the upgrade removed, so it no longer opens the app. Unpin it and pin ATV
+  Optimizer again. Start menu and desktop shortcuts are updated. The `-setup.exe` installer moves
+  pins over itself; if one still doesn't open the app, re-pin it the same way.
+- macOS: a copy still named `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you
+  quit it, unless a Homebrew cask manages it or that name is taken. Homebrew users: the cask is
+  now `atv-optimizer`, and `brew upgrade` moves you over.
+- Linux (`.deb` and `.rpm`): after updating from 2.4.1 or earlier in the app, the app may not
+  reopen by itself, because the program is now `atv-optimizer`. Reopen it from your app menu.
+- The adb and subnet overrides are now `ATV_OPTIMIZER_ADB` and `ATV_OPTIMIZER_SUBNET`. The old
+  `SHIELD_OPTIMIZER_*` names still work.
 
-- Desktop: edit the name and command of custom Shell bookmarks, and add built-in bookmarks for uninstalling a package and listing all, enabled, system, or APK-path packages. Package bookmarks target Android user 0 (#259, #262).
-- Desktop: filter the App List to enabled or disabled packages, including other installed apps. App inventory now targets user 0 to match package actions (#261, #233).
-- Desktop: add clearly labeled Delete controls to both snapshot lists, with confirmation and error handling. Deleting a local snapshot does not change the TV (#260).
-- Desktop and Android: include the already-redacted Report this app note in the GitHub form's Details field, while preserving the manual-paste fallback for long reports (#258).
+### Connections
 
+- macOS: TVs no longer disappear after an update. The ADB server the previous version started kept running, and once the new version opened, macOS cut that server off from your network: every connection failed with "No route to host", even by IP, until ADB was restarted by hand. When the app can reach a TV that ADB can't, it now restarts ADB itself and tries again. The app is also signed under its own identifier now, instead of one that changed with every build.
+- macOS: the app now asks for Local Network access when it starts, and says why, instead of the request coming from adb partway through the first scan. While macOS is blocking it (every TV then fails with "No route to host", even by IP, though adb in Terminal still works), Devices says so and offers to open Privacy & Security, where Local Network is, and the notice clears once access is on. A "No route to host" connect or pair failure on a Mac suggests Restart ADB, since macOS can cut off an ADB server an earlier version left running after an update, and points at Local Network settings only when the app's own check can't rule a block out.
+- Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
+- Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
+
+### Added
+
+- Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
 - Desktop and Android: show each TV's support status (Fully supported, Supported, Beta, Not supported, Not verified) with a one-line explanation, and a clear banner on TVs the app doesn't support, such as Amazon Fire TV. The status is informational and never loosens a safety check.
 - Desktop and Android: anonymous device and error reports, on by default with a one-time notice and a setting to turn them off. Reports carry the TV's make, model and Android version and which actions worked; never serial numbers, IP addresses, TV names, app lists or file paths.
 - Desktop and Android: errors in connect, scan, pairing, app changes, Optimize and snapshot restore now show a plain-language message, a short error code and a Copy details button.
 - Desktop and Android: when Scan LAN or wireless discovery finds nothing, or a TV is listed but gives no details (unauthorized, offline, or a blank make and model), the anonymous report now says what the app saw: counts and timings, the adb version and where it came from, what mDNS found and how many network interfaces there are, never an address, serial or name.
 - Desktop: a support ID (the first eight characters of the random report ID, such as `7D0B-0B9E`) is shown in Settings › Privacy & diagnostics and in the Report a bug dialog while reports are on, and is included in the bug report, so the developer can find your reports when you ask for help. Failure reports from the desktop app also carry a short, redacted excerpt of its connection log, at most 20 a day.
 - Desktop: Send logs to developer, in Settings › Privacy & diagnostics, uploads a redacted summary and the last 256 KB of the app's log under your support ID, only when you press it and confirm. It works with reports off. Logs are deleted after 30 days.
+- Desktop: edit the name and command of custom Shell bookmarks, and add built-in bookmarks for uninstalling a package and listing all, enabled, system, or APK-path packages. Package bookmarks target Android user 0 (#259, #262).
+- Desktop: filter the App List to enabled or disabled packages, including other installed apps. App inventory now targets user 0 to match package actions (#261, #233).
+- Desktop: add clearly labeled Delete controls to both snapshot lists, with confirmation and error handling. Deleting a local snapshot does not change the TV (#260).
+- Desktop and Android: include the already-redacted Report this app note in the GitHub form's Details field, while preserving the manual-paste fallback for long reports (#258).
 
-- Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
+### Changed
 
 - Desktop: move optional explanations into keyboard-accessible help sections while keeping safety warnings, permission consequences and errors visible.
+- Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.
+- Log-upload errors no longer assume your internet connection caused a server failure.
+- Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 
-- Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
+**Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
+restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
+still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use
+platform-tools; native Rust ADB remains experimental.
 
 ## v2-2.4.1 — 2026-10-23
 

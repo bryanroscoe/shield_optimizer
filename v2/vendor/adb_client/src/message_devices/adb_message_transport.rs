@@ -1,9 +1,33 @@
 use std::time::Duration;
 
 use crate::{
-    Result, adb_transport::ADBTransport,
-    message_devices::adb_transport_message::ADBTransportMessage,
+    Result,
+    adb_transport::ADBTransport,
+    message_devices::{
+        adb_connection_info::{ConnectionInfo, MAX_PAYLOAD_V1},
+        adb_transport_message::ADBTransportMessage,
+    },
 };
+
+/// A socket read or write ran out of time: `WouldBlock` on Unix, `TimedOut`
+/// on Windows.
+pub(crate) const fn is_timeout(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+    )
+}
+
+/// The peer or the network ended the connection (rather than one stream).
+pub(crate) const fn is_hang_up(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+    )
+}
 
 /// Safety net for every read that does not pass an explicit timeout. A silently
 /// dropped peer (phone roams to another AP, TV loses Wi-Fi) never delivers a
@@ -15,11 +39,22 @@ const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Trait representing a transport able to read and write messages.
 pub trait ADBMessageTransport: ADBTransport + Clone + Send + 'static {
-    /// An upgrade of the connection has been asked by the device.
+    /// An upgrade of the connection has been asked by the device. The whole
+    /// upgrade must finish within `timeout`.
     /// Some transports may not need this feature, a blanket implementation is provided as default implementation.
-    fn upgrade_connection(&mut self) -> Result<()> {
+    fn upgrade_connection(&mut self, _timeout: Duration) -> Result<()> {
         log::trace!("not upgrade needed fot this transport");
         Ok(())
+    }
+
+    /// Record what the CNXN exchange negotiated. Transports that frame
+    /// messages themselves enforce it on every later read and write.
+    fn apply_connection_info(&mut self, _info: &ConnectionInfo) {}
+
+    /// Largest payload this side may send. A transport that does not record
+    /// the negotiated limit stays within what every adbd accepts.
+    fn max_payload(&self) -> usize {
+        MAX_PAYLOAD_V1
     }
 
     /// Read a message using given timeout on the underlying transport

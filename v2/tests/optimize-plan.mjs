@@ -8,11 +8,13 @@
 //
 // Nothing throws and nothing logs. Only rendering the wizard catches it.
 import assert from "node:assert/strict";
+import { readFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const V2 = join(HERE, "..");
+const reviewed = JSON.parse(await readFile(join(HERE, "fixtures/reviewed-optimize-packages.json"), "utf8"));
 
 function serverURL(server) {
   const address = server.httpServer?.address();
@@ -35,8 +37,26 @@ function setHarnessEnvironment() {
 }
 
 async function exercise({ browser, base }) {
-  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  const evidence = process.env.OPTIMIZE_CATALOG_EVIDENCE;
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 }, colorScheme: "dark",
+    ...(evidence ? { recordVideo: { dir: join(evidence, "raw"), size: { width: 1400, height: 1000 } } } : {}) });
+  await page.addInitScript(() => localStorage.setItem("shieldopt.demo.reviewedCatalog", "1"));
   await page.goto(base, { waitUntil: "networkidle" });
+  await page.evaluate(() => {
+    window.optimizeReviewCalls = [];
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      window.optimizeReviewCalls.push(command);
+      return invoke(command, args);
+    };
+  });
+  if (evidence) await page.evaluate(() => {
+    const label = document.createElement("div");
+    label.textContent = "SIMULATED Optimize review · no TV or removal";
+    label.style.cssText = "position:fixed;top:0;right:0;z-index:99999;padding:8px;background:#1a2540;color:white;font:14px sans-serif";
+    document.body.appendChild(label);
+  });
   await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
   await page.getByRole("tab", { name: "Optimize" }).click();
   const panel = page.locator("#tabpanel-optimize");
@@ -85,9 +105,62 @@ async function exercise({ browser, base }) {
   const armedProtected = rows.filter((r) => r.verdict === "never_disable" && r.pills > 0);
   assert.deepEqual(armedProtected, [], `protected rows must offer no action: ${JSON.stringify(armedProtected)}`);
 
+  for (const entry of reviewed) {
+    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    assert.equal(await row.locator('[data-verdict="caution"]').count(), 1, entry.package);
+    assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", entry.package);
+    assert.equal((await row.locator(".review-pill").innerText()).trim(), "Review: disable if unused");
+  }
+  await panel.getByRole("button", { name: "Keep all", exact: true }).click();
+  await panel.getByRole("button", { name: "Select all safe", exact: true }).click();
+  for (const entry of reviewed) {
+    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", `Select all safe: ${entry.package}`);
+  }
+  const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
+  assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
+  const first = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: focusPackage }) });
+  await first.getByRole("button", { name: "Disable", exact: true }).click();
+  assert.equal((await first.locator(".radio-pill.active .radio-label").innerText()).trim(), "Disable");
+  await first.getByRole("button", { name: "Keep", exact: true }).click();
+  if (evidence) {
+    await first.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(evidence, "desktop-optimize-reviewed.png") });
+    await page.setViewportSize({ width: 720, height: 1000 });
+    await first.locator(".app-name").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(evidence, "desktop-optimize-minimum.png") });
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.addStyleTag({ content: "html{font-size:200%}" });
+    await first.locator(".app-name").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(evidence, "desktop-optimize-enlarged-light.png") });
+  }
+
+  await page.setViewportSize({ width: 720, height: 1000 });
+  if (!evidence) await page.addStyleTag({ content: "html{font-size:200%}" });
+  const overflow = await page.evaluate(() => ({
+    viewport: innerWidth, width: document.documentElement.scrollWidth,
+    outside: [...document.querySelectorAll("body *")].filter((el) => !el.closest(".plan-table-scroll") && el.getBoundingClientRect().right > innerWidth + 1).slice(0, 12).map((el) => ({ tag: el.tagName, class: el.className, right: el.getBoundingClientRect().right })),
+  }));
+  assert.ok(overflow.width <= overflow.viewport, `the page fits; wide choices scroll inside the table region: ${JSON.stringify(overflow)}`);
+  for (const entry of reviewed) {
+    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const name = row.locator(".app-name");
+    assert.ok(await name.evaluate((el) => el.getBoundingClientRect().width <= el.parentElement.clientWidth), `readable enlarged name: ${entry.package}`);
+  }
+  const scroller = page.getByRole("region", { name: "Optimize app choices" });
+  await scroller.focus();
+  const before = await scroller.evaluate((el) => el.scrollLeft);
+  await page.keyboard.press("ArrowRight");
+  await page.waitForTimeout(200);
+  assert.ok(await scroller.evaluate((el) => el.scrollLeft) > before, "keyboard can reach the trailing action columns");
+
+  assert.deepEqual(await page.evaluate(() => window.optimizeReviewCalls.filter((c) => /^(disable_package|uninstall_package|enable_package|apply_)/.test(c))), []);
   console.log(
     `Optimize plan passed: ${rows.length} rows, ${acted.length} recommended, Run button agrees, no row left Checking.`,
   );
+  const video = page.video();
+  await page.close();
+  if (evidence) await video.saveAs(join(evidence, "desktop-optimize-reviewed.webm"));
 }
 
 async function main() {

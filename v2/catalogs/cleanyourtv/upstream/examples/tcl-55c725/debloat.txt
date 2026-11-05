@@ -1,0 +1,65 @@
+# TCL 55C725 (reports as "Smart TV Pro", device BeyondTV4, product G03_4K_GB, Realtek rtd288o / R51MT05), 2 GB RAM
+# Android TV 11 (SDK 30) with the Google TV launcher, build RP1A.200622.001, software V8-R51MT05-LF1V620. Italy.
+# Same software family as examples/tcl-43c645 (LF1V652) and the BeyondTV4 of examples/tcl-65c725, which shipped
+# the older com.google.android.tvlauncher; this unit runs launcherx.
+# Applied and verified on a real unit on 2026-10-20/21 (Ethernet, Wi-Fi off), with launcher/ as Home and a reboot.
+# Also: TCL 65C655 Pro, same build (TCL/G03_4K_GB/BeyondTV4:11/RP1A.200622.001/AR09, LF1V620), on Wi-Fi, 2026-10-23:
+# the list in five batches with launcher/ as Home and three reboots; the remote-mic note below and README.md.
+# Notes, remote keycodes and quirks: README.md in this folder.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55c725/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55c725/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx; launcher/build-and-install.sh disables it, it is not listed.
+# Never disable (from examples/tcl-43c645, same platform): com.tcl.providers.config com.tcl.initsetup
+# com.tcl.system.server com.tcl.tcl_bt_rcu_service com.tcl.autopair com.tcl.tvinput com.tcl.tv com.tcl.settings
+# com.tcl.inputmethod.international. Also kept here: com.tcl.suspension (Quick panel / Input), com.tcl.micmanager,
+# com.google.android.tv.assistant (assistant LED), com.tcl.xian.StartandroidService (device authentication, purpose
+# unclear, left alone).
+
+# TCL and Google content, ads and promos
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.waterfall.overseas             # "TCL Channel" content browser
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.overseasappshow
+com.tcl.partnercustomizer
+com.tcl.esticker                       # store demo sticker
+com.tcl.messagebox
+com.tcl.bi                             # TCL analytics
+com.google.android.partnersetup
+android.autoinstalls.config.google.gtvpai
+com.google.android.feedback
+
+# Background services not needed
+com.google.android.onetimeinitializer
+com.google.android.syncadapters.calendar
+org.chromium.webview_shell             # AOSP WebView test browser
+com.tcl.android.webview                # TCL WebView; TV Settings and TCL apps still work without it
+com.tcl.guard
+com.tcl.keyhelp
+com.tcl.useragreement
+
+# Preloaded apps
+com.google.android.videos              # Google TV / Play Movies
+com.google.android.play.games
+com.google.android.marvin.talkback
+com.tcl.ocean.instructions             # e-manual
+com.tcl.ui_mediaCenter                 # re-enable to play media from USB drives
+com.tcl.MultiScreenInteraction_TV      # TCL T-Cast (phone casting/remote, Firebase); Chromecast kept
+tv.wuaki.apptv                         # Rakuten TV
+com.tcl.dashboard                      # stock quick-settings panel; the gear key is remapped, see README.md
+com.google.android.apps.tv.dreamx      # ambient mode; set screensaver_components first, see README.md
+
+# Google TV setup wizard: claims Home once launcherx is disabled. On Ethernet there is no Wi-Fi to lose; on Wi-Fi,
+# re-join every network it saved first (README.md, Brazilian unit).
+com.google.android.tungsten.setupwraith
+
+# Optional: kept on this unit by choice
+# com.tcl.versionUpdateApp             # TCL firmware updater
+# com.tcl.miracast                     # screen mirroring
+# com.google.android.apps.mediashell   # Chromecast
+# com.google.android.tv.remote.service # Google TV phone remote; also carries the remote's mic on other TCL sets,
+#                                      # and on the 65C655 Pro (AtvSearchAssistantService): disabled, voice stopped
+# com.tcl.gamebar                      # console game-mode overlay
+# com.tcl.t_solo                       # "Listen alone": TV audio to Bluetooth headphones

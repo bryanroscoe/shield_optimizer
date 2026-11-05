@@ -714,6 +714,8 @@
       </label>
     </div>
 
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to focus the overflow region to scroll the table.) -->
+    <div class="plan-table-scroll" role="region" aria-label="Optimize app choices" tabindex="0">
     <table class="optimize-table">
       <thead>
         <tr>
@@ -835,6 +837,7 @@
         {/each}
       </tbody>
     </table>
+    </div>
 
     <!-- The action sits after the list it acts on, so Run is not reachable
          before the plan has been read. -->
@@ -877,6 +880,9 @@
 </div>
 
 <style>
+  .card {
+    min-width: 0;
+  }
   /* Shared scoped utilities duplicated from the page; global muted and button
      rules live in the layout and are inherited. */
   .header-actions {
@@ -906,6 +912,19 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+  }
+  .plan-table-scroll {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .plan-table-scroll:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .optimize-table {
+    min-width: 64rem;
   }
   th, td {
     text-align: left;

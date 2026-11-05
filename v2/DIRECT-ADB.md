@@ -17,7 +17,7 @@ or replaced. A failed native initialization stays visible and never silently
 switches drivers. Native mode does not expose Restart ADB or Stop ADB when quitting.
 
 For an explicitly requested diagnostic fallback, launch the executable with
-`SHIELD_OPTIMIZER_TRANSPORT=subprocess`. The label changes to **Platform-tools ADB**.
+`ATV_OPTIMIZER_TRANSPORT=subprocess`. The label changes to **Platform-tools ADB**.
 That does not replay any operation. Windows first-run native identity is unsupported
 in this integration. Physical TV acceptance, file/install operations, and cross-OS
 validation must be completed before making native the shipping default. Native Remote
@@ -45,11 +45,11 @@ existing shared profiling code and verified hardware IDs.
 
 The normal desktop build and default selection remain subprocess/platform-tools. An experimental
 build enables Cargo feature `direct-adb`; selecting it additionally requires
-`SHIELD_OPTIMIZER_TRANSPORT=direct`. Invalid selection and a missing feature fail visibly rather
+`ATV_OPTIMIZER_TRANSPORT=direct`. Invalid selection and a missing feature fail visibly rather
 than silently selecting another driver. Explicit fallback is relaunching with
-`SHIELD_OPTIMIZER_TRANSPORT=subprocess` (or removing the selection).
+`ATV_OPTIMIZER_TRANSPORT=subprocess` (or removing the selection).
 
-This initial stage also requires `SHIELD_OPTIMIZER_DIRECT_KEY` to name an existing app-owned
+This initial stage also requires `ATV_OPTIMIZER_DIRECT_KEY` to name an existing app-owned
 PKCS#8 PEM ADB identity. It never copies, rewrites or rotates the standard platform-tools `adbkey`,
 never creates a desktop identity and never falls back to an ephemeral key if that file disappears.
 No identity or environment configuration was created during validation. A future normal UI needs

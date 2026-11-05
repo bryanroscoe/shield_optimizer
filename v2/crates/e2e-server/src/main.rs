@@ -1,7 +1,7 @@
 //! Dev-only E2E server: the app's real command layer against a simulated
 //! device, served over local HTTP for the Playwright harness in `v2/e2e/`.
 //!
-//! Commands are dispatched through `shield_optimizer_v2_lib::invoke_handler`
+//! Commands are dispatched through `atv_optimizer_lib::invoke_handler`
 //! — the same handler table the shipped app registers — on a Tauri
 //! `MockRuntime` app, so argument names, deserialization, state and every
 //! command body run exactly as in the desktop app. Only the adb driver is
@@ -28,15 +28,16 @@ use tauri::WebviewWindowBuilder;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-use shield_optimizer_core::adb::sim::{
+use atv_optimizer_core::adb::sim::{
     self, replay, Device, FaultRule, HomePolicy, SimulatedAdb, TransportState, Wireless, World,
 };
-use shield_optimizer_core::commands::{loader, AppState};
-use shield_optimizer_core::license::Entitlement;
-use shield_optimizer_v2_lib::commands::diagnostics;
+use atv_optimizer_core::commands::{loader, AppState};
+use atv_optimizer_core::license::Entitlement;
+use atv_optimizer_lib::commands::diagnostics;
 
 /// Commands answered here rather than dispatched: they reach the internet
-/// or the host desktop, which a test must not do.
+/// or the host desktop (or, for the Local Network probe, the host's real
+/// network), which a test must not do.
 fn intercepted(cmd: &str) -> Option<Value> {
     Some(match cmd {
         "check_for_update" => json!({
@@ -51,6 +52,8 @@ fn intercepted(cmd: &str) -> Option<Value> {
         }
         "open_log_dir" => Value::Null,
         "local_address_for" => json!("192.0.2.254"),
+        "local_network_access" => json!({"status": "not_applicable"}),
+        "open_local_network_settings" => Value::Null,
         _ => return None,
     })
 }
@@ -242,7 +245,7 @@ impl Server {
                 let mut probe = d.clone();
                 probe.home.transient_polls = 0;
                 let pick =
-                    |f: &dyn Fn(&shield_optimizer_core::adb::sim::Package) -> bool| -> Vec<String> {
+                    |f: &dyn Fn(&atv_optimizer_core::adb::sim::Package) -> bool| -> Vec<String> {
                         d.packages
                             .iter()
                             .filter(|(_, p)| f(p))
@@ -431,9 +434,9 @@ impl Server {
             ("GET", "/control/offline-policy") => Ok(json!({
                 "driver": "SimulatedAdb",
                 "fixture_subnet": offline::FIXTURE_SUBNET,
-                "fixture_sweep_installed": shield_optimizer_v2_lib::adb::scan::SWEEP_OVERRIDE.read().map(|s| s.is_some()).unwrap_or(false),
+                "fixture_sweep_installed": atv_optimizer_lib::adb::scan::SWEEP_OVERRIDE.read().map(|s| s.is_some()).unwrap_or(false),
                 "command_allowlist_enforced": true,
-                "host_intercepts": ["check_for_update", "install_adb", "open_log_dir", "local_address_for"],
+                "host_intercepts": ["check_for_update", "install_adb", "open_log_dir", "local_address_for", "local_network_access", "open_local_network_settings"],
                 "hardware_acceptance_not_run": ["real LAN/multicast discovery", "AUTH/STLS and identity onboarding", "physical helper/key-release cleanup", "packaged platform acceptance"]
             })),
             ("GET", "/control/log") => {
@@ -591,13 +594,13 @@ fn main() {
     let _ = std::fs::remove_dir_all(&data_dir);
     std::fs::create_dir_all(&data_dir).expect("create data dir");
     // The scan's port sweep is answered from the simulated LAN (192.0.2.x).
-    std::env::set_var("SHIELD_OPTIMIZER_SUBNET", offline::FIXTURE_SUBNET);
+    std::env::set_var("ATV_OPTIMIZER_SUBNET", offline::FIXTURE_SUBNET);
     let log_control = diagnostics::init_logging(&data_dir);
 
     let sim = SimulatedAdb::empty();
     {
         let sweep_sim = sim.clone();
-        *shield_optimizer_v2_lib::adb::scan::SWEEP_OVERRIDE
+        *atv_optimizer_lib::adb::scan::SWEEP_OVERRIDE
             .write()
             .unwrap() = Some(Box::new(move |prefix: [u8; 3]| {
             let net = format!("{}.{}.{}.", prefix[0], prefix[1], prefix[2]);
@@ -613,13 +616,13 @@ fn main() {
     let state = AppState::new(Arc::new(sim.clone()), app_lists, data_dir.clone())
         .with_entitlement(Entitlement::Pro)
         .with_known_names(loader::load_known_names())
-        .with_telemetry(shield_optimizer_core::telemetry::Telemetry::disabled());
+        .with_telemetry(atv_optimizer_core::telemetry::Telemetry::disabled());
 
     let app = mock_builder()
         .manage(state)
         .manage(log_control)
-        .manage(shield_optimizer_v2_lib::commands::quit::AdbQuitControl::default())
-        .invoke_handler(shield_optimizer_v2_lib::invoke_handler())
+        .manage(atv_optimizer_lib::commands::quit::AdbQuitControl::default())
+        .invoke_handler(atv_optimizer_lib::invoke_handler())
         .build(mock_context(noop_assets()))
         .expect("build mock app");
     let webview = WebviewWindowBuilder::new(&app, "main", Default::default())
