@@ -66,7 +66,7 @@ fn kind(service: &str) -> Option<NativeServiceKind> {
 fn interface_name(name: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.chars().filter(|c| !c.is_control()).take(128).collect())
 }
-fn row(
+pub(crate) fn row(
     kind: NativeServiceKind,
     instance: &str,
     ip: IpAddr,

@@ -90,7 +90,12 @@ impl NetworkSession for ScriptedSession {
         Ok("connected".into())
     }
 
-    async fn pair(&self, _host: &str, _port: u16, _code: &str) -> Result<String, String> {
+    async fn pair(
+        &self,
+        _host: &str,
+        _port: u16,
+        _code: &str,
+    ) -> Result<atv_direct_adb::Paired, String> {
         panic!("comparison must not pair or create an identity")
     }
 

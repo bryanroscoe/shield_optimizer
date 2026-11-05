@@ -13,8 +13,7 @@ use crate::adb::{
     ADB_NETWORK_PORT,
 };
 use atv_optimizer_core::adb::{
-    AdbError, NativeDiscoveryReport, NativeServiceKind, ScanConnectOutcome, MDNS_SERVICE_CONNECT,
-    MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
+    native_mdns_services, AdbError, NativeDiscoveryReport, ScanConnectOutcome,
 };
 use atv_optimizer_core::engine::telemetry_diag::{
     connect_diag, error_codes, sweep_diag, DiagReason, Gateway,
@@ -434,44 +433,6 @@ async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
     }
 }
 
-fn native_services(report: &NativeDiscoveryReport, elapsed: Duration) -> Vec<MdnsService> {
-    report
-        .advertisements
-        .iter()
-        .filter(|row| {
-            !row.cached
-                && u128::from(row.observed_age_ms) + elapsed.as_millis()
-                    < u128::from(report.observation_max_age_ms)
-        })
-        .filter_map(|row| {
-            let endpoint = row.connect_address.as_deref()?;
-            let socket = endpoint.parse::<std::net::SocketAddr>().ok()?;
-            if socket.port() == 0 || socket.port() != row.port {
-                return None;
-            }
-            let service = match row.service_kind {
-                NativeServiceKind::LegacyAdb => MDNS_SERVICE_LEGACY,
-                NativeServiceKind::TlsConnect => MDNS_SERVICE_CONNECT,
-                NativeServiceKind::TlsPairing => MDNS_SERVICE_PAIRING,
-            };
-            let suffix = format!(".{service}.local.");
-            let instance = if row.instance.to_ascii_lowercase().ends_with(&suffix) {
-                row.instance[..row.instance.len() - suffix.len()].to_string()
-            } else {
-                row.instance.clone()
-            };
-            // Preserve the numeric IPv6 scope from the validated endpoint.
-            let host = endpoint.rsplit_once(':')?.0.to_string();
-            Some(MdnsService {
-                instance,
-                service: service.to_string(),
-                host,
-                port: row.port,
-            })
-        })
-        .collect()
-}
-
 async fn native_connect_attempt(
     adb: &dyn AdbDriver,
     target: &str,
@@ -487,7 +448,7 @@ async fn native_connect_attempt(
         Duration::from_secs(45)
     } else if let Some((report, received)) = snapshot {
         let elapsed = received.elapsed();
-        if !native_services(report, elapsed)
+        if !native_mdns_services(report, elapsed)
             .iter()
             .any(|service| service.endpoint() == target)
         {
@@ -844,7 +805,7 @@ async fn scan_command_stage_with_attempts(
     } else {
         native_snapshot
             .as_ref()
-            .map(|(report, received)| native_services(report, received.elapsed()))
+            .map(|(report, received)| native_mdns_services(report, received.elapsed()))
             .unwrap_or_default()
     };
     let attached_with_status = if host_server {
@@ -1090,7 +1051,7 @@ async fn scan_command_stage_with_attempts(
     }
 
     if let Some((report, received)) = &native_snapshot {
-        let fresh = native_services(report, received.elapsed());
+        let fresh = native_mdns_services(report, received.elapsed());
         targets.needs_pairing.retain(|target| {
             fresh
                 .iter()
@@ -1854,7 +1815,7 @@ mod tests {
 #[cfg(test)]
 mod command_stage_tests {
     use super::*;
-    use atv_optimizer_core::adb::{AdbError, AdbOutput, AdbResult};
+    use atv_optimizer_core::adb::{AdbError, AdbOutput, AdbResult, NativeServiceKind};
     use std::collections::{BTreeMap, VecDeque};
     use std::sync::Mutex;
 
@@ -2600,10 +2561,10 @@ mod command_stage_tests {
             observation_max_age_ms: 30_000,
         };
         assert_eq!(
-            native_services(&report, Duration::ZERO)[0].endpoint(),
+            native_mdns_services(&report, Duration::ZERO)[0].endpoint(),
             "[fe80::1234%7]:5555"
         );
-        assert!(native_services(&report, Duration::from_secs(30)).is_empty());
+        assert!(native_mdns_services(&report, Duration::from_secs(30)).is_empty());
     }
 
     #[tokio::test(start_paused = true)]

@@ -10,7 +10,8 @@ labeled owner-test bundle (`com.atvoptimizer.native-test`) comes from the PR's o
 
 Devices shows **Native Rust ADB · direct connection** when active. Add by IP and
 Scan LAN connect directly to the TV; Scan LAN combines fresh mDNS endpoints with
-the existing port-5555 sweep. Pair PIN still requires the separate connect port.
+the existing port-5555 sweep. Pair PIN connects by itself when the TV names itself
+while pairing (see **Pairing** below); otherwise it asks for the separate connect port.
 The private app identity is created once on supported Unix hosts; approve it on
 the TV, even if platform-tools was already approved. No standard ADB key is imported
 or replaced. Native mode does not expose Restart ADB or Stop ADB when quitting.
@@ -54,6 +55,29 @@ so the simulator stays in place.
 `ATV_OPTIMIZER_TRANSPORT=subprocess` remains the diagnostic override for one launch.
 The label changes to **Platform-tools ADB**. Switching does not replay any operation.
 
+## Pairing
+
+The built-in pair keeps the name the TV sends in its pairing `PeerInfo`
+(`ADB_DEVICE_GUID`, for example `adb-<serial>-<suffix>`) when it is printable ASCII of at
+most 63 bytes, and prints it the way `adb pair` does: `Successfully paired to <address>
+[guid=<name>]`. The shared pair command takes the instance from that output under both
+engines. A missing or unusable name means no instance, and the app asks for the connect
+port straight away.
+
+With an instance, Devices waits up to 45 seconds for that TV's connect service, as it
+does with platform-tools. Under built-in, each `mdns services` read is one bounded native
+browse (6-second window) through the same discovery manager Scan LAN uses, rendered in
+`adb mdns services` format. It lists only services resolved in that window, under the
+30-second observation limit, with an endpoint discovery validated (numeric IPv6 scope
+kept). Cached, expired, loopback, unscoped link-local and unprintable records are left out.
+A browse that saw nothing and reported problems is an error, never an empty list. The
+connect service is matched on the serial embedded in the instance, never on the address;
+only its advertised port is dialled, and `connect_paired` checks `ro.serialno` before the
+TV counts as the paired device. Probes run back to back while a browse is in flight, so a
+45-second wait is about seven browses. Pair itself does not browse under built-in, and
+Forget does not read mDNS there, because the built-in engine never re-attaches a TV by
+itself.
+
 ## Limits
 
 Built-in is network-only: a TV connected by USB needs Google platform-tools, and the
@@ -68,8 +92,8 @@ N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMI
 # History: the first desktop direct ADB stage (2026-10-25, superseded)
 
 Kept for the reasoning behind the design. Several limits below no longer hold: the app
-now creates its own key, split APKs install, the engine is chosen in Settings, and
-built-in is the default.
+now creates its own key, split APKs install, the engine is chosen in Settings,
+built-in is the default, and Pair PIN connects by itself when the TV names itself.
 
 This is an opt-in development backend, not a replacement for the released desktop transport.
 No phone, TV or hardware stability has been verified for this desktop adapter. It does not claim

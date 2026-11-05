@@ -31,7 +31,9 @@ try {
           if (command === 'scan_network') return { subnet: '192.0.2', found: ['192.0.2.71:5555'], connected: [], unauthorized: [], failed: ['192.0.2.71:5555'], needs_pairing: [], message: 'SIMULATED: Found 1 TV. Approve debugging on the TV, then use Add by IP.', details: ['SIMULATED endpoint 192.0.2.71:5555: authorization timed out.'] };
           if (command === 'connect_device') return new Promise(resolve => { window.finishNativeConnect = ok => { window.nativeReady = ok; resolve({ ok, message: ok ? 'Connected.' : 'SIMULATED approval timeout. Try again after approving the TV.' }); }; });
           if (command === 'pair_device') return { ok: true, message: 'Paired. Enter the separate connect port.', instance: null };
-          if (['connect_paired', 'probe_paired_connect', 'install_adb', 'restart_adb', 'local_address_for'].includes(command)) throw new Error(`Unexpected host-server command: ${command}`);
+          // A pair without the device's name never waits on discovery.
+          if (['connect_paired', 'probe_paired_connect'].includes(command)) throw new Error(`Unexpected paired-connect command without an instance: ${command}`);
+          if (['install_adb', 'restart_adb', 'local_address_for'].includes(command)) throw new Error(`Unexpected host-server command: ${command}`);
           return original(command, args);
         };
         bridge = value;
@@ -87,7 +89,7 @@ try {
     await context.close();
     await video.saveAs(`${evidence}/native-existing-flow-simulated.webm`);
   } else await context.close();
-  console.log('PASS native backend label, existing scan flow, pending approval, retry, and separate pairing/connect ports');
+  console.log('PASS native backend label, existing scan flow, pending approval, retry, and separate pairing/connect ports when the device gave no name');
 } finally {
   await browser?.close();
   await server?.close();

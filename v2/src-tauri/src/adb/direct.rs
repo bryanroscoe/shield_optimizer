@@ -6,10 +6,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use atv_direct_adb::WirelessAdb;
+use atv_direct_adb::{Paired, WirelessAdb};
 use atv_optimizer_core::adb::{
-    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Leases, ScanConnectOutcome,
-    ScanConnectionFailure, ScanConnectionProgress, ServerStop,
+    native_mdns_services, render_mdns_services, AdbByteStream, AdbDriver, AdbError, AdbOutput,
+    AdbResult, Leases, NativeDiscoveryReport, ScanConnectOutcome, ScanConnectionFailure,
+    ScanConnectionProgress, ServerStop,
 };
 use atv_optimizer_core::commands::devices::normalize_connect_address;
 use std::time::Duration;
@@ -24,7 +25,7 @@ mod comparison;
 #[async_trait]
 trait NetworkSession: AdbDriver {
     async fn connect(&self, host: &str, port: u16, request: u64) -> Result<String, String>;
-    async fn pair(&self, host: &str, port: u16, code: &str) -> Result<String, String>;
+    async fn pair(&self, host: &str, port: u16, code: &str) -> Result<Paired, String>;
     async fn ready(&self) -> bool;
     fn awaiting_authorization(&self) -> bool {
         false
@@ -39,8 +40,8 @@ impl NetworkSession for WirelessAdb {
         self.begin_request(request)?;
         WirelessAdb::connect(self, host, port, request).await
     }
-    async fn pair(&self, host: &str, port: u16, code: &str) -> Result<String, String> {
-        WirelessAdb::pair(self, host, port, code).await
+    async fn pair(&self, host: &str, port: u16, code: &str) -> Result<Paired, String> {
+        WirelessAdb::pair_reporting_instance(self, host, port, code).await
     }
     async fn ready(&self) -> bool {
         self.status().await.connected
@@ -481,6 +482,30 @@ fn split_install_paths(rest: &[&str]) -> bool {
             .all(|path| !path.is_empty() && !path.starts_with('-'))
 }
 
+/// What `adb pair` prints, including the device's own name when it gave a
+/// usable one, so pairing identifies the device the same way under both
+/// engines.
+fn pair_output(address: &str, instance: Option<&str>) -> String {
+    match instance {
+        Some(name) => format!("Successfully paired to {address} [guid={name}]"),
+        None => format!("Successfully paired to {address}"),
+    }
+}
+
+/// `adb mdns services` from one native browse: only what was observed in that
+/// window with a validated endpoint. A browse that saw nothing and reported
+/// problems is a failure, not an empty network.
+fn mdns_services_output(report: &NativeDiscoveryReport) -> AdbResult<AdbOutput> {
+    let services = native_mdns_services(report, Duration::ZERO);
+    if services.is_empty() && !report.warnings.is_empty() {
+        return Err(AdbError::Transport(format!(
+            "Native mDNS discovery failed: {}",
+            report.warnings.join(" ")
+        )));
+    }
+    Ok(output(render_mdns_services(&services)))
+}
+
 fn unsupported() -> AdbError {
     AdbError::Transport("This operation is unavailable in the built-in ADB engine. To use it, choose Google platform-tools under Settings > ADB engine; no automatic fallback was performed.".into())
 }
@@ -593,12 +618,13 @@ impl AdbDriver for DirectNetworkAdb {
                 })?;
                 let session =
                     (self.pool.factory)(self.pool.key.clone(), self.pool.operations.clone());
-                session
+                let paired = session
                     .pair(address.rsplit_once(':').unwrap().0, endpoint.port(), code)
                     .await
                     .map_err(AdbError::Transport)?;
-                Ok(output(format!("Successfully paired to {address}")))
+                Ok(output(pair_output(address, paired.instance.as_deref())))
             }
+            ["mdns", "services"] => mdns_services_output(&self.discover_network().await?),
             ["disconnect", serial] => {
                 let _operation = self
                     .pool
@@ -771,6 +797,8 @@ mod tests {
         started: Arc<tokio::sync::Notify>,
         release: Arc<tokio::sync::Notify>,
         completed: Arc<tokio::sync::Notify>,
+        peer_instance: StdMutex<Option<String>>,
+        hardware_id: StdMutex<Option<String>>,
     }
     #[async_trait]
     impl AdbDriver for FakeSession {
@@ -818,6 +846,11 @@ mod tests {
                 self.started.notify_one();
                 self.release.notified().await;
             }
+            if command == "getprop ro.serialno" {
+                if let Some(id) = self.hardware_id.lock().unwrap().clone() {
+                    return Ok(output(format!("{id}\n")));
+                }
+            }
             Ok(output(format!("{serial}: {command}")))
         }
         async fn raw_bytes(&self, args: &[&str]) -> AdbResult<Vec<u8>> {
@@ -862,12 +895,15 @@ mod tests {
             self.ready.store(true, Ordering::Release);
             Ok("connected".into())
         }
-        async fn pair(&self, host: &str, port: u16, _code: &str) -> Result<String, String> {
+        async fn pair(&self, host: &str, port: u16, _code: &str) -> Result<Paired, String> {
             self.calls
                 .lock()
                 .unwrap()
                 .push(format!("pair {host}:{port}"));
-            Ok("Paired with the TV.".into())
+            Ok(Paired {
+                message: "Paired with the TV.".into(),
+                instance: self.peer_instance.lock().unwrap().clone(),
+            })
         }
         async fn ready(&self) -> bool {
             if self.probe_held.load(Ordering::Acquire) {
@@ -1328,7 +1364,6 @@ mod tests {
         for args in [
             vec!["kill-server"],
             vec!["start-server"],
-            vec!["mdns", "services"],
             vec!["-s", "192.0.2.1:5555", "forward", "tcp:1", "tcp:2"],
         ] {
             assert!(driver
@@ -1787,5 +1822,401 @@ mod tests {
         );
         driver.stop_server(std::time::Duration::from_secs(1)).await;
         assert!(!sessions.lock().unwrap()[0].ready.load(Ordering::Acquire));
+    }
+
+    type Script = fn(std::time::Instant) -> super::super::discovery::DiscoveryBatch;
+
+    /// Hands back one scripted browse per call, sticking on the last.
+    struct ScriptedDiscovery {
+        calls: AtomicU64,
+        script: Vec<Script>,
+    }
+    impl super::super::discovery::DiscoveryProvider for ScriptedDiscovery {
+        fn collect(&self, _: &AtomicBool) -> super::super::discovery::DiscoveryBatch {
+            let n = self.calls.fetch_add(1, Ordering::Relaxed) as usize;
+            self.script[n.min(self.script.len() - 1)](std::time::Instant::now())
+        }
+        fn retry_cleanup(&self) -> bool {
+            true
+        }
+    }
+
+    fn scripted(driver: &mut DirectNetworkAdb, script: Vec<Script>) -> Arc<ScriptedDiscovery> {
+        let provider = Arc::new(ScriptedDiscovery {
+            calls: AtomicU64::new(0),
+            script,
+        });
+        driver.discovery = super::super::discovery::DiscoveryManager::new(provider.clone());
+        provider
+    }
+
+    fn seen(
+        kind: atv_optimizer_core::adb::NativeServiceKind,
+        fullname: &str,
+        ip: &str,
+        port: u16,
+        scope: Option<u32>,
+        observed: std::time::Instant,
+    ) -> super::super::discovery::DiscoveryEvent {
+        super::super::discovery::DiscoveryEvent::Resolved {
+            kind,
+            instance: fullname.into(),
+            rows: vec![super::super::discovery::row(
+                kind,
+                fullname,
+                ip.parse().unwrap(),
+                port,
+                scope.map(|_| "en0".to_string()),
+                scope,
+                false,
+            )],
+            observed,
+        }
+    }
+
+    fn batch(
+        events: Vec<super::super::discovery::DiscoveryEvent>,
+        warnings: &[&str],
+    ) -> super::super::discovery::DiscoveryBatch {
+        super::super::discovery::DiscoveryBatch {
+            events,
+            warnings: warnings.iter().map(|w| w.to_string()).collect(),
+            cleanup_confirmed: true,
+        }
+    }
+
+    /// A TV that paired as `adb-FAKE0001-a1B2c3` and answers `ro.serialno`.
+    fn identified_driver(
+        peer_instance: Option<&str>,
+    ) -> (DirectNetworkAdb, Arc<StdMutex<Vec<Arc<FakeSession>>>>) {
+        let sessions = Arc::new(StdMutex::new(Vec::new()));
+        let captured = sessions.clone();
+        let peer_instance = peer_instance.map(str::to_string);
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("not-created-test-key"),
+            Arc::new(move |_, _| {
+                let session = Arc::new(FakeSession {
+                    peer_instance: StdMutex::new(peer_instance.clone()),
+                    hardware_id: StdMutex::new(Some("FAKE0001".into())),
+                    ..Default::default()
+                });
+                captured.lock().unwrap().push(session.clone());
+                session
+            }),
+        );
+        (driver, sessions)
+    }
+
+    #[test]
+    fn native_pair_output_names_the_device_only_when_it_gave_a_name() {
+        use atv_optimizer_core::adb::pair_output_guid;
+        let named = pair_output("192.0.2.5:40000", Some("adb-FAKE0001-a1B2c3"));
+        assert_eq!(
+            named,
+            "Successfully paired to 192.0.2.5:40000 [guid=adb-FAKE0001-a1B2c3]"
+        );
+        assert_eq!(pair_output_guid(&named), Some("adb-FAKE0001-a1B2c3"));
+        let unnamed = pair_output("192.0.2.5:40000", None);
+        assert_eq!(unnamed, "Successfully paired to 192.0.2.5:40000");
+        assert_eq!(pair_output_guid(&unnamed), None);
+    }
+
+    #[tokio::test]
+    async fn native_pair_reports_the_peer_name_without_reading_mdns() {
+        let (mut driver, sessions) = identified_driver(Some("adb-FAKE0001-a1B2c3"));
+        let provider = scripted(&mut driver, vec![|_| batch(Vec::new(), &[])]);
+        let driver = Arc::new(driver);
+        let state = atv_optimizer_core::commands::AppState::new(
+            driver.clone(),
+            atv_optimizer_core::engine::AppListBundle::default(),
+            PathBuf::from("not-created"),
+        );
+        let paired = atv_optimizer_core::commands::devices::pair_device_impl(
+            &state,
+            "192.0.2.5:40000",
+            "123456",
+        )
+        .await
+        .unwrap();
+        assert!(paired.ok);
+        assert_eq!(paired.instance.as_deref(), Some("adb-FAKE0001-a1B2c3"));
+        assert_eq!(
+            provider.calls.load(Ordering::Relaxed),
+            0,
+            "pairing must not wait on a multicast browse"
+        );
+        assert_eq!(
+            sessions.lock().unwrap()[0].calls.lock().unwrap().as_slice(),
+            ["pair 192.0.2.5:40000"]
+        );
+        assert_eq!(
+            driver.raw(&["devices"]).await.unwrap().stdout,
+            "List of devices attached\n",
+            "pairing alone never connects"
+        );
+
+        let (driver, _) = identified_driver(None);
+        let state = atv_optimizer_core::commands::AppState::new(
+            Arc::new(driver),
+            atv_optimizer_core::engine::AppListBundle::default(),
+            PathBuf::from("not-created"),
+        );
+        let paired = atv_optimizer_core::commands::devices::pair_device_impl(
+            &state,
+            "192.0.2.5:40000",
+            "123456",
+        )
+        .await
+        .unwrap();
+        assert!(paired.ok);
+        assert_eq!(
+            paired.instance, None,
+            "no name, so nothing can be tied to it"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_mdns_services_lists_only_fresh_usable_observations() {
+        use atv_optimizer_core::adb::{
+            parse_mdns_services, NativeServiceKind as Kind, MDNS_SERVICE_CONNECT,
+            MDNS_SERVICE_PAIRING,
+        };
+        let (mut driver, _) = fake_driver();
+        let provider = scripted(
+            &mut driver,
+            vec![
+                |now| {
+                    let stale = now.checked_sub(Duration::from_secs(31)).unwrap();
+                    batch(
+                        vec![
+                            seen(
+                                Kind::TlsConnect,
+                                "adb-FAKE0001-xYz123._adb-tls-connect._tcp.local.",
+                                "192.0.2.5",
+                                41000,
+                                None,
+                                now,
+                            ),
+                            seen(
+                                Kind::TlsPairing,
+                                "adb-FAKE0001-a1B2c3._adb-tls-pairing._tcp.local.",
+                                "192.0.2.5",
+                                40000,
+                                None,
+                                now,
+                            ),
+                            seen(
+                                Kind::TlsConnect,
+                                "adb-V6SER-c2._adb-tls-connect._tcp.local.",
+                                "fe80::1",
+                                41541,
+                                Some(7),
+                                now,
+                            ),
+                            seen(
+                                Kind::TlsConnect,
+                                "adb-NOSCOPE-c3._adb-tls-connect._tcp.local.",
+                                "fe80::2",
+                                41542,
+                                None,
+                                now,
+                            ),
+                            seen(
+                                Kind::LegacyAdb,
+                                "adb-LOOP._adb._tcp.local.",
+                                "127.0.0.1",
+                                5555,
+                                None,
+                                now,
+                            ),
+                            seen(
+                                Kind::LegacyAdb,
+                                "adb-LINK._adb._tcp.local.",
+                                "169.254.1.1",
+                                5555,
+                                None,
+                                now,
+                            ),
+                            seen(
+                                Kind::LegacyAdb,
+                                "Living Room TV._adb._tcp.local.",
+                                "192.0.2.9",
+                                5555,
+                                None,
+                                now,
+                            ),
+                            seen(
+                                Kind::TlsConnect,
+                                "adb-STALE-q._adb-tls-connect._tcp.local.",
+                                "192.0.2.6",
+                                41000,
+                                None,
+                                stale,
+                            ),
+                        ],
+                        &[],
+                    )
+                },
+                |_| batch(Vec::new(), &[]),
+                |_| batch(Vec::new(), &["Native mDNS discovery could not start: test"]),
+            ],
+        );
+
+        let out = driver.raw(&["mdns", "services"]).await.unwrap();
+        assert!(out.success());
+        let services = parse_mdns_services(&out.stdout);
+        let mut rows: Vec<(&str, &str, String)> = services
+            .iter()
+            .map(|s| (s.instance.as_str(), s.service.as_str(), s.endpoint()))
+            .collect();
+        rows.sort();
+        assert_eq!(
+            rows,
+            vec![
+                (
+                    "adb-FAKE0001-a1B2c3",
+                    MDNS_SERVICE_PAIRING,
+                    "192.0.2.5:40000".to_string()
+                ),
+                (
+                    "adb-FAKE0001-xYz123",
+                    MDNS_SERVICE_CONNECT,
+                    "192.0.2.5:41000".to_string()
+                ),
+                (
+                    "adb-V6SER-c2",
+                    MDNS_SERVICE_CONNECT,
+                    "[fe80::1%7]:41541".to_string()
+                ),
+            ],
+            "stale, unscoped, loopback, link-local and unprintable rows are left out:\n{}",
+            out.stdout
+        );
+        let v6 = &services
+            .iter()
+            .find(|s| s.instance == "adb-V6SER-c2")
+            .unwrap()
+            .endpoint();
+        assert_eq!(normalize_connect_address(v6).unwrap(), *v6);
+        assert!(
+            v6.parse::<std::net::SocketAddr>().is_ok(),
+            "the native engine can dial it"
+        );
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 1);
+
+        let out = driver.raw(&["mdns", "services"]).await.unwrap();
+        assert_eq!(
+            out.stdout, "List of discovered mdns services\n",
+            "a record not re-observed in this browse is not offered"
+        );
+
+        let error = driver.raw(&["mdns", "services"]).await.unwrap_err();
+        assert!(error.to_string().contains("could not start"), "{error}");
+        assert!(
+            driver.pool.sessions.lock().await.is_empty(),
+            "discovery never dials"
+        );
+
+        driver.pool.operations.close();
+        assert!(matches!(
+            driver.raw(&["mdns", "services"]).await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 3);
+    }
+
+    #[tokio::test]
+    async fn paired_connect_probe_finds_and_verifies_the_tv_through_native_discovery() {
+        use atv_optimizer_core::adb::NativeServiceKind as Kind;
+        use atv_optimizer_core::commands::devices::{
+            connect_paired_impl, probe_paired_connect_impl, PairedConnectProbe,
+        };
+        const INSTANCE: &str = "adb-FAKE0001-a1B2c3";
+        let (mut driver, _) = identified_driver(Some(INSTANCE));
+        let provider = scripted(
+            &mut driver,
+            vec![|_| batch(Vec::new(), &[]), |now| {
+                batch(
+                    vec![
+                        seen(
+                            Kind::TlsPairing,
+                            "adb-FAKE0001-a1B2c3._adb-tls-pairing._tcp.local.",
+                            "192.0.2.5",
+                            40000,
+                            None,
+                            now,
+                        ),
+                        seen(
+                            Kind::TlsConnect,
+                            "adb-OTHER9-zZ9._adb-tls-connect._tcp.local.",
+                            "192.0.2.5",
+                            41001,
+                            None,
+                            now,
+                        ),
+                        seen(
+                            Kind::TlsConnect,
+                            "adb-FAKE0001-xYz123._adb-tls-connect._tcp.local.",
+                            "192.0.2.5",
+                            41000,
+                            None,
+                            now,
+                        ),
+                    ],
+                    &[],
+                )
+            }],
+        );
+        let driver = Arc::new(driver);
+        let state = atv_optimizer_core::commands::AppState::new(
+            driver.clone(),
+            atv_optimizer_core::engine::AppListBundle::default(),
+            PathBuf::from("not-created"),
+        );
+
+        assert_eq!(
+            probe_paired_connect_impl(&state, "192.0.2.5:40000", None)
+                .await
+                .unwrap(),
+            PairedConnectProbe::Unidentified
+        );
+        assert_eq!(provider.calls.load(Ordering::Relaxed), 0);
+
+        assert_eq!(
+            probe_paired_connect_impl(&state, "192.0.2.5:40000", Some(INSTANCE))
+                .await
+                .unwrap(),
+            PairedConnectProbe::Waiting,
+            "nothing advertised yet"
+        );
+        let probe = probe_paired_connect_impl(&state, "192.0.2.5:40000", Some(INSTANCE))
+            .await
+            .unwrap();
+        assert_eq!(
+            probe,
+            PairedConnectProbe::Endpoint {
+                address: "192.0.2.5:41000".into()
+            },
+            "the paired TV's connect port, not the pairing port or another TV on that host"
+        );
+
+        let connected = connect_paired_impl(&state, "192.0.2.5:41000", INSTANCE)
+            .await
+            .unwrap();
+        assert!(connected.ok, "{}", connected.message);
+        assert_eq!(
+            probe_paired_connect_impl(&state, "192.0.2.5:40000", Some(INSTANCE))
+                .await
+                .unwrap(),
+            PairedConnectProbe::Attached {
+                serial: "192.0.2.5:41000".into()
+            }
+        );
+
+        let stranger = connect_paired_impl(&state, "192.0.2.5:41000", "adb-OTHER9-zZ9")
+            .await
+            .unwrap();
+        assert!(!stranger.ok);
+        assert!(stranger.not_the_paired_device, "{}", stranger.message);
     }
 }

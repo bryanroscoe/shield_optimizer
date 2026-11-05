@@ -38,11 +38,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use adb_client::tcp::{ADBTcpDevice, PairingError};
+use adb_client::tcp::{ADBTcpDevice, PairingError, PeerInfo};
 use adb_client::{RebootType, RustADBError, ShellExit};
 use async_trait::async_trait;
 use atv_optimizer_core::adb::{
-    AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Lease, Leases,
+    is_reportable_instance_name, AdbByteStream, AdbDriver, AdbError, AdbOutput, AdbResult, Lease,
+    Leases,
 };
 use atv_optimizer_core::commands::devices::normalize_connect_address;
 use serde::Serialize;
@@ -390,6 +391,18 @@ impl WirelessAdb {
     /// Legacy TVs (Nvidia Shield, older Google TV) use Network debugging on
     /// `:5555` and need no pairing — they connect directly.
     pub async fn pair(&self, host: &str, port: u16, code: &str) -> Result<String, String> {
+        self.pair_reporting_instance(host, port, code)
+            .await
+            .map(|paired| paired.message)
+    }
+
+    /// [`pair`](Self::pair), also returning the name the device gave itself.
+    pub async fn pair_reporting_instance(
+        &self,
+        host: &str,
+        port: u16,
+        code: &str,
+    ) -> Result<Paired, String> {
         let addr: SocketAddr = format!("{host}:{port}")
             .parse()
             .map_err(|e| format!("invalid pairing address {host}:{port}: {e}"))?;
@@ -400,17 +413,22 @@ impl WirelessAdb {
         // `adb_client::tcp::pair` is blocking and applies its own 30-second
         // deadline through socket timeouts, so it cannot pin this thread.
         let operation = self.work()?;
-        tokio::task::spawn_blocking(move || -> Result<String, String> {
+        tokio::task::spawn_blocking(move || -> Result<Paired, String> {
             let _operation = operation;
             ensure_adb_key(&key_path, allow_key_creation)?;
             match adb_client::tcp::pair(addr, &code, &key_path) {
                 Ok(outcome) => {
+                    let instance = peer_instance_name(&outcome.peer_info);
                     tracing::info!(
                         peer_kind = outcome.peer_info.kind,
                         peer = %outcome.peer_info.data_lossy(),
+                        instance_found = instance.is_some(),
                         "wireless pairing succeeded"
                     );
-                    Ok("Paired with the TV.".to_string())
+                    Ok(Paired {
+                        message: "Paired with the TV.".to_string(),
+                        instance,
+                    })
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "wireless pairing failed");
@@ -1131,6 +1149,29 @@ fn normalize_pairing_code(code: &str) -> Result<String, String> {
     }
 }
 
+/// A finished pairing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paired {
+    pub message: String,
+    /// The mDNS service instance the device named in its pairing `PeerInfo`
+    /// (`adb-<serial>-<suffix>`), when it sent one that can be repeated.
+    pub instance: Option<String>,
+}
+
+/// `PeerInfoType::ADB_DEVICE_GUID`.
+const PEER_INFO_DEVICE_GUID: u8 = 1;
+
+/// The instance name in a device's pairing `PeerInfo`. Any other record kind,
+/// or a name that is not printable ASCII of DNS-label length, is `None`:
+/// the pairing still succeeded, but nothing advertised can be tied to it.
+fn peer_instance_name(peer: &PeerInfo) -> Option<String> {
+    if peer.kind != PEER_INFO_DEVICE_GUID {
+        return None;
+    }
+    let name = std::str::from_utf8(&peer.data).ok()?;
+    is_reportable_instance_name(name).then(|| name.to_string())
+}
+
 /// Map a pairing failure to something the user can act on. Every arm is a
 /// different next step, so they stay distinct rather than collapsing into one
 /// "pairing failed".
@@ -1245,11 +1286,11 @@ mod tests {
 
     use super::{
         connect_error_message, download_error_message, exit_code_for, is_fatal_transport_error,
-        normalize_pairing_code, pair_error_message, request_error_message, shell_timeout_for,
-        validate_requested_serial, CONNECTION_LOST_PREFIX, SHELL_INACTIVITY_TIMEOUT,
-        SLOW_SHELL_INACTIVITY_TIMEOUT,
+        normalize_pairing_code, pair_error_message, peer_instance_name, request_error_message,
+        shell_timeout_for, validate_requested_serial, CONNECTION_LOST_PREFIX,
+        SHELL_INACTIVITY_TIMEOUT, SLOW_SHELL_INACTIVITY_TIMEOUT,
     };
-    use adb_client::tcp::PairingError;
+    use adb_client::tcp::{PairingError, PeerInfo};
     use adb_client::{RustADBError, ShellExit};
     use std::io::{Error, ErrorKind};
 
@@ -1451,6 +1492,42 @@ mod tests {
         )));
         assert!(message.contains("Network debugging"));
         assert!(!message.contains("raw OS refusal"));
+    }
+
+    #[test]
+    fn the_device_guid_from_pairing_is_its_instance_name_when_it_is_usable() {
+        let peer = |kind: u8, data: &[u8]| PeerInfo {
+            kind,
+            data: data.to_vec(),
+        };
+        assert_eq!(
+            peer_instance_name(&peer(1, b"adb-EMULATOR37X1X11X0-LgzOi6")).as_deref(),
+            Some("adb-EMULATOR37X1X11X0-LgzOi6")
+        );
+        assert_eq!(
+            peer_instance_name(&peer(0, b"adb-EMULATOR37X1X11X0-LgzOi6")),
+            None,
+            "an RSA key record is not a name"
+        );
+        let unusable: [&[u8]; 6] = [
+            b"",
+            b"adb-SERIAL x-LgzOi6",
+            b"adb-SERIAL-Lgz\nOi6",
+            b"adb-SERIAL]-x [guid=adb-OTHER-y",
+            b"adb-\xff-LgzOi6",
+            b"adb-\xc3\xa9-LgzOi6",
+        ];
+        for name in unusable {
+            assert_eq!(peer_instance_name(&peer(1, name)), None, "{name:?}");
+        }
+        let longest = format!("adb-{}-x", "S".repeat(57));
+        assert_eq!(longest.len(), 63);
+        assert_eq!(
+            peer_instance_name(&peer(1, longest.as_bytes())),
+            Some(longest.clone())
+        );
+        let too_long = format!("adb-{}-x", "S".repeat(58));
+        assert_eq!(peer_instance_name(&peer(1, too_long.as_bytes())), None);
     }
 
     #[test]

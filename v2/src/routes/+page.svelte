@@ -606,7 +606,10 @@
         // The manual fallback is ready from the start; the connect port is a
         // different one from the pairing port, so only the host carries over.
         if (host) connectAddress = `${host}:`;
-        if (adbBackend !== "subprocess") {
+        // The built-in engine can only watch for the device it paired with
+        // when the device named itself while pairing.
+        const autoConnect = adbBackend === "subprocess" || (adbBackend === "direct" && !!r.instance);
+        if (!autoConnect) {
           pairStage = "manual";
           pairMessage = r.message;
           pairNextStep = true;
@@ -642,11 +645,25 @@
     pairStage = "waiting";
     pairElapsed = 0;
     const started = Date.now();
+    // A built-in engine probe is itself a multi-second mDNS browse, so the
+    // count ticks on its own instead of once per probe.
+    const ticker = setInterval(() => {
+      if (token === pairWaitToken) pairElapsed = Math.min(PAIR_CONNECT_WAIT_S, Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    try {
+      await pollPairedConnect(token, started, pairTarget, instance);
+    } finally {
+      clearInterval(ticker);
+    }
+  }
+
+  async function pollPairedConnect(token: number, started: number, pairTarget: string, instance: string | null) {
     const hardwareId = instanceSerial(instance);
     /// The endpoint was advertised but refused us: that, not discovery, is
     /// what the user has to fix if the wait runs out.
     let lastFailure: { address: string; message: string } | null = null;
     while (token === pairWaitToken) {
+      const probeStarted = Date.now();
       let probe: PairedConnectProbe;
       try {
         probe = await api.probePairedConnect(pairTarget, instance);
@@ -716,7 +733,9 @@
         }
         return;
       }
-      await sleep(PAIR_PROBE_INTERVAL_MS);
+      // At most one probe per interval; a probe that browsed that long
+      // already waited.
+      await sleep(Math.max(0, PAIR_PROBE_INTERVAL_MS - (Date.now() - probeStarted)));
     }
   }
 
@@ -1104,7 +1123,7 @@
       device with pairing code. Enter the IP:port and 6-digit PIN from that dialog.
     </p>
     <p class="pair-note small">
-      {#if adbBackend !== "subprocess"}
+      {#if adbBackend === null}
         After pairing, enter the connect port from the main Wireless debugging screen, then use <strong>Add by IP</strong>. Do not reuse the pairing port.
       {:else}
         After it pairs, close the pairing dialog; the app connects automatically. If it doesn't

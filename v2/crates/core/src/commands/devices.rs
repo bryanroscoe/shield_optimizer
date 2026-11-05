@@ -4,8 +4,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    batch_command, instance_serial, parse_device_list, parse_mdns_services, split_batch, AdbDriver,
-    MdnsService, MDNS_SERVICE_CONNECT,
+    batch_command, instance_serial, pair_output_guid, parse_device_list, parse_mdns_services,
+    split_batch, AdbDriver, MdnsService, MDNS_SERVICE_CONNECT,
 };
 use crate::engine::telemetry_diag::{device_diag, lacks_details, Diag, DiagReason};
 use crate::engine::{
@@ -509,9 +509,13 @@ pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<Forget
         }
     }
 
-    let services = match adb.raw(&["mdns", "services"]).await {
-        Ok(out) => parse_mdns_services(&out.stdout),
-        Err(_) => Vec::new(),
+    // Only a host server re-attaches advertised devices by itself. The
+    // built-in engine never dials on its own, and its mDNS read is a
+    // multi-second browse.
+    let services = if adb.uses_host_server() {
+        read_mdns_services(&*adb).await
+    } else {
+        Vec::new()
     };
     let still_advertised = still_advertised(&services, &disconnected);
 
@@ -1023,13 +1027,15 @@ pub async fn pair_device(
 pub struct PairResult {
     pub ok: bool,
     pub message: String,
-    /// The mDNS instance of the device that was paired, read from its
-    /// pairing service. `probe_paired_connect` finds the connect service by
-    /// it. `None` when adb's mDNS view did not show that pairing service.
+    /// The mDNS instance of the device that was paired: the name it reported
+    /// while pairing (`[guid=...]`), or else the pairing service a host
+    /// server saw on that port. `probe_paired_connect` finds the connect
+    /// service by it. `None` when neither named it, or they named devices
+    /// with different serials.
     pub instance: Option<String>,
 }
 
-async fn pair_device_impl(
+pub async fn pair_device_impl(
     state: &AppState,
     pair_address: &str,
     pin: &str,
@@ -1043,9 +1049,17 @@ async fn pair_device_impl(
     }
     let target = normalize_pairing_address(pair_address)?;
     let adb = state.adb_snapshot().await;
+    // A host server answers `mdns services` from its cache. The built-in
+    // engine browses for seconds per read, and its pair output carries the
+    // device's own name, so it skips these reads.
+    let host_server = adb.uses_host_server();
     // Read before pairing: the device can stop advertising its pairing
     // service the moment pairing completes.
-    let mut instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
+    let mut advertised = if host_server {
+        pairing_instance(&target, &read_mdns_services(&*adb).await)
+    } else {
+        None
+    };
     let pair_out = adb
         .raw(&["pair", &target, pin])
         .await
@@ -1058,15 +1072,33 @@ async fn pair_device_impl(
             instance: None,
         });
     }
-    if instance.is_none() {
-        instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
+    let reported = pair_output_guid(&combined)
+        .filter(|guid| instance_serial(guid).is_some())
+        .map(str::to_string);
+    if reported.is_none() && advertised.is_none() && host_server {
+        advertised = pairing_instance(&target, &read_mdns_services(&*adb).await);
     }
 
     Ok(PairResult {
         ok: true,
         message: "Paired.".to_string(),
-        instance,
+        instance: paired_instance(reported, advertised),
     })
+}
+
+/// Which device was paired. The name the device reported in the
+/// PIN-authenticated exchange wins over an advertisement, but if the two
+/// carry different serials, neither is trusted.
+fn paired_instance(reported: Option<String>, advertised: Option<String>) -> Option<String> {
+    match (reported, advertised) {
+        (Some(reported), Some(advertised)) => {
+            match (instance_serial(&reported), instance_serial(&advertised)) {
+                (Some(a), Some(b)) if a != b => None,
+                _ => Some(reported),
+            }
+        }
+        (reported, advertised) => reported.or(advertised),
+    }
 }
 
 /// Validate a wireless-debugging pairing PIN. The message is surfaced verbatim
@@ -2101,6 +2133,110 @@ mod tests {
             result.instance.as_deref(),
             Some("adb-58040DLCH005YV-A1b2C3")
         );
+    }
+
+    #[tokio::test]
+    async fn pair_takes_the_name_the_device_reported_while_pairing() {
+        // platform-tools prints the device's PeerInfo name; it agrees with
+        // the advertisement on the serial, so the reported name is kept.
+        let mock = MockAdb::default()
+            .on_raw(
+                "pair 192.168.42.211:45439 123456",
+                "Successfully paired to 192.168.42.211:45439 [guid=adb-58040DLCH005YV-jBeCEe]\n",
+            )
+            .on_raw("mdns services", &mdns_pixel(46545));
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.211:45439", "123456")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.instance.as_deref(),
+            Some("adb-58040DLCH005YV-jBeCEe")
+        );
+    }
+
+    #[tokio::test]
+    async fn pair_trusts_neither_name_when_their_serials_disagree() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "pair 192.168.42.211:45439 123456",
+                "Successfully paired to 192.168.42.211:45439 [guid=adb-OTHERTV0001-q1W2e3]\n",
+            )
+            .on_raw("mdns services", &mdns_pixel(46545));
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.211:45439", "123456")
+            .await
+            .unwrap();
+
+        assert!(result.ok);
+        assert_eq!(result.instance, None);
+    }
+
+    #[tokio::test]
+    async fn pair_without_a_host_server_uses_only_the_reported_name() {
+        for (printed, expected) in [
+            (
+                "Successfully paired to 192.0.2.5:40000 [guid=adb-FAKE0001-a1B2c3]",
+                Some("adb-FAKE0001-a1B2c3"),
+            ),
+            ("Successfully paired to 192.0.2.5:40000", None),
+            (
+                "Successfully paired to 192.0.2.5:40000 [guid=Living Room TV]",
+                None,
+            ),
+            (
+                "Successfully paired to 192.0.2.5:40000 [guid=adb-1321920044953]",
+                None,
+            ),
+        ] {
+            let mock = MockAdb::default()
+                .without_host_server()
+                .on_raw("pair 192.0.2.5:40000 123456", printed)
+                .on_raw("mdns services", &mdns_pixel(46545));
+            let raw_log = mock.raw_log();
+            let state = state_with(mock);
+
+            let result = pair_device_impl(&state, "192.0.2.5:40000", "123456")
+                .await
+                .unwrap();
+
+            assert!(result.ok);
+            assert_eq!(result.instance.as_deref(), expected, "{printed}");
+            assert_eq!(
+                *raw_log.lock().unwrap(),
+                vec!["pair 192.0.2.5:40000 123456".to_string()],
+                "no multicast browse before or after pairing"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn forget_without_a_host_server_never_promises_a_reattach() {
+        let mock = MockAdb::default()
+            .without_host_server()
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{PIXEL_IP}\tdevice\n"),
+            )
+            .on_raw("disconnect", "disconnected")
+            .on_raw("mdns services", &mdns_pixel(46545))
+            .on_shell_for(PIXEL_IP, "ro.serialno", "58040DLCH005YV\n");
+        let raw_log = mock.raw_log();
+        let state = state_with(mock);
+
+        let r = forget_device_impl(&state, PIXEL_IP).await.unwrap();
+
+        assert!(r.ok);
+        assert!(!r.still_advertised);
+        assert_ne!(r.message, READVERTISE_MESSAGE);
+        assert!(raw_log
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|c| !c.starts_with("mdns")));
     }
 
     #[tokio::test]

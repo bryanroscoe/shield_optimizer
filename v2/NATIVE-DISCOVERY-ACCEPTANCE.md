@@ -18,8 +18,9 @@ The subnet sweep starts connections before the mDNS observation window finishes.
 Fresh usable connect endpoints are admitted to bounded jobs; stale, pairing-only
 or unusable advertisements are never dialed. Discovered endpoints appear before
 approval, and failures remain visible with retry/Forget. Authorization guidance
-requires a successfully sent public-key AUTH packet. Pairing success still requires
-the separate connect port. Manual IP/port controls remain usable when multicast
+requires a successfully sent public-key AUTH packet. After pairing, the app waits for
+the connect service of the TV that named itself while pairing (matched on its serial,
+never its address) and otherwise asks for the separate connect port. Manual IP/port controls remain usable when multicast
 is unavailable; the 5555 sweep covers non-advertising legacy network debugging.
 
 ## Cache and scope requirements

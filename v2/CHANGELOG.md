@@ -35,6 +35,7 @@ this file and shows the newest few sections, dated, from its version button.
 - Scan LAN connects to TVs as they answer instead of after the whole sweep, and keeps failed and duplicate addresses in Scan details rather than as extra TV cards. Two addresses are shown as one TV only when the TV reports the same hardware ID.
 - File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
 - macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
+- **Pair PIN connects by itself with the built-in engine**, as it does with platform-tools: after pairing, close the pairing dialog and the app waits up to 45 seconds for that TV's connect port. If the TV doesn't say which device it is while pairing, the app asks for the connect port straight away.
 
 ## v2-2.5.0 — 2026-11-04
 
