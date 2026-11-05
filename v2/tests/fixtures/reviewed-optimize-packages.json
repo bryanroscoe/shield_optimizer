@@ -62,5 +62,29 @@
   {
     "package": "in.startv.hotstar",
     "name": "JioHotstar"
+  },
+  {
+    "package": "com.abc.abcnews",
+    "name": "ABC News",
+    "issue": 301,
+    "source_url": "https://play.google.com/store/apps/details?id=com.abc.abcnews"
+  },
+  {
+    "package": "com.amazon.music.tv",
+    "name": "Amazon Music",
+    "issue": 302,
+    "source_url": "https://play.google.com/store/apps/details?id=com.amazon.music.tv"
+  },
+  {
+    "package": "com.aetnd.svod.historyvault.androidtv",
+    "name": "HISTORY Vault",
+    "issue": 303,
+    "source_url": "https://play.google.com/store/apps/details?id=com.aetnd.svod.historyvault.androidtv"
+  },
+  {
+    "package": "com.amcplus.amcandroidtv",
+    "name": "AMC+",
+    "issue": 304,
+    "source_url": "https://play.google.com/store/apps/details?id=com.amcplus.amcandroidtv"
   }
 ]

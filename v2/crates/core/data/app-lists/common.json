@@ -1650,5 +1650,81 @@
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/nokia-r4/debloat.txt#L57",
       "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md. Device/firmware removal and restore behavior unverified."
     ]
+  },
+  {
+    "package": "com.abc.abcnews",
+    "name": "ABC News",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops ABC News live news, programmes and alerts through this app. Keep it if anyone here uses ABC News.",
+    "restore_description": "Re-enables ABC News if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.abc.abcnews",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.amazon.music.tv",
+    "name": "Amazon Music",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Amazon Music playback and access to your music library through this app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables Amazon Music if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.amazon.music.tv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.aetnd.svod.historyvault.androidtv",
+    "name": "HISTORY Vault",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops HISTORY Vault documentaries and series through this app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables HISTORY Vault if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.aetnd.svod.historyvault.androidtv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.amcplus.amcandroidtv",
+    "name": "AMC+",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops AMC+ series, movies and live channels through this Android TV app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables AMC+ if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.amcplus.amcandroidtv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
   }
 ]

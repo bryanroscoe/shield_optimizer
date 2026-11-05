@@ -44,12 +44,12 @@ test("reviewed source leads appear in mobile Optimize as unchecked Caution choic
     });
     await page.getByRole("button", { name: /^Optional/ }).click();
     for (const entry of reviewed) {
-      const row = page.locator(".optimize-item").filter({ has: page.getByRole("button", { name: `Details for ${entry.name}`, exact: true }) });
+      const row = page.locator(".optimize-item").filter({ has: page.getByText(entry.package, { exact: true }) });
       await row.scrollIntoViewIfNeeded();
       await row.locator(".tier-chip.caution").waitFor();
       assert.equal(await row.getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"), "true", entry.package);
       assert.equal(await row.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-pressed"), "false", entry.package);
-      assert.match(await row.innerText(), /Review: disable if unused/);
+      await row.getByText("Review: disable if unused", { exact: true }).waitFor();
     }
     const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
     assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");

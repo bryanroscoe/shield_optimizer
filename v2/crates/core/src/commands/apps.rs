@@ -1286,12 +1286,18 @@ mod tests {
         let third = "package:com.amazon.music.tv";
         let state =
             state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&[all, third, ""])));
-        let others = list_other_packages_impl(&state, "serial").await.unwrap();
+        let others = list_installed_packages_impl(&state, "serial")
+            .await
+            .unwrap();
         let music = others
             .iter()
             .find(|o| o.package == "com.amazon.music.tv")
             .expect("amazon music listed");
         assert!(!music.system, "a Play-installed Amazon app is third-party");
+        let uncatalogued = list_other_packages_impl(&state, "serial").await.unwrap();
+        assert!(uncatalogued
+            .iter()
+            .all(|o| o.package != "com.amazon.music.tv"));
         let youtube = others
             .iter()
             .find(|o| o.package == "com.google.android.youtube.tv")

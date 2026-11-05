@@ -796,6 +796,47 @@ mod tests {
     }
 
     #[test]
+    fn reported_content_clients_have_exact_evidence_and_keep_defaults() {
+        use crate::engine::{ActionMethod, DeviceType, RiskTier};
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture.iter().filter(|e| e["issue"].is_number()).collect();
+        assert_eq!(reports.len(), 4);
+        let lists = load_embedded_app_lists().unwrap();
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-05"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+            for family in [
+                DeviceType::Shield,
+                DeviceType::GoogleTv,
+                DeviceType::Unknown,
+            ] {
+                assert_eq!(
+                    lists
+                        .for_device(family)
+                        .iter()
+                        .filter(|e| e.package == package)
+                        .count(),
+                    1
+                );
+            }
+        }
+        assert!(lists.find("com.amcplus.amcfiretv").is_some());
+        assert!(!load_known_names().contains_key("com.amazon.music.tv"));
+    }
+
+    #[test]
     fn known_names_accept_a_bare_name_or_a_described_entry() {
         let parsed: HashMap<String, KnownName> = serde_json::from_str(
             r#"{
