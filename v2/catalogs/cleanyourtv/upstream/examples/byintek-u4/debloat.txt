@@ -1,0 +1,42 @@
+# BYINTEK Love U4, 1080P version (Skyworth board RG_HS352_D1E8_SW_B10, HiSilicon Hi3751V350)
+# Android 9, firmware 1.01.08 (Hi3751V352F_DMO-userdebug, build 2025-09), 1 GB RAM
+#
+# Apply:   TV_HOST=<projector ip> tools/disable.sh examples/byintek-u4/debloat.txt
+# Undo:    TV_HOST=<projector ip> tools/restore.sh examples/byintek-u4/debloat.txt com.zeasn.whale.saas
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.zeasn.whale.saas (Zeasn "Whale"); Android's FallbackHome is the only other HOME.
+# Keep com.sdt.app.skysettings (all projector settings, input sources, and the ADB switch: see README),
+# com.sdt.projectionservice (keystone and focus), every com.hisilicon.* package (TV service, HDMI input,
+# Miracast, media), com.skyworthdigital.*, and the factory test apps, which may hold calibration data.
+# Keep com.android.toofifi too: it is the AirPlay, Chromecast and DLNA receiver ("tranScreen").
+
+# Zeasn ads and store
+# The ad service is a persistent system app with permission to install apps silently: Android starts it
+# at boot even when disabled. Hiding it (optional, needs root, see README) is what keeps it from running.
+com.zeasn.deviceportal.asdprovider.skyworth_hisi352   # ad/portal service for the Whale launcher
+zeasn.open.technical.tv.store                         # Zeasn app store; Google Play stays
+
+# Preloads
+cn.wps.moffice_i18n_TV                                # WPS Office
+# RuStore is a normal app, but /system/bin/sk_install_yingke_apps.sh reinstalls it from /system/bak at
+# every boot when it is missing (YouTube, Netflix and Chrome too). Disabled, it stays installed and the
+# script leaves it alone; uninstalled, it is back after the next restart.
+ru.vk.store.tv
+
+# Phone and setup leftovers
+com.google.android.partnersetup
+com.google.android.carriersetup
+com.android.simappdialog                              # SIM toolkit
+com.google.android.syncadapters.contacts
+com.google.android.apps.pixelmigrate
+com.android.wallpaperbackup
+com.android.sharedstoragebackup
+
+# Wired phone casting (USB); wireless AirPlay/Chromecast/Miracast stay
+com.toofifi.lineserver
+com.mphotool.usbcastserver
+
+# Google extras
+com.google.android.feedback
+com.android.bips                                      # default print service

@@ -1,0 +1,49 @@
+# Sony BRAVIA TL2 (device OD0M_EA_T32, built by TPV, MediaTek, ~1.7 GB RAM), Europe
+# Android TV 11 (API 30), build RTM2.210929.098
+# Fingerprint: Sony/BRAVIA_TL2/OD0M_EA_T32:11/RTM2.210929.098/1594
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-bravia-tl2/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-bravia-tl2/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (classic Android TV, not Google TV); pass it to
+#                 restore.sh as above. Only it and Android's fallback claim HOME, so there is no
+#                 setupwraith-style trap when it is disabled.
+# Live TV app:    com.mediatek.wwtv.tvcenter
+#
+# Not the usual Sony platform: this set is built by TPV (TP Vision) and carries the same
+# org.droidtv* / com.tpv_soem.* layer as examples/philips-50pus8517, plus com.mediatek.wwtv.*.
+# None of the Sony lists apply (no com.sony.dtv.*, Samba TV or Qterics packages). Read that
+# Philips list's quirks before disabling anything org.droidtv: none of them is disabled here.
+# Keep: org.droidtv*, com.tpv_soem.*, com.mediatek.* (tuner, HDMI, inputs), katniss + tts
+# (Assistant/voice), mediashell (Chromecast), tv.remote.service (phone remote) and anything
+# update-related.
+# org.droidtv.eum (e-manual) was only hidden from the launcher grid, never disabled; on the
+# Philips firmware disabling it breaks the sources drawer. For launcher/, a config.xml with
+# hidden_apps = com.mediatek.wwtv.tvcenter, com.android.tv.settings, org.droidtv.eum keeps
+# Live TV in the Inputs menu and Settings in the top bar.
+# Already disabled on this set before the list was applied, so not listed (restore.sh leaves
+# them off): de.swr.avp.ard.tv (ARD), com.zdf.android.mediathek (ZDF), com.google.android.videos.
+#
+# ADB: USB debugging alone opens port 5555; the "Allow USB debugging?" prompt appears on first
+# connect. The TV's screencap prints log lines before the PNG; strip everything before the PNG
+# header if a pulled screenshot will not open.
+# Applied 2026-10-19 in two batches with a screenshot, a Live TV check and a Chromecast check
+# after each, then reboot-checked: everything stayed disabled, Home, Inputs, Live TV, Cast and
+# voice fine. Not lived with for days yet.
+
+# Off by choice (owner does not use them)
+com.amazon.amazonvideo.livingroom      # Prime Video
+com.disney.disneyplus                  # Disney+
+com.nousguide.android.rbtv             # Red Bull TV
+com.cg.football                        # football game
+com.goodtoolapps.zeus                  # Zeus
+
+# Retail demo, partner auto-installs, Google leftovers
+fusion.android.tv.demo                 # retail/shop demo mode
+android.autoinstalls.config.tpv.device # Play auto-install of partner apps
+com.google.android.feedback            # Google feedback reporter
+com.google.android.play.games          # Play Games
+
+# Stock Android TV launcher, replaced by launcher/
+com.google.android.tvlauncher

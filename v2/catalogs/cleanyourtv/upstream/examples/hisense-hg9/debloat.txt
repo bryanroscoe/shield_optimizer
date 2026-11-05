@@ -1,0 +1,103 @@
+# Hisense HG9 (HiSmart 4K A4FFM, device laohushan, MediaTek), Android TV 9 (API 28),
+# build PTMR.190127.037, security patch 2021-02-05, kernel 4.9.118. 2 GB RAM class.
+# Tested on a set used as an Apple TV display over HDMI.
+#
+# Stock launcher: com.google.android.tvlauncher (pass it to restore.sh; replaced
+# here by FLauncher from the Play Store, not launcher/, set as default with
+# `cmd package set-home-activity me.efesser.flauncher/.MainActivity`).
+# Live TV app: stock Live TV was left alone; HDMI input is com.hisense.tv.hitvinput.
+#
+# Second and third units (two more sets, same product, same build PTMR.190127.037 and
+# 2021-02-05 patch, MStar MSD6886, 1.8 GB RAM, US; one on Wi-Fi, one on Ethernet),
+# both with launcher/ as Home for several days, October 2026:
+# - Developer options > USB debugging alone opened port 5555 on both, within seconds and
+#   without a reboot; the Network debugging toggle was never touched. The first unit's
+#   note above still stands for it; expect either.
+# - The smartsense trio (smartsense, smartsense.ui, smartservice) was disabled on both and
+#   both rebooted normally, confirming the first unit's reboot test on this build.
+# - com.google.android.tungsten.setupwraith is the creator of the saved Wi-Fi network on
+#   both (tools/disable.sh refuses it for that reason), so it was KEPT; the launcher/
+#   handover held across reboots with it enabled, so it does not need disabling here.
+# - The remote's Netflix, Prime Video, YouTube and Google Play buttons kept working under
+#   launcher/ with no app_keys mapping. Live TV for the launcher's Inputs menu is
+#   live_tv_package com.mediatek.wwtv.tvcenter.
+# - Kept by choice on both: Backdrop and TTS (voice search still wanted), Chromecast,
+#   Alexa, RemoteNOW, Media Center, the OTA updaters, and com.mstar.netflixobserver (not
+#   tried without it; it may serve the remote's Netflix button). Also disabled on both,
+#   beyond the list: com.google.android.leanbacklauncher (the old launcher; not a Home
+#   claimant on this build), com.google.android.partnersetup, the calendar and contacts
+#   sync adapters, and com.seraphic.browser (Hisense's browser). Nothing was re-enabled.
+# - On this firmware `screencap -p` over `adb exec-out` prints a log line before the PNG
+#   bytes; tools/tv.py --screenshot (a file on the TV, then a pull) is unaffected.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hisense-hg9/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hisense-hg9/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Reboot-tested: the TV boots normally with this full list applied, including
+# com.hisense.tv.smartsense, com.vt.tv.smartsense.ui and
+# com.hisense.tv.smartservice all disabled (verified after a settings-reset
+# reboot, followed by a full evening of use: streaming, Store, launcher).
+# This differs from the #45 SmartTV 4K FFM (Android TV 10) report where the
+# smartsense pair sent that set to Recovery — model/firmware difference, HG9
+# on Android TV 9 is unaffected.
+#
+# Notes from this firmware:
+# - USB debugging alone does NOT open network ADB; the TV needs its explicit
+#   Network/Wireless debugging toggle too, plus a reboot before port 5555 opens.
+#   (On the two later units below it opened at once; see their notes.)
+# - The Beryl/GL.iNet "block client" toggle deauths the TV entirely (no join at
+#   all), it is not a WAN-only block. Debloat over an isolated offline LAN instead.
+# - com.google.android.tungsten.setupwraith re-enables the stock launcher, so it
+#   is listed (per the FLauncher README method).
+# - Play Store showed "Something went wrong" with AuthFailureError even after
+#   re-signing in; `pm clear com.google.android.gsf` + reboot + fresh sign-in
+#   fixed it. The tvrecommendations prefetch errors in Finsky logs are a red
+#   herring (they persist with the services enabled and are non-fatal).
+# - Kept deliberately: hitvinput + mtktvapi_agent + tvcenter (HDMI/tuner),
+#   tv.settings/providers.tv, Play Store + Play Services, remote keys (kpad,
+#   hotkey dispatcher, autopair), Bluetooth, latin IME, system UI, Alexa,
+#   Chromecast, DLNA service, OTA updater, phone-remote service (lost-remote
+#   fallback), and the MStar disclaimer customizer (first-boot legal text).
+# - Netflix, Prime Video, YouTube, Apple TV, Pluto, Vudu, Hulu apps kept and
+#   updated through the Play Store. Pandora, Peacock, Kids, Play Games, Max,
+#   Paramount+, MediaCenter removed by owner choice (Apple TV is the streamer).
+
+# Hisense telemetry and viewing-data collection
+com.hisense.app.logreport               # LogReportManagerService, persistent system reporter
+com.hisense.evservice                   # ACR collector (/system/priv-app/acr), watches HDMI too
+com.hisense.tv.smartsense               # Smartsense analytics
+com.hisense.tv.smartservice             # SmartsenseService background service
+com.vt.tv.smartsense.ui                 # Smartsense companion UI
+com.mstar.netflixobserver               # MNetflixObserver measurement service (Netflix app untouched)
+com.hisense.service.message             # HiMsgService push messaging
+com.hisense.hitv.hicloud.account        # HiCloud account manager
+android.autoinstalls.config.hisense.laohushan  # partner silent app auto-installs
+
+# Hisense promos, cleaners, demo, business mode
+com.hisense.tv.customerlauncher         # CustomerLauncher home-screen tweaks
+com.hisense.tv.protector                # TvProtector "speedup" cleaner
+com.hisense.storemode                   # retail store demo mode
+com.hisense.tv.b2b                      # HisenseB2B hotel/business mode
+fusion.android.tv.demo                  # fusion demo app
+
+# Google recommendation rows and reporters
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+com.google.android.backdrop             # Backdrop Daydream idle/cast screensaver (owner choice)
+com.google.android.tts                  # Speech recognition & synthesis (owner choice; kills voice search)
+
+# Owner-confirmed streaming preload removals
+com.pandora.android.atv
+com.peacocktv.peacockandroid
+com.google.android.youtube.tvkids
+com.google.android.play.games
+com.wbd.stream                          # Max
+com.cbs.ott                             # Paramount+
+com.jamdeo.tv.mediacenter               # Hisense MediaCenter DLNA/USB player
+
+# Launchers (stock replaced by FLauncher)
+com.google.android.tvlauncher
+com.google.android.tungsten.setupwraith

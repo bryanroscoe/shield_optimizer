@@ -114,6 +114,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Informational profile catalog
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python3 v2/catalogs/cleanyourtv/catalog.py check
+          python3 -m unittest discover -s v2/catalogs/cleanyourtv -p 'test_*.py'
+
       - name: Setup Node
         uses: actions/setup-node@v5
         with:

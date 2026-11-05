@@ -1,0 +1,56 @@
+# FFALCON (雷鸟) r34a0, China firmware V8-A920T01-LF1V147, Amlogic T920, 1 GB RAM,
+# Android 5.1.1 (SDK 22), 8 GB storage (5.44 GB user). Tested 2026-10-21.
+# ADB: Settings → System → System Info page, press UP DOWN LEFT RIGHT on the remote
+# (repeat 2-3 times until the ADB toggle appears at the bottom). Persists across reboots.
+#
+# Apply:   NOT tools/disable.sh — it uses pm disable-user, which this firmware DENIES (see
+#          INSTALL BLOCKER below). Hide each package instead, one pm command per shell call:
+#   grep -vE '^\s*(#|$)' examples/ffalcon-r34a0-cn/debloat.txt | sed -E 's/\s+#.*$//' \
+#     | awk '{print "pm hide " $1}' | TV_HOST=<tv ip> tools/venv/bin/python -I tools/tv.py --batch
+# Undo:    NOT tools/restore.sh — its pm enable cannot undo a hide on this firmware.
+#          Same as Apply, but `pm unhide`.
+#
+# INSTALL BLOCKER, read first: `pm disable-user` is denied on this firmware
+# (SecurityException: Permission Denial ... uid=2000 → uid=1000). Use `pm hide` instead;
+# on Android 5.1 hidden state persists across reboots and `pm unhide` restores.
+#
+# adb install is blocked with "install apk has be disabled from pm by system default".
+# Unlock with (both persist, shell has permission on this old build):
+#   setprop persist.tcl.debug.installapk 1
+#   setprop persist.tcl.installapk.enable 1
+# Non-HOME apks then install fine. Any APK declaring android.intent.category.HOME is refused
+# with INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES even for a never-installed package name
+# — the launcher signature gate, disguised as a cert error (same gate as tcl-ak30a5/Q10G Pro).
+# A HOME-free build of com.gathin.tvhome installs but crashes instantly on this Android 5.1
+# and logd is disabled, so it cannot be debugged. Conclusion: debloat only, stock CyberUI
+# launcher stays. (uninstall of the test app also failed with DELETE_FAILED_INTERNAL_ERROR;
+# `pm hide <pkg>` removes it from the user-facing list.)
+#
+# Boot ad: com.tcl.bootadservice. Push-ad popups: com.tcl.c2dm.client + com.android.tcl.messagebox.
+# Kept on purpose: TVBox (com.github.tvbox.osc.tk), 云视听小电视 (com.xiaodianshi.tv.yst),
+# 千寻 (com.tv.qx), 电视卫士 (com.tcl.tvweishi), app store (com.tcl.appmarket2) — user's choice;
+# cyberui (the only HOME handler), com.tcl.tv (DTV/HDMI), sourcemananger, sogou IME (the keyboard),
+# droidlogic platform services, local media players.
+
+com.tcl.bootadservice                    # full-screen ad before Home
+com.tcl.c2dm.client                      # TCL push channel (ad popups)
+com.android.tcl.messagebox               # image-message popup receiver
+com.tcl.bi                               # analytics/behaviour reporting
+com.tcl.usagestats                       # usage statistics
+com.tcl.tvhealthcheck                    # diagnostics uploader
+com.tcl.xian.StartandroidService         # background reporting service
+com.tcl.vod                              # TCL VOD
+com.tcl.waterfall.resource               # waterfall content feed (home wall tiles)
+com.tcl.tshop                            # TV shopping mall
+com.tcl.gamecenter                       # game center
+com.tcl.ffeducation                      # education preload
+com.pptv.tvsports.preinstall             # PPTV sports preload
+com.tencent.qqmusictv                    # QQ Music TV preload
+com.tcl.weixin                           # TV WeChat
+com.tcl.browser                          # TV browser
+com.iflytek.xiri                         # iFlytek voice
+com.iflytek.xiri.recorder.svc            # iFlytek recorder
+com.iflytek.xiri2.hal                    # iFlytek HAL
+com.iflytek.xiri2.system                 # iFlytek system service
+com.tcl.walleve                          # 小T AI / smart-home settings (voice framework)
+com.tcl.versionUpdateApp                 # system updater (user choice; snm.upgrade untouched)

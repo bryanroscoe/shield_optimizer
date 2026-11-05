@@ -1,0 +1,120 @@
+# Cecotec VQU10065S (65" QLED, product no. 02605, Vestel-built in Turkiye, codename "shandao"),
+# Android 14 (API 34), firmware UKNV.260304.001, 1.8 GB RAM, MediaTek platform.
+# ro.product.manufacturer = vestel, ro.product.model = "Android TV".
+# UK-market firmware: every uk.co.freeview.* package already ships disabled.
+#
+# Second unit: Toshiba 65QA7D63DG (Norway), the same Vestel shandao board under the Toshiba badge:
+# ro.product.brand = Toshiba, ro.product.name = EMIR_Toshiba, ro.product.model = "Android TV",
+# Android 14 (API 34), firmware UKNV.260528.001, 1.8 GB RAM. The whole list applied as is; only
+# com.smartdevice.tv.aircast is not installed there. Reboot-checked: Home, every HDMI input, Live TV
+# and the remote's app, Input and Settings buttons work. On this firmware
+# com.google.android.tvrecommendations comes back enabled at every boot (see its line below).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/cecotec-shandao/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/cecotec-shandao/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (the scripts' default, not Google TV launcherx).
+# Only com.android.tv.settings/.system.FallbackHome also claims HOME.
+#
+# KEEP, even though the names look like bloat:
+# - com.mediatek.android.leanbacklauncher.partnercustomizer: provides the tvlauncher.widget provider.
+#   Disabling it crash-loops com.mediatek.tv.service after a reboot on MediaTek sets and kills the
+#   Input key and other remote hotkeys (see examples/chiq-ai-pont). Left enabled here.
+# - com.google.android.tungsten.setupwraith: may own the saved Wi-Fi network; disabling it deletes
+#   the network and takes the TV off Wi-Fi and ADB.
+# - com.mediatek.tv.service, com.mediatek.tvinput, com.mediatek.wwtv.tvcenter (Live TV and the
+#   source menu), com.mediatek.autopair (Bluetooth remote pairing).
+#   com.mediatek.wwtv.mediaplayer was in this KEEP list and has moved to the disable list below:
+#   it is the USB media player, not an input driver. tools/disable.sh still skips it, because it
+#   asks for TV_INPUT_HARDWARE and the guard reads that as the HDMI/AV/tuner layer. On this set
+#   that is a false positive: the permission is requested, nothing implements a TvInputService.
+#   What settles it is which packages actually serve that service:
+#     pm query-services --components -a android.media.tv.TvInputService
+#   Here that lists only com.mediatek.tvinput (tuner, HDMI, VGA, composite, component, SCART) and
+#   com.mediatek.tv.service, both kept. Disabled by hand and reboot-tested: all seven inputs and
+#   the source panel still work. Use TVINPUT_ALLOW=1 to disable it, and check your own inputs
+#   after a reboot before trusting this on another model.
+# - com.vestel.tv.service, com.vestel.tv.keycontroller (remote keys), com.vestel.tv.backlight,
+#   com.vestel.tv.eib (the E-User Manual app).
+# - com.android.devicelockcontroller is a PROTECTED package on this firmware: pm refuses it with
+#   SecurityException "Cannot disable a protected package". Not in the list.
+# - com.dolby.android.audio.service, com.android.tv.settings, com.android.vending,
+#   com.google.android.gms, com.google.android.gsf, com.google.android.inputmethod.latin.
+#
+# Owner's choices: Netflix, Prime Video, Spotify, Twitch, YouTube and Chromecast built-in
+# all stay enabled. The Coocaa AirPlay app is off by choice. io.github.jqssun.airplay (the repo
+# README's AirPlay answer) installs and runs correctly on this hardware: it registers
+# _airplay._tcp and _raop._tcp through NsdManager and listens on 7000. It is useless on a managed
+# network that isolates clients, though, because mDNS never reaches the other devices. Check with
+# `arp -n <tv ip>`: a placeholder MAC means proxy ARP and no AirPlay discovery, whatever you install.
+# Toshiba owner's choices: Netflix, Prime Video, Disney+, YouTube, Chromecast and the aerial
+# screensaver (com.google.android.backdrop, kept) stay; Assistant (katniss) off as below, which
+# leaves that remote's microphone button doing nothing; RiksTV off (commented line below).
+
+# Vestel telemetry, logging and "cleaner"
+com.vestel.vestelreporter                        # Vestel reporter: INTERNET + BOOT_COMPLETED, no UI
+com.vestel.smartlogger                           # Vestel logging service
+com.vestel.tv.speedup                            # "speed up" cleaner, holds READ_LOGS + DUMP + INTERNET
+com.vestel.smartcenter                           # no icon, no UI, 75 MB resident: holds GET_TASKS
+                                                 # (sees which apps you run) + INTERNET + WAKE_LOCK
+                                                 # + boot start. Reboot-tested: Live TV, the Inputs
+                                                 # panel, remote keys and Wi-Fi all survive.
+
+# Google ads, personalisation and feedback
+com.android.adservices.api                       # Privacy Sandbox ad services
+com.android.ondevicepersonalization.services     # on-device ad personalisation
+com.android.federatedcompute.services            # federated learning for the above
+com.google.android.partnersetup                  # partner/OEM attribution
+com.google.android.feedback                      # Google feedback reporter
+com.android.tv.feedbackconsent                   # feedback consent prompts
+android.autoinstalls.config.vestel.medusa        # Vestel auto-install stub (preloads apps at setup)
+
+# Preloaded apps and retail demo
+com.google.android.youtube.tvmusic               # YouTube Music
+com.google.android.videos                        # Google TV / Play Movies store
+com.google.android.play.games                    # Play Games
+com.google.android.katniss                       # Google Assistant and voice search: 285 MB across two
+                                                 # processes (:search + :interactor), 15% of this set's RAM.
+                                                 # Off by choice: this TV ships a remote with no microphone.
+                                                 # It declares only VoiceInteractionService, ASSIST and
+                                                 # SEARCH_LONG_PRESS; casting and the phone remote live in
+                                                 # mediashell, tv.remote.service and GMS, all left enabled.
+fusion.android.tv.demo                           # shop-floor retail demo mode
+com.mediatek.tv.freeviewplay                     # Freeview Play (UK only, useless outside the UK)
+com.smartdevice.tv.aircast                       # Coocaa iCast AirPlay/mirroring app, starts at boot.
+                                                 # Off by choice. Keep it if you want AirPlay without
+                                                 # sideloading, and see the header before you bother:
+                                                 # no receiver works on a client-isolated network.
+com.google.android.backdrop                      # Google aerial screensaver
+com.google.android.tvrecommendations             # launcher recommendation rows. Only safe
+                                                 # once com.gathin.tvhome owns Home and
+                                                 # com.google.android.tvlauncher is disabled.
+                                                 # Toshiba UKNV.260528.001 re-enables it at every
+                                                 # boot; harmless with tvlauncher off, so leave it.
+# no.rikstv.atv                                  # RiksTV (Norway units). Off by choice on the Toshiba.
+                                                 # It serves its own TvInputService for its channels,
+                                                 # not HDMI or the tuner: inputs survive with it off.
+
+# MediaTek extras
+com.mediatek.wwtv.mediaplayer                    # MediaTek's USB media player. Skipped by the
+                                                 # TV_INPUT_HARDWARE guard; see the header, and
+                                                 # run with TVINPUT_ALLOW=1 to actually disable it.
+                                                 # What you lose: playing files off a USB stick with
+                                                 # the stock app. Nothing else moved after a reboot.
+
+# Dead weight on a TV
+com.android.healthconnect.controller             # Health Connect
+com.android.health.connect.backuprestore         # Health Connect backup
+com.android.managedprovisioning                  # enterprise work-profile provisioning
+com.android.dynsystem                            # Dynamic System Updates
+com.android.cts.ctsshim                          # Android test shim
+com.android.cts.priv.ctsshim                     # Android test shim
+com.google.android.syncadapters.calendar         # calendar sync
+com.google.android.tts                           # Google text-to-speech. Only accessibility reads
+                                                 # anything aloud on this set, and the remote has no
+                                                 # microphone, so it idles. Keep it if you use Talkback.
+com.android.settings.intelligence                # the search box inside Settings. The menus keep
+                                                 # working; only searching them goes away.
+com.android.se                                   # Secure Element (eSIM, NFC payments). This TV has
+                                                 # neither radio.

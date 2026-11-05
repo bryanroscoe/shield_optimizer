@@ -1,0 +1,87 @@
+# TCL 43S450F-CA (TCL S4 Fire TV Edition, Amazon model AFTDEC012E, codename ginza), Fire OS 8.1.8.5 (RS8185/3885),
+# Android 11 (SDK 30), MediaTek, ATSC tuner, 1.8 GB RAM, Canada. Spanish UI.
+# Same firmware line as hisense-fire-tv-aftcibfbd1 (Fire OS 8.0 TV) and amazon-fire-tv-stick-4k-2023 (Fire OS 8.1.8.5).
+#
+# FIRE OS: DEBLOAT ONLY. Home is com.amazon.tv.launcher/.ui.HomeActivity_vNext (priority 950), with
+# com.amazon.firehomestarter (priority 1) behind it; both are protected on Fire OS 8, so launcher/ does not take Home.
+# HDMI input switching is reserved to Amazon-signed apps (com.amazon.tv.permission.TUNE_INPUT).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-43s450f-ca/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-43s450f-ca/debloat.txt com.amazon.tv.launcher
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+#
+# Kept on purpose (owner's choice): Prime Video (com.amazon.firebat, tv.support, imp, ottssocompanionapp), Amazon Music
+# (bueller.music), Luna (gamehub), Alexa voice and its services (vizzini, aria, alexa*, aca, aiondec, audiohome,
+# rtcsessioncontroller, spotify.mediabrowserservice, androidskillconnectioncapability), AirPlay, Miracast (cast.sink),
+# DIAL casting (dialservice, whisperplay, whisperlink, awvflingreceiver), OTA updates (device.software.ota*,
+# tv.forcedotaupdater.v2), Tubi, Pluto TV, Netflix, YouTube, Spotify, Stremio, Nuvio, NordVPN, Downloader.
+# Always kept: Live TV and tuner (tv.livetv, mediatek.livetv, mediatek.dtv.tvinput.*, tv.channelscan, franktvinput),
+# settings, quick settings, IME, remote/Bluetooth, Appstore (venezia), com.amazon.tv.oobe, com.amazon.tv.matter
+# (Matter casting), com.amazon.providers.contentsupport (switches the TTS engine Alexa uses), accessibility (logan).
+# Applied 2026-10-21 in four batches with a screenshot after each, then rebooted: all 45 stayed disabled, Home and
+# YouTube work. Alexa was kept, so nothing came back at boot.
+# The hero banner on Home is the launcher's own feed and stays; the recommendation rows under it are gone.
+# Looked at and left alone, role unclear: com.amazon.ale, katoch, spiderpork, tv.arc, securitysyncclient, device.details,
+# tv.fss, neodelegate, sharingservice proxy, cpl, tifobserver, connectivitydiag, neopactservice, dpcclient, mediatek.*.
+
+# Amazon telemetry, metrics, logs, usage reporting
+com.amazon.client.metrics.api
+com.amazon.neo.minerva
+com.amazon.neo.minerva.logcat
+com.amazon.wirelessmetrics.service
+com.amazon.perfcollection
+com.amazon.perfc
+com.amazon.dp.logger
+com.amazon.ceviche                         # data collection pipelines
+com.amazon.tv.developer.dataservice        # content personalization data for third-party apps
+com.amazon.device.telemetry.emitter
+com.amazon.livedeviceservice
+com.amazon.privacypassservice
+com.amazon.wifilocker                      # uploads Wi-Fi passwords to Amazon
+com.amazon.tv.acr                          # Automatic Content Recognition (what is on screen, HDMI included)
+com.amazon.audiolatencymeasurer
+
+# Ads, sponsored rows, recommendations, promos, shopping
+com.amazon.kso.blackbird                   # launcher ad sync / bidding
+com.amazon.sneakpeek                       # sponsored "Sneak Peek" autoplay previews
+com.amazon.hybridadidservice               # advertising ID
+com.amazon.media.recommendations           # sponsored and recommendation rows
+com.amazon.tv.easyupgrade                  # "upgrade your Fire TV" promos
+com.amazon.shoptv.client                   # Shop on Fire TV
+com.amazon.hedwig                          # Fire TV Channels
+com.amazon.tv.democontent.provider         # retail demo content
+com.amazon.systemnotices
+com.amazon.tv.releasenotes                 # "what's new" popups
+com.amazon.uxnotification                  # UX notification popups
+com.amazon.tv.earlyaccess                  # early-access / preview program stub
+
+# Preloaded apps and tutorials (owner's choice)
+com.amazon.bueller.photos                  # Amazon Photos
+com.amazon.tahoe                           # Amazon Kids
+com.amazon.minitv.android.app              # miniTV stub
+com.amazon.cloud9                          # Silk browser
+com.amazon.tv.website_launcher             # opens websites in Silk
+com.amazon.naatyam
+com.amazon.tmm.tutorial                    # remote tutorial
+com.amazon.storm.lightning.tutorial        # remote app tutorial
+ca.bellmedia.cravetv                       # Crave
+com.cbs.ca                                 # Paramount+ / CBS
+com.wbd.stream                             # Max
+com.apple.atve.amazon.appletv              # Apple TV app (AirPlay is separate and stays)
+
+# Other Amazon devices, smart home, screensaver (owner's choice)
+com.amazon.whisperjoin.middleware.v2.np    # frustration-free setup of other Amazon devices
+com.amazon.tv.ffsprovisioneeclient
+com.amazon.ods.kindleconnect               # "show on Fire TV" from Echo / Fire tablet
+com.amazon.smarthomemapviewapp             # smart home dashboard
+com.amazon.tv.mattercohost                 # Matter smart-home controller (com.amazon.tv.matter stays for casting)
+com.amazon.ftv.screensaver                 # Amazon Photos screensaver
+
+# Protected on this build: pm disable-user answered "Cannot disable a protected package" for all seven, so they stay on:
+# com.amazon.device.metrics
+# com.amazon.device.logmanager
+# com.amazon.device.crashmanager
+# com.amazon.diode
+# com.fireos.usagestats.proxy
+# com.amazon.ftvads.deeplinking
+# com.amazon.tv.csapp

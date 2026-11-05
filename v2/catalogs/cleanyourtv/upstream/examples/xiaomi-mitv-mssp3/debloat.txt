@@ -1,0 +1,58 @@
+# Xiaomi MiTV-MSSP3 (codename machuca), Android TV 11 (SDK 30), firmware RTT2.211214.001.1065, MediaTek.
+# Live TV app: com.mediatek.wwtv.tvcenter (already the live_tv_package in launcher config.xml).
+# Stock launcher: com.google.android.tvlauncher (the default, disabled by build-and-install.sh).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mssp3/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mssp3/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - Default IME is already Gboard, so the Mi TV 4A missing-keyboard quirk doesn't apply.
+# - Left alone on purpose: com.mediatek.wwtv.tvcenter / tvinput* (HDMI + tuner), mitv.service,
+#   com.mi.bluetooth, com.mediatek.hotkey.dispatcher, com.google.android.tv.remote.service.
+# - Netflix and Prime Video come back at every reboot even when disabled. The cause is
+#   com.mstar.netflixobserver: it is a PERSISTENT app with the system uid, so Android starts it at boot even
+#   when it is disabled, and it re-enables both (it even re-installed them after pm uninstall --user 0).
+#   Disabling it is not enough. This list only disables it, like everything else in this repo.
+#   Beyond what this repo does, and your own call: removing it for user 0 worked here across a reboot
+#     pm uninstall --user 0 com.mstar.netflixobserver
+#   and is undone with
+#     cmd package install-existing com.mstar.netflixobserver   (the remote's Netflix button needs it)
+# - Device admin is not supported on this firmware (no android.software.device_admin).
+
+# Xiaomi + Google telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+
+# PatchWall, content rows, sponsored rows
+com.mitv.tvhome.atv                         # PatchWall
+com.mitv.tvhome.michannel                   # PatchWall channels on the Google TV home
+com.xm.webcontent
+com.xiaomi.floatingframe
+com.google.android.tvrecommendations
+android.autoinstalls.config.xiaomi.amelie   # Play auto-install of partner apps
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager                   # "TV Manager" cleaner
+com.xiaomi.mitv.updateservice               # firmware updates: re-enable to check for one
+
+# Personal choice: casting
+com.google.android.apps.mediashell          # Chromecast built-in
+
+# Personal choice: Ambient and Mi WallPaper screensavers
+com.google.android.backdrop
+com.mitv.dream                              # "WallPaper" tile, Xiaomi screensaver
+
+# Preloaded apps
+com.xiaomi.mimusic2
+com.google.android.play.games
+com.google.android.videos                   # Play Movies & TV (already disabled on this firmware; shell may refuse)
+com.mitv.gallery                            # Mi Gallery; Media Player still opens USB photos
+
+# Personal choice: preloaded streaming apps not used
+com.netflix.ninja                           # comes back at boot, see header
+com.mstar.netflixobserver                   # remote's Netflix button; see header
+com.amazon.amazonvideo.livingroom           # Prime Video; comes back like Netflix, see header
+com.google.android.youtube.tvmusic          # YouTube Music
+com.mitv.tvhome.mitvplus                    # Xiaomi TV+

@@ -1,0 +1,94 @@
+# Hisense U75 (device hengshan, MediaTek), Google TV / Android 12, build STT2.230310.002.
+# Android model string is "SmartTV 4K FFM" (same string as the Android 10 huangshan set, but a
+# different device and a mostly different package namespace: com.vt.* here, com.hisense.* there).
+# 2.4 GB RAM. Latin America / Brazil market (Ginga broadcast middleware preloaded).
+# Second unit: Hisense 75U75N, US market, same device and build (STT2.230310.002). This list applied
+# there except com.hisense.odinbrowser (kept by that owner), plus that owner's choices near the end;
+# README.md has its remote's button codes and notes, config.json its dock.
+# Third unit: Hisense 55U7N, same device and build, reported 2026-10-24 (#1326): the volume ramp goes the
+# same way with HomeKeyService alone and no CEC soundbar, so that trade is the board's, not the soundbar's.
+# README.md carries it.
+# Fourth unit: Hisense 65U7ESG, Colombia, same device and build (00.00.00.135), applied 2026-10-25. Its own
+# list is debloat-65u7esg.txt (no VIDAA packages there; casting and ambient mode off, HiAlexa kept), and
+# README.md has how it keeps both the remote's app buttons and the volume ramp.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hisense-u75-hengshan/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hisense-u75-hengshan/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# WARNING: do not add com.vt.tv.smartsense, com.vt.tv.smartsense.ui, com.vt.tv.ai_sense,
+# com.vt.tv.aiot, com.vt.tv.aiotprotocolapp or com.vt.tv.aiotsystemservice. On the related
+# huangshan firmware disabling that family sent the TV to Android Recovery on the next boot
+# ("Can't load Android system"). "Try again" booted normally and restore.sh undid it. If you ever
+# land on that screen, pick "Try again", never "Factory data reset".
+#
+# Keep, verified load-bearing on this set:
+#   com.vt.tv.tvcenter        Live TV app (LiveTV)
+#   com.vt.tv.input           the Inputs / source menu
+#   com.vt.source.external    HDMI inputs      com.vt.source.tuner   tuner input
+#   com.mediatek.dtv.tvinput.framework.server  TV input framework
+#   com.vt.tv.commonui, com.vt.tvservice, com.vt.avmiddleware, com.vt.tvplayer, com.vt.edv.drmp
+#   com.mediatek.autopair     remote pairing   com.mediatek.android.tv.globalkeyoverlay  remote keys
+#   com.google.android.tv.remote.service       com.google.android.inputmethod.latin  keyboard
+#   com.android.vending, com.google.android.gms, com.google.android.gsf, com.android.tv.settings
+#   com.vt.tv.smartservice, com.dolby.android.audio.service, com.vt.tv.aipq, com.vt.tv.videocolor
+#   com.vt.eula               wired to ota.eula.message, keep it while OTA is kept
+#   com.vt.udpserver          LAN discovery used by casting / the phone remote
+# Already disabled at the factory: com.mediatek.tis, com.mediatek.dtv.tvinput.isdbtuner,
+#   com.mediatek.dtv.tvinput.dvbtuner
+# Stock launcher: com.google.android.apps.tv.launcherx (Google TV), handled by build-and-install.sh.
+
+# Hisense ACR: automatic content recognition, the codePath is literally Vtp_ACR
+com.vt.tv.evservice
+
+# Hisense content, preloads and promo surfaces
+com.vt.hishow                        # Vtp_FamilyMoment, photo/camera app + its screensaver
+net.vidaatv.hisense.android.tv       # VIDAA Channels Plus, the FAST free-channel preload
+com.vidaa.oemtabcontentprovider      # feeds the VIDAA content tab
+com.hisense.odinbrowser              # built-in web browser, off by choice
+
+# Retail demo, hotel/commercial mode, factory tools
+com.vt.storemode
+com.vt.tv.b2b
+com.vt.factory
+com.vt.fte                           # first-time-experience walkthrough, setup only
+
+# Voice assistant, off by choice
+com.vt.alexa                         # HiAlexa
+
+# Broadcast interactive middleware. Only does anything with the built-in tuner; off by choice
+# on a set used purely with HDMI sources.
+tv.mopa.ginga                        # Ginga, the Brazilian interactive-broadcast stack
+com.vt.tv.interactive
+
+# Background services that are not needed
+com.vt.tv.protector                  # "DeviceAssistant" cleaner: CACHE_CLEAN, TURBO_MODE, SPACE_PROTECTION
+com.vt.tv.calmanconnector            # Calman professional calibration connector
+
+# Google TV ad, preload and tracking services
+android.autoinstalls.config.google.gtvpai   # PAI: silently auto-installs partner apps
+com.google.android.partnersetup             # partner referral tracking
+com.google.android.feedback                 # crash/feedback uploader
+
+# Unused on a television
+com.android.printspooler
+com.google.android.syncadapters.calendar
+com.android.providers.calendar
+com.android.providers.contacts
+
+# 75U75N owner's choices, all reversible: apps that unit's owner does not use
+com.vt.tv.mobiledeviceconnectiontips       # Miracast screen mirroring (codePath Miracast); Chromecast and AirPlay kept
+com.vt.tv.mediacenter                      # Media Center: USB and DLNA file player
+com.vt.tv.dlna                             # DLNA renderer
+com.vt.tv.singlelisten                     # MyMusic
+com.vt.roomcalibration                     # room audio calibration prompt (RoomCalibration)
+com.google.android.youtube.tvmusic         # YouTube Music
+com.google.android.play.games              # Google Play Games
+
+# Launcher phase only. Google TV's setup wizard also claims android.intent.category.HOME (priority 1,
+# RecoveryActivity), so it takes Home the moment the stock launcher is disabled and a third-party
+# launcher can never own the Home button. Leave this line out if you are only debloating.
+# On some sets the wizard holds the Wi-Fi credentials saved during setup; if the TV forgets its
+# network, re-enter it with the remote. restore.sh re-enables it. On the 75U75N the saved network
+# belonged to android.uid.system (dumpsys wifi cname), and Wi-Fi stayed up.
+com.google.android.tungsten.setupwraith

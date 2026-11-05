@@ -1,0 +1,43 @@
+# Artel smart TV (CVTE board TP.MT5510S.PB782, product cvt_mt5863_eu, model SMART_TV, MediaTek MT5863),
+# Android 7.0 (API 24), firmware 20190423_144224, Uzbekistan. More properties: ro.build.fingerprint
+# Android/cvt_mt5863_eu:7.0/NRD90M/builde04231459:userdebug/release-keys, about 800 MB RAM, 1920x1080.
+# Stock launcher: com.cvte.tv.launcher. Live TV: com.cvte.tv.androidsetting/.TvSettingActivity (the tuner has
+# no leanback entry; set live_tv_package to that component, see launcher/app/src/main/res/values/config.xml).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/artel-cvte-mt5863/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/artel-cvte-mt5863/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Getting ADB on this firmware:
+# - There are no Developer options and no stock Android Settings app.
+# - ADB is "Debug > ADB Enable" in the full CVTE factory menu. Contrast + 9735 on the remote opens only a
+#   short factory menu without it. The full menu opens by starting the exported service
+#   com.cvte.fac.menu/.app.TvMenuWindowManagerService with the extra
+#   com.cvte.fac.menu.commmand=com.cvte.fac.menu.commmand.factory_menu (three m's, as shipped).
+# - The "Allow USB debugging" prompt appears only after a reboot.
+# - ADB comes back on at every boot (persist.sys.usb.config=mtp,adb).
+#
+# DO NOT DISABLE com.talents.huanclientauth. With it disabled the boot never completes. It was recovered
+# by re-enabling the package over ADB.
+#
+# The firmware re-enables these on every boot, so disabling them has no effect and they are not listed:
+# com.cvte.tv.systemupgrade, com.tcl.update, cn.tcl.odm.android.vstoresubclient (Zeasn store),
+# com.tcl.sticker, com.example.user.myapplication (FallbackHome). Hide them in the launcher's hidden_apps instead.
+#
+# The channel list was lost once during a boot that hung; Auto search in the TV's own menu restored it.
+
+# Preinstalled streaming and video apps
+com.netflix.ninja
+net.megogo.tv                          # Megogo
+uz.allplay.apptv                       # Allplay
+uz.i_tv.player                         # i-TV
+ag.kinom                               # Kinom
+
+# Preinstalled games and clients
+com.fgl27.twitch                       # Twitch client
+com.fgol.HungrySharkEvolution
+
+# Accessibility and voice services that are not used
+com.google.android.marvin.talkback     # TalkBack, re-enable if you need a screen reader
+com.svox.pico                          # Pico text-to-speech
+com.google.android.voicesearch

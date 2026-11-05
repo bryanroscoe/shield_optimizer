@@ -1,0 +1,37 @@
+# Tele System TS ON T2/HD (ONT2HD), Android TV 11 (SDK 30), firmware 20231013:user/release-keys
+# SDMC ODM platform with Amlogic/droidlogic SoC, Italy/Europe DVB-T2 set-top box / TV.
+#
+# Live TV app: com.sdmc.tv (owns the digital tuner and leanback activity; set as live_tv_package).
+# Stock launcher: com.google.android.tvlauncher (classic Android TV home, disabled by launcher/build-and-install.sh).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/telesystem-ont2hd/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/telesystem-ont2hd/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes on this device:
+# - Connect over ADB: port 5555 is open when USB debugging is enabled in Developer Options.
+# - The replacement launcher from launcher/ installs cleanly and takes Home without issues.
+# - Live TV: com.sdmc.tv runs tuner playback and provides leanback launcher activity.
+# - DO NOT DISABLE:
+#   com.sdmc.tv                  Live TV tuner app
+#   com.droidlogic.tvinput       HDMI and tuner input framework
+#   com.sdmc.bluetoothconnect    Bluetooth remote pairing
+#   com.sdmc.GlobalKey           Remote control hotkey handler
+#   com.droidlogic.updater       Firmware OTA updates
+
+# SDMC vendor bloat and diagnostics
+com.sdmc.facTest                       # SDMC factory test menu
+com.sdmc.leakbackcustomer              # SDMC partner customer service (purpose unclear; comment out if anything breaks)
+com.sdmc.hwinfo                        # SDMC hardware info and diagnostics
+android.autoinstalls.config.sdmc       # silently installs partner apps
+
+# Google TV / Android TV bloat
+com.google.android.katniss             # Voice assistant / search
+com.google.android.marvin.talkback     # TalkBack accessibility
+com.google.android.tvrecommendations   # Stock recommendation rows
+# com.google.android.tvlauncher        # Stock launcher: the installer disables it once the new Home is in
+com.google.android.youtube.tvmusic     # YouTube Music
+com.google.android.partnersetup        # Google partner promotions
+com.google.android.videos              # Google TV / Play Movies
+com.google.android.feedback            # Crash reporter
+com.google.android.play.games          # Play Games

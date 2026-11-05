@@ -1,0 +1,278 @@
+# Philips 50PUS8517/12 (50" 4K UHD LED, 3-sided Ambilight, P5 Picture Engine, 2022 model)
+# Android TV 11 (ro.build.version.release=11), firmware RTT2.211108.001, board PH1M_EA_9970A
+# ro.product.model=2021_22_Philips_UHD_Android_TV  ro.product.device=PH1M_EA_9970A
+# Fingerprint: Philips/PH1M_EA_9970A/PH1M_EA_9970A:11/RTT2.211108.001/21029:user/release-keys
+# TP Vision build: MediaTek MT5895, 2.67 GB RAM, armeabi-v7a userspace. Vendor packages use the
+# org.droidtv prefix.
+#
+# Match on the BOARD and firmware, not on the model number. Philips/TP Vision ships one
+# org.droidtv layer across a whole generation, so the x PUS85xx / PUS88xx sets of 2021-2022 on
+# board PH1M_EA_9970A should carry the same package set; a different board or a Google TV
+# (Android 12+) Philips will not. Check your own `pm list packages` against this file first —
+# `tools/tv.py --probe` prints model, Android version and build.
+#
+# NOT the same platform as examples/philips-smart-4k-google-tv, which is a Skyworth-built
+# India-market set on Google TV 14 with com.smartdevice/com.sky/com.tianci packages and no
+# org.droidtv at all. Nothing from that file applies here and nothing here applies there.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/philips-50pus8517/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/philips-50pus8517/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (pass it to restore.sh, as above).
+# Live TV app:    org.droidtv.playtv
+# App labels below were resolved by pulling each APK and reading it with `aapt dump badging`,
+# not guessed from the package name. That matters on this firmware: org.droidtv.nettvapp4546 is
+# MEGOGO, nettvapp4655 is Deezer, nettvapp5512 is Fishing TV, and org.droidtv.candeebug is
+# labelled "DAC" and is the analytics uploader, not a debug tool.
+#
+# QUIRKS ON THIS FIRMWARE, in the order they will bite you:
+#
+# 1. pm disable-user persists to /data/system/users/0/package-restrictions.xml with a delay
+#    (~10 s on AOSP). If you run disable.sh and power-cycle the TV straight away, the changes
+#    are silently lost: packages come back as enabled=0 (DEFAULT). Wait, or run
+#    `pm list packages -d` and confirm your packages are listed before pulling the plug.
+# 2. `adb reboot` over TCP hangs holding the dropped connection. Kill the adb server right
+#    after sending it and wait on port 5555 coming back instead of on the adb command.
+# 3. The Android 11 shell cannot disable individual components of another app
+#    ("SecurityException: Shell cannot change component state") and cannot `pm hide`
+#    ("Neither user 2000 nor current process has android.permission.MANAGE_USERS"). So if a
+#    package refuses to stay disabled, the shell has no second lever. `pm suspend` does work
+#    and survives a reboot, but it does not stop services: an app that starts itself from its
+#    own boot receiver keeps running with suspended=true.
+# 4. com.google.android.apps.mediashell (Chromecast built-in) could NOT be kept disabled on this
+#    firmware and is deliberately absent from the list below. It returns to enabled=1 about 35 s
+#    after every boot, reproducibly. pm disable-user, pm suspend, per-component disable and
+#    pm hide were all tried; the first is undone, the second does not stop it, the last two are
+#    refused by the platform. Left enabled, at a cost of about 37 MB.
+# 5. A DISABLED PACKAGE CAN LEAVE A PERSISTENT PROCESS RETRYING FOREVER, AND pidof WILL NOT
+#    SHOW IT. org.droidtv.xtv is the persistent TV engine and has five outbound service
+#    bindings. Two of them, eum and aurora, were on the first version of this list, and
+#    BOTH leave xtv in a permanent retry loop when disabled. Neither is in the list above now;
+#    both are in the DO NOT DISABLE block below.
+#
+#    org.droidtv.eum -- bound via CONTEXTUALHELP. About five retries per second, logged as
+#      xtvContextInterface ... connectCotextService - Service failed to connec i is null
+#    51 of them in 10 seconds of an idle TV. This one also BREAKS A VISIBLE FUNCTION, and not
+#    the one you would guess: the Philips sources drawer opens and vanishes within a second,
+#    so HDMI inputs stop being reachable from the remote's SOURCES key. SourcesService logged
+#    a correct, complete source list every time and the drawer still died.
+#
+#    org.droidtv.aurora -- about five retries per second too, logged as
+#      xtvService: xtvService handleConnectAurora
+#    at a steady 201 ms interval, 59 in 30 seconds of an idle TV. This one breaks nothing
+#    visible and costs little: xtv sits at 0.2% of one core while doing it. It is log noise
+#    plus a retry that can never succeed. Re-enabling it is free in practice -- aurora's
+#    process does not start at idle even when the package is enabled, so xtv only needed the
+#    package to be resolvable.
+#
+#    `pm enable` on either took its counter to zero immediately, with no reboot.
+#
+#    THE METHOD, which is the transferable part: a live PID proves the process exists, not
+#    that it is healthy. xtv held the same PID through all eleven batches while both loops
+#    ran. And do not grep for a string you already know -- that is how I missed the second
+#    loop for a day after fixing the first. Clear the log, wait 30 seconds on an idle TV,
+#    then group EVERYTHING by frequency and look at what repeats:
+#      adb shell logcat -c; sleep 30; adb shell logcat -d > idle.txt
+#      # then collapse digits and count: anything repeating several times a second is a loop
+#    On this set that takes an idle log from 130 lines per 30 s down to 50, and the 50 that
+#    remain are the firmware's own heartbeats.
+# 6. The replacement launcher takes over on its own. Projectivy declares
+#    android.intent.category.HOME, so the moment com.google.android.tvlauncher is disabled the
+#    system resolves HOME to it — immediately, without a reboot and without enabling any
+#    accessibility service. Check with
+#    `cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME`
+#    BEFORE disabling the stock launcher, and make sure your replacement is listed by
+#    `cmd package query-activities` for that intent. If it is not, you will be left without a
+#    home screen (see issue #90).
+#
+# SECOND UNIT: Philips 70PUS8505, from @mrfoodfoox-ops's report in #1376. Same board and build
+# (ro.product.model "2021/22 Philips UHD Android TV", PH1M_EA_9970A, RTT2.211108.001), so this list
+# applies; it is NOT the board of examples/philips-75pus8505 (PH9M_EA_5599, Android 12). Applied in six
+# batches with tools/disable.sh on one day (a few hours, one reboot), not yet lived with for days, so
+# nothing below changes the list. After the reboot every package was still disabled; Home, SOURCES,
+# the Netflix/YouTube keys and the Settings key worked on the real remote. The idle log stayed at
+# 70-130 lines per 30 s throughout, with no retry loop (quirk 5's method).
+# - Disabled there beyond this list (owner's choice; uncomment to match):
+#     org.droidtv.nettvapp3093 (ARD Mediathek), nettvapp3463 (Videociety), nettvapp5245 (TV SpieleCenter),
+#     org.droidtv.astrahdplus ("HD+" satellite info; not running, nothing binds it), cz.tmobile.tvgo
+#     (an older second Magenta TV app; de.telekom.magentatv.tv stayed), de.prosiebensat1digital.seventv
+#     (Joyn), com.zdf.android.mediathek, de.zdf.mediathek.tivi, com.ted.android.tv, and com.blacknut.client,
+#     tv.pluto.android, com.mgmedia.androidApp, com.mxtech.videoplayer.ad (these four in /data/app).
+# - Kept there: amazonalexa, dlna and ipcontrol (in use); Mimi Sound Personalization (io.mimi.sdk.service,
+#   io.mimi.tvapp, with its own vendor HAL service) and DTS Play-Fi (com.phorus.playfi.softap,
+#   com.phorus.playfi.tv), both system processes in the audio path, not tried disabled; stock YouTube and,
+#   of the preinstalled streaming block near the end, everything but Apple TV and Rakuten; mediashell (quirk 4). eum, channels and com.vewd.core.browserui stayed
+#   enabled and were only hidden from the grid with hidden_apps; SOURCES works with eum enabled.
+# - That unit came with org.droidtv.aurora and 15 uk.co.freeview.* apps already disabled.
+# - In two of the six disable.sh runs one package was still enabled about 12 s later
+#   (org.droidtv.usagelogger, org.droidtv.demome); one pm disable-user by hand worked and held through the
+#   reboot. Compare `pm list packages -d` with the list after each run on this board (see quirk 1).
+# - Launcher: Live TV package org.droidtv.playtv; build-and-install.sh ran through on its own. The first
+#   start of a Philips "FAST" channel shows an IAB consent screen
+#   (org.droidtv.nettvregistration/.onetrust.IABActivity), unrelated to the list. HOME_KEY_SERVICE=1 with
+#   settings_key_panel true: the Settings key opens the panel and holding Volume + still ramps.
+#   home_idle_clock_minutes works. MagentaTV opens straight into live TV with
+#   `am start -a android.intent.action.VIEW -d atv://de.telekom.magentatv/livetv de.telekom.magentatv.tv`.
+#
+# THIRD UNIT: Philips 65PUS9206/12. Same board and build (ro.product.model "2021/22 Philips UHD Android TV",
+# PH1M_EA_9970A, RTT2.211108.001), so this list applies. Applied in five batches with tools/disable.sh on one
+# day with two reboots, not yet lived with for days, so nothing below changes the list.
+# - Disabled from this list: candeebug, gel, usagelogger, nettvrecommender, recommendation, nettv.market,
+#   demome, m7opapp, the five Google telemetry/setup entries, katniss, videos, play.games, marvin.talkback,
+#   and tvrecommendations after the new launcher was Home. All 18 were still disabled after both reboots,
+#   checked with `pm list packages -d`; none came back.
+# - Kept there (owner's choice): amazonalexa, dlna, ipcontrol, stock YouTube, mediashell (quirk 4).
+#   Not installed on that unit: the nettvapp* web apps, Fitness Buddy, Disney+, WhaleLive, Boosteroid,
+#   Vodafone TV, Sweet TV and Rakuten. Disabled from the factory: Netflix, Prime Video, Apple TV, YouTube
+#   Music, org.droidtv.aurora, org.droidtv.freeviewplayers and 15 uk.co.freeview.* apps.
+# - disable.sh's TV-input guard held back usagelogger and demome. `pm query-services --components -a
+#   android.media.tv.TvInputService` names neither (only com.mediatek.tvinput, dvbi, fastip, tv.agent and
+#   videos), so both were disabled with TVINPUT_ALLOW=1.
+# - Idle log after the last batch (quirk 5's method, 30 s): no handleConnectAurora or connectCotextService
+#   loop, only adbd's USB retry and the JointSpace server.
+# - The first SOURCES press showed org.droidtv.fastip/.fastIPPromoActivity ("free streaming" promo) over the
+#   drawer; after that the drawer opens on its own and works.
+# - Launcher: build-and-install.sh ran through on its own (cold start 0.7 s). The firmware opens
+#   org.droidtv.playtv at every power-on; power_on_home with HOME_KEY_SERVICE=1 sent it to Home about 13 s
+#   after boot. The remote's Netflix key is keycode 375, scancode 786 (GlobalKeyRcv logs it and hands it to
+#   TPTvServiceAgent); `app_keys` scan:786:org.xbmc.kodi remaps it with HomeKeyService alone, so
+#   InputKeyService was not enabled and SOURCES stays the Philips drawer. Checked on the real remote: Home,
+#   SOURCES, Settings, YouTube, Netflix -> Kodi, and holding Volume + still ramps (sound out to a soundbar).
+#
+# FOURTH UNIT: another Philips 65PUS9206/12 (France), same board and build (PH1M_EA_9970A, RTT2.211108.001).
+# Its owner's own 25-entry selection, 22 of them from this list, applied on 23 October 2026 in three batches
+# with the real remote, then lived with for a week: tools/check.py ran every evening until 30 October and
+# nothing drifted. So the entries it shares with this list hold for days on this model, not only one day.
+# - io.mimi.tvapp (the Mimi hearing-test app, not the io.mimi.sdk.service sound path) was tried disabled and
+#   was back to enabled=1 after a reboot, like com.phorus.playfi.tv; leave it out of a list.
+# - The three entries not in this list stayed disabled all week with nothing missed: org.droidtv.astrahdplus,
+#   org.droidtv.dropboxprovider and com.phorus.playfi.softap (Play-Fi's speaker-setup access point; the
+#   playfi.tv service itself stays enabled, as above).
+# - Disabling katniss did not clear the secure voice_interaction_service / assistant settings on this unit, so
+#   restoring it needed no settings commands.
+# - The stock launcher's HOME filter has priority 2 on this firmware: the Home key kept opening tvlauncher until
+#   it was disabled, then resolved to the new launcher at once.
+# - aurora was off from the factory here too; no xtv retry loop in the 30 s idle log, nothing visible broke.
+#
+# FIFTH UNIT: Philips 43PUS8507/12 (France), same board and build (ro.product.model "2021/22 Philips UHD
+# Android TV", PH1M_EA_9970A, RTT2.211108.001/21029), so this list applies. Applied on 24 October 2026 in
+# five batches with tools/disable.sh, a screenshot after each, then in daily use for a week.
+# - Disabled from this list: candeebug, gel, partnersetup, nettvrecommender, recommendation, nettv.market,
+#   onetimeinitializer, sss.authbridge, syncadapters.calendar, dlna and stock YouTube, then tvlauncher once
+#   the new launcher was Home. All still disabled after a reboot, checked with `pm list packages -d`.
+# - Disabled there beyond this list, nothing missed in a week: android.autoinstalls.config.tpv.device (Play
+#   auto-install of TP Vision partner apps), org.droidtv.nettvapps (the gallery's preload installer),
+#   org.droidtv.dropboxprovider and io.mimi.sdk.service (Mimi sound personalisation).
+# - Kept there (owner's choice): katniss, mediashell, Netflix, ipcontrol and the firmware updaters.
+# - Already missing for user 0 before this session (`pm list packages -u` lists them, `pm list packages`
+#   does not), so on a second-hand or refurbished set check for this first: usagelogger, demome, m7opapp,
+#   amazonalexa, astrahdplus, freeviewplayers, feedback, play.games, videos, youtube.tvmusic, talkback,
+#   tvrecommendations, Prime Video, Apple TV, Play-Fi (softap and tv), io.mimi.tvapp, printspooler and 15
+#   uk.co.freeview.* apps. `cmd package install-existing <package>` brings one back.
+# - Idle log (quirk 5's method): no handleConnectAurora or connectCotextService loop.
+# - Launcher: Live TV package org.droidtv.playtv; the Inputs menu lists HDMI 1-4, the analogue inputs and Live
+#   TV. The firmware starts on the last input it was on, so Home is one press away. The remote's Rakuten
+#   TV key sends Philips keycode 779 (KEYCODE_RAKUTEN_TV) and does nothing with no Rakuten app on the set;
+#   `app_keys` 779:org.smarttube.stable with HOME_KEY_SERVICE=1 opens SmartTube instead. Checked on the
+#   real remote: Home, SOURCES, Settings, TV guide, Rakuten -> SmartTube, and holding Volume + still ramps.
+
+# TP Vision telemetry. org.droidtv.gel runs inside the candeebug process
+# (android:process="org.droidtv.candeebug"), so disabling candeebug alone leaves a process with
+# that name still running and looks like a failure. Disable both.
+org.droidtv.candeebug                     # "DAC" analytics uploader: channel watched, resolution, HDMI-CEC devices, viewing times, Ambilight config; uploads to AWS Firehose/S3 and geolocates the public IP via ipinfo.io
+org.droidtv.gel                           # metrics collector sharing candeebug's process; no INTERNET permission of its own
+org.droidtv.usagelogger                   # boot stats, remote keypress counts, panel/eMMC telemetry forwarded to the above
+
+# Philips content promos and the app gallery
+org.droidtv.nettvrecommender              # "Top Picks" content promotion row
+org.droidtv.recommendation                # its headless backend; disable the row above first or you get a live tile with no data source
+org.droidtv.nettv.market                  # "Smart TV Collection" app storefront
+org.droidtv.nettvapp1814                  # ARTE
+org.droidtv.nettvapp4546                  # MEGOGO
+org.droidtv.nettvapp4633                  # alacarta RTVE
+org.droidtv.nettvapp4655                  # Deezer
+org.droidtv.nettvapp4932                  # Free Games by PlayWorks
+org.droidtv.nettvapp5326                  # Toon Goggles
+org.droidtv.nettvapp5512                  # Fishing TV
+org.droidtv.nettvapp20004410              # Couchplay Games
+org.droidtv.android.fitness               # Fitness Buddy
+
+# Philips features this owner does not use. Check each against your own setup.
+org.droidtv.amazonalexa                   # Alexa bridge; live TV holds a binding into it, so test channel zapping and the EPG after disabling -- NOT exercised on this unit
+org.droidtv.dlna                          # DLNA/UPnP server and renderer; persistent + coreApp, yet disables cleanly and contentexplorer ("Media") still starts and keeps its PID. Its DLNA init is gated behind a broadcast dlna itself sends, so the USB source should be unaffected -- reasoned from the code, not tested here
+org.droidtv.ipcontrol                     # LAN control of volume, audio output, Ambilight on/off and ShopMode. NOTE: this is NOT the JointSpace API on ports 1925/1926 — that is served by org.droidtv.xtv, which must stay. Keep this if you drive the TV from Home Assistant
+org.droidtv.demome                        # "Demo me" retail demo mode, e-sticker and shop loop; bound at boot by org.droidtv.settings to clear demo clips before a firmware update, null-guarded
+org.droidtv.m7opapp                       # M7 satellite operator promo (Canal Digitaal, TV Vlaanderen, Skylink, HD Austria); keep if you use one of those
+
+# Google telemetry and first-setup leftovers
+com.google.android.feedback               # Market Feedback Agent
+com.google.android.partnersetup           # partner referrer / attribution
+com.google.android.onetimeinitializer     # runs once at first setup, nothing afterwards
+com.google.android.sss.authbridge         # Second Screen Setup Auth Bridge (set-up-from-phone helper)
+com.google.android.syncadapters.calendar  # Google Calendar sync; no calendar app is installed on this TV
+
+# Google apps this owner does not use
+com.google.android.katniss                # Assistant and voice search, ~101 MB across two processes. Kills the remote's mic button, "Hey Google", on-screen voice search and the mic icon inside YouTube and Play Store search. Settings and tvsystemui guard their calls into it, so nothing crashes
+com.google.android.play.games
+com.google.android.videos                 # Google TV / Play Movies
+com.google.android.youtube.tvmusic        # YouTube Music
+com.google.android.marvin.talkback        # TalkBack screen reader; keep if anyone needs it
+
+# Preinstalled streaming apps. All of these sit in /data/app rather than on the system
+# partition, so unlike the vendor packages above they are ordinary user-installed apps.
+com.netflix.ninja
+com.amazon.amazonvideo.livingroom         # Prime Video
+com.apple.atve.androidtv.appletv
+com.disney.disneyplus
+com.zeasn.whalelive                       # WhaleLive (Zeasn) ad-supported FAST channels
+com.boosteroidtv.streaming                # Boosteroid cloud gaming
+com.witsoftware.ir.vodafonetv             # Vodafone TV; runs headless, no icon
+tv.sweet.tvplayer                         # Sweet TV (Ukrainian IPTV)
+tv.wuaki.apptv                            # Rakuten TV
+
+# Stock launcher and its content engine, replaced by launcher/ (or Projectivy).
+# ORDER MATTERS: disable the launcher FIRST. com.google.android.tvlauncher holds a stable
+# ContentProvider reference on tvrecommendations/.NotificationContentProvider, and
+# ActivityManagerService kills a client holding a stable ref when the provider's process dies —
+# so disabling tvrecommendations first force-stops the live 190 MB launcher process.
+# tvrecommendations is also the only resolver for the system notification panel
+# (OPEN_NOTIFICATIONS_PANEL and friends), so that panel is gone device-wide, not just from the
+# stock home screen. That is a conscious trade, not a side effect.
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables the stock launcher itself, after Home has moved # 190 MB resident, the single heaviest process on this TV
+com.google.android.tvrecommendations      # "Android TV Core Services" despite the name: recommendation rows, channels, notification panel
+
+# Stock YouTube, replaced by SmartTube (ads and sponsor segments). 119 MB resident vs ~35 MB.
+# Philips remotes of this generation often carry a dedicated YouTube key, which is bound to this
+# package and will stop doing anything. The remote on this particular unit has no such key, so
+# that was not a factor here -- check your own before you decide this matters.
+com.google.android.youtube.tv
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# DO NOT DISABLE on this platform. Checked by walking every intent resolver table and every
+# service binding, not by reading package names:
+#
+#   Ambilight and calibration  org.droidtv.ambiair, ambihuecommon, alhuewizard, audiocalibration,
+#                              calmancalibrator, bluetoothaudiosink
+#   Tuner, channels, inputs    org.droidtv.xtv, xtvsystem, playtv, channels, epgdata, dvbi,
+#                              teletext, ci, hdmiservice, euinstallertc, euinstallersat,
+#                              hbbtvopapp, tv.tptvservice, icp, sunrise,
+#                              com.mediatek.tvinput, tvinputservice.arbitratorservice,
+#                              tv.agent, com.android.providers.tv
+#   Shell, power, remote, keys org.droidtv.tvsystemui, tvpowermanagerservice, GlobalKey,
+#                              lkb (front-panel keypad), settings, menudataapp,
+#                              homeintentresolver, com.google.android.tv.remote.service
+#   Firmware update            org.droidtv.oad, com.easy.oad ("RC FW Update", remote firmware),
+#                              devicesetup, networkwizard, nettvregistration
+#   Browser engine             com.vewd.core.browserui plus org.droidtv.nettvbrowser — HbbTV and
+#                              the app gallery run on it
+#   USB media                  org.droidtv.contentexplorer ("Media")
+#   Contextual help            org.droidtv.eum -- see quirk 5. It looks like a pure e-manual
+#                              and it is not: persistent xtv binds its EUMService and retries
+#                              forever without it, which costs you the sources drawer
+#   Ambient screen             org.droidtv.aurora -- see quirk 5. Disabling it leaves xtv
+#                              retrying every 201 ms forever. Nothing visible breaks, but
+#                              re-enabling costs nothing: its process never starts at idle
+#
+# org.droidtv.philipstvdrawer is safe to disable but was kept on purpose: it is the Philips side
+# menu with shortcuts to the TV guide, channel list, sources, Media and quick settings — not ads.

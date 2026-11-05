@@ -1,0 +1,78 @@
+# TCL 55P7K, Middle East (device G10, product G10_4K_GB, model "Smart TV Pro", Realtek RTD2875P, 1.8 GB)
+# Android 12 (Google TV), firmware STT2.230203.001 AS16
+# Same G10 platform and build as tcl-g10-google-tv/, but with Middle East preloads (OSN+, Disney+ MEA,
+# iQIYI, Shahid) and nothing disabled at the factory: logkit, Samba TV ACR and ttvs all ship ENABLED.
+# Second unit: TCL 55C655 (2024), Italy, same build (G10_4K_GB, STT2.230203.001 AS16, BT_RC833_U1 remote).
+# Same factory state; it ran everything above except the streaming apps, Alexa and T-Solo (kept by choice)
+# plus the extras at the end, for a day and two reboots. No com.tcl.browser and no com.tcl.hotelmenu on it.
+# Remote buttons, the Web key and power-on on that unit: README.md.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55p7k/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55p7k/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# Lived with for a day and a reboot so far, with a custom launcher as Home; nothing broke.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV / HDMI app: com.tcl.tv.
+# Keep: com.tcl.tv, com.tcl.tvinput, com.tcl.suspension (the Input picker, VIEW_INPUTS), com.tcl.dashboard,
+# com.tcl.autopair, com.tcl.systemserver, com.android.tv.settings (also runs TCL's quick panels).
+# com.tcl.browser is kept here because the remote's Web key opens it.
+#
+# Known quirks on this firmware:
+# - Same as the other G10 sets: setupwraith claims Home once launcherx is disabled, so it goes too.
+# - The remote sends Settings as KEYCODE_NOTIFICATION (83), Netflix and YouTube as KEYCODE_TCL_NETFLIX and
+#   KEYCODE_TCL_YOUTUBE, and the Web key as raw code 4159. Keys injected with `input keyevent` never reach
+#   an accessibility service; test remaps with the real remote.
+# - Android's screen_brightness does nothing (TCL drives the backlight). TCL's own Audio Only mode turns
+#   the panel off with sound playing: `am startservice -a com.tcl.settings.SHOW_WINDOW -p
+#   com.android.tv.settings --es Type AudioOnly`.
+# - App log lines rarely show up in logcat (64K buffer); write diagnostics to a file instead.
+
+# TCL tracking and analytics
+tv.samba.ssm.ui                        # Samba TV ACR viewing tracking (enabled at the factory here)
+com.tcl.ttvs                           # TCL analytics service; re-enable if firmware updates stop arriving
+com.tcl.logkit                         # log capture and upload
+com.tcl.usercenter                     # TCL account sign-in nags
+com.google.android.feedback
+
+# TCL content, ads and promos
+com.tcl.waterfall.overseas             # TCL Channel / content feed
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.partnercustomizer              # TCL tweaks to Google TV home rows
+com.tcl.interactive                    # TCL TIAS background service
+com.tcl.messagebox                     # TCL push messages and promos
+android.autoinstalls.config.google.gtvpai   # silently installs partner apps
+
+# Retail demo / hotel mode
+com.tcl.exhibit
+com.tcl.esticker
+com.tcl.hotelmenu
+
+# Preloaded apps and services
+com.tcl.guard                          # TGuard memory "cleaner"
+com.tcl.ocean.instructions             # e-manual
+com.tcl.repairguide
+com.tcl.smartalexa                     # Alexa
+com.tcl.t_solo                         # T-Solo "listen alone" (Bluetooth headphones while the speakers stay off)
+
+# Needed for a custom launcher. Disable only AFTER the new launcher is installed.
+com.google.android.apps.tv.launcherx
+com.google.android.tungsten.setupwraith
+
+# Disabled by choice on this TV (unused streaming apps): comment out the ones you watch
+com.netflix.ninja
+com.amazon.amazonvideo.livingroom      # Prime Video
+com.disneyplus.mea                     # Disney+ (Middle East)
+com.osn.go                             # OSN+
+com.iqiyi.i18n.tv                      # iQIYI
+com.spotify.tv.android
+com.google.android.videos              # Google TV / Play Movies
+
+# Extras, disabled on the 55C655 unit (Italy)
+# com.tcl.UpdatePeripheral             # TCL soundbar firmware updater, kept here as shared lists keep updaters;
+#                                      # the 55C655 unit (no TCL soundbar) has it disabled
+com.android.printspooler
+com.google.android.syncadapters.calendar
+com.google.android.onetimeinitializer
+# com.google.android.youtube.tvmusic   # YouTube Music; the 55C655 unit has it off
+com.google.android.play.games          # Play Games

@@ -1,0 +1,93 @@
+# Sony BRAVIA KD-55XE8596 (2017, model string "BRAVIA 4K GB", product BRAVIA_ATV2_EU, MediaTek MT5891), UK
+# Android TV 9 (API 28), firmware Sony/BRAVIA_ATV2_EU/BRAVIA_ATV2:9/PTT1.190515.001.S52/672101:user/release-keys,
+# security patch 2022-01-05 (Sony has stopped updating it). 2 GB RAM, about 8 GB /data.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-kd-55xe8596/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-kd-55xe8596/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Same product and platform as examples/sony-bravia-4k-gb (that list is firmware S54; this one is the older S52
+# build, on the UK retail model). The package set matches. The difference is in the choices: this owner
+# kept Chromecast, mirroring, DLNA, USB media, the Assistant and the phone remote, and also disabled the
+# hotel/pro-mode b2b packages, the old leanback launcher and the print spooler.
+# Applied 2026-10-19 (most of the list) and 2026-10-20 (Samba TV, agents, feeds). Not lived with for days
+# yet, and not yet checked across a reboot. Checked after every batch: Home, Netflix, Jellyfin, live TV
+# and the HDMI inputs all still work, and there are no new crashes. Re-enable anything that breaks with `pm enable <package>`.
+#
+# Stock launcher: com.google.android.tvlauncher (restore.sh's default). Its HOME filter has priority 2,
+# so `cmd package set-home-activity` reports Success but does nothing until it is disabled.
+# com.google.android.leanbacklauncher is also installed, but it has no HOME activity here.
+# Live TV / input app: com.sony.dtv.tvx. Keep it: it plays every HDMI input too. On this UK firmware Live
+# TV hands over to YouView (com.sony.dtv.youview + com.sony.dtv.youview.servicehost, Freeview Play),
+# which has no leanback entry of its own: launch com.sony.dtv.tvx, not youview. Keep both, and keep
+# com.vewd.core.integration.dia (HbbTV / red button). Hide only its "Internet Browser" tile.
+# Keep: com.sony.dtv.tvinput.*, braviasync* (HDMI-CEC), remotepairing, rcpowerkey, uinputservice,
+# imeproxy, sonysystemservice, settingsprovider, all com.mediatek.* and mtktvapi.agent, timers,
+# webapi.core and remoteaccess (Sony IP control, used by Home Assistant's Bravia TV integration).
+#
+# Notes from this firmware:
+# - The launcher works: built from launcher/, installed with `adb install`, and Home switched by hand. Inputs
+#   lists HDMI 2, HDMI 3/ARC, HDMI 4 and Live TV, with the input labels set in Sony's settings and the CEC
+#   device name in place of the port name, and real per-port "Connected" / "No device" status. config.xml:
+#   live_tv_package com.sony.dtv.tvx; put com.sony.dtv.tvx in dock_apps if you want a TV tile.
+# - /data was down to 1.5 GB free, nearly all of it app caches. `pm trim-caches 8G` took it to 2.8 GB, so
+#   run it before installing anything.
+# - The `uiautomator dump` of a launcher with an animated wallpaper never finishes, so use screencaps there.
+
+# ACR viewing tracker
+tv.samba.ssm                                   # Samba TV fingerprints what's on screen
+
+# Sony and Google content, ads and promos
+com.sony.dtv.sonyselect                        # Sony Select app store/promo tile
+com.sony.dtv.sonyselect.overlay
+com.sony.dtv.promos                            # My BRAVIA promos
+com.sony.dtv.discovery                         # Sony Discover content bar
+com.sony.dtv.bivlinfo                          # BIVL content service list (feeds Discover)
+com.sony.dtv.tvlaunchercustomizer              # Sony tweaks to the stock home rows
+com.google.android.tvrecommendations           # recommendation rows for the stock launcher; other
+                                               # launchers' Watch Next and channel rows still fill
+android.autoinstalls.config.sony.bravia        # Play auto-install of partner apps
+
+# Retail demo
+com.sony.dtv.demomode
+com.sony.dtv.demosupport
+com.sony.dtv.multiscreendemo
+
+# Telemetry, remote support and feedback
+com.sony.dtv.da.service                        # Sony device agent / remote support
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.sonybugreportsys
+com.google.android.tv.bugreportsender
+com.google.android.feedback
+com.sony.dtv.b2b.vendorprotocol                # Node.js SDDP broadcaster for Control4-style home automation;
+                                               # re-enable if you use one
+
+# Hotel / professional mode (unused in a home; the sony-bravia-4k-gb list leaves these alone)
+com.sony.dtv.b2b.hotelmode
+com.sony.dtv.b2b.prosettings
+com.sony.dtv.b2b.importexport
+com.sony.dtv.b2b.rs232csupport                 # RS-232C control; re-enable if something drives the TV over serial
+
+# Preloaded apps and leftovers
+com.sony.dtv.customersupport                   # Help tile
+com.sony.dtv.imanual                           # i-Manual
+com.google.android.videos                      # Play Movies
+com.google.android.play.games
+com.google.android.leanbacklauncher            # old Android TV launcher, no HOME activity on this build
+com.android.printspooler                       # printing, nothing to print to
+
+# Left enabled on purpose: features, not bloat. Uncomment any line to disable it too.
+# com.sony.dtv.smarthelp                       # Help
+# com.sony.dtv.smarthomesettings               # "Works with Alexa" setup (Amazon login, runs at boot)
+# com.google.android.youtube.tvmusic           # YouTube Music
+# com.google.android.backdrop                  # ambient screensaver
+# com.google.android.apps.mediashell           # Chromecast built-in
+# com.google.android.katniss                   # Google Assistant / voice search
+# com.google.android.tv.remote.service         # Android TV phone-app remote (and Home Assistant's Android TV Remote)
+# com.sony.dtv.smartmediaapp                   # Media Player, plays files from USB
+# com.sony.dtv.osat.music                      # plays music from USB
+# screnmirroring.com                           # Screen mirroring (Miracast)
+# com.sony.dtv.networkapp.wifidirect
+# com.sony.huey.dlna.module                    # DLNA renderer
+# com.sony.huey.dlna.renderersettings
+# com.sonyericsson.dlna

@@ -1,0 +1,47 @@
+# Stellamore T950S projector (Droidlogic be30a3, ro.product.devicetype=T950S, Amlogic txhd2)
+# Android 13 (API 33, armeabi-v7a). Firmware fingerprint:
+#   Android/r34a1/r34a1:5.1.1/LMY47V/20220912:userdebug/test-keys
+#   ro.stellamore.devicetype=STM930M8001_HTP_A3_WZATCO
+# ~1 GB RAM. Sold as a "4K" projector box; usually arrives with a third-party launcher
+# (com.overdevs.at4k) already set as Home and the stock Zeasn launcher already disabled.
+#
+# Apply:  TV_HOST=<ip> tools/disable.sh examples/stellamore-t950s/debloat.txt
+# Undo:   TV_HOST=<ip> tools/restore.sh examples/stellamore-t950s/debloat.txt com.zeasn.whale.saas
+# Everything is disabled with `pm disable-user`, never uninstalled. Tested 2026-10-19.
+#
+# Device-specific names:
+#   stock launcher : com.zeasn.whale.saas            (pass it to restore.sh / build-and-install)
+#   Live TV app    : com.droidlogic.android.tv
+#   keystone/geometry: com.droidlogic.keystone       <-- KEEP, disabling breaks the projected image
+#   sideload tile  : com.droidlogic.appinstall ("AppInsta..."), File Manager: com.stellamore.filemanager
+#   com.hysd.client + com.hysd.hyscreen (hysd.cn "HYSDVAFocus") are a voice/focus pair and are LEFT ON.
+#
+# Adware found here: both the Zeasn "App Store" (TvStore_zeasn) and the stock Zeasn launcher
+# (TvLauncher_zeasn) bundle Google's Ads/AdMob SDK (com/google/ads/*) and call
+# googleads.g.doubleclick.net, ad.doubleclick.net and dai.google.com. Both are priv-apps that ask
+# for SYSTEM_ALERT_WINDOW + INSTALL_PACKAGES and register a BOOT_COMPLETED receiver.
+
+# --- Zeasn adware / vendor cloud ---
+zeasn.open.technical.tv.store.stellamore.tv      # "App Store" home tile - ships Google Ads (doubleclick)
+com.zeasn.deviceportal.asdprovider.xym_hisi351   # device portal/OTA (ASDMainService -> smarttv.zeasn.tv)
+# com.zeasn.whale.saas                           # stock launcher - also ships Google Ads (doubleclick).
+#                                                # Left to build-and-install.sh, which disables it only once
+#                                                # the new launcher is installed; uncomment if another
+#                                                # launcher already owns Home on your unit.
+
+# --- Stellamore factory / test / guide junk ---
+com.stm                                          # STMFeaturesTest
+com.stm.factorytest                              # STMFactoryAutoTest
+com.stellamore.tvfactory                         # STMFactory
+com.stellamore.guide                             # STMGuide setup wizard
+
+# --- Phone-style Google bloat, unused on a projector ---
+com.android.printspooler
+com.android.musicfx
+com.android.providers.calendar
+com.android.providers.contacts
+com.google.android.syncadapters.calendar
+com.google.android.syncadapters.contacts
+com.android.wallpaperbackup
+com.android.adservices.api                       # Android on-device ad framework
+com.android.ondevicepersonalization.services     # on-device ad personalization

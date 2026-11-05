@@ -1,0 +1,50 @@
+# Hisense E5Q Pro (internal model "VIDAA_TV", MediaTek MT9653), VIDAA on Android 11, firmware 02.02.70.01
+# Security patch 2022-09-05. China-market set: a VIDAA/Android hybrid with no Google TV launcher,
+# so the stock home is com.jamdeo.tv.vod and the tuner app is com.jamdeo.tv.livetv; both are left
+# alone here. The VIDAA UI keeps working; this list only removes the ad, telemetry, push and
+# preloaded-content layer on top of it.
+# Same VIDAA_TV / MT9653 / 02.02.70.01 build as examples/vidda-mt9653/, which goes further (it also
+# swaps the launcher); this list is the conservative subset that keeps the stock home.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hisense-e5q-pro/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hisense-e5q-pro/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Applied and lived with for a few days: no crashes, normal boot, and the inputs / HDMI-CEC and the
+# Sogou TV keyboard kept working. OTA (com.jamdeo.updateservice, com.hisense.usbupgrade,
+# com.hisense.playerupdate) is left enabled on purpose so firmware updates still arrive.
+#
+# Also useful on this firmware, as an extra ad-block flag (not a package):
+#   settings put global com.hisense.service.ad_block 1
+
+# Hisense advertising
+com.hisense.business.ad                # ad SDK
+com.hisense.service.ad                 # ad service
+
+# Hisense telemetry and reporting
+com.hisense.platformreport
+com.hisense.logupload
+
+# Hisense push messages
+com.hisense.service.message
+
+# Store, hotel and demo modes
+com.hisense.demonstrate
+com.hisense.hotelmenu
+
+# Preloaded content and gimmicks
+com.hisense.electronictutorial         # electronic manual
+com.hisense.ar.baike                   # AR encyclopedia
+com.vision.aibook                      # AI picture book
+com.hisense.tv.foodmanage              # recipe app
+com.hisense.tv.fitmirror               # fitness mirror
+com.hisense.tv.videochat.social        # preloaded video chat
+com.hisense.tv.videoconference         # video conferencing
+
+# First-run setup and the ambience-photo screensaver
+com.jamdeo.tv.fte
+com.vt.ambiencephoto
+
+# Weather and calendar
+com.hisense.tv.weather
+com.jamdeo.calendar

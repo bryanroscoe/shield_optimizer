@@ -1,0 +1,61 @@
+# SHARP AQUOS TVE21F (reported as AQUOS-TVE21F; device banqiao, product tcpreue_b), UK
+# Android TV 14 (SDK 34), firmware UKNV.260623.001, CVTE/MediaTek platform, 1.8 GB RAM
+# Stock launcher: com.google.android.tvlauncher (already disabled when this list was applied)
+# Live TV app: com.mediatek.wwtv.tvcenter; HDMI/tuner inputs: com.mediatek.tvinput
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sharp-aquos-tve21f/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sharp-aquos-tve21f/debloat.txt
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+#
+# Applied and verified on 2026-10-20: screenshots after each batch, Live TV, HDMI 1, Play Store and
+# SmartTube playback. Package names never say what they do on this firmware: every entry below was
+# checked with `dumpsys package` first.
+#
+# Kept on purpose: Google Play Store + Play Services, Gboard, Google TTS, Dolby audio,
+# com.mediatek.tvinput / com.mediatek.tv.service / com.mediatek.wwtv.tvcenter (Live TV and HDMI),
+# com.mediatek.wwtv.setupwizard (channel scan), com.mediatek.wwtv.mediaplayer (USB media),
+# com.mediatek.tv.freeviewplay, com.cvte.hotkey.dispatcher (remote hotkeys),
+# com.cvte.automaticbrightnesscontrol, com.cvte.tv.kmode (picture mode), com.cvte.tv.infoprovider,
+# all com.cvte.overlay.* and com.mediatek.* overlays, com.mstar.android.tv.disclaimercustomization.
+
+# --- Manufacturer telemetry, recommendation rows and retail/partner plumbing ---
+tv.anoki.acr.anokiacroptin
+fusion.android.tv.demo                   # retail demo mode
+android.autoinstalls.config.sharp        # PAI partner auto-install stub
+android.autoinstalls.config.hkc          # PAI partner auto-install stub
+com.mediatek.android.leanbacklauncher.partnercustomizer  # partner rows for the stock launcher
+
+# --- Manufacturer factory / test only apps ---
+com.cvte.tv.fac.menu                     # factory menu
+com.cvte.tv.fac.aging                    # factory aging test
+com.at.factory.factorymanager            # factory test manager
+com.at.factory.androidtvaidlservice      # factory test service
+com.cvte.tv.at                           # factory auto-test activity
+
+# --- Google telemetry, recommendations, first-run wizard and phone remote ---
+# setupwraith: checked first with `dumpsys wifi | grep -o 'cname=[^ ]*'`; the saved network belongs to
+# android.uid.system / com.google.uid.shared, not to setupwraith, and it stayed connected.
+com.google.android.tvrecommendations
+com.google.android.feedback
+com.google.android.partnersetup           # Play partner customizations
+com.google.android.backdrop               # ambient screensaver
+com.android.tv.feedbackconsent            # feedback consent dialog
+com.google.android.syncadapters.calendar  # calendar sync (calendar provider already disabled)
+com.google.android.tungsten.setupwraith   # Google TV first-run wizard, finished long ago
+com.google.android.katniss                # Google Assistant / voice search, off by choice
+com.google.android.apps.mediashell        # Chromecast, off by choice
+com.google.android.tv.remote.service      # phone remote app, off by choice
+
+# --- Unused preloaded apps ---
+com.tcl.browser
+com.cxinventor.file.explorer              # X-plore file manager
+
+# --- Unused streaming / media apps (off by choice; all still installed) ---
+com.amazon.amazonvideo.livingroom
+com.disney.disneyplus
+com.spotify.tv.android
+tv.arte.plus7
+fr.francetv.pluzz
+com.megogo.application
+com.limelight
+org.videolan.vlc

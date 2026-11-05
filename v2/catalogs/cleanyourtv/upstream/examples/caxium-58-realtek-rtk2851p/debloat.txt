@@ -1,0 +1,46 @@
+# Caxium 58" 147 cm UHD Smart TV (Realtek RTD285O, TopTech + Zeasn platform), Android TV 9 (API 28),
+# build RTK2851P (Realtek/RealtekATV/RealtekATV:9/RTK2851P, userdebug), 1.5 GB RAM.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/caxium-58-realtek-rtk2851p/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/caxium-58-realtek-rtk2851p/debloat.txt cn.zeasn.launcher.vstoresubclient.toptech
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher is cn.zeasn.launcher.vstoresubclient.toptech (Zeasn). It is not in this list: disable it only
+# once a replacement Home is installed (launcher/build-and-install.sh with STOCK_LAUNCHER=<that package>).
+# com.android.tv.settings has a FallbackHome as the last resort. There is no Live TV app with a leanback entry.
+#
+# Notes from this TV:
+# - Sideloading works: pm install of a package declaring category HOME succeeds (no verifier block).
+# - The TV is Android 9 with the plain adb binary: it reported ro.adb.secure unset and ro.vendor.rtk.force_usb_adb=1,
+#   so port 5555 may give a shell to anyone on the LAN while ADB is on. Turn debugging off when done.
+# - Inputs menu: nothing on this TV answers ACTION_VIEW on a passthrough input URI. com.toptech.tvmenu/.MainActivity
+#   answers com.toptech.tv.action.TUNE, but only for an intent without a MIME type, and Android types a content: URI
+#   by asking its provider. A launcher intent that carries the type never matches; an explicit component does.
+# - Kept in use: Netflix (the phone build, com.netflix.mediaclient), YouTube, YouTube Music, Chrome, EShare
+#   cast/AirPlay/DLNA (com.ecloud.*), the USB media browser (com.rtk.mediabrowser, com.hitv.explore), the Aptoide
+#   store (Zeasn vstoresubclient).
+# - Leave alone: com.toptech.tv.service (TV core, persistent), com.toptech.tvmenu (source/input menu),
+#   com.toptech.tvfactory and factorytools (factory menus), all com.realtek.* (inputs, tuner, providers),
+#   com.android.tv.settings, Play Store and Play Services, and com.mgoogle.android.gms (microG, runs next to them).
+# - The saved Wi-Fi network belongs to android.uid.system, not to a setup wizard, so nothing here deletes it.
+# - Netflix for TV (com.netflix.ninja) is not offered by Play on this build. Official 7.3.1 and 8.3.11 open but fail
+#   with ui-800-3 / -121, and 13.2.1 crashes natively in libgibbon.so; the firmware is not Netflix-certified.
+
+# Content, ads and auto-installs
+com.zeasn.services.general             # Zeasn services: SHOW_AD action, weather, YouTube/search shortcuts
+android.autoinstalls.config.realtek.device  # Play auto-installs of partner apps
+
+# Telemetry and update check
+com.zeasn.deviceportal.asdprovider.toptech  # Zeasn device portal; also OTA_PULL_CHECK, so no firmware update notices
+
+# Background services not needed
+com.android.printspooler
+
+# Preloaded apps the owner does not use
+com.amazon.avod.thirdpartyclient       # Prime Video
+com.disney.disneyplus
+com.spotify.tv.android
+com.facebook.katana
+
+# Voice assistant (owner does not use it; the remote's microphone button stops working)
+com.google.android.katniss

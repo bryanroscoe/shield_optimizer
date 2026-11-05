@@ -1,0 +1,105 @@
+# Hisense SmartTV 4K FFM (device huangshan, MediaTek), Android TV 10, firmware QTG3.200902.001
+# Security patch 2023-02-05. Sold in Latin America; the Android model string is "SmartTV 4K FFM".
+# The same device and build ships in the USA as the Hisense U9DG (75" Dual-Cell ULED, 2021), with a
+# US preload set: the "US (U9DG)" groups below. 2 GB RAM, armeabi-v7a (32-bit userspace), 7.7 GB /data.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hisense-smarttv-4k-ffm/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hisense-smarttv-4k-ffm/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# WARNING, read before applying: a first version of this list that also disabled
+# com.hisense.tv.smartsense, com.vt.tv.smartsense.ui and com.vt.tv.aiot sent the TV to Android
+# Recovery on the next boot ("Can't load Android system. Your data may be corrupt"). "Try again"
+# booted normally and tools/restore.sh undid everything. Which of the three was the cause is not
+# confirmed, so all three are left out below. Never pick "Factory data reset" on that screen
+# before trying "Try again".
+# This list was then applied in seven groups with a reboot after each: no crashes, normal boot.
+# If you experiment with more packages, reboot after each small group, and wait ~15 s after
+# pm disable-user before rebooting: rebooting immediately lost the change on this TV.
+# US (U9DG), 2026-10-21: the Hisense, Google and US groups applied in five batches with a reboot after
+# each, OTA kept: normal boot every time, all 7 inputs (HDMI 1-4, composite, two tuners) still
+# registered, HDMI switching from the launcher and Chromecast work. Fresh on that set, not yet lived
+# with for weeks.
+#
+# ADB: turning USB debugging on opens port 5555 directly (no Wireless debugging pairing);
+# ro.adb.secure=1, so the TV asks "Allow USB debugging?" on first connect.
+# Input button (U9DG Bluetooth remote, Vendor_000d_Product_3838.kl): scancode 220 = KEYCODE_TV_INPUT,
+# which the Live TV app and the launcher's InputKeyService turn into com.android.tv.action.VIEW_INPUTS.
+# Nothing on this firmware answers that action once tvlauncher is disabled (no global_keys.xml, no
+# vendor input picker), so the button does nothing until the launcher answers it itself:
+# handle_view_inputs in config.json in this folder (TV_HOST=<tv ip> tools/theme.sh
+# examples/hisense-smarttv-4k-ffm), with INPUT_KEY_SERVICE=1 at install.
+# setupwraith (com.google.android.tungsten.setupwraith) owns the Wi-Fi saved at setup but does not
+# claim HOME on this firmware, so it stays enabled; launcher/build-and-install.sh worked unchanged.
+#
+# Keep: com.mediatek.* (including com.mediatek.wwtv.tvcenter, the Live TV and HDMI app),
+# com.hisense.tv.hitvinput, com.hisense.tv.smartservice, com.vidaa.persistent.service,
+# com.hisense.tv.customerlauncher. HDMI-CEC and the inputs keep working with this list.
+# Stock launcher: com.google.android.tvlauncher (the default in restore.sh).
+# Already disabled at the factory: net.vidaatv.android.tv, Pandora, Vudu, Play Games (and on the
+# U9DG also Google TV movies, YouTube Music, the Hisense browser and the calendar provider).
+
+# Hisense telemetry: ACR ("Enhanced Viewing" content recognition and data-sharing consent)
+com.hisense.evservice
+
+# Google tracking and silent auto-installs (checked on the US U9DG, same build)
+com.google.android.partnersetup                  # partner referral tracking
+android.autoinstalls.config.hisense.huangshan    # PAI: queues partner apps (Sling, FanDuel, Freevee tiles on the US set)
+com.google.android.feedback                      # crash/feedback uploader
+com.google.android.tv.bugreportsender
+com.google.android.syncadapters.calendar         # unused on a TV
+
+# Hisense content, preloads and push messages
+net.vidaatv.hisense.android.tv         # VIDAA app preload
+com.hisense.fte                        # first-time experience
+com.hisense.hibrowser
+com.hisense.service.message            # Hisense push messages
+
+# Retail demo / store / hotel mode
+com.hisense.storemode
+com.hisense.hotelmode
+com.hisense.tv.b2b
+com.demo
+
+# Firmware updates. Re-enable all three to receive an OTA update.
+com.hisense.tv.ota
+com.hisense.remoteupgrade
+com.vt.tv.usbota
+
+# Google home-screen content
+com.google.android.tvrecommendations
+com.google.android.videos              # Google TV movies
+com.google.android.youtube.tvmusic
+
+# Voice assistants. The remote's microphone button stops working.
+com.hisense.alexa
+com.google.android.tv.assistant
+com.google.android.katniss             # Google Assistant and voice search
+
+# US (U9DG) preloaded streaming apps, off by choice. Comment out the ones you use. Kept on that set:
+# Netflix, YouTube, Prime Video, Disney+, HBO Max, Apple TV, Hulu, Peacock, Peloton, Tubi, Pluto TV.
+com.google.android.youtube.tvkids
+com.google.android.youtube.tvunplugged           # YouTube TV
+com.cbs.ott                                      # Paramount+
+tv.twitch.android.app
+com.vimeo.android.videoapp
+com.ted.android.tv
+com.clearchannel.iheartradio.tv
+com.espn.score_center
+com.foxsports.videogo
+com.nousguide.android.rbtv                       # Red Bull TV
+com.abclocal.kabc.news                           # ABC7 Los Angeles
+com.imdbtv.livingroom                            # IMDb TV / Freevee
+com.yeelink.yeelightflow.hisense.overseas        # Yeelight smart-light app
+
+# Sharing services, off by choice on the U9DG. Chromecast (com.google.android.apps.mediashell) kept.
+com.mediatek.androidbox                          # Miracast screen sharing (WFDSinkTest)
+com.hisense.tv.hisremotenow                      # RemoteNOW phone app
+com.hisense.tv.hisremotenowserver
+
+# Do NOT disable (see warning above): com.hisense.tv.smartsense, com.vt.tv.smartsense.ui, com.vt.tv.aiot
+# Checked with dumpsys and kept because they look tied to the system or features:
+# com.vt.tv.aipq (picture quality), com.hisense.tv.protector, com.hisense.kpad, com.hisense.favkey,
+# com.hisense.uifac, com.hisense.tv.rcs, com.hisense.mixbar, com.hisense.tv.dlna,
+# com.jamdeo.tv.mediacenter (USB media), com.hisense.audio_update_service, com.vt.eula,
+# com.hisense.tv.videocolor.

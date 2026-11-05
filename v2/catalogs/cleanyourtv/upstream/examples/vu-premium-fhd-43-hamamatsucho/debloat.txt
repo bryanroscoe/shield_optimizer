@@ -1,0 +1,15 @@
+# Vu Premium FHD 43-inch (ro.product.model Smart 2K ATV4, device hamamatsucho), India
+# Android TV 9 (SDK 28), firmware PTO4.200424.001; manufacturer reports Hisense.
+# Live TV app: com.mediatek.wwtv.tvcenter. Stock launcher: com.google.android.tvlauncher
+# (disable it only after the replacement launcher is installed and selected as Home).
+# Tested on 2026-10-20; the packages below were disabled and the TV remained usable.
+# Apply: TV_HOST=<tv ip> tools/disable.sh examples/vu-premium-fhd-43-hamamatsucho/debloat.txt
+# Undo:  TV_HOST=<tv ip> tools/restore.sh examples/vu-premium-fhd-43-hamamatsucho/debloat.txt
+# This deliberately excludes core TV, network, input, Play Store, casting,
+# streaming and Assistant packages. Restore with the same file if needed.
+
+com.google.android.tvrecommendations              # stock recommendation/content rows
+com.google.android.leanbacklauncher.recommendations # recommendation service
+com.cvte.startpartnertv                           # preloaded partner-TV app
+com.cvte.startpartnertvvod                        # preloaded VOD partner app
+fusion.android.tv.demo                            # retail/store-demo software

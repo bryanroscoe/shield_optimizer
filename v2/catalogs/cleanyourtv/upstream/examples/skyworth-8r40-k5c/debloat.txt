@@ -1,0 +1,52 @@
+# Skyworth / Coocaa 8R40_K5C (Realtek rtd285x, 1 GB RAM, 32-bit), Android 8.0 (API 26), build OPR6.170623.012
+# Mainland China domestic firmware (com.tianci.* / com.coocaa.* family), NOT the Google-TV
+# Skyworth in examples/skyworth-sw-22sa (that one is com.smartdevice.*, Android 14).
+# Stock launcher: com.tianci.movieplatform (hardcoded in /system/pcfg, DO NOT DISABLE).
+# Live TV / System UI: com.skyworth.tv (DO NOT DISABLE).
+# If you pass package names to tools/restore.sh or launcher/build-and-install.sh, use the two above.
+#
+# Apply:    TV_HOST=<tv ip> tools/disable.sh examples/skyworth-8r40-k5c/debloat.txt
+# Undo:     TV_HOST=<tv ip> tools/restore.sh examples/skyworth-8r40-k5c/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# CRITICAL SAFETY TRAPS (READ BEFORE USING). Full details: docs/devices/skyworth-8r40-k5c.md
+# 1. The ONLY ADB toggle lives inside Settings > 基本设置 > 设备信息 (About this TV) > 更多信息.
+#    That page crashes if any of these are disabled:
+#      com.tianci.de
+#      com.skyworthdigital.stb.dataprovider
+#      com.coocaa.sky.ccapi
+#    A crashed About page means ADB can never be re-enabled: factory reset is the only way out.
+#    BEFORE debloating, install Activity Launcher (de.szalkowski.activitylauncher.oss) and confirm you
+#    can open com.tianci.setting/.factorysetting.FactorySetting (action coocaa.intent.action.TIANCI_FACTORY).
+#    Apply in small batches and re-open the About page after each batch.
+# 2. DO NOT DISABLE com.tianci.movieplatform (stock launcher) or any other current launcher.
+#    HOME is hardcoded in read-only /system/pcfg and no package declares category HOME, so disabling
+#    the launcher gives a black screen on boot (sys.boot_completed never set).
+# 3. Do not touch persist.service.homepage.* props. Setting persist.service.homepage.switch 0 stopped
+#    adbd from starting after reboot on the reporter's unit.
+#
+# Boot ad (not a package, run once over ADB, survives reboot):
+#   tools/tv.py 'setprop persist.sys.bootvideo.time 1'
+
+# Boot ads and autostart queue (disabled from the factory on many units, zero risk)
+com.tianci.ad              # Coocaa ad engine (boot ad, started by bootQueue.xml at ~5 s)
+com.tianci.push            # Boot push notifications (bootQueue.xml, ~1.2 s)
+com.tianci.appstore        # Coocaa App Store
+com.tianci.ipc             # Tianci IPC helper
+com.tianci.autoinstaller   # Background APK auto-install service
+
+# Account service. Verified safe in one batch, BUT the reporter saw the About page crash after
+# disabling com.coocaa.sky.ccapi "and/or" this package. Disable it LAST and re-check About.
+com.tianci.user            # Account management
+
+# Commercial bloatware and unused features
+com.baidu.oases            # Baidu Oases / security scanner
+com.coocaa.mall            # Shopping portal
+com.coocaa.activecenter    # Activity / promotions center
+com.coocaa.app_browser     # Built-in lightweight web browser
+com.coocaa.messageprovider # System message popups
+com.coocaa.tvpitv          # PiTV aggregation service
+com.coocaa.theme.child     # Children's mode theme
+com.icoolme.tv.weather     # Weather preload
+com.skyworth.blockchain    # Blockchain preload
+com.skyworth.smarthome_tv  # Smart home dashboard

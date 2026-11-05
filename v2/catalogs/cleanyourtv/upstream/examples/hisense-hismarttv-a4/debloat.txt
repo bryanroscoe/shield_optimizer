@@ -1,0 +1,52 @@
+# Hisense HiSmartTV A4 (device xiaoyushan, product xiaoyushan-em, MStar/MediaTek m7322), Android TV 9,
+# firmware PTMR.190127.037 (build 01.00.00.04), security patch 2020-05-05. Sold in India.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hisense-hismarttv-a4/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hisense-hismarttv-a4/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# ADB: Developer options has USB debugging only, no Wireless or Network debugging toggle. Turning
+# USB debugging on opens network ADB on port 5555 directly.
+# Applied in the four groups below with ~15 s wait and a reboot after each (as the Hisense FFM list
+# advises): normal boot every time, HDMI 1-3, AV and the tuner still listed by the TV input framework.
+# Stock launcher: com.google.android.tvlauncher (the default in restore.sh). It is not in this list:
+# launcher/build-and-install.sh disables it after the new launcher is running. The stock home shows a
+# full-width "Sponsored" banner and a sponsored row, which only goes away with the launcher swap.
+#
+# Keep: com.mediatek.* (Live TV, HDMI, hotkeys, factory), com.hisense.tv.hitvinput (the HDMI/AV/tuner
+# inputs), com.hisense.kpad (remote's menu key), com.mstar.netflixobserver (remote's Netflix key),
+# com.hisense.tv.customerlauncher, com.hisense.uifac, com.hisense.audio_update_service, and
+# com.hisense.tv.smartsense (left alone because of the Recovery warning in hisense-smarttv-4k-ffm).
+# Kept by choice: Chromecast (mediashell), Assistant (katniss, pumpkin), Miracast receiver
+# ("Screen Sharing", com.mediatek.androidbox), YouTube.
+# Already disabled at the factory: com.google.android.backdrop, com.google.android.apps.inputmethod.zhuyin.
+
+# Group 1: telemetry
+com.hisense.app.logreport              # Hisense LogReportManagerService
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# Group 2: recommendation rows, retail demo, silent preload installs
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+com.google.android.leanbacklauncher    # old launcher, not a HOME candidate on this firmware
+com.hisense.storemode
+fusion.android.tv.demo                 # retail display
+com.mstar.android.tv.disclaimercustomization   # store disclaimer screen
+android.autoinstalls.config.hisense.xiaoyushan
+
+# Group 3: preloaded apps
+com.seraphic.browser                   # Hisense browser
+com.google.android.music               # Play Music, discontinued
+com.google.android.videos
+com.google.android.play.games
+com.google.android.apps.nbu.smartconnect.tv
+com.netflix.ninja                      # off by choice
+com.amazon.amazonvideo.livingroom      # Prime Video, off by choice
+com.hisense.tv.hisremotenow            # RemoteNOW phone remote, off by choice
+com.jamdeo.tv.mediacenter              # USB media player, off by choice
+com.hisense.myapplication              # Hisense screensaver (DayDreamService), off by choice
+
+# Group 4: firmware updates. Re-enable both to receive an OTA update.
+com.hisense.tv.ota
+com.hisense.remoteupgrade

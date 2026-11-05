@@ -1,0 +1,67 @@
+# Xiaomi MiTV-AXSO0 (codename dangal; sold as Mi TV 4C Pro 2019 and Mi TV 4A Pro), Android TV 9 (SDK 28),
+# firmware PI.6036, Amlogic/droidlogic.
+# Live TV app: com.android.tv (set it as live_tv_package and hide it in launcher config.xml).
+# Stock launcher: com.google.android.tvlauncher (the default, disabled by build-and-install.sh).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-axso0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-axso0/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Notes from this firmware:
+# - Default IME is already Gboard, so the Mi TV 4A missing-keyboard quirk doesn't apply.
+# - `svc power reboot` gets killed; reboot through adb's own reboot service instead.
+# - com.google.android.leanbacklauncher is re-enabled by the firmware at every boot, so it's not listed.
+# - Glance (com.glance.tv) puts news and ads on the lock/standby screen; with it off the screensaver is clean.
+# - Netflix, Prime Video and YouTube are preinstalled system apps, so they always get BOOT_COMPLETED.
+#   Other apps stay out of the boot-time rush after `am force-stop`, until someone opens them again.
+# - Power-on can land on Live TV's empty antenna input ("Set up your sources") instead of Home, even with
+#   the launcher installed. Xiaomi's `set_auto_play` setting (1 out of the box) does it:
+#   `settings put global set_auto_play 0` stops it, and the TV then starts on Home.
+#   Undo: `settings put global set_auto_play 1`.
+
+# Xiaomi + Google telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# PatchWall, content rows, sponsored rows
+com.mitv.tvhome.atv
+com.xm.webcontent
+com.xiaomi.floatingframe
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+android.autoinstalls.config.xioami.dangal   # Play auto-install of partner apps (sic, "xioami")
+com.glance.tv                               # Glance lock-screen news and ads
+com.mitv.tvhome.mitvplus                    # Mi TV+ sponsored live channels
+co.sensara.tv.mitv                          # Sensara partner TV guide (sponsored show recommendations)
+
+# Xiaomi background services
+com.xiaomi.mitv.tvmanager                   # "TV Manager" cleaner
+com.xiaomi.mitv.handbook
+com.xiaomi.mitv.updateservice               # firmware updates: re-enable to check for one
+com.xiaomo.tv.milegal                       # static legal / privacy text screens
+
+# Personal choice: voice assistant (the mic button stops working)
+com.google.android.katniss
+com.google.android.speech.pumpkin
+
+# Personal choice: casting / mirroring
+com.google.android.apps.mediashell          # Chromecast built-in
+com.mitv.milinkservice                      # Mi Cast
+com.xiaomi.mitv.smartshare
+com.xiaomi.wfdsinkhelperservice             # Miracast sink
+
+# Preloaded apps
+com.xiaomi.mimusic2
+com.google.android.play.games
+com.google.android.videos                   # Play Movies & TV
+com.mitv.gallery                            # Mi Gallery; Media Player still opens USB photos
+
+# Personal choice: preloaded streaming apps not used
+com.fancode.tv
+com.suntv.sunnxt.mitv
+com.eros.mitv
+com.discoveryplus.mitv
+com.ddnational.prasarbharati
+net.aljazeera.english

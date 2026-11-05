@@ -1,0 +1,78 @@
+# Sony BRAVIA 4K AE2 (BRAVIA_AE2, MediaTek MT5897 "merak"), North American firmware
+# Google TV 14 (API 34), build BRAVIA_AE2_NA-user 14 UKN4.250422.001 603100
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-bravia-ae2/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-bravia-ae2/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it as STOCK_LAUNCHER / to restore.sh).
+# No separate Live TV app on this set: HDMI inputs come from TvInputManager, so leave live_tv_package empty.
+# Keep the com.sony.dtv.tvinput.* HDMI services, com.sony.dtv.tvapi, com.sony.dtv.sonysystemservice
+# and the Sony settings apps: they drive HDMI, picture settings and the remote.
+#
+# Quirks on this firmware, all checked on the TV:
+# - Network ADB: pair once with Wireless debugging (`adb pair <ip>:<port> <code>`, then
+#   `adb connect` to the port `adb mdns services` shows), then `adb tcpip 5555` for tools/tv.py.
+#   Port 5555 closes again after a reboot.
+# - com.google.android.tungsten.setupwraith claims HOME with priority 1 (RecoveryActivity); disable it
+#   before launcherx or Home can land on it.
+# - The default screensaver is com.sony.dtv.livingfit; with it disabled the TV has none until you
+#   pick another (the launcher's Clock: `settings put secure screensaver_components
+#   com.gathin.tvhome/.ClockDream`).
+# - YouTube Music for TV (com.google.android.youtube.tvmusic) ends its media session when you leave it,
+#   so music stops on Home; SoundCloud keeps playing.
+#
+# Most of this list was disabled by the owner before the launcher went on and has been lived with;
+# the Sony agents, help and Play extras marked (new) were added on 19 October 2026. If something
+# breaks, re-enable it with `pm enable <package>` and please report it.
+
+# tracking / ads / recommendations
+tv.samba.ssm                                   # Samba TV (ACR viewing data)
+tv.samba.ssm.ui                                # Samba TV's opt-in and settings screens
+com.qterics.da.product                         # (new) Qterics device agent
+com.sony.dtv.da.service
+com.sonyericsson.idd.agent                     # (new) Sony usage data
+com.sony.dtv.usercontext                       # viewing context for recommendations
+com.sony.dtv.seeds.iot
+com.sony.dtv.promos
+com.sony.dtv.sonyselect
+com.sony.dtv.sonytab                           # Sony tab on the Google TV home; unused once launcherx is off
+com.google.android.feedback                    # (new)
+com.sony.dtv.sonybugreportsys                  # (new) bug-report uploader
+com.sony.dtv.b2b.vendorprotocol                # (new) broadcasts model/MAC/IP over SDDP
+android.autoinstalls.config.sony.bravia        # (new) Play auto-install of partner apps
+
+# demo / shop mode
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+
+# help
+com.sony.dtv.customersupport                   # (new) Help tile
+com.sony.dtv.smarthelp                         # (new)
+
+# Sony extras, disabled by choice
+com.sony.dtv.calibrationmonitor
+com.sony.dtv.gestureapp
+com.sony.dtv.livingfit                         # also the default screensaver, see the header
+com.sony.dtv.osat.music.toast
+
+# North American broadcast tuner (ATSC 1.0/3.0), unused here: keep these for antenna TV
+com.mediatek.dtv.tvinput.atsctuner
+com.sony.dtv.tvinput.atsc3tuner
+com.sony.dtv.tvinput.atsc3tuner.drmlicenseinstaller
+com.sony.dtv.atscbrowserservice
+com.sony.dtv.broadcastclock.broadcastrequirementcontrol
+com.sony.dtv.broadcastclock.clocksyncservice
+com.sony.dtv.broadcastsettings
+com.sony.dtv.servicemode.tuner
+
+# preloaded apps, disabled by choice
+com.crunchyroll.crunchyroid
+com.sonypicturescore                           # Sony Pictures Core
+com.google.android.videos                      # came back enabled once on its own; check after Play updates
+com.google.android.play.games                  # (new)
+
+# Home: only after the launcher is installed (launcher/build-and-install.sh does this part)
+com.google.android.tungsten.setupwraith        # its RecoveryActivity otherwise takes over Home
+# com.google.android.apps.tv.launcherx   # launcher/build-and-install.sh disables the stock launcher itself, after Home has moved

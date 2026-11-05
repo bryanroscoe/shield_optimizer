@@ -1,0 +1,91 @@
+# Skyworth Coocaa K3 Pro 90P3D Max (system board 8R145_P3DM, Realtek RTD2885N),
+# Android 11 (SDK 30), build eng.www-da.20231205.132148, China-market Coocaa OS.
+# First China-market Coocaa (Realtek) list in this repo. The export Skyworth lists in
+# this folder (com.skyworth.* Google TV builds) share nothing with this firmware: here
+# the namespace is com.coocaa.* / com.tianci.* and the stock launcher is
+# com.tianci.movieplatform.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/coocaa-k3-pro-90p3d-max/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/coocaa-k3-pro-90p3d-max/debloat.txt
+# Everything is DISABLED (pm disable-user --user 0), not uninstalled. Comment out any
+# line you want to keep.
+#
+# ⚠ CRITICAL: NEVER disable com.tianci.movieplatform (the Coocaa launcher). The 8R145
+# boot flow hard-depends on it: disabling it hangs the TV on the COOCAA logo, the remote
+# becomes unresponsive, and the only recovery is a factory reset from recovery mode
+# (verified the hard way). It is deliberately absent from the list below.
+#
+# ADB: this firmware hides Developer options. ADB is toggled from the Coocaa factory
+# menu (a secret key sequence), not from stock Settings, and ro.adb.secure is set, so
+# the TV still shows the "Allow USB debugging?" prompt. The ADB toggle resets on every
+# reboot - re-enable it from the factory menu after rebooting.
+#
+# Launcher notes (for anyone porting cleanyourtv to this set):
+# 1. Almost no app declares a leanback entry on this firmware: the Home grid starts
+#    nearly empty (only the app store resolves LEANBACK_LAUNCHER). The TV app
+#    (com.skyworth.tv), local media (com.tianci.localmedia), TV manager
+#    (com.coocaa.tvmanager) and settings (com.coocaa.os.softsettings) only resolve the
+#    plain LAUNCHER category - they need the app-library mechanism to appear on
+#    Home/dock.
+# 2. The launcher needs a plain CATEGORY_LAUNCHER intent-filter on MainActivity so it
+#    shows up in the Coocaa launcher's "My Apps" list (that list only queries LAUNCHER).
+# 3. The Home key is hard-coded by the firmware to bring up com.tianci.movieplatform;
+#    the accessibility HomeKeyService cannot intercept a standard Home key press
+#    (Android platform limitation), so no launcher can own the Home button here. The
+#    launcher is set as the default Home (cmd package set-home-activity) and reached
+#    from the stock "My Apps" list.
+# 4. The firmware never broadcasts standard boot events (BOOT_COMPLETED,
+#    QUICKBOOT_POWERON) to third-party apps, so auto-start on boot is not possible
+#    without root.
+# 5. "Boot source" is also hard-coded: "Signal source" on boot launches
+#    com.skyworth.tv (TV app) via firmware logic - there is no app-selection option.
+#
+# Verified: 23 packages disabled with pm disable-user --user 0, then a full reboot.
+# Home, the source panel, local media, TV manager, app store, casting, settings and the
+# remote all still work. Fully reversible with restore.sh.
+#
+# =============================================================================
+# Ads / telemetry / tracking
+com.tianci.ad                        # Coocaa ad SDK: boot/shutdown/screensaver/landing ads
+com.skyworth.aisense                 # ACR content recognition (pushes ads)
+com.coocaa.sysreport                 # system telemetry reporting
+com.tianci.push                      # push channel (can remotely launch apps / ads)
+com.dstv.ad1                         # bundled third-party ad app
+com.coocaa.tvpi                      # TV+ streaming (bundled UMeng push ad component)
+com.tianci.autoinstaller             # silent auto-install service (remote app pushing)
+
+# Vendor content / preinstalled bloat
+com.coocaa.sport                     # Coocaa Sports
+com.coocaa.educate                   # Coocaa Education
+com.coocaa.lifeassistant             # Life Assistant
+com.coocaa.app_browser               # App Browser
+com.coocaa.teampresent               # Team Presentation
+com.coocaa.mitee.tv                  # Kids content
+com.coocaa.miitee.guard              # Kids guard
+com.tianci.family.photograph         # Family photo album
+com.coocaa.os.thememanager           # Theme manager
+com.coocaa.theme_package_ccos_nine   # Theme package
+com.coocaa.theme_package_ccos_seven  # Theme package
+com.coocaa.os.customerservice        # Online customer service
+com.coocaa.messageprovider           # Message provider
+com.coocaa.playtvskill               # TV skill
+com.coocaa.guide                     # First-boot guide
+com.itwgame.mota.nearme.gamecenter   # Bundled third-party game center
+# -----------------------------------------------------------------------------
+# Do NOT disable (verified on this device):
+#   com.tianci.movieplatform   Coocaa launcher - boot hard-depends on it (see above)
+#   com.skyworth.tv            TV app / signal-source launcher
+#   com.tianci.localmedia      local media player
+#   com.coocaa.tvmanager       TV manager
+#   com.coocaa.os.softsettings settings (and com.skyworth.setting)
+#   com.tianci.system, com.coocaa.os.ccosservice   base services
+#   com.skyworth.tianciime     the only IME on the device
+#   com.realtek.power          power management
+#   com.coocaa.sky.ccapi       content API
+#   com.tianci.user            user centre
+#   com.coocaa.factory         factory menu (also the ADB toggle)
+#   com.coocaa.emergencywarning  emergency broadcast
+#   com.coocaa.screensaver     screensaver
+#   com.skyworth.tv.provider, com.skyworthdigital.stb.dataprovider  TV providers
+#   com.coocaa.skycast.tool, com.coocaa.miracast, com.dbdc.miracast,
+#   com.sky.smartcast, com.skyworth.iot.cast, com.tianci.de  casting stacks (kept)

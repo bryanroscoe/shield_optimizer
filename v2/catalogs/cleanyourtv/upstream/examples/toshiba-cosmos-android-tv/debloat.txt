@@ -1,0 +1,68 @@
+# Toshiba (Vestel) Cosmos, Android TV 11 — Spain-market unit, UK/multi-market firmware
+# ro.product.model=Cosmos  ro.product.name=Cosmos170  ro.product.device=yeoksam  brand/manufacturer=Vestel
+# Fingerprint: Vestel/Cosmos170/yeoksam:11/RTOC.251019.001/14296264:user/release-keys
+# Build date 2025-10-20, security patch 2025-08-01, SDK 30, MediaTek platform, ro.config.low_ram=true (~1 GB).
+#
+# Match on the Vestel/Cosmos170/yeoksam fingerprint, not on the Toshiba badge: Vestel ships this
+# firmware across several European badge brands (Toshiba, JVC, Hitachi, Telefunken...). A Toshiba
+# Fire TV (examples/toshiba-fire-tv-aftha004) is a completely different platform; nothing here applies.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/toshiba-cosmos-android-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/toshiba-cosmos-android-tv/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (pass it to restore.sh, as above).
+# Live TV app:    com.mediatek.wwtv.tvcenter (.nav.TurnkeyUiMainActivity) — NEVER disable it.
+# NOT the live TV app: com.cltv.fast ("FAST" streaming channels, iWedia). Its activities ship
+# disabled by Vestel (disabledComponents), so it looks launchable in the resolver table but is not.
+# Keep also: com.vestel.tv.service, com.vestel.tv.backlight, com.vestel.tv.keycontroller (hardware),
+# com.vestel.tv.servicepatch + com.vestel.tv.rcupdater (firmware/remote updates, owner keeps updates),
+# com.mediatek.tvinput, com.mediatek.tv.service, com.mediatek.wwtv.tvcenter,
+# com.mediatek.tvinputservice.arbitratorservice (tuner/HDMI plumbing),
+# com.google.android.apps.mediashell (Chromecast built-in, owner uses it).
+#
+# QUIRKS ON THIS FIRMWARE:
+# - screencap prints "Init wrapper sys mutex successful..." junk to stdout before the PNG, so
+#   `adb exec-out screencap -p` is corrupt. Use `screencap -p /sdcard/x.png` + `adb pull` instead.
+# - Port 5555 is closed until USB debugging has been toggled/authorised; it opened without a
+#   separate Network-debugging switch on this unit. No Wireless-debugging (pairing) menu exists.
+# - The uk.co.freeview.* pack (BBC, ITV, Ch4/5, Freeview explore...) ships already disabled on
+#   Spain-market units; it is not listed below because `pm list packages -d` already held it.
+# - The remote's YouTube and Prime Video buttons are handled by Vestel firmware below Android: the
+#   IR driver logs "u4IRKey after convert: 0xffffffff" and no keycode reaches InputDispatcher
+#   (getevent shows scancodes 0x129/0x13e, but the IR device's vendor keylayout drops them). With
+#   their apps disabled the buttons simply do nothing; no launcher key service can remap them.
+# - Volume keys do reach Android (KEY_VOLUMEUP/DOWN on event0), but the firmware changes the volume
+#   before the accessibility filter and never passes them on, so no app (InputKeyService included)
+#   can replace the system volume slider.
+# - The TV closes Wi-Fi (and ADB with it) in standby. Accessibility services survived days of
+#   standby cycles; only a force-stop of the launcher switched InputKeyService off.
+# - No microphone (no android.hardware.microphone) and an IR-only remote, so voice comes from a
+#   phone or Nest speaker ("Hey Google, ... on the TV"). That needs katniss: keep it if you use it.
+
+# --- Vestel telemetry and retail junk ---
+com.vestel.vestelreporter                     # Vestel analytics/telemetry uploader
+fusion.android.tv.demo                        # retail/shop demo loops
+android.autoinstalls.config.vestel.cosmos     # partner auto-preinstall config
+
+# --- Google services nobody asked for ---
+com.google.android.tvrecommendations          # home-screen recommendation rows
+com.google.android.leanbacklauncher.partnercustomizer  # partner rows/channels for the stock launcher
+com.google.android.feedback                   # crash/feedback uploader to Google
+com.google.android.syncadapters.calendar      # calendar sync, on a TV
+com.google.android.videos                     # Google TV / Play Movies storefront
+com.google.android.play.games                 # Play Games
+com.google.android.apps.nbu.smartconnect.tv   # Smart Connect
+com.google.android.backdrop                   # ambient photo screensaver (launcher's ClockDream replaces it)
+
+# --- Owner's checklist choices (this unit: no stock YouTube, no Prime) ---
+# com.google.android.katniss                  # Google Assistant: disabled at first, re-enabled a day later
+#                                             # because "Hey Google" from the owner's phone stopped working
+com.google.android.youtube.tv                # stock YouTube (SmartTube kept instead)
+com.google.android.youtube.tvmusic            # YouTube Music
+com.amazon.amazonvideo.livingroom             # Prime Video (unused here)
+com.mediatek.wwtv.mediaplayer                 # USB media player; re-enable: pm enable --user 0 com.mediatek.wwtv.mediaplayer
+com.mediatek.tv.freeviewplay                  # Freeview Play (UK) integration, dead weight in Spain
+
+# --- Stock launcher: tools/disable.sh skips it until another app answers HOME ---
+com.google.android.tvlauncher                 # disable LAST, after launcher/build-and-install.sh

@@ -1,0 +1,102 @@
+# TCL C89B 85" Google TV, 2024 (device G08, model "Smart TV Pro", MediaTek tcl9618), a local variant of the C855
+# Android 14 (Google TV), firmware UTT2.250416.001 AU02, product G08_4K_GB. Same product and build as
+# examples/tcl-85rm7l-google-tv; that list was the starting point.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-c89b-google-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-c89b-google-tv/debloat.txt com.google.android.apps.tv.launcherx
+# Theme:   TV_HOST=<tv ip> tools/theme.sh examples/tcl-c89b-google-tv   (config.json: Live TV, remote keys)
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Tested 2026-10-21 on one C89B set on Ethernet, applied in batches with screenshots between them: Home, the
+# Inputs menu (HDMI 1-4 and Live TV), the Chromecast, AirPlay and Miracast processes, and the remote's
+# gear, Netflix, Prime Video and YouTube buttons worked; the disabled set was identical after a reboot,
+# and HomeKeyService bound on its own after another once AUTO_START was saved. One day of use, not weeks.
+#
+# Second unit: TCL 65C89K, France (Smart TV Pro, G08, G08_4K_GB, Google TV 14, UTT2.250416.001 AU02).
+# Status 2026-11-02: the owner used the launcher for several days. Home stayed the default launcher;
+# the theme, Sources, Live TV and Ethernet were used. This unit keeps Game Bar and the
+# hearing test, so their lines below are comments. Its personal theme and optional add-ons are not part of
+# this shared list.
+#
+# Connection: USB debugging alone opens port 5555 on Ethernet. Wireless debugging switches itself back off
+# there: Android only enables it on Wi-Fi.
+#
+# Launcher, in this order: launcher/build-and-install.sh with STOCK_LAUNCHER=none (installs it, then stops
+# with an error because Home stays on launcherx), then this list (setupwraith is listed before launcherx, so the wizard never gets Home;
+# it owned no saved network here), then enable HomeKeyService with the settings command
+# build-and-install.sh runs for HOME_KEY_SERVICE=1.
+# TclAppBoot blocks HomeKeyService at every boot until the launcher has AUTO_START, saved to disk:
+#   TV_HOST=<tv ip> tools/venv/bin/python -I tools/tv.py 'appops set com.gathin.tvhome AUTO_START allow; appops write-settings'
+#
+# Remote (BT_RC933_U1): every TCL button arrives on scancode 240 and TCL's own key table picks the keycode,
+# so config.json matches keycodes: gear 83, Netflix 4062, Prime Video 4099, YouTube 190 (BUTTON_3). The
+# owner pointed 190 at SmartTube (org.smarttube.stable). The Input button works without a service. Info,
+# TV and LIST are Live TV keys and do nothing on Home.
+#
+# Kept: Chromecast, AirPlay, Miracast, Google Assistant (katniss), com.google.android.tv.remote.service (the
+# remote's mic), the USB media player and gallery, com.tcl.tv, com.tcl.suspension, and Netflix, Prime
+# Video and Disney+.
+
+# TCL tracking and analytics
+com.tcl.ttvs                           # Samba TV ACR, TCL BI analytics, Alexa core, T-Cast server
+com.tcl.logkit                         # log capture and upload
+com.tcl.usercenter                     # TCL account sign-in nags
+com.tcl.magiconnectfree                # T-Cast app (nothing to talk to without ttvs)
+
+# TCL content, ads and promos
+com.tcl.channelplus                    # TCL Live FAST channels
+com.tcl.tv.tclhome_passive             # pushes TCL content to the home screen at boot
+com.tcl.partnercustomizer              # TCL tweaks to Google TV home rows
+com.tcl.interactive                    # TCL TIAS background service
+com.tcl.messagebox                     # TCL push messages and promos
+com.tcl.waterfall.overseas             # TCL recommendation browser
+com.tcl.dashboard                      # "TCL HOME": TCL's panel for messagebox and usercenter
+
+# Retail demo
+com.tcl.exhibit
+com.tcl.esticker
+
+# Preloaded apps and services
+com.tcl.ocean.instructions             # e-manual
+com.tcl.repairguide
+com.tcl.smartalexa                     # Alexa
+com.tcl.guard                          # TCL "cleaner" / app manager
+com.tcl.UpdatePeripheral               # TCL soundbar firmware updates
+android.autoinstalls.config.google.gtvpai   # silently installs partner apps
+com.google.android.partnersetup        # partner attribution
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.play.games
+
+# Optional: the first C89B owner turned these off; the 65C89K second unit keeps them.
+# com.tcl.gamebar                      # game mode / VRR overlay
+# com.tcl.hearaid                      # hearing test
+com.tcl.t_solo                         # Bluetooth "listen alone"
+com.google.android.videos              # Google TV / Play Movies storefront
+
+# Android 14 ad and privacy services (as in examples/tcl-g08-us-google-tv)
+com.android.adservices.api             # Privacy Sandbox
+com.android.federatedcompute.services
+com.android.ondevicepersonalization.services
+
+# Ambient screensaver (shows promos). Switch screensaver_components to
+# com.android.dreams.basic/.Colors before disabling it.
+com.google.android.apps.tv.dreamx
+
+# For the custom launcher, after it is installed; setupwraith first
+com.google.android.tungsten.setupwraith   # setup wizard; claims Home once launcherx is off
+com.google.android.apps.tv.launcherx   # stock Google TV home
+
+# Kept on this unit: uncomment if you don't use them
+# com.google.android.apps.mediashell   # Chromecast
+# com.tcl.airplay2                     # AirPlay, together with the next two lines
+# com.mediatek.AirplayAPK
+# com.mediatek.airplaydaemon
+# com.tcl.miracast                     # Miracast screen mirroring
+# com.google.android.katniss           # Google Assistant voice (mic button)
+# com.tcl.ui_mediaCenter               # USB media player
+# com.tcl.gallery                      # USB photo gallery + TCL screensaver
+# com.netflix.ninja                    # Netflix, together with the next line
+# com.netflix.tokenmanager
+# com.amazon.amazonvideo.livingroom    # Prime Video
+# com.disney.disneyplus
