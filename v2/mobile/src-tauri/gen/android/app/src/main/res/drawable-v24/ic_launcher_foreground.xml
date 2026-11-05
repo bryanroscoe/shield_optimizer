@@ -5,9 +5,9 @@
     android:viewportHeight="108">
     <!-- ATV Optimizer glyph: dark TV/monitor on two splayed stand legs; the screen is
          cut back to lime and holds three VERTICAL faders (thin dark tracks with knob
-         caps at staggered heights). Designer art (120 viewBox) scaled 0.66 and centered
-         into the 108 adaptive-icon safe zone. -->
-    <group android:scaleX="0.66" android:scaleY="0.66" android:translateX="14.4" android:translateY="14.4">
+         caps at staggered heights). Designer art (120 viewBox) scaled 0.62 with the TV body
+         centered in the 108 canvas; the legs hang below it and stay inside the 66dp safe zone. -->
+    <group android:scaleX="0.62" android:scaleY="0.62" android:translateX="16.8" android:translateY="22.38">
         <path android:fillColor="#0B0D10" android:pathData="M32,22 L88,22 A14,14 0 0 1 102,36 L102,66 A14,14 0 0 1 88,80 L32,80 A14,14 0 0 1 18,66 L18,36 A14,14 0 0 1 32,22 Z" />
         <path android:fillColor="#0B0D10" android:pathData="M34,80 L26,91 L33,91 L41,80 Z" />
         <path android:fillColor="#0B0D10" android:pathData="M86,80 L94,91 L87,91 L79,80 Z" />
