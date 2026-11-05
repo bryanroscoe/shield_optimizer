@@ -122,7 +122,7 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     let adb = state.adb_snapshot().await;
     if !adb.uses_host_server() {
-        return Ok(RestartResult { ok: false, server_ready: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, relaunch with ATV_OPTIMIZER_TRANSPORT=subprocess.".into() });
+        return Ok(RestartResult { ok: false, server_ready: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, choose it under Settings > ADB engine.".into() });
     }
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
@@ -287,7 +287,7 @@ where
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
     if !state.adb_snapshot().await.uses_host_server() {
-        return Err("Installing platform-tools would change the selected direct backend. Relaunch with ATV_OPTIMIZER_TRANSPORT=subprocess first.".into());
+        return Err("Installing platform-tools would change the selected direct backend. Choose Google platform-tools under Settings > ADB engine first.".into());
     }
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
     match installer(Arc::clone(&operation)).await {

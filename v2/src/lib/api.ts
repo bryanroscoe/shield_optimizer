@@ -12,6 +12,8 @@ import {
 } from "../../shared/telemetry";
 import type {
   ActionResult,
+  AdbEngine,
+  AdbEngineStatus,
   AdbStatus,
   AppEntry,
   ApplyResult,
@@ -114,6 +116,8 @@ export const api = {
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
+  adbEngine: () => invoke<AdbEngineStatus>("adb_engine"),
+  setAdbEngine: (engine: AdbEngine) => invoke<AdbEngineStatus>("set_adb_engine", { engine }),
   /// `target`: an IP[:port] the app itself should try to reach as well.
   localNetworkAccess: (target: string | null = null) =>
     invoke<LocalNetworkAccess>("local_network_access", { target }),

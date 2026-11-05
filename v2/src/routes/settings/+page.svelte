@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/components/Icon.svelte";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
@@ -16,7 +16,7 @@
     stopOnQuit,
     toggleStopOnQuit,
   } from "$lib/stop-adb-on-quit.svelte";
-  import type { AdbStatus } from "$lib/types";
+  import type { AdbEngine, AdbEngineStatus, AdbStatus } from "$lib/types";
   import {
     formatSupportId,
     NOTICE_TEXT,
@@ -141,6 +141,62 @@
     }
   }
 
+  const ENGINES: { id: AdbEngine; label: string }[] = [
+    { id: "builtin", label: "Built-in" },
+    { id: "platform_tools", label: "Google platform-tools" },
+  ];
+  const engineLabel = (id: AdbEngine) => ENGINES.find((e) => e.id === id)?.label ?? id;
+
+  let engine = $state<AdbEngineStatus | null>(null);
+  let engineRead = $state(false);
+  let engineError = $state<string | null>(null);
+  let engineBusy = $state(false);
+  /// What the radios show: the saved choice, or the one being applied.
+  let engineChoice = $state<AdbEngine | null>(null);
+  let engineMessage = $state("");
+  let engineGroup = $state<HTMLDivElement | null>(null);
+  const engineLocked = $derived(engine?.source === "env");
+  const engineFellBack = $derived(!!engine?.active && engine.selected !== engine.active);
+
+  async function loadEngine() {
+    try {
+      engine = await api.adbEngine();
+      engineError = null;
+    } catch (e) {
+      engineError = String(e);
+    } finally {
+      engineRead = true;
+      engineChoice = engine?.selected ?? null;
+    }
+  }
+
+  async function chooseEngine(next: AdbEngine) {
+    if (!engine || engineBusy || engineLocked) return;
+    const hadFocus = !!engineGroup?.contains(document.activeElement);
+    const before = engine.active;
+    engineBusy = true;
+    engineChoice = next;
+    engineError = null;
+    engineMessage = "";
+    try {
+      engine = await api.setAdbEngine(next);
+      if (engine.active !== before && engine.active) {
+        engineMessage = `Now using ${engineLabel(engine.active)}. Connect TVs again from Devices if they don't appear.`;
+      }
+    } catch (e) {
+      engineError = String(e);
+    } finally {
+      // Believe the backend, not the click.
+      engineChoice = engine?.selected ?? null;
+      engineBusy = false;
+    }
+    await loadAdb();
+    if (hadFocus) {
+      await tick();
+      engineGroup?.querySelector<HTMLInputElement>("input:checked:not(:disabled)")?.focus();
+    }
+  }
+
   function clickStopOnQuit(e: MouseEvent) {
     // As on Devices: the box moves only when the reply says the setting did.
     (e.currentTarget as HTMLInputElement).checked = stopOnQuit.setting?.enabled ?? false;
@@ -187,6 +243,7 @@
     loadUiPrefs();
     void loadReports();
     void loadAdb();
+    void loadEngine();
     void loadLogs();
     void refreshStopOnQuit();
   });
@@ -396,6 +453,89 @@
 
   <section class="card" id="adb" aria-labelledby="adb-title">
     <h2 id="adb-title"><Icon name="terminal" size={18} /> ADB</h2>
+    <div class="row">
+      <div class="row-text">
+        <HelpTip label="ADB engine">
+          <p>
+            Built-in connects to TVs directly, with no adb server or download. It works over the
+            network only, so USB devices need platform-tools.
+          </p>
+          <p>
+            The built-in engine has its own key, so each TV asks once to allow debugging for it, even
+            if the TV already allows platform-tools.
+          </p>
+          <p>
+            Google platform-tools uses the adb server shared with other tools on this computer, such
+            as Android Studio and scrcpy.
+          </p>
+          <p>Switching closes the current engine's connections. Connect TVs again from Devices.</p>
+        </HelpTip>
+        {#if !engine}
+          <p class="row-note" role="status">
+            {#if !engineRead}
+              Checking…
+            {:else}
+              Couldn't read this setting.
+              <button class="inline-link" onclick={loadEngine}>Check again</button>
+            {/if}
+          </p>
+        {:else}
+          {#if engineLocked}
+            <p class="row-note" data-engine-locked>
+              {engine.selected
+                ? "Set by ATV_OPTIMIZER_TRANSPORT for this launch."
+                : "ATV_OPTIMIZER_TRANSPORT has an invalid value. Fix or remove it, then reopen the app."}
+            </p>
+          {:else if !engine.builtin_available && !engineFellBack}
+            <p class="row-note">This build includes only Google platform-tools.</p>
+          {/if}
+          {#if engineFellBack}
+            <p class="row-note engine-fallback" role="status" data-engine-fallback>
+              <Icon name="warning" size={14} />
+              <span>
+                {engine.fallback_reason ??
+                  "The built-in engine couldn't start, so this session uses Google platform-tools."}
+                {#if !engineLocked && engine.builtin_available}
+                  <button class="inline-link" onclick={() => chooseEngine("builtin")} disabled={engineBusy}>
+                    Try again
+                  </button>
+                {/if}
+              </span>
+            </p>
+          {:else if engineMessage}
+            <p class="row-note" role="status">{engineMessage}</p>
+          {/if}
+        {/if}
+      </div>
+      <div class="row-control">
+        <div
+          class="engine-choice"
+          role="radiogroup"
+          aria-label="ADB engine"
+          aria-busy={engineBusy}
+          bind:this={engineGroup}
+        >
+          {#each ENGINES as option (option.id)}
+            {@const unavailable =
+              !engine || engineBusy || engineLocked || (option.id === "builtin" && !engine.builtin_available)}
+            <label class="engine-option" class:unavailable>
+              <input
+                type="radio"
+                name="adb-engine"
+                value={option.id}
+                checked={engineChoice === option.id}
+                disabled={unavailable}
+                onchange={() => chooseEngine(option.id)}
+              />
+              {option.label}
+            </label>
+          {/each}
+        </div>
+      </div>
+    </div>
+    {#if engineError}
+      <ErrorNotice error={engineError} action="Change ADB engine" />
+    {/if}
     <div class="row">
       <div class="row-text">
         <HelpTip label="ADB">
@@ -670,6 +810,44 @@
   .sent {
     align-items: center;
     margin-bottom: 0.6rem;
+  }
+  .engine-choice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+  }
+  .engine-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+  .engine-option input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--accent-strong);
+    cursor: inherit;
+  }
+  .engine-option input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .engine-option.unavailable {
+    color: var(--fg-muted);
+    cursor: not-allowed;
+  }
+  .engine-fallback {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    max-width: 62ch;
+  }
+  .engine-fallback :global(.msr) {
+    flex: none;
+    margin-top: 0.1rem;
+    color: var(--warn);
   }
   .inline-link {
     padding: 0;

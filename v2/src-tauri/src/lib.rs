@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use adb::SubprocessAdb;
-use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
+use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, Leases};
 use atv_optimizer_core::commands::{
     apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
     shell, snapshot, telemetry, tuning,
@@ -29,6 +29,7 @@ use atv_optimizer_core::telemetry::{
     install_panic_hook, load_cached_support_rules, spawn_support_refresh, Telemetry,
     TelemetryConfig,
 };
+use commands::adb_engine::{self, AdbEngineControl, EngineStarter};
 use commands::quit::{self, AdbQuitControl};
 use commands::{
     app_report, backup, diagnostics, files, install, local_network, scan, sideload, update,
@@ -134,36 +135,81 @@ fn identity_app_data(
     }
 }
 
-fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppState {
-    let selection =
-        adb::selection::parse_selection(std::env::var("ATV_OPTIMIZER_TRANSPORT").ok().as_deref());
-    let adb: Arc<dyn AdbDriver> = match selection {
-        Ok(adb::selection::TransportSelection::Subprocess) => subprocess_driver(),
-        Ok(adb::selection::TransportSelection::Direct) => {
-            #[cfg(feature = "direct-adb")]
-            {
-                let identity = match std::env::var_os("ATV_OPTIMIZER_DIRECT_KEY") {
-                    Some(path) => {
-                        let path = PathBuf::from(path);
-                        adb::identity::validate_existing_identity(&path).map(|()| path)
-                    }
-                    None => identity_app_data(dirs::data_local_dir(), &data_dir)
-                        .and_then(|root| adb::identity::ensure_app_identity(&root)),
-                };
-                match identity {
-                    Ok(key) => Arc::new(adb::direct::DirectNetworkAdb::new(key)),
-                    Err(message) => Arc::new(ConfigurationError(format!("Rust ADB setup could not finish. Check app storage access and reopen the app. Existing identities were not replaced. Details: {message}"))),
+/// Builds the desktop's two engines, at launch and on a Settings switch.
+struct DesktopEngines {
+    data_dir: PathBuf,
+    /// The OS local data folder, read once at launch.
+    local_data: Option<PathBuf>,
+    /// `ATV_OPTIMIZER_DIRECT_KEY`: an existing identity to use instead.
+    key_override: Option<PathBuf>,
+}
+
+impl DesktopEngines {
+    fn from_environment(data_dir: PathBuf) -> Self {
+        Self {
+            data_dir,
+            local_data: dirs::data_local_dir(),
+            key_override: std::env::var_os("ATV_OPTIMIZER_DIRECT_KEY").map(PathBuf::from),
+        }
+    }
+}
+
+impl EngineStarter for DesktopEngines {
+    fn platform_tools(&self) -> Arc<dyn AdbDriver> {
+        subprocess_driver()
+    }
+
+    fn builtin(&self, operations: &Arc<Leases>) -> Result<Arc<dyn AdbDriver>, String> {
+        #[cfg(feature = "direct-adb")]
+        {
+            let identity = match &self.key_override {
+                Some(path) => {
+                    adb::identity::validate_existing_identity(path).map(|()| path.clone())
                 }
-            }
-            #[cfg(not(feature = "direct-adb"))]
-            {
-                Arc::new(ConfigurationError("Direct ADB was selected but this build lacks the experimental direct-adb feature.".into()))
+                None => identity_app_data(self.local_data.clone(), &self.data_dir)
+                    .and_then(|root| adb::identity::ensure_app_identity(&root)),
+            };
+            match identity {
+                Ok(key) => Ok(Arc::new(adb::direct::DirectNetworkAdb::with_shared_operations(
+                    key,
+                    Arc::clone(operations),
+                ))),
+                Err(message) => Err(format!("The built-in engine couldn't set up its key, so this session uses Google platform-tools. Existing keys were not replaced. Details: {message}")),
             }
         }
+        #[cfg(not(feature = "direct-adb"))]
+        {
+            let _ = (
+                operations,
+                &self.data_dir,
+                &self.local_data,
+                &self.key_override,
+            );
+            Err(
+                "This build doesn't include the built-in engine, so it uses Google platform-tools."
+                    .into(),
+            )
+        }
+    }
+}
+
+async fn default_state(
+    app_lists: engine::AppListBundle,
+    data_dir: PathBuf,
+) -> (AppState, AdbEngineControl) {
+    let env = std::env::var(adb::selection::TRANSPORT_ENV).ok();
+    let (control, driver) = AdbEngineControl::start(
+        data_dir.clone(),
+        env.as_deref(),
+        Arc::new(DesktopEngines::from_environment(data_dir.clone())),
+    );
+    let driver: Arc<dyn AdbDriver> = match driver {
+        Ok(driver) => driver,
         Err(message) => Arc::new(ConfigurationError(message)),
     };
+    let state = control.app_state(driver, app_lists, data_dir).await;
     // The desktop app has no paywall; every feature is unlocked.
-    AppState::new(adb, app_lists, data_dir).with_entitlement(Entitlement::Pro)
+    (state.with_entitlement(Entitlement::Pro), control)
 }
 
 /// Every command the desktop frontend can invoke. One list, shared by the app
@@ -191,6 +237,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         install::adb_status,
         install::install_adb,
         install::restart_adb,
+        adb_engine::adb_engine,
+        adb_engine::set_adb_engine,
         local_network::local_network_access,
         local_network::open_local_network_settings,
         quit::get_stop_adb_on_quit,
@@ -328,7 +376,9 @@ pub fn run() {
     // adb and connection log lines, a few times a day at most.
     telemetry.set_excerpt_source(diagnostics::excerpt_source(log_control.dir().to_path_buf()));
 
-    let state = default_state(app_lists, data_dir)
+    let (state, engine_control) =
+        tauri::async_runtime::block_on(default_state(app_lists, data_dir));
+    let state = state
         .with_known_names(loader::load_known_names())
         .with_telemetry(telemetry.clone());
     load_cached_support_rules(&state);
@@ -341,20 +391,13 @@ pub fn run() {
         .manage(state)
         .manage(log_control)
         .manage(AdbQuitControl::default())
+        .manage(engine_control)
         .setup(move |app| {
             let telemetry_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = telemetry_app.state::<AppState>();
                 let adb = state.adb_snapshot().await;
-                telemetry.set_adb_facts(engine::telemetry_diag::adb_diag(
-                    if adb.uses_host_server() {
-                        diagnostics::adb_source()
-                    } else {
-                        engine::telemetry_diag::AdbSource::Builtin
-                    },
-                    None,
-                    None,
-                ));
+                telemetry.set_adb_facts(adb_engine::adb_facts(adb.uses_host_server()));
                 telemetry.start();
             });
             spawn_support_refresh(app.handle().clone());
@@ -405,6 +448,89 @@ fn rename_bundle_on_exit() {
 #[cfg(test)]
 mod initialization_tests {
     use super::*;
+
+    fn engines(data_dir: PathBuf, local_data: Option<PathBuf>) -> DesktopEngines {
+        DesktopEngines {
+            data_dir,
+            local_data,
+            key_override: None,
+        }
+    }
+
+    fn refusal(engines: &DesktopEngines) -> String {
+        match engines.builtin(&Leases::new()) {
+            Ok(_) => panic!("the built-in engine should not start here"),
+            Err(reason) => reason,
+        }
+    }
+
+    #[cfg(not(feature = "direct-adb"))]
+    #[test]
+    fn a_build_without_the_builtin_engine_says_so() {
+        let reason = refusal(&engines(PathBuf::from("not-created"), None));
+        assert!(reason.contains("doesn't include the built-in engine"));
+    }
+
+    #[cfg(feature = "direct-adb")]
+    #[test]
+    fn builtin_that_cannot_set_up_its_key_refuses_without_writing_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().join("ATVOptimizer");
+
+        // No OS data folder: never the working-directory fallback.
+        let reason = refusal(&engines(data_dir.clone(), None));
+        assert!(reason.contains("couldn't set up its key"), "{reason}");
+        assert!(reason.contains("could not find the app storage folder"));
+        assert!(!data_dir.exists());
+
+        // A data folder that cannot hold a key.
+        std::fs::write(&data_dir, b"fixture file in place of the folder").unwrap();
+        let reason = refusal(&engines(data_dir.clone(), Some(dir.path().to_path_buf())));
+        assert!(
+            reason.contains("Existing keys were not replaced"),
+            "{reason}"
+        );
+        assert_eq!(
+            std::fs::read(&data_dir).unwrap(),
+            b"fixture file in place of the folder"
+        );
+
+        // A named identity that does not exist is never created.
+        let missing = dir.path().join("missing.pem");
+        let named = DesktopEngines {
+            key_override: Some(missing.clone()),
+            ..engines(dir.path().join("unused"), Some(dir.path().to_path_buf()))
+        };
+        refusal(&named);
+        assert!(!missing.exists());
+    }
+
+    #[cfg(feature = "direct-adb")]
+    #[tokio::test]
+    async fn a_saved_builtin_choice_falls_back_to_platform_tools_when_its_key_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        adb::selection::save(dir.path(), adb::selection::AdbEngine::Builtin).unwrap();
+        let (control, driver) = AdbEngineControl::start(
+            dir.path().to_path_buf(),
+            None,
+            Arc::new(engines(dir.path().to_path_buf(), None)),
+        );
+        let status = control.status().await;
+        assert_eq!(status.selected, Some(adb::selection::AdbEngine::Builtin));
+        assert_eq!(
+            status.active,
+            Some(adb::selection::AdbEngine::PlatformTools)
+        );
+        assert!(status
+            .fallback_reason
+            .unwrap()
+            .contains("couldn't set up its key"));
+        let Ok(driver) = driver else {
+            panic!("a fallback is a working driver, not a configuration error")
+        };
+        assert!(driver.uses_host_server());
+        assert!(!dir.path().join("native-adb").exists());
+    }
 
     #[cfg(feature = "direct-adb")]
     #[test]

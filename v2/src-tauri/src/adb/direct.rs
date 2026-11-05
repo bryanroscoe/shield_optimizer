@@ -86,6 +86,9 @@ pub struct DirectNetworkAdb {
     scan_slots: Arc<Semaphore>,
     closing: AtomicBool,
     discovery: Arc<super::discovery::DiscoveryManager>,
+    /// False when `pool.operations` is the app's admission counter, which
+    /// outlives this driver when an engine switch retires it.
+    owns_operations: bool,
 }
 
 impl DirectNetworkAdb {
@@ -96,14 +99,34 @@ impl DirectNetworkAdb {
         )
     }
 
+    /// Counts this driver's work on the app's admission counter, so quit
+    /// drains it, and leaves that counter open when the driver is dropped.
+    pub fn with_shared_operations(key: PathBuf, operations: Arc<Leases>) -> Self {
+        Self::with_factory_and_operations(
+            key,
+            Arc::new(|key, operations| Arc::new(WirelessAdb::with_existing_key(key, operations))),
+            operations,
+            false,
+        )
+    }
+
     fn with_factory(key: PathBuf, factory: Arc<Factory>) -> Self {
+        Self::with_factory_and_operations(key, factory, Leases::new(), true)
+    }
+
+    fn with_factory_and_operations(
+        key: PathBuf,
+        factory: Arc<Factory>,
+        operations: Arc<Leases>,
+        owns_operations: bool,
+    ) -> Self {
         Self {
             pool: Arc::new(ConnectionPool {
                 key,
                 sessions: Mutex::new(BTreeMap::new()),
                 requests: Arc::new(AtomicU64::new(0)),
                 factory,
-                operations: Leases::new(),
+                operations,
                 lifecycle: Mutex::new(BTreeMap::new()),
             }),
             scan_jobs: std::sync::Mutex::new(BTreeMap::new()),
@@ -112,6 +135,7 @@ impl DirectNetworkAdb {
             discovery: super::discovery::DiscoveryManager::new(Arc::new(
                 super::discovery::MdnsProvider::default(),
             )),
+            owns_operations,
         }
     }
 
@@ -458,14 +482,16 @@ fn split_install_paths(rest: &[&str]) -> bool {
 }
 
 fn unsupported() -> AdbError {
-    AdbError::Transport("This operation is unavailable in experimental direct ADB mode. Relaunch with ATV_OPTIMIZER_TRANSPORT=subprocess to use platform-tools; no automatic fallback was performed.".into())
+    AdbError::Transport("This operation is unavailable in the built-in ADB engine. To use it, choose Google platform-tools under Settings > ADB engine; no automatic fallback was performed.".into())
 }
 
 impl Drop for DirectNetworkAdb {
     fn drop(&mut self) {
         self.discovery.cancel();
         self.closing.store(true, Ordering::Release);
-        self.pool.operations.close();
+        if self.owns_operations {
+            self.pool.operations.close();
+        }
         for job in self.jobs().values() {
             job.task.abort();
         }
@@ -1504,6 +1530,44 @@ mod tests {
         fail_probe.store(false, Ordering::Release);
         driver.raw(&["connect", "192.0.2.2:5555"]).await.unwrap();
         assert_eq!(driver.pool.sessions.lock().await.len(), 1);
+    }
+    #[tokio::test]
+    async fn retiring_a_driver_closes_only_a_counter_it_owns() {
+        let fake = || -> Arc<Factory> { Arc::new(|_, _| Arc::new(FakeSession::default())) };
+        let owned = DirectNetworkAdb::with_factory(PathBuf::from("unused"), fake());
+        let counter = owned.pool.operations.clone();
+        drop(owned);
+        assert!(counter.try_acquire().is_none());
+
+        let shared = Leases::new();
+        let state = atv_optimizer_core::commands::AppState::new(
+            Arc::new(DirectNetworkAdb::with_factory_and_operations(
+                PathBuf::from("unused"),
+                fake(),
+                shared.clone(),
+                false,
+            )),
+            atv_optimizer_core::engine::AppListBundle::default(),
+            PathBuf::from("not-created"),
+        );
+        state
+            .adb_snapshot()
+            .await
+            .raw(&["connect", "192.0.2.1:5555"])
+            .await
+            .unwrap();
+        // An engine switch drops the built-in driver; the app keeps working.
+        state
+            .replace_adb(Arc::new(DirectNetworkAdb::with_factory(
+                PathBuf::from("unused"),
+                fake(),
+            )))
+            .await;
+        assert!(shared.try_acquire().is_some());
+        assert!(state.adb_snapshot().await.raw(&["devices"]).await.is_ok());
+        // Quit still closes it.
+        state.close_adb_admission();
+        assert!(shared.try_acquire().is_none());
     }
     #[tokio::test]
     async fn quit_closes_only_owned_sessions_after_work_drains() {

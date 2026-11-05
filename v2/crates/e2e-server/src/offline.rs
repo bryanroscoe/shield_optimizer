@@ -33,6 +33,10 @@ pub fn allowed(command: &str) -> bool {
             | "restart_adb"
             | "get_stop_adb_on_quit"
             | "set_stop_adb_on_quit"
+            // Reviewed offline-safe: the status reads managed state only, and the
+            // E2E server refuses a switch without swapping out the simulator.
+            | "adb_engine"
+            | "set_adb_engine"
             | "scan_network"
             | "list_launchers"
             | "current_launcher"
@@ -133,6 +137,8 @@ mod tests {
         // Answered by the server's intercept table, never by the host.
         assert!(allowed("local_network_access"));
         assert!(allowed("open_local_network_settings"));
+        assert!(allowed("adb_engine"));
+        assert!(allowed("set_adb_engine"));
         assert!(!allowed("new_unreviewed_command"));
         assert!(!allowed("plugin:opener|open_url"));
     }

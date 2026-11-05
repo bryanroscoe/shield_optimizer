@@ -449,6 +449,19 @@ export interface ScanConnectionProgress {
   ready?: string[];
 }
 
+export type AdbEngine = "builtin" | "platform_tools";
+
+/// The ADB engine setting. `active` differs from `selected` only after the
+/// built-in engine could not start, which `fallback_reason` explains. Both
+/// are null only when ATV_OPTIMIZER_TRANSPORT holds an invalid value.
+export interface AdbEngineStatus {
+  selected: AdbEngine | null;
+  source: "env" | "saved" | "default";
+  active: AdbEngine | null;
+  fallback_reason: string | null;
+  builtin_available: boolean;
+}
+
 export interface AdbStatus {
   failure?: "missing_binary" | "probe_failed" | null;
   connections?: ScanConnectionProgress;

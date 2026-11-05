@@ -38,6 +38,7 @@ Normal desktop builds still use platform-tools. These apply to the labeled nativ
 - Native Scan details retains grouped mDNS service addresses with an explicit IPv4/IPv6 connection selector. Stale observations require a new scan, and pairing ports remain separate from connection addresses.
 - Native approval rows say Approval requested and Retry approval, making the initial request explicit without promising a dialog. Unidentified offline network routes stay in Scan details with working endpoint-specific retry instead of appearing as extra Unknown devices.
 - macOS: with native ADB, a "No route to host" no longer suggests Restart ADB or a stale ADB server. A Local Network block says to turn ATV Optimizer on and try again; when the app itself reaches the network, Local Network is not blamed.
+- Settings › ADB › **ADB engine** chooses between the built-in engine and Google platform-tools, saved across launches and applied without a restart. If the built-in engine can't set up its key, the app uses platform-tools for that session and Settings says why. `ATV_OPTIMIZER_TRANSPORT` still overrides the choice for one launch.
 
 ## v2-2.5.0 — 2026-11-04
 

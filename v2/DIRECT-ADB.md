@@ -13,16 +13,54 @@ Scan LAN connect directly to the TV; Scan LAN combines fresh mDNS endpoints with
 the existing port-5555 sweep. Pair PIN still requires the separate connect port.
 The private app identity is created once on supported Unix hosts; approve it on
 the TV, even if platform-tools was already approved. No standard ADB key is imported
-or replaced. A failed native initialization stays visible and never silently
-switches drivers. Native mode does not expose Restart ADB or Stop ADB when quitting.
+or replaced. Native mode does not expose Restart ADB or Stop ADB when quitting.
 
-For an explicitly requested diagnostic fallback, launch the executable with
-`ATV_OPTIMIZER_TRANSPORT=subprocess`. The label changes to **Platform-tools ADB**.
-That does not replay any operation. Windows first-run native identity is unsupported
-in this integration. Physical TV acceptance, file/install operations, and cross-OS
-validation must be completed before making native the shipping default. Native Remote
-currently uses compatibility shell input; the fast Remote path remains gated, so
-hold-to-repeat and full Unicode input are not yet at parity.
+## Choosing the engine
+
+Settings › ADB › **ADB engine** offers **Built-in** and **Google platform-tools**. The
+choice is saved to `<data folder>/adb-engine.json` (written to a temporary file, then
+renamed over it) and takes effect at once: the app builds the new driver the same way
+it does at launch and swaps it in through `AppState::replace_adb`. Connections made
+through the previous engine close; reconnect TVs from Devices. Choosing the engine
+already running only saves the choice. A missing, unreadable or malformed file counts
+as no choice and is logged.
+
+The engine for a launch is decided in this order:
+
+1. `ATV_OPTIMIZER_TRANSPORT`: `direct` is built-in, `subprocess` is platform-tools.
+   While it is set, Settings shows the choice disabled and refuses changes. Any other
+   value is a configuration error: every ADB call fails with the message and nothing
+   falls back.
+2. The saved Settings choice.
+3. The build default: built-in only in builds with feature `native-adb-default`,
+   otherwise platform-tools. Normal builds keep platform-tools.
+
+**Fallback.** When the built-in engine is selected but cannot start, because the build
+lacks feature `direct-adb` or its identity cannot be created or validated, that session
+uses platform-tools. The choice stays Built-in and Settings shows the reason with
+**Try again**. Fallback happens only while starting an engine: never per command, never
+retried in the background, and never by replacing or importing a key or creating one in
+the working-directory fallback. A build without the built-in engine disables that
+option.
+
+The built-in driver counts its work on the app's own admission counter and leaves it
+open when a switch retires the driver, so quit still drains native work and a switch
+away from native cannot close admission for the driver that replaces it. Commands:
+`adb_engine` returns `{selected, source: env|saved|default, active, fallback_reason,
+builtin_available}`; `set_adb_engine(engine: builtin|platform_tools)` saves, switches
+and returns the same status. The E2E server reports platform-tools and refuses switching
+so the simulator stays in place.
+
+`ATV_OPTIMIZER_TRANSPORT=subprocess` remains the diagnostic override for one launch.
+The label changes to **Platform-tools ADB**. Switching does not replay any operation.
+
+## Limits
+
+Windows first-run native identity is unsupported in this integration. Physical TV
+acceptance, file/install operations, and cross-OS validation must be completed before
+making native the shipping default. Native Remote currently uses compatibility shell
+input; the fast Remote path remains gated, so hold-to-repeat and full Unicode input are
+not yet at parity.
 
 The notes below record the earlier implementation stages; observation-only picker
 prototypes are not the integrated Devices UI.

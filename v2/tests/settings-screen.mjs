@@ -5,9 +5,14 @@
 //     one that can disagree;
 //   - the support ID is shown only when one exists, and says why when not;
 //   - Send logs uploads nothing until the person confirms, then shows the ID
-//     to quote, and a failure is shown through the shared error notice.
+//     to quote, and a failure is shown through the shared error notice;
+//   - the ADB engine choice switches both ways (mouse and keyboard), the ADB
+//     status and Devices follow it, a fallback says why, and a launch
+//     override or a build without the built-in engine disables it.
+// ADB_ENGINE_EVIDENCE=<dir> saves 720px captures of the engine row.
 // Nothing here can reach a network: the demo backend records the upload.
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -312,6 +317,200 @@ async function failedSubprocessSettings({ browser, base }) {
   }
 }
 
+const engineEvidence = process.env.ADB_ENGINE_EVIDENCE;
+
+function engineControls(page) {
+  const section = page.locator("#adb");
+  const group = section.getByRole("radiogroup", { name: "ADB engine" });
+  return {
+    section,
+    group,
+    builtin: group.getByRole("radio", { name: "Built-in", exact: true }),
+    tools: group.getByRole("radio", { name: "Google platform-tools", exact: true }),
+  };
+}
+
+async function engineSettled(page, { builtin, tools }, checked) {
+  const want = checked === "builtin" ? builtin : tools;
+  await page.waitForFunction((el) => el?.checked, await want.elementHandle());
+  await page.waitForFunction(() => document.querySelector("#adb [role=radiogroup]")?.getAttribute("aria-busy") === "false");
+}
+
+const demoEngine = (page) => page.evaluate(() => window.__TAURI_INTERNALS__.invoke("adb_engine", {}));
+
+/// Records every engine switch the page asks for; `fails` makes each refused.
+async function recordEngineCalls(page, fails = false) {
+  await page.addInitScript((fails) => {
+    let bridge;
+    window.engineCalls = [];
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      get: () => bridge,
+      set(value) {
+        const original = value.invoke.bind(value);
+        value.invoke = async (command, args) => {
+          if (command === "set_adb_engine") {
+            window.engineCalls.push(args.engine);
+            if (fails) throw "Couldn't save the ADB engine setting: fixture disk full";
+          }
+          return original(command, args);
+        };
+        bridge = value;
+      },
+    });
+  }, fails);
+}
+
+const engineCalls = (page) => page.evaluate(() => window.engineCalls);
+
+async function adbEngineSwitching({ browser, base }) {
+  const page = await newPage(browser);
+  await recordEngineCalls(page);
+  await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
+  const controls = engineControls(page);
+  const { section, builtin, tools } = controls;
+  await engineSettled(page, controls, "platform_tools");
+  assert.equal(await builtin.isChecked(), false);
+  assert.equal(await builtin.isDisabled(), false);
+  await section.getByText("/opt/homebrew/bin/adb").waitFor();
+  assert.doesNotMatch(await section.innerText(), /USB devices need platform-tools/, "the explanation waits behind help");
+
+  const help = section.getByRole("button", { name: "About ADB engine", exact: true });
+  await help.click();
+  const said = await section.innerText();
+  assert.match(said, /no adb server or download/);
+  assert.match(said, /network only, so USB devices need platform-tools/);
+  assert.match(said, /each TV asks once to allow debugging/);
+  assert.match(said, /adb server shared with other tools/);
+  await help.press("Escape");
+  assert.equal(await help.getAttribute("aria-expanded"), "false");
+
+  // Built-in with the mouse: the status below and Devices follow it.
+  await builtin.click();
+  await engineSettled(page, controls, "builtin");
+  await section.getByText(/Native Rust ADB · direct connection/).waitFor();
+  await section.getByText("Now using Built-in.", { exact: false }).waitFor();
+  assert.equal(await section.getByRole("button", { name: "Restart ADB", exact: true }).isDisabled(), true);
+  assert.equal(await section.getByRole("checkbox", { name: "Stop ADB when quitting" }).isDisabled(), true);
+  assert.deepEqual(await engineCalls(page), ["builtin"]);
+  assert.equal((await demoEngine(page)).active, "builtin");
+  await page.getByRole("link", { name: "Devices" }).click();
+  await page.getByTestId("adb-backend").filter({ hasText: "Native Rust ADB · direct connection" }).waitFor();
+  await page.getByRole("link", { name: "Settings" }).click();
+  await engineSettled(page, controls, "builtin");
+
+  // Back with the keyboard; focus stays on the choice.
+  await builtin.focus();
+  await page.keyboard.press("ArrowDown");
+  await engineSettled(page, controls, "platform_tools");
+  await section.getByText("/opt/homebrew/bin/adb").waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute("value") === "platform_tools");
+  assert.deepEqual(await engineCalls(page), ["builtin", "platform_tools"]);
+  await page.getByRole("link", { name: "Devices" }).click();
+  await page.getByTestId("adb-backend").filter({ hasText: "Platform-tools ADB · host server" }).waitFor();
+  await page.close();
+}
+
+async function adbEngineStates({ browser, base }) {
+  // Built-in selected but unable to start: it stays the choice, platform-tools
+  // runs, and the row says why.
+  const fallback = await newPage(browser, ["adbEngineFallback"]);
+  await recordEngineCalls(fallback);
+  await fallback.goto(`${base}/settings`, { waitUntil: "networkidle" });
+  let controls = engineControls(fallback);
+  await engineSettled(fallback, controls, "builtin");
+  const reason = controls.section.locator("[data-engine-fallback]");
+  assert.match(await reason.innerText(), /couldn't set up its key, so this session uses Google platform-tools/);
+  await controls.section.getByText("/opt/homebrew/bin/adb").waitFor();
+  const retry = reason.getByRole("button", { name: "Try again" });
+  await retry.click();
+  await fallback.waitForFunction(() => window.engineCalls.length === 1);
+  await engineSettled(fallback, controls, "builtin");
+  await fallback.waitForFunction((el) => el && !el.disabled, await retry.elementHandle());
+  assert.deepEqual(await engineCalls(fallback), ["builtin"]);
+  assert.doesNotMatch(await controls.section.innerText(), /Now using/, "a retry that falls back again claims no switch");
+  await controls.tools.check();
+  await engineSettled(fallback, controls, "platform_tools");
+  await reason.waitFor({ state: "detached" });
+  await fallback.close();
+
+  // A launch override decides for this launch.
+  const env = await newPage(browser, ["adbEngineEnv"]);
+  await env.goto(`${base}/settings`, { waitUntil: "networkidle" });
+  controls = engineControls(env);
+  await controls.section.locator("[data-engine-locked]").getByText("Set by ATV_OPTIMIZER_TRANSPORT for this launch.").waitFor();
+  assert.equal(await controls.builtin.isDisabled(), true);
+  assert.equal(await controls.tools.isDisabled(), true);
+  assert.equal(await controls.tools.isChecked(), true);
+  await env.close();
+
+  // A build without the built-in engine keeps platform-tools choosable.
+  const unavailable = await newPage(browser, ["builtinUnavailable"]);
+  await unavailable.goto(`${base}/settings`, { waitUntil: "networkidle" });
+  controls = engineControls(unavailable);
+  await engineSettled(unavailable, controls, "platform_tools");
+  await controls.section.getByText("This build includes only Google platform-tools.").waitFor();
+  assert.equal(await controls.builtin.isDisabled(), true);
+  assert.equal(await controls.tools.isDisabled(), false);
+  await unavailable.close();
+
+  // A switch the backend refuses leaves the radios on what it reports.
+  const failing = await newPage(browser);
+  await recordEngineCalls(failing, true);
+  await failing.goto(`${base}/settings`, { waitUntil: "networkidle" });
+  controls = engineControls(failing);
+  await engineSettled(failing, controls, "platform_tools");
+  await controls.builtin.click();
+  await controls.section.locator(".error-notice").waitFor();
+  assert.deepEqual(await engineCalls(failing), ["builtin"]);
+  await engineSettled(failing, controls, "platform_tools");
+  assert.equal(await controls.builtin.isChecked(), false);
+  await controls.section.getByText("/opt/homebrew/bin/adb").waitFor();
+  await failing.close();
+}
+
+async function adbEngineLayout({ browser, base }) {
+  if (engineEvidence) await mkdir(engineEvidence, { recursive: true });
+  const scenarios = [
+    { name: "platform-tools", flags: [], checked: "platform_tools" },
+    { name: "builtin", flags: [], checked: "builtin", choose: true },
+    { name: "fallback", flags: ["adbEngineFallback"], checked: "builtin" },
+    { name: "env-override", flags: ["adbEngineEnv"], checked: "platform_tools" },
+    { name: "builtin-unavailable", flags: ["builtinUnavailable"], checked: "platform_tools" },
+  ];
+  for (const theme of ["light", "dark"]) {
+    for (const scale of ["100%", "125%"]) {
+      for (const scenario of scenarios) {
+        const page = await newPage(browser, scenario.flags, { width: 720, height: 900 });
+        await page.addInitScript((theme) => localStorage.setItem("shieldopt.theme", theme), theme);
+        await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
+        await page.evaluate((scale) => (document.documentElement.style.fontSize = scale), scale);
+        assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), theme);
+        const controls = engineControls(page);
+        await controls.group.waitFor();
+        if (scenario.choose) {
+          await controls.builtin.click();
+          await controls.section.getByText("Now using Built-in.", { exact: false }).waitFor();
+        }
+        await engineSettled(page, controls, scenario.checked);
+        const label = `${scenario.name}, ${theme}, ${scale} text`;
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        assert.ok(overflow <= 0, `no horizontal overflow at 720px (${label}: ${overflow}px)`);
+        const section = await controls.section.boundingBox();
+        for (const radio of [controls.builtin, controls.tools]) {
+          const box = await radio.locator("xpath=..").boundingBox();
+          assert.ok(box.x >= section.x && box.x + box.width <= section.x + section.width + 0.5, `engine option inside the card (${label})`);
+        }
+        if (engineEvidence && scale === "100%") {
+          await page.mouse.move(0, 0);
+          await controls.section.screenshot({ path: join(engineEvidence, `simulated-720-${theme}-${scenario.name}.png`) });
+        }
+        await page.close();
+      }
+    }
+  }
+}
+
 async function narrow({ browser, base }) {
   // Rows wrap rather than push controls off-screen.
   const page = await newPage(browser, [], { width: 560, height: 900 });
@@ -368,10 +567,13 @@ async function main() {
     await sharedPreferences({ browser, base });
     await nativeSettings({ browser, base });
     await failedSubprocessSettings({ browser, base });
+    await adbEngineSwitching({ browser, base });
+    await adbEngineStates({ browser, base });
+    await adbEngineLayout({ browser, base });
     await narrow({ browser, base });
     await compactHelp({ browser, base });
     console.log(
-      "Settings screen passed: reached from the header and the first-run notice, the report switch and support ID agree with the Report a bug dialog, Send logs uploads only after confirmation and shows the ID to quote (or the shared error), theme / auto-update / Stop ADB when quitting / debug logging are the same settings as elsewhere, and the screen fits 560px.",
+      "Settings screen passed: reached from the header and the first-run notice, the report switch and support ID agree with the Report a bug dialog, Send logs uploads only after confirmation and shows the ID to quote (or the shared error), theme / auto-update / Stop ADB when quitting / debug logging are the same settings as elsewhere, the ADB engine switches both ways by mouse and keyboard with its fallback, override and build states shown, and the screen fits 560px and 720px.",
     );
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));
