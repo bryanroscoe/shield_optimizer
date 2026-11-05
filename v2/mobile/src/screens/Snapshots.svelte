@@ -4,7 +4,15 @@
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { SnapshotApplyPlan, SnapshotFile } from "../lib/types";
-  import { previewRows, previewSummary } from "../lib/snapshotPreview";
+  import {
+    keptPackages,
+    launcherSkipNote,
+    previewRows,
+    previewSummary,
+    restoreOutcome,
+    snapshotName,
+    type RestoreOutcomeRow,
+  } from "../lib/snapshotPreview";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
@@ -12,6 +20,7 @@
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import { billing } from "../lib/billing.svelte";
   import Toast from "../components/Toast.svelte";
+  import { modal } from "../lib/modal";
 
   let {
     navigate,
@@ -29,12 +38,14 @@
   let busyPath = $state("");
 
   // Apply flow: preview first, confirm with the real plan, then apply. The
-  // serial the plan was computed against is pinned here — switching TVs while
-  // the sheet is open must never apply TV A's plan to TV B.
+  // connection the plan was computed against is pinned here: a silent redial
+  // can land on a different id-less TV at the same address, so a new
+  // generation invalidates the plan just like a different serial.
   let pending = $state<{
     snap: SnapshotFile;
     plan: SnapshotApplyPlan;
     serial: string;
+    generation: number;
   } | null>(null);
   let unchangedOpen = $state(false);
   let deleteTarget = $state<SnapshotFile | null>(null);
@@ -94,17 +105,43 @@
     }
   }
 
+  function ownsConnection(serial: string, generation: number): boolean {
+    return session.isConnected && serial === session.serial && generation === session.generation;
+  }
+
+  const CONNECTION_CHANGED =
+    "The TV connection changed since this preview was built, so nothing was applied. Preview again.";
+
+  // A reconnect (even to the same address) or a lost connection closes the
+  // preview: its plan and "Now" column describe the previous connection.
+  $effect(() => {
+    void session.serial;
+    void session.generation;
+    void session.isConnected;
+    untrack(() => {
+      if (pending && !ownsConnection(pending.serial, pending.generation)) {
+        pending = null;
+        showToast(CONNECTION_CHANGED, "error");
+      }
+    });
+  });
+
   async function beginApply(snap: SnapshotFile) {
     const serial = session.serial;
+    const generation = session.generation;
     if (busyPath || !serial) return;
+    if (!session.isConnected) {
+      showToast("No TV connected. Connect a TV, then preview again.", "error");
+      return;
+    }
     busyPath = snap.path;
     try {
       const plan = await api.previewApply(serial, snap.path);
-      if (serial !== session.serial) {
-        showToast("The connected TV changed while the plan was loading. Preview again.", "error");
+      if (!ownsConnection(serial, generation)) {
+        showToast("The TV connection changed while the plan was loading. Preview again.", "error");
         return;
       }
-      pending = { snap, plan, serial };
+      pending = { snap, plan, serial, generation };
       unchangedOpen = previewRows(plan, snap.launcher).unchanged.length <= 6;
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
@@ -116,33 +153,34 @@
 
   /// A restore that threw, or finished with items that didn't apply.
   let applyFailure = $state<{ title: string; error: unknown } | null>(null);
+  /// What the finished restore skipped or kept, each with the backend's reason.
+  let notRestored = $state<RestoreOutcomeRow[]>([]);
 
   async function confirmApply() {
     const p = pending;
     pending = null;
     if (!p) return;
-    if (p.serial !== session.serial) {
-      showToast(
-        "The connected TV changed since this plan was built — nothing was applied. Preview again.",
-        "error",
-      );
+    if (!ownsConnection(p.serial, p.generation)) {
+      showToast(CONNECTION_CHANGED, "error");
       return;
     }
     busyPath = p.snap.path;
     applyFailure = null;
+    notRestored = [];
     try {
       const res = await api.applySnapshot(p.serial, p.snap.path);
+      const outcome = restoreOutcome(res, p.plan);
       // The summary carries any launcher follow-up (a setup helper that
       // couldn't be re-enabled); that is not a clean success either.
       const followUp = res.summary?.includes("Re-enable Setup Wraith");
       showToast(
         res.summary || "Snapshot applied.",
-        res.packages_failed.length || res.settings_failed.length || followUp ? "info" : "success",
+        outcome.length || followUp ? "info" : "success",
       );
-      const failed = res.packages_failed.length + res.settings_failed.length;
-      if (failed > 0) {
+      notRestored = outcome;
+      if (outcome.length > 0) {
         applyFailure = {
-          title: `${failed} item${failed === 1 ? "" : "s"} didn't restore`,
+          title: `${outcome.length} item${outcome.length === 1 ? "" : "s"} didn't restore`,
           error: res.summary || "Some changes didn't apply.",
         };
       }
@@ -161,7 +199,7 @@
     busyPath = snap.path;
     try {
       await api.deleteSnapshot(snap.path);
-      showToast("Snapshot deleted.", "success");
+      showToast(`Deleted snapshot "${snapshotName(snap)}".`, "success");
       await load();
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
@@ -182,6 +220,24 @@
     pending ? previewRows(pending.plan, pending.snap.launcher) : { acting: [], unchanged: [] },
   );
   const nothingToDo = $derived(pending != null && rows.acting.length === 0);
+  const homeSkip = $derived(pending ? launcherSkipNote(pending.plan) : null);
+  const kept = $derived(pending ? keptPackages(pending.plan) : []);
+
+  // As in ConfirmDialog: the plan scrolls inside the card and Cancel/Restore
+  // stay pinned, with a divider once anything is cut off.
+  let planBody = $state<HTMLElement>();
+  let planContent = $state<HTMLElement>();
+  let planOverflowing = $state(false);
+  $effect(() => {
+    if (!planBody || !planContent) return;
+    const scroller = planBody;
+    const update = () => (planOverflowing = scroller.scrollHeight > scroller.clientHeight + 1);
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    observer.observe(planContent);
+    update();
+    return () => observer.disconnect();
+  });
 </script>
 
 <div class="screen">
@@ -201,8 +257,21 @@
       error={applyFailure.error}
       title={applyFailure.title}
       action="Snapshot restore"
-      onDismiss={() => (applyFailure = null)}
+      onDismiss={() => {
+        applyFailure = null;
+        notRestored = [];
+      }}
     />
+    {#if notRestored.length > 0}
+      <ul class="plan-list not-restored" aria-label="Not restored">
+        {#each notRestored as row, i (i)}
+          <li class="plan-item">
+            <span class="plan-key mono">{row.item}</span>
+            <span class="plan-why">{row.reason}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
 
   {#if loading}
@@ -260,10 +329,15 @@
           <div class="snap-card">
             <div class="snap-head">
               <div class="snap-title-wrap">
-                <span class="snap-title">{snap.label ?? snap.device_name}</span>
+                <span class="snap-title">{snapshotName(snap)}</span>
                 <span class="snap-date mono">{fmtDate(snap.saved_at)}</span>
               </div>
-              <button class="icon-del" disabled={busyPath !== ""} onclick={() => (deleteTarget = snap)} aria-label="Delete snapshot">
+              <button
+                class="icon-del"
+                disabled={busyPath !== ""}
+                onclick={() => (deleteTarget = snap)}
+                aria-label={`Delete snapshot ${snapshotName(snap)}`}
+              >
                 <span class="msr">delete</span>
               </button>
             </div>
@@ -284,69 +358,96 @@
 
   {#if pending}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="plan-overlay" onclick={() => (pending = null)}>
+    <div class="plan-overlay" use:modal={{ onClose: () => (pending = null) }} onclick={() => (pending = null)}>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="plan-card" onclick={(e) => e.stopPropagation()}>
-        <span class="plan-icon msr">settings_backup_restore</span>
-        <h3>Restore "{pending.snap.label ?? pending.snap.device_name}"?</h3>
-        <p class="plan-target">
-          to <strong>{session.deviceLabel}</strong>
-        </p>
+      <div
+        class="plan-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plan-title"
+        tabindex="-1"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="plan-body" bind:this={planBody}>
+          <div class="plan-content" bind:this={planContent}>
+            <span class="plan-icon msr" aria-hidden="true">settings_backup_restore</span>
+            <h3 id="plan-title">Restore "{snapshotName(pending.snap)}"?</h3>
+            <p class="plan-target">
+              to <strong>{session.deviceLabel}</strong>
+            </p>
 
-        {#if pending.plan.cross_device_warning}
-          <p class="plan-warning" role="alert">
-            <span class="msr">warning</span>{pending.plan.cross_device_warning}
-          </p>
-        {/if}
+            {#if pending.plan.cross_device_warning}
+              <p class="plan-warning" role="alert">
+                <span class="msr">warning</span>{pending.plan.cross_device_warning}
+              </p>
+            {/if}
 
-        <p class="plan-summary mono">{previewSummary(pending.plan)}</p>
+            <p class="plan-summary mono">{previewSummary(pending.plan)}</p>
 
-        {#if nothingToDo}
-          <p class="plan-empty">This TV already matches the snapshot — nothing to change.</p>
-        {:else}
-          <span class="plan-heading">What happens</span>
-          <ul class="plan-list" aria-label="Changes">
-            {#each rows.acting as row (`${row.kind}:${row.item}`)}
-              <li class="plan-item acting">
-                <span class="plan-key mono">{row.item}</span>
-                <span class="plan-now"><span class="now-label">Now</span><span class="mono">{row.now}</span></span>
-                <span class="plan-act {row.kind}">{row.result}</span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
+            {#if homeSkip}
+              <p class="plan-skip" data-testid="home-skip">
+                <span class="msr" aria-hidden="true">home</span>
+                <span>The Home app won't change: {homeSkip}</span>
+              </p>
+            {/if}
+            {#if kept.length > 0}
+              <p class="plan-skip" data-testid="kept-for-home">
+                <span class="msr" aria-hidden="true">info</span>
+                <span>
+                  Kept on so the TV keeps a Home screen:
+                  {kept.map((k) => `${k.package} (${k.reason})`).join(", ")}.
+                </span>
+              </p>
+            {/if}
 
-        {#if rows.unchanged.length > 0}
-          <button class="plan-toggle" onclick={() => (unchangedOpen = !unchangedOpen)} aria-expanded={unchangedOpen}>
-            {rows.unchanged.length} already match or are skipped
-            <span class="msr" class:flip={unchangedOpen}>expand_more</span>
-          </button>
-          {#if unchangedOpen}
-            <ul class="plan-list" aria-label="No change">
-              {#each rows.unchanged as row (`${row.kind}:${row.item}:${row.result}`)}
-                <li class="plan-item dim">
-                  <span class="plan-key mono">{row.item}</span>
-                  <span class="plan-now"><span class="now-label">Now</span><span class="mono">{row.now}</span></span>
-                  <span class="plan-reason">{row.result}</span>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        {/if}
+            {#if nothingToDo}
+              <p class="plan-empty">This TV already matches the snapshot — nothing to change.</p>
+            {:else}
+              <span class="plan-heading">What happens</span>
+              <ul class="plan-list" aria-label="Changes">
+                {#each rows.acting as row (`${row.kind}:${row.item}`)}
+                  <li class="plan-item acting">
+                    <span class="plan-key mono">{row.item}</span>
+                    <span class="plan-now"><span class="now-label">Now</span><span class="mono">{row.now}</span></span>
+                    <span class="plan-act {row.kind}">{row.result}</span>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
 
-        {#if destructiveWarning(session.support)}
-          <p class="plan-support-warning" data-testid="support-warning" role="alert">
-            <span class="msr" aria-hidden="true">warning</span>{destructiveWarning(session.support)}
-          </p>
-        {/if}
+            {#if rows.unchanged.length > 0}
+              <button class="plan-toggle" onclick={() => (unchangedOpen = !unchangedOpen)} aria-expanded={unchangedOpen}>
+                {rows.unchanged.length} already match or are skipped
+                <span class="msr" class:flip={unchangedOpen}>expand_more</span>
+              </button>
+              {#if unchangedOpen}
+                <ul class="plan-list" aria-label="No change">
+                  {#each rows.unchanged as row, i (i)}
+                    <li class="plan-item dim">
+                      <span class="plan-key mono">{row.item}</span>
+                      <span class="plan-now"><span class="now-label">Now</span><span class="mono">{row.now}</span></span>
+                      <span class="plan-reason" class:long={row.result.length > 24}>{row.result}</span>
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+            {/if}
 
-        <p class="plan-note">
-          Restoring disables the recorded apps and writes the recorded settings back, including
-          resetting settings the snapshot recorded as never set. It never re-enables anything or
-          reinstalls apps. A disabled app can be turned back on with Emergency recovery under More.
-        </p>
+            {#if destructiveWarning(session.support)}
+              <p class="plan-support-warning" data-testid="support-warning" role="alert">
+                <span class="msr" aria-hidden="true">warning</span>{destructiveWarning(session.support)}
+              </p>
+            {/if}
 
-        <div class="plan-actions">
+            <p class="plan-note">
+              Restoring disables the recorded apps and writes the recorded settings back, including
+              resetting settings the snapshot recorded as never set. It never re-enables anything or
+              reinstalls apps. A disabled app can be turned back on with Emergency recovery under More.
+            </p>
+          </div>
+        </div>
+
+        <div class="plan-actions" class:divided={planOverflowing}>
           <button class="ghost small" onclick={() => (pending = null)}>Cancel</button>
           <button class="primary small" disabled={nothingToDo} onclick={confirmApply}>Restore</button>
         </div>
@@ -358,8 +459,10 @@
     open={deleteTarget !== null}
     danger
     icon="delete"
-    title="Delete this snapshot?"
-    message="The saved file will be removed from this phone. Your TV is not affected."
+    title={deleteTarget ? `Delete snapshot "${snapshotName(deleteTarget)}"?` : "Delete snapshot?"}
+    message={deleteTarget
+      ? `Saved ${fmtDate(deleteTarget.saved_at)} · ${deleteTarget.filename}. This permanently deletes the saved file from this phone. Deleting a local snapshot does not change the TV.`
+      : ""}
     confirmLabel="Delete"
     onConfirm={() => deleteTarget && doDelete(deleteTarget)}
     onCancel={() => (deleteTarget = null)}
@@ -579,26 +682,41 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.72);
-    display: grid;
-    place-items: center;
-    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    box-sizing: border-box;
+    overscroll-behavior: contain;
     z-index: 400;
-    overflow-y: auto;
   }
+  /* max-height: 100% of the fixed overlay follows Android's dynamic bars,
+     where 100vh does not. */
   .plan-card {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 22px;
     width: 100%;
     max-width: 340px;
-    padding: 22px;
+    max-height: 100%;
+    overflow: hidden;
     box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
     display: flex;
     flex-direction: column;
-    gap: 8px;
     box-sizing: border-box;
-    max-height: calc(100vh - 40px);
+  }
+  .plan-body {
+    flex: 0 1 auto;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 22px 22px 8px;
+  }
+  .plan-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .plan-icon {
     font-size: 36px;
@@ -633,6 +751,25 @@
   .plan-warning .msr {
     flex: none;
     font-size: 17px;
+  }
+  .plan-skip {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 0 0 4px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--canvas);
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .plan-skip .msr {
+    flex: none;
+    font-size: 17px;
+    color: var(--muted);
   }
   .plan-empty {
     margin: 0;
@@ -714,6 +851,16 @@
     color: var(--text-soft);
     font-weight: 500;
   }
+  .not-restored {
+    margin: -4px 0 12px;
+  }
+  .plan-why {
+    grid-column: 1 / -1;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--text-soft);
+    overflow-wrap: anywhere;
+  }
   .plan-reason {
     font-size: 10px;
     padding: 2px 7px;
@@ -722,6 +869,14 @@
     color: var(--muted);
     align-self: center;
     text-align: right;
+  }
+  /* A sentence-long reason (a skipped Home app) gets its own line. */
+  .plan-reason.long {
+    grid-column: 1 / -1;
+    justify-self: start;
+    text-align: left;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
   .beta-tag {
     margin-left: 4px;
@@ -766,15 +921,21 @@
     transform: rotate(180deg);
   }
   .plan-note {
-    margin: 4px 0 8px;
+    margin: 4px 0 0;
     font-size: 11px;
     color: var(--muted);
     line-height: 1.45;
   }
   .plan-actions {
+    flex: none;
     display: flex;
     gap: 10px;
-    width: 100%;
+    padding: 8px 22px 22px;
+    border-top: 1px solid transparent;
+  }
+  .plan-actions.divided {
+    border-top-color: var(--line);
+    padding-top: 14px;
   }
   .plan-actions .ghost,
   .plan-actions .primary {

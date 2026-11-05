@@ -20,6 +20,22 @@
     onConfirm: () => void;
     onCancel: () => void;
   } = $props();
+
+  // As in ConfirmDialog: long content scrolls inside the card while the three
+  // choices stay pinned below it, with a divider once anything is cut off.
+  let body = $state<HTMLElement>();
+  let content = $state<HTMLElement>();
+  let overflowing = $state(false);
+  $effect(() => {
+    if (!body || !content) return;
+    const scroller = body;
+    const update = () => (overflowing = scroller.scrollHeight > scroller.clientHeight + 1);
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    observer.observe(content);
+    update();
+    return () => observer.disconnect();
+  });
 </script>
 
 {#if open}
@@ -34,32 +50,36 @@
       aria-label="Confirm disabling the stock launcher"
       onclick={(e) => e.stopPropagation()}
     >
-      <span class="dialog-icon msr">home</span>
-      <h3>Disable the stock launcher?</h3>
-      <p class="dialog-message">
-        Disable the stock launcher and hand Home to <span class="mono">{target}</span>? If Home
-        doesn't land on it, the stock launcher is re-enabled straight away. You can re-enable it
-        from the launcher list at any time.
-      </p>
-      {#if turnsOffSetupHelper}
-        <p class="dialog-warning">
-          <span class="msr">warning</span>
-          <span>
-            Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home button
-            back. You may need to turn it back on briefly to sign in to Google again or pair a
-            remote.
-          </span>
-        </p>
-      {/if}
-      {#if supportWarning}
-        <p class="dialog-warning" data-testid="support-warning">
-          <span class="msr">warning</span>
-          <span>{supportWarning}</span>
-        </p>
-      {/if}
-      <div class="dialog-actions">
+      <div class="dialog-body" bind:this={body}>
+        <div class="dialog-content" bind:this={content}>
+          <span class="dialog-icon msr" aria-hidden="true">home</span>
+          <h3>Disable the stock launcher?</h3>
+          <p class="dialog-message">
+            Disable the stock launcher and hand Home to <span class="mono">{target}</span>? If Home
+            doesn't land on it, the stock launcher is re-enabled straight away. You can re-enable it
+            from the launcher list at any time.
+          </p>
+          {#if turnsOffSetupHelper}
+            <p class="dialog-warning">
+              <span class="msr" aria-hidden="true">warning</span>
+              <span>
+                Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home button
+                back. You may need to turn it back on briefly to sign in to Google again or pair a
+                remote.
+              </span>
+            </p>
+          {/if}
+          {#if supportWarning}
+            <p class="dialog-warning" data-testid="support-warning">
+              <span class="msr" aria-hidden="true">warning</span>
+              <span>{supportWarning}</span>
+            </p>
+          {/if}
+        </div>
+      </div>
+      <div class="dialog-actions" class:divided={overflowing}>
         <button class="primary small" onclick={onSaveFirst}>
-          <span class="msr">history</span>Save snapshot first
+          <span class="msr" aria-hidden="true">history</span>Save snapshot first
         </button>
         <button class="ghost small danger-ghost" onclick={onConfirm}>Disable stock launcher</button>
         <button class="ghost-link" onclick={onCancel}>Cancel</button>
@@ -73,22 +93,35 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.72);
-    display: grid;
-    place-items: center;
-    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    box-sizing: border-box;
+    overscroll-behavior: contain;
     z-index: 400;
   }
   .dialog-card {
     width: 100%;
     max-width: 360px;
     max-height: 100%;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
+    overflow: hidden;
     box-sizing: border-box;
-    padding: 22px 20px 12px;
     border-radius: 20px;
     background: var(--surface);
     border: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+  }
+  .dialog-body {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 22px 20px 8px;
+  }
+  .dialog-content {
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -131,10 +164,16 @@
     flex: none;
   }
   .dialog-actions {
+    flex: none;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin-top: 4px;
+    padding: 8px 20px 12px;
+    border-top: 1px solid transparent;
+  }
+  .dialog-actions.divided {
+    border-top-color: var(--line);
+    padding-top: 12px;
   }
   .dialog-actions .primary.small,
   .dialog-actions .ghost.small {

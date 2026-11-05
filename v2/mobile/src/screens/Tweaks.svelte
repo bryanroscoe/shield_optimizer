@@ -929,13 +929,21 @@
               {/each}
             </div>
             {#if surroundMode === "3"}
-              <p class="t-desc">Enable only formats supported by your receiver. Existing encodings not listed below are preserved.</p>
-              {#each audioChoices as format (format.value)}
-                <label class="subrow">
-                  <span class="t-subtitle">{format.label}</span>
-                  <input type="checkbox" checked={audioFormats.includes(format.value)} disabled={busy !== ""} onchange={() => toggleAudioFormat(format.value)} />
-                </label>
-              {/each}
+              <p class="t-desc" id="audio-formats-note">Enable only formats supported by your receiver. Existing encodings not listed below are preserved.</p>
+              <div class="format-list" role="group" aria-label="Manual audio formats" aria-describedby="audio-formats-note">
+                {#each audioChoices as format (format.value)}
+                  <label class="format-row">
+                    <input
+                      class="format-check"
+                      type="checkbox"
+                      checked={audioFormats.includes(format.value)}
+                      disabled={busy !== ""}
+                      onchange={() => toggleAudioFormat(format.value)}
+                    />
+                    <span class="format-label">{format.label}</span>
+                  </label>
+                {/each}
+              </div>
               <span class="t-desc">Configured: {audioFormats.length ? audioFormats.map(audioLabel).join(", ") : "None / unset"}</span>
             {/if}
           </div>
@@ -949,11 +957,15 @@
               <span class="t-desc mono">{scalingError ? "Couldn't read the current size" : scaleLine}{scalingCustom ? " · Custom size / density" : ""}</span>
             </div>
           </div>
-          <p class="t-note">
-            The resolution Android draws its menus at. The TV's output resolution doesn't change and
-            video still decodes at full resolution. Lower is lighter on the TV but looks softer.
-            Restarting the TV does not undo this; use Reset.
-          </p>
+          <p class="t-note">Restarting the TV does not undo this; use Reset.</p>
+          <details class="help-disclosure">
+            <summary>About display scaling</summary>
+            <p class="t-note">
+              The resolution Android draws its menus at. The TV's output resolution doesn't change
+              and video still decodes at full resolution. Lower is lighter on the TV but looks
+              softer.
+            </p>
+          </details>
           <div class="segmented scaling-presets">
             {#each scalePresets as p (p.value)}
               <button
@@ -989,7 +1001,8 @@
               <summary>About screensavers</summary>
               <p class="t-note">
                 Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is the plain one
-                built into Android.
+                built into Android. Names come from the app catalog; Restore previous also brings
+                back a custom screensaver this app can't name.
               </p>
             </details>
             <div class="segmented">
@@ -1026,10 +1039,7 @@
                   <span class="mono restore-value">{screensaverLabel(screensaverOriginal.components, screensaverOriginal.enabled)}</span>
                 </span>
               </button>
-              <span class="t-desc">
-                Previous is what was set when Tweaks first read this TV. Names come from the
-                app catalog; custom screensavers may have no known name.
-              </span>
+              <span class="t-desc">Previous is what was set when Tweaks first read this TV.</span>
             {/if}
             <details class="screensaver-details">
               <summary>Component details</summary>
@@ -1084,12 +1094,18 @@
                 </span>
               </div>
             </div>
-            <p class="t-note">
-              Android’s reported cap on cached processes, not a count of running apps. Apps may use multiple
-              processes. This app does not change this cap. Developer options behavior varies by Android version.
-            </p>
+            <details class="help-disclosure">
+              <summary>About cached processes</summary>
+              <p class="t-note">
+                Android’s reported cap on cached processes, not a count of running apps. Apps may use
+                multiple processes. This app does not change this cap; Developer options on the TV
+                can, and that behavior varies by Android version. The legacy
+                global.background_process_limit key had no effect on the tested Shield TV running
+                Android 11; vendor behavior may differ.
+              </p>
+            </details>
             {#if bgLimit != null}
-              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing this deletes only the stored value; it does not set the reported cap. This key had no effect on the tested Shield TV running Android 11; vendor behavior may differ.</p>
+              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing this deletes only the stored value; it does not set the reported cap.</p>
                 <button
                   class="reset-btn"
                   class:busy={busy === "bg-remove"}
@@ -1373,6 +1389,48 @@
     overflow-wrap: anywhere;
   }
 
+  .format-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .format-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 4px 0;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .format-row:first-child {
+    border-top: none;
+  }
+  /* Sized here so the row never depends on the global input rule. */
+  .format-check {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border-radius: 4px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .format-check:disabled {
+    cursor: default;
+  }
+  .format-check:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .format-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
   .subrows {
     display: flex;
     flex-direction: column;
