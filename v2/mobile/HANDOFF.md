@@ -106,13 +106,15 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   keep IPv6-only TVs as bracketed hosts, and drop this phone's own advert. A scan requested while
   one runs joins it. Below T-extensions 7 (Android 12 and below, un-updated 13) a scan holds a Wi-Fi
   multicast lock, which the NsdManager docs require there. A discovery type that fails to start is
-  reported as an error when nothing was found, never as "no TVs". Optional Cast discovery
-  (`_googlecast._tcp`, TXT `fn`) supplies current-scan friendly display names by intersecting
+  reported as an error when nothing was found, never as "no TVs". On Android 14+ optional Cast
+  discovery (`_googlecast._tcp`, TXT `fn`) supplies current-scan friendly display names by intersecting
   resolved addresses with an ADB advert; Cast-only services never become connection targets or
   count as found TVs. Missing, malformed or conflicting names show "Name unavailable". Raw ADB
   instances remain intact for serial recognition, and advertised labels never establish saved-TV
   identity. Lost services and completed scans reject late updates; Cast discovery failure does
-  not report an ADB discovery failure. Before authorization, the selected name stays visible with
+  not report an ADB discovery failure. Older phones browse only ADB services: an optional Cast
+  lookup could otherwise hold their single resolve slot and hide TVs. They retain saved or
+  meaningful ADB names, with the same honest fallback. Before authorization, the selected name stays visible with
   its endpoint through connection progress and errors.
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired

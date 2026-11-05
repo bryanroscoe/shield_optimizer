@@ -97,7 +97,7 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
     val multicast = acquireMulticastLock()
     val listeners = mutableListOf<NsdManager.DiscoveryListener>()
     try {
-      for (type in DISCOVERY_SERVICE_TYPES) {
+      for (type in discoveryServiceTypes(Build.VERSION.SDK_INT)) {
         val listener = discoveryListener(type, resolver)
         try {
           nsd.discoverServices(type, NsdManager.PROTOCOL_DNS_SD, listener)
@@ -181,12 +181,11 @@ private class Scan(private val context: Context, private val timeoutMs: Long) {
       schedule = schedule,
       abandon = { _, token -> abandonResolve(token) },
       resolveTimeoutMs = RESOLVE_TIMEOUT_MS,
-      priority = { key -> if (key.serviceType == CAST_SERVICE_TYPE) 1 else 0 },
     )
 
     @Synchronized override fun found(key: ServiceKey, info: NsdServiceInfo) {
       // The same advert seen again (another interface or address family) is resolved once.
-      if (closed || key in resolvedKeys) return
+      if (closed || key.serviceType !in ADB_SERVICE_TYPES || key in resolvedKeys) return
       infos.putIfAbsent(key, info)
       queue.enqueue(key)
     }

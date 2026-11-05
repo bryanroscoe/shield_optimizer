@@ -21,6 +21,10 @@ internal val ADB_SERVICE_TYPES = listOf("_adb-tls-pairing._tcp.", "_adb-tls-conn
 internal const val CAST_SERVICE_TYPE = "_googlecast._tcp."
 internal val DISCOVERY_SERVICE_TYPES = ADB_SERVICE_TYPES + CAST_SERVICE_TYPE
 
+// Legacy NSD has one resolve slot and cannot reliably cancel a slow name lookup.
+internal fun discoveryServiceTypes(apiLevel: Int): List<String> =
+  if (apiLevel >= 34) DISCOVERY_SERVICE_TYPES else ADB_SERVICE_TYPES
+
 /**
  * NsdManager reports one type as `_adb._tcp.`, `_adb._tcp`, `._adb._tcp` (a legacy resolve
  * quirk) or with `.local` depending on the Android release, so exact string comparison
@@ -196,7 +200,6 @@ internal class SerialResolveQueue<K : Any>(
   private val resolveTimeoutMs: Long = 1_000,
   private val maxAttempts: Int = 4,
   private val retryDelayMs: Long = 200,
-  private val priority: (K) -> Int = { 0 },
 ) {
   private class Active<K>(val key: K, val attempt: Int, val token: Long)
 
@@ -275,8 +278,7 @@ internal class SerialResolveQueue<K : Any>(
   private fun pump() {
     val next = synchronized(this) {
       if (closed || active != null) return
-      val key = queue.minByOrNull(priority) ?: return
-      queue.remove(key)
+      val key = queue.removeFirstOrNull() ?: return
       Active(key, 1, ++nextToken).also { active = it }
     }
     launch(next)

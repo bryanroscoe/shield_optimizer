@@ -23,6 +23,16 @@ class DiscoveryLogicTest {
     assertNull(canonicalServiceType(null))
   }
 
+  @Test fun optionalNamesNeverUseTheLegacySingleResolveSlot() {
+    for (api in listOf(24, 30, 32, 33)) {
+      assertEquals(ADB_SERVICE_TYPES, discoveryServiceTypes(api))
+      assertFalse(CAST_SERVICE_TYPE in discoveryServiceTypes(api))
+    }
+    for (api in listOf(34, 35, 36, 37)) {
+      assertEquals(ADB_SERVICE_TYPES + CAST_SERVICE_TYPE, discoveryServiceTypes(api))
+    }
+  }
+
   @Test fun recordsOfAnotherTypeAreNotAccepted() {
     assertTrue(belongsTo("_adb-tls-connect._tcp", connect))
     assertFalse(belongsTo("_adb-tls-pairing._tcp.", connect))
@@ -273,24 +283,6 @@ class SerialResolveQueueTest {
     assertEquals(1, queue.pending())
     queue.resolved(current)
     assertEquals(0, queue.pending())
-  }
-
-  @Test fun optionalCastResolvesNeverJumpAheadOfQueuedAdbEndpoints() {
-    val started = mutableListOf<String>()
-    val tokens = mutableListOf<Long>()
-    val priorities = SerialResolveQueue<String>(
-      start = { key, token -> started += key; tokens += token },
-      schedule = { _, _ -> },
-      priority = { if (it.startsWith("cast")) 1 else 0 },
-    )
-    priorities.enqueue("adb-a")
-    priorities.enqueue("cast-a")
-    priorities.enqueue("cast-b")
-    priorities.enqueue("adb-b")
-    priorities.resolved(tokens.last())
-    assertEquals(listOf("adb-a", "adb-b"), started)
-    priorities.resolved(tokens.last())
-    assertEquals(listOf("adb-a", "adb-b", "cast-a"), started)
   }
 
   @Test fun closeAbandonsTheResolveInFlightAndStartsNothing() {
