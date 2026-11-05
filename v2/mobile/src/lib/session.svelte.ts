@@ -122,6 +122,8 @@ class Session {
   /// live. Returns the raw ConnectResult so the caller can surface errors.
   async connect(host: string, port: number): Promise<ConnectResult> {
     if (this.applyInProgress) return { ok: false, message: "Stop the current operation before switching TVs." };
+    // Match the endpoint normalization used by the backend's device serial.
+    host = host.trim();
     const generation = this.nextGeneration();
     this.recoveryAttempted = false;
     this.liveness = "connecting";

@@ -101,8 +101,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "wireless_discover":
       return {
         devices: [
-          { name: "adb-0323220012345", host: HOST, port: PORT, service: "_adb._tcp" },
-          { name: "adb-9AB4C21D7E03-x7Kq2b", host: "192.168.1.77", port: 37215, service: "_adb-tls-connect._tcp" },
+          { name: "adb-0323220012345", friendly_name: "Living Room TV", host: HOST, port: PORT, service: "_adb._tcp" },
+          { name: "adb-9AB4C21D7E03-x7Kq2b", friendly_name: "Den TV", host: "192.168.1.77", port: 37215, service: "_adb-tls-connect._tcp" },
         ],
         message: "Found 2 TVs on this network.",
       };

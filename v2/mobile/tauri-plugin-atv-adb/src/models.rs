@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredAdbDevice {
     pub name: String,
+    /// Optional Cast TXT display metadata for this endpoint, not verified identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub friendly_name: Option<String>,
     /// IPv4 when the TV has one; otherwise bracketed IPv6 (`[2001:db8::5]`, or
     /// `[fe80::1%3]` with a numeric scope), so `"{host}:{port}"` is a socket address.
     pub host: String,
@@ -58,6 +61,20 @@ pub(crate) struct WatchNetworkPayload {
 mod tests {
     use super::*;
     use std::net::SocketAddr;
+
+    #[test]
+    fn friendly_name_is_optional_display_metadata_and_keeps_the_raw_adb_instance() {
+        let mut device: DiscoveredAdbDevice = serde_json::from_str(
+            r#"{"name":"adb-tv-a","host":"192.0.2.10","port":5555,"service":"_adb._tcp."}"#,
+        )
+        .unwrap();
+        assert!(device.friendly_name.is_none());
+        device.friendly_name = Some("Studio TV".to_string());
+        let value = serde_json::to_value(&device).unwrap();
+        assert_eq!(value["friendly_name"], "Studio TV");
+        assert_eq!(value["name"], "adb-tv-a");
+        assert_eq!(value["port"], 5555);
+    }
 
     #[test]
     fn network_change_parses_the_kotlin_watcher_message() {
