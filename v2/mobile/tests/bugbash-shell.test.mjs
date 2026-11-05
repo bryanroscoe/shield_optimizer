@@ -77,14 +77,14 @@ for (const [width, height] of [[384, 812], [320, 640], [275, 610], [740, 360]]) 
     assert.ok(sizes.sh > sizes.ch, "the long body overflows into its own scroller");
     assert.equal(await page.locator(".dialog-actions.divided").count(), 1, "a divider marks the cut-off");
 
-    // A touch drag on the body scrolls it while the page stays locked.
+    // Scrolling over the body moves it while the page stays locked. Before the
+    // fix neither wheel nor touch reached anything. A wheel is used because
+    // synthetic touch gestures don't scroll in headless Chromium on Linux CI;
+    // touch scrolling is a device check.
     const pageY = await page.evaluate(() => scrollY);
-    const cdp = await page.context().newCDPSession(page);
     const b = await body.boundingBox();
-    await cdp.send("Input.synthesizeScrollGesture", {
-      x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height * 0.7),
-      yDistance: -Math.round(b.height * 0.5), gestureSourceType: "touch", speed: 1200,
-    });
+    await page.mouse.move(Math.round(b.x + b.width / 2), Math.round(b.y + b.height / 2));
+    await page.mouse.wheel(0, Math.round(b.height * 0.5));
     await page.waitForFunction(() => document.querySelector(".dialog-body").scrollTop > 0);
     assert.equal(await page.evaluate(() => scrollY), pageY);
     assert.equal(await page.evaluate(() => document.body.style.position), "fixed");
