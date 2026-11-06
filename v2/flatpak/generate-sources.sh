@@ -25,4 +25,17 @@ cp ../package-lock.json ../package.json "$work/npm/"
 
 "$work/venv/bin/python" "$work/flatpak-cargo-generator.py" ../Cargo.lock -o "$OUT/cargo-sources.json"
 "$work/venv/bin/flatpak-node-generator" npm "$work/npm/package-lock.json" -o "$OUT/node-sources.json"
+
+# The generator also fetches Playwright's test browsers (~500 MB). Only the
+# screenshot and e2e tools use them, and their CDN has served a different zip
+# than the one hashed minutes earlier, which fails the build. The npm package
+# itself stays; it downloads nothing on install.
+python3 - "$OUT/node-sources.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+sources = json.load(open(path))
+kept = [s for s in sources if not s.get("dest", "").startswith("flatpak-node/cache/ms-playwright")]
+json.dump(kept, open(path, "w"), indent=4)
+print(f"dropped {len(sources) - len(kept)} Playwright browser sources")
+PY
 echo "wrote $OUT/cargo-sources.json and $OUT/node-sources.json"
