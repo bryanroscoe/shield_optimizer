@@ -892,6 +892,62 @@ mod tests {
     }
 
     #[test]
+    fn latest_reports_keep_exact_variants_and_never_default_to_removal() {
+        use crate::engine::{ActionMethod, RiskTier};
+        let lists = load_embedded_app_lists().unwrap();
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture
+            .iter()
+            .filter(|e| {
+                e["issue"]
+                    .as_u64()
+                    .is_some_and(|n| (310..=312).contains(&n))
+            })
+            .collect();
+        assert_eq!(reports.len(), 3);
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-06"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+        }
+        let tidal = lists.find("com.aspiro.tidal").unwrap();
+        assert_eq!(tidal.risk, RiskTier::Medium);
+        assert_eq!(tidal.method, ActionMethod::Disable);
+        assert!(tidal.review && !tidal.default_optimize && !tidal.default_restore);
+        assert_eq!(tidal.reviewed_at.as_deref(), Some("2026-11-05"));
+        assert_eq!(
+            lists
+                .common
+                .iter()
+                .filter(|e| e.package == "com.aspiro.tidal")
+                .count(),
+            1
+        );
+        assert_eq!(
+            lists.find("com.starz.starzplay.android").unwrap().name,
+            "LIONSGATE+"
+        );
+        assert_eq!(lists.find("com.cbs.ott").unwrap().name, "Paramount+");
+        assert!(lists.find("com.cbsnews.ott").is_some());
+        assert!(lists.find("com.att.tv").is_none());
+        assert!(matches!(
+            classify_with_catalog("com.att.tv", None),
+            Safety::Unknown { .. }
+        ));
+    }
+
+    #[test]
     fn known_names_accept_a_bare_name_or_a_described_entry() {
         let parsed: HashMap<String, KnownName> = serde_json::from_str(
             r#"{

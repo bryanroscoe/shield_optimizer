@@ -1783,5 +1783,62 @@
       "https://developer.android.com/tools/adb#pm",
       "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
     ]
+  },
+  {
+    "package": "com.bamnetworks.mobile.android.gameday.atbat",
+    "name": "MLB",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops MLB video, audio, scores and alerts through this app. It does not cancel your subscription. Keep it if anyone relies on MLB or links that open it.",
+    "restore_description": "Re-enables MLB if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.bamnetworks.mobile.android.gameday.atbat",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "Source-based functional review: docs/REPORTED-APPS-309-312.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.bydeluxe.d3.android.program.starz",
+    "name": "STARZ",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops STARZ streaming and TV-provider viewing through this app. It does not cancel your subscription. Keep it if anyone here uses STARZ.",
+    "restore_description": "Re-enables STARZ if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.bydeluxe.d3.android.program.starz",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "Source-based functional review: docs/REPORTED-APPS-309-312.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.cbs.tve",
+    "name": "CBS",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops CBS episodes and local live TV through this app, including cable-provider access. Keep it if anyone here uses CBS.",
+    "restore_description": "Re-enables CBS if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cbs.tve",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "Source-based functional review: docs/REPORTED-APPS-309-312.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
   }
 ]

@@ -104,5 +104,23 @@
     "name": "BritBox: Home of British TV",
     "issue": 308,
     "source_url": "https://play.google.com/store/apps/details?id=com.britbox.tv"
+  },
+  {
+    "package": "com.bamnetworks.mobile.android.gameday.atbat",
+    "name": "MLB",
+    "issue": 310,
+    "source_url": "https://play.google.com/store/apps/details?id=com.bamnetworks.mobile.android.gameday.atbat"
+  },
+  {
+    "package": "com.bydeluxe.d3.android.program.starz",
+    "name": "STARZ",
+    "issue": 311,
+    "source_url": "https://play.google.com/store/apps/details?id=com.bydeluxe.d3.android.program.starz"
+  },
+  {
+    "package": "com.cbs.tve",
+    "name": "CBS",
+    "issue": 312,
+    "source_url": "https://play.google.com/store/apps/details?id=com.cbs.tve"
   }
 ]
