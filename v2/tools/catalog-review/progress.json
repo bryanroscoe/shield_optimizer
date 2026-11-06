@@ -253,6 +253,34 @@
       "assessed_at": "2026-11-06",
       "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. No pinned upstream observation. See docs/REPORTED-APPS-309-312.md",
       "evidence": "https://play.google.com/store/apps/details?id=com.cbs.tve"
+    },
+    "com.clearchannel.iheartradio.tv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-313-317.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.clearchannel.iheartradio.tv"
+    },
+    "com.cw.fullepisodes.android": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-313-317.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.cw.fullepisodes.android"
+    },
+    "com.discovery.discoveryplus.mobile": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-313-317.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.discovery.discoveryplus.mobile"
+    },
+    "com.discovery.dsctve": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-313-317.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.discovery.dsctve"
     }
   }
 }

@@ -1842,6 +1842,86 @@
     ]
   },
   {
+    "package": "com.clearchannel.iheartradio.tv",
+    "name": "iHeartRadio for Google TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops radio, music and podcasts through this iHeartRadio TV app. Keep it if anyone here listens with it.",
+    "restore_description": "Re-enables iHeartRadio if still installed. Does not restore account sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.clearchannel.iheartradio.tv",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "https://help.iheart.com/hc/en-us/articles/360028981511-Adding-iHeartRadio-to-Android-TV",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hisense-smarttv-4k-ffm/debloat.txt#L78-L87",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/bell-fibe-tv-vip7802/debloat.txt#L83-L99",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.cw.fullepisodes.android",
+    "name": "The CW",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops The CW episodes, movies, sports and channels through this app, including watch-list and continue-watching access. Keep it if used.",
+    "restore_description": "Re-enables The CW if still installed. Does not restore profile access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cw.fullepisodes.android",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.discovery.discoveryplus.mobile",
+    "name": "discovery+ | Stream TV Shows",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops viewing and app controls through this discovery+ app. Keep it if used for playback or casting. It does not cancel your subscription.",
+    "restore_description": "Re-enables this discovery+ app if still installed. Does not restore sign-in, subscriptions, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.discovery.discoveryplus.mobile",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "https://help.discoveryplus.com/hc/en-us/articles/32717632355607-discovery-app-update",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.discovery.dsctve",
+    "name": "Discovery GO - Watch with TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Discovery GO live/on-demand viewing and guide/list access through this app, including TV-provider viewing. Keep it if used. Provider subscriptions are not cancelled.",
+    "restore_description": "Re-enables Discovery GO if still installed. Does not restore provider authorization, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.discovery.dsctve",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",

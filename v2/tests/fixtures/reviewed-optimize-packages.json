@@ -122,5 +122,29 @@
     "name": "CBS",
     "issue": 312,
     "source_url": "https://play.google.com/store/apps/details?id=com.cbs.tve"
+  },
+  {
+    "package": "com.clearchannel.iheartradio.tv",
+    "name": "iHeartRadio for Google TV",
+    "issue": 314,
+    "source_url": "https://play.google.com/store/apps/details?id=com.clearchannel.iheartradio.tv"
+  },
+  {
+    "package": "com.cw.fullepisodes.android",
+    "name": "The CW",
+    "issue": 315,
+    "source_url": "https://play.google.com/store/apps/details?id=com.cw.fullepisodes.android"
+  },
+  {
+    "package": "com.discovery.discoveryplus.mobile",
+    "name": "discovery+ | Stream TV Shows",
+    "issue": 316,
+    "source_url": "https://play.google.com/store/apps/details?id=com.discovery.discoveryplus.mobile"
+  },
+  {
+    "package": "com.discovery.dsctve",
+    "name": "Discovery GO - Watch with TV",
+    "issue": 317,
+    "source_url": "https://play.google.com/store/apps/details?id=com.discovery.dsctve"
   }
 ]
