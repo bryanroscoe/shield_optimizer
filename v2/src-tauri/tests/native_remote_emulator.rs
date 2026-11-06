@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! ATVOPT_EMU_ADDR=127.0.0.1:5555 ATVOPT_EMU_KEY=/path/allowed.pem \
-//! ATVOPT_EMU_ADB_SERIAL=emulator-5554 ATVOPT_EMU_LOG=/path/remote.log \
+//! ATVOPT_EMU_ADB_SERIAL=<platform-tools serial> ATVOPT_EMU_LOG=/path/remote.log \
 //!   cargo test -p atv-optimizer --test native_remote_emulator -- --ignored --nocapture --test-threads=1
 //! ```
 //!
