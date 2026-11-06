@@ -3114,6 +3114,8 @@
             </button>
           </div>
         {/if}
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this table.) -->
+        <div class="app-table-scroll" role="region" aria-label="Curated apps" tabindex="0">
         <table class="app-table">
           <thead>
             <tr>
@@ -3235,16 +3237,14 @@
                       data-tip="pm disable-user --user 0"
                     >Disable</button>
                   {/if}
-                  <!-- A sideload whose source we can name. The store can't give
-                       it back, so the confirm names where it comes from and
-                       offers an APK backup first. A preinstalled app with no
-                       store listing never gets this button. -->
-                  {#if canRemove && !isReinstallable(a) && canOfferUninstall(a) && !((rec.kind === "act" || rec.kind === "review") && rec.action === "uninstall")}
+                  <!-- Store apps and the existing named sideload recovery path.
+                       Defunct alone is not evidence of a working store route. -->
+                  {#if canRemove && (a.play_store || (!isReinstallable(a) && canOfferUninstall(a))) && !((rec.kind === "act" || rec.kind === "review") && rec.action === "uninstall")}
                     <button
                       class="small-action subtle danger"
                       onclick={() => uninstallApp(a.package)}
                       disabled={appActionBusy === a.package || appMutationInFlight}
-                      data-tip={`Not on the Play Store — reinstall from ${sideloadSource(a.package)?.name ?? "its source"}`}
+                      data-tip={a.play_store ? "Uninstall — reinstall from the Play Store" : `Not on the Play Store — reinstall from ${sideloadSource(a.package)?.name ?? "its source"}`}
                     >Uninstall</button>
                   {/if}
                   {#if state === "disabled"}
@@ -3313,6 +3313,7 @@
             {/if}
           </tbody>
         </table>
+        </div>
         <!-- The board puts the tool legend here rather than in a column head:
              three icons repeated down hundreds of rows only need naming once. -->
         <HelpDetails label="App tools">
@@ -3349,6 +3350,8 @@
                  kind of row about the same kind of thing, so a reader should
                  not have to learn two layouts on one screen. Type rides with
                  the name as a tag, the way the state pill does. -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this table.) -->
+            <div class="app-table-scroll" role="region" aria-label="Other apps" tabindex="0">
             <table class="app-table">
               <thead>
                 <tr>
@@ -3420,6 +3423,7 @@
                 {/each}
               </tbody>
             </table>
+            </div>
             <HelpDetails label="Other app tools">
               <p class="tool-legend">
                 <span><Icon name="download" size={14} /> back up APK</span>
@@ -4284,6 +4288,17 @@
   /* Everything right of this line does something; everything left of it tells
      you something. One rule down the whole table rather than a tinted column,
      which becomes a stripe over three hundred rows. */
+  .app-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .app-table-scroll:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .app-table {
+    min-width: 48rem;
+  }
   .app-table .controls-start {
     border-left: 1px solid var(--border);
     padding-left: 1rem;
@@ -4303,24 +4318,27 @@
      divider drawn at two different heights. */
   .app-table .actions-cell {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
     justify-content: space-between;
   }
-  /* Labels and verbs in the action cell are single-line things. Wrapped, they
-     make every row a different height and stack "Remove if unused" into a
-     three-line block. */
-  .app-table .actions-cell button,
+  /* Keep each button readable while status text wraps at enlarged text sizes. */
+  .app-table .actions-cell button {
+    white-space: nowrap;
+  }
   .app-table .row-verbs > .muted,
   .app-table .row-verbs > .done {
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .app-table .row-verbs {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem;
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 12rem;
+    min-width: min(100%, 12rem);
   }
   /* Three fixed slots, so an icon is in the same place on every row and the
      column can be read straight down. A row without a Play Store link leaves
