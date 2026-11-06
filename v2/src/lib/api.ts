@@ -66,6 +66,7 @@ import type {
   SnapshotApplyPlan,
   SnapshotFile,
   TweaksState,
+  UpdateChannel,
   UpdateInfo,
   WriteResult,
 } from "./types";
@@ -112,6 +113,8 @@ export const api = {
     invoke<DeviceLogResult>("read_device_logs", { serial, options }),
   adbStatus: () => invoke<AdbStatus>("adb_status"),
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
+  /// "flatpak" when Flatpak delivers updates and the in-app updater must not run.
+  updateChannel: () => invoke<UpdateChannel>("update_channel"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
   /// `target`: an IP[:port] the app itself should try to reach as well.

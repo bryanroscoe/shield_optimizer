@@ -330,6 +330,7 @@
 
   <section class="card" id="updates" aria-labelledby="updates-title">
     <h2 id="updates-title"><Icon name="download" size={18} /> Updates</h2>
+    {#if !shell.updatesViaFlatpak}
     <div class="row">
       <div class="row-text">
         <HelpTip label="Auto-update" forId="auto-update">
@@ -345,6 +346,7 @@
         />
       </div>
     </div>
+    {/if}
     <div class="row">
       <div class="row-text">
         <span class="row-label">
@@ -359,10 +361,16 @@
             {shell.updateProgress}
           {:else if shell.pendingVersion}
             {shell.updateProgress ? `${shell.updateProgress} ` : ""}v{shell.pendingVersion} is available.
-          {:else if shell.rollingOutVersion}
+          {:else if shell.rollingOutVersion && !shell.updatesViaFlatpak}
             v{shell.rollingOutVersion} is rolling out. The in-app updater will offer it within a few
             minutes.
           {:else if shell.checkMessage}
+            {shell.checkMessage}
+          {:else if shell.rollingOutVersion}
+            v{shell.rollingOutVersion} is out. Run flatpak update, or install the new .flatpak from the
+            Releases page if you downloaded this one.
+          {:else if shell.updatesViaFlatpak}
+            Updates arrive through Flatpak.
             {shell.checkMessage}
           {/if}
         </p>
