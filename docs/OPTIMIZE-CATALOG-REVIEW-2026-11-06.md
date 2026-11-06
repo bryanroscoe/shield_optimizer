@@ -7,7 +7,11 @@ accepted entries and 8 unchanged holds were not re-reviewed. This is source
 research and fixture validation, not formal GitHub approval or physical testing.
 
 The batch starts from main `c3624ecf09a6a8f32f8c7b866bf1dd3fd54ee613`, after
-PR295 merged. Source observations remain pinned to CleanYourTV commit
+PR295 merged. Main subsequently advanced to
+`196a401d446cbaefd75704e139f9b6088667a53f`, including mobile Optimize changes;
+those committed changes were merged into this branch and affected galleries and
+frontend validation refreshed. The package decisions are unchanged.
+Source observations remain pinned to CleanYourTV commit
 `8672e68e8a24c1258e4662cd11daa4ed13795dad`. Neither source membership nor
 active/commented/note frequency is a safety vote. Original source files and their
 MIT notices are unchanged; the main app remains proprietary.

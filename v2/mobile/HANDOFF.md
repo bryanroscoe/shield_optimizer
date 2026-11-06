@@ -57,7 +57,7 @@ The open physical gates are GitHub [#93](https://github.com/bryanroscoe/shield_o
 (the app-restart report), code pairing against a real adbd, and fast-remote Phase 4. See
 `BACKLOG.md` P0.
 
-Optimize now recognizes sixteen additional reviewed package identities from shared `common.json` as optional Disable-if-unused suggestions. Each retains Caution, default Keep and explicit Restore selection; no source-profile matching is involved. Evidence and exclusions: [two-agent review](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md). Future batches follow the [review process](../../docs/OPTIMIZE-CATALOG-REVIEW-PROCESS.md).
+Optimize now recognizes eighteen additional reviewed package identities from shared `common.json` as optional Disable-if-unused suggestions. Each retains Caution, default Keep and explicit Restore selection; no source-profile matching is involved. Evidence and exclusions: [initial two-agent review](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md) and [2026-11-06 batch](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md). Future batches follow the [review process](../../docs/OPTIMIZE-CATALOG-REVIEW-PROCESS.md).
 
 ## 1. What this is
 
@@ -70,14 +70,21 @@ desktop, keep core aligned, never fork it*.
 
 Mobile has desktop parity for Optimize (search, app sheet, desktop's recommendation defaults),
 Diagnostics (Suggestion column; a process counts as an app only once the TV confirms the package is
-installed), Snapshots (marked Beta; Preview restore with a Now column), Apps (Recognised section,
-storage details, Report this app, long-press menu), Launcher (Setup Wraith card, set any app as
-Home, a separate confirmed Disable stock launcher step, re-read after every action), Tweaks, and
-Files (find app backups via shared core `commands::files`, copy to phone, TV-side delete under
-`/sdcard`). Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
+installed), Snapshots (marked Beta; Preview restore with a Now column that names a skipped Home app
+and packages kept on for Home with the core's reasons; Delete names the snapshot), Apps (Recognised
+section, storage details, Report this app, long-press menu), Launcher (Setup Wraith card, set any
+app as Home, a separate confirmed Disable stock launcher step that stays off while the Home app is
+unknown, source links on every launcher, re-read after every action), Tweaks, and Files (find app
+backups via shared core `commands::files`, copy to phone, TV-side delete under `/sdcard`). Every
+app sheet (Apps, Optimize, Diagnostics) shows the TV's support-tier warning before a removal and
+offers Report this app and Research sources. A scan that finds nothing opens connection help.
+Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule.
+Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
 
-Not on mobile yet: phone→TV upload (needs an Android document picker), install APK / sideload, the
-bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
+Not on mobile yet, and why: export of saved files, phone→TV upload, install APK / sideload and the
+bug-report bundle (`collect_diagnostics`) all need Android's document picker or share sheet (SAF),
+which isn't wired. The Logs tab needs `shell_bounded`, which `WirelessAdb` doesn't implement yet.
+A patch-notes viewer is deferred.
 
 ## 2. Transport
 
@@ -125,6 +132,11 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   lookup could otherwise hold their single resolve slot and hide TVs. They retain saved or
   meaningful ADB names, with the same honest fallback. Before authorization, the selected name stays visible with
   its endpoint through connection progress and errors.
+  `wireless_discover` then fills any missing `friendly_name` from the TV's Cast endpoint
+  (`GET http://<host>:8008/setup/eureka_info`, `core::net::cast_display_name`, parser in
+  `engine::cast_name`): LAN IPv4 only, 1.2 s per host and 1.5 s in total, only `name` is read,
+  display only, never overwriting an advertised name. The TVs reject HTTP/1.0 and keep HTTP/1.1
+  connections open, so the reader stops at the end of the body.
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired
   through `WirelessAdb::pair`. It passed against the Android TV 14 emulator's real adbd on
@@ -167,10 +179,18 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   is lost with no replacement, debounced in `lib/networkWatch.ts`. A session that is already lost
   gets one more silent redial when a network comes back (`session.onNetworkChange`), since its
   first redial usually ran with no route; a loss alone, a heartbeat or a resume never spends one.
+  A failed Retry while lost keeps the TV as lost (banner, name, network redial); it never turns
+  green with no TV.
   Launch shows a saved-TV picker and auto-dials only when exactly one TV is saved and the last
   session wasn't ended by an explicit Disconnect (`atv.autoConnect.v1`), always naming the target
   with Cancel. "Add a TV" is a separate `addtv` route that never dials. The Android back button
-  keeps exactly one spare history entry.
+  is Tauri's native `back-button` event (`onBackButtonPress`), registered only while Back has
+  something to do (a pushed screen, a screen's own step back, an apply to swallow) and removed at
+  the root so Android backgrounds the app with its state kept. Never go back through webview
+  history on the device: Chromium skips entries pushed from `popstate` without a user gesture, so
+  the second Back left the app. The spare-history-entry path remains only for the browser tests.
+  A font or display size change must not recreate the activity (`fontScale|density` in
+  `configChanges`); `MainActivity` passes the new font scale to the WebView's text zoom.
 - **Reconnect safety.** The session generation is reactive. Launcher, app sheets and file actions
   discard reads, picker intent, polling and continuations when the generation or liveness changes,
   including a reconnect to the same endpoint. Tweaks keys screensaver originals by verified
@@ -201,7 +221,14 @@ bug-report bundle (`collect_diagnostics`), and a patch-notes viewer.
   is synced from the same file, so never special-case a tier in mobile code.
 - **Anonymous reports are opt-out and Rust-built.** The frontend only says what happened; Rust
   decides whether to send and redacts. Never add a field that carries a serial, address, TV name,
-  package list or path. Data-safety answers follow `DATA-INVENTORY.md`.
+  package list or path. Data-safety answers follow `DATA-INVENTORY.md`. The report notice (with
+  Turn off) shows during onboarding, before any report can be sent.
+- **App data stays out of Android backup and device transfer.** That covers the TV-authorizing ADB
+  key, report id, license and purchase cache: `allowBackup="false"` for Android 11 and lower and
+  `res/xml/data_extraction_rules.xml` for 12 and up (`AndroidManifest.xml`).
+- **Restore keeps a Home app and never re-enables anything.** Core decides; the plan's
+  `launcher_disabled` and `packages_kept` and the result's `(kept: …)` entries are shown with their
+  reasons. A preview with one of them never says the TV already matches the snapshot.
 
 ## 4. Licensing and commerce
 
@@ -315,12 +342,13 @@ argument names are camelCase in TS and Tauri maps them to snake_case (`pkg` → 
 
 `BACKLOG.md` is the ordered list. In short:
 
-1. The physical device pass: #93, #105 (`LIFECYCLE-EVIDENCE.md`), and the stability and UI checks
-   in `BACKLOG.md` P0.
+1. The physical device pass: #93, #105 (`LIFECYCLE-EVIDENCE.md`), the 2026-11-05 parity and
+   bug-bash checks, and the stability and UI checks in `BACKLOG.md` P0.
 2. Code pairing against a real adbd (`PAIRING-PLAN.md`).
 3. Fast-remote Phase 4 device gates (`FAST-REMOTE-PLAN.md`).
 4. Android SAF export/import, which also unblocks phone→TV upload; then sideload, the bug-report
-   bundle and a patch-notes viewer.
+   bundle and a patch-notes viewer. Separately: the Logs tab, the connect-lock narrowing in
+   `wireless_adb.rs` and phone-side cleanup of interrupted pulls and backups.
 5. Product decisions for the owner: a free read-only Optimize plan, and the unused
    `Feature::FileManager` / `Feature::BackupClone` gates.
 6. Release: signing key and Play App Signing, a signed build, resolved Android dependency notices,

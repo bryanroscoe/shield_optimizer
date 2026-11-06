@@ -9,11 +9,24 @@
   import { session } from "../lib/session.svelte";
   import { verdictSummary } from "../lib/safety";
   import { uninstallNote } from "../lib/recommendation";
-  import { idleMeasurements, loadingMeasurements, settled, type AppMeasurements } from "../lib/app-details";
+  import { isReportablePackage, type AppReportState } from "../lib/app-report";
+  import {
+    idleMeasurements,
+    loadingMeasurements,
+    reportDeviceOf,
+    reportFigures,
+    reportLiveState,
+    settled,
+    type ApkReportMeasurement,
+    type AppMeasurements,
+  } from "../lib/app-details";
   import type { AppItem } from "../lib/appsList";
-  import type { Screen } from "../lib/router.svelte";
+  import { router, type Screen } from "../lib/router.svelte";
   import type { AppStorage, AppUsage, Safety } from "../lib/types";
+  import { destructiveWarning } from "../../../shared/support";
+  import packageMetadata from "../../package.json";
   import AppDetailSheet from "./AppDetailSheet.svelte";
+  import AppReportSheet from "./AppReportSheet.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import PaywallSheet from "./PaywallSheet.svelte";
 
@@ -46,15 +59,29 @@
   let memoryMap = $state<Record<string, number>>({});
   let usageMap = $state<Record<string, AppUsage>>({});
   let storageMap = $state<Record<string, AppStorage>>({});
-  let measureRequest = 0;
+  /// Also the batch id an APK-size receipt is matched against.
+  let measureRequest = $state(0);
   let request = 0;
   let destroyed = false;
+
+  // "Report this app", as the Apps screen offers it. The verdict is the one
+  // the sheet resolved, so the report carries what the user was shown.
+  let sheetVerdict = $state.raw<{ pkg: string; verdict: Safety | null } | null>(null);
+  let reportApp = $state<AppItem | null>(null);
+  let reportVerdict = $state<Safety | null>(null);
+  let reportApk = $state.raw<ApkReportMeasurement | null>(null);
+  let reportRequest = 0;
 
   let selectedApp: AppItem | null = null;
 
   function invalidateSelection() {
     ++request;
     ++measureRequest;
+    ++reportRequest;
+    reportApp = null;
+    reportApk = null;
+    reportVerdict = null;
+    sheetVerdict = null;
     target = null;
     shown = null;
     intent = null;
@@ -108,6 +135,7 @@
     destroyed = true;
     ++request;
     ++measureRequest;
+    ++reportRequest;
   });
 
   // The same three batch reads the Apps screen makes, each stamped with when
@@ -164,8 +192,18 @@
     }
   }
 
+  /// A change can land even when its reply is lost or arrives after a
+  /// reconnect, so the shared caches are dropped as soon as the call settles,
+  /// before any currency check can return early.
+  async function settleChange<T>(change: Promise<T>): Promise<T> {
+    try {
+      return await change;
+    } finally {
+      session.invalidateAll();
+    }
+  }
+
   function changed(t: Target) {
-    session.invalidateAll();
     onChanged();
     void measure(t);
   }
@@ -177,7 +215,7 @@
     }
     if (a.state !== "disabled") return;
     void run(async (t) => {
-      const r = await api.enablePackage(t.serial, a.package);
+      const r = await settleChange(api.enablePackage(t.serial, a.package));
       if (!current(t)) return;
       onToast(r.ok ? `Enabled ${label(a)}.` : r.message || "Enable failed.", r.ok ? "success" : "error");
       changed(t);
@@ -222,10 +260,11 @@
         onToast("Safety guidance changed. Review the updated warning before confirming.", "info");
         return;
       }
-      const r =
+      const r = await settleChange(
         pending.action === "disable"
-          ? await api.disablePackage(t.serial, pending.app.package)
-          : await api.uninstallPackage(t.serial, pending.app.package);
+          ? api.disablePackage(t.serial, pending.app.package)
+          : api.uninstallPackage(t.serial, pending.app.package),
+      );
       if (!current(t)) return;
       const done = pending.action === "disable" ? "Disabled" : "Uninstalled";
       const verb = pending.action === "disable" ? "Disable" : "Uninstall";
@@ -257,7 +296,7 @@
   function handleReinstall(a: AppItem) {
     if (!uninstalled) return;
     void run(async (t) => {
-      const r = await api.reinstallExisting(t.serial, a.package);
+      const r = await settleChange(api.reinstallExisting(t.serial, a.package));
       if (!current(t)) return;
       if (r.ok) {
         onToast(`Reinstalled ${label(a)}.`, "success");
@@ -273,6 +312,58 @@
   const note = $derived(
     intent?.action === "uninstall" ? uninstallNote(intent.app.package, intent.app.entry) : null,
   );
+
+  const reportDevice = $derived(reportDeviceOf(session.connectedDevice, session.serial));
+  const canReport = $derived(!!shown && !!reportDevice && isReportablePackage(shown.package));
+
+  function openReport(a: AppItem, apk?: ApkReportMeasurement) {
+    const t = target;
+    if (!current(t) || !canReport || a.package !== shown?.package) return;
+    const mine = ++reportRequest;
+    reportApp = a;
+    reportApk = apk ?? null;
+    reportVerdict = sheetVerdict?.pkg === a.package ? sheetVerdict.verdict : null;
+    if (reportVerdict) return;
+    api.safetyInfo(a.package).then(
+      (verdict) => {
+        if (mine === reportRequest && reportApp?.package === a.package && current(t)) reportVerdict = verdict;
+      },
+      () => {},
+    );
+  }
+
+  function closeReport() {
+    ++reportRequest;
+    reportApp = null;
+    reportApk = null;
+  }
+
+  function research(packageId: string) {
+    closeSelection();
+    router.navigate("catalog", packageId);
+  }
+
+  /// What the TV last said about this row: its state when the sheet opened,
+  /// or missing once this sheet uninstalled it. None while a run is changing
+  /// the device underneath it.
+  function reportState(a: AppItem): AppReportState {
+    const rowState = uninstalled ? "missing" : a.state;
+    const live = reportLiveState(!!a.entry, rowState ?? undefined, false, session.applyInProgress);
+    const apk = reportApk;
+    const t = target;
+    const apkCurrent =
+      !!apk &&
+      current(t) &&
+      apk.serial === t.serial &&
+      apk.generation === t.generation &&
+      apk.package === a.package &&
+      apk.measurementId === measureRequest &&
+      rowState !== "missing";
+    return {
+      status: live !== undefined ? live : rowState,
+      ...reportFigures(measures, memoryMap[a.package], storageMap[a.package], apkCurrent ? apk : null),
+    };
+  }
 </script>
 
 <AppDetailSheet
@@ -281,16 +372,33 @@
   usage={shown ? (usageMap[shown.package] ?? null) : null}
   storage={shown ? (storageMap[shown.package] ?? null) : null}
   {measures}
+  measurementId={measureRequest}
   onRemeasure={() => target && current(target) && void measure(target)}
   {busy}
   {uninstalled}
+  {canReport}
   onClose={closeSelection}
   onToggle={handleToggle}
   onForceStop={handleForceStop}
   onUninstall={(a) => void requestRemoval(a, "uninstall")}
   onPlayStore={handlePlayStore}
   onReinstall={handleReinstall}
+  onReport={openReport}
+  onResearch={research}
+  onVerdict={(pkg, verdict) => (sheetVerdict = { pkg, verdict })}
 />
+
+{#if reportApp && reportDevice}
+  <AppReportSheet
+    package={reportApp.package}
+    appName={reportApp.name}
+    verdict={reportVerdict}
+    device={reportDevice}
+    appState={reportState(reportApp)}
+    appVersion={packageMetadata.version}
+    onClose={closeReport}
+  />
+{/if}
 
 <ConfirmDialog
   open={intent !== null}
@@ -298,6 +406,7 @@
   icon={intent?.action === "disable" ? "block" : "delete"}
   title={`${intent?.action === "disable" ? "Disable" : "Uninstall"} ${intent ? label(intent.app) : "app"}?`}
   warning={intent?.verdict.reason ?? ""}
+  supportWarning={destructiveWarning(session.support)}
   message={intent?.action === "disable"
     ? `${verdictSummary(intent.verdict)} Disable is reversible with Enable.`
     : `${verdictSummary(intent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.${note ? ` ${note}` : ""}`}

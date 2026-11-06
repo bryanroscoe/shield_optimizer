@@ -423,6 +423,8 @@ export interface AdbStatus {
   last_probe: string | null;
 }
 
+export type UpdateChannel = "self" | "flatpak";
+
 export interface UpdateInfo {
   current: string;
   latest: string | null;
@@ -465,7 +467,18 @@ export interface SnapshotApplyPlan {
   current_launcher: string | null;
   /// The snapshot's launcher when it isn't installed here, so it's skipped.
   launcher_not_installed: string | null;
+  /// The snapshot's launcher when it is installed but disabled here. A restore
+  /// never re-enables anything, so it's skipped.
+  launcher_disabled: string | null;
+  /// Listed as disabled in the snapshot but kept on so the TV keeps a Home
+  /// screen; `reason` is display-ready ("only Home app").
+  packages_kept: KeptPackage[];
   cross_device_warning: string | null;
+}
+
+export interface KeptPackage {
+  package: string;
+  reason: string;
 }
 
 export interface ApplyResult {

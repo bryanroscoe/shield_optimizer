@@ -22,8 +22,10 @@
     ScreenshotResult,
     ResourceSample,
     Safety,
+    DeviceType,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
   import type { MemoryEntry } from "$lib/types";
   import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
@@ -218,6 +220,10 @@
   // forever when a list is legitimately empty (e.g. zero snapshots).
   let launchersLoaded = $state(false);
   let currentLauncher = $state<CurrentLauncher | null>(null);
+  // With Home unknown (unread, or the TV named none), any stock row could be
+  // the only Home screen, so stock Disable stays off.
+  let stockDisableBlocked = $derived(!currentLauncher?.package);
+  const STOCK_DISABLE_BLOCKED = "Disable is off until the TV reports its current Home app. Refresh to try again.";
   let channelDisabled = $state<boolean | null>(null);
   let launcherLoading = $state(false);
   let launcherErr = $state<string | null>(null);
@@ -697,14 +703,15 @@
     try {
       const [list, cur, chan] = await Promise.all([
         api.listLaunchers(context.serial),
-        api.currentLauncher(context.serial),
+        // An unreadable Home app still shows the list, with stock Disable off.
+        api.currentLauncher(context.serial).catch(() => null),
         api.channelProviderDisabled(context.serial),
       ]);
       if (!pageContextIsCurrent(context) || request !== launcherRequest) return false;
       launchers = list;
       currentLauncher = cur;
       channelDisabled = chan;
-      return true;
+      return cur !== null;
     } catch (e) {
       if (pageContextIsCurrent(context) && request === launcherRequest) launcherErr = String(e);
       return false;
@@ -716,6 +723,10 @@
     }
   }
 
+  /// The type the catalog section was read for; "other" excludes exactly it,
+  /// so every package lands in one section.
+  let catalogDeviceType: DeviceType = "unknown";
+
   async function loadApps() {
     if (!device) return;
     const context = capturePageContext();
@@ -726,6 +737,7 @@
     catalogInventoryVersion++;
     otherInventoryVersion++;
     const deviceType = device.device_type;
+    catalogDeviceType = deviceType;
     appsLoading = true;
     appsErr = null;
     appsLoaded = false;
@@ -834,7 +846,7 @@
     othersErr = null;
     otherPackages = [];
     try {
-      const list = await api.listOtherPackages(context.serial);
+      const list = await api.listOtherPackages(context.serial, catalogDeviceType);
       if (!pageContextIsCurrent(context) || request !== otherRequest) return;
       otherPackages = list;
       othersLoaded = true;
@@ -1612,6 +1624,10 @@
   async function disableLauncher(pkg: string) {
     launcherSetResult = null;
     const row = launchers.find((l) => l.entry.package === pkg);
+    if (row?.stock && stockDisableBlocked) {
+      launcherActionMessage = STOCK_DISABLE_BLOCKED;
+      return;
+    }
     const name = row?.entry.name ?? pkg;
     const advice = row?.other
       ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
@@ -2775,12 +2791,16 @@
             {#each launchers as l}
               {@const isCurrent = currentLauncher?.package === l.entry.package}
               {@const busy = launcherActionBusy === l.entry.package}
+              {@const stockBlocked = l.stock && l.installed && l.enabled && !isCurrent && stockDisableBlocked}
               <li class:is-current={isCurrent}>
                 <div class="launcher-ident">
                   <span class="launcher-icon" aria-hidden="true"><Icon name="home" size={18} /></span>
                   <div class="launcher-text">
                     <div class="launcher-name">{l.entry.name}</div>
                     <div class="muted small mono launcher-pkg">{l.entry.package}</div>
+                    {#if stockBlocked && !busy}
+                      <p class="small launcher-blocked" id={`stock-blocked-${l.entry.package}`}>{STOCK_DISABLE_BLOCKED}</p>
+                    {/if}
                     {#if launcherSetResult?.package === l.entry.package}
                       <p class="small action-message launcher-set-result" role="status">{launcherSetResult.message}</p>
                     {/if}
@@ -2847,7 +2867,8 @@
                         class="small-action subtle"
                         class:danger={l.stock || l.setup_helper}
                         onclick={() => disableLauncher(l.entry.package)}
-                        disabled={launcherActionBusy !== null}
+                        disabled={launcherActionBusy !== null || stockBlocked}
+                        aria-describedby={stockBlocked ? `stock-blocked-${l.entry.package}` : undefined}
                         title={l.stock
                           ? `pm disable-user --user 0 ${l.entry.package} — this is the TV's stock home app`
                           : `pm disable-user --user 0 ${l.entry.package}`}
@@ -3520,8 +3541,8 @@
         {@const settingsToWrite = Object.entries(preview.settings_to_write)}
         {@const nowValues = preview.current_values ?? {}}
         {@const snapLauncher = snapshots.find((s) => s.path === previewPath)?.launcher ?? null}
-        {@const launcherUnchanged =
-          !preview.launcher_to_set && !preview.launcher_not_installed && snapLauncher !== null}
+        {@const launcherUnchanged = homeAlreadyMatches(preview, snapLauncher)}
+        {@const launcherSkip = launcherSkipReason(preview)}
         {@const willChange =
           preview.packages_to_disable.length +
           settingsToWrite.length +
@@ -3531,7 +3552,8 @@
           preview.packages_already_disabled.length +
           preview.packages_not_installed.length +
           preview.settings_already_set.length +
-          (launcherUnchanged || preview.launcher_not_installed ? 1 : 0)}
+          preview.packages_kept.length +
+          (launcherUnchanged || launcherSkip ? 1 : 0)}
         <p class="rail-label">Restore plan — preview before running</p>
         {#if preview.cross_device_warning}
           <div class="warning">{preview.cross_device_warning}</div>
@@ -3576,13 +3598,20 @@
                   <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
                   <td class="plan-next">→ {snapLauncher} (no change)</td>
                 </tr>
-              {:else if preview.launcher_not_installed}
+              {:else if launcherSkip}
                 <tr class="plan-noop" data-plan-item="launcher">
                   <td class="mono">Home app</td>
                   <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
-                  <td class="plan-next">→ skipped ({preview.launcher_not_installed} isn't installed)</td>
+                  <td class="plan-next">→ {launcherSkip}</td>
                 </tr>
               {/if}
+              {#each preview.packages_kept as kept (kept.package)}
+                <tr class="plan-noop" data-plan-item="kept">
+                  <td class="mono">{kept.package}</td>
+                  <td class="plan-now">ENABLED</td>
+                  <td class="plan-next">→ kept on: {kept.reason}</td>
+                </tr>
+              {/each}
               {#each preview.settings_already_set as key (key)}
                 <tr class="plan-noop">
                   <td class="mono">{key}</td>
@@ -3632,12 +3661,16 @@
             />
           {/if}
           {#if applyResult}
+            {@const outcome = splitRestoreFailures(applyResult)}
             <div class="apply-result">
               <p><strong>{applyResult.summary}</strong></p>
               <ul>
                 <li><strong>{applyResult.packages_disabled.length}</strong> packages disabled</li>
-                {#if applyResult.packages_failed.length > 0}
-                  <li class="warn-text"><strong>{applyResult.packages_failed.length}</strong> failed: {applyResult.packages_failed.join(", ")}</li>
+                {#if outcome.kept.length > 0}
+                  <li>Kept on: {outcome.kept.map((k) => `${k.package} (${k.reason})`).join(", ")}</li>
+                {/if}
+                {#if outcome.failed.length > 0}
+                  <li class="warn-text"><strong>{outcome.failed.length}</strong> failed: {outcome.failed.join(", ")}</li>
                 {/if}
                 {#if applyResult.launcher_message}
                   <li>Launcher: {applyResult.launcher_message}</li>
@@ -3735,6 +3768,7 @@
 
 <style>
   .launcher-set-result { overflow-wrap: anywhere; white-space: normal; max-width: 48rem; }
+  .launcher-blocked { margin: 0.3rem 0 0; color: var(--warn); max-width: 48rem; }
   .back-row {
     margin-bottom: 1rem;
   }

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::detection::DeviceType;
+use super::launcher::{plan_home_safe_disables, LauncherCatalog};
 
 /// Current snapshot schema version. Bump when the structure changes; the
 /// reader will refuse future versions explicitly.
@@ -134,6 +135,15 @@ pub struct SnapshotApplyPlan {
     /// preview can say why it's skipped instead of silently dropping it.
     #[serde(default)]
     pub launcher_not_installed: Option<String>,
+    /// The snapshot's launcher when it is installed but disabled here. A
+    /// restore never re-enables anything, so it is skipped and named, like
+    /// `launcher_not_installed`.
+    #[serde(default)]
+    pub launcher_disabled: Option<String>,
+    /// Packages the snapshot lists as disabled that stay on so the TV keeps a
+    /// Home screen. Not in `packages_to_disable`.
+    #[serde(default)]
+    pub packages_kept: Vec<KeptPackage>,
     /// Settings whose current device value differs from the snapshot —
     /// these will be written. Same key format as `Snapshot::settings`.
     pub settings_to_write: BTreeMap<String, String>,
@@ -150,6 +160,14 @@ pub struct SnapshotApplyPlan {
     pub cross_device_warning: Option<String>,
 }
 
+/// A package a restore leaves enabled, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptPackage {
+    pub package: String,
+    /// Short and display-ready, e.g. "only Home app".
+    pub reason: String,
+}
+
 /// Inputs the engine needs to compute an apply plan, expressed as facts
 /// about the device's *current* state (no I/O — caller fetches and passes in).
 #[derive(Debug, Clone)]
@@ -163,6 +181,11 @@ pub struct ApplyPlanInputs<'a> {
     /// The package HOME resolves to now, or `None` when the device couldn't
     /// say. Unknown is treated as "may differ", so the launcher is still set.
     pub current_launcher: Option<&'a str>,
+    /// The packages the HOME query listed. `None` or empty when it couldn't
+    /// be read; every package that may be a Home app is then kept.
+    pub home_handlers: Option<&'a [String]>,
+    /// The launcher catalog, which says which packages may be Home apps.
+    pub launchers: &'a LauncherCatalog,
 }
 
 /// Compute the plan for applying `snap` to a device in `inputs`' state.
@@ -238,13 +261,30 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
 
     let mut launcher_to_set = None;
     let mut launcher_not_installed = None;
+    let mut launcher_disabled = None;
     if let Some(wanted) = snap.current_launcher.as_deref() {
         if !installed_set.contains(wanted) {
             launcher_not_installed = Some(wanted.to_string());
+        } else if disabled_set.contains(wanted) {
+            launcher_disabled = Some(wanted.to_string());
         } else if inputs.current_launcher != Some(wanted) {
             launcher_to_set = Some(wanted.to_string());
         }
     }
+
+    let (to_disable, kept) = plan_home_safe_disables(
+        &to_disable,
+        inputs.home_handlers,
+        inputs.current_launcher,
+        inputs.launchers,
+    );
+    let packages_kept = kept
+        .into_iter()
+        .map(|(package, reason)| KeptPackage {
+            package,
+            reason: reason.label().to_string(),
+        })
+        .collect();
 
     SnapshotApplyPlan {
         packages_to_disable: to_disable,
@@ -253,6 +293,8 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         launcher_to_set,
         current_launcher: inputs.current_launcher.map(str::to_string),
         launcher_not_installed,
+        launcher_disabled,
+        packages_kept,
         settings_to_write,
         settings_to_delete,
         settings_already_set,
@@ -345,6 +387,8 @@ mod tests {
                 currently_installed: &[],
                 current_settings: &current,
                 current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
             },
         );
         assert_eq!(plan.settings_to_delete, [absent_key]);
@@ -359,6 +403,8 @@ mod tests {
                 currently_installed: &[],
                 current_settings: &absent,
                 current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
             },
         );
         assert!(unchanged.settings_to_delete.is_empty());
@@ -386,6 +432,8 @@ mod tests {
                     currently_installed: &[],
                     current_settings: &current,
                     current_launcher: None,
+                    home_handlers: None,
+                    launchers: &LauncherCatalog::default(),
                 },
             );
             assert!(plan.settings_to_delete.is_empty());
@@ -475,6 +523,8 @@ mod tests {
             currently_installed: &installed,
             current_settings: &no_settings,
             current_launcher: None,
+            home_handlers: None,
+            launchers: &LauncherCatalog::default(),
         };
         let plan = compute_apply_plan(&snap, &inputs);
         assert_eq!(plan.packages_to_disable, vec!["com.foo"]);
@@ -506,6 +556,8 @@ mod tests {
                 currently_installed: &installed,
                 current_settings: &matched,
                 current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
             },
         );
         assert!(plan.settings_to_write.is_empty());
@@ -524,6 +576,8 @@ mod tests {
                 currently_installed: &installed,
                 current_settings: &differs,
                 current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
             },
         );
         assert_eq!(plan.settings_to_write.len(), 1);
@@ -542,11 +596,20 @@ mod tests {
             currently_installed: &installed,
             current_settings: &no_settings,
             current_launcher: None,
+            home_handlers: None,
+            launchers: &LauncherCatalog::default(),
         };
         let plan = compute_apply_plan(&snap, &inputs);
         assert!(plan.cross_device_warning.is_some());
         assert!(plan.cross_device_warning.unwrap().contains("Nvidia Shield"));
     }
+
+    static NO_LAUNCHERS: LauncherCatalog = LauncherCatalog {
+        custom: Vec::new(),
+        stock: Vec::new(),
+        home_handler_names: BTreeMap::new(),
+        transient_home_holders: Vec::new(),
+    };
 
     fn launcher_inputs<'a>(
         installed: &'a [String],
@@ -559,6 +622,8 @@ mod tests {
             currently_installed: installed,
             current_settings: settings,
             current_launcher,
+            home_handlers: None,
+            launchers: &NO_LAUNCHERS,
         }
     }
 
@@ -617,6 +682,67 @@ mod tests {
             plan.launcher_not_installed.as_deref(),
             Some("com.spocky.projengmenu")
         );
+    }
+
+    #[test]
+    fn a_disabled_launcher_is_skipped_and_named_never_re_enabled() {
+        // A restore disables and writes settings; it never re-enables, so a
+        // disabled snapshot launcher is skipped the way a missing one is.
+        let snap = sample_snapshot();
+        let installed = vec!["com.spocky.projengmenu".to_string()];
+        let disabled = installed.clone();
+        let settings = BTreeMap::new();
+        let plan = compute_apply_plan(
+            &snap,
+            &ApplyPlanInputs {
+                currently_disabled: &disabled,
+                ..launcher_inputs(&installed, &settings, Some("com.google.android.tvlauncher"))
+            },
+        );
+        assert_eq!(plan.launcher_to_set, None);
+        assert_eq!(plan.launcher_not_installed, None);
+        assert_eq!(
+            plan.launcher_disabled.as_deref(),
+            Some("com.spocky.projengmenu")
+        );
+    }
+
+    #[test]
+    fn the_only_home_app_is_kept_out_of_the_disable_list() {
+        // Recorded with Projectivy as Home and stock disabled, applied where
+        // Projectivy isn't installed: disabling stock would leave no Home app.
+        let stock = "com.google.android.tvlauncher";
+        let mut snap = sample_snapshot();
+        snap.disabled_packages = vec![stock.into(), "com.foo".into()];
+        let installed = vec![stock.to_string(), "com.foo".to_string()];
+        let settings = BTreeMap::new();
+        let launchers = LauncherCatalog {
+            stock: vec![super::super::launcher::LauncherEntry {
+                name: "Stock".into(),
+                package: stock.into(),
+                source_url: None,
+                disable_with: Vec::new(),
+            }],
+            ..NO_LAUNCHERS.clone()
+        };
+        let handlers = [stock.to_string(), "com.android.tv.settings".to_string()];
+        for home_handlers in [Some(&handlers[..]), None] {
+            let plan = compute_apply_plan(
+                &snap,
+                &ApplyPlanInputs {
+                    home_handlers,
+                    launchers: &launchers,
+                    ..launcher_inputs(&installed, &settings, Some(stock))
+                },
+            );
+            assert_eq!(
+                plan.launcher_not_installed.as_deref(),
+                Some("com.spocky.projengmenu")
+            );
+            assert_eq!(plan.packages_to_disable, ["com.foo"]);
+            assert_eq!(plan.packages_kept.len(), 1);
+            assert_eq!(plan.packages_kept[0].package, stock);
+        }
     }
 
     #[test]

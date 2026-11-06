@@ -6,6 +6,7 @@
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import { modal } from "../lib/modal";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
@@ -114,7 +115,9 @@
     if (repeatTimer) { clearTimeout(repeatTimer); repeatTimer = null; }
     if (repeatInterval) { clearInterval(repeatInterval); repeatInterval = null; }
   }
+  let lastPointerPress = -Infinity;
   function pressStart(key: string) {
+    lastPointerPress = performance.now();
     sendKey(key);
     if (transport !== "channel") return;
     stopRepeat();
@@ -122,6 +125,47 @@
       repeatInterval = setInterval(() => sendKey(key, true), 140);
     }, 400);
   }
+
+  // Keyboard, TalkBack and Switch Access activate a button with a click and no
+  // pointer press (detail 0). A touch already sent its key on pointerdown.
+  function activateDir(e: MouseEvent, key: string) {
+    if (e.detail !== 0 || performance.now() - lastPointerPress < 500) return;
+    sendKey(key);
+  }
+
+  // After modal()'s own initial focus, so typing can start at once.
+  function focusOnOpen(node: HTMLElement) {
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => node.focus({ preventScroll: true }));
+    });
+    return {
+      destroy() {
+        cancelAnimationFrame(outer);
+        cancelAnimationFrame(inner);
+      },
+    };
+  }
+
+  function closeKeyboard() {
+    showKeyboardModal = false;
+  }
+
+  // As in ConfirmDialog: at large text the content scrolls inside the card
+  // and Send/Cancel stay pinned, with a divider once anything is cut off.
+  let modalBody = $state<HTMLElement>();
+  let modalContent = $state<HTMLElement>();
+  let modalOverflowing = $state(false);
+  $effect(() => {
+    if (!modalBody || !modalContent) return;
+    const scroller = modalBody;
+    const update = () => (modalOverflowing = scroller.scrollHeight > scroller.clientHeight + 1);
+    const observer = new ResizeObserver(update);
+    observer.observe(scroller);
+    observer.observe(modalContent);
+    update();
+    return () => observer.disconnect();
+  });
 
   function toggleForceShell() {
     stopRepeat();
@@ -219,16 +263,16 @@
 
     <div class="dpad-container">
       <div class="dpad-ring">
-        <button class="dpad-dir up" onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} aria-label="Up">
+        <button class="dpad-dir up" onpointerdown={() => pressStart("up")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} onclick={(e) => activateDir(e, "up")} aria-label="Up">
           <span class="msr">keyboard_arrow_up</span>
         </button>
-        <button class="dpad-dir down" onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} aria-label="Down">
+        <button class="dpad-dir down" onpointerdown={() => pressStart("down")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} onclick={(e) => activateDir(e, "down")} aria-label="Down">
           <span class="msr">keyboard_arrow_down</span>
         </button>
-        <button class="dpad-dir left" onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} aria-label="Left">
+        <button class="dpad-dir left" onpointerdown={() => pressStart("left")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} onclick={(e) => activateDir(e, "left")} aria-label="Left">
           <span class="msr">keyboard_arrow_left</span>
         </button>
-        <button class="dpad-dir right" onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} aria-label="Right">
+        <button class="dpad-dir right" onpointerdown={() => pressStart("right")} onpointerup={stopRepeat} onpointerleave={stopRepeat} onpointercancel={stopRepeat} onclick={(e) => activateDir(e, "right")} aria-label="Right">
           <span class="msr">keyboard_arrow_right</span>
         </button>
         <button class="dpad-center" onclick={() => sendKey("select")}>OK</button>
@@ -290,28 +334,45 @@
 
   {#if showKeyboardModal}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="modal-overlay" onclick={() => (showKeyboardModal = false)}>
+    <div class="modal-overlay" use:modal={{ onClose: closeKeyboard }} onclick={closeKeyboard}>
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="modal-card" onclick={(e) => e.stopPropagation()}>
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <span class="modal-close msr" onclick={() => (showKeyboardModal = false)}>close</span>
-        <h3>Send Text to TV</h3>
-        <p class="modal-lede">Type text to send to the focused field on the TV.</p>
-        <input
-          type="text"
-          bind:value={textToSend}
-          placeholder="Enter text..."
-          class="modal-input"
-          onkeydown={(e) => e.key === "Enter" && handleSendText()}
-        />
-        {#if modalError}
-          <p class="modal-error" role="alert">{modalError}</p>
-        {/if}
-        <div class="modal-actions">
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-text-title"
+        aria-describedby="send-text-lede"
+        tabindex="-1"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="modal-body" bind:this={modalBody}>
+          <div bind:this={modalContent}>
+            <div class="modal-head">
+              <h3 id="send-text-title">Send Text to TV</h3>
+              <button class="modal-close" type="button" aria-label="Close Send Text" onclick={closeKeyboard}>
+                <span class="msr" aria-hidden="true">close</span>
+              </button>
+            </div>
+            <p class="modal-lede" id="send-text-lede">Type text to send to the focused field on the TV.</p>
+            <input
+              type="text"
+              bind:value={textToSend}
+              placeholder="Enter text..."
+              class="modal-input"
+              aria-label="Text to send"
+              use:focusOnOpen
+              onkeydown={(e) => e.key === "Enter" && handleSendText()}
+            />
+            {#if modalError}
+              <p class="modal-error" role="alert">{modalError}</p>
+            {/if}
+          </div>
+        </div>
+        <div class="modal-actions" class:divided={modalOverflowing}>
           <button class="primary small" disabled={!textToSend || sending} onclick={handleSendText}>
             {sending ? "Sending..." : "Send Text"}
           </button>
-          <button class="ghost small" onclick={() => (showKeyboardModal = false)}>Cancel</button>
+          <button class="ghost small" onclick={closeKeyboard}>Cancel</button>
         </div>
       </div>
     </div>
@@ -531,7 +592,7 @@
     width: 100%;
   }
   .modal-error {
-    margin: -8px 0 14px;
+    margin: 10px 0 0;
     font-size: 12px;
     line-height: 1.4;
     color: var(--danger);
@@ -572,6 +633,10 @@
     accent-color: var(--accent);
     width: 16px;
     height: 16px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    flex: none;
   }
   .remote-message {
     margin-top: 12px;
@@ -584,9 +649,13 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.7);
-    display: grid;
-    place-items: center;
-    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    box-sizing: border-box;
+    overscroll-behavior: contain;
     z-index: 200;
   }
   .modal-card {
@@ -595,21 +664,48 @@
     border-radius: 20px;
     width: 100%;
     max-width: 320px;
-    padding: 24px;
-    position: relative;
+    max-height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
     box-sizing: border-box;
   }
+  .modal-body {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 24px 24px 12px;
+  }
+  .modal-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin: -6px -10px 8px 0;
+  }
   .modal-close {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    font-size: 20px;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
     color: var(--muted);
+    display: grid;
+    place-items: center;
     cursor: pointer;
   }
+  .modal-close:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 0;
+  }
+  .modal-close .msr {
+    font-size: 20px;
+  }
   .modal-card h3 {
-    margin: 0 0 8px;
+    margin: 10px 0 0;
     font-size: 18px;
     font-weight: 700;
   }
@@ -628,7 +724,7 @@
     padding: 0 12px;
     color: var(--text);
     box-sizing: border-box;
-    margin-bottom: 20px;
+    margin: 0;
     font-family: var(--sans);
   }
   .modal-input:focus {
@@ -636,7 +732,14 @@
     border-color: transparent;
   }
   .modal-actions {
+    flex: none;
     display: flex;
     gap: 10px;
+    padding: 8px 24px 24px;
+    border-top: 1px solid transparent;
+  }
+  .modal-actions.divided {
+    border-top-color: var(--line);
+    padding-top: 16px;
   }
 </style>

@@ -35,6 +35,8 @@ export interface AppMenuItem {
   icon: string;
   disabled?: boolean;
   danger?: boolean;
+  /// Marks a Pro feature for a Free user, as the detail sheet's buttons do.
+  pro?: boolean;
   run: () => void;
 }
 

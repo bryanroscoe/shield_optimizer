@@ -22,9 +22,19 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Android: the TV list shows each TV's name again on Android 13 and older, where every row said "Name unavailable". The app asks each TV it finds for its Cast name over the local network; the name is only shown, never used to identify a TV.
 - Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
 - Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
+- Desktop and Android: **restoring a snapshot keeps a Home screen.** Restore sets the snapshot's Home app first and checks the TV's Home apps again before disabling each launcher. A launcher that is the last enabled Home app stays on, and so does any possible Home app when the TV can't list its Home apps; the result names each one and why. Before, a snapshot whose launcher was missing or couldn't be set could leave the TV with no Home screen.
+- Desktop and Android: restore never re-enables anything. A snapshot launcher that is installed but disabled on this TV is skipped ("enable it first, then restore") instead of being turned back on.
+- Desktop: the restore preview shows a skipped Home app and every package kept on for Home among the unchanged rows, and never calls Home unchanged when it was skipped. The result lists kept packages apart from failures and shows why Home wasn't set.
+- Desktop and Android: disabling a launcher, and the last-Home check in App List and Optimize, refuse when the TV's Home apps can't be read instead of guessing. Android 8 can't list them, so on Android 8 a catalog launcher, the stock one included, can't be disabled from the app.
+- Desktop: on the Launcher tab, Disable is off for the stock launcher while the TV doesn't report its current Home app, with the reason on its row. The rest of the list still loads.
+- Desktop and Android: saving a snapshot fails when the TV's disabled-app list can't be read, instead of saving one that records none. Emergency Recovery shows that read error instead of "nothing to restore".
+- Desktop and Android: App List, Optimize, Launcher, snapshots and Emergency Recovery read packages for the main user (user 0), the same user every action changes (#233).
+- Desktop and Android: App List shows catalog apps meant for another TV family (a Shield-only app on a Google TV, say) under the other installed apps, instead of in neither section.
+- Desktop and Android: a pairing code that didn't match is reported as a wrong code, and a network search that can't get its port (an mDNS bind failure) says so and suggests entering the TV's IP address. Raw diagnostic text such as OS error numbers, exit statuses and exceptions stays under Details and Copy details. Anonymous reports use the same codes.
 
 ## v2-2.5.0 — 2026-11-04
 

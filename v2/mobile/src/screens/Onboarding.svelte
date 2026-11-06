@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
+  import { setLocalBack } from "../lib/router.svelte";
   import {
     autoConnectEnabled,
     lastUsedLabel,
@@ -18,6 +19,7 @@
   import BrandMark from "../components/BrandMark.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import SupportStatus from "../components/SupportStatus.svelte";
+  import TelemetryNotice from "../components/TelemetryNotice.svelte";
 
   let {
     intent = "launch",
@@ -42,7 +44,10 @@
   let reconnectErrorKey = $state("");
   let connectingKey = $state("");
   let connectingName = $state("");
-  let reconnectPending = false;
+  // The generation of the connect this screen started and is still waiting
+  // on, or 0. Only that attempt may be canceled from here: canceling by
+  // "whatever is current" would drop a TV the user is already connected to.
+  let pendingConnectGeneration = 0;
   let connectionAttempt = 0;
   const primarySaved = $derived(savedDevices[0] ?? null);
 
@@ -62,16 +67,15 @@
     reconnectErrorKey = "";
     connectingKey = savedDeviceKey(d);
     connectingName = d.name;
-    reconnectPending = true;
     try {
-      const r = await session.connect(d.host, d.connectPort);
+      const r = await session.connect(d.host, d.connectPort, (generation) => (pendingConnectGeneration = generation));
       // Cancelled attempts resolve later; ignore them.
       if (attempt !== connectionAttempt) return;
       if (r.ok) {
         savedDevices = listSavedDevices();
         // Retire the pending marker before navigation unmounts this screen so
         // onDestroy does not cancel the connection we just established.
-        reconnectPending = false;
+        pendingConnectGeneration = 0;
         connectingKey = "";
         onConnected();
       } else {
@@ -84,19 +88,25 @@
       reconnectErrorKey = savedDeviceKey(d);
     } finally {
       if (attempt === connectionAttempt) {
-        reconnectPending = false;
+        pendingConnectGeneration = 0;
         connectingKey = "";
       }
     }
   }
 
+  /// Cancel the connect this screen is waiting on, if any. The user ended
+  /// it, so nothing here is a failure: a failed cancel is already in the
+  /// debug log via api.ts, and the session's generation guard ignores the
+  /// abandoned connect if it lands anyway.
+  function cancelPendingConnect() {
+    const generation = pendingConnectGeneration;
+    pendingConnectGeneration = 0;
+    if (generation) void session.cancelConnect(generation).catch(() => {});
+  }
+
   function cancelReconnect() {
     ++connectionAttempt;
-    reconnectPending = false;
-    // The user ended this attempt, so nothing here is a reconnect failure. A
-    // failed cancel is already in the debug log via api.ts, and the session's
-    // generation guard ignores the abandoned connect if it lands anyway.
-    void session.cancelConnect().catch(() => {});
+    cancelPendingConnect();
     connectingKey = "";
     connectingName = "";
     reconnectError = "";
@@ -225,7 +235,7 @@
   }
 
   function manualPair() {
-    if (!host) return;
+    if (!host.trim()) return;
     leaveScan();
     error = "";
     notice = "";
@@ -237,7 +247,7 @@
   }
 
   function manualConnect() {
-    if (!host) return;
+    if (!host.trim()) return;
     leaveScan();
     error = "";
     notice = "";
@@ -258,24 +268,28 @@
     notice = "";
     step = "connecting";
     busy = true;
+    let pairing = needsPairing;
     try {
       if (needsPairing) {
-        const paired = await session.pair(host, Number(pairPort), code);
+        const paired = await session.pair(host.trim(), Number(pairPort), code);
         if (attempt !== connectionAttempt) return;
+        // A pairing code is good for one try, right or wrong.
+        code = "";
         if (!paired.ok) {
           error = paired.message;
+          step = "pair";
           return;
         }
+        needsPairing = false;
+        pairing = false;
         if (connectAfterPair === null) {
-          code = "";
-          needsPairing = false;
           notice = "Pairing succeeded. Scan again to choose an advertised connect service.";
           step = "scan";
           return;
         }
         connectPort = connectAfterPair;
       }
-      const result = await session.connect(host, Number(connectPort));
+      const result = await session.connect(host, Number(connectPort), (generation) => (pendingConnectGeneration = generation));
       if (attempt !== connectionAttempt) return;
       if (!result.ok) {
         error = result.message;
@@ -284,25 +298,58 @@
       savedDevices = listSavedDevices();
       step = "connected";
     } catch (e) {
-      if (attempt === connectionAttempt) error = String(e);
+      if (attempt !== connectionAttempt) return;
+      error = String(e);
+      if (pairing) {
+        code = "";
+        step = "pair";
+      }
     } finally {
-      if (attempt === connectionAttempt) busy = false;
+      if (attempt === connectionAttempt) {
+        busy = false;
+        pendingConnectGeneration = 0;
+      }
     }
   }
+
+  /// Stop waiting on a pairing or connect. A pairing already sent to the TV
+  /// can't be recalled, so its result is ignored and a new code is needed.
+  function cancelConnecting() {
+    ++connectionAttempt;
+    cancelPendingConnect();
+    busy = false;
+    error = "";
+    code = "";
+    step = needsPairing ? "pair" : "scan";
+  }
+
+  // Back steps back inside this screen while there is somewhere to go, so a
+  // first-launch Back during pairing or the approval wait doesn't close the app.
+  $effect(() => {
+    const handler =
+      step === "pair" ? backToScan
+      : step === "connecting" ? (error ? backToScan : cancelConnecting)
+      : step === "reconnect" && connectingKey ? cancelReconnect
+      : null;
+    untrack(() => setLocalBack(handler));
+  });
 
   onDestroy(() => {
     ++scanGeneration;
     ++connectionAttempt;
-    if (reconnectPending || (busy && step === "connecting")) {
-      void session.cancelConnect().catch(() => {});
-    }
+    setLocalBack(null);
+    cancelPendingConnect();
   });
 
   function backToScan() {
+    ++connectionAttempt;
+    cancelPendingConnect();
+    busy = false;
     error = "";
     notice = "";
     code = "";
     connectAfterPair = null;
+    needsPairing = false;
     connectingName = "";
     step = "scan";
   }
@@ -314,6 +361,7 @@
 </script>
 
 <div class="screen">
+  <TelemetryNotice inline />
   {#if step === "reconnect"}
     <div class="topline">
       <div class="brand">
@@ -362,7 +410,7 @@
             {#if connectingKey === savedDeviceKey(d)}
               <span class="device-tag">Handshaking…</span>
             {:else if reconnectError && reconnectErrorKey === savedDeviceKey(d)}
-              <span class="device-tag">Couldn't reconnect</span>
+              <span class="device-tag warn">Couldn't reconnect</span>
             {:else if savedHostHasMultipleIdentities(savedDevices, d.host)}
               <span class="device-tag">Another saved TV shares this address</span>
             {:else if i === 0 && savedDevices.length > 1}
@@ -390,7 +438,7 @@
     <div class="spacer"></div>
 
     {#if connectingKey}
-      <button class="ghost" onclick={cancelReconnect}>Cancel</button>
+      <button class="ghost cancel" onclick={cancelReconnect}>Cancel</button>
     {/if}
     <button class="ghost-link" onclick={goScan}>Scan for a different TV</button>
   {:else if step === "scan"}
@@ -417,7 +465,7 @@
         debugging</span>.
     </p>
 
-    <div class="radar" class:compact={scanned && found.length > 0} aria-hidden="true">
+    <div class="radar" class:compact={scanned} aria-hidden="true">
       <span class="ring"></span>
       <span class="ring ring2"></span>
       <span class="radar-core"><span class="msr">tv_gen</span></span>
@@ -494,8 +542,21 @@
       {/if}
 
     {:else if scanned}
-      <p class="section-label">No devices found</p>
-      <p class="lede empty">Confirm Wireless debugging is on, then scan again.</p>
+      <p class="section-label">No TVs found</p>
+      <details class="help-disclosure" open>
+        <summary>Connection help</summary>
+        <ul class="help-list">
+          <li>Keep the phone and TV on the same Wi-Fi network, and the TV awake.</li>
+          <li>
+            Shield and older TVs use <span class="soft">Network debugging</span>, which may not show up here.
+            Choose <span class="soft">Enter IP address manually</span> and connect on port 5555.
+          </li>
+          <li>
+            Android 11 or later: on the TV, open <span class="soft">Wireless debugging › Pair device with
+              pairing code</span>, then scan again or enter the IP address and port it shows.
+          </li>
+        </ul>
+      </details>
     {/if}
 
     {#if notice}<p class="lede empty" role="status">{notice}</p>{/if}
@@ -608,7 +669,7 @@
         </p>
         {#if !error}
           <span class="handshake">
-            <span class="hdot blink"></span>Handshaking…
+            <span class="hdot blink"></span>{needsPairing ? "Pairing…" : "Handshaking…"}
           </span>
         {/if}
       </div>
@@ -641,6 +702,8 @@
     {#if error}
       <button class="primary" disabled={busy} onclick={startConnect}>Try again</button>
       <button class="ghost-link" onclick={backToScan}>Back to scan</button>
+    {:else}
+      <button class="ghost cancel" onclick={cancelConnecting}>Cancel</button>
     {/if}
   {:else if step === "connected"}
     <div class="center connected">
@@ -672,3 +735,33 @@
     </button>
   {/if}
 </div>
+
+<style>
+  /* The radar rings scale past a narrow viewport (large text sizes); they
+     fade out at the edge instead of scrolling the page sideways. */
+  .screen {
+    overflow-x: clip;
+  }
+  /* Six boxes must fit a 275px-wide screen (150% text) without clipping. */
+  .code-row {
+    gap: clamp(5px, 2.4vw, 9px);
+  }
+  .digit {
+    min-width: 0;
+  }
+  .ghost.cancel {
+    width: 100%;
+    min-height: 48px;
+    font-size: 15px;
+  }
+  .device-tag.warn {
+    color: var(--danger);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+  }
+  .help-list {
+    margin: 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 6px;
+  }
+</style>

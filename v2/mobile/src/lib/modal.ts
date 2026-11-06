@@ -12,6 +12,41 @@ function controls(node: HTMLElement): HTMLElement[] {
   return Array.from(node.querySelectorAll<HTMLElement>(focusable))
     .filter((element) => element.getClientRects().length > 0 && !element.closest('[inert]'));
 }
+// The trap cycles controls only, so a scroll area with nothing focusable in it
+// (a long confirm's message) could not be scrolled from the keyboard. While
+// one actually overflows it becomes a named Tab stop; once it fits, it goes
+// back to how the screen wrote it. The attribute lists what was added.
+const SCROLL_STOP = 'data-modal-scroll-stop';
+function dialogName(element: HTMLElement): string {
+  const dialog = element.closest<HTMLElement>('[role="dialog"], [role="alertdialog"]');
+  const labelledBy = dialog?.getAttribute('aria-labelledby');
+  const label = dialog?.getAttribute('aria-label')
+    ?? (labelledBy ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent ?? '').join(' ') : '');
+  return label?.trim() || 'Scrollable content';
+}
+function syncScrollStops(node: HTMLElement) {
+  for (const element of node.querySelectorAll<HTMLElement>('*')) {
+    const added = element.getAttribute(SCROLL_STOP);
+    if (added === null && element.hasAttribute('tabindex')) continue;
+    const needed = /^(auto|scroll)$/.test(getComputedStyle(element).overflowY)
+      && element.scrollHeight > element.clientHeight + 1
+      && !element.closest('[inert]')
+      && controls(element).length === 0;
+    if (needed && added === null) {
+      const marks = ['tabindex'];
+      element.tabIndex = 0;
+      if (!element.hasAttribute('role')) { element.setAttribute('role', 'region'); marks.push('role'); }
+      if (!element.hasAttribute('aria-label') && !element.hasAttribute('aria-labelledby')) {
+        element.setAttribute('aria-label', dialogName(element));
+        marks.push('aria-label');
+      }
+      element.setAttribute(SCROLL_STOP, marks.join(' '));
+    } else if (!needed && added !== null) {
+      for (const attribute of added.split(' ')) if (attribute) element.removeAttribute(attribute);
+      element.removeAttribute(SCROLL_STOP);
+    }
+  }
+}
 function focusControl(element: HTMLElement, entry: Entry) {
   element.focus({ preventScroll: true });
   // Keep the document lock intact while revealing focus inside a long sheet.
@@ -28,7 +63,12 @@ function focusControl(element: HTMLElement, entry: Entry) {
   }
 }
 function focusInside(entry: Entry) {
-  focusControl(controls(entry.node)[0] ?? entry.node.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"], [role="menu"]') ?? entry.node, entry);
+  // Scroll stops join the Tab cycle but never take initial focus from the
+  // first real control (Cancel, on a confirm).
+  syncScrollStops(entry.node);
+  const items = controls(entry.node);
+  const first = items.find((element) => !element.hasAttribute(SCROLL_STOP)) ?? items[0];
+  focusControl(first ?? entry.node.querySelector<HTMLElement>('[role="dialog"], [role="alertdialog"], [role="menu"]') ?? entry.node, entry);
 }
 function holdDocument() {
   const x = window.scrollX;
@@ -83,6 +123,7 @@ export function modal(node: HTMLElement, options: Options) {
       event.stopImmediatePropagation();
       entry.options.onClose();
     } else if (event.key === 'Tab') {
+      syncScrollStops(node);
       const items = controls(node);
       const first = items[0];
       const last = items.at(-1);

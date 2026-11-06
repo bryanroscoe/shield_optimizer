@@ -1,3 +1,134 @@
+<script module lang="ts">
+  export type NoticeInline =
+    | { kind: "text" | "code"; text: string }
+    | { kind: "link"; text: string; href: string };
+  export type NoticeBlock =
+    | { kind: "heading"; level: number; inline: NoticeInline[] }
+    | { kind: "paragraph"; inline: NoticeInline[] }
+    | { kind: "list"; ordered: boolean; items: NoticeInline[][] }
+    | { kind: "code"; text: string }
+    | { kind: "table"; head: NoticeInline[][] | null; rows: NoticeInline[][][] };
+
+  // Off applies at once even when saving it fails, but then reports come back
+  // on at the next launch. Say so and offer a retry rather than a plain "Off".
+  // Module state, so the warning survives leaving More and coming back.
+  let telemetryOffUnsaved = $state(false);
+
+  const NOTICE_INLINE = /`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|<(https?:\/\/[^>\s]+)>/g;
+
+  function noticeInline(text: string): NoticeInline[] {
+    const parts: NoticeInline[] = [];
+    let last = 0;
+    for (const m of text.matchAll(NOTICE_INLINE)) {
+      const at = m.index ?? 0;
+      if (at > last) parts.push({ kind: "text", text: text.slice(last, at) });
+      if (m[1] !== undefined) {
+        parts.push({ kind: "code", text: m[1] });
+      } else {
+        const label = (m[2] ?? m[4]).replaceAll("`", "");
+        const href = m[3] ?? m[4];
+        parts.push(/^https?:\/\//i.test(href) ? { kind: "link", text: label, href } : { kind: "text", text: label });
+      }
+      last = at + m[0].length;
+    }
+    if (last < text.length) parts.push({ kind: "text", text: text.slice(last) });
+    return parts;
+  }
+
+  function tableCells(line: string): string[] {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+  }
+
+  /// The generated third-party notices are Markdown with a little HTML (a
+  /// generator comment, <details>/<summary>). This only splits them into
+  /// blocks of plain text; the template renders every block as text, so
+  /// nothing in the document can become markup. Generator comments and
+  /// maintainer instructions are dropped.
+  export function parseNotices(markdown: string): NoticeBlock[] {
+    const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+    const blocks: NoticeBlock[] = [];
+    let paragraph: string[] = [];
+    const flush = () => {
+      const text = paragraph.join(" ").trim();
+      paragraph = [];
+      if (text && !/^Regenerate this document\b/i.test(text)) blocks.push({ kind: "paragraph", inline: noticeInline(text) });
+    };
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+      const fence = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fence) {
+        flush();
+        const code: string[] = [];
+        while (++i < lines.length && !lines[i].trimStart().startsWith(fence[1])) code.push(lines[i]);
+        blocks.push({ kind: "code", text: code.join("\n") });
+        continue;
+      }
+      if (line.includes("<!--")) {
+        line = line.replace(/<!--[\s\S]*?-->/g, "");
+        const open = line.indexOf("<!--");
+        if (open >= 0) {
+          // A comment that runs onto later lines.
+          let end = i + 1;
+          while (end < lines.length && !lines[end].includes("-->")) end++;
+          line = line.slice(0, open) + (end < lines.length ? lines[end].slice(lines[end].indexOf("-->") + 3) : "");
+          i = end;
+        }
+      }
+      const trimmed = line.trim();
+      if (!trimmed) {
+        flush();
+        continue;
+      }
+      const summary = trimmed.match(/^<summary>(.*?)(?:<\/summary>)?$/i);
+      if (summary) {
+        flush();
+        if (summary[1].trim()) blocks.push({ kind: "heading", level: 4, inline: noticeInline(summary[1].trim()) });
+        continue;
+      }
+      if (/^<\/?[a-z][a-z0-9-]*(\s[^>]*)?>$/i.test(trimmed)) {
+        flush();
+        continue;
+      }
+      const heading = trimmed.match(/^(#{1,6})\s+(.*?)(?:\s+#+)?$/);
+      if (heading) {
+        flush();
+        blocks.push({ kind: "heading", level: Math.min(heading[1].length, 4), inline: noticeInline(heading[2]) });
+        continue;
+      }
+      if (trimmed.startsWith("|")) {
+        flush();
+        const rows: string[][] = [];
+        for (; i < lines.length && lines[i].trim().startsWith("|"); i++) rows.push(tableCells(lines[i]));
+        i--;
+        const divider = rows.length > 1 && rows[1].every((c) => /^:?-{3,}:?$/.test(c));
+        blocks.push({
+          kind: "table",
+          head: divider ? rows[0].map(noticeInline) : null,
+          rows: rows.slice(divider ? 2 : 0).map((r) => r.map(noticeInline)),
+        });
+        continue;
+      }
+      const item = trimmed.match(/^([-*+]|\d+[.)])\s+(.*)$/);
+      if (item) {
+        flush();
+        const ordered = /\d/.test(item[1]);
+        const items: NoticeInline[][] = [];
+        for (; i < lines.length; i++) {
+          const next = lines[i].trim().match(/^([-*+]|\d+[.)])\s+(.*)$/);
+          if (!next || /\d/.test(next[1]) !== ordered) break;
+          items.push(noticeInline(next[2]));
+        }
+        i--;
+        blocks.push({ kind: "list", ordered, items });
+        continue;
+      }
+      paragraph.push(trimmed);
+    }
+    flush();
+    return blocks;
+  }
+</script>
+
 <script lang="ts">
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
@@ -77,17 +208,22 @@
     }
   }
 
-  async function toggleTelemetry(event: Event) {
-    const enabled = (event.currentTarget as HTMLInputElement).checked;
+  async function setTelemetry(enabled: boolean) {
     telemetryBusy = true;
     try {
       telemetry = await api.setTelemetryEnabled(enabled);
+      telemetryOffUnsaved = false;
     } catch {
-      showToast("Couldn't change the report setting.", "error");
       await loadTelemetry();
+      telemetryOffUnsaved = !enabled && telemetry?.enabled === false;
+      if (!telemetryOffUnsaved) showToast("Couldn't change the report setting.", "error");
     } finally {
       telemetryBusy = false;
     }
+  }
+
+  function toggleTelemetry(event: Event) {
+    void setTelemetry((event.currentTarget as HTMLInputElement).checked);
   }
 
   onMount(async () => {
@@ -141,7 +277,9 @@
       if (ent === "pro") {
         showToast("Pro unlocked — thank you!", "success");
         licenseKey = "";
-        await loadLicense();
+        // The key is now a Pro source; without a fresh status the source line
+        // and license details stay hidden until the next resume.
+        await Promise.all([loadLicense(), billing.load()]);
       } else {
         licenseError = "That key wasn't accepted. Check and try again.";
         showToast(licenseError, "error");
@@ -248,19 +386,30 @@
   // Third-party notices are a few hundred KB, so the module is imported only
   // when the user opens the card.
   let showNotices = $state(false);
-  let notices = $state("");
+  let notices = $state<NoticeBlock[] | null>(null);
+  let noticesError = $state("");
   let noticesLoading = $state(false);
   async function toggleNotices() {
     showNotices = !showNotices;
     if (!showNotices || notices) return;
     noticesLoading = true;
+    noticesError = "";
     try {
       const mod = await import("../lib/notices.generated");
-      notices = mod.THIRD_PARTY_NOTICES;
+      notices = parseNotices(mod.THIRD_PARTY_NOTICES);
     } catch (e) {
-      notices = `Couldn't load notices: ${String(e)}`;
+      noticesError = `Couldn't load notices: ${String(e)}`;
     } finally {
       noticesLoading = false;
+    }
+  }
+
+  async function openNoticeLink(event: MouseEvent, href: string) {
+    event.preventDefault();
+    try {
+      await api.openUrl(href);
+    } catch {
+      showToast("Couldn't open the link. Please try again.", "error");
     }
   }
 
@@ -268,6 +417,9 @@
   // copyable for support.
   let showLog = $state(false);
   let nativeLog = $state("");
+  // The frontend ring buffer isn't reactive, so it's read on Show, Refresh and
+  // Copy rather than once.
+  let frontendLog = $state("");
   let logLoading = $state(false);
   let logError = $state("");
 
@@ -280,15 +432,17 @@
     } catch (e) {
       logError = String(e);
     } finally {
+      frontendLog = frontendLogText();
       logLoading = false;
     }
   }
 
   const combinedLog = $derived(
-    `# Frontend calls\n${frontendLogText()}\n\n# Native log\n${nativeLog}`,
+    `# Frontend calls\n${frontendLog}\n\n# Native log\n${nativeLog}`,
   );
 
   async function copyLog() {
+    frontendLog = frontendLogText();
     try {
       await navigator.clipboard.writeText(combinedLog);
       showToast("Debug log copied.", "success");
@@ -364,6 +518,8 @@
     showToast("Local diagnostics cleared.", "success");
   }
 </script>
+
+{#snippet noticeText(parts: NoticeInline[])}{#each parts as part, i (i)}{#if part.kind === "code"}<code>{part.text}</code>{:else if part.kind === "link"}<a class="notice-link" href={part.href} rel="noopener noreferrer" onclick={(e) => openNoticeLink(e, part.href)}>{part.text}</a>{:else}{part.text}{/if}{/each}{/snippet}
 
 <div class="screen">
   <div class="topline">
@@ -521,7 +677,7 @@
       <p class="card-desc">Every option restarts the TV and drops this connection.</p>
       <div class="reboot-row">
         {#each ["normal", "recovery", "bootloader"] as mode (mode)}
-          <button class="ghost-btn compact" disabled={rebooting || !session.connectedDevice} onclick={() => (rebootTarget = mode as RebootMode)}>
+          <button class="ghost-btn" disabled={rebooting || !session.connectedDevice} onclick={() => (rebootTarget = mode as RebootMode)}>
             <span class="msr">{mode === "normal" ? "restart_alt" : mode === "recovery" ? "build" : "developer_board"}</span>{rebootLabels[mode as RebootMode]}
           </button>
         {/each}
@@ -628,6 +784,17 @@
             aria-label={TOGGLE_LABEL}
           />
         </label>
+        {#if telemetryOffUnsaved && telemetry.enabled === false}
+          <div class="telemetry-unsaved" role="alert">
+            <p class="card-desc">
+              Reports are off for now, but this choice couldn't be saved. They may turn back on
+              the next time the app starts.
+            </p>
+            <button class="ghost-btn compact" disabled={telemetryBusy} onclick={() => setTelemetry(false)}>
+              <span class="msr">refresh</span>Try saving again
+            </button>
+          </div>
+        {/if}
         <details class="help-disclosure">
           <summary>What's sent</summary>
           <p class="card-desc">{MOBILE_NOTICE_TEXT}</p>
@@ -679,8 +846,43 @@
       {#if showNotices}
         {#if noticesLoading}
           <p class="card-desc">Loading…</p>
-        {:else}
-          <pre class="log-view mono notices">{notices}</pre>
+        {:else if noticesError}
+          <p class="log-error mono">{noticesError}</p>
+        {:else if notices}
+          <div class="notices" data-testid="third-party-notices">
+            {#each notices as block, i (i)}
+              {#if block.kind === "heading"}
+                {#if block.level === 1}
+                  <h4 class="notice-h notice-h1">{@render noticeText(block.inline)}</h4>
+                {:else if block.level === 2}
+                  <h5 class="notice-h notice-h2">{@render noticeText(block.inline)}</h5>
+                {:else}
+                  <h6 class="notice-h notice-h3">{@render noticeText(block.inline)}</h6>
+                {/if}
+              {:else if block.kind === "paragraph"}
+                <p class="notice-p">{@render noticeText(block.inline)}</p>
+              {:else if block.kind === "list"}
+                {#if block.ordered}
+                  <ol class="notice-list">{#each block.items as item, j (j)}<li>{@render noticeText(item)}</li>{/each}</ol>
+                {:else}
+                  <ul class="notice-list">{#each block.items as item, j (j)}<li>{@render noticeText(item)}</li>{/each}</ul>
+                {/if}
+              {:else if block.kind === "code"}
+                <pre class="notice-code mono">{block.text}</pre>
+              {:else if block.kind === "table"}
+                <table class="notice-table">
+                  {#if block.head}
+                    <thead><tr>{#each block.head as cell, j (j)}<th>{@render noticeText(cell)}</th>{/each}</tr></thead>
+                  {/if}
+                  <tbody>
+                    {#each block.rows as row, j (j)}
+                      <tr>{#each row as cell, k (k)}<td>{@render noticeText(cell)}</td>{/each}</tr>
+                    {/each}
+                  </tbody>
+                </table>
+              {/if}
+            {/each}
+          </div>
         {/if}
       {/if}
     </div>
@@ -745,6 +947,9 @@
 
 <style>
   .support-id { overflow-wrap: anywhere; user-select: text; }
+  .topline {
+    justify-content: flex-start;
+  }
   .header-left {
     display: flex;
     gap: 8px;
@@ -811,8 +1016,87 @@
 
   .notices {
     max-height: 50vh;
+    overflow: auto;
+    background: var(--canvas);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-soft);
+    overflow-wrap: anywhere;
+  }
+  .notice-h {
+    margin: 16px 0 6px;
+    color: var(--text);
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  .notice-h:first-child {
+    margin-top: 0;
+  }
+  .notice-h1 {
+    font-size: 16px;
+  }
+  .notice-h2 {
+    font-size: 14px;
+  }
+  .notice-h3 {
+    font-size: 13px;
+  }
+  .notice-p {
+    margin: 0 0 8px;
+  }
+  .notice-list {
+    margin: 0 0 8px;
+    padding-left: 20px;
+  }
+  .notice-code {
+    margin: 0 0 10px;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--surface);
+    font-size: 10px;
+    line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .notice-table {
+    width: 100%;
+    margin: 0 0 10px;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  .notice-table th,
+  .notice-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+  }
+  .notice-table th {
+    color: var(--text);
+  }
+  .notices code {
+    font-family: var(--mono);
+    font-size: 0.92em;
+  }
+  .notice-link {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .telemetry-unsaved {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+  }
+  .telemetry-unsaved .card-desc {
+    color: var(--text-soft);
   }
   .recovery-result {
     display: flex;
@@ -828,10 +1112,17 @@
     color: var(--danger);
     word-break: break-all;
   }
+  /* One column on phones, all three in a row once they fit; never two and
+     a straggler. */
   .reboot-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr;
     gap: 8px;
-    flex-wrap: wrap;
+  }
+  @media (min-width: 36rem) {
+    .reboot-row {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   .license-status-row {
