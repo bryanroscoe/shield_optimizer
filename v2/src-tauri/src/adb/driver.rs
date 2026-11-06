@@ -1366,6 +1366,10 @@ mod tests {
         }
 
         const SLEEPER: &str = "echo $$ > \"$PID_FILE\"; exec sleep 30";
+        /// Long enough for the sleeper to write its pid first: macOS can take
+        /// over 150 ms to start a script written moments ago, more under a
+        /// parallel test run.
+        const SLEEPER_DEADLINE: Duration = Duration::from_secs(2);
 
         #[tokio::test]
         async fn inherited_output_pipes_respect_timeout_after_direct_child_exit() {
@@ -1406,7 +1410,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let children = Leases::new();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
-                .with_timeout(Duration::from_millis(300))
+                .with_timeout(SLEEPER_DEADLINE)
                 .with_child_leases(Arc::clone(&children));
             let result = driver.raw(&["devices"]).await;
             assert!(matches!(result, Err(AdbError::Timeout { .. })));
@@ -1489,7 +1493,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER));
             assert_eq!(
-                driver.stop_server(Duration::from_millis(300)).await,
+                driver.stop_server(SLEEPER_DEADLINE).await,
                 ServerStop::Unknown
             );
             assert!(!alive(pid_of(dir.path()).await));
