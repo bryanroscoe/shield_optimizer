@@ -72,6 +72,23 @@ pub(crate) fn drain(stream: &mut impl Read) {
     let _ = io::copy(stream, &mut io::sink());
 }
 
+/// Run `script` against each of the first `count` connections to a fresh
+/// loopback port, in turn, with the connection's number.
+pub(crate) fn fake_adbd_connections<F>(count: usize, script: F) -> (SocketAddr, JoinHandle<()>)
+where
+    F: Fn(TcpStream, usize) + Send + 'static,
+{
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        for number in 0..count {
+            let (stream, _) = listener.accept().unwrap();
+            script(stream, number);
+        }
+    });
+    (address, handle)
+}
+
 /// Run `script` against the first connection to a fresh loopback port.
 pub(crate) fn fake_adbd<F>(script: F) -> (SocketAddr, JoinHandle<()>)
 where
@@ -93,12 +110,39 @@ pub(crate) fn tls_server(
     trust_client: bool,
     seen_client_cert: Arc<Mutex<Option<Vec<u8>>>>,
 ) -> StreamOwned<ServerConnection, TcpStream> {
+    let trust = if trust_client {
+        ClientTrust::Any
+    } else {
+        ClientTrust::Nothing
+    };
+    tls_server_with(stream, trust, Vec::new(), seen_client_cert)
+}
+
+/// Which client certificates [`tls_server_with`] accepts.
+#[derive(Debug)]
+pub(crate) enum ClientTrust {
+    Any,
+    Nothing,
+    /// Only a certificate carrying one of these `SubjectPublicKeyInfo`s, as
+    /// adbd trusts only its paired keys.
+    PublicKeys(Vec<Vec<u8>>),
+}
+
+/// [`tls_server`] with a trust policy and the CA hints (DER `Name`s) its
+/// `CertificateRequest` advertises, as adbd advertises its paired keys.
+pub(crate) fn tls_server_with(
+    stream: TcpStream,
+    trust: ClientTrust,
+    hints: Vec<Vec<u8>>,
+    seen_client_cert: Arc<Mutex<Option<Vec<u8>>>>,
+) -> StreamOwned<ServerConnection, TcpStream> {
     let identity = rcgen::generate_simple_self_signed(vec!["adbd.test".to_string()]).unwrap();
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
         identity.signing_key.serialize_der(),
     ));
     let verifier = TestClientVerifier {
-        trust_client,
+        trust,
+        hints: hints.into_iter().map(DistinguishedName::from).collect(),
         seen_client_cert,
     };
     let config = ServerConfig::builder()
@@ -121,13 +165,14 @@ pub(crate) fn complete_server_handshake(
 
 #[derive(Debug)]
 struct TestClientVerifier {
-    trust_client: bool,
+    trust: ClientTrust,
+    hints: Vec<DistinguishedName>,
     seen_client_cert: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 impl ClientCertVerifier for TestClientVerifier {
     fn root_hint_subjects(&self) -> &[DistinguishedName] {
-        &[]
+        &self.hints
     }
 
     fn verify_client_cert(
@@ -137,7 +182,16 @@ impl ClientCertVerifier for TestClientVerifier {
         _now: UnixTime,
     ) -> Result<ClientCertVerified, rustls::Error> {
         *self.seen_client_cert.lock().unwrap() = Some(end_entity.to_vec());
-        if self.trust_client {
+        let trusted = match &self.trust {
+            ClientTrust::Any => true,
+            ClientTrust::Nothing => false,
+            ClientTrust::PublicKeys(keys) => keys.iter().any(|spki| {
+                end_entity
+                    .windows(spki.len())
+                    .any(|window| window == spki.as_slice())
+            }),
+        };
+        if trusted {
             Ok(ClientCertVerified::assertion())
         } else {
             Err(rustls::Error::InvalidCertificate(

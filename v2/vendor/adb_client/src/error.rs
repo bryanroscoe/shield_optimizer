@@ -105,6 +105,9 @@ pub enum RustADBError {
     /// been paired with it.
     #[error("the device rejected this ADB key over TLS; pair it first ({0})")]
     TlsAuthRejected(String),
+    /// An ADB key given in memory cannot be used: why, never the key itself.
+    #[error("the ADB key cannot be used: {0}")]
+    UnusableKey(String),
     /// The connection closed or reset during the TLS handshake or before the
     /// first message over TLS, without a TLS alert. A network drop does
     /// this, and so might a device refusing the key silently; which one it

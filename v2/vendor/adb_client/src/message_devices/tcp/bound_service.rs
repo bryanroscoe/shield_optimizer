@@ -94,11 +94,32 @@ pub fn open_bound_service(
     service: &str,
     control: BoundedShellControl,
 ) -> Result<BoundDeviceService, BoundServiceError> {
+    open_bound_service_with_keys(
+        address,
+        key,
+        &super::PreferredKeys::none(),
+        expected_id,
+        service,
+        control,
+    )
+}
+
+/// [`open_bound_service`], offering `preferred` before the key file as
+/// [`super::PreferredKeys`] describes.
+pub fn open_bound_service_with_keys(
+    address: SocketAddr,
+    key: &Path,
+    preferred: &super::PreferredKeys,
+    expected_id: &str,
+    service: &str,
+    control: BoundedShellControl,
+) -> Result<BoundDeviceService, BoundServiceError> {
     open_with_device(expected_id, service, control, |control| {
-        let transport = TcpTransport::with_shell_control(address, key, control.clone());
-        ADBMessageDevice::new_with_required_key(
-            transport,
+        super::connect_required(
+            address,
             key,
+            preferred,
+            control,
             control.remaining()?.min(Duration::from_secs(30)),
         )
     })

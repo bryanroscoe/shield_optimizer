@@ -648,3 +648,147 @@ async fn lost_framing_drops_the_connection_and_the_next_connect_redials() {
     assert_eq!(driver.info().unwrap().0, serial);
     peer.join().unwrap();
 }
+
+/// A second RSA 2048 key for the preferred-key tests, PKCS#1 like an old
+/// platform-tools `adbkey` could be, generated once per test binary.
+fn preferred_pkcs1_pem() -> &'static str {
+    static PEM: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PEM.get_or_init(|| {
+        use rsa::pkcs1::{EncodeRsaPrivateKey, LineEnding};
+        rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048)
+            .unwrap()
+            .to_pkcs1_pem(LineEnding::LF)
+            .unwrap()
+            .to_string()
+    })
+}
+
+/// The AUTH signature `key` makes over `token`. PKCS#1 v1.5 is
+/// deterministic, so the device's view can be compared byte for byte.
+fn auth_signature(key: &rsa::RsaPrivateKey, token: &[u8; 20]) -> Vec<u8> {
+    const SHA1_DIGEST_INFO: [u8; 15] = [
+        0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
+    ];
+    let mut digest_info = SHA1_DIGEST_INFO.to_vec();
+    digest_info.extend_from_slice(token);
+    key.sign(rsa::Pkcs1v15Sign::new_unprefixed(), &digest_info)
+        .unwrap()
+}
+
+/// Serve AUTH: each `(token, expected)` is one token and the signature or
+/// public key kind (2 or 3) and payload the host must answer with.
+fn serve_auth(listener: TcpListener, rounds: Vec<([u8; 20], u32, Option<Vec<u8>>)>) {
+    let mut socket = accept(&listener);
+    assert_eq!(receive(&mut socket).0, b"CNXN");
+    for (token, kind, expected) in rounds {
+        send(&mut socket, b"AUTH", 1, 0, &token);
+        let (command, arg0, payload) = receive(&mut socket);
+        assert_eq!((command.as_slice(), arg0), (b"AUTH".as_slice(), kind));
+        if let Some(expected) = expected {
+            assert_eq!(payload, expected, "AUTH answered with the wrong key");
+        }
+    }
+    send(&mut socket, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+    socket
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let _ = std::io::copy(&mut socket, &mut std::io::sink());
+}
+
+#[tokio::test]
+async fn preferred_keys_sign_before_the_own_key() {
+    use rsa::pkcs1::DecodeRsaPrivateKey;
+    use rsa::pkcs8::DecodePrivateKey;
+    let own = fixture_key();
+    let own_before = std::fs::read(own.path()).unwrap();
+    let own_private =
+        rsa::RsaPrivateKey::from_pkcs8_pem(&std::fs::read_to_string(own.path()).unwrap()).unwrap();
+    let preferred_private = rsa::RsaPrivateKey::from_pkcs1_pem(preferred_pkcs1_pem()).unwrap();
+    let preferred = load_external_identity_pem(preferred_pkcs1_pem().as_bytes()).unwrap();
+    let driver = WirelessAdb::with_existing_key(own.path().into(), Leases::new())
+        .with_preferred_keys(preferred);
+    assert_eq!(driver.preferred_key_count(), 1);
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let rounds = vec![
+        (
+            [7; 20],
+            2,
+            Some(auth_signature(&preferred_private, &[7; 20])),
+        ),
+        ([8; 20], 2, Some(auth_signature(&own_private, &[8; 20]))),
+    ];
+    let peer = std::thread::spawn(move || serve_auth(listener, rounds));
+    driver.begin_request(1).unwrap();
+    driver.connect("127.0.0.1", port, 1).await.unwrap();
+    assert!(!driver.awaiting_authorization());
+    drop(driver);
+    peer.join().unwrap();
+    // The own key was only read.
+    assert_eq!(std::fs::read(own.path()).unwrap(), own_before);
+}
+
+#[tokio::test]
+async fn without_preferred_keys_the_own_key_signs_and_is_the_one_offered() {
+    use rsa::pkcs8::DecodePrivateKey;
+    let own = fixture_key();
+    let own_private =
+        rsa::RsaPrivateKey::from_pkcs8_pem(&std::fs::read_to_string(own.path()).unwrap()).unwrap();
+    let driver = WirelessAdb::with_existing_key(own.path().into(), Leases::new());
+    assert_eq!(driver.preferred_key_count(), 0);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let rounds = vec![
+        ([7; 20], 2, Some(auth_signature(&own_private, &[7; 20]))),
+        ([8; 20], 3, None),
+    ];
+    let peer = std::thread::spawn(move || serve_auth(listener, rounds));
+    driver.begin_request(1).unwrap();
+    driver.connect("127.0.0.1", port, 1).await.unwrap();
+    drop(driver);
+    peer.join().unwrap();
+}
+
+#[test]
+fn external_identities_load_from_pkcs8_or_pkcs1_and_refuse_anything_else() {
+    use rsa::pkcs1::DecodeRsaPrivateKey;
+    use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+    let pkcs1 = preferred_pkcs1_pem();
+    let pkcs8 = rsa::RsaPrivateKey::from_pkcs1_pem(pkcs1)
+        .unwrap()
+        .to_pkcs8_pem(LineEnding::LF)
+        .unwrap();
+    assert_eq!(
+        load_external_identity_pem(pkcs1.as_bytes()).unwrap().len(),
+        1
+    );
+    assert_eq!(
+        load_external_identity_pem(pkcs8.as_bytes()).unwrap().len(),
+        1
+    );
+
+    let mut oversized = pkcs8.as_bytes().to_vec();
+    oversized.resize(32769, b'\n');
+    let small = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 1024)
+        .unwrap()
+        .to_pkcs8_pem(LineEnding::LF)
+        .unwrap();
+    for (bytes, why) in [
+        (oversized.as_slice(), "over 32 KiB"),
+        (&[0xff, 0xfe, 0x00][..], "not UTF-8"),
+        (small.as_bytes(), "1024-bit"),
+        (
+            b"-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n".as_slice(),
+            "OpenSSH",
+        ),
+        (&pkcs1.as_bytes()[..400], "truncated"),
+        (b"".as_slice(), "empty"),
+    ] {
+        let error = load_external_identity_pem(bytes).expect_err(why);
+        assert!(
+            !error.contains("MII") && !error.contains("AAAA"),
+            "{why}: {error}"
+        );
+    }
+}

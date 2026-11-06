@@ -77,6 +77,31 @@ pub fn run_streamed_install(
     expected_hardware_id: &str,
     control: BoundedShellControl,
 ) -> Result<InstallOutcome> {
+    run_streamed_install_with_keys(
+        address,
+        key,
+        &super::PreferredKeys::none(),
+        input,
+        size,
+        replace,
+        expected_hardware_id,
+        control,
+    )
+}
+
+/// [`run_streamed_install`], offering `preferred` before the key file as
+/// [`super::PreferredKeys`] describes.
+#[allow(clippy::too_many_arguments)]
+pub fn run_streamed_install_with_keys(
+    address: SocketAddr,
+    key: &Path,
+    preferred: &super::PreferredKeys,
+    input: &mut dyn Read,
+    size: u64,
+    replace: bool,
+    expected_hardware_id: &str,
+    control: BoundedShellControl,
+) -> Result<InstallOutcome> {
     run_with_device(
         input,
         size,
@@ -84,10 +109,11 @@ pub fn run_streamed_install(
         expected_hardware_id,
         control,
         |control| {
-            let transport = TcpTransport::with_shell_control(address, key, control.clone());
-            ADBMessageDevice::new_with_required_key(
-                transport,
+            super::connect_required(
+                address,
                 key,
+                preferred,
+                control,
                 control.remaining()?.min(Duration::from_secs(30)),
             )
         },

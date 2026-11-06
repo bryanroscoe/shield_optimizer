@@ -1,7 +1,8 @@
 use std::time::Duration;
 
 use adb_client::tcp::{
-    run_identity_bound_shell, BoundedShellControl, BoundedShellTermination, SHELL_OUTPUT_LIMIT,
+    run_identity_bound_shell_with_keys, BoundedShellControl, BoundedShellTermination,
+    SHELL_OUTPUT_LIMIT,
 };
 use atv_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
 use atv_optimizer_core::adb::{AdbError, AdbResult, Lease};
@@ -41,9 +42,12 @@ impl WirelessAdb {
         )?;
         let command = command.to_owned();
         let key = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         run_worker(operation, control, move |control| {
-            let output = run_identity_bound_shell(address, &key, &command, &expected, control)
-                .map_err(|e| AdbError::Transport(e.to_string()))?;
+            let output = run_identity_bound_shell_with_keys(
+                address, &key, &preferred, &command, &expected, control,
+            )
+            .map_err(|e| AdbError::Transport(e.to_string()))?;
             Ok(BoundedShellOutput {
                 stdout: bounded_utf8(&output.stdout),
                 stderr: bounded_utf8(&output.stderr),

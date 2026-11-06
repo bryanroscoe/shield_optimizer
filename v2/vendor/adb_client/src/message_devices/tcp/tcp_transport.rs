@@ -8,7 +8,6 @@ use rustls::{
         ResolvesClientCert,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     },
-    pki_types::PrivateKeyDer,
     sign::CertifiedKey,
 };
 use socket2::{SockRef, TcpKeepalive};
@@ -21,8 +20,9 @@ use crate::{
         adb_message_transport::{ADBMessageTransport, is_hang_up, is_timeout},
         adb_transport_message::{ADBTransportMessage, ADBTransportMessageHeader},
         tcp::{
+            PreferredKeys,
             bounded_shell::{BoundedShellControl, Finish},
-            tls_identity::client_identity,
+            tls_identity::{TlsIdentity, hinted_fingerprints},
         },
     },
 };
@@ -254,6 +254,12 @@ pub struct TcpTransport {
     address: SocketAddr,
     current_connection: Option<Arc<Mutex<CurrentConnection>>>,
     private_key_path: PathBuf,
+    /// Offered before the key file; see [`PreferredKeys`].
+    preferred: PreferredKeys,
+    /// The certificate the next TLS upgrade must present, instead of the one
+    /// the device's hints name.
+    tls_forced: Option<usize>,
+    tls_presented: Arc<Mutex<Option<(usize, bool)>>>,
     limits: Arc<WireLimits>,
     /// A total deadline and cancel handle over every socket operation while
     /// set. Sessions opened meanwhile hold clones of the transport, so they
@@ -268,9 +274,18 @@ impl TcpTransport {
             address: address.into(),
             current_connection: None,
             private_key_path: private_key_path.as_ref().to_path_buf(),
+            preferred: PreferredKeys::none(),
+            tls_forced: None,
+            tls_presented: Arc::new(Mutex::new(None)),
             limits: Arc::new(WireLimits::unnegotiated()),
             control: None,
         }
+    }
+
+    /// Offer `preferred` before the key file in every TLS upgrade.
+    pub(crate) fn with_preferred_keys(mut self, preferred: &PreferredKeys) -> Self {
+        self.preferred = preferred.clone();
+        self
     }
 
     /// A transport whose connect, handshake and every later read and write
@@ -341,11 +356,18 @@ impl TcpTransport {
     }
 
     fn tls_config(&self) -> Result<ClientConfig> {
-        let (chain, key) = client_identity(&self.private_key_path)?;
-        let signing_key =
-            rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(key))?;
-        let resolver = ClientCertificate {
-            key: Arc::new(CertifiedKey::new(chain, signing_key)),
+        let mut identities: Vec<TlsIdentity> = self
+            .preferred
+            .keys()
+            .iter()
+            .map(|key| key.tls.clone())
+            .collect();
+        identities.push(TlsIdentity::from_path(&self.private_key_path)?);
+        *self.tls_presented.lock()? = None;
+        let resolver = ClientCertificates {
+            identities,
+            forced: self.tls_forced,
+            presented: Arc::clone(&self.tls_presented),
         };
         Ok(ClientConfig::builder()
             .dangerous()
@@ -647,6 +669,21 @@ impl ADBMessageTransport for TcpTransport {
         self.limits.apply(info);
     }
 
+    fn tls_identity_count(&self) -> usize {
+        self.preferred.len() + 1
+    }
+
+    fn present_tls_identity(&mut self, index: Option<usize>) {
+        self.tls_forced = index;
+    }
+
+    fn presented_tls_identity(&self) -> Option<(usize, bool)> {
+        *self
+            .tls_presented
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn max_payload(&self) -> usize {
         self.limits.write_limit()
     }
@@ -782,19 +819,59 @@ impl ADBMessageTransport for TcpTransport {
     }
 }
 
-/// Presents the one ADB identity whenever the server asks.
+/// Presents one of the connection's identities when the server asks: the one
+/// it was told to, else the first whose fingerprint the server's CA hints
+/// name, else the first. AOSP's host likewise matches the hints and falls
+/// back to a default key (`adb_tls_set_certificate` in `client/auth.cpp`).
 #[derive(Debug)]
-struct ClientCertificate {
-    key: Arc<CertifiedKey>,
+struct ClientCertificates {
+    identities: Vec<TlsIdentity>,
+    forced: Option<usize>,
+    presented: Arc<Mutex<Option<(usize, bool)>>>,
 }
 
-impl ResolvesClientCert for ClientCertificate {
+impl ClientCertificates {
+    fn choose(&self, root_hint_subjects: &[&[u8]]) -> (usize, bool) {
+        let hinted = hinted_fingerprints(root_hint_subjects);
+        let named = |index: usize| {
+            self.identities
+                .get(index)
+                .is_some_and(|identity| hinted.contains(&identity.fingerprint))
+        };
+        if let Some(index) = self.forced.filter(|&index| index < self.identities.len()) {
+            return (index, named(index));
+        }
+        (0..self.identities.len())
+            .find(|&index| named(index))
+            .map_or((0, false), |index| (index, true))
+    }
+}
+
+impl ResolvesClientCert for ClientCertificates {
     fn resolve(
         &self,
-        _root_hint_subjects: &[&[u8]],
+        root_hint_subjects: &[&[u8]],
         _sigschemes: &[SignatureScheme],
     ) -> Option<Arc<CertifiedKey>> {
-        Some(Arc::clone(&self.key))
+        let (index, hinted) = self.choose(root_hint_subjects);
+        if self.identities.len() > 1 {
+            log::debug!(
+                "TLS client certificate {} of {}: {}",
+                index + 1,
+                self.identities.len(),
+                if self.forced.is_some() {
+                    "retrying with the next key"
+                } else if hinted {
+                    "the device's hints name it"
+                } else {
+                    "no hint named a key, so the first"
+                }
+            );
+        }
+        if let Ok(mut presented) = self.presented.lock() {
+            *presented = Some((index, hinted));
+        }
+        Some(Arc::clone(&self.identities[index].certified))
     }
 
     fn has_certs(&self) -> bool {

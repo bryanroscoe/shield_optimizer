@@ -129,6 +129,30 @@ pub fn pair(
     pair_with_identity(addr, code, certificate, private_key, &public_key, deadline)
 }
 
+/// [`pair`] for a connection that offers `preferred` before its key file:
+/// the first preferred key is the one paired, the same key such a connection
+/// offers for approval, so every client that has that key is trusted. With
+/// none it pairs the key at `private_key_path`, exactly as [`pair`] does.
+pub fn pair_with_keys(
+    addr: SocketAddr,
+    code: &str,
+    private_key_path: &Path,
+    preferred: &super::PreferredKeys,
+) -> Result<PairingOutcome, PairingError> {
+    let Some(first) = preferred.keys().first() else {
+        return pair(addr, code, private_key_path);
+    };
+    let deadline = Instant::now() + DEFAULT_TIMEOUT;
+    pair_with_identity(
+        addr,
+        code,
+        first.chain.clone(),
+        first.pkcs8.clone_key(),
+        &first.public_key,
+        deadline,
+    )
+}
+
 fn pair_with_identity(
     addr: SocketAddr,
     code: &str,
@@ -700,9 +724,24 @@ mod tests {
         Result<super::PairingOutcome, PairingError>,
         Result<String, PairingError>,
     ) {
+        loopback_pairing_with(server_code, fixture_identity().2, |addr| {
+            pair_fixture(addr, std::time::Duration::from_secs(2))
+        })
+    }
+
+    /// A loopback pairing peer that expects `expected_public` in the client's
+    /// `PeerInfo`, paired by `client`.
+    fn loopback_pairing_with(
+        server_code: &'static str,
+        expected_public: String,
+        client: impl FnOnce(SocketAddr) -> Result<super::PairingOutcome, PairingError>,
+    ) -> (
+        Result<super::PairingOutcome, PairingError>,
+        Result<String, PairingError>,
+    ) {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let addr = listener.local_addr().unwrap();
-        let (certificates, key, expected_public) = fixture_identity();
+        let (certificates, key, _) = fixture_identity();
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certificates, key.into())
@@ -750,8 +789,27 @@ mod tests {
             tls.flush()?;
             Ok(client.data_lossy())
         });
-        let outcome = pair_fixture(addr, std::time::Duration::from_secs(2));
+        let outcome = client(addr);
         (outcome, server.join().unwrap())
+    }
+
+    #[test]
+    fn pairing_with_preferred_keys_registers_the_first_one() {
+        use crate::message_devices::tcp::{PreferredKeys, test_support::shared_test_key};
+        let preferred = PreferredKeys::from_pems([fixture_pem()]).unwrap();
+        let (client, server) = loopback_pairing_with("123456", fixture_identity().2, |addr| {
+            super::pair_with_keys(addr, "123456", shared_test_key(), &preferred)
+        });
+        client.unwrap();
+        server.unwrap();
+
+        let file_key = super::adb_public_key(shared_test_key()).unwrap();
+        assert_ne!(file_key, fixture_identity().2);
+        let (client, server) = loopback_pairing_with("123456", file_key, |addr| {
+            super::pair_with_keys(addr, "123456", shared_test_key(), &PreferredKeys::none())
+        });
+        client.unwrap();
+        server.unwrap();
     }
 
     #[test]

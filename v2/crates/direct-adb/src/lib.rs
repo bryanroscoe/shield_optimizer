@@ -15,6 +15,19 @@ pub fn validate_identity_pem(bytes: &[u8]) -> Result<(), String> {
         .map_err(|_| "RSA identity validation failed.".to_owned())?;
     Ok(())
 }
+/// Loads an identity this app must only read, such as Google platform-tools'
+/// `adbkey`, to offer before its own key ([`WirelessAdb::with_preferred_keys`]):
+/// an unencrypted RSA 2048 key in PKCS#8 (`BEGIN PRIVATE KEY`, what adb
+/// writes) or PKCS#1 (`BEGIN RSA PRIVATE KEY`) PEM, at most 32 KiB. Errors say
+/// why without echoing any of the key.
+pub fn load_external_identity_pem(bytes: &[u8]) -> Result<PreferredKeys, String> {
+    if bytes.len() > 32768 {
+        return Err("The key file exceeds the 32 KiB limit.".into());
+    }
+    let text =
+        std::str::from_utf8(bytes).map_err(|_| "The key file is not PEM text.".to_owned())?;
+    PreferredKeys::from_pems([text]).map_err(|error| error.to_string())
+}
 /// Generates bytes for a new app-owned identity; callers must publish them without replacing existing files.
 pub fn generate_identity_pem() -> Result<Vec<u8>, String> {
     use rsa::pkcs8::{EncodePrivateKey, LineEnding};
@@ -38,6 +51,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+pub use adb_client::tcp::PreferredKeys;
 use adb_client::tcp::{ADBTcpDevice, PairingError, PeerInfo};
 use adb_client::{RebootType, RustADBError, ShellExit};
 use async_trait::async_trait;
@@ -186,6 +200,8 @@ fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String
 pub struct WirelessAdb {
     /// PKCS#8 PEM ADB private key. Persisted so re-auth is silent across launches.
     key_path: PathBuf,
+    /// Offered before `key_path`; none unless [`Self::with_preferred_keys`].
+    preferred_keys: PreferredKeys,
     operations: Arc<Leases>,
     allow_key_creation: bool,
     /// `adb_client` is blocking and `ADBTcpDevice` is not shareable across
@@ -222,11 +238,28 @@ impl WirelessAdb {
             allow_key_creation,
             operations,
             key_path,
+            preferred_keys: PreferredKeys::none(),
             conn: Arc::new(Mutex::new(None)),
             identity: Arc::new(Mutex::new(None)),
             lifecycle: tokio::sync::Mutex::new(()),
             requests: Arc::new(Mutex::new(ConnectionRequests::default())),
         }
+    }
+
+    /// Offer `keys` before this driver's own key on every connection, as
+    /// [`PreferredKeys`] describes: a TV that already trusts one of them
+    /// connects without a new prompt, a TV that trusts none is asked to allow
+    /// the first, and pairing registers the first. The own key is still
+    /// required. Without this, connections use the own key alone.
+    #[must_use]
+    pub fn with_preferred_keys(mut self, keys: PreferredKeys) -> Self {
+        self.preferred_keys = keys;
+        self
+    }
+
+    /// How many keys are offered before this driver's own.
+    pub fn preferred_key_count(&self) -> usize {
+        self.preferred_keys.len()
     }
 
     pub fn close_idle_session(&self) -> Result<(), String> {
@@ -408,6 +441,7 @@ impl WirelessAdb {
             .map_err(|e| format!("invalid pairing address {host}:{port}: {e}"))?;
         let code = normalize_pairing_code(code)?;
         let key_path = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         let allow_key_creation = self.allow_key_creation;
 
         // `adb_client::tcp::pair` is blocking and applies its own 30-second
@@ -416,7 +450,7 @@ impl WirelessAdb {
         tokio::task::spawn_blocking(move || -> Result<Paired, String> {
             let _operation = operation;
             ensure_adb_key(&key_path, allow_key_creation)?;
-            match adb_client::tcp::pair(addr, &code, &key_path) {
+            match adb_client::tcp::pair_with_keys(addr, &code, &key_path, &preferred) {
                 Ok(outcome) => {
                     let instance = peer_instance_name(&outcome.peer_info);
                     tracing::info!(
@@ -497,6 +531,7 @@ impl WirelessAdb {
             .parse()
             .map_err(|e| format!("invalid device address {host}:{port}: {e}"))?;
         let key_path = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         let allow_key_creation = self.allow_key_creation;
         let conn = self.conn.clone();
         let identity = self.identity.clone();
@@ -528,9 +563,10 @@ impl WirelessAdb {
                 requests: requests.clone(),
                 request_id,
             };
-            let device = ADBTcpDevice::new_with_control_and_auth_observer(
+            let device = ADBTcpDevice::new_with_keys_control_and_auth_observer(
                 addr,
                 &key_path,
+                &preferred,
                 !allow_key_creation,
                 control.clone(),
                 &|| observation.public_key_sent(),
@@ -540,6 +576,14 @@ impl WirelessAdb {
                 tracing::warn!(serial = %serial, error = %e, "wireless connect failed");
                 connect_error_message(&e)
             })?;
+            if !preferred.is_empty() {
+                tracing::debug!(
+                    serial = %serial,
+                    accepted_key = ?device.accepted_key(),
+                    preferred_keys = preferred.len(),
+                    "wireless connect authenticated"
+                );
+            }
             // A previous command may still own the connection mutex. Keep this
             // wait inside the handshake budget without interrupting that command.
             let mut guard = loop {
@@ -709,11 +753,13 @@ impl AdbDriver for WirelessAdb {
         let remote = remote.to_owned();
         let local = local.to_path_buf();
         let key = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         let download = crate::bounded_shell::run_worker(operation, control, move |control| {
             control.remaining()?;
-            let mut device =
-                ADBTcpDevice::new_with_required_key_and_control(address, &key, &control)
-                    .map_err(|error| AdbError::Transport(error.to_string()))?;
+            let mut device = ADBTcpDevice::new_with_required_keys_and_control(
+                address, &key, &preferred, &control,
+            )
+            .map_err(|error| AdbError::Transport(error.to_string()))?;
             let probe = adb_client::tcp::BoundedShellControl::new(
                 control.remaining()?.min(Duration::from_secs(5)),
             )?;

@@ -92,9 +92,10 @@ impl WirelessAdb {
             deadline.saturating_duration_since(tokio::time::Instant::now()),
         )?;
         let key = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         run_worker(operation, control, move |control| {
-            let mut device = ADBTcpDevice::new_with_required_key_and_control(
-                address, &key, &control,
+            let mut device = ADBTcpDevice::new_with_required_keys_and_control(
+                address, &key, &preferred, &control,
             )
             .map_err(|e| AdbError::Transport(format!("Could not start APK installation: {e}")))?;
             let probe = BoundedShellControl::new(control.remaining()?.min(Duration::from_secs(5)))?;

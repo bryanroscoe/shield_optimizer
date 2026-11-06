@@ -293,11 +293,32 @@ pub fn run_identity_bound_shell(
     expected_hardware_id: &str,
     control: BoundedShellControl,
 ) -> Result<BoundedShellOutput> {
+    run_identity_bound_shell_with_keys(
+        address,
+        key,
+        &super::PreferredKeys::none(),
+        command,
+        expected_hardware_id,
+        control,
+    )
+}
+
+/// [`run_identity_bound_shell`], offering `preferred` before the key file as
+/// [`super::PreferredKeys`] describes.
+pub fn run_identity_bound_shell_with_keys(
+    address: SocketAddr,
+    key: &Path,
+    preferred: &super::PreferredKeys,
+    command: &str,
+    expected_hardware_id: &str,
+    control: BoundedShellControl,
+) -> Result<BoundedShellOutput> {
     run_bound_with_device(command, expected_hardware_id, control, |control| {
-        let transport = TcpTransport::with_shell_control(address, key, control.clone());
-        ADBMessageDevice::new_with_required_key(
-            transport,
+        super::connect_required(
+            address,
             key,
+            preferred,
+            control,
             control.remaining()?.min(Duration::from_secs(30)),
         )
     })

@@ -532,3 +532,60 @@ is returned as before. After the change: 40/40 back-to-back TLS connects and fiv
 at 17/17. Tests: `a_connection_closed_before_any_reply_is_tried_once_more`,
 `a_second_silent_close_is_returned_without_a_third_attempt`,
 `a_close_after_the_device_answered_is_not_retried` (`tcp/stream_tests.rs`).
+
+## Several identities: preferred keys before the key file (2026-11-06)
+
+The desktop's built-in engine offers Google platform-tools' own key before the app's key, so a
+TV that already allows platform-tools needs no new prompt. `adb_client::tcp::PreferredKeys` holds
+those extra identities in memory only (parsed from unencrypted RSA 2048 PKCS#8 or PKCS#1 PEM,
+`Debug` prints only the count, errors are `RustADBError::UnusableKey` and never echo the key). Every
+connection orders its keys as the preferred keys, then the key file. With `PreferredKeys::none()`
+every path is the one it was: the existing constructors and functions now delegate with none, and
+the fake-adbd tests below pin that.
+
+- **AUTH.** Token *k* is signed with key *k*; once every key is refused, the first key's public
+  key is offered (AOSP's `send_auth_response` signs with each loaded key, then sends the user key).
+  The limit is the key count plus the three public-key rounds one key always had, so one key still
+  answers exactly four tokens.
+- **TLS.** `ClientCertificates` presents, in order of preference: a certificate the connection
+  was told to present, the first key whose SHA-256 `SubjectPublicKeyInfo` fingerprint adbd names
+  in its CA hints (`O=AdbKey-0, CN=<hex>`, `tls/adb_ca_list.cpp`; the host side is
+  `adb_tls_set_certificate` in `client/auth.cpp`), else the first key. When the device refuses the
+  certificate (`is_client_identity_rejected`) and other keys remain, `ADBMessageDevice::connect`
+  opens one fresh connection per untried key under the same deadline. One key never retries.
+- **Pairing.** `pair_with_keys` registers the first preferred key (falling back to `pair` with
+  none), the key a later connection offers for approval.
+- **What was accepted.** `ADBTcpDevice::accepted_key()` returns `AcceptedKey::Signature(i)`,
+  `PublicKey(0)` or `Tls { index, hinted, refused }`.
+
+New entry points: `PreferredKeys`, `AcceptedKey`, `ADBTcpDevice::new_with_keys_control_and_auth_observer`,
+`ADBTcpDevice::new_with_required_keys_and_control`, `run_identity_bound_shell_with_keys`,
+`open_bound_service_with_keys`, `run_streamed_install_with_keys`, `pair_with_keys`.
+`examples/device_smoke.rs` takes `--extra-key <pem>` (repeatable) and prints `accepted_key`.
+Changed files: `adb_message_device.rs`, `adb_message_transport.rs`, `models/adb_rsa_key.rs`,
+`error.rs`, `tcp/{mod,preferred_keys,tls_identity,tcp_transport,adb_tcp_device,bounded_shell,
+bound_service,streamed_install,test_support}.rs`, `tcp/pairing/mod.rs`.
+
+Tests (fake adbd over loopback): `each_auth_token_is_signed_with_the_next_key_in_order`,
+`a_first_signature_accepted_needs_no_second`,
+`after_every_signature_is_refused_the_first_key_is_offered_once`,
+`endless_tokens_get_one_signature_per_key_then_three_public_keys` (also pins one key at four),
+`no_preferred_keys_answer_auth_exactly_as_the_key_file_alone`,
+`tls_presents_the_key_the_device_hints_at_first_try`,
+`without_a_matching_hint_tls_presents_the_first_key`,
+`a_refused_certificate_is_retried_once_with_the_next_key`,
+`a_wrong_hint_falls_back_to_the_other_key_once`,
+`when_every_certificate_is_refused_each_is_tried_once_and_the_refusal_returned`,
+`one_key_presents_it_despite_hints_and_never_retries`,
+`pairing_with_preferred_keys_registers_the_first_one`, `adb_key_hints_are_read_and_other_names_ignored`,
+`fingerprint_is_the_sha256_of_the_standard_public_key_info`, and the `preferred_keys` parsing tests.
+
+On the Android TV 14 emulator (`device_smoke`, logs kept locally): legacy port, the host's trusted
+`adbkey` first and a never-seen key second connected with `Signature(0)`; the never-seen key first
+connected with `Signature(1)` (PKCS#8 and PKCS#1 alike) and `control` passed 17/17 that way, every
+dedicated connection signing twice; the never-seen key alone, and two never-seen keys, raised
+"Allow USB debugging?" showing the first key's fingerprint, dismissed with Cancel. Over TLS,
+adbd's hint list matched OpenSSL's SPKI SHA-256 of the paired keys; `[adbkey, paired]` and
+`[never-seen, paired]` both connected on the first certificate by hint (`Tls { hinted: true,
+refused: 0 }`, index 0 and 1), and two unpaired keys produced exactly two refused handshakes and
+`TlsAuthRejected`.

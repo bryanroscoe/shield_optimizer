@@ -19,8 +19,9 @@ use std::{
 use adb_client::{
     ADBDeviceExt, ADBListItemType, RustADBError, ShellExit,
     tcp::{
-        ADBTcpDevice, BoundedShellControl, BoundedShellTermination, open_bound_service, pair,
-        run_bounded_shell, run_identity_bound_shell,
+        ADBTcpDevice, BoundedShellControl, BoundedShellTermination, PreferredKeys,
+        open_bound_service_with_keys, pair_with_keys, run_bounded_shell,
+        run_identity_bound_shell_with_keys,
     },
 };
 use sha2::{Digest, Sha256};
@@ -42,6 +43,12 @@ usage:
 
 <addr> is ip:port. <pem> is a PKCS#8 PEM RSA key; the device must trust it
 (or will prompt for it within --auth-timeout, default 10 s).
+--extra-key <pem> (repeatable, any subcommand that connects or pairs) offers
+that key before --key, in order, as the desktop app offers platform-tools'
+key before its own: AUTH signs with each in turn and then offers the first
+one's public key, TLS presents the key the device hints at (retrying a
+refused certificate with the others), and pair registers the first one.
+Extra keys are only read, and may be PKCS#8 or PKCS#1 RSA 2048 PEM.
 With --expect-failure, install passes only on InstallFailed carrying the
 package manager's `Failure [...]` reason.
 uninstall only accepts packages starting with com.atvoptimizer.devtest.
@@ -56,6 +63,7 @@ const UTF8_LINE: &str = "é漢字🙂";
 struct Args {
     positional: Vec<String>,
     key: Option<PathBuf>,
+    preferred: PreferredKeys,
     auth_timeout: Duration,
     big_mib: usize,
     count: usize,
@@ -69,6 +77,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
     let mut args = Args {
         positional: Vec::new(),
         key: None,
+        preferred: PreferredKeys::none(),
         auth_timeout: Duration::from_secs(10),
         big_mib: 5,
         count: 20,
@@ -77,6 +86,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         cancel_after_prompt: None,
         options: Vec::new(),
     };
+    let mut extra_keys = Vec::new();
     let mut iter = raw.iter();
     while let Some(arg) = iter.next() {
         let mut value = |name: &str| {
@@ -86,6 +96,13 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
         };
         match arg.as_str() {
             "--key" => args.key = Some(PathBuf::from(value("--key")?)),
+            "--extra-key" => {
+                let path = value("--extra-key")?;
+                extra_keys.push(
+                    std::fs::read_to_string(&path)
+                        .map_err(|e| format!("--extra-key {path}: {e}"))?,
+                );
+            }
             "--auth-timeout" => {
                 let secs: u64 = value("--auth-timeout")?
                     .parse()
@@ -114,6 +131,8 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
             _ => args.positional.push(arg.clone()),
         }
     }
+    args.preferred = PreferredKeys::from_pems(extra_keys.iter().map(String::as_str))
+        .map_err(|e| format!("--extra-key: {e}"))?;
     Ok(args)
 }
 
@@ -200,8 +219,29 @@ fn parse_addr(text: &str) -> Result<SocketAddr, String> {
 fn connect(addr: SocketAddr, args: &Args) -> Result<(ADBTcpDevice, Duration), RustADBError> {
     let key = args.key.clone().unwrap_or_default();
     let started = Instant::now();
-    let device =
-        ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(addr, key, args.auth_timeout)?;
+    if args.preferred.is_empty() {
+        let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+            addr,
+            key,
+            args.auth_timeout,
+        )?;
+        return Ok((device, started.elapsed()));
+    }
+    let control = BoundedShellControl::new(args.auth_timeout)?;
+    let mut device = ADBTcpDevice::new_with_keys_control_and_auth_observer(
+        addr,
+        &key,
+        &args.preferred,
+        true,
+        control,
+        &|| {
+            println!(
+                "INFO approval: public key sent after {}",
+                ms(started.elapsed())
+            );
+        },
+    )?;
+    device.finish_connection()?;
     Ok((device, started.elapsed()))
 }
 
@@ -266,6 +306,7 @@ fn print_connection(device: &ADBTcpDevice, elapsed: Duration) {
     }
     Report::info("device_features", device_features.join(","));
     Report::info("shared_features", shared.join(","));
+    Report::info("accepted_key", format!("{:?}", device.accepted_key()));
 }
 
 fn cmd_probe(args: &Args) -> Result<ExitCode, String> {
@@ -310,7 +351,7 @@ fn cmd_pair(args: &Args) -> Result<ExitCode, String> {
     let key = args.key.clone().ok_or("pair needs --key")?;
     let mut report = Report::default();
     let started = Instant::now();
-    let result = pair(addr, code, &key);
+    let result = pair_with_keys(addr, code, &key, &args.preferred);
     let elapsed = ms(started.elapsed());
     match result {
         Ok(outcome) => report.check(
@@ -479,9 +520,10 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
 
     let prompted = std::cell::Cell::new(false);
     let started = Instant::now();
-    let mut device = match ADBTcpDevice::new_with_control_and_auth_observer(
+    let mut device = match ADBTcpDevice::new_with_keys_control_and_auth_observer(
         addr,
         &key,
+        &args.preferred,
         true,
         control(15.0)?,
         &|| prompted.set(true),
@@ -580,14 +622,18 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
     );
     drop(device);
 
-    let mut device =
-        match ADBTcpDevice::new_with_required_key_and_control(addr, &key, &control(60.0)?) {
-            Ok(device) => device,
-            Err(error) => {
-                report.check("control.reconnect", false, describe(&error));
-                return Ok(report.finish());
-            }
-        };
+    let mut device = match ADBTcpDevice::new_with_required_keys_and_control(
+        addr,
+        &key,
+        &args.preferred,
+        &control(60.0)?,
+    ) {
+        Ok(device) => device,
+        Err(error) => {
+            report.check("control.reconnect", false, describe(&error));
+            return Ok(report.finish());
+        }
+    };
     let cancel = control(30.0)?;
     let canceller = cancel.clone();
     let worker = std::thread::spawn(move || {
@@ -606,8 +652,13 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
     drop(device);
 
     let verify = control(10.0)?;
-    let wrong = ADBTcpDevice::new_with_required_key_and_control(addr, &key, &control(30.0)?)
-        .and_then(|mut d| d.verify_hardware_binding_bounded("not-this-tv", verify));
+    let wrong = ADBTcpDevice::new_with_required_keys_and_control(
+        addr,
+        &key,
+        &args.preferred,
+        &control(30.0)?,
+    )
+    .and_then(|mut d| d.verify_hardware_binding_bounded("not-this-tv", verify));
     report.check(
         "control.binding_mismatch_refused",
         wrong.is_err(),
@@ -642,7 +693,14 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
         format!("after {}: {slow:?}", ms(elapsed)),
     );
 
-    let matched = run_identity_bound_shell(addr, &key, "echo bound-ok", &serial, control(15.0)?);
+    let matched = run_identity_bound_shell_with_keys(
+        addr,
+        &key,
+        &args.preferred,
+        "echo bound-ok",
+        &serial,
+        control(15.0)?,
+    );
     report.check(
         "bounded.identity_bound_shell",
         matches!(&matched, Ok(o) if o.exit_code == Some(0) && o.stdout == b"bound-ok\n"),
@@ -653,14 +711,22 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
                 .map(|o| (o.exit_code, String::from_utf8_lossy(&o.stdout).into_owned()))
         ),
     );
-    let refused = run_identity_bound_shell(
+    let refused = run_identity_bound_shell_with_keys(
         addr,
         &key,
+        &args.preferred,
         &format!("touch {marker}"),
         "not-this-tv",
         control(15.0)?,
     );
-    let service = open_bound_service(addr, &key, &serial, "shell:echo service-ok", control(15.0)?);
+    let service = open_bound_service_with_keys(
+        addr,
+        &key,
+        &args.preferred,
+        &serial,
+        "shell:echo service-ok",
+        control(15.0)?,
+    );
     let mut text = String::new();
     let read = service.map(|mut s| std::io::Read::read_to_string(&mut s, &mut text));
     report.check(
@@ -672,9 +738,10 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
                 .map(|r| r.as_ref().map(|_| ()).map_err(|e| e.kind()))
         ),
     );
-    let wrong_service = open_bound_service(
+    let wrong_service = open_bound_service_with_keys(
         addr,
         &key,
+        &args.preferred,
         "not-this-tv",
         &format!("shell:touch {marker}"),
         control(15.0)?,
@@ -754,8 +821,13 @@ fn cmd_approve(args: &Args) -> Result<ExitCode, String> {
         }
     });
     let observed = std::sync::Arc::clone(&prompted);
-    let result =
-        ADBTcpDevice::new_with_control_and_auth_observer(addr, &key, true, attempt, &|| {
+    let result = ADBTcpDevice::new_with_keys_control_and_auth_observer(
+        addr,
+        &key,
+        &args.preferred,
+        true,
+        attempt,
+        &|| {
             let mut at = observed.lock().unwrap();
             if at.is_none() {
                 *at = Some(Instant::now());
@@ -764,7 +836,8 @@ fn cmd_approve(args: &Args) -> Result<ExitCode, String> {
                     ms(started.elapsed())
                 );
             }
-        });
+        },
+    );
     let elapsed = started.elapsed();
     let prompt_at = *prompted.lock().unwrap();
     let _ = watcher.join();
@@ -775,10 +848,11 @@ fn cmd_approve(args: &Args) -> Result<ExitCode, String> {
                 "approve.connected",
                 handoff.is_ok(),
                 format!(
-                    "after {} prompt_observed={} handoff={:?}",
+                    "after {} prompt_observed={} handoff={:?} accepted_key={:?}",
                     ms(elapsed),
                     prompt_at.is_some(),
-                    handoff.err()
+                    handoff.err(),
+                    device.accepted_key()
                 ),
             );
             let out = run(&mut device, "echo approved", COMMAND_TIMEOUT);

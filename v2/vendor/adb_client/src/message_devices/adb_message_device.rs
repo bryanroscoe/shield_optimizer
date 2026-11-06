@@ -23,6 +23,7 @@ use crate::{
         },
         message_commands::MessageCommand,
         models::{ADBRsaKey, read_adb_private_key},
+        tcp::PreferredKeys,
     },
     models::ADBLocalCommand,
 };
@@ -30,10 +31,32 @@ use crate::{
 /// Bound on the whole handshake when the caller does not choose one.
 pub(crate) const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// One token is answered with our signature, every later one with our public
-/// key, as AOSP's host does. A device that keeps asking past this is not
-/// going to accept us.
-const MAX_AUTH_TOKENS: usize = 4;
+/// Tokens are answered with a signature from each key in turn, then with the
+/// first key's public key, as AOSP's host does (`send_auth_response` in
+/// `client/auth.cpp`). A device that asks for this many more after the public
+/// key is not going to accept us. With one key that is four tokens in all.
+const PUBLIC_KEY_ROUNDS: usize = 3;
+
+/// Which of a connection's keys the device accepted. Keys count from zero:
+/// any preferred keys in their order, then the key file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AcceptedKey {
+    /// It accepted the AUTH signature made with this key.
+    Signature(usize),
+    /// It connected after this key's public key was offered for approval.
+    PublicKey(usize),
+    /// Over TLS it trusted this key's certificate. `hinted` says whether its
+    /// CA hints named the key; `refused` is how many other certificates it
+    /// refused first, each on its own connection.
+    Tls {
+        /// The key whose certificate was trusted.
+        index: usize,
+        /// Whether the device's CA hints named this key.
+        hinted: bool,
+        /// Certificates refused before this one.
+        refused: usize,
+    },
+}
 
 /// Generic structure representing an ADB device reachable over an [`ADBMessageTransport`].
 /// Structure is totally agnostic over which transport is truly used.
@@ -45,6 +68,7 @@ pub struct ADBMessageDevice<T: ADBMessageTransport> {
     /// reused on a connection, so a late packet for a finished stream can
     /// never be taken for a newer one.
     next_local_id: u32,
+    accepted_key: Option<AcceptedKey>,
 }
 
 impl<T: ADBMessageTransport> ADBMessageDevice<T> {
@@ -54,6 +78,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         Self::new_inner(
             transport,
             adb_private_key_path,
+            &PreferredKeys::none(),
             DEFAULT_AUTH_TIMEOUT,
             false,
             None,
@@ -68,7 +93,14 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         adb_private_key_path: P,
         auth_timeout: Duration,
     ) -> Result<Self> {
-        Self::new_inner(transport, adb_private_key_path, auth_timeout, false, None)
+        Self::new_inner(
+            transport,
+            adb_private_key_path,
+            &PreferredKeys::none(),
+            auth_timeout,
+            false,
+            None,
+        )
     }
 
     /// Like [`Self::new_with_auth_timeout`], but the key at
@@ -79,7 +111,32 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         adb_private_key_path: P,
         auth_timeout: Duration,
     ) -> Result<Self> {
-        Self::new_inner(transport, adb_private_key_path, auth_timeout, true, None)
+        Self::new_inner(
+            transport,
+            adb_private_key_path,
+            &PreferredKeys::none(),
+            auth_timeout,
+            true,
+            None,
+        )
+    }
+
+    /// [`Self::new_with_required_key`], offering `preferred` before the key
+    /// file. The transport must have been given the same `preferred`.
+    pub(crate) fn new_with_required_keys<P: AsRef<Path>>(
+        transport: T,
+        adb_private_key_path: P,
+        preferred: &PreferredKeys,
+        auth_timeout: Duration,
+    ) -> Result<Self> {
+        Self::new_inner(
+            transport,
+            adb_private_key_path,
+            preferred,
+            auth_timeout,
+            true,
+            None,
+        )
     }
 
     /// Connect, calling `public_key_sent` once our RSA public key has been
@@ -89,6 +146,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     pub(crate) fn new_with_auth_observer<P: AsRef<Path>>(
         transport: T,
         adb_private_key_path: P,
+        preferred: &PreferredKeys,
         auth_timeout: Duration,
         require_existing_key: bool,
         public_key_sent: &dyn Fn(),
@@ -96,6 +154,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         Self::new_inner(
             transport,
             adb_private_key_path,
+            preferred,
             auth_timeout,
             require_existing_key,
             Some(public_key_sent),
@@ -110,8 +169,18 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         private_key: &ADBRsaKey,
         auth_timeout: Duration,
     ) -> Result<Self> {
+        Self::new_with_fixture_keys(transport, &[private_key], auth_timeout)
+    }
+
+    /// [`Self::new_with_fixture_key`] with several keys, in order.
+    #[cfg(test)]
+    pub(crate) fn new_with_fixture_keys(
+        transport: T,
+        keys: &[&ADBRsaKey],
+        auth_timeout: Duration,
+    ) -> Result<Self> {
         let mut device = Self::unconnected(transport);
-        device.connect(private_key, auth_timeout, None)?;
+        device.connect(keys, auth_timeout, None)?;
         Ok(device)
     }
 
@@ -120,12 +189,14 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             transport,
             connection_info: ConnectionInfo::unnegotiated(),
             next_local_id: 1,
+            accepted_key: None,
         }
     }
 
     fn new_inner<P: AsRef<Path>>(
         transport: T,
         adb_private_key_path: P,
+        preferred: &PreferredKeys,
         auth_timeout: Duration,
         require_existing_key: bool,
         public_key_sent: Option<&dyn Fn()>,
@@ -145,8 +216,10 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             ADBRsaKey::new_random()?
         };
 
+        let mut keys: Vec<&ADBRsaKey> = preferred.keys().iter().map(|key| &key.auth).collect();
+        keys.push(&private_key);
         let mut message_device = Self::unconnected(transport);
-        message_device.connect(&private_key, auth_timeout, public_key_sent)?;
+        message_device.connect(&keys, auth_timeout, public_key_sent)?;
 
         Ok(message_device)
     }
@@ -158,6 +231,11 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     /// What the CNXN exchange negotiated with this device.
     pub(crate) const fn connection_info(&self) -> &ConnectionInfo {
         &self.connection_info
+    }
+
+    /// Which key the device accepted, when it asked for one.
+    pub(crate) const fn accepted_key(&self) -> Option<AcceptedKey> {
+        self.accepted_key
     }
 
     fn read_before(&mut self, deadline: Instant) -> Result<ADBTransportMessage> {
@@ -215,24 +293,71 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         }
     }
 
-    /// Run the CNXN handshake as Kadb's `AdbConnection.connect` does: answer
-    /// STLS and AUTH until the device sends CNXN, then negotiate from it.
-    /// Everything shares one deadline, so a device that trickles replies
-    /// cannot stretch the wait. The socket is fresh, so a stream packet
-    /// (OKAY, WRTE, CLSE, OPEN) here can only be a broken peer and fails the
-    /// handshake rather than being skipped.
+    /// Run the CNXN handshake as Kadb's `AdbConnection.connect` does, with
+    /// `keys` in order (see [`PreferredKeys`]). Everything shares one
+    /// deadline, so a device that trickles replies cannot stretch the wait.
+    ///
+    /// When the transport can present more than one TLS certificate and the
+    /// device refuses the one it presented, each certificate not yet tried
+    /// gets one fresh connection, in order, still under the same deadline.
     fn connect(
         &mut self,
-        private_key: &ADBRsaKey,
+        keys: &[&ADBRsaKey],
         auth_timeout: Duration,
         public_key_sent: Option<&dyn Fn()>,
     ) -> Result<()> {
         let deadline = Instant::now() + auth_timeout;
+        let identities = self.transport.tls_identity_count();
+        let mut refused: Vec<usize> = Vec::new();
+        let mut public_key_reported = false;
+        self.transport.present_tls_identity(None);
+        loop {
+            let error = match self.handshake(
+                keys,
+                deadline,
+                public_key_sent,
+                &mut public_key_reported,
+                refused.len(),
+            ) {
+                Err(error) if identities > 1 && error.is_client_identity_rejected() => error,
+                other => return other,
+            };
+            let Some((presented, _)) = self.transport.presented_tls_identity() else {
+                return Err(error);
+            };
+            if refused.contains(&presented) {
+                return Err(error);
+            }
+            refused.push(presented);
+            let Some(next) = (0..identities).find(|index| !refused.contains(index)) else {
+                return Err(error);
+            };
+            log::debug!(
+                "the device refused TLS client certificate {} of {identities}; trying {}",
+                presented + 1,
+                next + 1
+            );
+            let _ = self.transport.disconnect();
+            self.transport.present_tls_identity(Some(next));
+        }
+    }
+
+    /// One connection's handshake: answer STLS and AUTH until the device
+    /// sends CNXN, then negotiate from it. The socket is fresh, so a stream
+    /// packet (OKAY, WRTE, CLSE, OPEN) here can only be a broken peer and
+    /// fails the handshake rather than being skipped.
+    fn handshake(
+        &mut self,
+        keys: &[&ADBRsaKey],
+        deadline: Instant,
+        public_key_sent: Option<&dyn Fn()>,
+        public_key_reported: &mut bool,
+        refused_certificates: usize,
+    ) -> Result<()> {
         let mut message = self.greet(deadline)?;
 
         let mut upgraded = false;
         let mut auth_tokens = 0_usize;
-        let mut public_key_reported = false;
         loop {
             match message.header().command() {
                 MessageCommand::Cnxn => break,
@@ -255,12 +380,12 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
                 }
                 MessageCommand::Auth => {
                     auth_tokens += 1;
-                    let offered_public_key = self.answer_auth(message, private_key, auth_tokens)?;
+                    let offered_public_key = self.answer_auth(message, keys, auth_tokens)?;
                     if offered_public_key
-                        && !public_key_reported
+                        && !*public_key_reported
                         && let Some(observe) = public_key_sent
                     {
-                        public_key_reported = true;
+                        *public_key_reported = true;
                         observe();
                     }
                 }
@@ -285,14 +410,31 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             String::from_utf8_lossy(message.payload())
         );
         self.connection_info = info;
+        self.accepted_key = if auth_tokens > keys.len() {
+            Some(AcceptedKey::PublicKey(0))
+        } else if auth_tokens > 0 {
+            Some(AcceptedKey::Signature(auth_tokens - 1))
+        } else if upgraded {
+            self.transport
+                .presented_tls_identity()
+                .map(|(index, hinted)| AcceptedKey::Tls {
+                    index,
+                    hinted,
+                    refused: refused_certificates,
+                })
+        } else {
+            None
+        };
         Ok(())
     }
 
-    /// Answer one AUTH token. Returns whether the answer was our public key.
+    /// Answer AUTH token number `auth_tokens`: a signature with the next key
+    /// while any remain, then the first key's public key. Returns whether the
+    /// answer was a public key.
     fn answer_auth(
         &mut self,
         message: ADBTransportMessage,
-        private_key: &ADBRsaKey,
+        keys: &[&ADBRsaKey],
         auth_tokens: usize,
     ) -> Result<bool> {
         if message.header().arg0() != AUTH_TOKEN {
@@ -301,25 +443,32 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
                 message.header().arg0()
             )));
         }
-        if auth_tokens > MAX_AUTH_TOKENS {
+        if auth_tokens > keys.len() + PUBLIC_KEY_ROUNDS {
             return Err(RustADBError::ProtocolError(format!(
                 "device sent {auth_tokens} AUTH tokens without accepting our key"
             )));
         }
 
-        let reply = if auth_tokens == 1 {
-            log::debug!("Authentication required");
-            let sign = private_key.sign(message.into_payload())?;
+        let reply = if let Some(key) = keys.get(auth_tokens - 1) {
+            if auth_tokens == 1 {
+                log::debug!("Authentication required");
+            } else {
+                log::debug!("Signing the next AUTH token with key {auth_tokens}");
+            }
+            let sign = key.sign(message.into_payload())?;
             ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_SIGNATURE, 0, &sign)?
         } else {
-            // The device did not recognise our signature; offer the key so it
-            // can show its "Allow USB debugging?" prompt.
-            let mut pubkey = private_key.android_pubkey_encode()?.into_bytes();
+            // The device recognised none of our signatures; offer the first
+            // key so it can show its "Allow USB debugging?" prompt.
+            let first = keys.first().ok_or_else(|| {
+                RustADBError::ProtocolError("no ADB key to answer AUTH with".to_string())
+            })?;
+            let mut pubkey = first.android_pubkey_encode()?.into_bytes();
             pubkey.push(b'\0');
             ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_RSAPUBLICKEY, 0, &pubkey)?
         };
         self.transport.write_message(reply)?;
-        Ok(auth_tokens > 1)
+        Ok(auth_tokens > keys.len())
     }
 
     /// Zero is reserved for a failed OPEN and is skipped on wrap-around.

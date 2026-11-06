@@ -1,5 +1,5 @@
 use super::{validate_requested_serial, CountedStream, WirelessAdb};
-use adb_client::tcp::{open_bound_service, BoundServiceError, BoundedShellControl};
+use adb_client::tcp::{open_bound_service_with_keys, BoundServiceError, BoundedShellControl};
 use atv_optimizer_core::adb::{
     AdbDeviceBinding, AdbError, AdbOwnedService, AdbResult, AdbServiceCancellation,
 };
@@ -97,20 +97,22 @@ impl WirelessAdb {
         let operation = self.work().map_err(AdbError::Transport)?;
         let control = BoundedShellControl::new(remaining)?;
         let key = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         let service = service.to_owned();
         open_worker(operation, control, move |control| {
-            let stream = open_bound_service(address, &key, &expected, &service, control).map_err(
-                |error| match error {
-                    BoundServiceError::BeforeOpen(error) => AdbError::Transport(error.to_string()),
-                    BoundServiceError::Rejected(_) => AdbError::ServiceRejected {
-                        operation: "device service OPEN",
-                    },
-                    BoundServiceError::OpenUncertain(error) => AdbError::Uncertain {
-                        operation: "device service OPEN",
-                        detail: error.to_string(),
-                    },
+            let stream = open_bound_service_with_keys(
+                address, &key, &preferred, &expected, &service, control,
+            )
+            .map_err(|error| match error {
+                BoundServiceError::BeforeOpen(error) => AdbError::Transport(error.to_string()),
+                BoundServiceError::Rejected(_) => AdbError::ServiceRejected {
+                    operation: "device service OPEN",
                 },
-            )?;
+                BoundServiceError::OpenUncertain(error) => AdbError::Uncertain {
+                    operation: "device service OPEN",
+                    detail: error.to_string(),
+                },
+            })?;
             let stream = match read_timeout {
                 Some(timeout) => stream.with_read_timeout(timeout)?,
                 None => stream,

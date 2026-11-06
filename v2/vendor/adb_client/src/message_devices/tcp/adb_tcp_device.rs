@@ -3,8 +3,9 @@ use std::path::Path;
 use std::time::Duration;
 use std::{io::Read, net::SocketAddr};
 
-use crate::message_devices::adb_message_device::ADBMessageDevice;
+use crate::message_devices::adb_message_device::{ADBMessageDevice, AcceptedKey};
 use crate::models::RemountInfo;
+use crate::tcp::PreferredKeys;
 use crate::tcp::tcp_transport::TcpTransport;
 use crate::utils::get_default_adb_key_path;
 use crate::{
@@ -173,6 +174,7 @@ impl ADBTcpDevice {
             inner: ADBMessageDevice::new_with_auth_observer(
                 TcpTransport::new(address, &private_key_path),
                 private_key_path,
+                &PreferredKeys::none(),
                 auth_timeout,
                 require_existing_key,
                 public_key_sent,
@@ -193,7 +195,32 @@ impl ADBTcpDevice {
         control: super::BoundedShellControl,
         public_key_sent: &dyn Fn(),
     ) -> Result<Self> {
-        let transport = TcpTransport::with_shell_control(address, key, control.clone());
+        Self::new_with_keys_control_and_auth_observer(
+            address,
+            key,
+            &PreferredKeys::none(),
+            require_existing_key,
+            control,
+            public_key_sent,
+        )
+    }
+
+    /// [`Self::new_with_control_and_auth_observer`], offering `preferred`
+    /// before the key file as [`PreferredKeys`] describes: AUTH signs with
+    /// each key in turn and then offers the first one's public key, and TLS
+    /// presents the key the device's hints name, retrying a refused
+    /// certificate once with each other key. With no preferred keys it is
+    /// exactly that constructor.
+    pub fn new_with_keys_control_and_auth_observer(
+        address: SocketAddr,
+        key: &Path,
+        preferred: &PreferredKeys,
+        require_existing_key: bool,
+        control: super::BoundedShellControl,
+        public_key_sent: &dyn Fn(),
+    ) -> Result<Self> {
+        let transport = TcpTransport::with_shell_control(address, key, control.clone())
+            .with_preferred_keys(preferred);
         let result = control
             .remaining()
             .map_err(RustADBError::from)
@@ -201,6 +228,7 @@ impl ADBTcpDevice {
                 ADBMessageDevice::new_with_auth_observer(
                     transport,
                     key,
+                    preferred,
                     budget,
                     require_existing_key,
                     public_key_sent,
@@ -226,14 +254,33 @@ impl ADBTcpDevice {
         key: &Path,
         control: &super::BoundedShellControl,
     ) -> Result<Self> {
-        let transport = TcpTransport::with_shell_control(address, key, control.clone());
+        Self::new_with_required_keys_and_control(address, key, &PreferredKeys::none(), control)
+    }
+
+    /// [`Self::new_with_required_key_and_control`], offering `preferred`
+    /// before the key file as [`PreferredKeys`] describes.
+    pub fn new_with_required_keys_and_control(
+        address: SocketAddr,
+        key: &Path,
+        preferred: &PreferredKeys,
+        control: &super::BoundedShellControl,
+    ) -> Result<Self> {
         Ok(Self {
-            inner: ADBMessageDevice::new_with_required_key(
-                transport,
+            inner: super::connect_required(
+                address,
                 key,
+                preferred,
+                control,
                 control.remaining()?.min(Duration::from_secs(30)),
             )?,
         })
+    }
+
+    /// Which of this connection's keys the device accepted: preferred keys
+    /// count first, the key file last. `None` when it asked for no key.
+    #[must_use]
+    pub const fn accepted_key(&self) -> Option<AcceptedKey> {
+        self.inner.accepted_key()
     }
 
     /// Run `command` once on this connection under a total deadline, with
@@ -1281,6 +1328,372 @@ features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,abb_exec,sendrecv_
         }
         assert!(listener.accept().is_err(), "a connection was made");
         assert!(!missing.exists());
+    }
+
+    // ---- several keys: preferred keys before the key file ----
+
+    use super::super::{
+        AcceptedKey, PreferredKeys,
+        preferred_keys::tests::second_test_pem,
+        test_support::{ClientTrust, fake_adbd_connections, tls_server_with},
+        tls_identity::adb_ca_hint,
+    };
+    use rsa::{
+        Pkcs1v15Sign, RsaPublicKey,
+        pkcs8::{DecodePrivateKey, EncodePublicKey},
+    };
+
+    /// The preferred key (index 0) and the key file (index 1).
+    fn two_keys() -> (PreferredKeys, RsaPublicKey, RsaPublicKey) {
+        let preferred = PreferredKeys::from_pems([second_test_pem()]).unwrap();
+        let first = rsa::RsaPrivateKey::from_pkcs8_pem(second_test_pem())
+            .unwrap()
+            .to_public_key();
+        let file_pem = std::fs::read_to_string(shared_test_key()).unwrap();
+        let second = rsa::RsaPrivateKey::from_pkcs8_pem(&file_pem)
+            .unwrap()
+            .to_public_key();
+        (preferred, first, second)
+    }
+
+    fn spki(key: &RsaPublicKey) -> Vec<u8> {
+        key.to_public_key_der().unwrap().as_bytes().to_vec()
+    }
+
+    fn fingerprint(key: &RsaPublicKey) -> [u8; 32] {
+        use sha2::Digest;
+        sha2::Sha256::digest(spki(key)).into()
+    }
+
+    fn signed_by(key: &RsaPublicKey, signature: &[u8]) -> bool {
+        key.verify(Pkcs1v15Sign::new::<sha1::Sha1>(), &TOKEN, signature)
+            .is_ok()
+    }
+
+    fn connect_with_keys(
+        address: SocketAddr,
+        preferred: &PreferredKeys,
+        prompts: &std::sync::atomic::AtomicUsize,
+    ) -> Result<ADBTcpDevice> {
+        let control = BoundedShellControl::new(AUTH_TIMEOUT).unwrap();
+        let mut device = ADBTcpDevice::new_with_keys_control_and_auth_observer(
+            address,
+            shared_test_key(),
+            preferred,
+            true,
+            control,
+            &|| {
+                prompts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            },
+        )?;
+        device.finish_connection()?;
+        Ok(device)
+    }
+
+    /// Send an AUTH token and return the host's answer.
+    fn auth_round(
+        stream: &mut TcpStream,
+    ) -> crate::message_devices::adb_transport_message::ADBTransportMessage {
+        write_message(stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+        let answer = read_message(stream).unwrap();
+        assert_eq!(answer.header().command(), MessageCommand::Auth);
+        answer
+    }
+
+    #[test]
+    fn each_auth_token_is_signed_with_the_next_key_in_order() {
+        let (preferred, first, second) = two_keys();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            let answer = auth_round(&mut stream);
+            assert_eq!(answer.header().arg0(), AUTH_SIGNATURE);
+            assert!(
+                signed_by(&first, answer.payload()),
+                "token 1 not signed by the first key"
+            );
+            let answer = auth_round(&mut stream);
+            assert_eq!(answer.header().arg0(), AUTH_SIGNATURE);
+            assert!(
+                signed_by(&second, answer.payload()),
+                "token 2 not signed by the key file"
+            );
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(device.accepted_key(), Some(AcceptedKey::Signature(1)));
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::Relaxed), 0);
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_first_signature_accepted_needs_no_second() {
+        let (preferred, first, _) = two_keys();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            let answer = auth_round(&mut stream);
+            assert!(signed_by(&first, answer.payload()));
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(device.accepted_key(), Some(AcceptedKey::Signature(0)));
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn after_every_signature_is_refused_the_first_key_is_offered_once() {
+        let (preferred, _, _) = two_keys();
+        let mut expected = preferred.keys()[0].public_key.clone().into_bytes();
+        expected.push(0);
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            for _ in 0..2 {
+                assert_eq!(auth_round(&mut stream).header().arg0(), AUTH_SIGNATURE);
+            }
+            for _ in 0..2 {
+                let answer = auth_round(&mut stream);
+                assert_eq!(answer.header().arg0(), AUTH_RSAPUBLICKEY);
+                assert_eq!(answer.payload(), expected.as_slice());
+            }
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(device.accepted_key(), Some(AcceptedKey::PublicKey(0)));
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::Relaxed), 1);
+        drop(device);
+        server.join().unwrap();
+    }
+
+    /// Answers AUTH tokens until the host stops, returning how many it answered.
+    fn count_answered_tokens(mut stream: TcpStream) -> usize {
+        expect_host_cnxn(&mut stream);
+        let mut answered = 0;
+        while write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).is_ok()
+            && read_message(&mut stream).is_ok()
+        {
+            answered += 1;
+        }
+        answered
+    }
+
+    #[test]
+    fn endless_tokens_get_one_signature_per_key_then_three_public_keys() {
+        let (answered_tx, answered_rx) = mpsc::channel();
+        let single = answered_tx.clone();
+        let (address, server) = fake_adbd(move |stream| {
+            single.send(count_answered_tokens(stream)).unwrap();
+        });
+        let error = connect(address).unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        server.join().unwrap();
+        assert_eq!(answered_rx.recv().unwrap(), 4, "one key: unchanged");
+
+        let (preferred, _, _) = two_keys();
+        let (address, server) = fake_adbd(move |stream| {
+            answered_tx.send(count_answered_tokens(stream)).unwrap();
+        });
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let error = connect_with_keys(address, &preferred, &prompts).unwrap_err();
+        assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+        server.join().unwrap();
+        assert_eq!(answered_rx.recv().unwrap(), 5);
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn no_preferred_keys_answer_auth_exactly_as_the_key_file_alone() {
+        let (_, _, file_key) = two_keys();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            let answer = auth_round(&mut stream);
+            assert!(signed_by(&file_key, answer.payload()));
+            let answer = auth_round(&mut stream);
+            assert_eq!(answer.header().arg0(), AUTH_RSAPUBLICKEY);
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &PreferredKeys::none(), &prompts).unwrap();
+        assert_eq!(device.accepted_key(), Some(AcceptedKey::PublicKey(0)));
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::Relaxed), 1);
+        drop(device);
+        server.join().unwrap();
+    }
+
+    type Presented = Arc<Mutex<Vec<Vec<u8>>>>;
+
+    /// A TLS adbd for `connections` connections that trusts only `trusted`
+    /// and hints `hinted`. Records each presented certificate in order.
+    fn tls_adbd(
+        connections: usize,
+        trusted: Vec<Vec<u8>>,
+        hinted: Vec<[u8; 32]>,
+    ) -> (SocketAddr, std::thread::JoinHandle<()>, Presented) {
+        let presented: Presented = Arc::default();
+        let record = Arc::clone(&presented);
+        let (address, server) = fake_adbd_connections(connections, move |mut stream, _| {
+            expect_host_cnxn(&mut stream);
+            write_message(&mut stream, MessageCommand::Stls, 0x0100_0000, 0, &[]).unwrap();
+            assert_eq!(
+                read_message(&mut stream).unwrap().header().command(),
+                MessageCommand::Stls
+            );
+            let seen = Arc::new(Mutex::new(None));
+            let hints = hinted.iter().map(adb_ca_hint).collect();
+            let mut tls = tls_server_with(
+                stream,
+                ClientTrust::PublicKeys(trusted.clone()),
+                hints,
+                Arc::clone(&seen),
+            );
+            let handshake = complete_server_handshake(&mut tls);
+            record
+                .lock()
+                .unwrap()
+                .push(seen.lock().unwrap().clone().expect("client certificate"));
+            if handshake.is_ok() {
+                send_device_cnxn(&mut tls, MAX_PAYLOAD);
+                drain(&mut tls);
+            } else {
+                drain(&mut tls.sock);
+            }
+        });
+        (address, server, presented)
+    }
+
+    fn carries(certificate: &[u8], key: &RsaPublicKey) -> bool {
+        let spki = spki(key);
+        certificate
+            .windows(spki.len())
+            .any(|window| window == spki.as_slice())
+    }
+
+    #[test]
+    fn tls_presents_the_key_the_device_hints_at_first_try() {
+        let (preferred, first, second) = two_keys();
+        let (address, server, presented) = tls_adbd(
+            1,
+            vec![spki(&second)],
+            vec![[0x11; 32], fingerprint(&second)],
+        );
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(
+            device.accepted_key(),
+            Some(AcceptedKey::Tls {
+                index: 1,
+                hinted: true,
+                refused: 0
+            })
+        );
+        drop(device);
+        server.join().unwrap();
+        let presented = presented.lock().unwrap();
+        assert_eq!(presented.len(), 1);
+        assert!(carries(&presented[0], &second) && !carries(&presented[0], &first));
+    }
+
+    #[test]
+    fn without_a_matching_hint_tls_presents_the_first_key() {
+        let (preferred, first, _) = two_keys();
+        let (address, server, presented) = tls_adbd(1, vec![spki(&first)], vec![[0x22; 32]]);
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(
+            device.accepted_key(),
+            Some(AcceptedKey::Tls {
+                index: 0,
+                hinted: false,
+                refused: 0
+            })
+        );
+        drop(device);
+        server.join().unwrap();
+        assert!(carries(&presented.lock().unwrap()[0], &first));
+    }
+
+    #[test]
+    fn a_refused_certificate_is_retried_once_with_the_next_key() {
+        let (preferred, first, second) = two_keys();
+        // No hints, so the first key goes first and is refused.
+        let (address, server, presented) = tls_adbd(2, vec![spki(&second)], Vec::new());
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(
+            device.accepted_key(),
+            Some(AcceptedKey::Tls {
+                index: 1,
+                hinted: false,
+                refused: 1
+            })
+        );
+        assert!(device.has_feature("shell_v2"));
+        drop(device);
+        server.join().unwrap();
+        let presented = presented.lock().unwrap();
+        assert_eq!(presented.len(), 2);
+        assert!(carries(&presented[0], &first));
+        assert!(carries(&presented[1], &second));
+    }
+
+    #[test]
+    fn a_wrong_hint_falls_back_to_the_other_key_once() {
+        let (preferred, first, second) = two_keys();
+        // The hint names the first key but the device trusts only the second.
+        let (address, server, presented) =
+            tls_adbd(2, vec![spki(&second)], vec![fingerprint(&first)]);
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let device = connect_with_keys(address, &preferred, &prompts).unwrap();
+        assert_eq!(
+            device.accepted_key(),
+            Some(AcceptedKey::Tls {
+                index: 1,
+                hinted: false,
+                refused: 1
+            })
+        );
+        drop(device);
+        server.join().unwrap();
+        assert_eq!(presented.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn when_every_certificate_is_refused_each_is_tried_once_and_the_refusal_returned() {
+        let (preferred, first, second) = two_keys();
+        let (address, server, presented) = tls_adbd(2, Vec::new(), Vec::new());
+        let prompts = std::sync::atomic::AtomicUsize::new(0);
+        let error = connect_with_keys(address, &preferred, &prompts).unwrap_err();
+        assert!(
+            matches!(error, RustADBError::TlsAuthRejected(_)),
+            "{error:?}"
+        );
+        server.join().unwrap();
+        let presented = presented.lock().unwrap();
+        assert_eq!(presented.len(), 2);
+        assert!(carries(&presented[0], &first));
+        assert!(carries(&presented[1], &second));
+    }
+
+    #[test]
+    fn one_key_presents_it_despite_hints_and_never_retries() {
+        let (_, _, second) = two_keys();
+        let (address, server, presented) = tls_adbd(1, Vec::new(), vec![[0x33; 32]]);
+        let error = connect(address).unwrap_err();
+        assert!(
+            matches!(error, RustADBError::TlsAuthRejected(_)),
+            "{error:?}"
+        );
+        server.join().unwrap();
+        let presented = presented.lock().unwrap();
+        assert_eq!(presented.len(), 1);
+        assert!(carries(&presented[0], &second));
     }
 
     #[test]
