@@ -114,7 +114,7 @@ async function verifyKeepUndo(page, evidence) {
   const row = page.locator("tr", { has: page.locator(".pkg-id", { hasText: CATALOGUED }) }).first();
   await row.getByRole("button", { name: "Keep", exact: true }).click();
   await row.locator('[data-rec="Kept"]').waitFor();
-  const change = row.getByRole("button", { name: "Change", exact: true });
+  const change = row.locator("button.change-keep");
   assert.equal(await change.isVisible(), true);
   assert.equal(await change.getAttribute("data-tip"), "Undo keeping this app");
   assert.ok((await page.evaluate(() => localStorage.getItem("shieldopt.keptPackages"))).includes(CATALOGUED));
@@ -122,6 +122,12 @@ async function verifyKeepUndo(page, evidence) {
     await page.setViewportSize({ width, height: 1000 });
     await change.scrollIntoViewIfNeeded();
     await change.focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Shift+Tab");
+    await page.waitForFunction(() => {
+      const control = document.querySelector(".change-keep");
+      return control && getComputedStyle(control).opacity === "1";
+    });
     assert.equal(await change.evaluate((el) => document.activeElement === el), true);
     if (evidence) await page.screenshot({ path: join(evidence, `desktop-kept-${width}-simulated.png`) });
   }
@@ -288,7 +294,10 @@ async function exercise({ browser, base }) {
   const opened = new URL(await page.evaluate(() => window.__OPENED__.at(-1)));
   assert.equal(opened.searchParams.get("report"), shared);
   assert.equal(opened.searchParams.get("details"), expectedNote);
-  if (evidence) await page.screenshot({ path: join(evidence, "desktop-public-link-simulated.png") });
+  if (evidence) {
+    await dialog.getByLabel("Report preview").evaluate((area) => { area.scrollTop = area.scrollHeight; });
+    await page.screenshot({ path: join(evidence, "desktop-public-link-simulated.png") });
+  }
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "detached" });
 
@@ -434,7 +443,7 @@ async function publicLinkPrivacy(server) {
     ["https://developer.example.com/com%2Eprivate%2Eapp", "https://developer.example.com/[redacted]"],
     ["https://developer.example.com/SECRET123", "https://developer.example.com/[redacted]"],
     ["https://developer.example.com/%53ECRET123", "https://developer.example.com/[redacted]"],
-    ["https://secret123.example.com/path", "https://[redacted]/path"],
+    ["https://secret123.example.com/path", "[redacted]"],
     ["https://192.168.1.42:5555/path", "https://[redacted]:5555/path"],
     ["https://[fe80::1]/path", "https://[redacted]/path"],
     ["https://0x7f000001/path", "https://[redacted]/path"],
@@ -448,6 +457,10 @@ async function publicLinkPrivacy(server) {
   for (const path of ["/src/lib/app-report.ts", "/mobile/src/lib/app-report.ts"]) {
     const { redactNote, buildAppReport, reportText, appReportIssueUrl } = await server.ssrLoadModule(path);
     for (const [input, expected] of cases) assert.equal(redactNote(input, ["SECRET123"], pkg), expected, `${path}: ${input}`);
+    for (const id of ["http", "https", "See https", "example.com/support"]) {
+      const note = redactNote("See https://developer.example.com/support", [id], pkg);
+      assert.ok(!note.toLowerCase().includes(id.toLowerCase()), `${path}: serial spanning URL boundaries: ${id}`);
+    }
     for (const note of links) {
       const report = buildAppReport({ package: pkg, appName: "Local Now", reason: "other", note,
         appVersion: "2.5.0", device: { family: "shield", androidVersion: "11", redact: ["SECRET123"] },

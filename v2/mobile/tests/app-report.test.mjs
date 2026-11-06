@@ -62,7 +62,10 @@ test("public store/developer links survive the real mobile report sheet, clipboa
     const url = new URL(await page.evaluate(() => window.__OPENED__.at(-1)));
     assert.equal(url.searchParams.get("report"), text);
     assert.equal(url.searchParams.get("details"), note);
-    if (evidence) await page.screenshot({ path: join(evidence, "mobile-public-link-simulated.png") });
+    if (evidence) {
+      await dialog.getByLabel("Report preview").evaluate((area) => { area.scrollTop = area.scrollHeight; });
+      await page.screenshot({ path: join(evidence, "mobile-public-link-simulated.png") });
+    }
     assert.deepEqual(errors, []);
   } finally {
     await context.close();

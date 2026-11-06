@@ -14,7 +14,7 @@ function escapeRegExp(text: string): string {
 /// rather than a lookbehind, which older macOS WebViews cannot parse.
 const PACKAGE_SHAPED = /(^|[^A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)(?![A-Za-z0-9_])/g;
 
-function redactIdentifiers(text: string, redact: string[], reportedPackage?: string): string {
+function redactSerials(text: string, redact: string[]): string {
   let out = text;
   for (const id of redact) {
     const v = id;
@@ -25,8 +25,12 @@ function redactIdentifiers(text: string, redact: string[], reportedPackage?: str
         ? out.replace(new RegExp(body, "gi"), REDACTED)
         : out.replace(new RegExp(`(^|[^A-Za-z0-9])${body}(?![A-Za-z0-9])`, "gi"), `$1${REDACTED}`);
   }
+  return out;
+}
+
+function redactIdentifiers(text: string, redact: string[], reportedPackage?: string): string {
   const keep = reportedPackage?.toLowerCase();
-  return out
+  return redactSerials(text, redact)
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, REDACTED)
     .replace(/\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, REDACTED)
     .replace(/\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b/g, REDACTED)
@@ -89,6 +93,9 @@ function scrubSerialsAndAddresses(text: string, redact: string[]): string {
 }
 
 export function redactReportNote(text: string, redact: string[], reportedPackage?: string): string {
+  // Preserve whole-note serial matching, including the scheme and boundaries
+  // between prose and links, before any URL parsing or normalization.
+  text = redactSerials(text, redact);
   const urlPattern = /https?:\/\/[^\s<>"`]+/gi;
   let result = '', end = 0;
   for (const match of text.matchAll(urlPattern)) {
