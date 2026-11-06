@@ -86,5 +86,23 @@
     "name": "AMC+",
     "issue": 304,
     "source_url": "https://play.google.com/store/apps/details?id=com.amcplus.amcandroidtv"
+  },
+  {
+    "package": "com.aetn.history.watch.androidtv",
+    "name": "HISTORY: Shows & Documentaries",
+    "issue": 305,
+    "source_url": "https://play.google.com/store/apps/details?id=com.aetn.history.watch.androidtv"
+  },
+  {
+    "package": "com.analiti.fastest.android",
+    "name": "analiti - Speed & WiFi",
+    "issue": 306,
+    "source_url": "https://play.google.com/store/apps/details?id=com.analiti.fastest.android"
+  },
+  {
+    "package": "com.britbox.tv",
+    "name": "BritBox: Home of British TV",
+    "issue": 308,
+    "source_url": "https://play.google.com/store/apps/details?id=com.britbox.tv"
   }
 ]

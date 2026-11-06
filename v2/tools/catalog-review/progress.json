@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-05",
+  "updated_at": "2026-11-06",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -203,6 +203,35 @@
       "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
       "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
       "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.aetn.history.watch.androidtv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Caution, deliberate Disable suggestion and default Keep; exact primary role and recovery limits reviewed in docs/REPORTED-APPS-305-308.md",
+      "evidence": "https://play.google.com/store/apps/details?id=com.aetn.history.watch.androidtv"
+    },
+    "com.analiti.fastest.android": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Caution, deliberate Disable suggestion and default Keep; exact primary role and recovery limits reviewed in docs/REPORTED-APPS-305-308.md",
+      "evidence": "https://play.google.com/store/apps/details?id=com.analiti.fastest.android"
+    },
+    "com.att.tv": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Ordinary Android TV app versus operator/Gemini integration and exact package scope unresolved; current catalog cannot enforce install provenance or operator exclusion.",
+      "evidence": "docs/REPORTED-APPS-305-308.md; https://www.directv.com/support/article/000087389; https://www.directv.com/support/article/000091427"
+    },
+    "com.britbox.tv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution/Disable suggestion/default Keep; distinct from com.britbox.us. No pinned upstream observation. See docs/REPORTED-APPS-305-308.md",
+      "evidence": "https://play.google.com/store/apps/details?id=com.britbox.tv"
     }
   }
 }

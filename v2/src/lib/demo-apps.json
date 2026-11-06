@@ -1728,6 +1728,63 @@
     ]
   },
   {
+    "package": "com.aetn.history.watch.androidtv",
+    "name": "HISTORY: Shows & Documentaries",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops HISTORY episodes and clips through this app, including TV-provider viewing. Keep it if anyone here uses HISTORY. This is separate from HISTORY Vault.",
+    "restore_description": "Re-enables HISTORY if still installed. Does not restore provider sign-in, account access, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.aetn.history.watch.androidtv",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.analiti.fastest.android",
+    "name": "analiti - Speed & WiFi",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops analiti speed tests, WiFi diagnostics, background connection tracking and embedded test servers. Keep it if anyone relies on its monitoring or remote tests. It does not undo network changes already made.",
+    "restore_description": "Re-enables analiti if still installed. Check monitoring and server settings before relying on them again. Does not restore deleted reports, settings or paid access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.analiti.fastest.android",
+      "https://developer.android.com/tools/adb#pm",
+      "https://analiti.com/",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu31/debloat.txt#L104-L112",
+      "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.britbox.tv",
+    "name": "BritBox: Home of British TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops BritBox playback through this app and opening links that target it. It does not cancel your subscription. Keep it if anyone uses BritBox on this device.",
+    "restore_description": "Re-enables BritBox if still installed. Does not restore sign-in, paid access, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.britbox.tv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",
