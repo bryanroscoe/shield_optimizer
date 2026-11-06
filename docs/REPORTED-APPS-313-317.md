@@ -85,7 +85,9 @@ The shared reviewed-Optimize fixture adds four identities to the existing planne
 coverage of installed/disabled/missing states across Optimize/Restore and device
 families. A focused loader regression checks exact evidence, Caution/Disable and
 both default flags, CBS News uniqueness, distinct discovery+ IDs and DIRECTV's hold.
-Desktop/mobile tests and captures use synthetic browser fixtures, never ADB or a
-physical TV. Exact tested source/head, completed checks, resource gates, gallery
+Desktop Optimize tests also exercise the actual frontend recommendation module
+for enabled/disabled/missing states, default Keep, Disable suggestions and separate
+Uninstall eligibility across the reviewed fixture. Desktop/mobile captures use
+synthetic browser fixtures, never ADB or a physical TV. Exact tested source/head, completed checks, resource gates, gallery
 refresh and independent final review are recorded in PR preparation evidence.
 Prior-candidate results alone cannot validate these new app inputs.

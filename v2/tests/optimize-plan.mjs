@@ -171,6 +171,26 @@ async function main() {
     const { chromium } = await import("playwright");
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
     await server.listen();
+    const catalog = JSON.parse(await readFile(join(V2, "crates/core/data/app-lists/common.json"), "utf8"));
+    const { recommendation, effectiveMethod, canOfferUninstall } = await server.ssrLoadModule("/src/lib/recommendation.ts");
+    for (const record of reviewed) {
+      const entry = catalog.find((app) => app.package === record.package);
+      assert.ok(entry, record.package);
+      assert.equal(entry.default_optimize, false);
+      assert.equal(entry.default_restore, false);
+      assert.equal(effectiveMethod(entry), "disable");
+      assert.equal(canOfferUninstall(entry), true);
+      const safety = { status: "ready", verdict: { kind: "caution", source: "reviewed_catalog", reason: entry.optimize_description } };
+      for (const state of ["enabled", "disabled", "missing"]) {
+        const result = recommendation(entry, state, safety);
+        assert.equal(result.kind, state === "enabled" ? "review" : "keep", `${record.package} ${state}`);
+        if (state === "enabled") {
+          assert.equal(result.action, "disable");
+          assert.equal(result.label, "Review: disable if unused");
+        }
+      }
+    }
+    console.log(`Reviewed catalog state checks passed: ${reviewed.length * 3} enabled/disabled/missing cases.`);
     browser = await chromium.launch();
     await exercise({ browser, base: serverURL(server) });
   } finally {
